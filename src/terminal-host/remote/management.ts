@@ -1,3 +1,4 @@
+import { requirements, signInStatus } from "./host-facts";
 import { daemonHostPlatform, createHostPlatform } from "./host-platform";
 import { remoteReviewSnapshot } from "./review-snapshot";
 import {
@@ -78,7 +79,9 @@ export async function manageHost(
     folder = await approvedCodeFolder(
       request.codeFolder,
       home,
-      request.operation === "inspect" || request.operation === "clone" ? "create" : "existing",
+      (request.operation === "inspect" && !request.readOnly) || request.operation === "clone"
+        ? "create"
+        : "existing",
     );
   } catch (error) {
     return {
@@ -92,6 +95,14 @@ export async function manageHost(
   let facts: HostFacts;
   try {
     const agents: HostFacts["agents"][number][] = [];
+    const env =
+      request.operation === "inspect"
+        ? await hostLoginEnvironment(shell, home, signal, true)
+        : undefined;
+    const system = env
+      ? await requirements(process.platform, folder, home, env, signal)
+      : undefined;
+    const tools: NonNullable<HostFacts["tools"]>[number][] = [];
     for (const model of (request.operation === "inspect" ? request.agents : []) ??
       bundledAgentData.map((data) => parseAgentManifest(JSON.stringify(data), "bundled").model)) {
       try {
@@ -118,6 +129,10 @@ export async function manageHost(
             : undefined);
         agents.push({
           id: model.id,
+          signIn:
+            bundled?.hostSetup?.status && found.version && found.help
+              ? await signInStatus(found.command, bundled.hostSetup.status, home, found.env, signal)
+              : "unknown",
           state:
             found.version &&
             found.help &&
@@ -140,8 +155,33 @@ export async function manageHost(
         });
       }
     }
+    for (const id of request.operation === "inspect" ? ["git", "gh"] : []) {
+      // macOS's system git shim can open the CLT installer even for --version.
+      if (id === "git" && system?.mac?.commandLineTools === false) {
+        tools.push({ id, state: "unable", signIn: "unknown" });
+        continue;
+      }
+      try {
+        const found = await hostDiscovery({ executables: [id] }, shell, home, signal, env);
+        tools.push({
+          id,
+          state: found.version ? "ready" : "unable",
+          signIn:
+            id === "gh"
+              ? await signInStatus(found.command, ["auth", "status"], home, found.env, signal)
+              : "unknown",
+        });
+      } catch (error) {
+        tools.push({
+          id,
+          state: error instanceof LaunchFailure ? "missing" : "unable",
+          signIn: "unknown",
+        });
+      }
+    }
     facts = {
       codeFolder: folder,
+      ...(system ? { requirements: system, tools } : {}),
       version,
       sessions,
       cores: cpus().length,

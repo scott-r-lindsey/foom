@@ -265,6 +265,10 @@ export async function buildWindow(
     confirmations.refresh();
   };
   const setup = new Setup({
+    launchHostRecipe: async (target) => {
+      const id = await wiring.workspace.startHostRecipe(target);
+      wiring.revealSession(id);
+    },
     copyText: (text) => clipboard.writeText(text),
     confirmRemoteSessions: (content) => confirmations.request(content),
     hosts: hostsForStore(

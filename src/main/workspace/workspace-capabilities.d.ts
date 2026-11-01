@@ -111,7 +111,10 @@ export interface SidebarCommandsContext {
   readonly worktrees: WorkspaceMethods["worktrees"];
   readonly deps: {
     readonly hosts:
-      | Pick<NonNullable<WorkspaceDependencies["hosts"]>, "placement" | "registered">
+      | Pick<
+          NonNullable<WorkspaceDependencies["hosts"]>,
+          "placement" | "registered" | "shellTarget"
+        >
       | undefined;
     readonly worktrees: Pick<
       WorkspaceDependencies["worktrees"],

@@ -14,6 +14,36 @@ const ENGINE = [
 ];
 const STATUS = ["owned", "absent", "disabled", "version"];
 export function validateV2(manifest: AgentManifestV2): void {
+  for (const distro of ["debian", "rhel", "arch", "darwin"] as const) {
+    const install = manifest.hostSetup?.install?.[distro];
+    if (install) {
+      const prefix =
+        distro === "darwin"
+          ? install[2] === "--cask"
+            ? ["brew", "install", "--cask"]
+            : ["brew", "install"]
+          : [
+              "/usr/bin/sudo",
+              distro === "debian"
+                ? "/usr/bin/apt-get"
+                : distro === "rhel"
+                  ? "/usr/bin/dnf"
+                  : "/usr/bin/pacman",
+              distro === "arch" ? "-S" : "install",
+              distro === "arch" ? "--noconfirm" : "-y",
+            ];
+      if (
+        prefix.some((arg, index) => install[index] !== arg) ||
+        install.length !== prefix.length + 1 ||
+        !/^[a-zA-Z0-9][a-zA-Z0-9@+._-]*$/u.test(install[prefix.length] ?? "")
+      )
+        fail(`$.hostSetup.install.${distro}`, "package-manager-only");
+    }
+    const signIn = manifest.hostSetup?.signIn?.[distro];
+    if (signIn && !manifest.executables.includes(signIn[0] ?? ""))
+      fail(`$.hostSetup.signIn.${distro}`, "invalid-executable");
+  }
+
   const channels = manifest.hooks?.channels ?? [];
   const facts = manifest.discovery.facts;
   const metadata = manifest.setup?.status.metadata ?? [];

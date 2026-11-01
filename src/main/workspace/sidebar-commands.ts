@@ -340,7 +340,14 @@ export async function sidebarCommand(
     if (command.kind === "restart") {
       if (!entry || entry.kind !== "shell") throw new Error("Only shells can restart");
       if (entry.config) await this.startConfig("shell");
-      else if (entry.home) await this.startHomeShell();
+      else if (entry.home && entry.remote) {
+        const target =
+          entry.placement?.kind === "remote"
+            ? this.deps.hosts?.shellTarget?.(entry.placement.host)
+            : undefined;
+        if (!target) throw new LaunchFailure("remote_host_unreachable");
+        await this.startHomeShell(undefined, target);
+      } else if (entry.home) await this.startHomeShell();
       else await this.startExisting(entry.repository, entry.worktree, "shell", confirm);
     }
     const identity =

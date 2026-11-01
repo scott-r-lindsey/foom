@@ -492,13 +492,18 @@ function BoardContents({
         console.error("Unable to update menu state:", error);
       });
   }, [source, inactive, settingsOpen, layout, sidebarCompact]);
-  const arrivalsRef = useRef(new Set<string>());
+  const arrivalsRef = useRef(new Map<string, boolean>());
   const placeArrivals = useEffectEvent(() => {
-    for (const id of arrivalsRef.current) {
+    for (const [id, background] of arrivalsRef.current) {
       const row = source.getSnapshot().find((row) => row.id === id);
       if (!row) continue;
       arrivalsRef.current.delete(id);
-      open(row, false, undefined, true);
+      if (background) open(row, false, undefined, true);
+      else if (!inactive) {
+        onCloseSettings?.();
+        const visible = leaves(layoutRef.current.tree).some((tile) => sessionId(tile) === row.id);
+        open(row, !visible);
+      }
     }
   });
   useEffect(
@@ -511,20 +516,16 @@ function BoardContents({
   useEffect(
     () =>
       source.appMenu?.onSession((id, background) => {
-        if (background) {
-          arrivalsRef.current.add(id);
-          placeArrivals();
-          return;
+        if (!background && inactive) return;
+        // Launch completion can reach main before the refreshed row reaches this board.
+        arrivalsRef.current.set(id, background === true);
+        if (arrivalsRef.current.size > 256) {
+          const oldest = arrivalsRef.current.keys().next().value;
+          if (oldest) arrivalsRef.current.delete(oldest);
         }
-        if (inactive) return;
-        const row = source.getSnapshot().find((row) => row.id === id);
-        if (row) {
-          onCloseSettings?.();
-          const visible = leaves(layoutRef.current.tree).some((tile) => sessionId(tile) === row.id);
-          open(row, !visible);
-        }
+        placeArrivals();
       }),
-    [source, inactive, open, onCloseSettings, layoutRef],
+    [source, inactive],
   );
   return (
     <main

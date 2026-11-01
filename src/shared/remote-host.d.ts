@@ -1,5 +1,5 @@
 import type { ImagePut, ImagePutResult } from "./image-paste.d";
-import type { HostManagement, HostResult } from "./registered-hosts.d";
+import type { HostManagement, HostResult, HostRecipeLaunch } from "./registered-hosts.d";
 import type { LaunchReason } from "./launch-failure";
 import type {
   RemoteAgentBinding,
@@ -40,6 +40,7 @@ export interface RemoteInventoryResult {
   foreign: ForeignRemoteSession[];
 }
 export type RemoteTarget = {
+  recipe?: HostRecipeLaunch;
   host: string;
   artifact?: string;
   agent?: RemoteAgentBinding;
@@ -59,6 +60,7 @@ export type RemoteRequest =
   | { type: "hello"; build: string }
   | {
       type: "open";
+      recipe?: HostRecipeLaunch;
       request: number;
       id: string;
       cols: number;
@@ -102,7 +104,7 @@ export type RemoteResponse =
   | ImagePutResult
   | { type: "managed"; result: HostResult }
   | { type: "agent-failed"; id: string; reason: LaunchReason }
-  | { type: "hello"; build: string; compatible?: 2 }
+  | { type: "hello"; build: string; compatible?: 2; hostFacts?: 1 }
   | HostResponse
   | RemoteFragment
   | RemoteOpenResult

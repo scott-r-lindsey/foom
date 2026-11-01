@@ -211,6 +211,7 @@ const agent = ${JSON.stringify(agent)}, args=process.argv.slice(2);
 if (args[0]==='--version') {console.log({codex:'codex-cli 0.161.0',copilot:'GitHub Copilot CLI 1.0.103.',agy:'1.4.2',pi:'1.4.0',opencode:'opencode v2.0.32'}[agent]); process.exit(0);}
 if (args[0]==='--help') {console.log('-c --no-alt-screen --plugin-dir --additional-mcp-config --allow-tool --session-id --resume --interactive --prompt-interactive --conversation --extension --session --standalone --prompt'); process.exit(0);}
 if (args[0]==='plugin') {console.log('[]'); process.exit(0);}
+if (agent==='codex' && args[0]==='login' && args[1]==='status') process.exit(0);
 const env=process.env;
 const reviewLoop=${JSON.stringify(reviewLoop)};
 const reviewer=reviewLoop && args.some(arg=>arg.includes('Review PR #340'));

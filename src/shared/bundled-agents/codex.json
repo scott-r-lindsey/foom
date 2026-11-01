@@ -177,7 +177,7 @@
         "region": "bottom",
         "lines": 1,
         "match": {
-          "regex": ["^■ rate limit exceeded:"]
+          "regex": ["^\u25a0 rate limit exceeded:"]
         },
         "reason": "Provider rate limit",
         "comment": "Working and Action Required titles win over stale provider screens. Provider attention is classification evidence; input authority follows orchestrator ownership (#629). Recorded evidence and limitations: tests/fixtures/agent-detection/README.md."
@@ -193,7 +193,7 @@
             "Approaching rate limits",
             "Switch to ",
             "Keep current model",
-            "enter select · esc back"
+            "enter select \u00b7 esc back"
           ]
         },
         "reason": "Model switch requested",
@@ -209,7 +209,7 @@
           "contains": [
             "Usage limit reached",
             "Request a limit increase from your owner",
-            "enter select · esc back"
+            "enter select \u00b7 esc back"
           ]
         },
         "reason": "Provider usage limit",
@@ -232,7 +232,7 @@
         "priority": 1050,
         "region": "title",
         "match": {
-          "regex": ["^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] "]
+          "regex": ["^[\u280b\u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f] "]
         },
         "reason": "Agent is working",
         "comment": "Captured spinner prefix; broader embedded spinner placement awaits evidence."
@@ -249,7 +249,7 @@
         "comment": "Idle is evidence for classification, never Done.",
         "not": [
           {
-            "regex": ["^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] "]
+            "regex": ["^[\u280b\u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f] "]
           },
           {
             "contains": ["Action Required"]
@@ -529,6 +529,18 @@
       "contains": ["Hooks need review"],
       "lines": 20,
       "caseSensitive": true
+    }
+  },
+  "hostSetup": {
+    "status": ["login", "status"],
+    "install": {
+      "darwin": ["brew", "install", "--cask", "codex"]
+    },
+    "signIn": {
+      "debian": ["codex", "login", "--device-auth"],
+      "rhel": ["codex", "login", "--device-auth"],
+      "arch": ["codex", "login", "--device-auth"],
+      "darwin": ["codex", "login", "--device-auth"]
     }
   }
 }

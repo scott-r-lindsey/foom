@@ -1,3 +1,4 @@
+import type { RemoteTarget } from "../../shared/remote-host";
 import { LaunchFailure } from "../../shared/launch-failure";
 import { remoteAgentTarget, remoteSpikeTarget } from "../terminals/remote-bootstrap";
 import { ControlError } from "../../shared/control-validation";
@@ -233,19 +234,22 @@ export async function startShell(
   pathFirst?: string,
   configEnvironment?: Readonly<Record<string, string>>,
   checkout?: Awaited<ReturnType<WorktreeLaunchContext["orchestration"]["remoteCheckout"]>>,
+  remoteOverride?: RemoteTarget,
 ): Promise<string> {
-  const remote = checkout
-    ? {
-        ...checkout.target,
-        checkout: {
-          repository: checkout.repository,
-          path: checkout.worktree,
-          identity: checkout.identity,
-        },
-      }
-    : location.home
-      ? remoteSpikeTarget(process.argv)
-      : undefined;
+  const remote =
+    remoteOverride ??
+    (checkout
+      ? {
+          ...checkout.target,
+          checkout: {
+            repository: checkout.repository,
+            path: checkout.worktree,
+            identity: checkout.identity,
+          },
+        }
+      : location.home
+        ? remoteSpikeTarget(process.argv)
+        : undefined);
   const environment = remote ? { env: {}, names: [] } : await this.shellEnvironment(pathFirst);
   if (restoreId !== undefined) this.executionOwner.reset(restoreId);
   await checkout?.validate();
@@ -305,10 +309,15 @@ export async function startShell(
 export async function startHomeShell(
   this: WorktreeLaunchContext,
   restoreId?: string,
+  remote?: RemoteTarget,
 ): Promise<string> {
   return this.startShell(
     { home: true, repository: homeDirectory, worktree: homeDirectory, branch: null },
     restoreId,
+    undefined,
+    undefined,
+    undefined,
+    remote,
   );
 }
 

@@ -107,6 +107,7 @@ export function serveHost(
   // or overlap a retry with a subprocess/cleanup that has not settled yet.
   const operations = new Map<AbortController, Promise<unknown>>();
   let mutating = false;
+  const recipeSessions = new Set<string>();
   let shuttingDown = false;
   const isShuttingDown = () => shuttingDown;
   let sequence = 0;
@@ -120,6 +121,7 @@ export function serveHost(
     }
   >();
   const revoke = (id: string, session: Session, stopping = false) => {
+    if (!stopping) recipeSessions.delete(id);
     if (!stopping) worktrees.delete(session);
     delete session.imageOwner;
     session.agent?.endpoint.dispose();
@@ -202,37 +204,42 @@ export function serveHost(
       try {
         await manager.stop(id);
       } finally {
-        // Release the stopped PTY immediately; keep the daemon session reserved
-        // until pending publication and private-file cleanup have settled.
-        manager.kill(id);
-        // Reconnects must observe the known exit even while files are closing.
-        const code = session.exited;
-        if (
-          rememberExit &&
-          !shuttingDown &&
-          code !== undefined &&
-          remoteResponse({ type: "exit", id, code })
-        ) {
-          const expiry = session.expiry ?? scheduleExpiry(id);
-          if (!expiry.expired)
-            tombstones.set(id, {
-              code,
-              expiry,
-              ...(session.profile ? { profile: session.profile } : {}),
-            });
-          // Map insertion order is exit/disposal order; reads never renew it.
-          for (const [oldId, old] of tombstones) {
-            if (tombstones.size <= MAX_EXIT_TOMBSTONES) break;
-            cancelExpiry(old.expiry);
-            tombstones.delete(oldId);
-          }
-        } else cancelExpiry(session.expiry);
-        await session.imageUpload?.catch(() => {});
-        await images.close(id).catch(() => {
-          console.error("Image paste cleanup failed");
-        });
-        sessions.delete(id);
-        worktrees.delete(session);
+        try {
+          // Release the stopped PTY immediately; keep the daemon session reserved
+          // until pending publication and private-file cleanup have settled.
+          manager.kill(id);
+          // Reconnects must observe the known exit even while files are closing.
+          const code = session.exited;
+          if (
+            rememberExit &&
+            !shuttingDown &&
+            code !== undefined &&
+            remoteResponse({ type: "exit", id, code })
+          ) {
+            const expiry = session.expiry ?? scheduleExpiry(id);
+            if (!expiry.expired)
+              tombstones.set(id, {
+                code,
+                expiry,
+                ...(session.profile ? { profile: session.profile } : {}),
+              });
+            // Map insertion order is exit/disposal order; reads never renew it.
+            for (const [oldId, old] of tombstones) {
+              if (tombstones.size <= MAX_EXIT_TOMBSTONES) break;
+              cancelExpiry(old.expiry);
+              tombstones.delete(oldId);
+            }
+          } else cancelExpiry(session.expiry);
+          await session.imageUpload?.catch(() => {});
+          await images.close(id).catch(() => {
+            console.error("Image paste cleanup failed");
+          });
+        } finally {
+          // Disposal can suppress the native exit callback, including after a stop timeout.
+          recipeSessions.delete(id);
+          sessions.delete(id);
+          worktrees.delete(session);
+        }
       }
     });
     return session.removing;
@@ -362,14 +369,17 @@ export function serveHost(
           return;
         }
         negotiated = true;
-        await send(socket, { type: "hello", build, compatible: 2 });
+        await send(socket, { type: "hello", build, compatible: 2, hostFacts: 1 });
         return;
       }
       if (message.type === "hello") throw new Error("Repeated negotiation");
       if (message.type === "inventory" || message.type === "end-sessions") {
         if (id !== undefined) throw new Error("Session already open");
         const mutation = message.type === "end-sessions";
-        if (operations.size >= MAX_PENDING_CONNECTIONS || (mutation && mutating))
+        if (
+          operations.size >= MAX_PENDING_CONNECTIONS ||
+          (mutation && (mutating || recipeSessions.size > 0))
+        )
           throw new Error("Management reserve unavailable");
         budget(HOST_MANAGEMENT_TIMEOUT_MS);
         if (mutation) mutating = true;
@@ -518,11 +528,14 @@ export function serveHost(
       if (message.type === "manage") {
         if (id !== undefined) throw new Error("Session already open");
         const mutation =
-          message.operation === "inspect" || // Enrollment may create the approved folder.
+          (message.operation === "inspect" && !message.readOnly) || // Enrollment may create the approved folder.
           message.operation === "clone" ||
           message.operation === "create-worktree" ||
           message.operation === "remove-worktree";
-        if (operations.size >= MAX_PENDING_CONNECTIONS || (mutation && mutating)) {
+        if (
+          operations.size >= MAX_PENDING_CONNECTIONS ||
+          (mutation && (mutating || recipeSessions.size > 0))
+        ) {
           await send(socket, {
             type: "managed",
             result: { ok: false, reason: "checkout-refused" },
@@ -727,6 +740,10 @@ export function serveHost(
             return;
           }
           try {
+            if (message.recipe) {
+              if (mutating || recipeSessions.size > 0) throw new Error("Host mutation busy");
+              recipeSessions.add(id);
+            }
             const checkout = message.checkout;
             if (checkout) {
               if (
@@ -772,8 +789,16 @@ export function serveHost(
               owned.agent
                 ? { ...owned.agent.spec, cols: message.cols, rows: message.rows }
                 : {
-                    command: remoteShell(),
-                    args: ["-i", "-l"],
+                    command: message.recipe ? process.execPath : remoteShell(),
+                    args: message.recipe
+                      ? [
+                          "--recipe",
+                          message.recipe.tool,
+                          message.recipe.action,
+                          message.recipe.distro,
+                          message.recipe.digest,
+                        ]
+                      : ["-i", "-l"],
                     cwd: message.checkout?.path ?? home,
                     cols: message.cols,
                     rows: message.rows,

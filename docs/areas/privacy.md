@@ -145,3 +145,12 @@ upstream Chromium vulnerabilities remain possible. Electron 44 removed raw
 Foom performs no additional `nativeImage`/`readImage` conversion. Encoded bytes go
 directly to the disposable worker for Foom's bounded normalization, and the encoded
 result is validated again. See the [accepted residual](../design/937-image-paste.md#accepted-clipboard-decode-residual-user-decision-2026-10-30).
+
+## Host setup facts (#971)
+
+OS files and status probe output are reduced on the host to closed states. Sign-in
+probes discard both output streams and use exit codes only. Foom never reads token
+files, Keychain entries or SSH material. Install/sign-in recipes require a user
+click and run in a visible human-owned terminal tile on that host; Foom never
+types into it or performs background installs/sign-ins. Vendor-script installers
+are deferred; only fixed package-manager recipes ship.
