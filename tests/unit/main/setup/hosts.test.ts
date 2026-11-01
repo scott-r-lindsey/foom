@@ -652,7 +652,11 @@ test("a config provider cannot appear ready from a remote installation probe", a
     });
     const result = await hosts.action({ action: "test", host: "worker", codeFolder: "~/code" });
     if (!result.result?.ok) throw new Error("No inventory");
-    expect(result.result.facts.agents).toContainEqual({ id: "custom", state: "unable" });
+    expect(result.result.facts.agents).toContainEqual({
+      id: "custom",
+      state: "unable",
+      signIn: "unknown",
+    });
   } finally {
     replaceConfigProviders([]);
   }
@@ -933,3 +937,105 @@ test.each([
     ).toHaveLength(1);
   },
 );
+
+test("recipe clicks select main-owned data, recheck registrations, and return fixed unavailability", async () => {
+  hosts = new Hosts(store, () => repositories, "0.1.0", run, "f".repeat(32));
+  const enriched = {
+    ...facts,
+    requirements: {
+      distro: "debian" as const,
+      libc: "supported" as const,
+      packageManager: "apt" as const,
+    },
+  };
+  run.mockResolvedValue({ ok: true, facts: enriched });
+  await hosts.action({ action: "add", host: "worker", codeFolder: "~/code" });
+  const launch = vi.fn(() => Promise.resolve());
+  const state = await hosts.action(
+    { action: "recipe", host: "worker", tool: "git", operation: "install" },
+    undefined,
+    launch,
+  );
+  expect(state.hosts[0]?.recipes).toContainEqual({ tool: "git", install: true, signIn: false });
+  expect(launch).toHaveBeenCalledExactlyOnceWith({
+    host: "worker",
+    profile: "f".repeat(32),
+    human: true,
+    recipe: {
+      tool: "git",
+      distro: "debian",
+      action: "install",
+      digest: "ade67c0afec628cd6fba950e3f32b1160240445f9d486751b938e694fee2d3c2",
+    },
+  });
+  expect(run).toHaveBeenLastCalledWith("worker", expect.objectContaining({ readOnly: true }));
+  expect(
+    (
+      await hosts.action(
+        { action: "recipe", host: "worker", tool: "codex", operation: "install" },
+        undefined,
+        launch,
+      )
+    ).recipeFailure,
+  ).toBe("recipe-unavailable");
+  expect(
+    (await hosts.action({ action: "recipe", host: "worker", tool: "gh", operation: "sign-in" }))
+      .recipeFailure,
+  ).toBe("recipe-unavailable");
+  settings.agents = { ...settings.agents, codex: false };
+  expect(
+    (
+      await hosts.action(
+        { action: "recipe", host: "worker", tool: "codex", operation: "sign-in" },
+        undefined,
+        launch,
+      )
+    ).recipeFailure,
+  ).toBe("recipe-unavailable");
+  await expect(
+    hosts.action(
+      { action: "recipe", host: "worker", tool: "git", operation: "install", argv: ["id"] },
+      undefined,
+      launch,
+    ),
+  ).rejects.toThrow("Invalid");
+  run.mockResolvedValue({ ok: false, reason: "unreachable" });
+  expect(
+    (
+      await hosts.action(
+        { action: "recipe", host: "worker", tool: "git", operation: "install" },
+        undefined,
+        launch,
+      )
+    ).recipeFailure,
+  ).toBe("recipe-unavailable");
+  expect(launch).toHaveBeenCalledTimes(1);
+});
+
+test.each([
+  ["libc-too-old", "remote_host_libc_too_old"],
+  ["libc-unsupported", "remote_host_libc_unsupported"],
+  ["unsupported", "remote_artifact_mismatch"],
+] as const)(
+  "unsupported inventory %s retains a specific launch reason",
+  async (reason, launchReason) => {
+    await hosts.action({ action: "add", host: "worker", codeFolder: "~/code" });
+    hosts = new Hosts(store, () => repositories, "0.1.0", run);
+    run.mockResolvedValue({ ok: false, reason });
+    await expect(hosts.requireAgent("worker", "codex")).rejects.toMatchObject({
+      reason: launchReason,
+    });
+  },
+);
+
+test("remote home shells require a current registration and profile tag", async () => {
+  expect(() => hosts.shellTarget("unknown")).toThrow();
+  await hosts.action({ action: "add", host: "worker", codeFolder: "~/code" });
+  expect(() => hosts.shellTarget("worker")).toThrow();
+  const tagged = new Hosts(store, () => repositories, "0.1.0", run, "f".repeat(32));
+  expect(tagged.shellTarget("worker")).toEqual({
+    host: "worker",
+    profile: "f".repeat(32),
+    human: true,
+  });
+});

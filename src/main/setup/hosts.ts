@@ -1,3 +1,7 @@
+import { selectHostRecipe } from "../../shared/registered-host-recipes";
+import type { RemoteTarget } from "../../shared/remote-host";
+import { bundledAgentData } from "../../shared/bundled-agent-data";
+import { parseAgentManifest } from "../../shared/agent-plugin-parser";
 import type { ForgeWorktree, ForgeInspection } from "../control/forge.d";
 import { ControlError } from "../../shared/control-validation";
 import { UncertainEffect } from "../workspace/worktree-outcome";
@@ -276,6 +280,7 @@ export class Hosts {
         pending = this.run(host, {
           type: "manage",
           operation: "inspect",
+          readOnly: true,
           codeFolder: registration.codeFolder,
         });
         this.inventoryReads.set(host, pending);
@@ -303,7 +308,16 @@ export class Hosts {
     if (agentProviders().find((provider) => provider.id === agent)?.origin !== "bundled")
       throw new LaunchFailure("remote_agent_unsupported");
     const result = await this.inventory(host);
-    if (!result.ok) throw new LaunchFailure("remote_host_unreachable");
+    if (!result.ok)
+      throw new LaunchFailure(
+        result.reason === "libc-too-old"
+          ? "remote_host_libc_too_old"
+          : result.reason === "libc-unsupported"
+            ? "remote_host_libc_unsupported"
+            : result.reason === "unsupported"
+              ? "remote_artifact_mismatch"
+              : "remote_host_unreachable",
+      );
     if (result.facts.agents.find((entry) => entry.id === agent)?.state !== "ready")
       throw new LaunchFailure("remote_agent_unavailable");
   }
@@ -494,10 +508,40 @@ export class Hosts {
         }
       : result;
   }
+  shellTarget(host: string): RemoteTarget {
+    this.registered(host);
+    if (!this.profile) throw new ControlError("not_found");
+    return { host, profile: this.profile, human: true };
+  }
+  private recipe(host: string, tool: string, action: "install" | "sign-in") {
+    this.registered(host);
+    const facts = this.results.get(host);
+    const system = facts?.ok ? facts.facts.requirements : undefined;
+    if (!system || system.distro === "unknown") return undefined;
+    if (this.store.get().agents[tool] === false) return undefined;
+    const model = bundledAgentData
+      .map((data) => parseAgentManifest(JSON.stringify(data), "bundled").model)
+      .find((model) => model.id === tool);
+    return selectHostRecipe({ tool, action, distro: system.distro }, system, model?.hostSetup);
+  }
   state(result?: HostResult): HostsState {
     return {
       hosts: (this.store.get().registeredHosts ?? []).map((host) => ({
         ...host,
+        recipes: [
+          "git",
+          "gh",
+          ...agentProviders()
+            .filter((provider) => this.store.get().agents[provider.id] !== false)
+            .map((provider) => provider.id),
+        ].map((tool) => ({
+          tool,
+          install: !!this.recipe(host.host, tool, "install"),
+          signIn: !!this.recipe(host.host, tool, "sign-in"),
+          ...(!this.recipe(host.host, tool, "install")
+            ? { installReason: "recipe-unavailable" as const }
+            : {}),
+        })),
         ...(this.worktreeInventories.has(host.host)
           ? { foreignWorktrees: this.worktreeInventories.get(host.host)?.other ?? 0 }
           : {}),
@@ -522,12 +566,41 @@ export class Hosts {
   action(
     input: unknown,
     confirm?: (content: DialogContent) => Promise<boolean>,
+    launchRecipe?: (target: RemoteTarget) => Promise<void>,
   ): Promise<HostsState> {
     if (!hostsAction(input)) return Promise.reject(new Error("Invalid host action"));
     const work = this.pending
       .catch(() => undefined)
       .then(async () => {
         const hosts = this.store.get().registeredHosts ?? [];
+        if (input.action === "recipe") {
+          const registration = this.registered(input.host);
+          this.results.set(
+            input.host,
+            await this.run(input.host, {
+              type: "manage",
+              operation: "inspect",
+              readOnly: true,
+              codeFolder: registration.codeFolder,
+            }),
+          );
+          this.registered(input.host, registration.codeFolder);
+          const recipe = this.recipe(input.host, input.tool, input.operation);
+          if (!recipe || !launchRecipe || !this.profile)
+            return { ...this.state(), recipeFailure: "recipe-unavailable" as const };
+          await launchRecipe({
+            host: input.host,
+            profile: this.profile,
+            human: true,
+            recipe: {
+              tool: recipe.tool,
+              action: recipe.action,
+              distro: recipe.distro,
+              digest: createHash("sha256").update(JSON.stringify(recipe.steps)).digest("hex"),
+            },
+          });
+          return this.state();
+        }
         if (input.action === "end") {
           const before = await this.readSessions(input.host);
           if (!before.foreign.length) return this.state();
@@ -565,6 +638,7 @@ export class Hosts {
                 await this.run(host.host, {
                   type: "manage",
                   operation: "inspect",
+                  readOnly: true,
                   codeFolder: host.codeFolder,
                 }),
               );
@@ -625,6 +699,7 @@ export class Hosts {
             await this.run(host.host, {
               type: "manage",
               operation: "inspect",
+              readOnly: true,
               codeFolder: host.codeFolder,
             }),
           );
@@ -680,6 +755,10 @@ export class Hosts {
           ...result.facts,
           agents: probes.map<HostFacts["agents"][number]>((probe) => ({
             id: probe.id,
+            signIn:
+              providers.find((provider) => provider.id === probe.id)?.origin === "bundled"
+                ? (result.facts.agents.find((agent) => agent.id === probe.id)?.signIn ?? "unknown")
+                : "unknown",
             state:
               providers.find((provider) => provider.id === probe.id)?.origin === "bundled"
                 ? (result.facts.agents.find((agent) => agent.id === probe.id)?.state ?? "unable")

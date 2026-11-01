@@ -127,7 +127,7 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
                   memoryTotal: result.facts.memoryTotal,
                   memoryAvailable: result.facts.memoryAvailable,
                 },
-                agents: result.facts.agents,
+                agents: result.facts.agents.map(({ id, state }) => ({ id, state })),
               }
             : { host, resources: null, agents: [], reason: result.reason },
         ),

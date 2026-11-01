@@ -5,6 +5,8 @@ export interface RegisteredHost {
 }
 export type HostFailure =
   | "unreachable"
+  | "libc-too-old"
+  | "libc-unsupported"
   | "unsupported"
   | "artifact-unavailable"
   | "folder-refused"
@@ -13,7 +15,16 @@ export type HostFailure =
   | "clone-failed"
   | "checkout-refused";
 export type HostAgentState = "ready" | "missing" | "unable";
+export type HostSignIn = "signed-in" | "signed-out" | "unknown";
+export interface HostRequirements {
+  distro: "debian" | "rhel" | "arch" | "darwin" | "unknown";
+  libc: "supported" | "too-old" | "unsupported";
+  packageManager: "apt" | "dnf" | "pacman" | "brew" | "none";
+  mac?: { commandLineTools: boolean; staysAwake: boolean; protectedFolder: boolean };
+}
 export interface HostFacts {
+  requirements?: HostRequirements;
+  tools?: readonly { id: string; state: HostAgentState; signIn: HostSignIn }[];
   codeFolder: string;
   version: string;
   sessions: number;
@@ -21,14 +32,14 @@ export interface HostFacts {
   load: readonly number[];
   memoryTotal: number;
   memoryAvailable: number;
-  agents: readonly { id: string; state: HostAgentState }[];
+  agents: readonly { id: string; state: HostAgentState; signIn?: HostSignIn }[];
 }
 export type HostManagement = {
   type: "manage";
   codeFolder: string;
   agents?: readonly { id: string; executables: readonly string[] }[];
 } & (
-  | { operation: "inspect" }
+  | { operation: "inspect"; readOnly?: true }
   | { operation: "list-worktrees"; profile: string }
   | { operation: "repository" | "clone"; directory: string; origin: string }
   | {
@@ -67,6 +78,12 @@ export type HostResult =
       };
     };
 export interface HostRow extends RegisteredHost {
+  recipes?: readonly {
+    tool: string;
+    install: boolean;
+    signIn: boolean;
+    installReason?: "recipe-unavailable";
+  }[];
   foreignSessions?: number;
   foreignWorktrees?: number;
   result?: HostResult | undefined;
@@ -77,11 +94,13 @@ export interface RepositoryLocation {
   result: HostResult;
 }
 export interface HostsState {
+  recipeFailure?: "recipe-unavailable";
   hosts: readonly HostRow[];
   locations: readonly RepositoryLocation[];
   result?: HostResult | undefined;
 }
 export type HostsAction =
+  | { action: "recipe"; host: string; tool: string; operation: "install" | "sign-in" }
   | { action: "list" }
   | { action: "add"; host: string; codeFolder: string }
   | { action: "test"; host: string; codeFolder: string }
@@ -108,4 +127,17 @@ export interface RemoteWorktree {
   branch: string;
   identity: string;
   origin: string;
+}
+
+export interface HostRecipeRequest {
+  tool: string;
+  action: "install" | "sign-in";
+  distro: "debian" | "rhel" | "arch" | "darwin";
+}
+export interface HostRecipe extends HostRecipeRequest {
+  steps: readonly (readonly string[])[];
+}
+
+export interface HostRecipeLaunch extends HostRecipeRequest {
+  digest: string;
 }

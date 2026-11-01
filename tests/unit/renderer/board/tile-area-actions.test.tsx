@@ -1,3 +1,4 @@
+import type { BoardRow } from "../../../../src/renderer/board/board.d";
 import { ApplicationError } from "../../../../src/shared/application-errors";
 // @vitest-environment jsdom
 import { act, fireEvent, render, within } from "@testing-library/react";
@@ -560,4 +561,50 @@ test("a close refusal shows the fixed child-count reason and retains the tile", 
   await act(async () => {});
   expect(screen.getByRole("alert").textContent).toContain("Close its 3 children first.");
   expect(screen.getByRole("region", { name: /Tile 1:/ })).toBeTruthy();
+});
+
+test("a recipe tile reveal waits for its row before closing Settings and taking focus", async () => {
+  const { screen, source } = setup();
+  const row = source.getSnapshot()[0];
+  if (!row) throw new Error("Missing fixture row");
+  let rows: readonly BoardRow[] = [];
+  let notify: (() => void) | undefined;
+  let navigate: ((id: string, background?: boolean) => void) | undefined;
+  const close = vi.fn();
+  const live = {
+    ...source,
+    getSnapshot: () => rows,
+    subscribe: (listener: () => void) => {
+      notify = listener;
+      return () => {};
+    },
+    appMenu: {
+      platform: "darwin" as const,
+      legal: vi.fn(),
+      onLegal: vi.fn(),
+      version: vi.fn(),
+      setView: vi.fn().mockResolvedValue(undefined),
+      commands: vi.fn().mockResolvedValue([]),
+      shortcuts: vi.fn().mockResolvedValue([]),
+      onShortcuts: () => () => {},
+      execute: vi.fn().mockResolvedValue(undefined),
+      onOpen: () => () => {},
+      onSession: (callback: typeof navigate) => {
+        navigate = callback;
+        return () => {};
+      },
+    },
+  };
+  screen.rerender(<Board source={live} onCloseSettings={close} />);
+  act(() => {
+    navigate?.(row.id);
+  });
+  expect(close).not.toHaveBeenCalled();
+  await act(async () => {
+    rows = [row];
+    notify?.();
+    await Promise.resolve();
+  });
+  expect(close).toHaveBeenCalled();
+  expect(screen.container.querySelectorAll(".terminal-tile")).toHaveLength(1);
 });

@@ -12,6 +12,8 @@ import type { Repository } from "../../shared/worktrees";
 const reasons: Record<HostFailure, string> = {
   unreachable: "Host unreachable",
   unsupported: "Unsupported host platform",
+  "libc-too-old": "Unsupported host: glibc 2.28 or newer is required",
+  "libc-unsupported": "Unsupported host: glibc is required (musl is unsupported)",
   "artifact-unavailable": "Remote host artifact unavailable in this local build",
   "folder-refused": "Code folder unavailable",
   "unsafe-folder": "Code folder ownership or permissions are unsafe",
@@ -69,6 +71,7 @@ export function HostsSettings({
       const next = await api?.(action);
       if (next) {
         setState(next);
+        if (next.recipeFailure) setError("Recipe unavailable for this host");
         if (action.action === "test" || action.action === "add") setTested(next.result);
         if (action.action === "add" && next.result?.ok) {
           setAdding(false);
@@ -256,20 +259,93 @@ export function HostsSettings({
                   <dd>{memory(entry.result.facts.memoryAvailable)}</dd>
                 </div>
               </dl>
-              <h4>Agents</h4>
+              {entry.result.facts.requirements && (
+                <p>
+                  Platform: {entry.result.facts.requirements.distro} · libc:{" "}
+                  {entry.result.facts.requirements.libc} · Package manager:{" "}
+                  {entry.result.facts.requirements.packageManager}
+                </p>
+              )}
+              {entry.result.facts.requirements?.mac && (
+                <p>
+                  Command Line Tools:{" "}
+                  {entry.result.facts.requirements.mac.commandLineTools
+                    ? "Present"
+                    : "Do this on the Mac"}{" "}
+                  · Sleep:{" "}
+                  {entry.result.facts.requirements.mac.staysAwake
+                    ? "Disabled"
+                    : "May interrupt SSH sessions"}{" "}
+                  · Code folder:{" "}
+                  {entry.result.facts.requirements.mac.protectedFolder
+                    ? "Inside a protected folder"
+                    : "Outside protected folders"}
+                </p>
+              )}
+              <h4>Tools and agents</h4>
               <ul className="host-agents">
-                {entry.result.facts.agents.map((agent) => (
-                  <li key={agent.id}>
-                    <span>{agent.id}</span>
-                    <span>
-                      {agent.state === "ready"
-                        ? "Ready"
-                        : agent.state === "missing"
-                          ? "Not found"
-                          : "Unable to check"}
-                    </span>
-                  </li>
-                ))}
+                {[...(entry.result.facts.tools ?? []), ...entry.result.facts.agents].map(
+                  (agent) => (
+                    <li key={agent.id}>
+                      <span>{agent.id}</span>
+                      <span>
+                        {agent.state === "ready"
+                          ? "Ready"
+                          : agent.state === "missing"
+                            ? "Not found"
+                            : "Unable to check"}
+                      </span>
+                      {agent.id !== "git" && (
+                        <span>
+                          {agent.signIn === "signed-in"
+                            ? "Signed in"
+                            : agent.signIn === "signed-out"
+                              ? "Not signed in"
+                              : "Sign-in unknown"}
+                        </span>
+                      )}
+                      {agent.state === "missing" &&
+                        (entry.recipes?.find((recipe) => recipe.tool === agent.id)?.install ? (
+                          <button
+                            type="button"
+                            disabled={busy}
+                            aria-label={`Install ${agent.id}`}
+                            onClick={() => {
+                              void act({
+                                action: "recipe",
+                                host: entry.host,
+                                tool: agent.id,
+                                operation: "install",
+                              });
+                            }}
+                          >
+                            Install
+                          </button>
+                        ) : (
+                          <span>Install unavailable: no package-manager recipe</span>
+                        ))}
+                      {agent.state === "ready" &&
+                        agent.signIn !== "signed-in" &&
+                        entry.recipes?.find((recipe) => recipe.tool === agent.id)?.signIn && (
+                          <button
+                            type="button"
+                            disabled={busy}
+                            aria-label={`Sign in ${agent.id}`}
+                            onClick={() => {
+                              void act({
+                                action: "recipe",
+                                host: entry.host,
+                                tool: agent.id,
+                                operation: "sign-in",
+                              });
+                            }}
+                          >
+                            Sign in
+                          </button>
+                        )}
+                    </li>
+                  ),
+                )}
               </ul>
             </>
           )}

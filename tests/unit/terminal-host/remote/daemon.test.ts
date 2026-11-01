@@ -2367,3 +2367,45 @@ test.skipIf(process.platform === "win32")(
     expect(mock.manage).not.toHaveBeenCalled();
   },
 );
+
+test.skipIf(process.platform === "win32")(
+  "recipe tiles reserve mutations through disconnect until PTY exit",
+  async () => {
+    await start();
+    const c = await client();
+    c.send({ type: "hello", build });
+    await c.wait(1);
+    c.send({
+      type: "open",
+      profile: "f".repeat(32),
+      reattach: false,
+      id: "recipe",
+      request: 1,
+      cols: 80,
+      rows: 24,
+      recipe: { tool: "git", action: "install", distro: "debian", digest: "a".repeat(64) },
+    });
+    await c.wait(2);
+    expect(mock.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: process.execPath,
+        args: ["--recipe", "git", "install", "debian", "a".repeat(64)],
+      }),
+      "recipe",
+    );
+    c.socket.destroy();
+    const next = await client();
+    next.send({ type: "hello", build });
+    await next.wait(1);
+    next.send({ type: "manage", operation: "inspect", codeFolder: "~/code", agents: [] });
+    await next.wait(2);
+    expect(next.messages[1]).toEqual({
+      type: "managed",
+      result: { ok: false, reason: "checkout-refused" },
+    });
+    mock.exited("recipe", 0);
+    next.send({ type: "manage", operation: "inspect", codeFolder: "~/code", agents: [] });
+    await next.wait(3);
+    expect(mock.manage).toHaveBeenCalledTimes(1);
+  },
+);

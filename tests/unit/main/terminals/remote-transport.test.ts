@@ -1153,3 +1153,60 @@ test("image upload refuses a session-inventory response on its management connec
   expect(inventory).not.toHaveBeenCalled();
   expect(child.kill).toHaveBeenCalled();
 });
+
+test.each([
+  ["FOOM-LIBC-TOO-OLD", "libc-too-old"],
+  ["FOOM-LIBC-UNSUPPORTED", "libc-unsupported"],
+])("bootstrap %s retains its specific management reason", async (marker, reason) => {
+  await Promise.resolve();
+  child.header(`${marker}\n`);
+  expect(transport.managementFailure).toBe(reason);
+  expect(transport.launchFailure?.reason).toBe(
+    reason === "libc-too-old" ? "remote_host_libc_too_old" : "remote_host_libc_unsupported",
+  );
+  expect(child.kill).toHaveBeenCalled();
+});
+
+test("recipe reconnect reattaches the same PTY and never repeats its recipe selector", async () => {
+  transport.kill();
+  const recipe = {
+    tool: "git",
+    action: "install" as const,
+    distro: "debian" as const,
+    digest: "a".repeat(64),
+  };
+  const profile = "f".repeat(32);
+  transport = new RemoteTransport(
+    { host: "fixture", artifact: "/artifact", profile, human: true, recipe },
+    "0.1.0",
+  );
+  await ready();
+  expect(child.messages).toContainEqual({
+    type: "open",
+    id: "one",
+    request: 1,
+    cols: 80,
+    rows: 24,
+    reattach: false,
+    profile,
+    human: true,
+    recipe,
+  });
+  const next = new Child();
+  mock.spawn.mockReturnValue(next);
+  child.emit("close");
+  await vi.advanceTimersByTimeAsync(1000);
+  next.greet();
+  expect(next.messages).toContainEqual(
+    expect.objectContaining({
+      type: "open",
+      id: "one",
+      cols: 80,
+      rows: 24,
+      reattach: true,
+      profile,
+      human: true,
+    }),
+  );
+  expect(JSON.stringify(next.messages)).not.toContain("digest");
+});

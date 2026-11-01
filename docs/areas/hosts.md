@@ -23,12 +23,12 @@ operation, including when the last observation reports live sessions.
 
 The default code folder is `~/foom`. The remote expands it against its own home,
 creates missing components with mode 0700 only for explicit enrollment/inventory
-(`inspect`) and clone requests, and checks canonical containment,
+(`inspect` without readOnly) and clone requests, and checks canonical containment,
 symlinks, ownership of the code folder and group/world write permissions. Ancestors
 must not be group/world writable, except a root-owned sticky ancestor such as
 `/tmp`. Checks repeat before repository mutation. These are filesystem observations,
 not atomic traversal or protection from a compromised account/root. Repository and
-worktree inspection never create missing components: a missing approved folder or
+worktree inspection and readOnly host fact requests never create missing components: a missing approved folder or
 ancestor refuses the read. Rechecks before mutation also validate without creation.
 
 The daemon selects its HostPlatform once at startup. Linux reads bounded procfs
@@ -49,7 +49,7 @@ Ready means installed and probeable, using only the existing `--version` and
 failed probes show Unable to check. Pi and OpenCode also require their measured per-launch attachment gates to pass;
 otherwise they show Unable to check. Config providers show Unable to check and
 refuse remote launch with `remote_agent_unsupported` before launch SSH work.
-No sign-in probes or credential reads are added. Manifest probe output stays on the host and is reduced to fixed states. Main projects the inventory onto its selected manifest IDs: unexpected host IDs are discarded and omitted entries become Unable to check.
+Sign-in probes follow the closed exit-code-only #971 contract below; no credential reads are added. Manifest probe output stays on the host and is reduced to fixed states. Main projects the inventory onto its selected manifest IDs: unexpected host IDs are discarded and omitted entries become Unable to check.
 
 Settings → Repositories shows Local and each registered host. Main reads only
 the registered repository's own origin. Only credential-free HTTPS and SSH Git
@@ -169,8 +169,7 @@ by provider or enablement changes. Concurrent reads share one probe. Missing,
 stale or failed observations are probed over management; missing/uncheckable agents
 are never inferred from the hub. A current non-ready observation refuses launch
 with `remote_agent_unavailable` before launch inspection/preparation or SSH launch
-work. A failed inventory connection reports `remote_host_unreachable`. No sign-in
-probe or new inventory UI is added here; Settings → Hosts owns that presentation.
+work. A failed inventory connection reports `remote_host_unreachable`. The #971 sign-in observation is separate from discovery readiness; Settings → Hosts owns that presentation.
 
 Orchestrator session reads expose a bounded host list with fixed agent states and
 CPU/memory observations, including Local. Paths, raw probe output and credentials
@@ -249,3 +248,53 @@ The original operation remains indeterminate and charged. Recovery grants no
 orchestrator ownership, refunds no budget and resumes no work. Existing branches
 still refuse duplicate creation, including another idempotency key. If Git did
 not finish a valid checkout, provenance alone creates no launch target.
+
+## Host requirements and recipes (#971)
+
+| Requirement | Debian / Ubuntu | RHEL / Rocky / Alma / Fedora / Amazon | Arch | macOS |
+| --- | --- | --- | --- | --- |
+| Daemon | linux-x64 or linux-arm64; glibc ≥ 2.28 | Same; RHEL 7 is too old | Same | darwin-x64 or darwin-arm64 |
+| Bootstrap tools | POSIX sh, coreutils, gzip, SHA-256 | Same; no procps needed | Same | Built-in sh, core tools, gzip, shasum; ps and vm_stat |
+| Package manager | /usr/bin/apt-get | /usr/bin/dnf | /usr/bin/pacman | Homebrew through the login PATH only |
+| git | Required for repository operations | Required | Required | Required; Command Line Tools presence is checked without an install dialog |
+| gh | Optional; needed for children to open PRs | Same | Same | Same |
+| Agents | Install the enabled CLIs on this host | Same | Same | Same |
+| Git origin access | Host's own credentials and host-key trust | Same | Same | Same; a locked login Keychain can prevent SSH sign-in reuse |
+
+Alpine/musl and glibc below 2.28 are unsupported. Distro, libc and package-manager
+observations are closed values. Linux parses bounded `/etc/os-release` as data
+(ID first, then ID_LIKE), never sources it. macOS reports only booleans for Command
+Line Tools (missing CLT suppresses the system git shim probe and git installation actions), disabled idle sleep and code folders under Documents, Desktop or
+Downloads. Failed sleep observations conservatively warn. Raw OS/probe output
+stays on the host. Burstable cloud instances can show low load while CPU credits
+or other quotas throttle them; the resource numbers are not a readiness guarantee.
+
+`gh auth status` and optional bundled manifest `hostSetup.status` probes use ignored
+stdin, bounded time/output and process-group cleanup. Output is discarded; exit 0
+means signed-in, 1 signed-out, all other outcomes unknown. Foom never reads token
+files or Keychain entries. A status is an observation, not a guarantee of later
+access; Refresh repeats the non-interactive call, including after signing in on a
+Mac whose login Keychain may be locked over SSH.
+
+Settings Hosts keeps its existing layout; #963's onboarding redesign is deferred.
+Main selects checked-in recipes from the observed closed distro and the enabled
+bundled catalog. A user Install or Sign in click opens a human-owned visible tile
+on that host. Foreground tile placement waits for the refreshed row before closing Settings. The remote executable verifies a main-supplied SHA-256 digest of the fixed argv sequence before running it, without shell
+source or typing into an existing tile. Multi-step package repository preparation
+stops on the first failure. Prompts and sudo remain in the tile. Recipe processes
+receive no terminal ID, orchestration authority or hub credentials. Restarting an exited recipe tile opens an ordinary shell on the same registered host, without replaying the install/sign-in. Recipe sessions
+reserve the daemon mutation slot until exit; disconnect does not release it.
+
+The interim #971 decision ships package-manager installs only: apt, dnf, pacman
+and brew. Vendor script installers (including pinned/checksummed scripts) are
+**deferred for a later user decision**. Missing manifests/platform recipes, unknown
+distros and absent package managers have no Install action and return the fixed
+`recipe-unavailable` reason. Sign-in commands may still be offered for an installed
+CLI. gh uses the repositories documented by GitHub: Debian's extrepo github-cli
+entry and the official RPM repository, plus Arch github-cli and Homebrew gh.
+See [GitHub's installation instructions](https://github.com/cli/cli/blob/trunk/docs/install_linux.md).
+
+Codex declares a non-interactive login-status probe, device-code sign-in and the
+[Homebrew cask](https://formulae.brew.sh/cask/codex) install recipe. Other bundled
+agents retain unknown sign-in state until they declare a measured status probe;
+missing install/sign-in declarations remain unavailable.

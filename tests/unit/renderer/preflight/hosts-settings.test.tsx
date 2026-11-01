@@ -306,3 +306,62 @@ test("unavailable copy capabilities show the fixed failure beside each value", a
     expect(screen.getAllByText("Unable to copy")).toHaveLength(2);
   });
 });
+
+test("fixed recipe actions show only where available and never accept argv", async () => {
+  const state: HostsState = {
+    hosts: [
+      {
+        ...host,
+        recipes: [
+          { tool: "git", install: true, signIn: false },
+          { tool: "gh", install: true, signIn: true },
+        ],
+        result: {
+          ok: true,
+          facts: {
+            ...facts,
+            requirements: {
+              distro: "darwin",
+              libc: "supported",
+              packageManager: "brew",
+              mac: { commandLineTools: false, staysAwake: false, protectedFolder: true },
+            },
+            tools: [
+              { id: "git", state: "missing", signIn: "unknown" },
+              { id: "gh", state: "ready", signIn: "signed-out" },
+            ],
+          },
+        },
+      },
+    ],
+    locations: [],
+  };
+  const api = vi.fn<(action: HostsAction) => Promise<HostsState>>().mockResolvedValue(state);
+  render(<HostsSettings source={{ hosts: api }} headingRef={createRef()} />);
+  await screen.findByRole("button", { name: "Install git" });
+  expect(screen.queryByRole("button", { name: "Install codex" })).toBeNull();
+  expect(screen.getByText("Install unavailable: no package-manager recipe")).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "Install git" }));
+  await waitFor(() => {
+    expect(api).toHaveBeenCalledWith({
+      action: "recipe",
+      host: "worker",
+      tool: "git",
+      operation: "install",
+    });
+  });
+  await waitFor(() => {
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Sign in gh" }).disabled).toBe(
+      false,
+    );
+  });
+  api.mockResolvedValue({ ...state, recipeFailure: "recipe-unavailable" });
+  fireEvent.click(screen.getByRole("button", { name: "Sign in gh" }));
+  await screen.findByText("Recipe unavailable for this host");
+  expect(api).toHaveBeenCalledWith({
+    action: "recipe",
+    host: "worker",
+    tool: "gh",
+    operation: "sign-in",
+  });
+});

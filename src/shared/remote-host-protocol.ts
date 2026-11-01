@@ -1,3 +1,4 @@
+import { recipeLaunch } from "./registered-host-recipes";
 import { imagePut, imagePutResult, imageNonce } from "./image-paste";
 import { hostAlias, hostManagement, hostResult } from "./registered-hosts";
 import { isLaunchReason } from "./launch-failure";
@@ -119,6 +120,10 @@ export function remoteRequest(value: unknown): value is RemoteRequest {
     );
   if (value["type"] === "open")
     return (
+      (value["recipe"] === undefined ||
+        (recipeLaunch(value["recipe"]) &&
+          value["checkout"] === undefined &&
+          value["context"] === undefined)) &&
       (value["checkout"] === undefined ||
         (record(value["checkout"]) &&
           keys(value["checkout"], ["repository", "path", "identity"]) &&

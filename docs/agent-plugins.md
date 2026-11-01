@@ -458,3 +458,16 @@ variables; values never expand the inherited environment. See the [complete rule
 ## Probe hook and MCP verification (#593)
 
 See [probe verification](contracts/agent-report.md#probe-hook-and-mcp-verification-593).
+
+## Remote host setup data (#971)
+
+Optional `hostSetup` declares `status` (fixed non-interactive arguments for the
+agent executable), `install` and `signIn` maps keyed by debian, rhel, arch or
+darwin. Remote status probes use only bundled manifests; config providers remain
+unsupported remotely. Exit 0 is signed-in, 1 signed-out, otherwise unknown; output
+is discarded, and credential files/Keychain APIs are never consulted by Foom.
+Install argv must be one package name after the fixed sudo apt-get/dnf install -y,
+sudo pacman -S --noconfirm, or brew install prefix (optionally --cask). No shell, vendor installer or
+interpolation is permitted. Sign-in argv starts with the agent executable name.
+Main selects the recipe, and a user click opens a visible human-owned remote tile.
+Missing recipes are unavailable, never inferred from discovery or another distro.

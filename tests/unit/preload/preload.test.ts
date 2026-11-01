@@ -1418,7 +1418,14 @@ test("host bridge validates every nested fact and strips undeclared host data", 
     load: [1, 2, 3],
     memoryTotal: 8000,
     memoryAvailable: 4000,
-    agents: [{ id: "claude", state: "ready" }],
+    agents: [{ id: "claude", state: "ready", signIn: "signed-in" }],
+    requirements: {
+      distro: "darwin",
+      libc: "supported",
+      packageManager: "brew",
+      mac: { commandLineTools: true, staysAwake: false, protectedFolder: true },
+    },
+    tools: [{ id: "gh", state: "ready", signIn: "signed-out" }],
   };
   const result = { ok: true, facts, checkout: { path: "/home/worker/foom/repo", state: "clean" } };
   const value = {

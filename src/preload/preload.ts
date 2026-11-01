@@ -403,7 +403,35 @@ const hostFactsShape = shape({
   load: array(range(0, Number.MAX_SAFE_INTEGER)),
   memoryTotal: count,
   memoryAvailable: count,
-  agents: array(shape({ id: hostAgentId, state: literal("ready", "missing", "unable") })),
+  agents: array(
+    shape({
+      id: hostAgentId,
+      state: literal("ready", "missing", "unable"),
+      signIn: either(absent, literal("signed-in", "signed-out", "unknown")),
+    }),
+  ),
+  requirements: either(
+    absent,
+    shape({
+      distro: literal("debian", "rhel", "arch", "darwin", "unknown"),
+      libc: literal("supported", "too-old", "unsupported"),
+      packageManager: literal("apt", "dnf", "pacman", "brew", "none"),
+      mac: either(
+        absent,
+        shape({ commandLineTools: boolean, staysAwake: boolean, protectedFolder: boolean }),
+      ),
+    }),
+  ),
+  tools: either(
+    absent,
+    array(
+      shape({
+        id: literal("git", "gh"),
+        state: literal("ready", "missing", "unable"),
+        signIn: literal("signed-in", "signed-out", "unknown"),
+      }),
+    ),
+  ),
 } satisfies Contract<HostFacts>);
 const validHostFacts: Validator<HostFacts> = copying(
   (value): value is HostFacts =>
@@ -419,6 +447,8 @@ const validHostResult: Validator<HostResult> = either(
     reason: literal(
       "unreachable",
       "unsupported",
+      "libc-too-old",
+      "libc-unsupported",
       "artifact-unavailable",
       "folder-refused",
       "unsafe-folder",
@@ -437,11 +467,23 @@ const validHostResult: Validator<HostResult> = either(
   }),
 );
 const validHostsState: Validator<HostsState> = shape({
+  recipeFailure: either(absent, literal("recipe-unavailable")),
   hosts: array(
     shape({
       host: hostAlias,
       codeFolder: hostFolder,
       result: either(absent, validHostResult),
+      recipes: either(
+        absent,
+        array(
+          shape({
+            tool: hostAgentId,
+            install: boolean,
+            signIn: boolean,
+            installReason: either(absent, literal("recipe-unavailable")),
+          }),
+        ),
+      ),
       foreignSessions: either(absent, count),
       foreignWorktrees: either(absent, count),
     }),

@@ -139,6 +139,7 @@ export class RemoteTransport extends EventEmitter {
           reattach: reattach || this.target.reattach === true,
           ...metadata,
           ...(this.target.human ? { human: true } : {}),
+          ...(!reattach && this.target.recipe ? { recipe: this.target.recipe } : {}),
           ...(this.target.checkout ? { checkout: this.target.checkout } : {}),
         };
   }
@@ -264,6 +265,16 @@ export class RemoteTransport extends EventEmitter {
               uploading = true;
               child.stdin.write(artifact.upload);
               continue;
+            }
+            if (line === "FOOM-LIBC-TOO-OLD" || line === "FOOM-LIBC-UNSUPPORTED") {
+              this.managementFailure =
+                line === "FOOM-LIBC-TOO-OLD" ? "libc-too-old" : "libc-unsupported";
+              this.launchFailure = new LaunchFailure(
+                line === "FOOM-LIBC-TOO-OLD"
+                  ? "remote_host_libc_too_old"
+                  : "remote_host_libc_unsupported",
+              );
+              throw new Error("Unsupported host libc");
             }
             if (line !== "FOOM-READY") throw new Error("Invalid bootstrap");
             bootstrapped = true;

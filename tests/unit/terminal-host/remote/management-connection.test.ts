@@ -165,6 +165,7 @@ test.skipIf(process.platform === "win32")(
       join(bin, "fixture-agent"),
       `#!${process.execPath}
 const fs=require('node:fs');
+if(process.argv.slice(2).join(' ')==='login status')process.exit(0);
 let n=0;try{n=Number(fs.readFileSync(${JSON.stringify(counter)},'utf8'))}catch{}
 fs.writeFileSync(${JSON.stringify(counter)},String(++n));
 const timer=setInterval(()=>{if(fs.existsSync(${JSON.stringify(home)}+'/probe-'+n)) {
