@@ -70,7 +70,7 @@ Forge CLI, installer/ZIP makers, GitHub publisher, and fuses plugin are pinned t
 
 Validate clean installs, real Electron tests, packaging, and packaged smoke tests when updating Forge. The Electron tests exercise the native node-pty addon, and Forge rebuilds it for the target Electron version during startup and packaging. The three-platform CI matrix checks the resulting artifacts with sandboxing and application fuses enabled.
 
-Vitest and its V8 coverage provider are updated together to 5.0.2. TypeScript 6 remains the compiler; Oxlint’s pinned Go backend supplies type-aware linting independently. Node types match Node 24. Use Node 24 LTS (`nvm use`); Vitest 5 does not support Node 25.
+Vitest and its V8 coverage provider are pinned together at 5.0.5. TypeScript 6 remains the compiler; Oxlint’s pinned Go backend supplies type-aware linting independently. Node types match Node 24. Use Node 24 LTS (`nvm use`); Vitest 5 does not support Node 25.
 
 Sources: [Forge 8.0.1 release notes](https://github.com/electron/forge/releases/tag/v8.0.1), [Electron's maintained ZIP extractor](https://github.com/electron/extract-zip), and the installed packages' peer/engine requirements.
 
@@ -120,8 +120,8 @@ memory-constrained machines. Local measurements and tradeoffs are recorded in th
 The macOS signer invokes `notarytool` directly with bounded polling and visible
 submission progress (see [validation](validation.md)). The build dependencies
 retain the `@electron/notarize` 3.1.2 pin. A transitive
-`pnpm.overrides.vite` pin to 8.3.3 fixes GHSA-698v-4r3x-3vcv in Vitest's
-Vite dependency. It satisfies Vitest 5's Vite peer range; frozen installation,
+`pnpm.overrides.vite` pin and explicit Vite development dependency at 8.3.3 fix GHSA-698v-4r3x-3vcv in Vitest's
+Vite dependency. The explicit dependency supplies Vitest’s required peer with peer auto-installation disabled. It satisfies Vitest 5's Vite peer range; frozen installation,
 `pnpm run audit` and the full check/coverage runs validate the override.
 
 Scoped transitive overrides address minimatch

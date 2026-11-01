@@ -141,18 +141,45 @@ test("the accepted sloppy-CommonJS gaps do not extend to Forge or ESM files", ()
   const root = mkdtempSync(join(tmpdir(), "foom-lint-parser-"));
   try {
     mkdirSync(join(root, "esm"));
-    const bad = "function f(a, a) { return a; } f(071, 2);";
-    writeFileSync(join(root, "sloppy.js"), bad);
-    writeFileSync(join(root, "esm", "strict.mjs"), bad);
     writeFileSync(join(root, "lint.json"), JSON.stringify({ categories: { correctness: "off" } }));
+    writeFileSync(
+      join(root, "tsconfig.json"),
+      JSON.stringify({
+        compilerOptions: {
+          strict: true,
+          noEmit: true,
+          skipLibCheck: true,
+          types: [],
+          target: "ES2023",
+        },
+        include: ["*.ts"],
+      }),
+    );
     const run = (file) =>
       spawnSync(
         process.execPath,
         [resolve("node_modules/oxlint/bin/oxlint"), "--config", join(root, "lint.json"), file],
         { encoding: "utf8" },
       );
-    assert.equal(run(join(root, "sloppy.js")).status, 0);
-    assert.equal(run(join(root, "esm", "strict.mjs")).status, 1);
+    for (const [bad, compilerError] of [
+      ["function f(a, a) { return a; } f(1, 2);", /Duplicate identifier/],
+      ["const value = 071; console.log(value);", /Octal literals are not allowed/],
+    ]) {
+      writeFileSync(join(root, "sloppy.js"), bad);
+      writeFileSync(join(root, "esm", "strict.mjs"), bad);
+      writeFileSync(join(root, "strict.js"), `"use strict";\n${bad}`);
+      assert.equal(run(join(root, "sloppy.js")).status, 0);
+      assert.equal(run(join(root, "esm", "strict.mjs")).status, 1);
+      assert.equal(run(join(root, "strict.js")).status, 1);
+      writeFileSync(join(root, "strict.ts"), `${bad}\nexport {};`);
+      const compiler = spawnSync(
+        process.execPath,
+        [resolve("node_modules/typescript/bin/tsc"), "--project", root],
+        { encoding: "utf8" },
+      );
+      assert.notEqual(compiler.status, 0);
+      assert.match(compiler.stdout, compilerError);
+    }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
