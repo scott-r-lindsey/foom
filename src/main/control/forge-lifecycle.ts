@@ -95,7 +95,7 @@ export class ForgeLifecycle {
       const generation = this.generation;
       const { plugin, remote, context } = selection;
       let directory: string | undefined;
-      let timeout: ReturnType<typeof setTimeout> | undefined;
+      let remainingMs = this.timeoutMs;
       const execution: { expired: boolean; failure?: ForgeExecutionError } = { expired: false };
       const assertCurrent = () => {
         if (controller.signal.aborted)
@@ -142,26 +142,32 @@ export class ForgeLifecycle {
         }
         directory = await mkdtemp(join(tmpdir(), "foom-forge-"));
         const cwd = directory;
-        timeout = setTimeout(() => {
-          execution.expired = true;
-          controller.abort();
-        }, this.timeoutMs);
-
         const transport: ForgeTransport = async (argv, optionalDisplay = false) => {
           if (execution.failure) throw execution.failure;
           const displayController = new AbortController();
           const cancelDisplay = () => {
             displayController.abort();
           };
-          let displayTimeout: ReturnType<typeof setTimeout> | undefined;
+          let commandTimeout: ReturnType<typeof setTimeout> | undefined;
+          let startedAt: number | undefined;
           if (optionalDisplay) {
             // Display has its own bounded deadline; losing it cannot erase status.
-            clearTimeout(timeout);
             controller.signal.addEventListener("abort", cancelDisplay, { once: true });
-            displayTimeout = setTimeout(cancelDisplay, this.timeoutMs);
           }
           try {
+            // Remote checkout validation has its own bounded SSH/Git reads. It
+            // must not consume the shared forge subprocess execution budget.
             await revalidate();
+            startedAt = performance.now();
+            commandTimeout = setTimeout(
+              optionalDisplay
+                ? cancelDisplay
+                : () => {
+                    execution.expired = true;
+                    controller.abort();
+                  },
+              optionalDisplay ? this.timeoutMs : remainingMs,
+            );
             const response = await executeForge(
               resolved.executable,
               argv,
@@ -182,7 +188,9 @@ export class ForgeLifecycle {
               error instanceof ForgeExecutionError ? error : new ForgeExecutionError("unavailable");
             throw execution.failure;
           } finally {
-            if (displayTimeout) clearTimeout(displayTimeout);
+            if (commandTimeout) clearTimeout(commandTimeout);
+            if (startedAt !== undefined && !optionalDisplay)
+              remainingMs = Math.max(0, remainingMs - (performance.now() - startedAt));
             controller.signal.removeEventListener("abort", cancelDisplay);
           }
         };
@@ -226,7 +234,6 @@ export class ForgeLifecycle {
             : "unavailable";
         return undefined;
       } finally {
-        if (timeout) clearTimeout(timeout);
         selection.signal?.removeEventListener("abort", cancel);
         this.running.delete(controller);
         try {

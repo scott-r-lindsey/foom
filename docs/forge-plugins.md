@@ -340,7 +340,10 @@ files on Windows. No implicit cwd lookup or shell wrapper fallback. Main supplie
 the discovered login PATH; this service never invokes a login shell. Each uncached
 sample uses a fresh disposable temporary directory, execFile-style argument arrays
 (`spawn` with `shell: false`), manifest allowlisted environment overrides, a maximum
-10-second sample deadline and 256 KiB combined stdout/stderr cap. AbortSignal,
+10-second cumulative forge subprocess execution budget and 256 KiB combined
+stdout/stderr cap. Main-owned checkout revalidation retains its own bounded
+SSH/Git reads outside that execution budget; every pre-command and publication
+check still runs. AbortSignal,
 invalidation, shutdown, timeout and output overflow terminate the POSIX process
 group or use fixed system `taskkill.exe /T /F` arguments on Windows. Completion
 waits for process close and tree cleanup before removing the temporary directory.
@@ -382,7 +385,7 @@ manifest's optional separate command; identity, head, state and ownership must s
 match. Display command failures, including timeout/auth failure, omit enrichment
 without changing status. Registry, executable or checkout invalidation still retires
 the whole sample. The display command has a separate ten-second deadline after the
-status sample's ten-second budget; cancellation still kills and reaps its process tree.
+status sample's ten-second execution budget; cancellation still kills and reaps its process tree.
 Board batches keep one query and derive optional title/source/URL from that verified
 response, without per-PR processes or changes to batch sizing/cadence.
 
