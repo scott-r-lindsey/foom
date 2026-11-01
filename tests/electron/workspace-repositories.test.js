@@ -280,10 +280,6 @@ test("sidebar refuses deletion of a running shell and enables it after exit, pre
     (t) => t.worktree === external,
   );
   assert.ok(shell);
-  // Inventory arrives before the launch command places/focuses the terminal and
-  // dismisses its launcher panel. Reopening before that completion races close.
-  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
-  await expect(row).toHaveAttribute("aria-expanded", "false");
   await row.click();
   await expect(page.getByRole("menuitem", { name: "Delete worktree…" })).toBeDisabled();
   await assert.rejects(

@@ -195,12 +195,13 @@ for (const scenario of [
             "Content-Type": "application/json",
           },
           body: JSON.stringify({ version: 1, instanceId: parent.instanceId, method, params }),
-          // Mutations include Git, durable writes, startup or host-observed exit.
-          // In particular, close proves a detached review checkout is unchanged
-          // and removes it; it is not a five-second responsiveness read.
+          // Worktree mutations include Git, durable writes, startup or removal.
+          // A clean detached-review close measured 4,935ms on macOS CI (#989):
+          // its Git identity/ref/reflog/cleanliness proof and removal are not a
+          // five-second responsiveness read.
           // Await completion under the case deadline; reads/input retain their
           // short responsiveness bound as well as cancellation with the case.
-          signal: ["create_worktree", "launch", "review", "stop", "close"].includes(method)
+          signal: ["create_worktree", "launch", "review", "close"].includes(method)
             ? context.signal
             : AbortSignal.any([context.signal, AbortSignal.timeout(deadline(5000))]),
         });
