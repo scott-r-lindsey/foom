@@ -100,6 +100,7 @@ export function RowMenu({
   const confirmation = useConfirmation(confirmations);
   const [selected, setSelected] = useState<number>();
   const ref = useRef<HTMLDivElement>(null);
+  const pointerPinRef = useRef(false);
   useLayoutEffect(() => {
     const menu = ref.current;
     return () => {
@@ -172,8 +173,11 @@ export function RowMenu({
       typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(position);
     observer?.observe(menu);
     if (keepOnResize) window.addEventListener("resize", position);
-    if (focusOnOpen)
+    // Pinning a hovered panel must let the pointer choose focus. Focusing the
+    // first launcher here can scroll the pressed item away before mouse-up.
+    if (focusOnOpen && !pointerPinRef.current)
       menu.querySelector<HTMLButtonElement>(".row-menu-items button:not(:disabled)")?.focus();
+    pointerPinRef.current = false;
     return () => {
       observer?.disconnect();
       window.removeEventListener("resize", position);
@@ -259,7 +263,10 @@ export function RowMenu({
       data-pinned={panel?.pinned}
       onPointerEnter={panel?.enter}
       onPointerLeave={panel?.leave}
-      onPointerDown={panel?.pin}
+      onPointerDown={() => {
+        if (panel?.pin && !panel.pinned) pointerPinRef.current = true;
+        panel?.pin?.();
+      }}
       aria-label={label}
       onKeyDown={(event) => {
         const items = Array.from(

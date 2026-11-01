@@ -420,10 +420,17 @@ test("native host matrix builds four same-run catalog entries without Release cr
   for (const [os, target] of [
     ["ubuntu-24.04", "linux-x64"],
     ["ubuntu-24.04-arm", "linux-arm64"],
-    ["macos-15-intel", "darwin-x64"],
     ["macos-15", "darwin-arm64"],
   ])
-    assert.ok(hosts.includes(`{ os: ${os}, target: ${target} }`));
+    assert.ok(hosts.includes(`{ os: ${os}, target: ${target}, name:`));
+  assert.doesNotMatch(hosts, /macos-15-intel/);
+  assert.equal((hosts.match(/os: macos-15,/g) ?? []).length, 1);
+  assert.match(hosts, /name: darwin-arm64 \+ darwin-x64/);
+  assert.match(hosts, /node-version-file: \.nvmrc\n +architecture: x64/);
+  assert.match(hosts, /ESBUILD_BINARY_PATH: .*@esbuild\/darwin-arm64\/bin\/esbuild/);
+  for (const name of ["remote-host-darwin-x64", "host-inputs-darwin-x64"])
+    assert.ok(hosts.includes(`name: ${name}\n`));
+  assert.match(hosts, /!remote-host-inputs\/darwin-arm64\/\*\*/);
   assert.doesNotMatch(hosts, /secrets\.|environment:|permissions:|continue-on-error:/);
   assert.match(hosts, /run: node scripts\/build-remote-host\.mjs/);
   assert.match(hosts, /node scripts\/nightly\.mjs stamp/);
@@ -472,4 +479,59 @@ test("Darwin assembly inputs stay in same-run artifacts and Developer ID keeps l
     read("./entitlements-adhoc.plist"),
     /com\.apple\.security\.cs\.disable-library-validation/,
   );
+});
+
+test("combined Darwin job runs every x64 probe and rejects build or startup failures", {
+  skip: process.platform === "win32",
+}, async () => {
+  const { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { spawnSync } = await import("node:child_process");
+  const workflow = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
+  const step = workflow
+    .split("- name: Build and probe x64 Darwin host under Rosetta\n")[1]
+    .split("      - name:")[0];
+  const script = step.split("        run: |\n")[1].replace(/^ {10}/gm, "");
+  const directory = mkdtempSync(join(tmpdir(), "foom-darwin-workflow-"));
+  try {
+    mkdirSync(join(directory, "remote-host-artifacts/darwin-x64"), { recursive: true });
+    writeFileSync(
+      join(directory, "remote-host-artifacts/darwin-x64/foom-host"),
+      '#!/bin/bash\nprintf "%s" "$TEST_HOST_OUTPUT"\nexit "$TEST_HOST_STATUS"\n',
+      { mode: 0o700 },
+    );
+    const stub = `node() {
+      printf '%s\\n' "$*"
+      case "$*" in
+        *process.arch*) test "$TEST_FAIL" != arch ;;
+        *spike-remote-host-signing*) test "$TEST_FAIL" != spike ;;
+        *build-remote-host*) test "$TEST_FAIL" != build ;;
+        *) return 99 ;;
+      esac
+    }
+`;
+    const run = (failure = "", status = "2", output = "Usage: foom-host --daemon|--connect") =>
+      spawnSync("bash", ["-e", "-o", "pipefail", "-c", stub + script], {
+        cwd: directory,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          TEST_FAIL: failure,
+          TEST_HOST_STATUS: status,
+          TEST_HOST_OUTPUT: output,
+        },
+      });
+    const success = run();
+    assert.equal(success.status, 0, success.stderr);
+    assert.match(success.stdout, /process.arch.*x64/);
+    assert.match(success.stdout, /spike-remote-host-signing\.mjs/);
+    assert.match(success.stdout, /build-remote-host\.mjs/);
+    for (const failure of ["arch", "spike", "build"])
+      assert.notEqual(run(failure).status, 0, failure);
+    assert.notEqual(run("", "0").status, 0);
+    assert.notEqual(run("", "2", "unexpected Node error").status, 0);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });

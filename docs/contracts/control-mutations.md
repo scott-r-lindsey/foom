@@ -41,7 +41,8 @@ releases without that option.
 any the human took over, and four created worktrees that no child has used,
 including creations in progress, launches still starting, and creations that ended
 `indeterminate` because Git may have added the checkout before a later step failed.
-A worktree serves exactly one launch; a failed spawn returns it for reuse. Each
+A worktree may serve a new launch only after all prior sessions there have exited
+and closed; a failed spawn preserves its previous used/unused state. Each
 worktree ID is bound to the checkout identity captured at creation; launch and
 removal recheck it, so a replacement at the same path is refused. A human Resume or
 New conversation on a child's row ends the orchestrator's ownership of that ID. Tails are rate-limited to one per child per second,
@@ -113,8 +114,8 @@ As of #217, Foom never emits `checking` in control API or MCP session states. An
 Defaults on opt-in are 3 rounds, Claude and no posting; rounds must be 1–5.
 The optional `parentWaitMinutes` is an integer from 1–1440 (default 180).
 Unknown fields fail closed. Main requires installed reviewer and resume-capable
-providers. Only orchestrator-created, unused worktrees remain eligible for the
-initial launch. The loop's internal review/resume steps reuse that checkout with
+providers. Only orchestrator-created worktrees with no remaining earlier sessions are
+eligible for a new author launch. The loop's internal review/resume steps reuse that checkout with
 ordinary owned-child grants and the existing per-parent capacity reservations.
 No child receives launch/prompt authority and parentless agents cannot opt in.
 See [the loop rules](../areas/orchestration.md#optional-child-buildreview-loop-690).
@@ -209,6 +210,39 @@ Orchestrator calls also return `hosts`: observations with `host`, `resources`
 (id and ready/missing/unable state). Null resources plus a fixed `reason` indicate
 an unavailable host observation. Local uses null for its host. These observations
 inform placement; there is no Foom validation lock or busy classification.
+
+### Review continuation and explicit binding (#972)
+
+`launch` accepts optional `pullRequest: N` (console `--pull-request N`). Main
+resolves an open same-repository PR before spawning, independently of the actual
+checkout branch, and requires the checkout commit to match the PR head both before and after resolution. Unresolvable bindings return `pr_binding_unresolved`; closed PRs
+and forks return `pr_not_open` and `pr_from_fork`. Identity inspection still uses
+the actual checkout branch. Review steps follow the bound number and require its
+current head to match the checkout HEAD and green required checks at every existing gate.
+New tasks without a PR can still launch; their first validated completion binds
+the discovered PR. The loop cannot silently switch to another PR.
+
+The same owning parent may launch a new author in its existing checkout once
+every earlier session there has exited and closed. This includes human and
+taken-over rows. The branch, PR number and review options remain attached to the
+owned worktree; omission inherits them. Main rechecks identity, membership,
+capacity, live authority and absence of prior rows before spawning. Starting
+launches still reserve the checkout. Failed continuation preserves used state.
+Restored metadata grants no authority and never starts automation.
+
+`review({pullRequest: N, since?, focus?, postFindings?, idempotencyKey})` creates
+one detached checkout at the fetched PR head and launches one ordinary Claude
+reviewer with the standard read-only brief and structured verdict. `since` is a
+full lowercase 40- or 64-digit commit SHA; the reviewer checks its ancestry before
+scoping the diff. `focus` is quoted, bounded (4096 UTF-8 bytes) untrusted scope data.
+The console is `foom review --pull-request N [--since SHA] [--focus TEXT]
+[--post-findings true|false] --idempotency-key KEY`. No author's loop is changed;
+the parent reads the verdict and stops/closes the reviewer normally. Pending or
+red checks do not prevent a standalone review, but the fetched head must still
+match the bound PR before launch. Posting defaults to false. Usual capacity,
+takeover, identity, unused-worktree budget and cleanup rules apply. The composite
+returns a launch operation whose `resultId` is the reviewer ID; query the caller's
+key after a lost response. Closed reports survive only while their checkout does.
 
 ### Local message board (#973)
 

@@ -1,3 +1,5 @@
+import type { CopyableErrorId } from "./application-error";
+
 import type { MessageBoardApi } from "./message-board";
 import type { LaunchSelection } from "./agents";
 import type { ReviewState } from "./review";
@@ -206,12 +208,23 @@ export interface SidebarInventory {
   home?: HomeShellFacts;
 }
 export type SidebarCommand =
+  | { kind: "copy-error-text"; error: CopyableErrorId }
   | { kind: "open-handoff-link"; id: string; seq: number; index: number }
   | { kind: "home-shell" }
   | { kind: "copy-home-path" }
   | { kind: "config-launch"; run: AgentId }
   | { kind: "copy-config-path" }
   | { kind: "open-pull-request"; repository: string; worktree: string }
+  | { kind: "copy-default-branch"; repository: string; worktree: string }
+  | { kind: "copy-worktree-branch"; repository: string; worktree: string }
+  | { kind: "copy-worktree-head"; repository: string; worktree: string }
+  | { kind: "copy-pull-request-number"; repository: string; worktree: string }
+  | { kind: "copy-pull-request-url"; repository: string; worktree: string }
+  | { kind: "copy-remote-url"; repository: string; worktree: string }
+  | { kind: "copy-foom-session-id"; id: string }
+  | { kind: "copy-parent-id"; id: string }
+  | { kind: "copy-child-id"; id: string; child: string }
+  | { kind: "copy-handoff-summary"; id: string; seq: number }
   | { kind: "copy-worktree-path"; repository: string; worktree: string }
   | { kind: "launch"; repository: string; worktree: string; run: AgentId }
   | { kind: "remove-worktree"; repository: string; worktree: string }

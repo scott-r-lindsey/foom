@@ -319,6 +319,19 @@ child.on('close', code => { appendFileSync(${JSON.stringify(sshLog)}, 'fixture s
     .getByRole("button", { name: "Hosts", exact: true })
     .click();
   await expect(restored.getByText("Other profiles or untagged: 1", { exact: true })).toBeVisible();
+  await restored.getByRole("button", { name: "Copy host alias", exact: true }).click();
+  await expect
+    .poll(() => restarted.evaluate(({ clipboard }) => clipboard.readText()))
+    .toBe("fixture-cloud");
+  const codeCopy = restored.getByRole("button", { name: "Copy code folder", exact: true });
+  await codeCopy.click();
+  await expect
+    .poll(() => restarted.evaluate(({ clipboard }) => clipboard.readText()))
+    .toBe(path.join(remoteHome, "code"));
+  await restored.screenshot({
+    path: evidencePath("960-settings-hosts.png"),
+    animations: "disabled",
+  });
   for (const theme of ["eclipse-light", "eclipse-dark"]) {
     await restored.evaluate(
       (interfaceTheme) => window.desktop.saveSetup({ interfaceTheme }),

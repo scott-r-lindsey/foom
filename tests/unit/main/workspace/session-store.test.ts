@@ -349,3 +349,43 @@ test("persists private remote checkout locators and rejects forged path, identit
     expect(() => readSessions([{ ...record, remote: true, remoteCheckout: invalid }])).toThrow();
   expect(() => readSessions([{ ...record, remoteCheckout }])).toThrow();
 });
+
+test("persists closed reviewer handoffs and continuation settings with owned checkout metadata", async () => {
+  const { store } = await setup();
+  const report = {
+    seq: 1,
+    status: "done",
+    summary: "Review",
+    timestamp: new Date(0).toISOString(),
+    links: [],
+    review: { verdict: "clean" },
+  };
+  const tree = {
+    path: join(root, "owned"),
+    identity: "checkout",
+    state: "used",
+    pullRequest: 972,
+    reviewer: true,
+    review: { rounds: 2, agent: "claude", postFindings: false },
+    closedReviews: [{ id: "reviewer", handoffs: [report] }],
+  };
+  const role = { identity: "repo", history: [], worktrees: [tree] };
+  const saved = readSessions([{ ...record, orchestrator: role }]);
+  await store.save(saved);
+  expect((await store.load())[0]?.orchestrator?.worktrees).toEqual([tree]);
+  for (const extra of [
+    { pullRequest: 0 },
+    { pullRequest: "972" },
+    { reviewer: "yes" },
+    { review: { rounds: 6 } },
+    { closedReviews: {} },
+    { closedReviews: Array(1001).fill({}) },
+    { closedReviews: [null] },
+    { closedReviews: [{ id: "../bad", handoffs: [] }] },
+    { closedReviews: [{ id: "reviewer", handoffs: [], extra: true }] },
+    { closedReviews: [{ id: "reviewer", handoffs: [{}] }] },
+  ])
+    expect(() =>
+      readSessions([{ ...record, orchestrator: { ...role, worktrees: [{ ...tree, ...extra }] } }]),
+    ).toThrow();
+});

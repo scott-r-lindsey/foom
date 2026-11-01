@@ -696,6 +696,8 @@ const validSelectionToken: Validator<string> = (value): value is string =>
   /^[A-Za-z0-9._:/][A-Za-z0-9._:/-]{0,63}$/u.test(value);
 
 const validReviewState: Validator<ReviewState> = shape({
+  lastVerdict: either(absent, validReviewVerdict),
+  pullRequest: either(absent, positiveCount),
   model: either(absent, validSelectionToken),
   effort: either(absent, validSelectionToken),
   authorId: text,
@@ -1350,6 +1352,7 @@ const desktop: DesktopApi = {
     },
     popout: (id) => invokeVoid("preview:popout", id),
     network: (id, enabled) => invokeVoid("preview:network", id, enabled),
+    copyPath: (id) => invokeVoid("preview:copy-path", id),
     pick: (worktree) => reply("preview:pick", either(nil, text), worktree),
     reload: (id) => invokeVoid("preview:reload", id),
     close: (id) => invokeVoid("preview:close", id),
@@ -1784,6 +1787,7 @@ const desktop: DesktopApi = {
       ipcRenderer.removeListener("config:changed", listener);
     };
   },
+  copyHost: (command) => invokeVoid("setup:copy-host", command),
   hosts: (action) => reply("setup:hosts", validHostsState, action),
   listTerminalFonts: (refresh = false) => reply("setup:terminal-fonts", array(text), refresh),
   listThemes: () => reply("theme:list", validThemeCatalog),

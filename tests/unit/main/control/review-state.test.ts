@@ -35,6 +35,10 @@ describe("review presentation and safe restore", () => {
   });
   it("validates bounded saved metadata and never automatically restarts a loop participant", () => {
     expect(isReviewState(state)).toBe(true);
+    expect(isReviewState({ ...state, lastVerdict: { verdict: "clean" } })).toBe(true);
+    expect(isReviewState({ ...state, lastVerdict: { verdict: "findings", findings: [] } })).toBe(
+      false,
+    );
     expect(
       isReviewState({ ...state, phase: "escalated", reason: "restored", waiting: false }),
     ).toBe(true);

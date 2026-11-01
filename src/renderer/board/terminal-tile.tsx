@@ -24,7 +24,7 @@ import {
   previewOpener,
   sidebarParent,
 } from "./sidebar-model";
-import { landingSpace } from "./tiles";
+import { tileRemovalAction, landingSpace } from "./tiles";
 
 import type {
   TerminalViewSource,
@@ -436,13 +436,13 @@ export function Tile({
             )}
             <button
               type="button"
-              aria-label={preview || row?.exited ? "Close" : "Hide"}
-              title={preview || row?.exited ? "Close" : "Hide"}
+              aria-label={tileRemovalAction(row, Boolean(preview)) === "close" ? "Close" : "Hide"}
+              title={tileRemovalAction(row, Boolean(preview)) === "close" ? "Close" : "Hide"}
               onClick={() => {
-                action(preview || row?.exited ? "close" : "hide");
+                action(tileRemovalAction(row, Boolean(preview)));
               }}
             >
-              {preview || row?.exited ? "×" : "−"}
+              {tileRemovalAction(row, Boolean(preview)) === "close" ? "×" : "−"}
             </button>
           </div>
         </header>
@@ -470,6 +470,13 @@ export function Tile({
       )}
       {occupied && menu && !inactive && !behind && (
         <TileMenu
+          copyPath={
+            preview
+              ? () =>
+                  source.previews?.copyPath?.(preview.id) ??
+                  Promise.reject(new Error("Copy unavailable"))
+              : undefined
+          }
           anchor={menu.anchor}
           point={menu.point}
           layout={{ ...layout, focused: tile.id }}

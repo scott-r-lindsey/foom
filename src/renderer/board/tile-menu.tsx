@@ -1,3 +1,4 @@
+import { CopyValue } from "../ui/copy-value";
 import { agentNames } from "./sidebar-model";
 import type { PreviewSummary } from "../../shared/workspace";
 import type { WindowMovesApi, MoveContent, WindowDestination } from "../../shared/windows";
@@ -5,7 +6,7 @@ import { useEffect, useState, useId, useSyncExternalStore } from "react";
 import type { BoardRow } from "./board.d";
 import type { TileAction, TileLayout } from "./tiles.d";
 import type { TerminalViewSource } from "../terminal/terminal-view-source.d";
-import { splitReason } from "./tiles";
+import { tileRemovalAction, splitReason } from "./tiles";
 import { DirectionPad } from "./direction-pad";
 import { light } from "./board";
 import { RowMenu } from "./row-menu";
@@ -27,6 +28,7 @@ export function TileMenu({
   moveError,
   network,
   reload,
+  copyPath,
   close,
   action,
 }: {
@@ -44,6 +46,7 @@ export function TileMenu({
   moveError?: (() => void) | undefined;
   network?: (() => void) | undefined;
   reload?: (() => void) | undefined;
+  copyPath?: (() => Promise<void>) | undefined;
   close: () => void;
   action: (action: TileAction) => void;
 }) {
@@ -148,7 +151,10 @@ export function TileMenu({
             ]
           : []),
         null,
-        item(preview || row?.exited ? "close" : "hide", preview || row?.exited ? "Close" : "Hide"),
+        item(
+          tileRemovalAction(row, Boolean(preview)),
+          tileRemovalAction(row, Boolean(preview)) === "close" ? "Close" : "Hide",
+        ),
       ]}
       onAction={(selected) => {
         void selected.run();
@@ -172,7 +178,17 @@ export function TileMenu({
             {preview && (
               <>
                 <dt>Path</dt>
-                <dd>{preview.relativePath}</dd>
+                <dd>
+                  {preview.worktree === "foom:manual" ? (
+                    preview.relativePath
+                  ) : (
+                    <CopyValue
+                      value={preview.relativePath}
+                      label="Copy opened file path"
+                      copy={() => copyPath?.() ?? Promise.reject(new Error("Copy unavailable"))}
+                    />
+                  )}
+                </dd>
                 {preview.openedBy && (
                   <>
                     <dt>Opened by</dt>

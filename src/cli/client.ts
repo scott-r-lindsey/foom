@@ -149,6 +149,10 @@ function serverError(value: unknown): ControlError {
     "forbidden",
     "no_parent",
     "remote_review_unsupported",
+    "pr_binding_unresolved",
+    "pr_not_open",
+    "pr_from_fork",
+    "invalid_branch",
     "not_found",
     "conflict",
     "capacity",
@@ -166,6 +170,7 @@ export class UnknownOutcome extends Error {
 
 export async function call(connection: Connection, command: Command): Promise<unknown> {
   const mutation = [
+    "review",
     "create_worktree",
     "launch",
     "stop",

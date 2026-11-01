@@ -779,11 +779,14 @@ test("preview picker sends only the inventory worktree ID; bounds and close send
   await api.previews?.pick("/checkout");
   const bounds = { x: 1, y: 2, width: 300, height: 200, visible: true };
   await api.previews?.bounds("preview", bounds);
+  await api.previews?.copyPath?.("preview");
+  expect(mock.invoke).toHaveBeenCalledWith("preview:copy-path", "preview");
   await api.previews?.reload("preview");
   await api.previews?.close("preview");
   expect(mock.invoke.mock.calls).toEqual([
     ["preview:pick", "/checkout"],
     ["preview:bounds", "preview", bounds],
+    ["preview:copy-path", "preview"],
     ["preview:reload", "preview"],
     ["preview:close", "preview"],
   ]);
@@ -1557,6 +1560,16 @@ test("window moves validate and project tokens, destinations and placement event
   expect(mock.removeListener).toHaveBeenCalledWith("windows:drag", expect.any(Function));
   expect(mock.removeListener).toHaveBeenCalledWith("windows:prepare-move", expect.any(Function));
   expect(mock.removeListener).toHaveBeenCalledWith("windows:finish-move", expect.any(Function));
+});
+
+test("host copies discard reply contents and expose no clipboard text capability", async () => {
+  const api = await bridge();
+  mock.invoke.mockResolvedValueOnce({ secret: "must not escape" });
+  await expect(api.copyHost({ kind: "copy-host-alias", host: "worker" })).resolves.toBeUndefined();
+  expect(mock.invoke).toHaveBeenCalledWith("setup:copy-host", {
+    kind: "copy-host-alias",
+    host: "worker",
+  });
 });
 
 test("projects board records and rejects malformed board replies", async () => {

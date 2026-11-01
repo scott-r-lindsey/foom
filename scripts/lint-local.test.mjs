@@ -8,12 +8,12 @@ import { test } from "node:test";
 test("local lint reuses only complete success and invalidates cross-file types, config and installed dependencies", (context) => {
   const root = mkdtempSync(join(tmpdir(), "foom-lint-"));
   context.after(() => rmSync(root, { recursive: true, force: true }));
-  for (const dir of ["scripts", "src", "test-results", "node_modules/eslint/bin"])
+  for (const dir of ["scripts", "src", "test-results", "node_modules/oxlint/bin"])
     mkdirSync(join(root, dir), { recursive: true });
   for (const name of ["lint-local.mjs", "validation-fingerprint.mjs"])
     cpSync(new URL(name, import.meta.url), join(root, "scripts", name));
   writeFileSync(
-    join(root, "node_modules/eslint/bin/eslint.js"),
+    join(root, "node_modules/oxlint/bin/oxlint"),
     `
     const fs = require('node:fs');
     fs.appendFileSync('test-results/runs', 'run\\n');
@@ -30,7 +30,7 @@ test("local lint reuses only complete success and invalidates cross-file types, 
   assert.equal(runs(), 1);
   for (const file of [
     "src/type.ts",
-    "eslint.config.mjs",
+    ".oxlintrc.json",
     "tsconfig.json",
     "pnpm-lock.yaml",
     "node_modules/dependency.d.ts",

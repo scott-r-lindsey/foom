@@ -97,3 +97,68 @@ request and a boolean from the requesting destination only. `windows:finish-move
 carries the same request and transferred kind/ID or null on refusal. The preload
 validates and projects every reply/event. Tokens expire after 15 seconds and are
 consumed before asynchronous work; renderer payloads never identify drag authority.
+
+## Visible fact copy controls (#960)
+
+Copy controls send identifiers, never clipboard text. Browser clipboard permission
+remains denied. The value and its trailing small copy icon form one accessible
+button; hover/focus reveals the faint icon and success replaces it with a check
+for one second. Success adds no helper text; refusal uses `Unable to copy`.
+No copy command is exposed through agent, remote-host or control transports.
+Terminal IDs remain absent from remote process environments, arguments and files;
+credentials, pairing codes, environment secrets and tokens have no copy control.
+
+`workspace:sidebar-command` adds the following closed commands. Every copy payload
+has exactly its declared fields, with bounded nonempty identifiers. The existing
+registered board/main-frame/URL sender checks apply before dispatch.
+
+| Kind | Identifiers | Main-owned resolution |
+| --- | --- | --- |
+| `copy-worktree-path` | repository, worktree | Existing canonical checkout membership check |
+| `copy-default-branch` | repository, worktree | Authorized panel facts' default branch |
+| `copy-worktree-branch` | repository, worktree | Current local checkout branch, or the registered remote placement's raw branch (without host decoration) |
+| `copy-worktree-head` | repository, worktree | Full HEAD of a currently detached checkout; display stays seven characters |
+| `copy-pull-request-number` | repository, worktree | Current tracked PR number |
+| `copy-pull-request-url` | repository, worktree | Forge's host-validated current PR URL |
+| `copy-remote-url` | repository, worktree | Authorized local panel facts; no fetch |
+| `copy-session-id` | session ID | Existing validated agent conversation ID |
+| `copy-foom-session-id` | session ID | Known Foom session's ID |
+| `copy-parent-id` | session ID | Selected child's parent ID |
+| `copy-child-id` | session ID, child ID | Selected parent's current child relationship |
+| `copy-handoff-summary` | session ID, positive sequence | Selected session's current handoff, refusing stale sequences |
+| `copy-error-text` | closed error sentence ID | Fixed sentence catalog in `shared/application-errors.ts`; arbitrary exception text is never accepted |
+
+Local checkout fact copies authorize identity before resolution and again after
+awaited reads. Remote branch copies resolve only a retained registered placement
+bound to the selected local repository and a current session row on the same host;
+main rechecks its host and approved folder registration, without local Git or SSH.
+Missing facts, unknown checkouts/sessions, unrelated children and stale
+handoffs refuse. Remote copies accept credential-free HTTP(S), SSH, Git and file
+URLs, SCP-style remotes and absolute or explicit relative Git paths. URL queries
+and fragments refuse because they may carry tokens. PR URLs retain the forge's
+HTTPS/host check and allow normal web paths, including Gerrit's `+` paths.
+Copying reads no file bytes, clipboard contents, credentials or provider state.
+
+`setup:copy-host` invokes a void capability with exactly one `HostCopyCommand`:
+`copy-host-alias` and `copy-host-code-folder` name a registered host;
+`copy-checkout-path` names a registered repository and a host (null for Local).
+Main resolves registrations and the last validated location observation without
+SSH or network work, refuses absent observations and unregistered objects, and
+checks that remote checkout paths remain under the registered code folder.
+Checkout paths appear in Settings → Repositories → Locations; Hosts contains
+aliases and code folders.
+
+`preview:copy-path` invokes a void capability with one preview ID. The registered
+owning board main frame is checked by the window router. Main resolves the full
+opened path from that window's preview registry; closed, foreign and bundled
+manual IDs refuse. The tile panel retains the relative display path.
+
+The trusted confirmation bridge alone sends `confirmation:copy-path` with the
+pending request ID, a displayed removal-path ID and a positive call ID. Main
+requires the exact trusted dialog contents/main frame/URL and a presented pending
+request, resolves only its worktree and displayed status paths (including rename
+sources), and replies with `confirmation:copy-result` containing call ID and
+boolean success. Stale requests and unknown paths fail without copying or
+answering the confirmation. Preload validates replies and bounds pending calls;
+a missing reply fails after three seconds. Pairing, disclosure and other facts
+never become copy targets. Copy buttons join the dialog's existing focus trap.

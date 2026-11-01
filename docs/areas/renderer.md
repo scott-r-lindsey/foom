@@ -36,7 +36,7 @@ A constant rate intentionally produces a horizontal line above the baseline.
 - **High-frequency data bypasses React.** Activity arrives about 10 times a second for up to 10 terminals. A small subscriber writes each light's brightness to a CSS custom property on the light element; React re-renders only when structure or verdicts change. Terminal output never goes into React state.
 - **xterm.js stays imperative.** One component owns the `Terminal` through a ref, creates it once, and keeps the attach, drain, reset, fit, snapshot, acknowledgement, and reply-suppression order described in [Terminals](terminals.md).
 - **Keyboard first.** Every board action works without a mouse. The Electron suite runs axe; serious or critical violations fail.
-- **Linting:** `eslint-plugin-react-hooks` and `@eslint-react/eslint-plugin` on top of the existing type-aware rules. `eslint-plugin-react` and `eslint-plugin-jsx-a11y` don't support ESLint 10 and are not used.
+- **Linting:** `eslint-plugin-react-hooks` and `@eslint-react/eslint-plugin` run through Oxlint’s JavaScript plugin API alongside its native type-aware rules. Their original rules and warning severities are preserved; `--deny-warnings` fails warnings in both local and CI gates. The ESLint engine is not installed.
 - **Coverage and lint globs include `.tsx`.** A component outside them would silently skip the per-file thresholds or the renderer import restrictions.
 - The CSP doesn't change. React needs no `eval`.
 
@@ -123,7 +123,10 @@ modal hide may blur the opener to the document body; that implicit fallback does
 not revoke a later dismissal's restoration request.
 Trusted scrims, About, legal views, action errors
 and menu dismissal share `board/focus-restore.ts` for detached or unfocusable
-opener fallback. A coalesced prepare/dismiss pair still commits its dismissal effect, even when
+opener fallback. Pointer pinning of a hovered panel leaves focus to the pressed control so the
+launcher cannot scroll away between pointer-down and click; keyboard pinning
+still focuses the first enabled command. A coalesced prepare/dismiss pair still
+commits its dismissal effect, even when
 the final visible flag is unchanged. Serial handoffs retain the original focus
 until the scrim is actually removed, with a stable native-popover ref.
 Scrim restoration runs in a layout effect after removing the top-layer popover;

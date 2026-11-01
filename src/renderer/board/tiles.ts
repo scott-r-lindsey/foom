@@ -1,3 +1,5 @@
+import type { BoardRow } from "./board.d";
+import { conversationId } from "../../shared/conversation";
 import type {
   TileDirection,
   TileContent,
@@ -10,6 +12,12 @@ import type {
   TileRect,
   TileSplit,
 } from "./tiles.d";
+/** Tile removal preserves sessions whose conversations can be resumed. */
+export function tileRemovalAction(row: BoardRow | undefined, preview = false): "hide" | "close" {
+  return preview || (row?.exited && !(row.kind === "agent" && conversationId(row.conversationId)))
+    ? "close"
+    : "hide";
+}
 const id = () => crypto.randomUUID();
 export const newTile = (): TileLeaf => ({ kind: "tile", id: id(), content: null });
 export const initialLayout = (): TileLayout => {

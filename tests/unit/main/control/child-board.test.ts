@@ -52,6 +52,50 @@ function fixture() {
 }
 
 describe("child event board integration", () => {
+  it.each([false, true])(
+    "keeps the spawned child when board recording fails (continuation: %s)",
+    async (continuation) => {
+      const h = fixture();
+      const tree = await h.mutate("create_worktree", { branch: "feature" });
+      if (continuation) {
+        const first = await h.mutate("launch", { worktreeId: tree.resultId, agent: "claude" });
+        const id = first.resultId;
+        if (!id) throw new Error("missing child");
+        h.exit(id);
+        await h.mutate("close", { id });
+        h.orchestration.removed(id);
+        h.rows.delete(id);
+        await h.board.flushChildren();
+      }
+      h.save.mockRejectedValueOnce(new Error("recording unavailable"));
+      const log = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        const result = await h.mutate("launch", { worktreeId: tree.resultId, agent: "claude" });
+        expect(result.status).toBe("indeterminate");
+        expect(result.resultId).toBeDefined();
+        expect(h.rows.has(result.resultId ?? "")).toBe(true);
+        expect(h.orchestration.ownedWorktrees("parent")[0]?.state).toBe("used");
+        await expect(h.board.flushChildren()).rejects.toThrow("unavailable");
+      } finally {
+        log.mockRestore();
+      }
+    },
+  );
+  it("records standalone reviews as automatic generated launches", async () => {
+    const h = fixture();
+    h.host.forge.read.mockReturnValue({
+      number: 7,
+      headSha: "head",
+      requiredChecks: "success",
+      state: "OPEN",
+    });
+    const result = await h.mutate("review", { pullRequest: 7 });
+    expect(result.status).toBe("succeeded");
+    const text = await h.text(result.resultId ?? "");
+    expect(text).toContain('"automatic":true');
+    expect(text).toContain("Review PR #7");
+    expect(h.orchestration.reviews.view(result.resultId ?? "")).toBeUndefined();
+  });
   it.each(["explicit", "credential", "provider", "state-credential"])(
     "never persists sensitive prompt text: %s",
     async (mode) => {

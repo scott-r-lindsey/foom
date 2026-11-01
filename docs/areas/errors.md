@@ -9,7 +9,11 @@ validating the sender; feature handlers validate payloads. Workspace IPC also
 sanitizes failures when attached directly.
 Only `ApplicationError` can select a code from the closed shared declaration in
 `shared/application-error.d.ts`; other exceptions become `operation-failed`.
-The rejection carries only `foom-error:<code>`. The renderer recognizes the exact
+The rejection carries only `foom-error:<code>`, or
+`foom-error:session-has-children:<count>` for the existing parent-close guard.
+That count must be a positive safe integer in canonical decimal form; no other
+code accepts details. Busy, still-running and unreachable-remote session closes
+also select fixed codes. The renderer recognizes the exact
 code, with at most Electron's standard invocation wrapper, and maps it to a fixed
 sentence. Unknown or malformed errors get an operation-specific fixed fallback.
 No runtime import was added to the sandboxed preload.
@@ -31,3 +35,10 @@ Local packages that deliberately omit the remote-host catalog use the fixed
 preserves only that trusted preflight reason through transport and terminal-client
 failure, and renders "Remote host artifact unavailable in this local build."
 Arbitrary artifact errors and host-supplied text cannot select this code.
+
+Error dialogs expose a `Copy error text` button on the fixed sentence. The
+renderer maps that sentence to a closed catalog ID; main resolves the sentence
+from that catalog. Raw exception text and arbitrary renderer strings cannot be
+copied. Every fixed action-dialog sentence, including local validation failures,
+needs a catalog ID when introduced. Menu execution failures use the fixed `Unable to run this command.`
+sentence so dynamic menu labels never become clipboard input.

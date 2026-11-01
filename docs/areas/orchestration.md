@@ -227,6 +227,35 @@ Reviewers receive fresh ordinary restricted child grants with exactly handoff,
 manual and sanitized whoami, never hub terminal IDs or control credentials.
 This adds no remote previews, merge authority or detached-review cleanup exception.
 
+### Retained review evidence (#972)
+
+The author’s review state includes `lastVerdict`, the latest accepted verdict and
+its bounded findings as untrusted child-authored data, including at the round cap.
+Closing a reviewer discards its screen but retains its handoffs with the owning
+parent’s worktree record until that checkout is removed. Reads revalidate checkout
+identity and live parent authority; takeover and revocation do not grant access.
+
+### PR continuation and standalone review (#972)
+
+The owning parent's `launch` may reuse its worktree after every prior session
+there exited and closed, rechecking the empty checkout at the spawn boundary.
+PR numbers and review options persist with owned-worktree metadata and are
+inherited on continuation. Failed launches preserve the previous budget state.
+Explicit `launch.pullRequest` resolves before spawn; `pr_binding_unresolved`
+is a specific refusal, never a delayed “checks not green” escalation. Forge
+tracking retains actual checkout identity/branch separately from the validated
+PR head branch. Existing head, check, capacity and cancellation gates remain.
+New tasks may launch before creating their first PR and bind on first completion.
+
+The orchestrator's `review` mutation composes detached PR creation and one ordinary
+Claude launch under a durable outer launch operation. Its key reconciles the
+entire action; internal operations have derived keys. It supplies the standard
+read-only verdict brief, optional full-SHA `since` and quoted `focus`. It validates
+that the detached checkout head matches the resolved PR before launch and checks
+the checkout snapshot again after agent preparation, then rechecks cached PR head and live authority immediately before spawn. It does not attach to any author's loop
+or resume an author. The parent reads the handoff and stops/closes the reviewer;
+posting requires explicit `postFindings`. See the [mutation contract](../contracts/control-mutations.md#review-continuation-and-explicit-binding-972).
+
 ## Local message board (#973)
 
 Current orchestrators and the human exchange local topic threads through the

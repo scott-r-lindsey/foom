@@ -100,7 +100,8 @@ export async function initializeWorkspace(
           (await wiring.worktrees.launchIdentity(tree.repository, tree.path)) !== tree.identity
         )
           return undefined;
-        return (await wiring.worktrees.forgeRemote(tree.repository)) ?? "";
+        const remote = await wiring.worktrees.forgeRemote(tree.repository);
+        return remote && owned.head ? { remote, head: owned.head } : undefined;
       },
       () => {
         wiring.workspace.refresh();

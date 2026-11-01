@@ -284,3 +284,25 @@ omitted from Foom's persistent records; existing credential/provider attention
 also defaults to sensitive. Keys record only a count and delivery status. Ordinary
 prompts are retained; tag automatic capacity nudges `automatic: true` / `--automatic`.
 No terminal output, tails or screens are recorded in these threads.
+
+### Retained review evidence (#972)
+
+The author’s review state includes `lastVerdict`, the latest accepted verdict and
+its bounded findings as untrusted child-authored data, including at the round cap.
+Closing a reviewer discards its screen but retains its handoffs with the owning
+parent’s worktree record until that checkout is removed. Reads revalidate checkout
+identity and live parent authority; takeover and revocation do not grant access.
+
+### Continue and review a PR (#972)
+
+An orchestrator can launch another author in its own existing worktree after all
+earlier sessions there have exited and closed. The PR binding and review settings
+remain attached. `launch --pull-request N` binds an existing PR explicitly, even
+when the checkout branch has another name. An unavailable binding refuses before
+launch with `pr_binding_unresolved`.
+
+`review --pull-request N [--since SHA] [--focus TEXT] --idempotency-key KEY`
+creates one detached PR-head checkout and launches one read-only Claude reviewer.
+It leaves the author's loop alone. The parent reads its structured handoff and
+stops/closes it. `--since` takes a full commit SHA; the reviewer checks ancestry.
+No forge writes occur unless `--post-findings true` is explicit.

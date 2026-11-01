@@ -42,6 +42,12 @@ test("board starts empty, launches into a tile, and Settings keeps its view moun
   fireEvent.click(screen.getByRole("menuitem", { name: /^Settings/ }));
   await settle();
   expect(screen.getByRole("alert").textContent).toBe("Unable to open Settings.");
+  fireEvent.click(screen.getByRole("button", { name: "Copy error text" }));
+  await settle();
+  expect(mock.sidebarCommand).toHaveBeenCalledWith({
+    kind: "copy-error-text",
+    error: "unable-to-open-settings",
+  });
   fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
   expect(screen.queryByRole("dialog", { name: "Action failed" })).toBeNull();
 });

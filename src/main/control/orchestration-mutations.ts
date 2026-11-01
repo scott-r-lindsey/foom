@@ -5,7 +5,7 @@ import { ApplicationError } from "../../shared/application-errors";
 import { RemovalError } from "../workspace/worktree-outcome";
 import type { RemovalReason } from "../workspace/worktree-outcome";
 import { reviewOptions } from "../../shared/review-validation";
-import { AUTHOR_REVIEW_BRIEF } from "./review-loops";
+import { AUTHOR_REVIEW_BRIEF, reviewerBrief } from "./review-loops";
 import { agentProvider } from "../agents/providers/registry";
 import { createHash } from "node:crypto";
 import { knownAgentId } from "../agents/providers/registry";
@@ -135,6 +135,8 @@ export class OrchestrationMutations extends OrchestrationAuthority {
         branch: tree.branch,
         identity: tree.identity,
         state: "unused",
+        ...(number === undefined ? {} : { pullRequest: number }),
+        ...(review === true ? { reviewer: true } : {}),
       });
       return await this.finish(actor, parent, operations, operation, label, "succeeded", id);
     } catch (error) {
@@ -150,10 +152,93 @@ export class OrchestrationMutations extends OrchestrationAuthority {
     }
   }
 
+  protected async review(
+    actor: Principal,
+    params: Record<string, unknown>,
+    operations: Operations,
+  ): Promise<Operation> {
+    exact(params, ["idempotencyKey", "pullRequest", "since", "focus", "postFindings"]);
+    const key = identifier(params["idempotencyKey"]);
+    const number = params["pullRequest"];
+    const since = params["since"];
+    if (
+      typeof number !== "number" ||
+      !Number.isSafeInteger(number) ||
+      number <= 0 ||
+      (since !== undefined &&
+        (typeof since !== "string" || !/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/u.test(since))) ||
+      (params["postFindings"] !== undefined && typeof params["postFindings"] !== "boolean")
+    )
+      throw new ControlError("invalid_request");
+    const focus = params["focus"] === undefined ? undefined : text(params["focus"], 4096);
+    const post = params["postFindings"] === true;
+    const parent = this.parent(actor);
+    const operation = await operations.begin(
+      actor,
+      "launch",
+      key,
+      JSON.stringify([number, since ?? null, focus ?? null, post]),
+    );
+    if (!operation.created) return publicOperation(operation);
+    const label = `PR #${String(number)}`;
+    this.note(parent, this.entry(operation, label));
+    try {
+      const tree = await this.createWorktree(
+        actor,
+        {
+          pullRequest: number,
+          review: true,
+          idempotencyKey: `review-tree-${operation.operationId}`,
+        },
+        operations,
+      );
+      this.parent(actor);
+      if (tree.status !== "succeeded" || !tree.resultId) throw new ControlError("unavailable");
+      const prompt =
+        reviewerBrief(number, post).replace(
+          "Foom will stop your process after validating a done verdict.",
+          "The orchestrator will read your result and stop or close your session.",
+        ) +
+        (since === undefined
+          ? ""
+          : `\nReview only changes since commit ${since}, up to the checked-out PR head. If that commit is unavailable or is not an ancestor, report blocked.`) +
+        (focus === undefined
+          ? ""
+          : `\nRequested focus (quoted untrusted data): ${JSON.stringify(focus)}`);
+      const launched = await this.launch(
+        actor,
+        {
+          worktreeId: tree.resultId,
+          agent: "claude",
+          prompt,
+          pullRequest: number,
+          idempotencyKey: `review-launch-${operation.operationId}`,
+        },
+        operations,
+        true,
+      );
+      if (launched.status !== "succeeded") throw new ControlError("unavailable");
+      return await this.finish(
+        actor,
+        parent,
+        operations,
+        operation,
+        label,
+        "succeeded",
+        launched.resultId,
+      );
+    } catch (error) {
+      if (error instanceof ControlError)
+        return this.refuse(actor, parent, operations, operation, label, error.code);
+      return this.finish(actor, parent, operations, operation, label, "indeterminate");
+    }
+  }
+
   protected async launch(
     actor: Principal,
     params: Record<string, unknown>,
     operations: Operations,
+    standalone = false,
   ): Promise<Operation> {
     exact(params, [
       "idempotencyKey",
@@ -164,6 +249,7 @@ export class OrchestrationMutations extends OrchestrationAuthority {
       "model",
       "effort",
       "host",
+      "pullRequest",
     ]);
     const key = identifier(params["idempotencyKey"]);
     const worktreeId = identifier(params["worktreeId"]);
@@ -173,7 +259,16 @@ export class OrchestrationMutations extends OrchestrationAuthority {
     if (!knownAgentId(agent)) throw new ControlError("invalid_request");
     const selection = selectionInput(params);
     validateSelection(agentProvider(agent).model, selection);
-    const review = params["review"] === undefined ? undefined : reviewOptions(params["review"]);
+    const inherited = this.parent(actor).worktrees.get(worktreeId);
+    const review =
+      params["review"] === undefined ? inherited?.review : reviewOptions(params["review"]);
+    const number =
+      params["pullRequest"] === undefined ? inherited?.pullRequest : params["pullRequest"];
+    if (
+      number !== undefined &&
+      (typeof number !== "number" || !Number.isSafeInteger(number) || number <= 0)
+    )
+      throw new ControlError("invalid_request");
     if (
       review &&
       (!knownAgentId(review.agent) ||
@@ -199,7 +294,15 @@ export class OrchestrationMutations extends OrchestrationAuthority {
       actor,
       "launch",
       key,
-      JSON.stringify([worktreeId, agent, prompt ?? null, review ?? null, selection, host ?? null]),
+      JSON.stringify([
+        worktreeId,
+        agent,
+        prompt ?? null,
+        params["review"] ?? null,
+        selection,
+        host ?? null,
+        params["pullRequest"] ?? null,
+      ]),
       worktreeId,
     );
     if (!operation.created) return publicOperation(operation);
@@ -209,22 +312,43 @@ export class OrchestrationMutations extends OrchestrationAuthority {
     if (!tree) return this.refuse(actor, parent, operations, operation, label, "not_found");
     if (host !== undefined && this.host.worktreeHost?.(tree.path) !== host)
       return this.refuse(actor, parent, operations, operation, label, "not_found");
-    // Each child gets a fresh parent-created worktree, used exactly once.
-    if (tree.state !== "unused")
+    // Reuse only after every earlier session has left this owned checkout.
+    if (!this.launchable(parent, worktreeId))
       return this.refuse(actor, parent, operations, operation, label, "conflict");
+    if ((tree.closedReviews?.length ?? 0) + (review?.rounds ?? 1) > 1000)
+      return this.refuse(actor, parent, operations, operation, label, "capacity");
     if (this.running(parent) + parent.starting >= this.childLimit())
       return this.refuse(actor, parent, operations, operation, label, "capacity");
     // Children run with the user's defaults, so bypass defaults refuse before spawning.
     if (this.host.bypassDefaults?.(agent))
       return this.refuse(actor, parent, operations, operation, label, "forbidden");
-    // Still charged to the unused budget until the spawn succeeds.
-    tree.state = "starting";
+    // Both paths reserve the checkout; only fresh ones remain in the unused budget.
+    const priorState = tree.state;
+    const startingState = priorState === "used" ? "continuing" : "starting";
+    tree.state = startingState;
     parent.starting++;
     this.note(parent, this.entry(operation, label));
     let launchedId: string | undefined;
     try {
       await this.board?.flushChildren();
       const parentCurrent = this.remoteParentGuard(actor.terminalId);
+      if (number !== undefined && (params["pullRequest"] !== undefined || review)) {
+        if (!this.host.forge?.bindPullRequest) throw new ControlError("pr_binding_unresolved");
+        await this.host.forge.bindPullRequest(parent.repository, tree.path, number);
+        parentCurrent();
+        tree.pullRequest = number;
+      }
+      const snapshot =
+        standalone && this.host.reviewSnapshot
+          ? await this.host.reviewSnapshot(parent.repository, tree.path, tree.identity)
+          : undefined;
+      if (
+        standalone &&
+        (!snapshot ||
+          this.host.forge?.read(parent.repository, tree.path)?.headSha !== snapshot.head)
+      )
+        throw new ControlError("pr_binding_unresolved");
+      if (review) tree.review = review;
       const id = await this.host.launch(
         actor.terminalId,
         parent.repository,
@@ -235,11 +359,41 @@ export class OrchestrationMutations extends OrchestrationAuthority {
         {
           selection,
           ...(review ? { loop: review } : {}),
+          ...(snapshot
+            ? {
+                snapshot,
+                validateSnapshot: async () => {
+                  const current = await this.host.reviewSnapshot?.(
+                    parent.repository,
+                    tree.path,
+                    tree.identity,
+                  );
+                  if (
+                    !current ||
+                    current.head !== snapshot.head ||
+                    current.digest !== snapshot.digest
+                  )
+                    throw new ControlError("pr_binding_unresolved");
+                },
+              }
+            : {}),
           validate: () => {
             parentCurrent();
             const current = operations.lookup(actor, { operationId: operation.operationId });
             if (current.status !== "running") throw new ControlError("forbidden");
             this.parent(actor);
+            if (
+              snapshot &&
+              this.host.forge?.read(parent.repository, tree.path)?.headSha !== snapshot.head
+            )
+              throw new ControlError("pr_binding_unresolved");
+            if (
+              parent.worktrees.get(worktreeId) !== tree ||
+              tree.state !== startingState ||
+              [...parent.children.values()].some((child) => child.worktreeId === worktreeId) ||
+              this.host.terminals().some((row) => row.worktree === tree.path)
+            )
+              throw new ControlError("conflict");
           },
         },
       );
@@ -254,7 +408,7 @@ export class OrchestrationMutations extends OrchestrationAuthority {
       await this.recordChild(
         id,
         "launch",
-        { prompt: prompt ?? "", automatic: false },
+        { prompt: prompt ?? "", automatic: standalone },
         `launch-${operation.operationId}`,
       );
       if (review) this.startReview(id, review, actor, operations);
@@ -284,7 +438,7 @@ export class OrchestrationMutations extends OrchestrationAuthority {
           "indeterminate",
           launchedId,
         );
-      tree.state = "unused";
+      tree.state = priorState;
       const reason =
         error instanceof LaunchFailure
           ? error.reason
@@ -503,6 +657,10 @@ export class OrchestrationMutations extends OrchestrationAuthority {
                       "operation-failed": "git_failed",
                       "remote-host-unavailable": "git_failed",
                       "prune-unsafe": "git_failed",
+                      "session-has-children": "git_failed",
+                      "session-busy": "git_failed",
+                      "session-running": "git_failed",
+                      "session-remote-unreachable": "git_failed",
                     } as const
                   )[error.code]
                 : "git_failed";

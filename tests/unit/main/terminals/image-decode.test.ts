@@ -10,7 +10,8 @@ test("decodes PNG JPEG WebP GIF to stripped PNG and retains alpha", async () => 
   for (const format of ["png", "jpeg", "webp", "gif"] as const) {
     const encoded = await image
       .clone()
-      .withMetadata({ exif: { IFD0: { Artist: "private" } } })
+      .withMetadata()
+      .withExif({ IFD0: { Artist: "private" } })
       .toFormat(format)
       .toBuffer();
     const result = await decodeImage(encoded);

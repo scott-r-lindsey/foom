@@ -19,6 +19,26 @@ describe("child handoff ownership and waits", () => {
       });
     return { h, child, actor, grant, report };
   }
+  it("retains closed reviewer reports scoped to the parent and checkout identity", async () => {
+    const { h, child, report } = await setup();
+    await report({ status: "done", review: { verdict: "clean" } });
+    h.exit(child.id);
+    h.orchestration.removed(child.id);
+    h.rows.delete(child.id);
+    expect(await h.call("read_handoff", { id: child.id })).toMatchObject({
+      review: { verdict: "clean" },
+      untrusted: true,
+    });
+    const saved = h.orchestration.ownedWorktrees("parent");
+    expect(saved[0]?.closedReviews?.[0]?.id).toBe(child.id);
+    await expect(h.call("tail", { id: child.id })).rejects.toThrow("not_found");
+    h.host.restoreWorktree.mockResolvedValueOnce({ branch: "reports", identity: "replacement" });
+    await expect(h.call("read_handoff", { id: child.id })).rejects.toThrow("not_found");
+    await h.mutate("remove_worktree", { worktreeId: child.worktreeId });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await expect(h.call("read_handoff", { id: child.id })).rejects.toThrow("not_found");
+    h.orchestration.disposeUnreadChildren();
+  });
   it.each(["read_handoff", "session_state", "wait_for"])(
     "acknowledges child events through %s, excluding sessions and tail",
     async (method) => {

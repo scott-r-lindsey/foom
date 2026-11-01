@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { app, BrowserWindow, ipcMain, powerMonitor, screen } from "electron";
+import { clipboard, app, BrowserWindow, ipcMain, powerMonitor, screen } from "electron";
 import type {
   Session,
   IpcMainEvent,
@@ -13,7 +13,7 @@ import type {
 import type { DialogContent, DialogRequest } from "../../shared/confirmation";
 import type { InterfaceTheme } from "../../shared/interface-theme";
 
-import { RemovalReview, removalContent } from "./removal-review";
+import { removalCopyPaths, RemovalReview, removalContent } from "./removal-review";
 
 export const CONFIRMATION_URL = "app://confirmation/confirmation.html";
 /** Dedicated session and origin prevent process sharing or board access to this page. */
@@ -53,6 +53,7 @@ export class TrustedDialog {
     this.parentContents = parent.webContents;
     ipcMain.on("confirmation:answer", this.answer);
     ipcMain.on("confirmation:size", this.resize);
+    ipcMain.on("confirmation:copy-path", this.copyPath);
     this.prepare();
   }
   private readonly answer = (event: IpcMainEvent, id: unknown, accepted: unknown) => {
@@ -101,6 +102,46 @@ export class TrustedDialog {
       return;
     }
     this.finish(accepted, true);
+  };
+  private readonly copyPath = (event: IpcMainEvent, ...args: unknown[]) => {
+    const contents = this.window?.webContents;
+    if (
+      !contents ||
+      event.sender !== contents ||
+      event.senderFrame !== contents.mainFrame ||
+      event.senderFrame.url !== CONFIRMATION_URL
+    )
+      return;
+    const [id, pathId, call] = args;
+    if (args.length !== 3 || typeof call !== "number" || !Number.isSafeInteger(call) || call < 1)
+      return;
+
+    const pending = this.pending;
+    if (
+      pending &&
+      pending.id === id &&
+      pending.request.presented &&
+      typeof pathId === "string" &&
+      pathId.length <= 256
+    ) {
+      const path = removalCopyPaths(pending.request).get(pathId);
+      if (path) {
+        try {
+          void clipboard.writeText(path).then(
+            () => {
+              if (!contents.isDestroyed()) contents.send("confirmation:copy-result", call, true);
+            },
+            () => {
+              if (!contents.isDestroyed()) contents.send("confirmation:copy-result", call, false);
+            },
+          );
+          return;
+        } catch {
+          /* Fixed failure reply only. */
+        }
+      }
+    }
+    contents.send("confirmation:copy-result", call, false);
   };
   private readonly resize = (event: IpcMainEvent, value: unknown) => {
     const contents = this.window?.webContents;
@@ -542,6 +583,7 @@ export class TrustedDialog {
     this.finish(false);
     ipcMain.removeListener("confirmation:answer", this.answer);
     ipcMain.removeListener("confirmation:size", this.resize);
+    ipcMain.removeListener("confirmation:copy-path", this.copyPath);
     this.window?.destroy();
     this.window = undefined;
   }

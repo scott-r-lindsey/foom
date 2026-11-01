@@ -96,7 +96,9 @@ function text(value: string | undefined, bytes: number): string {
 function orchestration(name: string | undefined, words: string[]): Command {
   const params: Record<string, unknown> = {};
   const positional =
-    name === "wait-for" || (name === "create-worktree" && words[0]?.startsWith("--"))
+    name === "review" ||
+    name === "wait-for" ||
+    (name === "create-worktree" && words[0]?.startsWith("--"))
       ? []
       : words.splice(0, 1);
   if (name === "wait-for") {
@@ -142,6 +144,7 @@ function orchestration(name: string | undefined, words: string[]): Command {
   };
   if (
     [
+      "review",
       "create-worktree",
       "launch",
       "stop",
@@ -173,7 +176,26 @@ function orchestration(name: string | undefined, words: string[]): Command {
       params["branch"] = branch;
       break;
     }
+    case "review": {
+      params["pullRequest"] = integer(take("--pull-request"), Number.MAX_SAFE_INTEGER, 1);
+      const since = take("--since");
+      if (since !== undefined) {
+        if (!/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/u.test(since))
+          throw new ControlError("invalid_request");
+        params["since"] = since;
+      }
+      const focus = take("--focus");
+      if (focus !== undefined) params["focus"] = text(focus, 4096);
+      const post = take("--post-findings");
+      if (post !== undefined) {
+        if (post !== "true" && post !== "false") throw new ControlError("invalid_request");
+        params["postFindings"] = post === "true";
+      }
+      break;
+    }
     case "launch": {
+      const number = take("--pull-request");
+      if (number !== undefined) params["pullRequest"] = integer(number, Number.MAX_SAFE_INTEGER, 1);
       params["worktreeId"] = identifier(positional[0]);
       const agent = take("--agent");
       if (!validAgentId(agent)) throw new ControlError("invalid_request");

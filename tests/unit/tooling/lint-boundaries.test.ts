@@ -1,23 +1,12 @@
-import { Linter } from "eslint";
 import { resolve } from "node:path";
-import tseslint from "typescript-eslint";
-import { expect, test } from "vitest";
-import { processBoundaries } from "../../../scripts/eslint-boundaries.mjs";
+import { RuleTester } from "oxlint/plugins-dev";
+import { describe, test } from "vitest";
+import { processBoundaries } from "../../../scripts/lint-boundaries.mjs";
 
-function lint(file: string, code: string) {
-  return new Linter().verify(
-    code,
-    {
-      files: ["**/*.ts"],
-      languageOptions: { parser: tseslint.parser },
-      plugins: { foom: { rules: { "process-boundaries": processBoundaries } } },
-      rules: { "foom/process-boundaries": "error" },
-    },
-    { filename: resolve("src", file) },
-  );
-}
+RuleTester.describe = describe;
+RuleTester.it = test;
 
-test.each([
+const invalid: [string, string][] = [
   ["cli/example.ts", 'import "../main/main";'],
   ["cli/example.ts", 'import "electron";'],
   ["node-common/example.ts", 'import "electron";'],
@@ -37,13 +26,8 @@ test.each([
   ["preload/example.ts", 'import { hostRequest } from "../shared/terminal-host-protocol";'],
   ["preload/example.ts", 'import "node:fs";'],
   ["preload/example.ts", 'import type { Workspace } from "../main/workspace/workspace";'],
-])("rejects a forbidden dependency in %s: %s", (file, code) => {
-  const messages = lint(file, code);
-  expect(messages).toHaveLength(1);
-  expect(messages[0]?.ruleId).toBe("foom/process-boundaries");
-});
-
-test.each([
+];
+const valid: [string, string][] = [
   ["renderer/example.ts", 'import { TerminalColors } from "../shared/terminal-colors";'],
   ["renderer/example.ts", 'import { Board } from "./board/board-view";'],
   ["cli/example.ts", 'import "../node-common/private-files";'],
@@ -57,6 +41,16 @@ test.each([
   ["preload/example.ts", 'import { contextBridge } from "electron";'],
   ["preload/example.ts", 'import type { DesktopApi } from "../shared/desktop";'],
   ["preload/example.ts", 'import { type DesktopApi } from "../shared/desktop";'],
-])("allows an intended dependency in %s: %s", (file, code) => {
-  expect(lint(file, code)).toEqual([]);
+];
+
+new RuleTester().run("process-boundaries", processBoundaries, {
+  invalid: invalid.map(([file, code]) => ({
+    filename: resolve("src", file),
+    code: code,
+    errors: 1,
+  })),
+  valid: valid.map(([file, code]) => ({
+    filename: resolve("src", file),
+    code: code,
+  })),
 });

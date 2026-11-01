@@ -105,6 +105,7 @@ vi.mock("../../../src/main/control/forge-tracking", () => ({
 }));
 
 const previewMock = vi.hoisted(() => ({
+  copyText: undefined as ((text: string) => void | Promise<void>) | undefined,
   popout: undefined as ((id: string) => Promise<void>) | undefined,
   humanClose: undefined as ((id: string) => void) | undefined,
   pick: undefined as ((worktree: string) => Promise<string | null>) | undefined,
@@ -179,7 +180,9 @@ vi.mock("../../../src/main/previews/ipc", () => ({
     pick: (worktree: string) => Promise<string | null>,
     popout: (id: string) => Promise<void>,
     humanClose: (id: string) => void,
+    copyText: (text: string) => void | Promise<void>,
   ) => {
+    previewMock.copyText = copyText;
     previewMock.popout = popout;
     previewMock.pick = pick;
     previewMock.humanClose = humanClose;

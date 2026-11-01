@@ -72,11 +72,15 @@ export function attachTerminal(
     pasteRecipients.delete(id);
     const imageSession = imageSessions.get(id);
     imageSessions.delete(id);
-    void (pasteQueues.get(id) ?? Promise.resolve())
-      .finally(() => (imageSession ? images.close(imageSession) : undefined))
-      .catch(() => {
-        console.error("Image paste cleanup failed");
-      });
+    void (async () => {
+      try {
+        await pasteQueues.get(id);
+      } finally {
+        if (imageSession) await images.close(imageSession);
+      }
+    })().catch(() => {
+      console.error("Image paste cleanup failed");
+    });
   };
   const broadcast = (channel: string, ...args: unknown[]) => {
     for (const [contents, state] of windows)

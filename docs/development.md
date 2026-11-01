@@ -41,7 +41,7 @@ See [architecture: process model](architecture.md#process-model) for ownership a
 security boundaries and the [source layout](architecture.md#source-layout) for directories
 and import rules.
 
-Main, host, and preload compile to CommonJS. esbuild bundles the renderer and xterm CSS for the browser. The build bundles the ordered feature styles in `src/renderer/styles/styles.css` and copies the tokens into `build/renderer/`, retaining the existing asset URLs and allowlist. Compiler environments remain separate. TypeScript 6 is pinned for compatibility with the installed TypeScript ESLint tooling.
+Main, host, and preload compile to CommonJS. esbuild bundles the renderer and xterm CSS for the browser. The build bundles the ordered feature styles in `src/renderer/styles/styles.css` and copies the tokens into `build/renderer/`, retaining the existing asset URLs and allowlist. Compiler environments remain separate. TypeScript 6 is pinned for compatibility with the installed TypeScript tooling.
 
 ## Everyday commands
 
@@ -51,7 +51,7 @@ Main, host, and preload compile to CommonJS. esbuild bundles the renderer and xt
 | `pnpm run docs:check` | Check tracked Markdown local links/anchors and complete source-to-feature map coverage without network requests |
 | `pnpm run format` | Apply Biome formatting |
 | `pnpm run format:check` | Check formatting without changing files |
-| `pnpm run lint` / `pnpm run lint:fix` | Type-aware ESLint checks / safe autofixes |
+| `pnpm run lint` / `pnpm run lint:fix` | Type-aware Oxlint checks / safe autofixes |
 | `pnpm run audit` | Scan the full dependency tree, including development tools; fail on any reported vulnerability |
 | `pnpm run typecheck` | Check application, tests, and Vitest configuration without emitting files |
 | `pnpm test` / `pnpm run test:watch` | Run Vitest once / in watch mode, without a desktop display |
@@ -60,7 +60,7 @@ Main, host, and preload compile to CommonJS. esbuild bundles the renderer and xt
 | `pnpm run build` | Compile application code, bundle xterm, and copy assets |
 | `pnpm run package` / `pnpm run make` | Create an executable application / native installers and ZIP |
 
-Biome owns formatting, and ESLint owns lint rules. Strict TypeScript includes checked indexed access, exact optional properties, explicit overrides, and unused-code checks. ESLint uses type information to catch unsafe values and mishandled promises. Generated output, `inspiration/` references and `spikes/` prototypes are excluded from application checks and packaging.
+Biome owns formatting, and Oxlint owns lint rules. Strict TypeScript includes checked indexed access, exact optional properties, explicit overrides, and unused-code checks. Oxlint uses type information to catch unsafe values and mishandled promises. Generated output, `inspiration/` references and `spikes/` prototypes are excluded from application checks and packaging.
 
 ## Dependency maintenance
 
@@ -70,7 +70,7 @@ Forge CLI, installer/ZIP makers, GitHub publisher, and fuses plugin are pinned t
 
 Validate clean installs, real Electron tests, packaging, and packaged smoke tests when updating Forge. The Electron tests exercise the native node-pty addon, and Forge rebuilds it for the target Electron version during startup and packaging. The three-platform CI matrix checks the resulting artifacts with sandboxing and application fuses enabled.
 
-Vitest and its V8 coverage provider are updated together to 5.0.2. TypeScript 6 matches typescript-eslint's supported range, and Node types match Node 24. Use Node 24 LTS (`nvm use`); Vitest 5 does not support Node 25.
+Vitest and its V8 coverage provider are pinned together at 5.0.5. TypeScript 6 remains the compiler; Oxlint’s pinned Go backend supplies type-aware linting independently. Node types match Node 24. Use Node 24 LTS (`nvm use`); Vitest 5 does not support Node 25.
 
 Sources: [Forge 8.0.1 release notes](https://github.com/electron/forge/releases/tag/v8.0.1), [Electron's maintained ZIP extractor](https://github.com/electron/extract-zip), and the installed packages' peer/engine requirements.
 
@@ -104,8 +104,8 @@ also accepts a filter, but never `--reuse-build`.
 
 `pnpm run lint:local` memoizes a successful **whole-project** lint only while all
 inputs remain byte-identical. Any source, declaration, configuration, script or
-installed dependency change invalidates the whole result; this avoids ESLint's
-per-file cache missing type changes in other files. The ignored `.eslintcache`
+installed dependency change invalidates the whole result; this avoids a linter’s
+per-file cache missing type changes in other files. The ignored `.oxlintcache`
 file can be deleted to force a miss. Reference and generated output directories
 are excluded. `pnpm run lint` and `pnpm run lint:fix` remain uncached.
 
@@ -120,8 +120,8 @@ memory-constrained machines. Local measurements and tradeoffs are recorded in th
 The macOS signer invokes `notarytool` directly with bounded polling and visible
 submission progress (see [validation](validation.md)). The build dependencies
 retain the `@electron/notarize` 3.1.2 pin. A transitive
-`pnpm.overrides.vite` pin to 8.3.3 fixes GHSA-698v-4r3x-3vcv in Vitest's
-Vite dependency. It satisfies Vitest 5's Vite peer range; frozen installation,
+`pnpm.overrides.vite` pin and explicit Vite development dependency at 8.3.3 fix GHSA-698v-4r3x-3vcv in Vitest's
+Vite dependency. The explicit dependency supplies Vitest’s required peer with peer auto-installation disabled. It satisfies Vitest 5's Vite peer range; frozen installation,
 `pnpm run audit` and the full check/coverage runs validate the override.
 
 Scoped transitive overrides address minimatch
@@ -131,9 +131,9 @@ the latest ASAR and Forge installer parents still request vulnerable versions.
 ASAR uses glob 14.0.3 and minimatch 11.0.3, retaining its named async `glob` and
 `minimatch` calls. `electron-installer-common` and `electron-winstaller` use ASAR 4.3.1; their synchronous
 `extractFile` call remains available through Node 24's `require(esm)` support.
-ESLint and `@eslint/config-array` use minimatch 11.0.3 with the same `Minimatch`
-API. The typescript-estree override retains its named `minimatch` API for
-default-project matching.
+The typescript-estree override retains its named `minimatch` API in the
+React rule plugins’ utility dependency. The removed linter’s minimatch overrides
+are no longer needed.
 
 `electron-installer-common` also uses glob 14.0.3, with a two-line
 [pnpm patch](../patches/electron-installer-common@0.10.4.patch) replacing its
@@ -209,3 +209,62 @@ fixture children and orchestrator polling in a disposable Xvfb application.
 It captures main-process inspector stacks and steady-state process CPU without
 real agent CLIs. Run captures through the shared heavy-command lock when sharing
 a development machine; retain raw evidence only in ignored `test-results/`.
+
+## Oxlint gate and migration (#981)
+
+Oxlint 1.90.0 is the only lint runner; oxlint-tsgolint 7.0.2005 supplies its
+native type-aware rules. `.oxlintrc.json` enables type awareness for ordinary CLI
+and editor use as well as the package scripts. `lint`, `lint:fix`, `lint:local`,
+the pre-commit check and CI all deny warnings. Unused disable directives retain
+the former implicit warning through an explicit root option, so stale
+suppressions also fail the gate. Biome remains the formatter.
+The React and Hook rule packages run unchanged through Oxlint's JavaScript
+plugin API, alongside `foom/process-boundaries`. No ESLint engine, parser,
+configuration or fallback pass is installed. Peer auto-installation is disabled
+so those plugins' unused engine peer cannot reinstall it; required peers remain
+explicit project dependencies. Only that unused peer is ignored.
+
+The inventory is frozen in `scripts/lint-rule-inventory.json`: 221 formerly
+enabled rules, including 68 core, 71 TypeScript, 16 Hook, 65 React and one process
+boundary rule. Explicit settings preserve their severities and options instead
+of relying on Oxlint's evolving category defaults. The TypeScript aliases for
+unused variables, unused expressions, array constructors and useless
+constructors use the TypeScript-aware native core implementations. The empty
+`errorClassNames` option of `preserve-caught-error` uses its equivalent native
+default; its cause-preservation behavior has an invalid/valid fixture.
+`strict-boolean-expressions` was not enabled by the former strict preset and is
+not silently added or counted as a preserved rule.
+
+Core rules cover `.js`, `.mjs` and `.cjs`, including both CommonJS packaging
+modules (`scripts/maker-dmg.cjs` and `scripts/package-conpty.cjs`). Both are
+representatives in the rule inventory. A production-config regression fixture
+requires an undefined helper and a debugger statement in `.cjs` to fail lint,
+while its valid CommonJS counterpart passes. CommonJS retains its original
+globals and unused-argument defaults rather than inheriting the broader Node
+globals and underscore-argument exception used for `.js` and `.mjs`.
+
+The user explicitly accepted these two gaps in #981:
+
+| Former rule | Remaining gap | Rationale |
+| --- | --- | --- |
+| `no-dupe-args` | Duplicate parameters in sloppy-mode CommonJS `tests/**/*.js` | TypeScript's compiler and strict ESM parsing reject them elsewhere. |
+| `no-octal` | Legacy octal literals in sloppy-mode CommonJS `tests/**/*.js` | TypeScript and strict ESM parsing reject them elsewhere; explicit `0o` literals remain valid. |
+
+Forge's CommonJS configuration and both `.cjs` packaging modules have explicit
+`use strict` directives, keeping this exception confined to tests. No workaround rule or lint suppression hides
+these gaps. Syntax/parser fixtures exercise the accepted sloppy-JS behavior and
+strict-module rejection. The native safety corpus checks invalid and valid
+programs, including unsafe values, promises, enum assignments, conditions,
+strict operand options, type-only imports and the TypeScript-aware core aliases.
+The original 32 boundary cases run under Oxlint's own RuleTester. A warning-only
+JavaScript-plugin fixture verifies that `--deny-warnings` fails the gate.
+These are regression certificates for the tested behaviors and pinned settings,
+not a claim of exhaustive equivalence between two independent implementations.
+
+`pnpm run lint:benchmark` measures separate fresh-process syntax and type-aware
+runs with identical rule/plugin settings and warnings denied; syntax timing is
+not a substitute for the type-aware gate. It creates and removes a temporary
+config beside the real config so ignores and plugin paths remain identical.
+This optional local command does not run in CI. Local and CI measurements are
+recorded in the #981 PR body; OS caches are not flushed, and
+shared-machine/runner variation limits comparisons.

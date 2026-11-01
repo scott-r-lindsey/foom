@@ -222,3 +222,36 @@ test("programmatic menu dismissal restores its anchor and respects focus moved e
   anchor.remove();
   other.remove();
 });
+
+test("pointer pinning leaves focus to the pressed launcher while keyboard pinning selects the first", () => {
+  const anchor = document.createElement("button");
+  document.body.append(anchor);
+  anchor.focus();
+  const pin = vi.fn();
+  const panel = {
+    title: "Checkout",
+    kind: "Worktree",
+    mark: "checkout",
+    facts: null,
+    pinned: false,
+    pin,
+  };
+  const actions = [
+    { label: "Agent", run: vi.fn() },
+    { label: "Shell", run: vi.fn() },
+  ];
+  const props = { anchor, actions, close: vi.fn() };
+  const view = render(<RowMenu {...props} panel={panel} />);
+  const shell = view.getByRole("menuitem", { name: "Shell" });
+  fireEvent.pointerDown(shell);
+  expect(pin).toHaveBeenCalledOnce();
+  view.rerender(<RowMenu {...props} panel={{ ...panel, pinned: true }} />);
+  expect(document.activeElement).toBe(anchor);
+  shell.focus();
+  expect(document.activeElement).toBe(shell);
+  view.rerender(<RowMenu {...props} panel={panel} />);
+  view.rerender(<RowMenu {...props} panel={{ ...panel, pinned: true }} />);
+  expect(document.activeElement).toBe(view.getByRole("menuitem", { name: "Agent" }));
+  view.unmount();
+  anchor.remove();
+});

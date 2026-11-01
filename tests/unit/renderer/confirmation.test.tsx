@@ -117,9 +117,10 @@ test("focuses Cancel for every request, traps Tab, and renders untrusted content
   expect(document.activeElement).toBe(accept);
   fireEvent.focus(window);
   expect(document.activeElement).toBe(accept);
+  const copy = view.getByRole("button", { name: "Copy path" });
   fireEvent.keyDown(accept, { key: "Tab" });
-  expect(document.activeElement).toBe(cancel);
-  fireEvent.keyDown(cancel, { key: "Tab", shiftKey: true });
+  expect(document.activeElement).toBe(copy);
+  fireEvent.keyDown(copy, { key: "Tab", shiftKey: true });
   expect(document.activeElement).toBe(accept);
   Object.defineProperty(content, "scrollHeight", { value: 600, configurable: true });
   fireEvent.keyDown(accept, { key: "Tab" });
@@ -128,7 +129,7 @@ test("focuses Cancel for every request, traps Tab, and renders untrusted content
   expect(document.activeElement).toBe(accept);
   fireEvent.keyDown(accept, { key: "Tab" });
   fireEvent.keyDown(content, { key: "Tab" });
-  expect(document.activeElement).toBe(cancel);
+  expect(document.activeElement).toBe(copy);
   Object.defineProperty(content, "scrollHeight", { value: 0 });
   fireEvent.keyDown(accept, { key: "Escape" });
   expect(answer).toHaveBeenLastCalledWith("one", false);
@@ -411,8 +412,8 @@ test("structured disclosures, git status words and pairing countdown render safe
       "unmerged",
     ])
       expect(view.getByText(word)).toBeTruthy();
-    expect(view.getByText("← old.ts")).toBeTruthy();
-    expect(view.getByText("← original.ts")).toBeTruthy();
+    expect(view.getByText("old.ts")).toBeTruthy();
+    expect(view.getByText("original.ts")).toBeTruthy();
     act(() => {
       vi.advanceTimersByTime(1000);
     });
@@ -853,4 +854,82 @@ test("confirming controls wait for main's presentation flag, including selected 
   expect(selected).toHaveProperty("disabled", false);
   fireEvent.click(selected);
   expect(answer).toHaveBeenLastCalledWith("preparing", ["one"]);
+});
+
+test("copy controls identify the pending path and do not approve or toggle removals", async () => {
+  let receive: (value: DialogRequest | null) => void = () => {};
+  const copyPath = vi.fn(async () => {});
+  const answer = vi.fn();
+  Object.defineProperty(window, "confirmation", {
+    configurable: true,
+    value: {
+      render(callback: typeof receive) {
+        receive = callback;
+        return () => {};
+      },
+      copyPath,
+      answer,
+      size: vi.fn(),
+    },
+  });
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
+  const view = render(<ConfirmationPage />);
+  const base = {
+    id: "copy",
+    presented: true,
+    title: "Remove?",
+    accept: "Remove",
+    theme: resolveInterfaceTheme("follow", false),
+  };
+  act(() => {
+    receive({
+      ...base,
+      worktreePath: "/tree",
+      facts: [{ label: "Worktree", value: "/tree" }],
+      changes: "R  new.txt\0old.txt\0",
+    });
+  });
+  for (const [value, pathId] of [
+    ["/tree", "worktree"],
+    ["new.txt", "change:0"],
+    ["old.txt", "change:1"],
+  ]) {
+    const button = view
+      .getAllByRole("button", { name: "Copy path" })
+      .find((item) => item.textContent === value);
+    if (!button) throw new Error("Missing copy path");
+    await act(async () => {
+      fireEvent.click(button);
+      await Promise.resolve();
+    });
+    expect(copyPath).toHaveBeenLastCalledWith("copy", pathId);
+  }
+  act(() => {
+    receive({
+      ...base,
+      id: "batch",
+      removals: [{ id: "one", branch: "feature", path: "/one", changes: "?? file\0" }],
+    });
+  });
+  const checkbox = view.getByRole("checkbox", { name: "feature" });
+  if (!(checkbox instanceof HTMLInputElement)) throw new Error("Missing checkbox");
+  const selected = checkbox.checked;
+  await act(async () => {
+    fireEvent.click(view.getByText("/one"));
+    await Promise.resolve();
+  });
+  expect(copyPath).toHaveBeenLastCalledWith("batch", "removal:one");
+  expect(checkbox.checked).toBe(selected);
+  await act(async () => {
+    fireEvent.click(view.getByText("file"));
+    await Promise.resolve();
+  });
+  expect(copyPath).toHaveBeenLastCalledWith("batch", "removal-change:one:0");
+  expect(answer).not.toHaveBeenCalled();
 });

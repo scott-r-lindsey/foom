@@ -29,6 +29,8 @@ export class SessionMetadata {
       undefined,
     private readonly review: (row: WorkspaceTerminal) => ReviewState | undefined = (row) =>
       row.review,
+    private readonly reviewContents: (row: WorkspaceTerminal, actor: Principal) => boolean = () =>
+      false,
   ) {}
 
   read(
@@ -48,7 +50,7 @@ export class SessionMetadata {
       const id = identifier(params["id"]);
       const row = rows.find((entry) => entry.id === id);
       if (!row) throw new ControlError("not_found");
-      return this.row(row);
+      return this.row(row, actor);
     }
     const limit = params["limit"] ?? 100;
     if (typeof limit !== "number" || !Number.isInteger(limit) || limit < 1 || limit > 100)
@@ -62,7 +64,7 @@ export class SessionMetadata {
     }
     const page = rows.slice(start, start + limit);
     return {
-      sessions: page.map((row) => this.row(row)),
+      sessions: page.map((row) => this.row(row, actor, false)),
       nextCursor: start + limit < rows.length ? (page.at(-1)?.id ?? null) : null,
     };
   }
@@ -77,13 +79,15 @@ export class SessionMetadata {
     return ids.map((id) => {
       const row = rows.get(id);
       if (!row) throw new ControlError("not_found");
-      return this.row(row);
+      return this.row(row, actor);
     });
   }
 
-  private row(row: WorkspaceTerminal) {
+  private row(row: WorkspaceTerminal, actor: Principal, contents = true) {
     const handoff = this.handoff(row);
-    const review = this.review(row);
+    const savedReview = this.review(row);
+    const review = savedReview ? { ...savedReview } : undefined;
+    if (review && (!contents || !this.reviewContents(row, actor))) delete review.lastVerdict;
     const pr = pullRequest(this.forge(row));
     const execution = row.execution;
     const fresh =
@@ -126,7 +130,7 @@ export class SessionMetadata {
         .update(
           JSON.stringify([
             pr ?? null,
-            review ?? null,
+            savedReview ?? null,
             handoff ?? null,
             row.placement ?? null,
             row.remoteCleanup ?? null,

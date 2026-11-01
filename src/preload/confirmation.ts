@@ -282,6 +282,7 @@ const validDialogRequest: Validator<DialogRequest> = shape({
       }),
     ),
   ),
+  worktreePath: either(absent, nonempty),
   changes: either(absent, boundedChanges),
   sessions: either(
     absent,
@@ -300,6 +301,15 @@ ipcRenderer.on("confirmation:render", (_event: IpcRendererEvent, request: unknow
   current = validDialogRequest(clean) ? clean : null;
   for (const listener of listeners) listener(current);
 });
+let copySerial = 0;
+const copyRequests = new Map<number, (success: boolean) => void>();
+ipcRenderer.on(
+  "confirmation:copy-result",
+  (_event: IpcRendererEvent, call: unknown, success: unknown) => {
+    if (typeof call !== "number" || typeof success !== "boolean") return;
+    copyRequests.get(call)?.(success);
+  },
+);
 const api: ConfirmationWindowApi = {
   render(callback) {
     listeners.add(callback);
@@ -307,6 +317,30 @@ const api: ConfirmationWindowApi = {
     return () => {
       listeners.delete(callback);
     };
+  },
+  copyPath(id, pathId) {
+    if (
+      !nonempty(id) ||
+      !nonempty(pathId) ||
+      pathId.length > 256 ||
+      id !== current?.id ||
+      copyRequests.size >= 32
+    )
+      return Promise.reject(new Error("Unable to copy"));
+    const call = ++copySerial;
+    return new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        copyRequests.delete(call);
+        reject(new Error("Unable to copy"));
+      }, 3000);
+      copyRequests.set(call, (success) => {
+        clearTimeout(timer);
+        copyRequests.delete(call);
+        if (success) resolve();
+        else reject(new Error("Unable to copy"));
+      });
+      ipcRenderer.send("confirmation:copy-path", id, pathId, call);
+    });
   },
   size(value) {
     if (

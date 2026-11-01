@@ -1,3 +1,6 @@
+import { copyableErrorId } from "../../shared/application-errors";
+import type { CopyableErrorId } from "../../shared/application-error";
+import { CopyValue } from "../ui/copy-value";
 import { restoreBoardFocus } from "./focus-restore";
 import { createContext, useCallback, use, useEffect, useId, useRef, useState } from "react";
 import type { ReactNode } from "react";
@@ -16,9 +19,22 @@ const fallback: BackgroundErrors = {
 };
 const BackgroundContext = createContext<BackgroundErrors | undefined>(undefined);
 
-export function ErrorPresentation({ children }: { children: ReactNode }) {
+const CopyErrorContext = createContext<((id: CopyableErrorId) => Promise<unknown>) | undefined>(
+  undefined,
+);
+export function ErrorPresentation({
+  children,
+  copyError,
+}: {
+  children: ReactNode;
+  copyError?: ((id: CopyableErrorId) => Promise<unknown>) | undefined;
+}) {
   const parent = use(BackgroundContext);
-  return parent ? children : <ErrorPresentationState>{children}</ErrorPresentationState>;
+  return (
+    <CopyErrorContext value={copyError ?? use(CopyErrorContext)}>
+      {parent ? children : <ErrorPresentationState>{children}</ErrorPresentationState>}
+    </CopyErrorContext>
+  );
 }
 function ErrorPresentationState({ children }: { children: ReactNode }) {
   const [failures, setFailures] = useState<readonly Failure[]>([]);
@@ -119,6 +135,8 @@ export function ActionError({
   returnFocus?: (() => Element | null) | undefined;
   fix?: { label: string; run: () => void } | undefined;
 }) {
+  const copyError = use(CopyErrorContext);
+  const errorId = copyableErrorId(message);
   const ref = useRef<HTMLDialogElement>(null);
   const messageId = useId();
   const originRef = useRef(returnFocus);
@@ -154,7 +172,15 @@ export function ActionError({
           ■
         </span>
         <p id={messageId} role="alert">
-          {message}
+          <CopyValue
+            value={message}
+            label="Copy error text"
+            copy={() =>
+              errorId && copyError
+                ? copyError(errorId)
+                : Promise.reject(new Error("Copy unavailable"))
+            }
+          />
         </p>
       </div>
       <div className="action-error-buttons">

@@ -113,7 +113,7 @@ export function AppMenu({
         await api?.execute(item.id);
         if (step) load();
       } catch {
-        setError(`Unable to run ${item.label}.`);
+        setError("Unable to run this command.");
       }
     },
   });

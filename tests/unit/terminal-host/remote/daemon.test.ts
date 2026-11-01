@@ -2153,6 +2153,30 @@ test.skipIf(process.platform === "win32")(
 );
 
 test.skipIf(process.platform === "win32")(
+  "PTY exit contains image cleanup failure without losing the exit notification",
+  async () => {
+    const { RemoteImages } = await import("../../../../src/terminal-host/remote/image-files");
+    await start();
+    const c = await open("cleanup-failure");
+    const close = vi
+      .spyOn(RemoteImages.prototype, "close")
+      .mockRejectedValueOnce(new Error("private image path must not be logged"));
+    const diagnostic = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      mock.exited("cleanup-failure", 7);
+      await c.wait(3);
+      expect(c.messages.at(-1)).toEqual({ type: "exit", id: "cleanup-failure", code: 7 });
+      await vi.waitFor(() => {
+        expect(diagnostic).toHaveBeenCalledExactlyOnceWith("Image paste cleanup failed");
+      });
+    } finally {
+      close.mockRestore();
+      diagnostic.mockRestore();
+    }
+  },
+);
+
+test.skipIf(process.platform === "win32")(
   "session removal contains image cleanup failure and emits only a fixed diagnostic",
   async () => {
     const { RemoteImages } = await import("../../../../src/terminal-host/remote/image-files");

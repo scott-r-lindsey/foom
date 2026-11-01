@@ -44,7 +44,8 @@ retained reports start unread. No new control-plane write or execution state is 
 Take over, revoke/transfer and parent exit end access as they do for tails. A
 restored parent can read retained reports only after its child ownership has been
 restored. Reports persist in the child's private session record and disappear when
-that row closes, including after takeover. Session storage is bounded to 32 MiB;
+that row closes, including after takeover, except for owned reviewer reports
+retained with the worktree as described below. Session storage is bounded to 32 MiB;
 a failed save reports an error, retains the accepted report in memory, and a replay
 flushes it again without creating a duplicate. Audit failure refuses a new report.
 
@@ -65,3 +66,11 @@ The CLI accepts `--review JSON_VERDICT`. Unknown fields and verdicts attached to
 blocked/failed reports are refused. Verdicts persist with each participant's
 handoff and are returned by `read_handoff` as untrusted data. They do not change
 handoff authority: ordinary parentless agents still receive `no_parent`.
+
+### Retained review evidence (#972)
+
+The author’s review state includes `lastVerdict`, the latest accepted verdict and
+its bounded findings as untrusted child-authored data, including at the round cap.
+Closing a reviewer discards its screen but retains its handoffs with the owning
+parent’s worktree record until that checkout is removed. Reads revalidate checkout
+identity and live parent authority; takeover and revocation do not grant access.

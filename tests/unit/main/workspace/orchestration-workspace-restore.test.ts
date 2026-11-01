@@ -561,3 +561,51 @@ it("reconciles remote inventory through workspace wiring without granting recove
     remoteCheckout: { path: checkout.path },
   });
 });
+
+it("Close counts exited child rows still naming a restored parent", async () => {
+  const { readSessions } = await import("../../../../src/main/workspace/session-store");
+  const saved = {
+    agent: "claude",
+    repository: repo.path,
+    worktree: child.path,
+    branch: "feature",
+    conversationId: "saved",
+    running: false,
+  };
+  deps.sessions = {
+    load: () =>
+      Promise.resolve(
+        readSessions([
+          {
+            ...saved,
+            id: "parent",
+            running: true,
+            worktree: repo.path,
+            branch: "main",
+            orchestrator: { identity: "identity", history: [] },
+          },
+          ...["one", "two", "three"].map((id) => ({ ...saved, id, parentId: "parent" })),
+          { ...saved, id: "unrelated" },
+        ]),
+      ),
+    save: async () => {},
+    flush: async () => {},
+  };
+  launch.mockImplementation((request) =>
+    Promise.resolve({ id: request.terminalId ?? "new", attention: "evaluator" }),
+  );
+  const workspace = createWorkspace(deps);
+  workspace.configure({ hooks: false, agents: { claude: true, codex: true, agy: true } });
+  await workspace.restore();
+  await workspace.restartSaved();
+  await workspace.exited("parent", 0);
+  await expect(workspace.sidebarCommand({ kind: "close", id: "parent" }, confirm)).rejects.toThrow(
+    "foom-error:session-has-children:3",
+  );
+  expect(vi.spyOn(deps.terminals, "kill")).not.toHaveBeenCalled();
+  expect(workspace.snapshot().terminals).toHaveLength(5);
+  await workspace.sidebarCommand({ kind: "close", id: "one" }, confirm);
+  await expect(workspace.sidebarCommand({ kind: "close", id: "parent" }, confirm)).rejects.toThrow(
+    "foom-error:session-has-children:2",
+  );
+});

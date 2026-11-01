@@ -52,7 +52,7 @@ its own PTY size. The controller publishes fitted columns/rows with its view
 snapshot for tile panel facts; terminal output and activity stay outside React.
 Tile panels reuse the sidebar panel's portal, keyboard navigation and styling.
 Hide clears the leaf in place and records it as the landing spot without stopping
-its session; exited-only Close uses the
+its session, including exited agents with saved conversations; other exited sessions offer Close. Close uses the
 existing validated sidebar command and retains the view if that command fails.
 Placement fills space, then grows a rightmost column with proportional existing
 column widths, or selects the least recently focused non-attention tile when
