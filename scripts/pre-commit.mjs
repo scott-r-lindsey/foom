@@ -22,6 +22,7 @@ const keys = ["core.bare", "core.worktree"];
 const before = keys.map(values);
 const bare = () => git(["rev-parse", "--is-bare-repository"]).trim();
 const wasBare = bare();
+// The authoritative check includes uncached type-aware Oxlint with warnings denied.
 const result = spawnSync(process.platform === "win32" ? "pnpm.cmd" : "pnpm", ["run", "check"], {
   env,
   stdio: "inherit",

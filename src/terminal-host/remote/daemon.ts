@@ -247,11 +247,15 @@ export function serveHost(
     if (message.type === "exit" && session) {
       session.exited = message.code;
       revoke(message.id, session);
-      void (session.imageUpload ?? Promise.resolve())
-        .finally(() => images.close(message.id))
-        .catch(() => {
-          console.error("Image paste cleanup failed");
-        });
+      void (async () => {
+        try {
+          await session.imageUpload;
+        } finally {
+          await images.close(message.id);
+        }
+      })().catch(() => {
+        console.error("Image paste cleanup failed");
+      });
     }
     if (session?.connection) void send(session.connection, message);
     else if (message.type === "exit" && session && !shuttingDown) {
