@@ -3,6 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import {
   createPreferencesStore,
   emptyPreferences,
+  mergeExpansion,
   readPreferences,
   renameSession,
   pruneExpansion,
@@ -187,4 +188,28 @@ test("unavailable repository membership preserves worktree choices until recover
   expect(pruneExpansion(retained, [{ ...unavailable, unavailable: false }])).toEqual({
     "repository:/repo": false,
   });
+});
+
+test("deferred expansion edits preserve newer untouched choices and apply explicit resets", () => {
+  const previous = { changed: true, removed: false, untouched: true, reset: false };
+  const next = { ...previous, changed: false, added: true };
+  const current = { changed: true, removed: false, untouched: false, newer: false };
+  expect(mergeExpansion(current, previous, next)).toEqual({
+    ...current,
+    changed: false,
+    added: true,
+  });
+  expect(mergeExpansion(current, previous, { untouched: true, reset: false })).toEqual({
+    untouched: false,
+    newer: false,
+  });
+  expect(mergeExpansion(current, previous, previous)).toBe(current);
+  expect(mergeExpansion(current, { changed: false }, { changed: true })).toBe(current);
+});
+
+test("expansion delta keys remain inert data", () => {
+  const next: Record<string, boolean> = Object.fromEntries([["__proto__", false]]);
+  const merged = mergeExpansion({}, {}, next);
+  expect(Object.entries(merged)).toEqual([["__proto__", false]]);
+  expect(mergeExpansion(merged, next, {})).toEqual({});
 });

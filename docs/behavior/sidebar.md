@@ -39,6 +39,8 @@ most urgent state; collapsed worktrees show the same roll-up. Urgency is Needs y
 Working, Done, then Quiet. The main checkout is labeled **Main checkout**, with its branch on a secondary line and a folder icon.
 Session breadcrumbs also call it **Main checkout**. Other worktrees
 have a branch icon. Pins and session names persist and are shared across windows.
+Delayed actions merge only their expansion edits into the latest window state, so
+choices made while an action is pending are retained.
 Repository/worktree expansion saves with each window’s tile layout and survives
 restart independently. New windows use the defaults below, without copying another
 window. Existing saved windows, including blank windows without saved tiles, inherit the former shared expansion map once, then

@@ -35,7 +35,12 @@ import {
   worktreeKey,
   sidebarRepositories,
 } from "./sidebar-model";
-import { createPreferencesStore, renameSession, pruneExpansion } from "./sidebar-preferences";
+import {
+  createPreferencesStore,
+  renameSession,
+  pruneExpansion,
+  mergeExpansion,
+} from "./sidebar-preferences";
 import { Sidebar } from "./sidebar-view";
 import { TileArea } from "./tile-area";
 import {
@@ -203,8 +208,16 @@ function BoardContents({
   const options = useBoardOptions(source, inactive, settingsOpen);
   const save = (next: typeof preferences) => {
     try {
-      if (next.expanded !== preferences.expanded)
-        changeLayout({ ...layoutRef.current, sidebarExpanded: next.expanded });
+      if (next.expanded !== preferences.expanded) {
+        const current = layoutRef.current;
+        const expanded = mergeExpansion(
+          current.sidebarExpanded ?? {},
+          preferences.expanded,
+          next.expanded,
+        );
+        if (expanded !== current.sidebarExpanded)
+          changeLayout({ ...current, sidebarExpanded: expanded });
+      }
       preferencesStore.save(sharedPreferences, next);
       clearBackground("sidebar-preferences");
     } catch {

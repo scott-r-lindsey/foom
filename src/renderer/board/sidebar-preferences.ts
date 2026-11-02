@@ -157,6 +157,26 @@ export function renameSession(
   return { ...preferences, names };
 }
 
+/** Apply only an action's edits to the latest window state, including deferred actions. */
+export function mergeExpansion(
+  current: Record<string, boolean>,
+  previous: Record<string, boolean>,
+  next: Record<string, boolean>,
+): Record<string, boolean> {
+  const merged = new Map(Object.entries(current));
+  const before = new Map(Object.entries(previous));
+  const after = new Map(Object.entries(next));
+  let changed = false;
+  for (const key of new Set([...before.keys(), ...after.keys()])) {
+    const value = after.get(key);
+    if (before.get(key) === value || merged.get(key) === value) continue;
+    if (value === undefined) merged.delete(key);
+    else merged.set(key, value);
+    changed = true;
+  }
+  return changed ? Object.fromEntries(merged) : current;
+}
+
 /** Prune only after inventory is ready; retained session locations remain valid rows. */
 export function pruneExpansion(
   expanded: Record<string, boolean>,
