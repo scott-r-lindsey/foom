@@ -1520,6 +1520,7 @@ const desktop: DesktopApi = {
       },
     },
     id: windowArgument("window-id") ?? "main",
+    restored: windowArgument("window-restored") === "true",
     number: Number(windowArgument("window-number") ?? 0),
     initialSession: windowArgument("initial-session"),
     sync: (ids) => reply("windows:sync", array(text), ids),

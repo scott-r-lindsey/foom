@@ -671,12 +671,14 @@ test("main-generated window arguments scope metadata without exposing paths", as
   process.argv = [
     ...original,
     "--foom-window-id=window-2",
+    "--foom-window-restored=true",
     "--foom-window-number=2",
     "--foom-initial-session=terminal-1",
   ];
   try {
     const api = (await bridge()).windows;
     expect(api?.id).toBe("window-2");
+    expect(api?.restored).toBe(true);
     expect(api?.number).toBe(2);
     expect(api?.initialSession).toBe("terminal-1");
   } finally {
@@ -1663,3 +1665,17 @@ test.each([
   mock.invoke.mockResolvedValue(withUndeclaredFields(value));
   await expect(api.hosts({ action: "list" })).resolves.toEqual(value);
 });
+
+test.each([undefined, "false", "yes"])(
+  "window restore hint rejects absent or nontrue values (%s)",
+  async (value) => {
+    const original = process.argv;
+    process.argv =
+      value === undefined ? original : [...original, `--foom-window-restored=${value}`];
+    try {
+      expect((await bridge()).windows?.restored).toBe(false);
+    } finally {
+      process.argv = original;
+    }
+  },
+);

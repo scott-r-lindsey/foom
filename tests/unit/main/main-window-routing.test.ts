@@ -237,6 +237,8 @@ test("restores window identities and maximization with one shared scale and pers
     expect(mock.instances).toHaveLength(2);
   });
   expect(mock.instances[0]?.maximize).toHaveBeenCalledOnce();
+  for (const call of mock.construct.mock.calls)
+    expect(call[0].webPreferences?.additionalArguments).toContain("--foom-window-restored=true");
   expect(mock.construct.mock.calls[0]?.[0]).toMatchObject({
     x: 840,
     y: 312,

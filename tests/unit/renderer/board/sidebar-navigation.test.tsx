@@ -150,9 +150,7 @@ test("tree keyboard traversal, filter typing, narrow mode and persistence failur
     throw Error("full");
   });
   fireEvent.click(view.getByRole("button", { name: "Collapse Foom" }));
-  expect(view.getByText("Unable to save sidebar preferences.").textContent).toContain(
-    "Unable to save",
-  );
+  expect(view.getByText("Unable to save tile layout.").textContent).toContain("Unable to save");
   fail.mockRestore();
   act(() => {
     narrow = true;

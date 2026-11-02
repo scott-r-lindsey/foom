@@ -1,4 +1,5 @@
-import type { SidebarPreferences } from "./sidebar.d";
+import { repositoryKey, worktreeKey } from "./sidebar-model";
+import type { SidebarPreferences, SidebarRepository } from "./sidebar.d";
 const key = "foom.sidebar.v1";
 export function emptyPreferences(): SidebarPreferences {
   return { pins: [], expanded: {}, names: {} };
@@ -91,7 +92,7 @@ export function writePreferences(
   next: SidebarPreferences,
   previous: SidebarPreferences = emptyPreferences(),
 ): void {
-  for (const field of ["pins", "expanded", "names"] as const) {
+  for (const field of ["pins", "names"] as const) {
     const before = new Map<string, boolean | string>(
       field === "pins" ? previous.pins.map((id) => [id, true]) : Object.entries(previous[field]),
     );
@@ -154,4 +155,19 @@ export function renameSession(
       names: Object.fromEntries(Object.entries(names).filter(([key]) => key !== id)),
     };
   return { ...preferences, names };
+}
+
+/** Prune only after inventory is ready; retained session locations remain valid rows. */
+export function pruneExpansion(
+  expanded: Record<string, boolean>,
+  repositories: readonly SidebarRepository[],
+): Record<string, boolean> {
+  const known = new Set(
+    repositories.flatMap((repo) => [
+      repositoryKey(repo.path),
+      ...repo.worktrees.map((tree) => worktreeKey(tree.path)),
+    ]),
+  );
+  const entries = Object.entries(expanded).filter(([key]) => key === "home" || known.has(key));
+  return entries.length === Object.keys(expanded).length ? expanded : Object.fromEntries(entries);
 }
