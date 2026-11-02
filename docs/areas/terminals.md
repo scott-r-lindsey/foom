@@ -152,6 +152,12 @@ inside ASAR, independently of the unpacked catalog; missing or malformed revisio
 are refused. Both compressed and expanded hashes and sizes are checked before
 upload. Missing or mismatched artifacts fail closed. Bootstrap rechecks uname on
 every connection, including reconnects, before touching the cache or uploading.
+Main retains one content-addressed artifact verification, sharing its expanded
+and upload buffers across connections. Every request still rereads bounded,
+non-symlink artifact and manifest files and hashes their current contents along
+with the expected revision and compression mode. Only identical content reuses
+verification; changed bytes or metadata are fully verified again, and failures
+are not retained. Paths and timestamps never establish artifact trust.
 
 For native development, `node scripts/build-remote-host.mjs` with Node 24 on
 Linux/macOS produces `build/remote-host/foom-host`, `foom-host.gz` and

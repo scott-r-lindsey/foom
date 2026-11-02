@@ -48,16 +48,43 @@ async function boundedFile(path: string, limit: number): Promise<Buffer> {
     await fd.close();
   }
 }
+// Retain one content-addressed verification, including concurrent readers. Each
+// caller still opens bounded, non-symlink files and hashes their current bytes;
+// neither a path nor file timestamps establish trust. Sharing the verified buffers
+// avoids expanding a full Node SEA for every short-lived management connection.
+let verifiedArtifact: { key: string; value: ReturnType<typeof verifyArtifact> } | undefined;
+
 export async function hostArtifact(path: string, expectedSource?: string) {
   if (!isAbsolute(path)) throw new Error("Host artifact must be absolute");
   const stored = await boundedFile(path, 200 * 1024 * 1024);
   const compressed = path.endsWith(".gz");
+  const manifest = await boundedFile(join(dirname(path), "manifest.json"), 4096);
+  const key = createHash("sha256")
+    .update(stored)
+    .update(manifest)
+    .update(JSON.stringify([stored.length, manifest.length, compressed, expectedSource]))
+    .digest("hex");
+  if (verifiedArtifact?.key === key) return verifiedArtifact.value;
+  const value = verifyArtifact(stored, compressed, manifest, expectedSource).catch(
+    (error: unknown) => {
+      if (verifiedArtifact?.key === key) verifiedArtifact = undefined;
+      throw error;
+    },
+  );
+  verifiedArtifact = { key, value };
+  return value;
+}
+
+async function verifyArtifact(
+  stored: Buffer,
+  compressed: boolean,
+  manifest: Buffer,
+  expectedSource?: string,
+) {
   const bytes = compressed
     ? await promisify(gunzip)(stored, { maxOutputLength: 200 * 1024 * 1024 })
     : stored;
-  const value: unknown = JSON.parse(
-    (await boundedFile(join(dirname(path), "manifest.json"), 4096)).toString("utf8"),
-  );
+  const value: unknown = JSON.parse(manifest.toString("utf8"));
   if (
     typeof value !== "object" ||
     value === null ||
