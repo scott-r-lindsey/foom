@@ -535,3 +535,20 @@ Three subsequent CI runs of the final assignment must measure actual Electron
 step wall times. Summed maxima combine costs from different runs and exclude
 build, runner and empty-file overhead; they are planning inputs, not proof of the
 approximately eleven-minute target. The PR records those validation measurements.
+
+### Observed final-assignment runs
+
+Passing Electron step seconds in shard order, including build/runner overhead:
+
+| Run | Platform | Shard step seconds |
+| --- | --- | --- |
+| [41423707884](https://github.com/scott-r-lindsey/foom/actions/runs/41423707884) | Linux | 542 / 436 / 562 / 508 |
+| [41423707884](https://github.com/scott-r-lindsey/foom/actions/runs/41423707884) | Windows | 588 / 490 / 604 / 620 / 637 |
+| [41423707884](https://github.com/scott-r-lindsey/foom/actions/runs/41423707884) | macOS | 620 / 617 / 595 / 615 / 548 |
+
+Every required check passed. Windows shard 5 initially missed the PowerShell exit
+assertion after native input and passed on the single failed-jobs rerun. Its
+passing step took 637 seconds, versus 686 seconds in the failed attempt. Test
+bodies and deadlines were unchanged for that recovery. All five Windows and
+macOS shards completed within eleven minutes in this measured run. Further
+validation runs are recorded in PR #1015.
