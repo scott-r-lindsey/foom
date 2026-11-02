@@ -345,6 +345,19 @@ export function feedback(
   verdictId: string | null,
   action: VerdictAction,
 ): Promise<void> {
+  if (verdictId === null && action === "dismissed") {
+    const state = this.executionOwner.currentState(id);
+    const role = this.orchestration.view(id);
+    // The click may focus the parent and acknowledge its reminder before this
+    // request arrives. Repeating that acknowledgment must still succeed.
+    if (
+      state?.signal === "orchestration:unread" ||
+      (state?.state !== "needs_input" && role?.role === "orchestrator" && role.active)
+    ) {
+      this.focusOrchestrator(id);
+      return Promise.resolve();
+    }
+  }
   const token = this.configTokens.get(id);
   if (
     token &&

@@ -179,9 +179,6 @@ function BoardContents({
     otherViews,
     layout,
     boardRef,
-    fontSizeRef,
-    fontFamilyRef,
-    focusedAtRef,
     layoutRef,
     focusRequest,
     setFocusRequest,
@@ -693,24 +690,11 @@ function BoardContents({
               changeLayout({ ...layoutRef.current, focused: tile.id });
               setFocusRequest((value) => value + 1);
             } else {
-              const area = boardRef.current?.querySelector(".tile-area");
-              const probe = document.createElement("span");
-              probe.style.cssText = `position:absolute;visibility:hidden;font:${String(fontSizeRef.current)}px ${fontFamilyRef.current}`;
-              probe.textContent = "M";
-              boardRef.current?.append(probe);
-              const cell = probe.getBoundingClientRect().width || fontSizeRef.current * 0.6;
-              probe.remove();
               const next = placeContent(
                 layoutRef.current,
                 { kind: "preview", preview: id },
                 false,
-                {
-                  columns: (area?.getBoundingClientRect().width ?? 0) / cell,
-                  needsYou: new Set(
-                    rows.filter((row) => row.state === "needs_input").map((row) => row.id),
-                  ),
-                  focusedAt: focusedAtRef.current,
-                },
+                placementOptions(),
               );
               if (next) {
                 changeLayout(next);
@@ -802,6 +786,12 @@ function BoardContents({
             focusRequest={focusRequest}
             restoreFocusRequest={restoreFocusRequest}
             setLayout={changeLayout}
+            resizeLayout={(next, commit) => {
+              const count = leaves(layoutRef.current.tree).length;
+              changeLayout(next, false, !commit);
+              if (commit && leaves(layoutRef.current.tree).length < count)
+                setFocusRequest((value) => value + 1);
+            }}
             rows={rows}
             previews={previews}
             arrivals={arrivals}

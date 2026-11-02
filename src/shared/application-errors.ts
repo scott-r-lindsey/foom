@@ -10,6 +10,7 @@ const messages = {
   "worktree-prunable": "This worktree needs pruning.",
   "worktree-locked": "This worktree is locked.",
   "worktree-missing": "This worktree is missing.",
+  "worktree-removal-incomplete": "Worktree removal is incomplete. Manual cleanup is required.",
   "worktree-main": "The main checkout cannot be removed.",
   "prune-unsafe": "This folder cannot be safely pruned.",
 } satisfies Record<ApplicationErrorCode, string>;
@@ -29,6 +30,19 @@ export class ApplicationError extends Error {
   }
 }
 
+/** Only main's validated removal target may supply this narrowly scoped detail. */
+export class IncompleteRemovalError extends ApplicationError {
+  constructor(readonly path: string) {
+    super("worktree-removal-incomplete");
+    if (!validRemovalPath(path)) throw new Error("Invalid removal path");
+    this.message += `:${encodeURIComponent(path)}`;
+  }
+}
+
+function validRemovalPath(path: string): boolean {
+  return path.length <= 32768 && /^(?:\/|[A-Za-z]:[\\/]|\\\\)/u.test(path) && !path.includes("\0");
+}
+
 function isApplicationErrorCode(value: unknown): value is ApplicationErrorCode {
   return typeof value === "string" && Object.hasOwn(messages, value);
 }
@@ -36,19 +50,34 @@ function isApplicationErrorCode(value: unknown): value is ApplicationErrorCode {
 /** Electron preserves only an Error's message, optionally wrapping it once. */
 function applicationErrorDetails(
   error: unknown,
-): { code: ApplicationErrorCode; childCount?: number } | undefined {
+): { code: ApplicationErrorCode; childCount?: number; path?: string } | undefined {
   if (!(error instanceof Error)) return undefined;
   const match =
-    /^(?:Error invoking remote method '[^']+': (?:Error: )?)?foom-error:([a-z-]+)(?::([1-9][0-9]{0,15}))?$/u.exec(
+    /^(?:Error invoking remote method '[^']+': (?:Error: )?)?foom-error:([a-z-]+)(?::([^\r\n]*))?$/u.exec(
       error.message,
     );
   if (!match || match[0] !== error.message) return undefined;
   const code = match[1];
   if (!isApplicationErrorCode(code)) return undefined;
   const count = match[2];
+  if (code === "worktree-removal-incomplete" && count !== undefined) {
+    try {
+      const path = decodeURIComponent(count);
+      return validRemovalPath(path) && encodeURIComponent(path) === count
+        ? { code, path }
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  }
   if (code === "session-has-children") {
     const childCount = Number(count);
-    return Number.isSafeInteger(childCount) && childCount > 0 ? { code, childCount } : undefined;
+    return count !== undefined &&
+      /^[1-9][0-9]{0,15}$/u.test(count) &&
+      Number.isSafeInteger(childCount) &&
+      childCount > 0
+      ? { code, childCount }
+      : undefined;
   }
   return count === undefined ? { code } : undefined;
 }
@@ -61,6 +90,8 @@ export function errorMessage(error: unknown, fallback = messages["operation-fail
   const details = applicationErrorDetails(error);
   if (details?.code === "session-has-children")
     return `Close its ${String(details.childCount)} ${details.childCount === 1 ? "child" : "children"} first.`;
+  if (details?.code === "worktree-removal-incomplete" && details.path)
+    return `Worktree removal is incomplete. Manually clean up: ${details.path}`;
   const code = details?.code;
   return code && code !== "operation-failed" ? messages[code] : fallback;
 }

@@ -72,12 +72,12 @@ async function run(dir: string, env: NodeJS.ProcessEnv, event: string, input?: s
 test("static plugin installs only observer events on both native shells", () => {
   for (const platform of ["linux", "win32"] as const) {
     const files = agyPluginFiles(platform);
-    expect(files["hooks.json"]).not.toMatch(/PreToolUse|Permission|continue|FOOM_TOKEN/u);
+    expect(files["hooks.json"]).not.toMatch(/Permission|continue|FOOM_TOKEN/u);
     expect(files["hooks.json"]).toContain(
       platform === "win32" ? "powershell.exe" : "sh ./observer.sh",
     );
     expect(files["hooks.json"]).toContain('"timeout":3');
-    expect(files["plugin.json"]).toContain('"foomObserverVersion":4');
+    expect(files["plugin.json"]).toContain('"foomObserverVersion":5');
   }
 });
 
@@ -99,7 +99,7 @@ test.each(["FOOM_HOOK_URL", "FOOM_SESSION", "FOOM_TOKEN"])(
   },
 );
 
-test.each(["PreInvocation", "PostToolUse", "Stop"])(
+test.each(["PreInvocation", "PreToolUse", "PostToolUse", "Stop"])(
   "native shell delivers literal untrusted %s data and returns an empty result",
   { timeout: nativeDeadline(15000) },
   async (event) => {

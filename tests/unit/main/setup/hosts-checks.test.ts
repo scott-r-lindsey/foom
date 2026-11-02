@@ -137,15 +137,22 @@ test("cancellation before or during a check never becomes unreachable or enrolls
   expect(execute).toHaveBeenCalledTimes(1);
   expect(settings.registeredHosts).toBeUndefined();
 });
-test.each(["artifact-unavailable", "version-mismatch", "invalid-reply", "unreachable"] as const)(
-  "preserves %s and emits one bounded diagnostic",
-  async (reason) => {
-    const log = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    execute.mockResolvedValueOnce({ ok: false, reason });
-    expect((await check()).result).toEqual({ ok: false, reason });
-    expect(log.mock.calls).toEqual([[`Host check failed: reason=${reason} step=connection`]]);
-  },
-);
+test.each([
+  "artifact-unavailable",
+  "version-mismatch",
+  "invalid-reply",
+  "unreachable",
+  "origin-auth",
+  "origin-host-key",
+  "origin-unreachable",
+  "timed-out",
+  "checkout-invalid",
+] as const)("preserves %s and emits one bounded diagnostic", async (reason) => {
+  const log = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  execute.mockResolvedValueOnce({ ok: false, reason });
+  expect((await check()).result).toEqual({ ok: false, reason });
+  expect(log.mock.calls).toEqual([[`Host check failed: reason=${reason} step=connection`]]);
+});
 
 test("a configuration change during provider validation retries before executing", async () => {
   const provider = agentProviders()[0];

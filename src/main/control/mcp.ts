@@ -8,7 +8,7 @@ import type { Principal } from "./types";
 import { ControlError, exact, object } from "../../shared/control-validation";
 import { MCP_ID_LIMIT, mcpToolResponse } from "../../node-common/mcp-response";
 
-const versions = ["2025-03-26", "2025-06-18", "2025-11-25"];
+import { MCP_VERSIONS as versions, negotiateMcpVersion } from "../../shared/mcp-protocol";
 const REFUSED =
   "forbidden: you are not this repository's Foom orchestrator. Only the human can grant that role; call whoami to check.";
 const instructions =
@@ -69,8 +69,7 @@ export class ControlMcp {
       if (
         id === undefined ||
         headers["mcp-session-id"] !== undefined ||
-        typeof params["protocolVersion"] !== "string" ||
-        !versions.includes(params["protocolVersion"])
+        typeof params["protocolVersion"] !== "string"
       )
         throw new ControlError("invalid_request");
       object(params["capabilities"]);
@@ -80,7 +79,11 @@ export class ControlMcp {
       for (const generation of this.sessions.keys()) {
         if (!this.service.live(generation)) this.sessions.delete(generation);
       }
-      const session = { id: randomUUID(), version: params["protocolVersion"], ready: false };
+      const session = {
+        id: randomUUID(),
+        version: negotiateMcpVersion(params["protocolVersion"]),
+        ready: false,
+      };
       this.sessions.set(actor.generation, session);
       return {
         ...result({

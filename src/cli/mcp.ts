@@ -73,10 +73,7 @@ export async function mcpCommand(
                   throw new Error("MCP transport failed");
                 sessionId = id;
                 const version = object(object(value)["result"])["protocolVersion"];
-                if (
-                  typeof version !== "string" ||
-                  !["2025-03-26", "2025-06-18", "2025-11-25"].includes(version)
-                )
+                if (typeof version !== "string" || !/^[\x21-\x7e]{1,200}$/u.test(version))
                   throw new Error("MCP transport failed");
                 protocol = version;
               }

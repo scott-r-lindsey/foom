@@ -1,3 +1,4 @@
+const { sizeTileBoard } = require("./tile-fixture.js");
 const { evidencePath } = require("../helpers/evidence.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
 const { test } = require("./test-shard.js");
@@ -440,6 +441,7 @@ test("sidebar preferences sync between windows without losing independent edits"
     second.getByRole("button", { name: "Collapse shell-fixture", exact: true }),
   ).toBeVisible();
   await expect(first.locator(".board-row")).toHaveCount(0);
+  await sizeTileBoard(app, first);
   // Tile layouts remain independent while pins and names are shared.
   await first.evaluate(() => window.desktop.appMenu.execute("split-right"));
   await expect(first.locator(".terminal-tile")).toHaveCount(2);
@@ -581,6 +583,7 @@ test("shell launch paths select the new shell and its blinking input cursor", as
         .locator(".tree-name")
         .click();
     } else {
+      await sizeTileBoard(app, page);
       await page
         .locator(".terminal-tile[data-focused='true']")
         .getByRole("button", { name: /Tile \d+ menu/ })

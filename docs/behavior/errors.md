@@ -7,7 +7,9 @@ Decided user-visible rules. Implementation: [error presentation and coded IPC](.
 Failures of actions the user starts (menus, sidebar commands and Settings actions)
 open an in-board error dialog. It shows a failure square, one fixed short sentence
 chosen by error code, Dismiss and a fix button when available. It never displays
-exception text or Electron's transport wrapper. Unknown codes use a fixed sentence
+exception text or Electron's transport wrapper. An incomplete worktree removal
+adds only the main-validated leftover path with manual-cleanup guidance; it offers
+no automatic retry deletion once Git has unregistered the checkout. Unknown codes use a fixed sentence
 for the operation. No button is selected on opening; Escape dismisses without
 acting and restores focus. Trusted confirmation windows remain reserved for
 confirmations. Settings field validation stays beside its field.

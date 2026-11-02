@@ -1,3 +1,4 @@
+import { ForgeTracking } from "../../../../src/main/control/forge-tracking";
 import { expect, it, vi } from "vitest";
 import type { WorkspaceDependencies } from "../../../../src/main/workspace/workspace-types";
 import { Operations } from "../../../../src/main/control/operations";
@@ -609,3 +610,75 @@ it("Close counts exited child rows still naming a restored parent", async () => 
     "foom-error:session-has-children:2",
   );
 });
+
+it.each(["MERGED", "CLOSED"] as const)(
+  "acknowledges a restored review reminder for a %s PR",
+  async (state) => {
+    const { readSessions } = await import("../../../../src/main/workspace/session-store");
+    const saved = readSessions([
+      {
+        id: "parent",
+        agent: "claude",
+        repository: repo.path,
+        worktree: repo.path,
+        branch: "main",
+        conversationId: "conversation",
+        running: true,
+        orchestrator: { identity: "identity", history: [] },
+      },
+      {
+        id: "child",
+        agent: "claude",
+        repository: repo.path,
+        worktree: child.path,
+        branch: "feature",
+        running: false,
+        parentId: "parent",
+        review: {
+          authorId: "child",
+          phase: "reviewing",
+          round: 1,
+          rounds: 3,
+          agent: "claude",
+          postFindings: false,
+        },
+      },
+    ]);
+    deps.sessions = {
+      load: () => Promise.resolve(saved),
+      save: vi.fn(async () => {}),
+      flush: async () => {},
+    };
+    const forge = new ForgeTracking(
+      "/unused",
+      () => Promise.resolve(undefined),
+      () => {},
+    );
+    vi.spyOn(forge, "track").mockImplementation(() => {});
+    vi.spyOn(forge, "read").mockReturnValue({
+      number: 7,
+      headSha: "head",
+      state,
+      requiredChecks: "success",
+    });
+    launch.mockImplementation((request) =>
+      Promise.resolve({
+        id: request.terminalId ?? "new",
+        attention: "evaluator",
+      }),
+    );
+    const workspace = createWorkspace({ ...deps, forge });
+    workspace.configure({ hooks: false, agents: { claude: true, codex: true, agy: true } });
+    await workspace.restore();
+    await workspace.restartSaved();
+    const parent = () => workspace.snapshot().terminals.find((row) => row.id === "parent");
+    expect(parent()?.state).toMatchObject({
+      signal: "orchestration:unread",
+      reason: "Child report unread",
+    });
+    await workspace.feedback("parent", null, "dismissed");
+    expect(parent()?.state?.signal).not.toBe("orchestration:unread");
+    expect(launch.mock.calls.map(([request]) => request.terminalId)).toEqual(["parent"]);
+    await workspace.dispose();
+  },
+);

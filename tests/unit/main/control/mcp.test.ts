@@ -147,7 +147,7 @@ it("validates protocol envelopes, initialization and readiness", async () => {
     { ...initialize, id: true },
     { ...initialize, extra: true },
     { ...initialize, params: {} },
-    { ...initialize, params: { ...initialize.params, protocolVersion: "old" } },
+    { ...initialize, params: { ...initialize.params, protocolVersion: 1 } },
     { ...initialize, params: { ...initialize.params, clientInfo: {} } },
   ])
     expect((await send(body)).status).toBe(400);
@@ -321,3 +321,41 @@ it("serves reference manual sections on demand and lists valid IDs in validation
     load.mockRestore();
   }
 });
+
+it.each(["2024-11-05", "2099-01-01", "unknown", "2025-03-26", "2025-06-18", "2025-11-25"])(
+  "negotiates %s and binds subsequent headers to the selected version",
+  async (requested) => {
+    const version = requested.startsWith("2025-") ? requested : "2025-11-25";
+    const response = await send({
+      ...initialize,
+      params: { ...initialize.params, protocolVersion: requested },
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ result: { protocolVersion: version } });
+    session = response.headers.get("mcp-session-id") ?? "";
+    expect(
+      (
+        await send(
+          { jsonrpc: "2.0", method: "notifications/initialized" },
+          { "Mcp-Protocol-Version": version },
+        )
+      ).status,
+    ).toBe(202);
+    expect(
+      (
+        await send(
+          { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "whoami" } },
+          { "Mcp-Protocol-Version": version },
+        )
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await send(
+          { jsonrpc: "2.0", id: 3, method: "ping" },
+          { "Mcp-Protocol-Version": version === "2025-03-26" ? "2025-06-18" : "2025-03-26" },
+        )
+      ).status,
+    ).toBe(400);
+  },
+);

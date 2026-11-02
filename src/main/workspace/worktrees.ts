@@ -7,7 +7,7 @@ import { lstat, opendir, readFile, readdir, realpath, rm, rmdir } from "node:fs/
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
 import { readOwnedFile } from "../../node-common/owned-files";
-import { ApplicationError } from "../../shared/application-errors";
+import { ApplicationError, IncompleteRemovalError } from "../../shared/application-errors";
 import type { GitPanelFacts } from "../../shared/panel";
 import type {
   BranchInventory,
@@ -25,6 +25,7 @@ import {
   forgeProviderFor,
   git,
   pickRemote,
+  parentIdentity,
   record,
   refNames,
   validatePath,
@@ -45,6 +46,7 @@ export class WorktreeService {
     { repository: string; root: string; identity: string; review?: ReviewCheckout }
   >();
   private readonly root: string;
+  private readonly createdParents = new Map<string, string>();
   reviewIdentity(repository: string, path: string): string | undefined {
     this.repository(repository);
     const record = this.managed.get(path);
@@ -71,6 +73,7 @@ export class WorktreeService {
     await this.store?.save(() => ({
       version: 1,
       repositories: [...this.repositories.keys()],
+      parents: [...this.createdParents].map(([path, identity]) => ({ path, identity })),
       managed: [...this.managed].map(([path, ownership]) => ({ path, ...ownership })),
     }));
   }
@@ -181,6 +184,15 @@ export class WorktreeService {
         // A stored record is only a claim: stale or redirected paths lose ownership.
       }
     }
+    for (const parent of state.parents ?? []) {
+      try {
+        assertInside(await realpath(this.root), parent.path);
+        if ((await parentIdentity(parent.path)) === parent.identity)
+          this.createdParents.set(parent.path, parent.identity);
+      } catch {
+        // Missing, replaced and redirected parent records grant no pruning authority.
+      }
+    }
     this.store = store;
     await this.save();
   }
@@ -259,6 +271,7 @@ export class WorktreeService {
       return {
         version: 1,
         repositories: [...repositories.keys()],
+        parents: [...this.createdParents].map(([path, identity]) => ({ path, identity })),
         managed: [...this.managed]
           .filter(([, entry]) => repository || entry.repository !== path)
           .map(([path, ownership]) => ({ path, ...ownership })),
@@ -874,6 +887,7 @@ export class WorktreeService {
     const result = await createWorktree(
       {
         root: this.root,
+        createdParents: this.createdParents,
         managed: this.managed,
         repository: this.repository.bind(this),
         validateBranch: this.validateBranch.bind(this),
@@ -927,8 +941,44 @@ export class WorktreeService {
       "--",
       resolved,
     ]);
-    this.managed.delete(resolved);
-    await this.save();
+    // Git may unregister the checkout despite leaving files behind. Never delete
+    // those files ourselves, and never report that partial effect as success.
+    try {
+      await lstat(resolved);
+    } catch (error) {
+      if (!record(error) || error["code"] !== "ENOENT") throw new IncompleteRemovalError(resolved);
+      this.managed.delete(resolved);
+      await this.pruneCreatedParents(repository.path, resolved);
+      await this.save();
+      return;
+    }
+    throw new IncompleteRemovalError(resolved);
+  }
+  private async pruneCreatedParents(repository: string, path: string): Promise<void> {
+    const root = await realpath(this.root).catch(() => undefined);
+    if (!root || !within(root, path)) return;
+    const trees = await this.listWorktrees(repository);
+    for (
+      let parent = dirname(path);
+      parent !== root && within(root, parent);
+      parent = dirname(parent)
+    ) {
+      const identity = this.createdParents.get(parent);
+      if (!identity || trees.some((tree) => tree.path === parent)) break;
+      if ((await parentIdentity(parent).catch(() => undefined)) !== identity) {
+        this.createdParents.delete(parent);
+        break;
+      }
+      try {
+        // No recursive removal: siblings, unknown files and Git markers stop pruning.
+        await rmdir(parent);
+        this.createdParents.delete(parent);
+      } catch (error) {
+        if (record(error) && ["ENOTEMPTY", "EEXIST", "ENOENT"].includes(String(error["code"])))
+          break;
+        throw new IncompleteRemovalError(parent);
+      }
+    }
   }
 }
 

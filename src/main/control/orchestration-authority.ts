@@ -604,7 +604,8 @@ export class OrchestrationAuthority {
     for (const [id, child] of parent.children) {
       if (child.takenOver) continue;
       const state = this.reviews.view(id);
-      if (state && this.reviews.unread(id) !== undefined) return reviewLabel(state);
+      if (state && this.reviews.unread(id) !== undefined)
+        return state.reason === "restored" ? "Child report unread" : reviewLabel(state);
     }
     return undefined;
   }
