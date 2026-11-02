@@ -11,7 +11,8 @@ import {
   createWorkspace,
 } from "./orchestration-workspace-fixture";
 
-it("projects unread child attention and clears on human focus without changing execution", async () => {
+it("dismisses unread child attention until the next report without feedback or execution changes", async () => {
+  const recordAction = vi.spyOn(deps.verdicts, "recordAction");
   let time = 1000;
   deps.now = () => time;
   const workspace = createWorkspace(deps);
@@ -61,9 +62,44 @@ it("projects unread child attention and clears on human focus without changing e
   const execution = parent()?.execution;
   workspace.focusOrchestrator("foreign");
   expect(parent()?.state?.reason).toBe("Child report unread");
-  workspace.focusOrchestrator("parent");
+  await expect(workspace.feedback("parent", "stale", "dismissed")).rejects.toThrow();
+  await workspace.feedback("parent", null, "dismissed");
   expect(parent()?.state?.reason).not.toBe("Child report unread");
   expect(parent()?.execution).toEqual(execution);
+  workspace.refresh();
+  expect(parent()?.state?.signal).not.toBe("orchestration:unread");
+  // Pointer focus can consume the reminder before the Dismiss IPC arrives.
+  workspace.focusOrchestrator("parent");
+  await workspace.feedback("parent", null, "dismissed");
+  expect(recordAction).not.toHaveBeenCalled();
+  workspace.orchestration.handoffs.restore("child", [
+    {
+      seq: 1,
+      status: "done",
+      summary: "New report",
+      links: [],
+      timestamp: new Date(time).toISOString(),
+    },
+  ]);
+  workspace.refresh();
+  time += 60000;
+  workspace.refresh();
+  expect(parent()?.state?.signal).toBe("orchestration:unread");
+  await workspace.feedback("parent", null, "dismissed");
+  workspace.orchestration.reviews.restore("child", {
+    authorId: "child",
+    phase: "escalated",
+    reason: "restored",
+    waiting: false,
+    round: 0,
+    rounds: 3,
+    agent: "claude",
+    postFindings: false,
+  });
+  expect(parent()?.state?.reason).toBe("Child report unread");
+  await workspace.feedback("parent", null, "dismissed");
+  expect(parent()?.state?.signal).not.toBe("orchestration:unread");
+  workspace.focusOrchestrator("parent");
   await workspace.dispose();
 });
 

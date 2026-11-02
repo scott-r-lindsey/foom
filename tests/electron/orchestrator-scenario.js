@@ -628,9 +628,10 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
         path: evidencePath("unread-child-attention.png"),
         animations: "disabled",
       });
-      await parentBoard.click();
+      await parentTile.getByRole("button", { name: "Dismiss incorrect attention flag" }).click();
       await expect(parentBoard).toHaveAttribute("data-state", "working");
       await expect(parentTile).toHaveCount(0);
+      await expect(page.getByText("Unable to record feedback. Try again.")).toHaveCount(0);
       return;
     }
     if (phase === "waiting") {

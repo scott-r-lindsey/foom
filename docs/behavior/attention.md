@@ -67,3 +67,17 @@ result until execution starts. Other shells use output patterns and process exit
 The quiet debounce preserves the current state; there is no separate Checking state. Agent Working follows
 lifecycle evidence, never silence or output volume. A supported turn-end signal
 stops Working immediately; classification determines the result.
+
+## Unread child reminders (#1003)
+
+An orchestrator's **Child report unread** reminder can be cleared with **Dismiss**
+or by focusing the orchestrator. Both acknowledge the current child events and
+review results; a new report can raise attention again. This is acknowledgment,
+not evaluator feedback, and records no false-positive verdict or execution change.
+The orchestrator's own question or permission prompt keeps its normal dismissal
+behavior and takes precedence over this reminder.
+
+After restart, saved review loops remain dormant and escalated. Their unread
+reminder says **Child report unread**, including when the child's PR has already
+merged or closed; acknowledging it clears the reminder without restarting review.
+The child's review metadata retains `Escalated: restored` for inspection.
