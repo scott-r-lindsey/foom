@@ -280,6 +280,8 @@ test("Settings shares live preflight values, sizes the terminal and restores key
     .poll(() => page.evaluate(async () => (await window.desktop.setupState()).settings.hooks))
     .toBe(false);
   await section("Repositories");
+  await tabToControl(page.locator(".settings-repository-picker > summary"));
+  await page.keyboard.press("Enter");
   await page.getByRole("button", { name: "Choose folder…" }).waitFor();
   await tabTo(page, "Choose folder…");
   await page.keyboard.press("Enter");
