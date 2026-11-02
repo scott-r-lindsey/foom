@@ -245,6 +245,9 @@ upload and the expanded hash after upload and on cache reuse. No Release secrets
 environments, workflow permissions or credential stages change. The user verifies
 real notarization after merge with `publish_nightly`.
 
+For development, [start:hosts](development.md#how-typescript-fits-into-electron)
+fetches and verifies the exact-HEAD main push artifacts before normal startup.
+
 Local `package` and `make` try `.cache/remote-hosts/TARGET/`, or the catalog root
 specified by `FOOM_REMOTE_HOST_ARTIFACTS`. No CI download or detached checkout is
 needed. If any entry is missing, stale or invalid, the build warns and omits the
