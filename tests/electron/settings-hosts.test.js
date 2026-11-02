@@ -70,7 +70,7 @@ const { appendFileSync } = require('node:fs');
 const args = process.argv.slice(2);
 for (const flag of ['BatchMode=yes','ClearAllForwardings=yes','ForwardAgent=no','ForwardX11=no','ConnectTimeout=10']) assert.ok(args.includes(flag));
 const split = args.indexOf('--'); const host = args[split+1];
-assert.ok(['fixture-cloud','other-cloud','offline-cloud'].includes(host));
+assert.ok(['fixture-cloud','other-cloud','offline-cloud','version-cloud','invalid-cloud'].includes(host));
 if (host === 'offline-cloud') { process.stderr.write('RAW SSH SECRET'); process.exit(1); }
 if (args.at(-1) === 'uname -s; uname -m') { process.stdout.write(${JSON.stringify(`${platform === "darwin" ? "Darwin" : "Linux"}\n${process.arch === "x64" ? "x86_64" : platform === "darwin" ? "arm64" : "aarch64"}\n`)}); process.exit(0); }
 process.stdout.write('FOOM-READY\\n');
@@ -97,7 +97,7 @@ process.stdin.on('data', bytes => {
     continue;
   }
   assert.equal('id' in message,false); appendFileSync(${JSON.stringify(calls)},JSON.stringify({host,message})+'\\n');
-  if(message.type==='hello') { send({type:'hello',build:${JSON.stringify(manifest.sha256)}}); continue; }
+  if(message.type==='hello') { send({type:'hello',build:host==='version-cloud'?'b'.repeat(64):${JSON.stringify(manifest.sha256)}}); continue; }
   if(message.type==='inventory') {send({type:'inventory-result',own:[],foreign:[]}); continue;}
   assert.equal(message.type,'manage');
   let result;
@@ -109,6 +109,7 @@ process.stdin.on('data', bytes => {
    result={ok:true,facts:{codeFolder:folder,version:${JSON.stringify(manifest.version)},sessions:2,cores:8,load:[0.42,0.31,0.25],memoryTotal:17179869184,memoryAvailable:11811160064,requirements:{distro:'debian',libc:'supported',packageManager:'apt'},tools:[{id:'git',state:'missing',signIn:'unknown'},{id:'gh',state:'ready',signIn:'signed-out'}],agents:[{id:'claude',state:'ready'},{id:'codex',state:'missing'},{id:'agy',state:'unable'}]}};
    if(message.operation==='repository' || message.operation==='clone') result.checkout={path:folder+'/'+message.directory,state:message.operation==='clone'?'clean':'absent'};
   }
+  if(host==='invalid-cloud') result={ok:true,facts:{}};
   send({type:'managed',result});
  }
 });
@@ -189,10 +190,29 @@ process.stdin.on('data', bytes => {
   await page.getByLabel("SSH host", { exact: true }).fill("offline-cloud");
   await page.getByRole("button", { name: "Test connection", exact: true }).click();
   await expect(page.getByText("Host unreachable", { exact: true })).toBeVisible();
+  await capture("995-after-unreachable");
   assert.equal(
     (await page.evaluate(() => window.desktop.setupState())).settings.registeredHosts,
     undefined,
   );
+  await page.getByLabel("SSH host", { exact: true }).fill("fixture-cloud");
+  const artifactPath = path.join(catalog, "foom-host.gz");
+  await rm(artifactPath);
+  await page.getByRole("button", { name: "Test connection", exact: true }).click();
+  await expect(
+    page.getByText("Remote host artifact unavailable in this local build", { exact: true }),
+  ).toBeVisible();
+  await capture("995-after-artifact");
+  await writeFile(artifactPath, compressed);
+  for (const [host, text, name] of [
+    ["version-cloud", "Host version mismatch", "version"],
+    ["invalid-cloud", "Invalid host reply", "reply"],
+  ]) {
+    await page.getByLabel("SSH host", { exact: true }).fill(host);
+    await page.getByRole("button", { name: "Test connection", exact: true }).click();
+    await expect(page.getByText(text, { exact: true })).toBeVisible();
+    await capture(`995-after-${name}`);
+  }
   await page.getByLabel("SSH host", { exact: true }).fill("fixture-cloud");
   await page.getByLabel("Code folder", { exact: true }).fill("~/refused");
   await page.getByRole("button", { name: "Check folder", exact: true }).click();

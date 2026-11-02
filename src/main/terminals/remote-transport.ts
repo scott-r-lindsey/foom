@@ -56,7 +56,7 @@ export class RemoteTransport extends EventEmitter {
   private artifactUnavailable = false;
   launchFailure: LaunchFailure | undefined;
 
-  /** Only a local sealed-metadata rejection may select this trusted reason. */
+  /** Only local metadata or artifact validation may select this trusted reason. */
   get failureReason(): "remote-host-unavailable" | undefined {
     return this.artifactUnavailable ? "remote-host-unavailable" : undefined;
   }
@@ -103,7 +103,11 @@ export class RemoteTransport extends EventEmitter {
         this.launchFailure =
           error instanceof LaunchFailure ? error : new LaunchFailure("remote_artifact_mismatch");
         this.managementFailure =
-          error instanceof UnsupportedRemotePlatform ? "unsupported" : "unreachable";
+          error instanceof UnsupportedRemotePlatform
+            ? "unsupported"
+            : error instanceof LaunchFailure && error.reason === "remote_host_unreachable"
+              ? "unreachable"
+              : "version-mismatch";
         this.artifactUnavailable =
           error instanceof ApplicationError && error.code === "remote-host-unavailable";
         this.kill();
@@ -302,8 +306,10 @@ export class RemoteTransport extends EventEmitter {
             if (
               value.type !== "hello" ||
               (value.build !== artifact.sha256 && value.compatible !== 2)
-            )
+            ) {
+              this.managementFailure = "version-mismatch";
               throw new Error("Host version mismatch");
+            }
             if (
               this.management?.type === "manage" &&
               this.management.operation === "inspect" &&
@@ -527,6 +533,12 @@ export class RemoteTransport extends EventEmitter {
           this.emit("message", value);
         });
       } catch {
+        if (this.managementFailure === "unreachable")
+          this.managementFailure = bootstrapped
+            ? this.ready
+              ? "invalid-reply"
+              : "version-mismatch"
+            : "invalid-reply";
         this.retireConnection(connection, "failure");
       }
     };
@@ -681,7 +693,11 @@ export function remoteManagement(
     transport.once("exit", () => {
       finish({
         ok: false,
-        reason: transport.failureReason ? "artifact-unavailable" : transport.managementFailure,
+        reason: signal?.aborted
+          ? "cancelled"
+          : transport.failureReason
+            ? "artifact-unavailable"
+            : transport.managementFailure,
       });
     });
     signal?.addEventListener("abort", cancel, { once: true });

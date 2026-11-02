@@ -16,6 +16,7 @@ import { createHash } from "node:crypto";
 import { devNull } from "node:os";
 import { hostsAction, gitOrigin, hostResult } from "../../shared/registered-hosts";
 import type {
+  HostFailure,
   HostManagement,
   HostFacts,
   HostResult,
@@ -720,37 +721,66 @@ export class Hosts {
     return work;
   }
   private async run(host: string, request: HostManagement): Promise<HostResult> {
-    try {
+    const failed = (
+      reason: HostFailure,
+      step: "providers" | "connection" | "reply" | "configuration" | "cancellation",
+    ): HostResult => {
+      console.warn(`Host check failed: reason=${reason} step=${step}`);
+      return { ok: false, reason };
+    };
+    const cancelled = () => this.cancellation.signal.aborted;
+    for (let attempt = 0; ; attempt++) {
+      if (cancelled()) return failed("cancelled", "cancellation");
       const revision = providerRevision();
       const enabled = JSON.stringify(this.store.get().agents);
+      const changed = () =>
+        providerRevision() !== revision || JSON.stringify(this.store.get().agents) !== enabled;
       const providers = agentProviders().filter(
         (provider) => this.store.get().agents[provider.id] !== false,
       );
-      for (const provider of providers) await provider.validate?.();
+      try {
+        for (const provider of providers) await provider.validate?.();
+      } catch {
+        if (cancelled()) return failed("cancelled", "cancellation");
+        if (changed()) {
+          if (request.operation === "inspect" && attempt === 0) continue;
+          return failed("configuration-changed", "configuration");
+        }
+        return failed("provider-invalid", "providers");
+      }
+      if (cancelled()) return failed("cancelled", "cancellation");
+      // Only inspection is safe to retry. Never replay a repository mutation.
+      if (changed()) {
+        if (request.operation === "inspect" && attempt === 0) continue;
+        return failed("configuration-changed", "configuration");
+      }
       const probes = providers.map((provider) => ({
         id: provider.id,
         executables: provider.executableNames,
       }));
-      const result: unknown = await this.execute(host, {
-        ...request,
-        agents: probes,
-      });
+      let result: unknown;
+      try {
+        result = await this.execute(host, { ...request, agents: probes });
+      } catch {
+        return cancelled()
+          ? failed("cancelled", "cancellation")
+          : failed("unreachable", "connection");
+      }
+      if (cancelled()) return failed("cancelled", "cancellation");
       if (
         !hostResult(result) ||
         (result.ok &&
           request.codeFolder.startsWith("/") &&
           result.facts.codeFolder !== request.codeFolder)
       )
-        return { ok: false, reason: "unreachable" };
-      if (!result.ok) return result;
-      if (providerRevision() !== revision || JSON.stringify(this.store.get().agents) !== enabled)
-        return { ok: false, reason: "unreachable" };
+        return failed("invalid-reply", "reply");
+      if (!result.ok) return failed(result.reason, "connection");
+      if (changed()) {
+        if (request.operation === "inspect" && attempt === 0) continue;
+        return failed("configuration-changed", "configuration");
+      }
       if (request.operation === "inspect")
-        this.observed.set(host, {
-          at: Date.now(),
-          revision,
-          enabled,
-        });
+        this.observed.set(host, { at: Date.now(), revision, enabled });
       return {
         ...result,
         facts: {
@@ -768,8 +798,6 @@ export class Hosts {
           })),
         },
       };
-    } catch {
-      return { ok: false, reason: "unreachable" };
     }
   }
   private async origin(repository: string): Promise<string> {

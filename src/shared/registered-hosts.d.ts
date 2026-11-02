@@ -5,6 +5,11 @@ export interface RegisteredHost {
 }
 export type HostFailure =
   | "unreachable"
+  | "version-mismatch"
+  | "provider-invalid"
+  | "configuration-changed"
+  | "invalid-reply"
+  | "cancelled"
   | "facts-unavailable"
   | "libc-too-old"
   | "libc-unsupported"

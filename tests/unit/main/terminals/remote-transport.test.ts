@@ -1,3 +1,5 @@
+import { ApplicationError } from "../../../../src/shared/application-errors";
+import { LaunchFailure } from "../../../../src/shared/launch-failure";
 import { UnsupportedRemotePlatform } from "../../../../src/main/terminals/remote-bootstrap";
 import type { RemoteTarget } from "../../../../src/shared/remote-host";
 import { EventEmitter } from "node:events";
@@ -847,7 +849,7 @@ test("management connections use no terminal ID or PTY and return fixed failures
   await Promise.resolve();
   child.greet();
   child.message({ type: "exit", id: "foreign", code: 0 });
-  await expect(failed).resolves.toEqual({ ok: false, reason: "unreachable" });
+  await expect(failed).resolves.toEqual({ ok: false, reason: "invalid-reply" });
 });
 test("ordinary sessions reject management responses", async () => {
   await ready();
@@ -867,7 +869,7 @@ test("management shutdown cancels an in-flight SSH connection and unsupported pl
   await Promise.resolve();
   child.greet();
   cancellation.abort();
-  await expect(pending).resolves.toEqual({ ok: false, reason: "unreachable" });
+  await expect(pending).resolves.toEqual({ ok: false, reason: "cancelled" });
   expect(child.kill).toHaveBeenCalledWith("SIGTERM");
   mock.artifact.mockRejectedValueOnce(new UnsupportedRemotePlatform("fixed"));
   await expect(
@@ -886,7 +888,7 @@ test("management shutdown cancels an in-flight SSH connection and unsupported pl
       { type: "manage", operation: "inspect", codeFolder: "~/foom" },
       already.signal,
     ),
-  ).resolves.toEqual({ ok: false, reason: "unreachable" });
+  ).resolves.toEqual({ ok: false, reason: "cancelled" });
 });
 
 test("clone management connections allow the clone deadline plus bootstrap and validation time", async () => {
@@ -1241,5 +1243,41 @@ test.each([false, true])(
       await expect(pending).resolves.toEqual({ ok: false, reason: "facts-unavailable" });
       expect(child.messages).not.toContainEqual(request);
     }
+  },
+);
+
+test.each(["handshake", "reply", "artifact", "ssh"])(
+  "management distinguishes %s failures",
+  async (step) => {
+    transport.kill();
+    if (step === "artifact")
+      mock.artifact.mockRejectedValueOnce(new ApplicationError("remote-host-unavailable"));
+    if (step === "ssh")
+      mock.artifact.mockRejectedValueOnce(new LaunchFailure("remote_host_unreachable"));
+    const pending = remoteManagement({ host: "fixture" }, "0.1.0", {
+      type: "manage",
+      operation: "inspect",
+      codeFolder: "~/foom",
+    });
+    await Promise.resolve();
+    if (step === "handshake") {
+      child.header();
+      child.message({ type: "hello", build: "b".repeat(64) });
+    }
+    if (step === "reply") {
+      child.greet();
+      child.stdout.write(Buffer.from([0, 0, 0, 1, 255]));
+    }
+    await expect(pending).resolves.toEqual({
+      ok: false,
+      reason:
+        step === "handshake"
+          ? "version-mismatch"
+          : step === "reply"
+            ? "invalid-reply"
+            : step === "artifact"
+              ? "artifact-unavailable"
+              : "unreachable",
+    });
   },
 );

@@ -237,21 +237,15 @@ for (const provider of bundledProviders) {
 
 await import("./build-cli.mjs");
 
-// Forge always attempts the catalog; CI and explicit strict builds cannot omit it.
-if (
-  process.env.FOOM_PACKAGE === "1" ||
-  process.env.FOOM_REQUIRE_REMOTE_HOSTS === "1" ||
-  process.env.FOOM_REMOTE_HOST_ARTIFACTS
-) {
-  const { version } = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
-  const remoteHostsAvailable = await prepareRemoteHosts(
-    process.env.FOOM_REMOTE_HOST_ARTIFACTS ?? join(root, ".cache/remote-hosts"),
-    join(root, "build/remote-hosts"),
-    version,
-    sourceRevision,
-  );
-  await writeFile(
-    join(root, "build/build-metadata.json"),
-    JSON.stringify({ source: sourceRevision, remoteHostsAvailable }),
-  );
-}
+// Development and packaged builds verify the same complete, exact-revision catalog.
+const { version } = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
+const remoteHostsAvailable = await prepareRemoteHosts(
+  process.env.FOOM_REMOTE_HOST_ARTIFACTS ?? join(root, ".cache/remote-hosts"),
+  join(root, "build/remote-hosts"),
+  version,
+  sourceRevision,
+);
+await writeFile(
+  join(root, "build/build-metadata.json"),
+  JSON.stringify({ source: sourceRevision, remoteHostsAvailable }),
+);

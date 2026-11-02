@@ -186,6 +186,11 @@ export function hostResult(value: unknown): value is HostResult {
       typeof value["reason"] === "string" &&
       [
         "unreachable",
+        "version-mismatch",
+        "provider-invalid",
+        "configuration-changed",
+        "invalid-reply",
+        "cancelled",
         "unsupported",
         "facts-unavailable",
         "libc-too-old",
