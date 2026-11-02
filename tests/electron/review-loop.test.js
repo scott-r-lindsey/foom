@@ -93,7 +93,7 @@ if (isChild) {
 }`,
   ) +
   `
-if (process.env.TEST_REVIEW_OUTPUT === "1") {
+if (process.env.TEST_REVIEW_RESTORE === "1") {
   fetch(process.env.FOOM_HOOK_URL, { method: "POST", headers: { Authorization: process.env.FOOM_TOKEN, "X-Foom-Session": process.env.FOOM_SESSION, "X-Foom-Event": "Stop", "X-Foom-Channel": "lifecycle", "X-Foom-Sequence": "1", "Content-Type": "application/json" }, body: JSON.stringify({session_id: "parent-conversation", hook_event_name: "Stop"}) }).catch(error => { throw error; });
 }
 `;
@@ -106,6 +106,7 @@ for (const scenario of [
   "blocked",
   "red",
   "concurrent",
+  "restored-unread",
   "binding",
   "unresolved",
   "continue",
@@ -174,6 +175,7 @@ for (const scenario of [
         TEST_REVIEW_ALLOW_INPUT: scenario === "fix" ? "1" : "0",
         TEST_REVIEW_BLOCK: scenario === "blocked" ? "1" : "0",
         TEST_REVIEW_OUTPUT: scenario === "concurrent" ? "1" : "0",
+        TEST_REVIEW_RESTORE: ["concurrent", "restored-unread"].includes(scenario) ? "1" : "0",
       },
     };
     const {
@@ -273,7 +275,9 @@ for (const scenario of [
     });
     assert.equal(result.status, "succeeded");
 
-    if (scenario === "concurrent") {
+    if (["concurrent", "restored-unread"].includes(scenario)) {
+      const concurrent = scenario === "concurrent";
+      const count = concurrent ? 3 : 1;
       const rows = (current) =>
         current.evaluate(async () => (await window.desktop.workspace()).terminals);
       const ids = [result.resultId];
@@ -293,7 +297,7 @@ for (const scenario of [
           ids.push(child.resultId);
         }
       };
-      await launchMore("initial");
+      if (concurrent) await launchMore("initial");
       await expect
         .poll(
           async () =>
@@ -301,7 +305,7 @@ for (const scenario of [
               (row) => ids.includes(row.id) && row.review?.phase === "building",
             ).length,
         )
-        .toBe(3);
+        .toBe(count);
       await expect
         .poll(async () => (await rows(page)).find((row) => row.id === parentId)?.conversationId)
         .toBe("parent-conversation");
@@ -312,22 +316,39 @@ for (const scenario of [
           assert.ok(performance.now() - start < deadline(5000));
         }
       };
-      await expect
-        .poll(async () => {
-          const files = (await require("node:fs/promises").readdir(root)).filter(
-            (name) => name.startsWith("credentials.json.output-") && !name.endsWith(".tmp"),
-          );
-          const sizes = await Promise.all(
-            files.map(async (file) => Number(await readFile(path.join(root, file), "utf8"))),
-          );
-          return sizes.filter((size) => size >= 1024 * 1024).length;
-        })
-        .toBe(3);
+      if (concurrent) {
+        await expect
+          .poll(async () => {
+            const files = (await require("node:fs/promises").readdir(root)).filter(
+              (name) => name.startsWith("credentials.json.output-") && !name.endsWith(".tmp"),
+            );
+            const sizes = await Promise.all(
+              files.map(async (file) => Number(await readFile(path.join(root, file), "utf8"))),
+            );
+            return sizes.filter((size) => size >= 1024 * 1024).length;
+          })
+          .toBe(count);
+      }
       await roundTrips();
-      // Keep the parent visible while another tile owns focus across restart.
-      await parentRow.locator(":scope > .board-row").click();
-      await page.evaluate(() => window.desktop.appMenu.execute("split-right"));
-      await page.locator(`[data-drag-session="${ids[0]}"]`).click();
+      if (!concurrent) {
+        // Consume the background child placement before arranging the saved tiles.
+        const childTile = page.locator(".terminal-tile").filter({
+          has: page.locator(".tile-location", { hasText: "child-one" }),
+        });
+        await expect(childTile).toBeVisible();
+        // Keep the parent visible while another tile owns focus across restart.
+        await parentRow.locator(":scope > .board-row").click();
+        await expect(childTile).toHaveCount(0);
+        await page.evaluate(() => window.desktop.appMenu.execute("split-right"));
+        await expect(page.locator(".terminal-tile")).toHaveCount(2);
+        await page.locator(`[data-drag-session="${ids[0]}"]`).click();
+        await expect(childTile).toBeVisible();
+        await expect
+          .poll(
+            async () => (await page.evaluate(() => window.desktop.windows.audio.state())).focusedId,
+          )
+          .toBe(ids[0]);
+      }
       await quitAndWait(app, async () => {
         await app.evaluate(({ app }) => app.quit());
         await (await confirmationPage(app))
@@ -347,7 +368,7 @@ for (const scenario of [
                 row.review.reason === "restored",
             ).length,
         )
-        .toBe(3);
+        .toBe(count);
       const previousToken = parent.controlToken;
       // The fixture records credentials before terminal creation finishes and
       // control.bind authenticates the grant. Readiness needs both a fresh
@@ -378,20 +399,27 @@ for (const scenario of [
         })
         .toBe(true);
       await roundTrips();
-      const reminderTile = restoredPage.locator(".terminal-tile").filter({
-        has: restoredPage.locator(".tile-attention", { hasText: "Child report unread" }),
-      });
-      await expect(reminderTile).toBeVisible();
-      await reminderTile.getByRole("button", { name: "Dismiss incorrect attention flag" }).click();
-      try {
-        await expect(
-          restoredPage.locator(".tile-attention", { hasText: "Child report unread" }),
-        ).toHaveCount(0);
-      } catch (error) {
-        context.diagnostic(JSON.stringify(await rows(restoredPage)));
-        throw error;
+      if (!concurrent) {
+        const reminderTile = restoredPage.locator(".terminal-tile").filter({
+          has: restoredPage.locator(".tile-attention", { hasText: "Child report unread" }),
+        });
+        await expect(reminderTile).toBeVisible();
+        await reminderTile
+          .getByRole("button", { name: "Dismiss incorrect attention flag" })
+          .click();
+        try {
+          await expect(
+            restoredPage.locator(".tile-attention", { hasText: "Child report unread" }),
+          ).toHaveCount(0);
+        } catch (error) {
+          context.diagnostic(JSON.stringify(await rows(restoredPage)));
+          throw error;
+        }
+        await expect(restoredPage.getByText("Unable to record feedback. Try again.")).toHaveCount(
+          0,
+        );
+        return;
       }
-      await expect(restoredPage.getByText("Unable to record feedback. Try again.")).toHaveCount(0);
       // Two new active loops beside the three restored/escalated loops must
       // also settle without resurrecting dormant automation.
       await launchMore("restored");
