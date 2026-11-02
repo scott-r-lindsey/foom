@@ -5,6 +5,7 @@ import type {
   HostResult,
   HostsAction,
   HostRequirements,
+  HostCheck,
 } from "./registered-hosts.d";
 
 export const HOST_CLONE_TIMEOUT_MS = 5 * 60 * 1000;
@@ -42,8 +43,7 @@ export function registeredHosts(value: unknown): value is RegisteredHost[] {
         record(entry) &&
         keys(entry, ["host", "codeFolder"]) &&
         hostAlias(entry["host"]) &&
-        codeFolder(entry["codeFolder"]) &&
-        remotePath(entry["codeFolder"]),
+        codeFolder(entry["codeFolder"]),
     ) &&
     new Set(value.map((entry: RegisteredHost) => entry.host)).size === value.length
   );
@@ -108,10 +108,13 @@ export function hostManagement(value: unknown): value is HostManagement {
       keys(value, ["type", "operation", "codeFolder", "agents", "profile"]) &&
       hostProfile(value["profile"])
     );
+  if (value["operation"] === "create-folder")
+    return keys(value, ["type", "operation", "codeFolder", "agents"]);
   if (value["operation"] === "inspect")
     return (
-      keys(value, ["type", "operation", "codeFolder", "agents", "readOnly"]) &&
-      (value["readOnly"] === undefined || value["readOnly"] === true)
+      keys(value, ["type", "operation", "codeFolder", "agents", "readOnly", "partial"]) &&
+      (value["readOnly"] === undefined || value["readOnly"] === true) &&
+      (value["partial"] === undefined || (value["partial"] === true && value["readOnly"] === true))
     );
   if (
     value["operation"] === "create-worktree" ||
@@ -147,7 +150,9 @@ export function hostManagement(value: unknown): value is HostManagement {
     );
   }
   return (
-    (value["operation"] === "repository" || value["operation"] === "clone") &&
+    (value["operation"] === "repository" ||
+      value["operation"] === "clone" ||
+      value["operation"] === "origin") &&
     keys(value, ["type", "operation", "codeFolder", "directory", "origin", "agents"]) &&
     typeof value["directory"] === "string" &&
     !/\p{Cc}/u.test(value["directory"]) &&
@@ -178,11 +183,31 @@ export function hostRequirements(value: unknown): value is HostRequirements {
 function hostSignIn(value: unknown): boolean {
   return value === "signed-in" || value === "signed-out" || value === "unknown";
 }
+export function hostCheck(value: unknown): value is HostCheck {
+  return (
+    record(value) &&
+    (((value["state"] === "pass" || value["state"] === "not-checked") && keys(value, ["state"])) ||
+      (value["state"] === "fail" &&
+        keys(value, ["state", "reason"]) &&
+        hostResult({ ok: false, reason: value["reason"] })))
+  );
+}
 export function hostResult(value: unknown): value is HostResult {
   if (!record(value)) return false;
+  if (value["connection"] !== undefined) {
+    const connection = value["connection"];
+    if (
+      !record(connection) ||
+      !keys(connection, ["ssh", "platform", "artifact"]) ||
+      !hostCheck(connection["ssh"]) ||
+      !hostCheck(connection["platform"]) ||
+      !hostCheck(connection["artifact"])
+    )
+      return false;
+  }
   if (value["ok"] === false)
     return (
-      keys(value, ["ok", "reason"]) &&
+      keys(value, ["ok", "reason", "connection"]) &&
       typeof value["reason"] === "string" &&
       [
         "unreachable",
@@ -196,6 +221,7 @@ export function hostResult(value: unknown): value is HostResult {
         "libc-too-old",
         "libc-unsupported",
         "artifact-unavailable",
+        "folder-missing",
         "folder-refused",
         "unsafe-folder",
         "origin-unavailable",
@@ -212,7 +238,7 @@ export function hostResult(value: unknown): value is HostResult {
   const checkout = value["checkout"];
   return (
     value["ok"] === true &&
-    keys(value, ["ok", "facts", "checkout", "worktree", "inventory"]) &&
+    keys(value, ["ok", "facts", "checkout", "worktree", "inventory", "connection"]) &&
     (value["inventory"] === undefined ||
       (record(value["inventory"]) &&
         keys(value["inventory"], ["own", "other"]) &&
@@ -257,6 +283,7 @@ export function hostResult(value: unknown): value is HostResult {
     record(facts) &&
     keys(facts, [
       "codeFolder",
+      "folder",
       "version",
       "sessions",
       "cores",
@@ -267,6 +294,7 @@ export function hostResult(value: unknown): value is HostResult {
       "requirements",
       "tools",
     ]) &&
+    (facts["folder"] === undefined || hostCheck(facts["folder"])) &&
     (facts["requirements"] === undefined || hostRequirements(facts["requirements"])) &&
     (facts["tools"] === undefined ||
       (Array.isArray(facts["tools"]) &&
@@ -326,9 +354,19 @@ export function hostsAction(value: unknown): value is HostsAction {
       agentId(value["tool"]) &&
       (value["operation"] === "install" || value["operation"] === "sign-in")
     );
-  if (value["action"] === "refresh" || value["action"] === "remove" || value["action"] === "end")
+  if (
+    value["action"] === "refresh" ||
+    value["action"] === "remove" ||
+    value["action"] === "end" ||
+    value["action"] === "create-folder"
+  )
     return keys(value, ["action", "host"]);
-  if (value["action"] === "add" || value["action"] === "test")
+  if (
+    value["action"] === "add" ||
+    value["action"] === "test" ||
+    value["action"] === "preflight" ||
+    value["action"] === "change-folder"
+  )
     return keys(value, ["action", "host", "codeFolder"]) && codeFolder(value["codeFolder"]);
   return (
     value["action"] === "clone" &&

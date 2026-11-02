@@ -384,6 +384,9 @@ const hostFolder: Validator<string> = (value): value is string =>
   value.startsWith("/") &&
   !/[\p{Cc}\u202a-\u202e\u2066-\u2069]/u.test(value) &&
   !value.split("/").some((part) => part === "." || part === "..");
+const hostRequestedFolder: Validator<string> = (value): value is string =>
+  hostFolder(value) ||
+  (typeof value === "string" && value.startsWith("~/") && hostFolder(value.slice(1)));
 const hostVersion: Validator<string> = (value): value is string =>
   typeof value === "string" &&
   !/\p{Cc}/u.test(value) &&
@@ -393,9 +396,43 @@ const hostAgentId: Validator<string> = (value): value is string =>
   typeof value === "string" && !/\p{Cc}/u.test(value) && /^[a-z][a-z0-9-]{0,63}$/u.test(value);
 const validRegisteredHost: Validator<RegisteredHost> = shape({
   host: hostAlias,
-  codeFolder: hostFolder,
+  codeFolder: hostRequestedFolder,
 } satisfies Contract<RegisteredHost>);
+const validHostFailure = literal(
+  "unreachable",
+  "version-mismatch",
+  "provider-invalid",
+  "configuration-changed",
+  "invalid-reply",
+  "cancelled",
+  "unsupported",
+  "facts-unavailable",
+  "libc-too-old",
+  "libc-unsupported",
+  "artifact-unavailable",
+  "folder-missing",
+  "folder-refused",
+  "unsafe-folder",
+  "origin-unavailable",
+  "origin-auth",
+  "origin-host-key",
+  "origin-unreachable",
+  "timed-out",
+  "checkout-invalid",
+  "clone-failed",
+  "checkout-refused",
+);
+const validHostCheck = either(
+  shape({ state: literal("pass", "not-checked") }),
+  shape({ state: literal("fail"), reason: validHostFailure }),
+);
+const validHostConnection = shape({
+  ssh: validHostCheck,
+  platform: validHostCheck,
+  artifact: validHostCheck,
+});
 const hostFactsShape = shape({
+  folder: either(absent, validHostCheck),
   codeFolder: hostFolder,
   version: hostVersion,
   sessions: count,
@@ -444,6 +481,7 @@ const validHostFacts: Validator<HostFacts> = copying(
 const validHostResult: Validator<HostResult> = either(
   shape({
     ok: literal(false),
+    connection: either(absent, validHostConnection),
     reason: literal(
       "unreachable",
       "version-mismatch",
@@ -456,6 +494,7 @@ const validHostResult: Validator<HostResult> = either(
       "libc-too-old",
       "libc-unsupported",
       "artifact-unavailable",
+      "folder-missing",
       "folder-refused",
       "unsafe-folder",
       "origin-unavailable",
@@ -470,6 +509,7 @@ const validHostResult: Validator<HostResult> = either(
   }),
   shape({
     ok: literal(true),
+    connection: either(absent, validHostConnection),
     facts: validHostFacts,
     checkout: either(
       absent,
@@ -478,11 +518,23 @@ const validHostResult: Validator<HostResult> = either(
   }),
 );
 const validHostsState: Validator<HostsState> = shape({
+  preflight: either(
+    absent,
+    shape({
+      ssh: validHostCheck,
+      platform: validHostCheck,
+      artifact: validHostCheck,
+      result: validHostResult,
+      repositories: array(
+        shape({ repository: text, origin: validHostCheck, checkout: validHostResult }),
+      ),
+    }),
+  ),
   recipeFailure: either(absent, literal("recipe-unavailable")),
   hosts: array(
     shape({
       host: hostAlias,
-      codeFolder: hostFolder,
+      codeFolder: hostRequestedFolder,
       result: either(absent, validHostResult),
       recipes: either(
         absent,

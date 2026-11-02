@@ -168,3 +168,61 @@ test("missing availability metadata and damaged runtime catalog files are artifa
     selectHostArtifact({ host: "fixture" }, "0.1.0", f.root, f.metadata),
   ).rejects.toMatchObject({ code: "remote-host-unavailable" });
 });
+
+test("preflight observes SSH and platform even when the build omits remote artifacts", async () => {
+  const f = await fixture();
+  await writeFile(
+    f.metadata,
+    JSON.stringify({ source: f.manifest.source, remoteHostsAvailable: false }),
+  );
+  const observe = vi.fn();
+  await expect(
+    selectHostArtifact({ host: "fixture" }, "0.1.0", f.root, f.metadata, undefined, observe),
+  ).rejects.toMatchObject({ code: "remote-host-unavailable" });
+  expect(observe.mock.calls).toEqual([
+    ["artifact", { state: "fail", reason: "artifact-unavailable" }],
+    ["ssh", { state: "pass" }],
+    ["platform", { state: "pass" }],
+  ]);
+  mock.failure = true;
+  observe.mockClear();
+  await expect(
+    selectHostArtifact({ host: "fixture" }, "0.1.0", f.root, f.metadata, undefined, observe),
+  ).rejects.toThrow("unreachable");
+  expect(observe).toHaveBeenLastCalledWith("ssh", { state: "fail", reason: "unreachable" });
+});
+
+test.each(["unsupported", "libc-too-old", "libc-unsupported", "pass"])(
+  "preflight platform and artifact observations: %s",
+  async (state) => {
+    const f = await fixture();
+    const observe = vi.fn();
+    if (state === "unsupported") mock.output = "Unsupported\nx86_64\n";
+    if (state.startsWith("libc"))
+      mock.execFile.mockImplementation((_file, args, _options, callback) => {
+        callback(
+          args.includes("-c")
+            ? Object.assign(new Error("raw"), {
+                stdout: state === "libc-too-old" ? "FOOM-LIBC-TOO-OLD" : "FOOM-LIBC-UNSUPPORTED",
+              })
+            : null,
+          { stdout: mock.output },
+        );
+      });
+    const result = selectHostArtifact(
+      { host: "fixture" },
+      "0.1.0",
+      f.root,
+      f.metadata,
+      undefined,
+      observe,
+    );
+    if (state === "pass") {
+      await expect(result).resolves.toHaveProperty("platform", "linux");
+      expect(observe).toHaveBeenLastCalledWith("artifact", { state: "pass" });
+    } else {
+      await expect(result).rejects.toThrow("Unsupported");
+      expect(observe).toHaveBeenLastCalledWith("platform", { state: "fail", reason: state });
+    }
+  },
+);

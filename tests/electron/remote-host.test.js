@@ -152,11 +152,48 @@ child.on('close', code => { appendFileSync(${JSON.stringify(sshLog)}, 'fixture s
     await readFile(path.join(profilePath, "settings.json"), "utf8"),
   ).remoteProfile;
   assert.match(profileTag, /^[a-f0-9]{32}$/u);
+  const preflight = await page.evaluate(
+    (codeFolder) =>
+      window.desktop.hosts({ action: "preflight", host: "fixture-cloud", codeFolder }),
+    path.join(remoteHome, "code"),
+  );
+  assert.deepEqual(preflight.preflight.ssh, { state: "pass" });
+  assert.deepEqual(preflight.preflight.platform, { state: "pass" });
+  assert.deepEqual(preflight.preflight.artifact, { state: "pass" });
+  assert.deepEqual(preflight.preflight.result.facts.folder, {
+    state: "fail",
+    reason: "folder-missing",
+  });
+  assert.ok(preflight.preflight.result.facts.requirements);
+  assert.deepEqual(
+    preflight.preflight.result.facts.tools.map(({ id, state }) => ({ id, state })),
+    [
+      { id: "git", state: "missing" },
+      { id: "gh", state: "missing" },
+    ],
+  );
+  assert.ok(preflight.preflight.result.facts.agents.every(({ state }) => state === "missing"));
+  await assert.rejects(stat(path.join(remoteHome, "code")), { code: "ENOENT" });
   const enrolled = await page.evaluate(
     (codeFolder) => window.desktop.hosts({ action: "add", host: "fixture-cloud", codeFolder }),
     path.join(remoteHome, "code"),
   );
   assert.equal(enrolled.result.ok, true);
+  assert.deepEqual(enrolled.hosts[0].result.facts.folder, {
+    state: "fail",
+    reason: "folder-missing",
+  });
+  await assert.rejects(stat(path.join(remoteHome, "code")), { code: "ENOENT" });
+  await openSettingsScreen(page);
+  await page
+    .getByRole("region", { name: "Settings" })
+    .getByRole("button", { name: "Hosts", exact: true })
+    .click();
+  await expect(page.getByText("Code folder does not exist")).toBeVisible();
+  await page.getByRole("button", { name: "Create folder", exact: true }).click();
+  await expect(page.getByText("Connection ready · Code folder checked")).toBeVisible();
+  assert.ok((await stat(path.join(remoteHome, "code"))).isDirectory());
+  await page.keyboard.press("Escape");
   await page.evaluate(() => {
     window.remoteReplayTokens = new Set();
     window.stopRemoteReplay = window.desktop.onData((_id, token) =>

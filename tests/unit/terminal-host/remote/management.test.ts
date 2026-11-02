@@ -67,6 +67,7 @@ import {
 let home: string;
 beforeEach(async () => {
   home = await realpath(await mkdtemp(join(tmpdir(), "management-")));
+  await mkdir(join(home, "code"), { mode: 0o700, recursive: true });
   mock.requirements
     .mockReset()
     .mockResolvedValue({ distro: "unknown", libc: "supported", packageManager: "none" });
@@ -276,7 +277,7 @@ test.skipIf(process.platform === "win32")(
       agents: [],
     } as const;
     const path = join(home, "code/repo");
-    await mkdir(join(home, "code"), { mode: 0o700 });
+    await mkdir(join(home, "code"), { mode: 0o700, recursive: true });
     expect(await manageHost(request, 0, "/fixture", "0.1.0", home)).toMatchObject({
       ok: true,
       checkout: { path, state: "absent" },
@@ -1275,3 +1276,136 @@ for (const command of ["clone", "fetch", "ls-remote"] as const) {
     },
   );
 }
+
+test.skipIf(process.platform === "win32")(
+  "partial inspection preserves tools, agents and platform when a folder is missing or unsafe",
+  async () => {
+    const request = {
+      type: "manage",
+      operation: "inspect",
+      readOnly: true,
+      partial: true,
+      codeFolder: "~/missing",
+      agents: [{ id: "codex", executables: ["codex"] }],
+    } as const;
+    mock.discovery.mockRejectedValueOnce(new LaunchFailure("remote_agent_unavailable"));
+    const result = await manageHost(request, 0, "/fixture", "0.1.0", home);
+    expect(result).toMatchObject({
+      ok: true,
+      facts: {
+        folder: { state: "fail", reason: "folder-missing" },
+        requirements: { libc: "supported" },
+        agents: [{ id: "codex", state: "missing" }],
+        tools: [
+          { id: "git", state: "ready" },
+          { id: "gh", state: "ready" },
+        ],
+      },
+    });
+    await expect(lstat(join(home, "missing"))).rejects.toMatchObject({ code: "ENOENT" });
+    expect(
+      await manageHost(
+        {
+          type: "manage",
+          codeFolder: "~/missing",
+          operation: "clone",
+          directory: "repo",
+          origin: "git@fixture.test:team/repo.git",
+        },
+        0,
+        "/fixture",
+        "0.1.0",
+        home,
+      ),
+    ).toEqual({ ok: false, reason: "folder-refused" });
+    expect(
+      await manageHost(
+        { type: "manage", operation: "create-folder", codeFolder: "~/missing" },
+        0,
+        "/fixture",
+        "0.1.0",
+        home,
+      ),
+    ).toMatchObject({ ok: true });
+    expect((await lstat(join(home, "missing"))).mode & 0o777).toBe(0o700);
+    await chmod(join(home, "missing"), 0o777);
+    expect(await manageHost(request, 0, "/fixture", "0.1.0", home)).toMatchObject({
+      ok: true,
+      facts: {
+        folder: { state: "fail", reason: "unsafe-folder" },
+        tools: [
+          { id: "git", state: "ready" },
+          { id: "gh", state: "ready" },
+        ],
+      },
+    });
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "partial facts survive a failed requirements or memory observation",
+  async () => {
+    mock.requirements.mockRejectedValueOnce(new Error("raw requirements"));
+    mock.read.mockRejectedValueOnce(new Error("raw memory"));
+    const result = await manageHost(
+      {
+        type: "manage",
+        operation: "inspect",
+        readOnly: true,
+        partial: true,
+        codeFolder: "~/code",
+        agents: [],
+      },
+      0,
+      "/fixture",
+      "0.1.0",
+      home,
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      facts: { folder: { state: "pass" }, memoryAvailable: 0 },
+    });
+    expect(JSON.stringify(result)).not.toContain("raw");
+  },
+);
+
+test
+  .skipIf(process.platform === "win32")
+  .each([
+    undefined,
+    "origin-auth",
+    "origin-host-key",
+    "origin-unreachable",
+    "timed-out",
+    "cancelled",
+  ] as const)("origin preflight is independent of the folder: %s", async (reason) => {
+  const cancellation = new AbortController();
+  mock.probe.mockImplementationOnce(() => {
+    if (reason === "cancelled") cancellation.abort();
+    if (reason && reason !== "cancelled") throw new HostGitFailure(reason);
+    if (reason) throw new Error("raw Git output");
+    return "HEAD";
+  });
+  const result = await manageHost(
+    {
+      type: "manage",
+      operation: "origin",
+      codeFolder: "~/missing",
+      directory: "repo",
+      origin: "git@fixture.test:team/repo.git",
+      agents: [],
+    },
+    0,
+    "/fixture",
+    "0.1.0",
+    home,
+    cancellation.signal,
+  );
+  expect(result).toMatchObject(reason ? { ok: false, reason } : { ok: true });
+  expect(mock.probe.mock.calls[0]?.slice(0, 3)).toEqual([
+    "git",
+    ["--no-optional-locks", "ls-remote", "--", "git@fixture.test:team/repo.git", "HEAD"],
+    home,
+  ]);
+  await expect(lstat(join(home, "missing"))).rejects.toMatchObject({ code: "ENOENT" });
+});

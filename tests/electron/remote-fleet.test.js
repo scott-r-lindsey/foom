@@ -388,6 +388,17 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
   );
   await (await confirmationPage(app)).getByRole("button", { name: "Make orchestrator" }).click();
   await elevate;
+  const preflight = await page.evaluate(
+    (codeFolder) => window.desktop.hosts({ action: "preflight", host: "fleet-worker", codeFolder }),
+    folder,
+  );
+  assert.deepEqual(
+    preflight.preflight.repositories.map(({ origin, checkout }) => ({
+      origin,
+      state: checkout.checkout?.state,
+    })),
+    [{ origin: { state: "pass" }, state: "clean" }],
+  );
   const registration = await page.evaluate(
     (folder) => window.desktop.hosts({ action: "add", host: "fleet-worker", codeFolder: folder }),
     folder,

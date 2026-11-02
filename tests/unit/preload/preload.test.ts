@@ -1668,3 +1668,43 @@ test.each([
   mock.invoke.mockResolvedValue(withUndeclaredFields(value));
   await expect(api.hosts({ action: "list" })).resolves.toEqual(value);
 });
+
+test("preflight bridge validates and rebuilds every partial observation", async () => {
+  const api = await bridge();
+  const result = { ok: false, reason: "folder-refused" };
+  const check = { state: "fail", reason: "artifact-unavailable" };
+  const value = {
+    hosts: [{ host: "worker", codeFolder: "~/code" }],
+    locations: [],
+    preflight: {
+      ssh: { state: "pass" },
+      platform: { state: "not-checked" },
+      artifact: check,
+      result,
+      repositories: [
+        { repository: "/repo", origin: { state: "fail", reason: "origin-auth" }, checkout: result },
+      ],
+    },
+  };
+  mock.invoke.mockResolvedValue(withUndeclaredFields(value));
+  await expect(
+    api.hosts({ action: "preflight", host: "worker", codeFolder: "~/code" }),
+  ).resolves.toEqual(value);
+  for (const bad of [
+    { ...value.preflight, ssh: { state: "raw" } },
+    { ...value.preflight, artifact: { state: "fail", reason: "secret" } },
+    {
+      ...value.preflight,
+      repositories: [
+        {
+          repository: "/repo",
+          origin: { state: "pass" },
+          checkout: { ok: false, reason: "secret" },
+        },
+      ],
+    },
+  ]) {
+    mock.invoke.mockResolvedValue({ ...value, preflight: bad });
+    await expect(api.hosts({ action: "list" })).rejects.toThrow();
+  }
+});

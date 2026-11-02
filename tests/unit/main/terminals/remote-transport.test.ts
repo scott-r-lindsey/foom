@@ -1281,3 +1281,48 @@ test.each(["handshake", "reply", "artifact", "ssh"])(
     });
   },
 );
+
+test.each([false, true])(
+  "preflight capability gates every new operation on older peers (%s)",
+  async (supported) => {
+    for (const request of [
+      {
+        type: "manage",
+        operation: "inspect",
+        codeFolder: "/remote/code",
+        readOnly: true,
+        partial: true,
+      },
+      {
+        type: "manage",
+        operation: "origin",
+        codeFolder: "/remote/code",
+        directory: "repo",
+        origin: "git@fixture.test:team/repo.git",
+      },
+      { type: "manage", operation: "create-folder", codeFolder: "/remote/code" },
+    ] as const) {
+      transport.kill();
+      child = new Child();
+      mock.spawn.mockReturnValue(child);
+      const pending = remoteManagement({ host: "fixture" }, "0.1.0", request);
+      await Promise.resolve();
+      child.header();
+      child.message({
+        type: "hello",
+        build: "b".repeat(64),
+        compatible: 2,
+        hostFacts: 1,
+        ...(supported ? { hostPreflight: 1 as const } : {}),
+      });
+      if (supported) {
+        expect(child.messages).toContainEqual(request);
+        child.message({ type: "managed", result: { ok: false, reason: "folder-refused" } });
+      } else expect(child.messages).not.toContainEqual(request);
+      await expect(pending).resolves.toMatchObject({
+        ok: false,
+        reason: supported ? "folder-refused" : "facts-unavailable",
+      });
+    }
+  },
+);

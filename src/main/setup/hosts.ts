@@ -17,6 +17,8 @@ import { devNull } from "node:os";
 import { hostsAction, gitOrigin, hostResult } from "../../shared/registered-hosts";
 import type {
   HostFailure,
+  HostCheck,
+  HostPreflight,
   HostManagement,
   HostFacts,
   HostResult,
@@ -584,6 +586,7 @@ export class Hosts {
               type: "manage",
               operation: "inspect",
               readOnly: true,
+              partial: true,
               codeFolder: registration.codeFolder,
             }),
           );
@@ -642,10 +645,41 @@ export class Hosts {
                   type: "manage",
                   operation: "inspect",
                   readOnly: true,
+                  partial: true,
                   codeFolder: host.codeFolder,
                 }),
               );
           return this.state();
+        }
+        if (input.action === "preflight") {
+          const registration = hosts.find((entry) => entry.host === input.host);
+          if (registration && registration.codeFolder !== input.codeFolder)
+            throw new Error("Folder changed");
+          return { ...this.state(), preflight: await this.preflight(input.host, input.codeFolder) };
+        }
+        if (input.action === "create-folder" || input.action === "change-folder") {
+          const registration = this.registered(input.host);
+          const codeFolder =
+            input.action === "change-folder" ? input.codeFolder : registration.codeFolder;
+          const result = await this.run(
+            input.host,
+            input.action === "create-folder"
+              ? { type: "manage", operation: "create-folder", codeFolder }
+              : { type: "manage", operation: "inspect", readOnly: true, partial: true, codeFolder },
+          );
+          if (result.ok) {
+            await this.store.update({
+              registeredHosts: hosts.map((entry) =>
+                entry.host === input.host
+                  ? { host: entry.host, codeFolder: result.facts.codeFolder }
+                  : entry,
+              ),
+            });
+            this.locations = this.locations.filter((entry) => entry.host !== input.host);
+            this.invalidateWorktrees(input.host);
+          }
+          this.results.set(input.host, result);
+          return this.state(result);
         }
         if (input.action === "add" || input.action === "test") {
           if (hosts.length >= 32 || hosts.some((host) => host.host === input.host))
@@ -653,13 +687,26 @@ export class Hosts {
           const result = await this.run(input.host, {
             type: "manage",
             operation: "inspect",
+            readOnly: true,
+            partial: true,
             codeFolder: input.codeFolder,
           });
-          if (result.ok && input.action === "add") {
+          if (
+            input.action === "add" &&
+            !(
+              !result.ok &&
+              ["cancelled", "invalid-reply", "provider-invalid", "configuration-changed"].includes(
+                result.reason,
+              )
+            )
+          ) {
             await this.store.update({
               registeredHosts: [
                 ...hosts,
-                { host: input.host, codeFolder: result.facts.codeFolder },
+                {
+                  host: input.host,
+                  codeFolder: result.ok ? result.facts.codeFolder : input.codeFolder,
+                },
               ],
             });
             this.results.set(input.host, result);
@@ -703,9 +750,19 @@ export class Hosts {
               type: "manage",
               operation: "inspect",
               readOnly: true,
+              partial: true,
               codeFolder: host.codeFolder,
             }),
           );
+          const observed = this.results.get(host.host);
+          if (observed?.ok && observed.facts.codeFolder !== host.codeFolder)
+            await this.store.update({
+              registeredHosts: hosts.map((entry) =>
+                entry.host === host.host
+                  ? { host: entry.host, codeFolder: observed.facts.codeFolder }
+                  : entry,
+              ),
+            });
           return this.state();
         }
         if (!this.repositories().some((repo) => repo.path === input.repository))
@@ -774,7 +831,11 @@ export class Hosts {
           result.facts.codeFolder !== request.codeFolder)
       )
         return failed("invalid-reply", "reply");
-      if (!result.ok) return failed(result.reason, "connection");
+      if (!result.ok)
+        return {
+          ...failed(result.reason, "connection"),
+          ...(result.connection ? { connection: result.connection } : {}),
+        };
       if (changed()) {
         if (request.operation === "inspect" && attempt === 0) continue;
         return failed("configuration-changed", "configuration");
@@ -799,6 +860,70 @@ export class Hosts {
         },
       };
     }
+  }
+  private async preflight(host: string, codeFolder: string): Promise<HostPreflight> {
+    const result = await this.run(host, {
+      type: "manage",
+      operation: "inspect",
+      codeFolder,
+      readOnly: true,
+      partial: true,
+    });
+    const pass: HostCheck = { state: "pass" };
+    const unknown: HostCheck = { state: "not-checked" };
+    const fail = (reason: HostFailure): HostCheck => ({ state: "fail", reason });
+    const reason = result.ok ? undefined : result.reason;
+    const platformFailure =
+      reason === "unsupported" || reason === "libc-too-old" || reason === "libc-unsupported";
+    const requirements = result.ok ? result.facts.requirements : undefined;
+    const platform: HostCheck = platformFailure
+      ? fail(reason)
+      : result.ok
+        ? requirements?.libc === "too-old"
+          ? fail("libc-too-old")
+          : requirements?.libc === "unsupported"
+            ? fail("libc-unsupported")
+            : pass
+        : unknown;
+    const repositories: HostPreflight["repositories"][number][] = [];
+    for (const repo of this.repositories()) {
+      let origin: HostCheck;
+      try {
+        const url = await this.origin(repo.path);
+        const access = await this.run(host, {
+          type: "manage",
+          operation: "origin",
+          codeFolder,
+          origin: url,
+          directory: `repository-${createHash("sha256").update(url).digest("hex").slice(0, 24)}`,
+        });
+        origin = access.ok ? pass : fail(access.reason);
+      } catch {
+        origin = fail("origin-unavailable");
+      }
+      const checkout = await this.repository(
+        host,
+        result.ok ? result.facts.codeFolder : codeFolder,
+        repo.path,
+        false,
+      );
+      repositories.push({ repository: repo.path, origin, checkout });
+    }
+    return {
+      ssh:
+        result.connection?.ssh ??
+        (result.ok || platformFailure || reason === "facts-unavailable"
+          ? pass
+          : reason === "unreachable"
+            ? fail(reason)
+            : unknown),
+      platform: result.connection?.platform ?? platform,
+      artifact:
+        result.connection?.artifact ??
+        (result.ok ? pass : reason === "artifact-unavailable" ? fail(reason) : unknown),
+      result,
+      repositories,
+    };
   }
   private async origin(repository: string): Promise<string> {
     try {

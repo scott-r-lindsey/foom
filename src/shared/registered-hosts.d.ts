@@ -22,6 +22,7 @@ export type HostFailure =
   | "libc-unsupported"
   | "unsupported"
   | "artifact-unavailable"
+  | "folder-missing"
   | "folder-refused"
   | "unsafe-folder"
   | "origin-unavailable"
@@ -35,7 +36,22 @@ export interface HostRequirements {
   packageManager: "apt" | "dnf" | "pacman" | "brew" | "none";
   mac?: { commandLineTools: boolean; staysAwake: boolean; protectedFolder: boolean };
 }
+export type HostCheck =
+  | { state: "pass" }
+  | { state: "not-checked" }
+  | { state: "fail"; reason: HostFailure };
+export interface HostConnectionChecks {
+  ssh: HostCheck;
+  platform: HostCheck;
+  artifact: HostCheck;
+}
+export interface HostPreflight extends HostConnectionChecks {
+  result: HostResult;
+  repositories: readonly { repository: string; origin: HostCheck; checkout: HostResult }[];
+}
 export interface HostFacts {
+  /** Present on partial inspection; failed folder checks never authorize a checkout. */
+  folder?: HostCheck;
   requirements?: HostRequirements;
   tools?: readonly { id: string; state: HostAgentState; signIn: HostSignIn }[];
   codeFolder: string;
@@ -52,9 +68,10 @@ export type HostManagement = {
   codeFolder: string;
   agents?: readonly { id: string; executables: readonly string[] }[];
 } & (
-  | { operation: "inspect"; readOnly?: true }
+  | { operation: "inspect"; readOnly?: true; partial?: true }
+  | { operation: "create-folder" }
   | { operation: "list-worktrees"; profile: string }
-  | { operation: "repository" | "clone"; directory: string; origin: string }
+  | { operation: "repository" | "clone" | "origin"; directory: string; origin: string }
   | {
       operation: "create-worktree";
       profile: string;
@@ -73,7 +90,7 @@ export type HostManagement = {
       changes?: string;
     }
 );
-export type HostResult =
+export type HostResult = { connection?: HostConnectionChecks } & (
   | { ok: false; reason: HostFailure }
   | {
       ok: true;
@@ -89,7 +106,8 @@ export type HostResult =
         head?: string;
         origin?: string;
       };
-    };
+    }
+);
 export interface HostRow extends RegisteredHost {
   recipes?: readonly {
     tool: string;
@@ -107,6 +125,7 @@ export interface RepositoryLocation {
   result: HostResult;
 }
 export interface HostsState {
+  preflight?: HostPreflight;
   recipeFailure?: "recipe-unavailable";
   hosts: readonly HostRow[];
   locations: readonly RepositoryLocation[];
@@ -114,6 +133,9 @@ export interface HostsState {
 }
 export type HostsAction =
   | { action: "recipe"; host: string; tool: string; operation: "install" | "sign-in" }
+  | { action: "preflight"; host: string; codeFolder: string }
+  | { action: "create-folder"; host: string }
+  | { action: "change-folder"; host: string; codeFolder: string }
   | { action: "list" }
   | { action: "add"; host: string; codeFolder: string }
   | { action: "test"; host: string; codeFolder: string }

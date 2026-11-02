@@ -2,12 +2,13 @@
 
 Settings → Hosts is the only enrollment surface. Registrations are profile-only
 `registeredHosts` records, validated on load, with an SSH alias/account selector
-and approved absolute code folder. The agent-editable config excludes them;
+and an approved code folder. An incomplete registration may retain `~/...` until
+the host expands it; canonical absolute observations are required before checkout use. The agent-editable config excludes them;
 `setup:save` cannot write them. Developer spike mappings register nothing and
 confer no later fleet authority. Host-aware orchestration (#756) uses the same registration and management service.
 
 `setup:hosts` accepts one closed action from the registered board main frame:
-list, test, add, refresh, remove, locations, clone, end or recipe. Main selects enabled agent
+list, test, add, preflight, create-folder, change-folder, refresh, remove, locations, clone, end or recipe. Main selects enabled agent
 executables from its validated manifest catalog. Renderer inputs cannot choose
 remote commands, probe arguments, origins or checkout destinations. Replies are
 validated in preload and rebuilt from declared fields. All failures are fixed
@@ -28,8 +29,8 @@ Removing a registration only forgets it: it sends no stop, kill or session-close
 operation, including when the last observation reports live sessions.
 
 The default code folder is `~/foom`. The remote expands it against its own home,
-creates missing components with mode 0700 only for explicit enrollment/inventory
-(`inspect` without readOnly) and clone requests, and checks canonical containment,
+creates missing components with mode 0700 only for the explicit `create-folder`
+action, and checks canonical containment,
 symlinks, ownership of the code folder and group/world write permissions. Ancestors
 must not be group/world writable, except a root-owned sticky ancestor such as
 `/tmp`. Checks repeat before repository mutation. These are filesystem observations,
@@ -100,8 +101,8 @@ be reconciled by reading state.
 The daemon retains at most four in-flight management/preparation operations even
 when their clients disconnect, until their subprocesses and cleanup settle.
 Read-only worktree inspections share this bounded reserve without taking the mutation
-slot, so PR polling can overlap launch inspections. Enrollment (`inspect`) requests
-share the mutation slot because they may create the approved folder. Repository
+slot, so PR polling can overlap launch inspections. Explicit `create-folder` requests
+share the mutation slot. Inspection and enrollment never create folders. Repository
 mutations and confirmed End run one at a time per daemon; overlapping mutations refuse
 with the fixed checkout-refused reason, including retries during cancellation.
 Cancelled End stops no later session after an already-issued stop settles.
@@ -326,3 +327,35 @@ capability returns `facts-unavailable` for read-only facts, with a fixed needs-u
 message. No management request is sent to its older, mutating inspect operation.
 Existing PTYs still reattach; when the daemon becomes idle the normal upgrade
 provides facts and recipes. Same-build peers are known to implement the capability.
+
+
+## Partial onboarding preflight (#1005)
+
+`preflight` accepts an SSH selector and proposed folder, including before enrollment.
+It returns independent SSH, platform and bundled-artifact checks, the existing
+requirements/tools/agents/sign-in facts, a folder check, and origin-access and
+checkout observations for every registered repository. A row that cannot run is
+`not-checked`; it never becomes a fabricated pass. Missing artifacts do not prevent
+bounded SSH/OS/CPU/libc discovery. A refused folder does not suppress facts or origin
+checks. Tool and agent discovery and recipes reuse #971/#988 capabilities.
+
+`inspect` with `readOnly: true, partial: true` returns the expanded proposed path
+and a fixed folder check (`folder-missing`, `folder-refused`, or `unsafe-folder`),
+even when it cannot approve the directory. It grants no checkout authority. Origin
+checks run `ls-remote -- ORIGIN HEAD` with the host's own login environment and the
+existing no-prompt network Git helper, independently of folder/checkout validity.
+Only fixed results cross the wire. Failed origin access does not hide checkout state.
+
+Add can enroll an incomplete host, retaining its failed observation and proposed
+folder. Invalid replies, cancellation and changed/invalid provider configuration
+still refuse enrollment. A later successful refresh expands a pending home-relative
+folder. `change-folder` explicitly selects a replacement without creating it;
+`create-folder` alone creates the registered folder. Both invalidate checkout caches.
+The existing Settings layout remains; missing folders expose Create folder and the
+Add button permits incomplete enrollment. The checklist redesign belongs to #963.
+
+Hello advertises `hostPreflight: 1`. Partial inspection, origin checks and explicit
+folder creation are refused with `facts-unavailable` before dispatch to a compatible
+older daemon without this capability. Existing host-facts, PTYs, sessions and idle
+upgrade behavior remain compatible. Main validates every new request/reply and the
+sandboxed preload validates and rebuilds all nested onboarding observations.
