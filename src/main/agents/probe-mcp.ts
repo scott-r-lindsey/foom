@@ -2,7 +2,7 @@ import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
 import { exact, object } from "../../shared/control-validation";
 
-const versions = ["2025-03-26", "2025-06-18", "2025-11-25"];
+import { MCP_VERSIONS as versions, negotiateMcpVersion } from "../../shared/mcp-protocol";
 /** Deliberately independent of ControlService/ControlMcp: no path to repository tools. */
 export class ProbeMcp {
   readonly token = randomBytes(32).toString("hex");
@@ -109,16 +109,15 @@ export class ProbeMcp {
             id === undefined ||
             session !== undefined ||
             typeof protocol !== "string" ||
-            !versions.includes(protocol) ||
             typeof client["name"] !== "string" ||
             typeof client["version"] !== "string"
           )
             throw Error();
-          this.session = { id: randomUUID(), version: protocol, ready: false };
+          this.session = { id: randomUUID(), version: negotiateMcpVersion(protocol), ready: false };
           this.facts.connected = true;
           result(
             {
-              protocolVersion: protocol,
+              protocolVersion: this.session.version,
               capabilities: { tools: {} },
               serverInfo: { name: "foom-probe", version: "1.0.0" },
             },

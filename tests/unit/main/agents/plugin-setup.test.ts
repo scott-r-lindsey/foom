@@ -597,7 +597,7 @@ it("preserves native observer bytes while anchoring hook commands on both platfo
         expect(JSON.parse(files[name] ?? "")).toEqual({
           name: "foom",
           version: "1.0.0",
-          foomObserverVersion: 4,
+          foomObserverVersion: 5,
           foomStagingFingerprint: staged.fingerprint,
         });
       } else if (name === "hooks.json") expect(files[name]).not.toContain("./observer.");

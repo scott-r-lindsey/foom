@@ -394,3 +394,75 @@ The CLI’s [hooks reference](https://docs.github.com/en/copilot/reference/hooks
 and [plugin reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-plugin-reference)
 supply documented context; the observations above establish the 1.0.103 Linux
 attachment and payload evidence. Automated tests use synthetic fixtures only.
+
+### Antigravity contract capture (agy 1.4.12, #1000)
+
+Measured manually on Linux on 2026-11-02 against a private loopback logging
+stand-in, with fresh synthetic control/hook credentials and this worktree's built
+CLI. All inherited `FOOM_*` variables were removed before each real agy launch.
+The investigator did not read, copy or edit user Gemini files; agy handled its
+own login/history during authorized default-HOME runs. The machine was reported as
+1.4.11 before investigation, but interactive startup and a subsequent `--version`
+reported 1.4.12; agy's automatic updater was not invoked explicitly. These captures
+therefore establish 1.4.12 behavior, not an independently pinned 1.4.11 result.
+
+Initialize requested `2025-11-25`, with clientInfo
+`{"name":"antigravity-client","version":"v1.0.0"}`. The stand-in answered
+successfully through the unchanged bridge. An unknown requested protocol version
+is therefore not the cause in this capture. The stand-in has no ControlService
+grant, so this does not establish whether the originally failing real session's
+actor was active. No request used the user's real Foom endpoint.
+
+With the existing installed observer and default login, a no-tool print turn
+reported PreInvocation then Stop, approximately 2.2 seconds apart. An interactive
+read-only tool turn and later no-tool turn also reported PreInvocation; completed
+tool attempts reported PostToolUse, then PreInvocation before final Stop.
+PreInvocation was not missing on subsequent turns. One outside-workspace file
+request was declined through the normal permission UI; no approval policy or
+bypass flag was changed. A later harmless temp-file read used a disposable plugin
+installed by agy into a disposable HOME, with no copied login/configuration.
+That capture reported SessionStart, PreInvocation, PreToolUse, PostInvocation,
+PreInvocation, PostInvocation, Stop. PreToolUse preceded PostInvocation by about
+26 ms; Stop followed the last PostInvocation by about 24 ms. PostToolUse was
+absent in that attempted tool turn. A PreToolUse callback proves progress, not
+that a permission prompt is visible or a tool completed.
+
+Only timestamps, event order, payload field names and initialize protocol/client
+metadata were retained in untracked `test-results/agy-1000/`. Common hook keys:
+`artifactDirectoryPath`, `conversationId`, `lastUserInput`, `modelName`,
+`transcriptPath`, `workspacePaths`. PreInvocation/PostInvocation additionally
+carried `initialNumSteps`, `invocationNum`; PreToolUse added `stepIdx`, `toolCall`;
+PostToolUse added `error`, `stepIdx`, `toolCall`; Stop added `error`,
+`executionNum`, `fullyIdle`, `terminationReason`. No payload values, prompt,
+response, tool content, transcript or credentials were captured. Neither the
+original initialize failure nor a missing PreInvocation reproduced here; macOS
+and real Windows behavior remain unverified. Fixture tests cover live/revoked
+grants and the captured shapes without invoking a real agent.
+
+Observer version 5 adds neutral PreToolUse reporting to cover progress before
+completion, including attempted tools without PostToolUse. It preserves the
+PreInvocation/PostToolUse/Stop mappings and agy 1.4.2 discovery floor. Settings
+offers a reviewed Update for version 4; nothing changes in an installed plugin
+until the user accepts it. The native adapters keep detached ordered delivery,
+one-second transport and empty-JSON responses. Screen rules still own permission
+attention; no pre-tool observer approves or denies anything. See Google's
+[hook event and matcher reference](https://antigravity.google/docs/hooks?tab=cli).
+
+The observed 1.4.12 file-access permission dialog places its navigation/cancel/model
+footer below “Allow access to this file?”. Foom's generic last-line matcher and
+old agy trust-only screen rules missed this Needs input state. The new bundled
+rule matches only the fixed question, allow/deny labels and cancel footer within
+12 nonempty bottom lines. Its redacted real UI excerpt contains no prompt,
+response, path or model values. This fixes the demonstrated permission gap;
+working/idle hook delivery and the original MCP failure did not reproduce as
+broken in the captured 1.4.12 sessions.
+
+A follow-up by-hand test installed version 4 and then version 5 into a fresh
+disposable HOME using agy's fixed `plugin install PATH` command. agy reported
+replacement of the existing installation, including one MCP server and one hook
+group. The rebuilt CLI completed initialize with the same protocol/client metadata.
+The installed version-5 observer reported PreInvocation → Stop for a no-tool turn
+(about 2.7 seconds), and PreInvocation → PreToolUse → PreInvocation → Stop for a
+harmless read-only temp-file attempt. PreToolUse preceded the following invocation
+by about 5 ms. Neither bypass flags nor login/configuration copying were used.
+The disposable homes were removed after capture; only metadata logs remain untracked.

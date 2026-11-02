@@ -1,3 +1,4 @@
+import agyFileAccess from "../../../fixtures/agent-detection/agy-1.4.12-file-access.json";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { expect, onTestFinished, test, vi } from "vitest";
@@ -269,3 +270,41 @@ test.each([capacityWorking, rateLimitWorking, modelSwitchWorking, usageLimitWork
     });
   },
 );
+
+test("agy 1.4.12 file-access permission stays blocked under progress and drops after the dialog", () => {
+  const input = {
+    terminalId: "t",
+    agent: "agy",
+    evidence: { title: "", progress: null },
+    tail: agyFileAccess.tail,
+  };
+  expect(evaluateRules(input)).toMatchObject({
+    state: "needs_input",
+    attentionKind: "permission",
+    signal: "rules:agy:file_access_permission",
+  });
+  expect(
+    evaluateRules({
+      ...input,
+      hook: { terminalId: "t", action: "working", signal: "plugin:agy:PreToolUse" },
+    }),
+  ).toMatchObject({ state: "needs_input", attentionKind: "permission" });
+  expect(
+    evaluateRules({ ...input, tail: [...input.tail, ...Array<string>(40).fill("Making progress")] })
+      .state,
+  ).not.toBe("needs_input");
+  for (const missing of [
+    "Allow access to this file?",
+    "> 1. Yes, allow access",
+    "  3. No, deny access",
+    "esc to cancel                                         [model omitted]",
+  ]) {
+    expect(
+      detectAgent(
+        "agy",
+        evidence,
+        input.tail.filter((line) => line !== missing),
+      ),
+    ).toBeUndefined();
+  }
+});

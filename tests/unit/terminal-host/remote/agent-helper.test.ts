@@ -243,3 +243,45 @@ test("stdio MCP terminates locally, exposes three tools and forwards only typed 
   await expect(remoteMcp(input("x".repeat(65537)), out.pipe)).rejects.toThrow("too large");
   await expect(remoteMcp(Readable.from([42]), out.pipe)).rejects.toThrow("Invalid MCP input");
 });
+
+test.each(["2024-11-05", "2099-01-01", "unknown", "2025-03-26", "2025-06-18", "2025-11-25"])(
+  "remote MCP negotiates %s and serves an authorized tool",
+  async (requested) => {
+    const out = output();
+    await remoteMcp(
+      input(
+        [
+          {
+            jsonrpc: "2.0",
+            id: 1,
+            method: "initialize",
+            params: {
+              protocolVersion: requested,
+              capabilities: {},
+              clientInfo: { name: "fixture", version: "1" },
+            },
+          },
+          { jsonrpc: "2.0", method: "notifications/initialized" },
+          {
+            jsonrpc: "2.0",
+            id: 2,
+            method: "tools/call",
+            params: { name: "whoami", arguments: {} },
+          },
+        ]
+          .map((value) => JSON.stringify(value))
+          .join("\n") + "\n",
+      ),
+      out.pipe,
+    );
+    const lines: unknown[] = out
+      .text()
+      .trim()
+      .split("\n")
+      .map((line): unknown => JSON.parse(line));
+    expect(lines[0]).toMatchObject({
+      result: { protocolVersion: requested.startsWith("2025-") ? requested : "2025-11-25" },
+    });
+    expect(lines[1]).toMatchObject({ id: 2, result: { isError: false } });
+  },
+);

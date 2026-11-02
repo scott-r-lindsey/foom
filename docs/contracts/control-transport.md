@@ -19,7 +19,9 @@ loopback literal and bound port; no CORS, redirects, URL tokens, or nonloopback
 binding. An MCP session ID is protocol state, never authorization. Bind it to the
 principal and recheck revocation on every request. Initially use JSON responses
 and bounded `wait_for` calls or a blocking `foom wait-for --until-event` command.
-Negotiate the MCP protocol version and reject unsupported versions. Bound headers to 8 KiB,
+Echo a supported requested MCP protocol version; otherwise return Foom's latest
+supported version for the client to accept or disconnect. Validate subsequent
+protocol headers against the negotiated session version. Bound headers to 8 KiB,
 bodies to 64 KiB, connections to 32, and concurrent calls to four per principal.
 [MCP transport requirements](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports).
 

@@ -156,3 +156,11 @@ raw output and unknown screens remain neutral. The existing invocation, input
 and output revisions discard stale results. Quiet/title/hook evaluation and
 permission precedence remain unchanged. This supplies working evidence for Pi's
 static-title spinner without a provider-specific adapter or model request.
+
+Antigravity 1.4.12 file-access permission dialogs have a footer below the question,
+so generic last-line question matching is insufficient. Its bundled bounded
+12-line rule requires the fixed question, allow/deny entries and cancel footer;
+no path, tool argument or prompt content participates. The redacted real UI
+excerpt is retained with the detection fixtures (#1000). This remains permission
+attention even after pre-tool progress; a later cleared dialog and working hook
+resume the turn through the existing execution owner.

@@ -1,5 +1,5 @@
 import { request } from "node:http";
-import { expect, test } from "vitest";
+import { expect, test, it } from "vitest";
 import { ProbeMcp } from "../../../../src/main/agents/probe-mcp";
 import { CONTROL_TOOL_CLASSES } from "../../../../src/shared/control-tool-classes";
 
@@ -70,7 +70,7 @@ test("probe-only MCP authenticates, negotiates, lists only ping and refuses ever
       {},
       { ...initialize, id: {} },
       { ...initialize, jsonrpc: "1" },
-      { ...initialize, params: { ...initialize.params, protocolVersion: "bad" } },
+      { ...initialize, params: { ...initialize.params, protocolVersion: 1 } },
       { ...initialize, params: { ...initialize.params, clientInfo: {} } },
       { ...initialize, id: undefined },
     ])
@@ -141,3 +141,56 @@ test("probe-only MCP authenticates, negotiates, lists only ping and refuses ever
   }
   await expect(post(mcp.url, mcp.token, initialize)).rejects.toThrow();
 });
+
+it.each(["2024-11-05", "2099-01-01", "unknown", "2025-03-26", "2025-06-18", "2025-11-25"])(
+  "negotiates %s before isolated tool use",
+  async (requested) => {
+    const mcp = await ProbeMcp.listen();
+    try {
+      const version = requested.startsWith("2025-") ? requested : "2025-11-25";
+      const response = await post(mcp.url, mcp.token, {
+        ...initialize,
+        params: { ...initialize.params, protocolVersion: requested },
+      });
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toMatchObject({ result: { protocolVersion: version } });
+      if (typeof response.session !== "string") throw Error("Missing session");
+      const headers = { "mcp-session-id": response.session, "mcp-protocol-version": version };
+      expect(
+        (
+          await post(
+            mcp.url,
+            mcp.token,
+            { jsonrpc: "2.0", method: "notifications/initialized" },
+            headers,
+          )
+        ).status,
+      ).toBe(202);
+      expect(
+        (
+          await post(
+            mcp.url,
+            mcp.token,
+            { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "ping" } },
+            headers,
+          )
+        ).status,
+      ).toBe(200);
+      expect(
+        (
+          await post(
+            mcp.url,
+            mcp.token,
+            { jsonrpc: "2.0", id: 3, method: "ping" },
+            {
+              ...headers,
+              "mcp-protocol-version": version === "2025-03-26" ? "2025-06-18" : "2025-03-26",
+            },
+          )
+        ).status,
+      ).toBe(400);
+    } finally {
+      mcp.close();
+    }
+  },
+);
