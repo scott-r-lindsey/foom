@@ -1,3 +1,4 @@
+const { sizeTileBoard } = require("./tile-fixture.js");
 const { evidencePath } = require("../helpers/evidence.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
 const { test } = require("./test-shard.js");
@@ -149,6 +150,7 @@ req.end(JSON.stringify(payload));
     await expect
       .poll(async () => (await rows(first)).find((row) => row.id === exitedChild.resultId)?.exited)
       .toBe(true);
+    await sizeTileBoard(app, first);
     // Persist both assignments, including an exited screen that cannot survive quit.
     await first.locator(`[data-drag-session="${exitedChild.resultId}"]`).click();
     await expect(
