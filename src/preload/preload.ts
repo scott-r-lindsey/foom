@@ -397,8 +397,15 @@ const hostVersion: Validator<string> = (value): value is string =>
   value.length <= 128;
 const hostAgentId: Validator<string> = (value): value is string =>
   typeof value === "string" && !/\p{Cc}/u.test(value) && /^[a-z][a-z0-9-]{0,63}$/u.test(value);
+const hostNickname: Validator<string> = (value): value is string =>
+  typeof value === "string" &&
+  value.length >= 1 &&
+  value.length <= 40 &&
+  value === value.trim() &&
+  /^[\p{L}\p{N} ._-]+$/u.test(value);
 const validRegisteredHost: Validator<RegisteredHost> = shape({
   host: hostAlias,
+  nickname: either(absent, hostNickname),
   codeFolder: hostRequestedFolder,
 } satisfies Contract<RegisteredHost>);
 const validHostFailure = literal(
@@ -514,6 +521,7 @@ const validHostsState: Validator<HostsState> = shape({
   hosts: array(
     shape({
       host: hostAlias,
+      nickname: either(absent, hostNickname),
       codeFolder: hostRequestedFolder,
       result: either(absent, validHostResult),
       recipes: either(

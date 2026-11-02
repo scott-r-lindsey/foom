@@ -863,3 +863,29 @@
   flex: none;
   font: 13px var(--font-mono);
 }
+
+.host-name {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border-color: transparent;
+  padding: 0;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.host-name-form {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.host-name-form input {
+  min-width: 80px;
+  width: min(100%, 220px);
+}
+.host-name-form [role="alert"] {
+  flex-basis: 100%;
+  font-size: 12px;
+}

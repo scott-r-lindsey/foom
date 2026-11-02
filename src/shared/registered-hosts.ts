@@ -34,6 +34,40 @@ export function codeFolder(value: unknown): value is string {
     !value.includes("//")
   );
 }
+/** Names are literal display data, bounded like interface theme names. */
+export function hostNickname(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length >= 1 &&
+    value.length <= 40 &&
+    value === value.trim() &&
+    /^[\p{L}\p{N} ._-]+$/u.test(value)
+  );
+}
+export function hostDisplayName(entry: Pick<RegisteredHost, "host" | "nickname">): string {
+  const hostname = entry.host.slice(entry.host.lastIndexOf("@") + 1);
+  return (
+    entry.nickname ??
+    (/^\d+(?:\.\d+){3}$/u.test(hostname) ? hostname : (hostname.split(".")[0] ?? hostname))
+  );
+}
+export function hostNicknameError(
+  hosts: readonly RegisteredHost[],
+  host: string,
+  nickname: string,
+): string | undefined {
+  if (nickname === "") return undefined;
+  if (!hostNickname(nickname))
+    return "Use 1–40 letters, numbers, spaces, dots, hyphens or underscores";
+  if (
+    hosts.some(
+      (entry) =>
+        entry.host !== host && hostDisplayName(entry).toLowerCase() === nickname.toLowerCase(),
+    )
+  )
+    return "Name already used";
+  return undefined;
+}
 export function registeredHosts(value: unknown): value is RegisteredHost[] {
   return (
     Array.isArray(value) &&
@@ -41,11 +75,15 @@ export function registeredHosts(value: unknown): value is RegisteredHost[] {
     value.every(
       (entry: unknown) =>
         record(entry) &&
-        keys(entry, ["host", "codeFolder"]) &&
+        keys(entry, ["host", "codeFolder", "nickname"]) &&
+        (entry["nickname"] === undefined || hostNickname(entry["nickname"])) &&
         hostAlias(entry["host"]) &&
         codeFolder(entry["codeFolder"]),
     ) &&
-    new Set(value.map((entry: RegisteredHost) => entry.host)).size === value.length
+    new Set(value.map((entry: RegisteredHost) => entry.host)).size === value.length &&
+    value.every(
+      (entry: RegisteredHost) => !hostNicknameError(value, entry.host, entry.nickname ?? ""),
+    )
   );
 }
 export function gitOrigin(value: unknown): value is string {
@@ -348,6 +386,11 @@ export function hostsAction(value: unknown): value is HostsAction {
   if (!record(value)) return false;
   if (value["action"] === "list" || value["action"] === "locations") return keys(value, ["action"]);
   if (!hostAlias(value["host"])) return false;
+  if (value["action"] === "rename")
+    return (
+      keys(value, ["action", "host", "nickname"]) &&
+      (value["nickname"] === "" || hostNickname(value["nickname"]))
+    );
   if (value["action"] === "recipe")
     return (
       keys(value, ["action", "host", "tool", "operation"]) &&

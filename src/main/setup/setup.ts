@@ -1,3 +1,4 @@
+import { hostsAction } from "../../shared/registered-hosts";
 import type { RemoteTarget } from "../../shared/remote-host";
 import type { DialogContent } from "../../shared/confirmation";
 import type { Hosts } from "./hosts";
@@ -71,11 +72,12 @@ export class Setup {
   }
   hosts(input: unknown) {
     if (!this.deps.hosts) throw new Error("Hosts unavailable");
-    return this.deps.hosts.action(
-      input,
-      this.deps.confirmRemoteSessions,
-      this.deps.launchHostRecipe,
-    );
+    return this.deps.hosts
+      .action(input, this.deps.confirmRemoteSessions, this.deps.launchHostRecipe)
+      .then((state) => {
+        if (hostsAction(input) && input.action === "rename") this.refresh();
+        return state;
+      });
   }
 
   readiness() {

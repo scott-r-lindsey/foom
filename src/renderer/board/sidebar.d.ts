@@ -8,6 +8,7 @@ export interface SidebarPreferences {
   names: Readonly<Record<string, string>>;
 }
 export interface SidebarWorktree extends Worktree {
+  hostDisplayName?: string;
   removed?: boolean;
   unavailable?: boolean;
 }

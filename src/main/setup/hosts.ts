@@ -14,7 +14,13 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createHash } from "node:crypto";
 import { devNull } from "node:os";
-import { hostsAction, gitOrigin, hostResult } from "../../shared/registered-hosts";
+import {
+  hostsAction,
+  gitOrigin,
+  hostResult,
+  hostNicknameError,
+  hostDisplayName,
+} from "../../shared/registered-hosts";
 import type {
   HostFailure,
   HostCheck,
@@ -582,6 +588,19 @@ export class Hosts {
       .catch(() => undefined)
       .then(async () => {
         const hosts = this.store.get().registeredHosts ?? [];
+        if (input.action === "rename") {
+          this.registered(input.host);
+          const error = hostNicknameError(hosts, input.host, input.nickname);
+          if (error) throw new Error(error);
+          await this.store.update({
+            registeredHosts: hosts.map((entry) => {
+              if (entry.host !== input.host) return entry;
+              const registration = { host: entry.host, codeFolder: entry.codeFolder };
+              return input.nickname ? { ...registration, nickname: input.nickname } : registration;
+            }),
+          });
+          return this.state();
+        }
         if (input.action === "recipe") {
           const registration = this.registered(input.host);
           this.results.set(
@@ -683,7 +702,7 @@ export class Hosts {
             await this.store.update({
               registeredHosts: hosts.map((entry) =>
                 entry.host === input.host
-                  ? { host: entry.host, codeFolder: result.facts.codeFolder }
+                  ? { ...entry, codeFolder: result.facts.codeFolder }
                   : entry,
               ),
             });
@@ -696,6 +715,14 @@ export class Hosts {
         if (input.action === "add" || input.action === "test") {
           if (hosts.length >= 32 || hosts.some((host) => host.host === input.host))
             throw new Error("Host already registered or limit reached");
+          if (
+            hosts.some(
+              (entry) =>
+                entry.nickname?.toLowerCase() ===
+                hostDisplayName({ host: input.host }).toLowerCase(),
+            )
+          )
+            throw new Error("Name already used");
           const result = await this.run(input.host, {
             type: "manage",
             operation: "inspect",
@@ -871,7 +898,7 @@ export class Hosts {
     if (!registration.codeFolder.startsWith("~/") || !result?.ok) return;
     await this.store.update({
       registeredHosts: (this.store.get().registeredHosts ?? []).map((entry) =>
-        entry.host === host ? { host, codeFolder: result.facts.codeFolder } : entry,
+        entry.host === host ? { ...entry, codeFolder: result.facts.codeFolder } : entry,
       ),
     });
     this.locations = this.locations.filter((entry) => entry.host !== host);

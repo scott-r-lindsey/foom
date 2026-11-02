@@ -1190,3 +1190,39 @@ test("refresh recovers an incomplete host with profile session inventory before 
   expect(settings.registeredHosts).toEqual([{ host: "worker", codeFolder: facts.codeFolder }]);
   service.dispose();
 });
+
+test("rename is profile-only, rejects collisions and preserves labels across folder updates", async () => {
+  settings.registeredHosts = [
+    { host: "worker", codeFolder: "~/code" },
+    { host: "other", codeFolder: "~/code", nickname: "Other box" },
+  ];
+  await expect(
+    hosts.action({ action: "rename", host: "missing", nickname: "Box" }),
+  ).rejects.toThrow();
+  await expect(
+    hosts.action({ action: "rename", host: "worker", nickname: "OTHER BOX" }),
+  ).rejects.toThrow("Name already used");
+  await expect(
+    hosts.action({ action: "rename", host: "worker", nickname: "<x>" }),
+  ).rejects.toThrow();
+  const renamed = await hosts.action({ action: "rename", host: "worker", nickname: "Build box" });
+  expect(renamed.hosts[0]).toMatchObject({ host: "worker", nickname: "Build box" });
+  expect(run).not.toHaveBeenCalled();
+  expect(mock.remote).not.toHaveBeenCalled();
+  expect(mock.execute).not.toHaveBeenCalled();
+  await hosts.action({ action: "preflight", host: "worker", codeFolder: "~/code" });
+  expect(settings.registeredHosts[0]?.nickname).toBe("Build box");
+  await hosts.action({ action: "change-folder", host: "worker", codeFolder: "~/new" });
+  expect(settings.registeredHosts[0]?.nickname).toBe("Build box");
+  expect(JSON.stringify(run.mock.calls)).not.toContain("Build box");
+  await hosts.action({ action: "rename", host: "worker", nickname: "" });
+  expect(settings.registeredHosts[0]).toEqual({ host: "worker", codeFolder: facts.codeFolder });
+});
+
+test("enrollment cannot introduce a default label that collides with an existing nickname", async () => {
+  settings.registeredHosts = [{ host: "worker", codeFolder: "~/code", nickname: "Dozer" }];
+  await expect(
+    hosts.action({ action: "add", host: "me@dozer.local", codeFolder: "~/code" }),
+  ).rejects.toThrow("Name already used");
+  expect(run).not.toHaveBeenCalled();
+});

@@ -1,3 +1,4 @@
+import type { RegisteredHost } from "../../shared/registered-hosts.d";
 import type { MessageBoardApi } from "../../shared/message-board";
 import type { SidebarCommandResult } from "../../shared/workspace";
 import type { PreviewOpenAction } from "../../shared/previews";
@@ -19,6 +20,7 @@ import type { ConfigStatus } from "../../shared/foom-config";
 import type { AgentInstallation, AgentId } from "../../shared/agents";
 import type { BranchInventory, CreateOutcome, Repository, Worktree } from "../../shared/worktrees";
 export interface LaunchOptions {
+  registeredHosts?: readonly RegisteredHost[];
   codeFolder?: string | null;
   showNestedRepositoryNames?: boolean;
   repositories: readonly Repository[];

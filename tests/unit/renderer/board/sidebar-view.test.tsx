@@ -173,3 +173,40 @@ test("a broken checkout has a single Clean up command and a visible state", asyn
   expect(view.getByRole("menuitem", { name: "Clean up" }).hasAttribute("disabled")).toBe(true);
   expect(command).not.toHaveBeenCalled();
 });
+
+test("remote checkout labels use profile nicknames and short-name fallback without changing keys", async () => {
+  const { repository } = await import("./sidebar-view-fixtures");
+  const base = createSampleSource([]);
+  const remote = {
+    ...repository,
+    worktrees: repository.worktrees.map((tree) => ({ ...tree, host: "me@dozer.local" })),
+  };
+  const options = await load();
+  const source = {
+    ...base,
+    getSidebar: () => [remote],
+    worktrees: {
+      load: () =>
+        Promise.resolve({
+          ...options,
+          registeredHosts: [
+            { host: "me@dozer.local", codeFolder: "~/code", nickname: "Build box" },
+          ],
+        }),
+      addRepository: () => Promise.resolve(null),
+      branches: () =>
+        Promise.resolve({ head: "main", local: [], remote: null, remoteBranches: [] }),
+      create: () => Promise.reject(new Error("unused")),
+      remove: () => Promise.resolve(false),
+    },
+  };
+  const view = render(<Board source={source} />);
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(view.getByText("feature · Build box")).toBeTruthy();
+  cleanup();
+  render(<Board source={{ ...base, getSidebar: () => [remote] }} />);
+  expect(view.queryByText("feature · Build box")).toBeNull();
+  expect(document.body.textContent).toContain("feature · dozer");
+});

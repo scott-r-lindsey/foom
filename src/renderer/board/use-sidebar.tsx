@@ -1,3 +1,4 @@
+import { hostDisplayName } from "../../shared/registered-hosts";
 import {
   useImperativeHandle,
   useCallback,
@@ -189,6 +190,18 @@ export function useSidebar(props: SidebarProps) {
       (source.getRepositories?.() ?? []).map((name) => ({ name, path: name, worktrees: [] })),
   ).map((repository) => ({
     ...repository,
+    worktrees: repository.worktrees.map((tree) =>
+      tree.host
+        ? {
+            ...tree,
+            hostDisplayName: hostDisplayName(
+              options?.registeredHosts?.find((entry) => entry.host === tree.host) ?? {
+                host: tree.host,
+              },
+            ),
+          }
+        : tree,
+    ),
     name: repositoryDisplayName(
       repository,
       options?.codeFolder,

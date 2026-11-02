@@ -183,6 +183,47 @@ process.stdin.on('data', bytes => {
   await expect(card.getByRole("button", { name: "Install codex", exact: true })).toHaveCount(0);
   await expect(card.getByText("Not checked", { exact: true })).toHaveCount(1);
   await capture("partial-facts");
+  const nicknameCapture = async (name) => {
+    for (const mode of ["light", "dark"]) {
+      await page.evaluate(
+        (mode) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${mode}` }),
+        mode,
+      );
+      await expect
+        .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
+        .toBe(mode === "dark");
+      await page.screenshot({ path: evidencePath(`1027/${name}-${mode}.png`) });
+    }
+  };
+  await nicknameCapture("default");
+  const beforeRename = (await readFile(calls, "utf8")).split("\n").filter(Boolean).length;
+  await card.getByRole("button", { name: "Rename fixture-cloud", exact: true }).click();
+  await card.getByLabel("Host nickname", { exact: true }).fill("Build box");
+  await nicknameCapture("editing");
+  await card.getByRole("button", { name: "Save name", exact: true }).click();
+  await expect(card.getByRole("button", { name: "Rename Build box", exact: true })).toBeVisible();
+  assert.equal((await readFile(calls, "utf8")).split("\n").filter(Boolean).length, beforeRename);
+  await expect(card.getByText("fixture-cloud", { exact: true })).toBeVisible();
+  await nicknameCapture("renamed");
+  await card.getByRole("button", { name: "Rename Build box", exact: true }).click();
+  await card.getByLabel("Host nickname", { exact: true }).fill("<invalid>");
+  await expect(card.getByRole("button", { name: "Save name", exact: true })).toBeDisabled();
+  await nicknameCapture("invalid");
+  await card.getByLabel("Host nickname", { exact: true }).press("Escape");
+  await openSettingsScreen(page, "Repositories");
+  await expect(page.getByRole("heading", { name: "Build box", exact: true })).toBeVisible();
+  await nicknameCapture("repositories");
+  await openSettingsScreen(page, "Hosts");
+  await expect(card.getByRole("button", { name: "Check again", exact: true })).toBeEnabled();
+  await expect(card.getByRole("button", { name: "Rename Build box", exact: true })).toBeVisible();
+  await card.getByRole("button", { name: "Rename Build box", exact: true }).click();
+  await card.getByLabel("Host nickname", { exact: true }).fill("");
+  await card.getByLabel("Host nickname", { exact: true }).press("Enter");
+  await expect(
+    card.getByRole("button", { name: "Rename fixture-cloud", exact: true }),
+  ).toBeVisible();
+  await nicknameCapture("reset");
+
   await assertAccessible(page);
   await updateScenario({ hold: true });
   await card.getByRole("button", { name: "Check again", exact: true }).click();
