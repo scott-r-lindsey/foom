@@ -1548,6 +1548,57 @@ it.each([false, true])(
   },
 );
 
+it("keeps an explicit binding when an older batch is preparing its checkout context", async () => {
+  const prepared = Promise.withResolvers<undefined>();
+  const release = Promise.withResolvers<undefined>();
+  let first = true;
+  const batch = vi.fn();
+  const tracker = new ForgeTracking(
+    directory,
+    () => Promise.resolve({ remote: "https://github.com/o/r", head: pending.headSha }),
+    vi.fn(),
+    async (_remote, getContext) => {
+      const context = await getContext?.();
+      if (first) {
+        first = false;
+        prepared.resolve(undefined);
+        await release.promise;
+      }
+      return {
+        lookup: () => Promise.resolve(pending),
+        resolve: () =>
+          Promise.resolve({ branch: tree.branch, state: "OPEN", sameRepository: true }),
+        batch: async () => {
+          batch();
+          await context?.validate();
+          return new Map([
+            [
+              tree.branch,
+              {
+                ...pending,
+                board: { number: pending.number, state: pending.state, checks: null },
+              },
+            ],
+          ]);
+        },
+      };
+    },
+  );
+  trackers.push(tracker);
+  tracker.track(tree, pending.number);
+  const polling = tracker.poll();
+  await prepared.promise;
+  await tracker.bindPullRequest(tree.repository, tree.path, pending.number);
+  release.resolve(undefined);
+  await polling;
+  // The stale context must neither hide the binding nor put it into backoff.
+  expect(tracker.read(tree.repository, tree.path)).toEqual(pending);
+  expect(batch).not.toHaveBeenCalled();
+  await tracker.poll();
+  expect(batch).toHaveBeenCalledOnce();
+  expect(tracker.readSettled(tree.repository, tree.path)).toEqual(pending);
+});
+
 it("binds a PR on a different branch while inspecting the original checkout, persisting and polling the explicit target", async () => {
   const inspect = vi.fn((_tree: ForgeWorktree) =>
     Promise.resolve({ remote: "https://github.com/o/r", head: pending.headSha }),
