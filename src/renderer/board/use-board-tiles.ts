@@ -56,6 +56,7 @@ export function useBoardTiles({
   const boardRef = useRef<HTMLDivElement>(null);
   const fontSizeRef = useRef(14);
   const fontFamilyRef = useRef(TERMINAL_FONT_FALLBACK);
+  const fontSettingsSourceRef = useRef<typeof soundSetup>(undefined);
   const focusedAtRef = useRef(new Map<string, number>());
   const focusClockRef = useRef(0);
   const repairTilesRef = useRef<(() => void) | undefined>(undefined);
@@ -65,9 +66,11 @@ export function useBoardTiles({
     let active = true;
     let changed = false;
     const off = soundSetup.subscribe((state) => {
+      if (!active) return;
       changed = true;
       fontSizeRef.current = state.settings.terminalFontSize;
       fontFamilyRef.current = terminalFontStack(state.settings.terminalFont);
+      fontSettingsSourceRef.current = soundSetup;
       repairTilesRef.current?.();
     });
     void soundSetup
@@ -76,12 +79,14 @@ export function useBoardTiles({
         if (active && !changed) {
           fontSizeRef.current = state.settings.terminalFontSize;
           fontFamilyRef.current = terminalFontStack(state.settings.terminalFont);
+          fontSettingsSourceRef.current = soundSetup;
           repairTilesRef.current?.();
         }
       })
       .catch(() => {});
     return () => {
       active = false;
+      if (fontSettingsSourceRef.current === soundSetup) fontSettingsSourceRef.current = undefined;
       off();
     };
   }, [soundSetup]);
@@ -108,14 +113,18 @@ export function useBoardTiles({
     probe.remove();
     return {
       columns: (area?.width ?? 0) / cell,
-      metrics: {
-        width: area?.width ?? 0,
-        height: area?.height ?? 0,
-        minWidth: 60 * cell,
-        minHeight: 38 + 3 * fontSizeRef.current * 1.2,
-      },
+      // Do not destroy saved spaces using fallback font metrics before settings arrive.
+      metrics:
+        fontSettingsSourceRef.current === soundSetup
+          ? {
+              width: area?.width ?? 0,
+              height: area?.height ?? 0,
+              minWidth: 60 * cell,
+              minHeight: 38 + 3 * fontSizeRef.current * 1.2,
+            }
+          : undefined,
     };
-  }, []);
+  }, [soundSetup]);
   const [focusRequest, setFocusRequest] = useState(0);
   const changeLayout = useCallback(
     (next: TileLayout, background = false, transient = false) => {

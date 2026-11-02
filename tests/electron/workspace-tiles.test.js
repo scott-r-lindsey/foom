@@ -1201,3 +1201,45 @@ for (const shrink of ["ancestor drag", "window resize", "sidebar resize", "resto
     assert.ok(visible && visible.width >= 100 && visible.height >= 60);
   });
 }
+
+test("startup preserves usable landing space while loading a saved small terminal font", async (context) => {
+  const app = await launchApp(context, { fixture: "running-shell" });
+  const page = await boardPage(app);
+  await sizeTileBoard(app, page, 1150);
+  await page.evaluate(() => window.desktop.saveSetup({ terminalFontSize: 10 }));
+  await page.evaluate(async () => {
+    const [session] = (await window.desktop.workspace()).terminals;
+    localStorage.setItem(
+      `foom.tiles.v1.${window.desktop.windows.id}`,
+      JSON.stringify({
+        version: 2,
+        focused: "font-terminal",
+        landing: "font-space",
+        tree: {
+          kind: "split",
+          id: "font-pair",
+          direction: "horizontal",
+          ratio: 0.5,
+          first: {
+            kind: "tile",
+            id: "font-terminal",
+            content: { kind: "terminal", session: session.id },
+          },
+          second: { kind: "tile", id: "font-space", content: null },
+        },
+      }),
+    );
+  });
+  await page.reload();
+  await expect(page.locator('[data-tile="font-terminal"] .xterm-rows')).toHaveCSS(
+    "font-size",
+    "10px",
+  );
+  await expect(page.locator('[data-tile="font-space"]')).toHaveCount(1);
+  const saved = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem(`foom.tiles.v1.${window.desktop.windows.id}`)),
+  );
+  assert.equal(saved.tree.kind, "split");
+  assert.equal(saved.tree.ratio, 0.5);
+  assert.equal(saved.landing, "font-space");
+});

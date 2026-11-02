@@ -50,7 +50,10 @@ Gutters clamp occupied sides to 15–85%; empty sides can reach zero and collaps
 on pointer release or keyboard commit past 8%/92%. Measured layout repair also
 prunes nested spaces below 60 terminal-cell widths or three rows plus chrome,
 clamps surviving ratios where feasible, and preserves every occupied leaf when
-the board cannot fit the minimums. ResizeObserver applies the same repair after
+the board cannot fit the minimums. Startup pixel repair waits for a font setting
+from the current settings source, so fallback font metrics cannot destroy saved
+spaces while settings load. A failed read leaves repair deferred until a settings
+notification supplies the font. ResizeObserver applies the same repair after
 window/sidebar resizing; commits, font changes and initial load share it. Placement
 repairs measured spaces before choosing a landing tile. See the absolute minimum
 and shortage exception in [tile behavior](../behavior/tiles.md). Each attached terminal retains
