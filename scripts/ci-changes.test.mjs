@@ -80,20 +80,23 @@ test("manual runs, unknown events, new branches, and empty diffs require desktop
   );
 });
 
-test("desktop jobs use four shards on every platform", () => {
+test("desktop jobs use four Linux, five Windows and six macOS shards", () => {
   assert.deepEqual(desktopMatrix(), [
     { os: "ubuntu-24.04", shard: "1/4" },
     { os: "ubuntu-24.04", shard: "2/4" },
     { os: "ubuntu-24.04", shard: "3/4" },
     { os: "ubuntu-24.04", shard: "4/4" },
-    { os: "windows-2025", shard: "1/4" },
-    { os: "windows-2025", shard: "2/4" },
-    { os: "windows-2025", shard: "3/4" },
-    { os: "windows-2025", shard: "4/4" },
-    { os: "macos-15", shard: "1/4" },
-    { os: "macos-15", shard: "2/4" },
-    { os: "macos-15", shard: "3/4" },
-    { os: "macos-15", shard: "4/4" },
+    { os: "windows-2025", shard: "1/5" },
+    { os: "windows-2025", shard: "2/5" },
+    { os: "windows-2025", shard: "3/5" },
+    { os: "windows-2025", shard: "4/5" },
+    { os: "windows-2025", shard: "5/5" },
+    { os: "macos-15", shard: "1/6" },
+    { os: "macos-15", shard: "2/6" },
+    { os: "macos-15", shard: "3/6" },
+    { os: "macos-15", shard: "4/6" },
+    { os: "macos-15", shard: "5/6" },
+    { os: "macos-15", shard: "6/6" },
   ]);
   assert.deepEqual(desktopMatrix(["ubuntu-24.04"]), [
     { os: "ubuntu-24.04", shard: "1/4" },
@@ -371,7 +374,7 @@ test("Quality gate rejects failed, cancelled or skipped required desktop and pla
     }).status;
   assert.equal(run("true", "success"), 0);
   assert.equal(run("false", "skipped"), 0);
-  // GitHub aggregates all twelve matrix jobs into needs.desktop.result.
+  // GitHub aggregates all fifteen matrix jobs into needs.desktop.result.
   for (const { os, shard } of desktopMatrix()) {
     for (const result of ["failure", "cancelled", "skipped"]) {
       assert.notEqual(run("true", result), 0, `${os} ${shard}: ${result}`);

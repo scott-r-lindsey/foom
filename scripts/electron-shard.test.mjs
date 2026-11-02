@@ -55,13 +55,20 @@ test("Electron shards register every test exactly once, preserve filtering and r
         );
       }
     }
-    const plannedNames = plan.shards.flatMap(Object.keys);
-    assert.equal(new Set(plannedNames).size, plannedNames.length, "duplicate planned test");
+    const plannedNames = Object.values(plan.shards).flatMap((shards) =>
+      shards.flatMap(Object.keys),
+    );
+    for (const [count, shards] of Object.entries(plan.shards)) {
+      assert.equal(shards.length, Number(count));
+      const names = shards.flatMap(Object.keys);
+      assert.equal(new Set(names).size, names.length, "duplicate planned test");
+    }
+    for (const count of Object.values(plan.shardCounts)) assert.ok(plan.shards[count]);
     assert.ok(
       plannedNames.every((name) => suiteNames.includes(name)),
       "remove stale plan names",
     );
-    for (const shard of plan.shards) {
+    for (const shard of Object.values(plan.shards).flat()) {
       for (const durations of Object.values(shard)) {
         assert.equal(durations.length, plan.platforms.length);
         assert.ok(durations.every((seconds) => Number.isFinite(seconds) && seconds >= 0));
@@ -92,7 +99,7 @@ test("Electron shards register every test exactly once, preserve filtering and r
           env: { ...env, FOOM_ELECTRON_SHARD: shard },
         },
       );
-    for (const count of [1, 2, 3, 4, 16]) {
+    for (const count of [1, 2, 3, 4, 5, 6, 16]) {
       const registered = [];
       for (let index = 1; index <= count; index++) {
         const shard = `${index}/${count}`;
@@ -105,9 +112,7 @@ test("Electron shards register every test exactly once, preserve filtering and r
         ).filter((name) => !filePlaceholders.has(name)); // Node reports empty files as passing placeholders.
         const expected = names.filter((name) => {
           const planned =
-            count === plan.shards.length
-              ? plan.shards.findIndex((tests) => Object.hasOwn(tests, name))
-              : -1;
+            plan.shards[count]?.findIndex((tests) => Object.hasOwn(tests, name)) ?? -1;
           const bucket =
             planned >= 0
               ? planned

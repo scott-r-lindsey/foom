@@ -1,11 +1,11 @@
 # Electron test layout and shard balance
 
-CI runs four named-test shards per platform. `tests/electron/shard-plan.json`
-assigns measured tests to shards; `test-shard.js` hashes new or renamed tests,
-and all tests at other shard counts. With no shard setting the full suite runs.
+CI runs four named-test shards on Linux, five on Windows and six on macOS. `tests/electron/shard-plan.json`
+stores assignments keyed by shard count and the CI count for each platform; `test-shard.js` hashes new or renamed tests,
+and all tests at unplanned shard counts. With no shard setting the full suite runs.
 Native checks, packaging and packaged smoke run sequentially in one independent
-companion job per platform, alongside the four Electron shards and static checks.
-The Quality gate requires all twelve Electron jobs and all three companion jobs.
+companion job per platform, alongside the Electron shards and static checks.
+The Quality gate requires all fifteen Electron jobs and all three companion jobs.
 Failed, cancelled or skipped required jobs fail the gate; documentation-only runs
 permit skipping both desktop matrices together. Native hook probes stay serial.
 Electron steps allow ten minutes on Linux and fourteen minutes on Windows and
@@ -203,7 +203,7 @@ cases by descending maximum fraction of a platform's total duration, breaking
 ties by test name. Place each case on the shard that minimizes the largest
 projected fraction across all platform/shard pairs; break ties by the selected
 shard's sum of platform fractions, then shard index. This balances all three
-platforms with one deterministic assignment.
+platforms with one deterministic assignment for each configured shard count.
 
 Historical projected case sums for the original plan (maxima across its three
 source runs), seconds:
@@ -223,7 +223,7 @@ exactly-once registration, name filtering and invalid-setting failures.
 ## Rebalancing from current reports (#708)
 
 Run with Node 24 and the installed project dependencies. The rebalance script
-uses only Node standard-library modules. Download all twelve Electron artifacts
+uses only Node standard-library modules. Download all twelve historical Electron artifacts
 per run into ignored
 `test-results/rebalance/sources/RUN_ID/`; keep the artifact directories intact:
 
@@ -233,9 +233,9 @@ for run in 39698958046 39717071939 39718663296; do
     --dir "test-results/rebalance/sources/$run"
 done
 # Preview before/after totals without changing the plan:
-node scripts/rebalance-electron-shards.mjs test-results/rebalance/sources/*
+node scripts/rebalance-electron-shards.mjs test-results/rebalance/sources/* --source-shards=4
 # Rebuild, then apply repository JSON formatting:
-node scripts/rebalance-electron-shards.mjs test-results/rebalance/sources/* --write
+node scripts/rebalance-electron-shards.mjs test-results/rebalance/sources/* --source-shards=4 --write
 pnpm run format
 # Registration audit, including exactly-once coverage and hash fallback:
 node --require ./tests/helpers/setup.js --test scripts/electron-shard.test.mjs
@@ -250,7 +250,11 @@ missing reports, duplicate cases, failed cases, invalid durations and current
 cases without measurements on any platform. It prints the old assignment's
 projected totals using the same new measurements, including hash fallback for
 previously unplanned names, then applies the deterministic assignment above.
-No test deadlines, shard count or workflow step limits change. Unchanged plans
+The current platform shard counts come from the plan. Use `--source-shards=4`
+for historical inputs with four reports per platform. A run-specific override,
+for example `--source-shards=41409300263:4,5,5`, permits combining historical
+and current matrices without guessing missing artifact counts. Regeneration keeps the
+configured counts, test deadlines and workflow step limits. Unchanged plans
 retain their existing bytes. Parser, input-validation and deterministic-assignment
 fixtures run in `pnpm run test:ci`.
 
@@ -467,3 +471,175 @@ These projections exclude build/runner overhead and combine maxima from differen
 runs. Validate actual step times on the refreshed PR before treating the balance
 as verified. Four shards, per-test deadlines, workflow step limits, process audit,
 coverage rules and Quality gate requirements stay unchanged.
+
+## Windows/macOS headroom (#1014)
+
+The first refinement used 40 complete passing Electron JUnit reports from three green runs covering
+all 268 registrations after the tile-size fixture changes on main:
+
+- [41410112211](https://github.com/scott-r-lindsey/foom/actions/runs/41410112211): four shards per platform.
+- [41423707884](https://github.com/scott-r-lindsey/foom/actions/runs/41423707884): four Linux and five Windows/macOS shards.
+- [41434373269](https://github.com/scott-r-lindsey/foom/actions/runs/41434373269): the same four/five/five matrix.
+
+The initial refresh also used the requested historical reports from
+[41390347255](https://github.com/scott-r-lindsey/foom/actions/runs/41390347255),
+[41397433670](https://github.com/scott-r-lindsey/foom/actions/runs/41397433670),
+[41398569843](https://github.com/scott-r-lindsey/foom/actions/runs/41398569843),
+[41402156082](https://github.com/scott-r-lindsey/foom/actions/runs/41402156082), and
+[41409300263](https://github.com/scott-r-lindsey/foom/actions/runs/41409300263).
+Those inputs span older fixture behavior. After main repaired occupied tile grids
+and restored window sizes, their maxima overestimated some now-cheaper scenarios
+and left other groups too heavy. Retain them as historical evidence, but use the
+three latest green reports with the current fixtures for that refinement.
+The maximum-per-case rule and deterministic assignment algorithm are unchanged;
+no slow passing observation in the current-fixture reports is discarded.
+
+For duplicate artifact names, select by creation time and match the ID against
+the successful job's upload log; IDs are not chronological. Use only complete
+passing reports. Failed/interrupted attempts remain diagnostic evidence. Keep
+unmodified reports under ignored `test-results/rebalance/current-sources/`:
+
+```sh
+for run in 41410112211 41423707884 41434373269; do
+  gh run download "$run" --pattern 'electron-results-*' \
+    --dir "test-results/rebalance/current-sources/$run"
+done
+node scripts/rebalance-electron-shards.mjs test-results/rebalance/current-sources/{41410112211,41423707884,41434373269} --source-shards=4,5,5 --source-shards=41410112211:4 --write
+pnpm run format
+```
+
+These sources used the earlier four/five/five matrix. The explicit per-run override
+requires four reports per platform in the older source rather than guessing a
+smaller matrix from missing artifacts.
+
+Four-way rebalancing cannot meet approximately 660 seconds: Windows case maxima
+total 2980.9 seconds, requiring at least 745.2 seconds per shard before overhead,
+even with perfect balance. macOS totals 2915.6 seconds, or 728.9 per shard. Keep
+four Linux shards and initially use five on Windows/macOS. The matrix reads platform counts
+from the plan; the helper selects the measured assignment for the requested
+count. New names and unplanned counts retain name hashing. All fourteen Electron
+jobs and three companions remained required in that first matrix; deadlines, watchdogs and step limits
+were unchanged. That matrix added two desktop jobs and requested seven macOS jobs including
+the combined Darwin host builder.
+
+Case-sum projections in seconds, using per-case/platform maxima across these
+three current-fixture runs:
+
+| Platform | Regenerated four shards | Regenerated five shards |
+| --- | --- | --- |
+| Linux | 482.2 / 485.8 / 491.7 / 483.2 | unused |
+| Windows | 746.1 / 741.8 / 746.2 / 746.8 | 594.8 / 594.6 / 595.0 / 595.7 / 600.9 |
+| macOS | 734.9 / 738.0 / 707.5 / 735.2 | 589.3 / 589.8 / 563.9 / 586.7 / 585.8 |
+
+With the same measurements, the prior five-way assignment peaked at 648.1 seconds
+on Windows and 624.7 seconds on macOS. The refresh reduces those maxima by 47.2
+and 34.9 seconds. These sums combine maxima from different runs and exclude build,
+runner and empty-file overhead; actual step wall times establish acceptance.
+
+### Earlier five-shard observations
+
+Passing Electron step seconds in shard order, before the current-fixture refresh:
+
+| Run | Platform | Shard step seconds |
+| --- | --- | --- |
+| [41423707884](https://github.com/scott-r-lindsey/foom/actions/runs/41423707884) | Linux | 542 / 436 / 562 / 508 |
+| [41423707884](https://github.com/scott-r-lindsey/foom/actions/runs/41423707884) | Windows | 588 / 490 / 604 / 620 / 637 |
+| [41423707884](https://github.com/scott-r-lindsey/foom/actions/runs/41423707884) | macOS | 620 / 617 / 595 / 615 / 548 |
+| [41434373269](https://github.com/scott-r-lindsey/foom/actions/runs/41434373269) | Linux | 547 / 533 / 533 / 519 |
+| [41434373269](https://github.com/scott-r-lindsey/foom/actions/runs/41434373269) | Windows | 600 / 532 / 442 / 632 / 682 |
+| [41434373269](https://github.com/scott-r-lindsey/foom/actions/runs/41434373269) | macOS | 562 / 713 / 721 / 636 / 572 |
+
+Every required check passed in both runs after one failed-jobs rerun each.
+41423707884 recovered a Windows native-input exit assertion. 41434373269 recovered
+a Windows packaged CDP startup wait and a macOS remote-child restore timeout.
+No test body or deadline changed for recovery. The latter run's 11m53s and 12m01s
+passing macOS steps are above target; green checks alone are insufficient.
+
+Replaying each run's case measurements through the new assignment while retaining
+its observed per-shard overhead projects Windows maxima of 615.4 / 600.9 seconds
+and macOS maxima of 626.1 / 654.2 seconds. This is a model, not observed speedup:
+moving cases between runners can change their cost. Three actual CI runs with the
+refreshed assignment must verify the approximately eleven-minute target. Further
+validation results are recorded below and in PR #1015.
+
+### Five-way current-fixture validation
+
+Passing Electron step wall seconds in shard order, including test-runner overhead:
+
+| Run | Platform | Shard step seconds |
+| --- | --- | --- |
+| [41444554329](https://github.com/scott-r-lindsey/foom/actions/runs/41444554329) | Linux | 429 / 518 / 472 / 486 |
+| [41444554329](https://github.com/scott-r-lindsey/foom/actions/runs/41444554329) | Windows | 448 / 566 / 568 / 636 / 593 |
+| [41444554329](https://github.com/scott-r-lindsey/foom/actions/runs/41444554329) | macOS | 592 / 649 / 525 / 480 / 649 |
+| [41452846093](https://github.com/scott-r-lindsey/foom/actions/runs/41452846093) | Linux | 393 / 540 / 460 / 526 |
+| [41452846093](https://github.com/scott-r-lindsey/foom/actions/runs/41452846093) | Windows | 577 / 560 / 470 / 599 / 607 |
+| [41452846093](https://github.com/scott-r-lindsey/foom/actions/runs/41452846093) | macOS | 621 / 621 / 602 / 701 / 803 |
+
+The Windows shard 4 native-input readiness assertion failed on its first attempt
+and passed the single failed-jobs rerun. No test body or deadline changed.
+Windows peaks at 10m36s and macOS at 10m49s in the first run. Every required check
+passed in both runs, but macOS reached 11m41s and 13m23s in the second run, without
+test failures. Five-way sharding did not establish repeatable headroom.
+
+### Six macOS shards after the measured five-way miss
+
+Retain all 68 complete passing reports from the five current-fixture runs above,
+including the slow passing observations in 41452846093. That run's macOS shard 4
+contains 590.3 seconds of named cases and 110.7 seconds of build/runner overhead;
+shard 5 contains 698.5 seconds of cases and 104.5 seconds of overhead. Its largest
+case increases include remote Pi/OpenCode setup, child review and SSH-loss replay.
+No individual failure or timeout explains the slow passing step.
+
+Across all five runs, macOS case maxima total 3117.4 seconds. Perfect five-way
+balance would still require 623.5 seconds before overhead. The regenerated plan
+peaks at 629.5 seconds, leaving only 30.5 seconds for overhead under a 660-second
+target, versus the observed 104.5–110.7 seconds in that run. Increase macOS to six
+shards. Windows remains at five: both validation runs met the target on every
+Windows shard. Linux remains at four.
+
+Regenerate all three measured assignments from the same five-run corpus:
+
+```sh
+for run in 41410112211 41423707884 41434373269 41444554329 41452846093; do
+  gh run download "$run" --pattern 'electron-results-*' \
+    --dir "test-results/rebalance/current-sources/$run"
+done
+node scripts/rebalance-electron-shards.mjs test-results/rebalance/current-sources/* --source-shards=4,5,5 --source-shards=41410112211:4 --write
+pnpm run format
+```
+
+| Platform | Configured count | Projected case seconds per shard |
+| --- | --- | --- |
+| Linux | 4 | 495.6 / 489.2 / 487.0 / 490.3 |
+| Windows | 5 | 640.7 / 637.9 / 633.8 / 637.4 / 640.4 |
+| macOS | 6 | 521.8 / 520.1 / 522.7 / 523.8 / 505.5 / 523.4 |
+
+The final matrix requires fifteen Electron jobs and three native/packaging jobs.
+It requests eight macOS jobs including the companion and combined Darwin host
+builder, one more than the measured five-way matrix. Step limits, individual
+deadlines, the watchdog, process auditing and Quality gate semantics remain
+unchanged. These case-sum projections require actual CI timing validation;
+the five-way results above do not establish acceptance for this assignment.
+
+### Four/five/six timing validation
+
+Passing Electron step wall seconds in shard order, including build/runner overhead:
+
+| Run | Platform | Shard step seconds |
+| --- | --- | --- |
+| [41456673621](https://github.com/scott-r-lindsey/foom/actions/runs/41456673621) | Linux | 530 / 462 / 517 / 493 |
+| [41456673621](https://github.com/scott-r-lindsey/foom/actions/runs/41456673621) | Windows | 553 / 571 / 422 / 600 / 621 |
+| [41456673621](https://github.com/scott-r-lindsey/foom/actions/runs/41456673621) | macOS | 545 / 552 / 531 / 545 / 447 / 537 |
+| [41461085057](https://github.com/scott-r-lindsey/foom/actions/runs/41461085057) | Linux | 539 / 529 / 486 / 530 |
+| [41461085057](https://github.com/scott-r-lindsey/foom/actions/runs/41461085057) | Windows | 605 / 691 / 610 / 610 / 608 |
+| [41461085057](https://github.com/scott-r-lindsey/foom/actions/runs/41461085057) | macOS | 485 / 473 / 479 / 578 / 638 / 471 |
+
+Every required check passed on the first attempt in both runs. Windows peaks at
+10m21s / 11m31s and macOS at 9m12s / 10m38s. The second Windows peak is 31 seconds
+above the nominal eleven-minute target, retaining 2m29s under the unchanged
+14-minute limit. That shard contains 623.3 seconds of cases and 67.7 seconds of
+overhead. Its merged-cleanup progress case rose from the source maximum of 43.2
+seconds to 82.6 seconds; the other four Windows shards finished within 10m10s.
+This passing observation remains in the evidence.
+See PR #1015 for the third unchanged-plan run's timings and final headroom
+assessment.
