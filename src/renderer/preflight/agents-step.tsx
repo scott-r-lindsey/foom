@@ -38,6 +38,7 @@ export function AgentsStep({
   const { report: reportFailure, clear } = useBackgroundErrors();
   const [config, setConfig] = useState<ConfigStatus>();
   const [error, setError] = useState("");
+  const [results, setResults] = useState<Readonly<Record<string, string>>>({});
   const [reviewing, setReviewing] = useState(false);
   const configSource = source?.config;
   const configChanged = useEffectEvent((next: ConfigStatus) => {
@@ -97,6 +98,7 @@ export function AgentsStep({
           type="button"
           disabled={scanning}
           onClick={() => {
+            setResults({});
             void scan(true);
           }}
         >
@@ -269,6 +271,7 @@ export function AgentsStep({
                               Retry status
                             </button>
                           )}
+                          {results[id] && <span role="status">{results[id]}</span>}
                           {agent.setup.offer && <span>{agent.setup.offer}</span>}
                           {agent.setup.actions.map((action) => (
                             <button
@@ -281,7 +284,11 @@ export function AgentsStep({
                                 void source
                                   .changeAgentSetup?.(id, action.id)
                                   .then(
-                                    async () => {
+                                    async (updated) => {
+                                      const result = updated.agents.find((agent) => agent.id === id)
+                                        ?.setup?.result;
+                                      if (result)
+                                        setResults((current) => ({ ...current, [id]: result }));
                                       await scan(true);
                                     },
                                     (caught: unknown) => {

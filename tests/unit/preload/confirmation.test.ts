@@ -336,3 +336,50 @@ test("path copies send only pending request/path IDs and validate fixed acknowle
   await rejected;
   vi.useRealTimers();
 });
+
+test("validates plugin progress and strips output and main-only capabilities", async () => {
+  await import("../../../src/preload/confirmation");
+  const api = mock.exposeInMainWorld.mock.calls[0]?.[1];
+  const listener = mock.on.mock.calls[0]?.[1];
+  if (!api || !listener) throw Error("Missing API");
+  const render = vi.fn();
+  api.render(render);
+  const progress = {
+    phase: "failure",
+    steps: [{ id: "install", label: "Running agy plugin install", state: "failed" }],
+    commands: [{ command: "agy plugin install /fixture", exit: 7, durationMs: 12 }],
+    receipt: "Install failed",
+    location: "~/.gemini/config/plugins/foom",
+  };
+  const request = {
+    id: "plugin",
+    presented: true,
+    theme,
+    title: "Install plugin",
+    accept: "Done",
+    pluginSetup: progress,
+  };
+  listener(
+    {},
+    {
+      ...request,
+      pluginFeed: { accept: "injected" },
+      pluginSetup: {
+        ...progress,
+        stdout: "UNTRUSTED",
+        commands: [{ ...progress.commands[0], stderr: "UNTRUSTED" }],
+      },
+    },
+  );
+  expect(render).toHaveBeenLastCalledWith(request);
+  for (const invalid of [
+    { ...progress, phase: "approve" },
+    { ...progress, steps: [{ id: "arbitrary", label: "X", state: "running" }] },
+    { ...progress, commands: [{ command: "x", exit: "0", durationMs: 1 }] },
+    { ...progress, commands: [{ command: "x", exit: null, durationMs: -1 }] },
+    { ...progress, receipt: "unsafe\ntext" },
+  ]) {
+    listener({}, { ...request, pluginSetup: invalid });
+    expect(render).toHaveBeenLastCalledWith(null);
+  }
+});

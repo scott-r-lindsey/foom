@@ -134,3 +134,17 @@ primitive selector leaves reach the receiver. Hooks Off falls back to measured
 screen rules. No global plugin installation or agent config edits occur. See the
 [adapter ABI](../contracts/agent-launch.md#generated-context-event-modules-824)
 and [measurements](../agents.md#opencode-v2032-824).
+
+## Plugin setup progress and receipts (#999)
+
+After the existing trusted consent, main publishes fixed steps for ownership and
+executable rechecks, staged-byte verification, separate uninstall/install during
+Reinstall, removal rechecks and final state confirmation. Each mutation command
+records only fixed argv, numeric exit status (or unavailable for signal/timeout)
+and monotonic elapsed milliseconds. Stdout, stderr and exception text never enter
+the receipt. Success uses validated installed version/enabled facts and the fixed
+owned location. Failure marks the active step and reports completed commands and
+any completed removal; failed commands can leave the resulting state unconfirmed.
+The Settings result lasts until the next explicit scan. No automatic retry or new
+consent route is introduced; recovery uses the existing Scan again and, once
+absence is established, Install controls.

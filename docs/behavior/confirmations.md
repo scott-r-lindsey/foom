@@ -65,3 +65,10 @@ requests, **Delete merged worktrees…** and reviewer cleanup. Later reviews wai
 for the visible one to close. Checking and fetching keep Delete disabled and show
 the current checking state; neither a queued review nor a background cleanup
 grants approval to another removal.
+
+Plugin setup keeps the same dialog after Install, Reinstall, Update, Enable or
+Remove. Fixed steps use symbols and labels for pending, running, done and failed.
+Close is disabled until setup finishes; Escape and native close also wait. The
+receipt shows the resulting observer version, enabled state, installation location
+and each mutation command's exit status and duration. CLI output is never shown.
+Done returns to Settings, where Scan again and the available plugin actions remain.

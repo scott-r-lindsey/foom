@@ -35,6 +35,7 @@ export class TrustedDialog {
         activate: boolean;
       }
     | undefined;
+  private pluginFeed: DialogContent["pluginFeed"];
   private feed: DialogContent["feed"];
   private removalFeed: DialogContent["removalFeed"];
   private readonly removals = new RemovalReview((content, signal) => this.request(content, signal));
@@ -96,6 +97,15 @@ export class TrustedDialog {
     if (accepted !== false && !this.isReachable()) {
       this.finish(false);
       return;
+    }
+    if (this.pluginFeed) {
+      if (typeof accepted !== "boolean") return;
+      const progress = this.pluginFeed.current();
+      if (progress?.phase === "running") return;
+      if (!progress && accepted) {
+        this.pluginFeed.accept();
+        return;
+      }
     }
     if (this.removalFeed) {
       if (accepted === false) {
@@ -273,7 +283,7 @@ export class TrustedDialog {
     });
     window.on("close", (event) => {
       event.preventDefault();
-      this.finish(false, true);
+      if (this.pluginFeed?.current()?.phase !== "running") this.finish(false, true);
     });
     window.webContents.on("render-process-gone", () => {
       if (this.window !== window) return;
@@ -341,7 +351,7 @@ export class TrustedDialog {
       const window = this.window;
       if (!window || this.isCancelled(signal)) return false;
       const id = randomUUID();
-      const { feed, removalFeed, ...renderContent } = content;
+      const { feed, removalFeed, pluginFeed, ...renderContent } = content;
       delete renderContent.removal;
       const request: DialogRequest = {
         ...renderContent,
@@ -352,6 +362,7 @@ export class TrustedDialog {
         ...(removalFeed ? removalContent(removalFeed.current()) : {}),
       };
       if (this.isCancelled(signal)) return false;
+      this.pluginFeed = pluginFeed;
       this.removalFeed = removalFeed;
       this.feed = feed;
       this.size = undefined;
@@ -366,6 +377,22 @@ export class TrustedDialog {
         this.pending.request = { ...this.pending.request, cleanup: feed.current() };
         this.refresh();
       });
+      if (pluginFeed)
+        this.unsubscribe = pluginFeed.subscribe(() => {
+          if (this.pending?.id !== id) return;
+          const pluginSetup = pluginFeed.current();
+          if (!pluginSetup) return;
+          this.pending.request = {
+            id,
+            presented: this.pending.request.presented,
+            theme: this.theme(),
+            title: content.title.replace(/\?$/u, ""),
+            accept: "Done",
+            glyph: "shield",
+            pluginSetup,
+          };
+          this.refresh();
+        });
       if (removalFeed)
         this.unsubscribe = removalFeed.subscribe(() => {
           if (!this.pending) return;
@@ -616,6 +643,7 @@ export class TrustedDialog {
     this.reachability = undefined;
     this.unsubscribe?.();
     this.unsubscribe = undefined;
+    this.pluginFeed = undefined;
     this.feed = undefined;
     this.removalFeed = undefined;
     this.window?.webContents.send("confirmation:render", null);

@@ -933,3 +933,82 @@ test("copy controls identify the pending path and do not approve or toggle remov
   expect(copyPath).toHaveBeenLastCalledWith("batch", "removal-change:one:0");
   expect(answer).not.toHaveBeenCalled();
 });
+
+test("plugin progress blocks Close and Escape and replaces steps with a receipt", () => {
+  let receive: (value: DialogRequest | null) => void = () => {};
+  const answer = vi.fn();
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
+  Object.defineProperty(window, "confirmation", {
+    configurable: true,
+    value: {
+      render(callback: typeof receive) {
+        receive = callback;
+        return () => {};
+      },
+      answer,
+      size: vi.fn(),
+    },
+  });
+  const view = render(<ConfirmationPage />);
+  const request: DialogRequest = {
+    id: "setup",
+    presented: true,
+    theme: resolveInterfaceTheme("follow", false),
+    title: "Install plugin",
+    accept: "Done",
+    pluginSetup: {
+      phase: "running",
+      location: "~/.gemini/config/plugins/foom",
+      commands: [],
+      steps: [
+        { id: "check", label: "Checking agy", state: "done" },
+        { id: "install", label: "Running agy plugin install", state: "running" },
+        { id: "confirm", label: "Confirming installation", state: "pending" },
+      ],
+    },
+  };
+  act(() => {
+    receive(request);
+  });
+  const close = view.getByRole("button", { name: "Close" });
+  expect(close).toHaveProperty("disabled", true);
+  fireEvent.click(close);
+  fireEvent.keyDown(view.getByRole("alertdialog"), { key: "Escape" });
+  expect(answer).not.toHaveBeenCalled();
+  const pluginSetup = request.pluginSetup;
+  if (!pluginSetup) throw Error("Missing progress");
+  act(() => {
+    receive({
+      ...request,
+      pluginSetup: {
+        ...pluginSetup,
+        phase: "failure",
+        receipt: "Install failed",
+        steps: [{ id: "install", label: "Running install", state: "failed" }],
+        commands: [{ command: "agy plugin install /fixture", exit: null, durationMs: 5000 }],
+      },
+    });
+  });
+  expect(view.getByText(/no exit status · 5.0 s/u)).toBeTruthy();
+  fireEvent.click(view.getByRole("button", { name: "Done" }));
+  expect(answer).toHaveBeenCalledWith("setup", false);
+  act(() => {
+    receive({
+      ...request,
+      pluginSetup: {
+        ...pluginSetup,
+        phase: "success",
+        receipt: "Installed v5",
+        commands: [{ command: "agy plugin install /fixture", exit: 0, durationMs: 25 }],
+      },
+    });
+  });
+  expect(view.queryByRole("list", { name: "Plugin setup steps" })).toBeNull();
+  expect(view.getByText(/exit 0/u)).toBeTruthy();
+});

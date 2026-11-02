@@ -226,3 +226,15 @@ joins the focus trap. Copying sends the pending request and a path identifier to
 main, which resolves only that presentation's paths; it never answers or grants
 consent. Pairing codes, disclosure facts and secrets are excluded. See the
 [copy IPC contract](ipc.md#visible-fact-copy-controls-960).
+
+### Plugin setup progress (#999)
+
+Plugin setup retains its trusted window after the existing consent click. A
+main-only `pluginFeed` accepts that click and publishes display-only step IDs,
+fixed labels, states and a receipt on the existing render channel; the feed itself
+never crosses preload. Preload validates and projects every progress field.
+While running, Close, Escape and native close are disabled in both main and the
+page. Once settled, Done dismisses; no progress answer can approve another action.
+Loss of the window does not cancel an already accepted command. Existing native
+availability guards still release the board on presentation failure. Main retains
+the setup lock and all identity checks and five-second command bounds.

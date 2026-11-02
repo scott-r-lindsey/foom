@@ -1,3 +1,4 @@
+import type { PluginSetupProgress, PluginSetupFeed } from "../../../../src/shared/confirmation";
 import { afterEach, expect, it, vi } from "vitest";
 import { cp, mkdtemp, mkdir, writeFile, readFile, rm, symlink, link } from "node:fs/promises";
 import { createHash } from "node:crypto";
@@ -1076,3 +1077,94 @@ it("refuses executable bidi controls before formatting the command", async () =>
   );
   expect(confirm).not.toHaveBeenCalled();
 });
+
+it.each(["install", "update", "enable", "remove", "reinstall"])(
+  "publishes live %s steps and a validated receipt without CLI output",
+  async (action) => {
+    const e = await environment();
+    const { default: bundled } = await import("../../../../src/shared/bundled-agents/agy.json");
+    Object.assign(e.m, parseAgentManifest(JSON.stringify(bundled), "bundled").model);
+    if (action !== "install") await e.owned(action === "update" ? 1 : 5, action !== "enable");
+    const updates: PluginSetupProgress[] = [];
+    let unsubscribe: (() => void) | undefined;
+    const runner = required(e.run.getMockImplementation());
+    e.run.mockImplementation(async (executable, args) => {
+      const result = await runner(executable, args);
+      return args[1] === "list" ? result : { stdout: "UNTRUSTED <script>" };
+    });
+    await e.service.change(
+      e.input(action, (content) => {
+        const feed = required(content.pluginFeed);
+        expect(feed.current()).toBeUndefined();
+        unsubscribe = feed.subscribe(() => {
+          const value = feed.current();
+          if (value) updates.push(value);
+        });
+        feed.accept();
+        // TrustedDialog stays pending until Done; consent resolves separately.
+        return new Promise(() => {});
+      }),
+    );
+    unsubscribe?.();
+    expect(updates[0]?.steps[0]).toMatchObject({ id: "check", state: "running" });
+    const receipt = required(updates.at(-1));
+    expect(receipt.phase).toBe("success");
+    expect(receipt.steps.every((step) => step.state === "done")).toBe(true);
+    expect(receipt.commands).toHaveLength(action === "reinstall" ? 2 : 1);
+    expect(receipt.commands.every((command) => command.exit === 0 && command.durationMs >= 0)).toBe(
+      true,
+    );
+    expect(receipt.location).toBe("~/.gemini/config/plugins/foom");
+    expect(receipt.receipt).toBe(e.service.result);
+    expect(JSON.stringify(updates)).not.toContain("UNTRUSTED");
+  },
+);
+
+it.each(["check", "verify", "uninstall", "recheck", "install", "confirm"])(
+  "identifies failed %s and completed Reinstall changes",
+  async (failure) => {
+    const e = await environment();
+    const { default: bundled } = await import("../../../../src/shared/bundled-agents/agy.json");
+    Object.assign(e.m, parseAgentManifest(JSON.stringify(bundled), "bundled").model);
+    await e.owned(1);
+    let feed: PluginSetupFeed | undefined;
+    const runner = required(e.run.getMockImplementation());
+    e.run.mockImplementation(async (executable, args) => {
+      if (args[1] === failure) throw Object.assign(Error("UNTRUSTED stderr"), { code: 7 });
+      return runner(executable, args);
+    });
+    const input = e.input("reinstall", (content) => {
+      feed = content.pluginFeed;
+      return Promise.resolve(true);
+    });
+    const staging = await input.stage();
+    input.stage = () =>
+      Promise.resolve({
+        ...staging,
+        verify: async () => {
+          if (failure === "verify") throw Error("UNTRUSTED");
+          await staging.verify();
+        },
+      });
+    input.validate = vi.fn(() => {
+      const active = feed?.current()?.steps.find((step) => step.state === "running")?.id;
+      if (active === failure) return Promise.reject(Error("UNTRUSTED validation"));
+      return Promise.resolve();
+    });
+    await expect(e.service.change(input)).rejects.toThrow();
+    const result = required(feed?.current());
+    expect(result.phase).toBe("failure");
+    expect(result.steps.find((step) => step.state === "failed")?.id).toBe(failure);
+    expect(result.receipt).toContain(
+      ["install", "confirm"].includes(failure)
+        ? "Uninstalled the old version"
+        : failure === "recheck"
+          ? "Command completed; resulting state unconfirmed"
+          : failure === "uninstall"
+            ? "Resulting state unconfirmed"
+            : "No changes made",
+    );
+    expect(JSON.stringify(result)).not.toContain("UNTRUSTED");
+    if (failure === "install") expect(result.commands).toMatchObject([{ exit: 0 }, { exit: 7 }]);
+  },
+);

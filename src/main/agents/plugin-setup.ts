@@ -12,7 +12,12 @@ import { basename } from "node:path";
 import { promisify } from "node:util";
 import type { AgentManifestV2 } from "../../shared/agent-manifest-v2";
 import type { AgentSetupState, AgentSetupStatus } from "../../shared/agent-setup";
-import type { DialogContent, DialogSummaryLine } from "../../shared/confirmation";
+import type {
+  DialogContent,
+  DialogSummaryLine,
+  PluginSetupProgress,
+  PluginSetupFeed,
+} from "../../shared/confirmation";
 import { conversationId } from "../../shared/conversation";
 import { manifestJson } from "../../shared/agent-manifest-json";
 import { selected, type Facts } from "../../shared/agent-launch-values";
@@ -34,6 +39,7 @@ interface Snapshot {
   identity: string;
 }
 export class PluginSetup {
+  result: string | undefined;
   constructor(
     private readonly home = homedir(),
     private readonly run: (
@@ -273,6 +279,61 @@ export class PluginSetup {
     );
     if (locks.has(key)) throw new Error("Plugin setup is busy");
     locks.add(key);
+    let progress: PluginSetupProgress | undefined;
+    const listeners = new Set<() => void>();
+    const changes = { removalVerified: false };
+    const publish = () => {
+      for (const listener of listeners) listener();
+    };
+    let currentStep: PluginSetupProgress["steps"][number]["id"] = "check";
+    const step = (id: typeof currentStep) => {
+      currentStep = id;
+      if (!progress) return;
+      progress = {
+        ...progress,
+        steps: progress.steps.map((entry) => ({
+          ...entry,
+          state: entry.id === id ? "running" : entry.state === "running" ? "done" : entry.state,
+        })),
+      };
+      publish();
+    };
+    const command = async (args: readonly string[]) => {
+      const started = performance.now();
+      let exit: number | null = null;
+      try {
+        await this.run(executable, args, { ...limits, signal });
+        exit = 0;
+      } catch (error) {
+        if (
+          record(error) &&
+          typeof error["code"] === "number" &&
+          Number.isSafeInteger(error["code"]) &&
+          Math.abs(error["code"]) <= 2147483647
+        )
+          exit = error["code"];
+        throw error;
+      } finally {
+        if (progress) {
+          progress = {
+            ...progress,
+            commands: [
+              ...progress.commands,
+              {
+                command: [
+                  basename(executable),
+                  ...args.map((arg) => (/[\s"\\]/u.test(arg) ? JSON.stringify(arg) : arg)),
+                ].join(" "),
+                exit,
+                durationMs: Math.max(0, Math.round(performance.now() - started)),
+              },
+            ],
+          };
+          publish();
+        }
+      }
+    };
+    this.result = undefined;
     try {
       const validate = async () => {
         signal.throwIfAborted();
@@ -305,19 +366,80 @@ export class PluginSetup {
         ) ?? [];
       const reinstall = args[1] === "reinstall";
       const target = setup.status.ownership?.directory.split("/").at(-1) ?? "";
-      const accepted = await input.confirm(
-        this.disclosure(
-          model,
-          action,
-          executable,
-          before.state,
-          args,
-          staging?.files ?? [],
-          staging?.summary ?? [{ text: "0 files · 0 bytes" }],
-        ),
+      let accept: (() => void) | undefined;
+      const consent = new Promise<boolean>((resolve) => {
+        accept = () => {
+          resolve(true);
+        };
+      });
+      const feed: PluginSetupFeed = {
+        current: () => progress,
+        subscribe: (listener) => {
+          listeners.add(listener);
+          return () => {
+            listeners.delete(listener);
+          };
+        },
+        accept: () => {
+          accept?.();
+        },
+      };
+      const disclosure = this.disclosure(
+        model,
+        action,
+        executable,
+        before.state,
+        args,
+        staging?.files ?? [],
+        staging?.summary ?? [{ text: "0 files · 0 bytes" }],
       );
+      if (action.kind !== "instructions") disclosure.pluginFeed = feed;
+      const accepted = await Promise.race([input.confirm(disclosure), consent]);
       await setupOffers.answer(model.id);
       if (!accepted) return;
+      if (action.kind === "instructions") return;
+      const operation = args[1];
+      const steps: PluginSetupProgress["steps"][number][] = [
+        { id: "check", label: "Checking agy and existing plugins", state: "running" },
+        ...(staging
+          ? [
+              {
+                id: "verify" as const,
+                label: `Verifying staged files · ${staging.summary[0]?.text ?? "0 files · 0 bytes"}`,
+                state: "pending" as const,
+              },
+            ]
+          : []),
+        ...(reinstall
+          ? [
+              {
+                id: "uninstall" as const,
+                label: `Running agy plugin uninstall ${target}`,
+                state: "pending" as const,
+              },
+              {
+                id: "recheck" as const,
+                label: "Checking removal and staged files",
+                state: "pending" as const,
+              },
+            ]
+          : []),
+        {
+          id: operation === "enable" ? "enable" : operation === "uninstall" ? "remove" : "install",
+          label: `Running agy plugin ${operation === "reinstall" ? "install" : (operation ?? "setup")}${staging ? ` …/${target}` : ` ${target}`}`,
+          state: "pending",
+        },
+        { id: "confirm", label: "Confirming installation", state: "pending" },
+      ];
+      progress = {
+        phase: "running",
+        steps,
+        commands: [],
+        location: model.setup?.status.ownership
+          ? `~/${model.setup.status.ownership.directory}`
+          : "No installation change",
+      };
+      publish();
       await validate();
       const after = await this.inspect(model, executable, input.facts(), signal);
       after.facts = { ...after.facts, ...input.facts(after.state), setupState: after.state };
@@ -327,11 +449,10 @@ export class PluginSetup {
         !selected(action.when, after.facts)
       )
         throw new Error("Plugin setup changed. Scan again.");
+      if (staging) step("verify");
       await staging?.verify();
       await validate();
-      if (action.kind === "instructions") return;
       // Independently guard mutation even if a case was authored incorrectly.
-      const operation = args[1];
       const allowed =
         operation === "install"
           ? ["not-installed", "outdated"]
@@ -355,18 +476,20 @@ export class PluginSetup {
         throw new Error("Plugin setup changed. Scan again.");
       try {
         if (reinstall) {
-          await this.run(executable, ["plugin", "uninstall", target], { ...limits, signal });
+          step("uninstall");
+          await command(["plugin", "uninstall", target]);
+          step("recheck");
           await validate();
-          const removed = await this.inspect(model, executable, input.facts(), signal);
-          if (removed.facts["absent"] !== true || identity !== (await executableIdentity()))
+          const removal = await this.inspect(model, executable, input.facts(), signal);
+          if (removal.facts["absent"] !== true || identity !== (await executableIdentity()))
             throw new Error("Plugin setup changed");
+          changes.removalVerified = true;
           await staging?.verify();
           await validate();
         }
-        await this.run(executable, reinstall ? ["plugin", "install", args[2] ?? ""] : args, {
-          ...limits,
-          signal,
-        });
+        step(operation === "enable" ? "enable" : operation === "uninstall" ? "remove" : "install");
+        await command(reinstall ? ["plugin", "install", args[2] ?? ""] : args);
+        step("confirm");
         await validate();
         const result = await this.inspect(model, executable, input.facts(), signal);
         const installedVersion = result.facts["version"];
@@ -380,9 +503,59 @@ export class PluginSetup {
                   installedVersion >= (setup.status.ownership?.currentVersion ?? 0) &&
                   result.facts["stagingOutdated"] !== true);
         if (!verified) throw new Error("Setup state did not change");
+        const verb =
+          operation === "uninstall"
+            ? "Removed"
+            : operation === "enable"
+              ? "Enabled"
+              : reinstall
+                ? "Reinstalled"
+                : before.state === "outdated"
+                  ? "Updated"
+                  : "Installed";
+        const receipt =
+          operation === "uninstall"
+            ? "Removed Foom observer"
+            : `${verb} Foom observer v${String(installedVersion)} · ${result.facts["disabled"] === true ? "disabled" : "enabled"}`;
+        this.result = receipt;
+        progress = {
+          ...progress,
+          phase: "success",
+          receipt,
+          steps: progress.steps.map((entry) => ({ ...entry, state: "done" })),
+        };
+        publish();
       } catch {
         throw new Error("Plugin setup command failed. Scan again to check its status.");
       }
+    } catch (error) {
+      if (progress) {
+        const label =
+          progress.steps.find((entry) => entry.id === currentStep)?.label ??
+          "Checking agy and existing plugins";
+        const completed = progress.commands.filter((entry) => entry.exit === 0);
+        const changed = changes.removalVerified
+          ? completed.length > 1
+            ? "Uninstalled the old version; install command completed; resulting state unconfirmed"
+            : "Uninstalled the old version"
+          : completed.length
+            ? "Command completed; resulting state unconfirmed"
+            : progress.commands.length
+              ? "Resulting state unconfirmed"
+              : "No changes made";
+        const receipt = `Plugin setup command failed at ${label}. ${changed}. Scan again.`;
+        this.result = receipt;
+        progress = {
+          ...progress,
+          phase: "failure",
+          receipt,
+          steps: progress.steps.map((entry) =>
+            entry.id === currentStep ? { ...entry, state: "failed" } : entry,
+          ),
+        };
+        publish();
+      }
+      throw error;
     } finally {
       locks.delete(key);
     }

@@ -610,11 +610,21 @@ export async function changeAgentSetup(
         );
       },
     });
+  } catch (error) {
+    if (!service.result) throw error;
   } finally {
     this.scanned = undefined;
   }
   this.deps.onChange?.();
-  return this.scanAgents(true);
+  const updated = await this.scanAgents(true);
+  return {
+    ...updated,
+    agents: updated.agents.map((agent) =>
+      agent.id === id && agent.setup && service.result
+        ? { ...agent, setup: { ...agent.setup, result: service.result } }
+        : agent,
+    ),
+  };
 }
 
 export async function changeAgyPlugin(

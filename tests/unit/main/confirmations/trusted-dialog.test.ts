@@ -1,3 +1,4 @@
+import type { PluginSetupProgress } from "../../../../src/shared/confirmation";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { EventEmitter } from "node:events";
 import type { BrowserWindow, Session, BrowserWindowConstructorOptions } from "electron";
@@ -1508,5 +1509,53 @@ test("copying a removal path requires this presented request and trusted frame, 
   await expect(pending).resolves.toBe(false);
   copy(id, "worktree", 5);
   expect(contents.send).toHaveBeenLastCalledWith("confirmation:copy-result", 5, false);
+  dialog.dispose();
+});
+
+test("plugin consent retains the window, rejects running close, and dismisses the receipt", async () => {
+  const dialog = setup();
+  let progress: PluginSetupProgress | undefined;
+  let update = () => {};
+  const accept = vi.fn(() => {
+    progress = {
+      phase: "running",
+      steps: [],
+      commands: [],
+      location: "~/.gemini/config/plugins/foom",
+    };
+    update();
+  });
+  const off = vi.fn();
+  const result = dialog.request({
+    title: "Install plugin?",
+    accept: "Install",
+    pluginFeed: {
+      current: () => progress,
+      subscribe: (listener) => {
+        update = listener;
+        return off;
+      },
+      accept,
+    },
+  });
+  const id = await shown();
+  answer(id, true);
+  expect(accept).toHaveBeenCalledOnce();
+  const child = window();
+  expect(child.webContents.send.mock.calls.at(-1)?.[1]).toMatchObject({
+    id,
+    title: "Install plugin",
+    pluginSetup: { phase: "running" },
+  });
+  expect(child.webContents.send.mock.calls.at(-1)?.[1]).not.toHaveProperty("pluginFeed");
+  answer(id, false);
+  child.emit("close", { preventDefault: vi.fn() });
+  expect(child.hide).not.toHaveBeenCalled();
+  if (!progress) throw Error("Missing progress");
+  progress = { ...progress, phase: "success", receipt: "Installed v5" };
+  update();
+  answer(id, false);
+  await expect(result).resolves.toBe(false);
+  expect(off).toHaveBeenCalledOnce();
   dialog.dispose();
 });

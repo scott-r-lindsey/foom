@@ -84,8 +84,11 @@ Without agy on PATH, no plugin controls or marker appear.
 
 An owned Antigravity plugin offers **Reinstall plugin** and **Remove** while
 installed, outdated or disabled. Reinstall confirms both steps together, then
-uninstalls and installs the reviewed observer. If installation fails after removal,
-scan again and use Install. Outdated installations also offer Update; disabled
+uninstalls and installs the reviewed observer. The trusted dialog stays open with live steps and then a receipt. Close waits
+until setup finishes. If installation fails after removal, the receipt records
+the completed removal and failing step; Done returns to Scan again and Install
+when the plugin is absent. A one-line result remains on the Settings card until
+the next explicit scan. Outdated installations also offer Update; disabled
 installations offer Enable. **Status unavailable** offers **Retry status** in the
 row and no mutation actions until a successful check establishes ownership.
 

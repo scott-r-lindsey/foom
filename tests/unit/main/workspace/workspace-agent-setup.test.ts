@@ -147,6 +147,27 @@ test("v2 setup revalidates provider authority, resolves the executable in main a
     });
     await workspace.changeAgentSetup(model.id, "install", confirm);
     expect(validate).toHaveBeenCalled();
+    change.mockImplementationOnce(function (this: PluginSetup) {
+      this.result = "Installed Foom observer v5 · enabled";
+      return Promise.resolve();
+    });
+    const result = await workspace.changeAgentSetup(model.id, "install", confirm);
+    expect(result.agents.find((agent) => agent.id === model.id)?.setup?.result).toBe(
+      "Installed Foom observer v5 · enabled",
+    );
+    change.mockImplementationOnce(function (this: PluginSetup) {
+      this.result = "Install failed. Uninstalled the old version. Scan again.";
+      return Promise.reject(Error("untrusted command output"));
+    });
+    expect(
+      (await workspace.changeAgentSetup(model.id, "install", confirm)).agents.find(
+        (agent) => agent.id === model.id,
+      )?.setup?.result,
+    ).toContain("Uninstalled the old version");
+    change.mockRejectedValueOnce(Error("No receipt: preparation failed"));
+    await expect(workspace.changeAgentSetup(model.id, "install", confirm)).rejects.toThrow(
+      "preparation failed",
+    );
     deps.pluginStagingRoot = root;
     change.mockImplementationOnce(async (input) => {
       const stage = await input.stage();
