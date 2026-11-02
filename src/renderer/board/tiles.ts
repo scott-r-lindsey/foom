@@ -675,6 +675,7 @@ export function loadLayout(
   storage: Pick<Storage, "getItem" | "setItem" | "removeItem">,
   key = TILE_STORAGE,
   legacyExpanded?: Record<string, boolean>,
+  restored = false,
 ): TileLayout {
   let raw = storage.getItem(key);
   let migrated = false;
@@ -684,7 +685,10 @@ export function loadLayout(
   }
   let layout = restoreLayout(raw);
   if (legacyExpanded !== undefined && layout.sidebarExpanded === undefined)
-    layout = { ...layout, sidebarExpanded: raw === null ? {} : expansionMap(legacyExpanded) };
+    layout = {
+      ...layout,
+      sidebarExpanded: raw === null && !restored ? {} : expansionMap(legacyExpanded),
+    };
   if (raw !== null || legacyExpanded !== undefined) saveLayout(storage, layout, key);
   if (migrated) storage.removeItem(TILE_STORAGE);
   return layout;

@@ -35,6 +35,8 @@ export interface WindowsApi {
     onChanged(callback: (state: WindowAudioState) => void): () => void;
     onRefuse(callback: () => void): () => void;
   };
+  /** Restored from the saved window set, including windows without tile metadata. */
+  readonly restored?: boolean;
   readonly id: string;
   readonly number: number;
   readonly initialSession: string | undefined;

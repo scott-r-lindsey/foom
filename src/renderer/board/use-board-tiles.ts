@@ -48,7 +48,12 @@ export function useBoardTiles({
   const [otherViews, setOtherViews] = useState<ReadonlySet<string>>(() => new Set());
   const [layout, setLayout] = useState(() => {
     try {
-      return loadLayout(localStorage, storageKey, readPreferences(localStorage).expanded);
+      return loadLayout(
+        localStorage,
+        storageKey,
+        readPreferences(localStorage).expanded,
+        source.windows?.restored,
+      );
     } catch {
       return restoreLayout(null);
     }

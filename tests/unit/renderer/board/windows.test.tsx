@@ -396,3 +396,16 @@ test("existing window layouts migrate shared expansion once and new windows use 
   expect(loadLayout(localStorage, `${TILE_STORAGE}.new`, legacy).sidebarExpanded).toEqual({});
   expect(loadLayout(localStorage, `${TILE_STORAGE}.new`, legacy).sidebarExpanded).toEqual({});
 });
+
+test("restored blank windows inherit legacy expansion even without saved tiles", () => {
+  const legacy = { "repository:/a": false };
+  expect(loadLayout(localStorage, `${TILE_STORAGE}.blank`, legacy, true).sidebarExpanded).toEqual(
+    legacy,
+  );
+  expect(loadLayout(localStorage, `${TILE_STORAGE}.blank`, {}, true).sidebarExpanded).toEqual(
+    legacy,
+  );
+  expect(loadLayout(localStorage, `${TILE_STORAGE}.new`, legacy, false).sidebarExpanded).toEqual(
+    {},
+  );
+});

@@ -469,6 +469,7 @@ test("sidebar preferences sync between windows without losing independent edits"
   for (const page of restored
     .windows()
     .filter((page) => page.url() === "app://bundle/index.html")) {
+    assert.equal(await page.evaluate(() => window.desktop.windows.restored), true);
     const collapsed = (await page.evaluate(() => window.desktop.windows.id)) === firstId;
     await expect(
       page.getByRole("button", {

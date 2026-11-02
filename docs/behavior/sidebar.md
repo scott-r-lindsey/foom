@@ -41,7 +41,7 @@ Session breadcrumbs also call it **Main checkout**. Other worktrees
 have a branch icon. Pins and session names persist and are shared across windows.
 Repository/worktree expansion saves with each window’s tile layout and survives
 restart independently. New windows use the defaults below, without copying another
-window. Existing saved windows inherit the former shared expansion map once, then
+window. Existing saved windows, including blank windows without saved tiles, inherit the former shared expansion map once, then
 diverge. Revealing rows expands ancestors only in the requesting window; filtering
 expands matches temporarily in that window. Removed repository and worktree choices
 are pruned after inventory loads (locations with retained sessions remain visible).
