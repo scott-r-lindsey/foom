@@ -92,3 +92,23 @@ test("maxima across runs feed deterministic balancing and no-op writes preserve 
   writePlan(path, { shards: [] });
   assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { shards: [] });
 });
+
+test("mixed platform shard counts require every report on each platform", (t) => {
+  const { source } = fixture(t, entry("1").replace('name="case"', 'name="case 0"'));
+  for (let index = 0; index < 2; index++) {
+    const report = join(source, `electron-results-windows-${index}`);
+    mkdirSync(report);
+    writeFileSync(
+      join(report, "electron.xml"),
+      `<testsuites><testcase name="case ${index}" file="C:\\tests\\test-shard.js" time="${index + 2}"/></testsuites>`,
+    );
+  }
+  assert.deepEqual(
+    [...readMeasurements([source], ["linux", "windows"], ["case 0"], [1, 2])],
+    [["case 0", [1, 2]]],
+  );
+  assert.throws(
+    () => readMeasurements([source], ["linux", "windows"], ["case 0"], [1, 3]),
+    /Expected 3 windows reports/,
+  );
+});

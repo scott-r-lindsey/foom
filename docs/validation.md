@@ -10,7 +10,7 @@ current tooling and CI graph. See the [documentation map](README.md) for other e
 
 Real-app integration tests are split into discovered feature suites, with a separate
 packaged smoke test. See [Electron test layout and sharding](electron-shards.md)
-for suite ownership, four named-test shards per platform and local commands, and
+for suite ownership, four Linux and five Windows/macOS named-test shards and local commands, and
 [explicit Electron fixtures](electron-fixtures.md) for fixture selection and timing.
 On Linux, wrap Electron and packaged-smoke commands in `xvfb-run -a`.
 
@@ -108,7 +108,7 @@ shell removal on native exit and shutdown.
 
 ## Refreshing the Electron shard plan
 
-Use Node 24 and installed dependencies. Download all twelve `electron-results-*`
+Use Node 24 and installed dependencies. Download all fourteen `electron-results-*`
 artifacts per selected recent passing CI run. Keep numeric run-ID directories and
 artifact subdirectories intact, outside the repository or under ignored
 `test-results/`. Use a fresh source directory for each refresh:
@@ -130,6 +130,8 @@ platforms. The script rejects failed cases, missing reports and unmeasured curre
 cases. It takes each case's maximum duration per platform and includes hash
 assignments for previously unplanned cases in the before projection. Review balance
 and headroom under the 600s Linux / 840s Windows and macOS step limits.
+Use `--source-shards=4` when refreshing from older runs with four shards on every
+platform. Each source run must have the expected report count per platform.
 Case sums exclude build/runner overhead; compare actual CI step times before
 calling the refresh validated. Regenerate after incorporating new tests from main
 and run full contributor validation. See the [sharding guide](electron-shards.md)

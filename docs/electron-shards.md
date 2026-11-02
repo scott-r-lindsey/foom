@@ -1,11 +1,11 @@
 # Electron test layout and shard balance
 
-CI runs four named-test shards per platform. `tests/electron/shard-plan.json`
-assigns measured tests to shards; `test-shard.js` hashes new or renamed tests,
-and all tests at other shard counts. With no shard setting the full suite runs.
+CI runs four named-test shards on Linux and five on Windows/macOS. `tests/electron/shard-plan.json`
+stores assignments keyed by shard count and the CI count for each platform; `test-shard.js` hashes new or renamed tests,
+and all tests at unplanned shard counts. With no shard setting the full suite runs.
 Native checks, packaging and packaged smoke run sequentially in one independent
-companion job per platform, alongside the four Electron shards and static checks.
-The Quality gate requires all twelve Electron jobs and all three companion jobs.
+companion job per platform, alongside the Electron shards and static checks.
+The Quality gate requires all fourteen Electron jobs and all three companion jobs.
 Failed, cancelled or skipped required jobs fail the gate; documentation-only runs
 permit skipping both desktop matrices together. Native hook probes stay serial.
 Electron steps allow ten minutes on Linux and fourteen minutes on Windows and
@@ -223,7 +223,7 @@ exactly-once registration, name filtering and invalid-setting failures.
 ## Rebalancing from current reports (#708)
 
 Run with Node 24 and the installed project dependencies. The rebalance script
-uses only Node standard-library modules. Download all twelve Electron artifacts
+uses only Node standard-library modules. Download all fourteen Electron artifacts
 per run into ignored
 `test-results/rebalance/sources/RUN_ID/`; keep the artifact directories intact:
 
@@ -250,7 +250,9 @@ missing reports, duplicate cases, failed cases, invalid durations and current
 cases without measurements on any platform. It prints the old assignment's
 projected totals using the same new measurements, including hash fallback for
 previously unplanned names, then applies the deterministic assignment above.
-No test deadlines, shard count or workflow step limits change. Unchanged plans
+The current platform shard counts come from the plan. Use `--source-shards=4`
+for historical inputs with four reports per platform. Regeneration keeps the
+configured counts, test deadlines and workflow step limits. Unchanged plans
 retain their existing bytes. Parser, input-validation and deterministic-assignment
 fixtures run in `pnpm run test:ci`.
 
@@ -467,3 +469,45 @@ These projections exclude build/runner overhead and combine maxima from differen
 runs. Validate actual step times on the refreshed PR before treating the balance
 as verified. Four shards, per-test deadlines, workflow step limits, process audit,
 coverage rules and Quality gate requirements stay unchanged.
+
+## Windows/macOS headroom (#1014)
+
+Refresh all 262 current registrations from the complete passing Electron JUnit
+reports downloaded with `gh run download` from
+[41390347255](https://github.com/scott-r-lindsey/foom/actions/runs/41390347255),
+[41397433670](https://github.com/scott-r-lindsey/foom/actions/runs/41397433670),
+[41398569843](https://github.com/scott-r-lindsey/foom/actions/runs/41398569843), and
+[41402156082](https://github.com/scott-r-lindsey/foom/actions/runs/41402156082).
+The last run's macOS shard 3 input is its successful rerun, not the interrupted
+first attempt. All 48 reports parse without failed cases. Source artifacts remain
+unmodified under ignored `test-results/rebalance/sources/`.
+
+Four-way rebalancing cannot reach approximately 660 seconds: Windows case maxima
+sum to 2912.2 seconds, requiring at least 728.1 seconds per shard even with perfect
+balance, before build/runner overhead. macOS totals 2790.0 seconds, or 697.5 per
+shard. Keep Linux at four shards and use five on Windows/macOS. The matrix reads
+platform counts from the plan; the test helper selects the measured assignment
+for the requested count. New names and unplanned counts still use name hashing.
+The gate requires every matrix job; no deadlines or step limits change.
+This adds two desktop jobs (17 Electron/companion jobs in total) and requests
+seven macOS jobs including the combined Darwin host builder.
+
+Conservative case sums in seconds (per-case/platform maxima across four sources):
+
+| Platform | Old assignment, four shards | Regenerated four shards | Regenerated five shards |
+| --- | --- | --- | --- |
+| Linux | 470.5 / 502.2 / 472.6 / 489.2 | 487.1 / 485.7 / 480.6 / 481.1 | unused |
+| Windows | 697.6 / 713.8 / 740.5 / 760.3 | 729.4 / 724.6 / 730.1 / 728.1 | 584.5 / 577.8 / 582.1 / 583.5 / 584.3 |
+| macOS | 704.4 / 695.7 / 735.9 / 654.0 | 683.7 / 702.6 / 701.9 / 701.8 | 551.7 / 560.5 / 558.0 / 558.3 / 561.6 |
+
+Regenerate these inputs with:
+
+```sh
+node scripts/rebalance-electron-shards.mjs test-results/rebalance/sources/* --source-shards=4 --write
+pnpm run format
+```
+
+The five-way maximum leaves 75.5 seconds on Windows and 98.4 seconds on macOS
+for build/runner overhead under the 660-second target. These projections combine
+maxima from different runs and are not measured step times. Actual PR CI step
+measurements across three runs must establish headroom before review.
