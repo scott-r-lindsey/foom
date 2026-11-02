@@ -48,7 +48,8 @@ prunable worktrees, running sessions, tracked changes and
 exited resumable Claude/Codex/Antigravity conversations are retained. After confirmation,
 Foom fetches again, revalidates each candidate before and after stopping its
 exited terminal resources, then uses the existing safe removal path with at most
-four candidates in flight. The sidebar refreshes after every candidate. Changed
+four candidates in flight. The sidebar refreshes after every candidate. After the run finishes, deleted rows
+disappear; rows that still contain sessions remain available. Changed
 worktrees are skipped and reported while others continue. The local branch is
 also removed only if it still points to the exact checked commit. Branch deletions
 share one checked-ref transaction after removals. Moved or checked-out branches
@@ -120,3 +121,18 @@ checkouts show unavailable Git facts without logging an error on each panel refr
 
 Ordinary **Delete worktree…** keeps its existing explicit confirmation behavior,
 including **Discard changes and remove** and external linked checkouts.
+
+
+### Incomplete removal and empty parents
+
+If Git reports successful removal but the directory remains or cannot be checked,
+Foom reports an incomplete-removal failure naming the path. The cleanup checklist
+keeps that candidate failed, and single removal shows an action error. Leave that
+directory for manual cleanup: Foom never retries deletion after Git unregisters it
+and never scans historical orphan directories. The retry portion of #994 remains
+deferred pending a human deletion-safety decision.
+
+Removing a slash-named branch also prunes its now-empty parents only when Foom
+recorded creating those exact directories inside its worktree root. Existing,
+replaced and nonempty directories, the repository namespace, and directories
+outside that root remain.

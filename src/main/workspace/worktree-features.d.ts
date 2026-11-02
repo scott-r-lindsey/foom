@@ -20,6 +20,7 @@ export interface FetchFacts {
 
 export interface CreationContext extends Pick<WorktreeService, "validateBranch" | "listWorktrees"> {
   readonly root: string;
+  readonly createdParents: Map<string, string>;
   readonly managed: Map<string, { repository: string; root: string; identity: string }>;
   repository(path: string): Repository;
   save(): Promise<void>;

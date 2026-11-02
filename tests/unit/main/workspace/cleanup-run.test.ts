@@ -1,3 +1,4 @@
+import { IncompleteRemovalError } from "../../../../src/shared/application-errors";
 import { expect, test, vi } from "vitest";
 import { CleanupRun, KeptWorktree } from "../../../../src/main/workspace/cleanup-run";
 import type { CleanupCandidate } from "../../../../src/main/workspace/cleanup-run";
@@ -140,4 +141,19 @@ test("bounds the combined untracked and ignored list and reports every omitted p
   expect(item?.changes?.split("\0")).toHaveLength(50);
   expect(item?.changes?.split("\0").every((path) => path.length === 500)).toBe(true);
   expect(item?.changes).toContain("!! ");
+});
+
+test("incomplete removal stays failed and names the leftover path for manual cleanup", async () => {
+  const { deps, run } = setup();
+  deps.remove.mockRejectedValueOnce(new IncompleteRemovalError("/private/0"));
+  run.ready(candidates(2));
+  run.act();
+  await run.settled();
+  expect(run.current().progress.items[0]).toMatchObject({
+    state: "error",
+    reason: "removal failed",
+    branch: "branch-0 · Worktree removal is incomplete. Manually clean up: /private/0",
+  });
+  expect(run.removedTrees.map((tree) => tree.path)).toEqual(["/private/1"]);
+  expect(deps.branches.mock.calls[0]?.[0].map(({ tree }) => tree.path)).toEqual(["/private/1"]);
 });

@@ -151,6 +151,7 @@ export function buildSidebar(
     const worktrees: SidebarTree["worktrees"] = [];
     for (const item of repository.worktrees) {
       const all = sessions.filter((row) => rowWorktree(row) === item.path);
+      if (item.removed && repository.cleanup?.phase === "finished" && !all.length) continue;
       const branchMatches =
         matches(item.branch ?? "Detached HEAD") ||
         (item.path === repository.path && matches("Main checkout"));
