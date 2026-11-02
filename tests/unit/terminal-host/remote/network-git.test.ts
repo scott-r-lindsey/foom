@@ -14,18 +14,14 @@ beforeEach(async () => {
     `#!${process.execPath}
 const assert=require('node:assert/strict');
 const args=process.argv.slice(2);
-if(args.includes('config')) {
- assert.deepEqual(args,['config','--default','ssh','--get','core.sshCommand']);
- if(process.env.CONFIG_FAIL)process.exit(3);
- console.log(process.env.CONFIG_SSH||'ssh');process.exit(0);
-}
+assert.ok(!args.includes('config'));
 assert.equal(process.env.GIT_TERMINAL_PROMPT,'0');
 assert.equal(process.env.GIT_ASKPASS,'/usr/bin/false');
 assert.equal(process.env.SSH_ASKPASS,'/usr/bin/false');
 assert.equal(process.env.SSH_ASKPASS_REQUIRE,'never');
-assert.equal(process.env.GIT_SSH_VARIANT,'ssh');
+assert.equal(process.env.GIT_SSH_VARIANT,process.env.EXPECT_VARIANT);
 assert.equal(process.env.LC_ALL,'C');
-assert.equal(process.env.GIT_SSH_COMMAND,(process.env.CONFIG_SSH||'ssh')+' -o BatchMode=yes');
+assert.equal(process.env.GIT_SSH_COMMAND,process.env.EXPECT_SSH);
 if(process.env.HANG) {console.log('started');setTimeout(()=>{},600000);}
 else if(process.env.OVERFLOW)process.stderr.write(Buffer.alloc(262145),()=>process.exit(128));
 else if(process.env.DIAGNOSTIC) {process.stderr.write(process.env.DIAGNOSTIC+' PRIVATE_TOKEN');process.exit(128);}
@@ -71,7 +67,7 @@ for (const args of commands) {
       const pending = networkGit(
         args,
         root,
-        { PATH: root, HANG: "1", GIT_SSH_COMMAND: "ssh" },
+        { PATH: root, HANG: "1", GIT_SSH_COMMAND: "ssh", EXPECT_SSH: "ssh" },
         10000,
       );
       const rejected = expect(pending).rejects.toMatchObject({ reason: "timed-out" });
@@ -82,7 +78,7 @@ for (const args of commands) {
       const cancelled = networkGit(
         args,
         root,
-        { PATH: root, HANG: "1", GIT_SSH_COMMAND: "ssh" },
+        { PATH: root, HANG: "1", GIT_SSH_COMMAND: "ssh", EXPECT_SSH: "ssh" },
         10000,
         cancellation.signal,
       );
@@ -97,16 +93,17 @@ test.skipIf(process.platform === "win32")(
   async () => {
     const env = {
       PATH: root,
-      CONFIG_SSH: 'ssh -i "/fixture/key with spaces" -o ProxyJump=fixture-jump -F /fixture/config',
+      GIT_SSH_COMMAND:
+        'ssh -i "/fixture/key with spaces" -o ProxyJump=fixture-jump -F /fixture/config',
+      EXPECT_SSH: 'ssh -i "/fixture/key with spaces" -o ProxyJump=fixture-jump -F /fixture/config',
+      GIT_SSH_VARIANT: "simple",
+      EXPECT_VARIANT: "simple",
       GIT_ASKPASS: "/fixture/prompt",
       SSH_ASKPASS: "/fixture/prompt",
       SSH_ASKPASS_REQUIRE: "force",
     };
     expect(await networkGit(commands[0], root, env, 5000)).toBe("fixed-success\n");
     expect(await networkGit([], root, { PATH: root }, 5000)).toBe("fixed-success\n");
-    await expect(
-      networkGit([], root, { PATH: root, CONFIG_FAIL: "1" }, 5000),
-    ).rejects.toMatchObject({ reason: "origin-unreachable" });
     await expect(networkGit([], root, { PATH: root, OVERFLOW: "1" }, 5000)).rejects.toMatchObject({
       reason: "origin-unreachable",
     });

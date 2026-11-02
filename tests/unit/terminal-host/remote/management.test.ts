@@ -313,8 +313,6 @@ test.skipIf(process.platform === "win32")(
         GIT_ASKPASS: "/usr/bin/false",
         SSH_ASKPASS: "/usr/bin/false",
         SSH_ASKPASS_REQUIRE: "never",
-        GIT_SSH_COMMAND: `${request.origin} -o BatchMode=yes`,
-        GIT_SSH_VARIANT: "ssh",
         GIT_TERMINAL_PROMPT: "0",
         GIT_NO_REPLACE_OBJECTS: "1",
         GIT_GRAFT_FILE: "/dev/null",
@@ -388,7 +386,6 @@ test.skipIf(process.platform === "win32")(
     const destination = join(folder, "repo");
     let fail = true;
     mock.probe.mockImplementation(async (_command: string, args: string[], cwd: string) => {
-      if (args.includes("core.sshCommand")) return "ssh";
       if (!args.includes("clone")) return gitSync(args, { cwd }).toString();
       const staging = args.at(-1);
       if (!staging) throw new Error("Missing staging directory");
@@ -472,7 +469,6 @@ test.skipIf(process.platform === "win32").each(["unborn", "destination-appeared"
     const path = join(folder, "repo");
     const origin = "git@forge.test:me/repo.git";
     mock.probe.mockImplementation(async (_command: string, args: string[], cwd: string) => {
-      if (args.includes("core.sshCommand")) return "ssh";
       if (!args.includes("clone")) return gitSync(args, { cwd }).toString();
       const staging = args.at(-1);
       if (!staging) throw new Error("Missing staging directory");
@@ -1252,7 +1248,6 @@ for (const command of ["clone", "fetch", "ls-remote"] as const) {
           if (reason === "cancelled") cancellation.abort();
           throw new HostGitFailure(reason);
         }
-        if (args.includes("core.sshCommand")) return Promise.resolve("ssh");
         if (args.includes("config")) return Promise.resolve(origin);
         if (args.includes("--show-toplevel")) return Promise.resolve(cwd);
         if (args.includes("ls-remote")) return Promise.resolve("ref: refs/heads/main\tHEAD\n");

@@ -10,20 +10,8 @@ export async function networkGit(
   signal?: AbortSignal,
 ): Promise<string> {
   try {
-    let ssh = env["GIT_SSH_COMMAND"];
-    if (!ssh) {
-      ssh = (
-        await hostProbe(
-          "git",
-          ["config", "--default", "ssh", "--get", "core.sshCommand"],
-          cwd,
-          env,
-          true,
-          5000,
-          signal,
-        )
-      ).trim();
-    }
+    // Clone resolves conditional transport configuration in its target repository.
+    // hostProbe supplies ignored stdin and a detached session with no controlling terminal.
     return await hostProbe(
       "git",
       ["--no-optional-locks", ...args],
@@ -36,8 +24,6 @@ export async function networkGit(
         GIT_ASKPASS: "/usr/bin/false",
         SSH_ASKPASS: "/usr/bin/false",
         SSH_ASKPASS_REQUIRE: "never",
-        GIT_SSH_COMMAND: `${ssh || "ssh"} -o BatchMode=yes`,
-        GIT_SSH_VARIANT: "ssh",
       },
       true,
       timeout,
