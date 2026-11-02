@@ -620,3 +620,17 @@ builder, one more than the measured five-way matrix. Step limits, individual
 deadlines, the watchdog, process auditing and Quality gate semantics remain
 unchanged. These case-sum projections require three further actual CI timing runs;
 the five-way results above do not establish acceptance for this assignment.
+
+### Four/five/six timing validation
+
+Passing Electron step wall seconds in shard order, including build/runner overhead:
+
+| Run | Platform | Shard step seconds |
+| --- | --- | --- |
+| [41456673621](https://github.com/scott-r-lindsey/foom/actions/runs/41456673621) | Linux | 530 / 462 / 517 / 493 |
+| [41456673621](https://github.com/scott-r-lindsey/foom/actions/runs/41456673621) | Windows | 553 / 571 / 422 / 600 / 621 |
+| [41456673621](https://github.com/scott-r-lindsey/foom/actions/runs/41456673621) | macOS | 545 / 552 / 531 / 545 / 447 / 537 |
+
+Every required check passed on the first attempt. Windows peaks at 10m21s and
+macOS at 9m12s. Two more runs of the same assignment are needed to establish
+repeatability.
