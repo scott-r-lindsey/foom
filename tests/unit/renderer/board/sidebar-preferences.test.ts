@@ -5,6 +5,7 @@ import {
   emptyPreferences,
   readPreferences,
   renameSession,
+  pruneExpansion,
   writePreferences,
 } from "../../../../src/renderer/board/sidebar-preferences";
 
@@ -41,13 +42,13 @@ test("stale snapshots merge only edited keys, including independent pins and res
   );
   expect(readPreferences(localStorage)).toEqual({
     pins: ["old", "a", "b"],
-    expanded: { old: true, b: false },
+    expanded: { old: true },
     names: { old: "Legacy", a: "Newest" },
   });
   writePreferences(localStorage, { pins: [], expanded: {}, names: {} }, b);
   expect(readPreferences(localStorage)).toEqual({
     pins: ["a", "b"],
-    expanded: { b: false },
+    expanded: { old: true },
     names: { a: "Newest" },
   });
   const current = readPreferences(localStorage);
@@ -81,7 +82,7 @@ test("external store applies current outside changes, ignores unrelated events a
   expect(store.getSnapshot()).toEqual({
     pins: ["a"],
     names: { a: "Shared" },
-    expanded: { a: false },
+    expanded: {},
   });
   localStorage.clear();
   external(null);
@@ -139,4 +140,37 @@ test("failed persistence propagates without advertising an unsaved snapshot", ()
     store.save(emptyPreferences(), renameSession(emptyPreferences(), "a", "Name"));
   }).toThrow("full");
   expect(store.getSnapshot()).toEqual(emptyPreferences());
+});
+
+test("expansion writes stay local and removed locations are pruned", () => {
+  writePreferences(localStorage, { ...emptyPreferences(), expanded: { "repository:/a": false } });
+  expect(readPreferences(localStorage).expanded).toEqual({});
+  const expanded = {
+    "repository:/a": false,
+    "worktree:/a": true,
+    "worktree:/gone": false,
+    "repository:/gone": true,
+  };
+  const repositories = [
+    {
+      name: "a",
+      path: "/a",
+      worktrees: [
+        {
+          path: "/a",
+          branch: "main",
+          head: null,
+          bare: false,
+          locked: false,
+          prunable: false,
+          managed: false,
+        },
+      ],
+    },
+  ];
+  const pruned = pruneExpansion(expanded, repositories);
+  expect(pruned).toEqual({ "repository:/a": false, "worktree:/a": true });
+  expect(pruneExpansion(pruned, repositories)).toBe(pruned);
+  expect(pruneExpansion(pruned, [])).toEqual({});
+  expect(pruneExpansion({ home: false }, [])).toEqual({ home: false });
 });

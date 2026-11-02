@@ -14,6 +14,7 @@ const {
   quitAndWait,
   removeAfterApps,
   restartShellFromSidebar,
+  stopSession,
 } = require("./harness.js");
 
 // A painted/focused cursor can precede both login and attachment readiness.
@@ -400,7 +401,10 @@ test("sidebar menus escape the scroll area, stay in the window and launch from a
 test("sidebar preferences sync between windows without losing independent edits", {
   timeout: deadline(60000),
 }, async (context) => {
-  const app = await launchApp(context, { fixture: "running-shell" });
+  const profile = await mkdtemp(path.join(tmpdir(), "foom-expansion-"));
+  removeAfterApps(context, profile);
+  const options = { args: [`--user-data-dir=${profile}`], home: path.join(profile, "home") };
+  const app = await launchApp(context, { ...options, fixture: "running-shell" });
   const first = await boardPage(app);
   await expect(first.locator(".board-row")).toHaveCount(1);
   await first.evaluate(() => window.desktop.appMenu.execute("new-window"));
@@ -426,20 +430,65 @@ test("sidebar preferences sync between windows without losing independent edits"
     await expect(page.locator(".board-row")).toContainText("Shared helper");
   }
   await first.getByRole("button", { name: "Collapse shell-fixture", exact: true }).click();
+  for (const theme of process.env.FOOM_SCREENSHOTS ? ["light", "dark"] : []) {
+    for (const [index, page] of [first, second].entries()) {
+      await page.emulateMedia({ colorScheme: theme });
+      await page.screenshot({ path: evidencePath(`1001-after-${theme}-${index + 1}.png`) });
+    }
+  }
   await expect(
-    second.getByRole("button", { name: "Expand shell-fixture", exact: true }),
+    second.getByRole("button", { name: "Collapse shell-fixture", exact: true }),
   ).toBeVisible();
-  await second.getByRole("button", { name: "Expand shell-fixture", exact: true }).click();
-  await expect(first.locator(".board-row")).toContainText("Shared helper");
-  // Tile layouts remain independent while metadata is shared.
+  await expect(first.locator(".board-row")).toHaveCount(0);
+  // Tile layouts remain independent while pins and names are shared.
   await first.evaluate(() => window.desktop.appMenu.execute("split-right"));
   await expect(first.locator(".terminal-tile")).toHaveCount(2);
   await expect(second.locator(".terminal-tile")).toHaveCount(1);
   await second.reload();
   await expect(second.getByLabel("Pinned", { exact: true })).toBeVisible();
   await expect(second.locator(".board-row")).toContainText("Shared helper");
-  await second.evaluate(() => window.desktop.appMenu.execute("close-window"));
-  await expect.poll(() => second.isClosed()).toBe(true);
+  await second.getByRole("button", { name: "Collapse Main checkout", exact: true }).click();
+  await first.getByRole("button", { name: "Expand shell-fixture", exact: true }).click();
+  await expect(
+    first.getByRole("button", { name: "Collapse Main checkout", exact: true }),
+  ).toBeVisible();
+  await expect(
+    second.getByRole("button", { name: "Expand Main checkout", exact: true }),
+  ).toBeVisible();
+  await first.getByRole("button", { name: "Collapse shell-fixture", exact: true }).click();
+  const firstId = await first.evaluate(() => window.desktop.windows.id);
+  const terminal = (await first.evaluate(() => window.desktop.workspace())).terminals[0].id;
+  await stopSession(first, terminal);
+  await quitAndWait(app, () => app.evaluate(({ app }) => app.quit()));
+  const restored = await launchApp(context, { ...options, fixture: "restored" });
+  await expect
+    .poll(
+      () => restored.windows().filter((page) => page.url() === "app://bundle/index.html").length,
+    )
+    .toBe(2);
+  for (const page of restored
+    .windows()
+    .filter((page) => page.url() === "app://bundle/index.html")) {
+    const collapsed = (await page.evaluate(() => window.desktop.windows.id)) === firstId;
+    await expect(
+      page.getByRole("button", {
+        name: `${collapsed ? "Expand" : "Collapse"} shell-fixture`,
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(page.getByLabel("Pinned", { exact: true })).toBeVisible();
+    if (collapsed)
+      await page.getByRole("button", { name: "Expand shell-fixture", exact: true }).click();
+    await expect(
+      page.getByRole("button", {
+        name: `${collapsed ? "Collapse" : "Expand"} Main checkout`,
+        exact: true,
+      }),
+    ).toBeVisible();
+    if (!collapsed)
+      await page.getByRole("button", { name: "Expand Main checkout", exact: true }).click();
+    await expect(page.locator(".board-row")).toContainText("Shared helper");
+  }
 });
 
 for (const pinned of [false, true]) {

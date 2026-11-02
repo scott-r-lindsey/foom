@@ -16,6 +16,7 @@ export interface TileSplit {
 }
 export type TileNode = TileLeaf | TileSplit;
 export interface TileLayout {
+  sidebarExpanded?: Record<string, boolean>;
   sidebarCollapsed?: boolean;
   sidebarWidth?: number | undefined;
   tree: TileNode;

@@ -384,3 +384,15 @@ test("a Settings custom-theme hint opens the same config panel as the gear", asy
   fireEvent.click(hint);
   expect(view.getByRole("dialog", { name: "Foom config details and commands" })).toBeTruthy();
 });
+
+test("existing window layouts migrate shared expansion once and new windows use defaults", () => {
+  const legacy = { "repository:/a": false, "worktree:/a": true };
+  saveLayout(localStorage, initialLayout(), `${TILE_STORAGE}.existing`);
+  const migrated = loadLayout(localStorage, `${TILE_STORAGE}.existing`, legacy);
+  expect(migrated.sidebarExpanded).toEqual(legacy);
+  expect(
+    loadLayout(localStorage, `${TILE_STORAGE}.existing`, { "repository:/a": true }).sidebarExpanded,
+  ).toEqual(legacy);
+  expect(loadLayout(localStorage, `${TILE_STORAGE}.new`, legacy).sidebarExpanded).toEqual({});
+  expect(loadLayout(localStorage, `${TILE_STORAGE}.new`, legacy).sidebarExpanded).toEqual({});
+});

@@ -28,8 +28,14 @@ import {
   useBackgroundErrors,
 } from "./error-presentation";
 import { SidebarControls } from "./sidebar-controls";
-import { repositoryKey, rowRepository, rowWorktree, worktreeKey } from "./sidebar-model";
-import { createPreferencesStore, renameSession } from "./sidebar-preferences";
+import {
+  repositoryKey,
+  rowRepository,
+  rowWorktree,
+  worktreeKey,
+  sidebarRepositories,
+} from "./sidebar-model";
+import { createPreferencesStore, renameSession, pruneExpansion } from "./sidebar-preferences";
 import { Sidebar } from "./sidebar-view";
 import { TileArea } from "./tile-area";
 import {
@@ -187,21 +193,36 @@ function BoardContents({
     setRemoveError,
   });
   const [preferencesStore] = useState(() => createPreferencesStore(localStorage, window));
-  const preferences = useSyncExternalStore(
+  const sharedPreferences = useSyncExternalStore(
     preferencesStore.subscribe,
     preferencesStore.getSnapshot,
   );
+  const preferences = { ...sharedPreferences, expanded: layout.sidebarExpanded ?? {} };
   const revealRef = useRef<(row: BoardRow) => void>(undefined);
   const newWorktreeRef = useRef<(repository?: string) => boolean>(undefined);
   const options = useBoardOptions(source, inactive, settingsOpen);
   const save = (next: typeof preferences) => {
     try {
-      preferencesStore.save(preferences, next);
+      if (next.expanded !== preferences.expanded)
+        changeLayout({ ...layoutRef.current, sidebarExpanded: next.expanded });
+      preferencesStore.save(sharedPreferences, next);
       clearBackground("sidebar-preferences");
     } catch {
       reportBackground("sidebar-preferences", "Unable to save sidebar preferences.");
     }
   };
+  useEffect(() => {
+    if (source.isReady?.() === false) return;
+    const current = layoutRef.current;
+    const repositories = sidebarRepositories(
+      rows.filter((row) => !row.home && !row.config),
+      source.getSidebar?.() ??
+        (source.getRepositories?.() ?? []).map((name) => ({ name, path: name, worktrees: [] })),
+    );
+    const expanded = pruneExpansion(current.sidebarExpanded ?? {}, repositories);
+    if (expanded !== current.sidebarExpanded)
+      changeLayout({ ...current, sidebarExpanded: expanded }, true);
+  }, [source, rows, layout.sidebarExpanded, changeLayout, layoutRef]);
   const [selection, setSelection] = useState(rows[0]?.id);
   const selected = rows.some((row) => row.id === selection) ? selection : rows[0]?.id;
   const buttonsRef = useRef(new Map<string, HTMLElement>());

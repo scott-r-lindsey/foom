@@ -402,6 +402,16 @@ export function neighbor(layout: TileLayout, direction: "left" | "right" | "up" 
   );
 }
 export const TILE_STORAGE = "foom.tiles.v1";
+/** Bounded, inert view metadata, including explicit collapsed choices. */
+function expansionMap(value: unknown): Record<string, boolean> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value).filter(
+      (entry): entry is [string, boolean] =>
+        entry[0].length <= 4096 && typeof entry[1] === "boolean",
+    ),
+  );
+}
 /** Bounded, fail-closed parsing: persisted layout metadata never grants capabilities. */
 export function restoreLayout(raw: string | null): TileLayout {
   try {
@@ -508,6 +518,9 @@ export function restoreLayout(raw: string | null): TileLayout {
       focused,
       maximized: null,
       ...(landing ? { landing } : {}),
+      ...("sidebarExpanded" in value
+        ? { sidebarExpanded: expansionMap(value.sidebarExpanded) }
+        : {}),
       ...("sidebarWidth" in value &&
       typeof value.sidebarWidth === "number" &&
       Number.isFinite(value.sidebarWidth) &&
@@ -573,6 +586,7 @@ export function saveLayout(
       landing: layout.landing,
       sidebarCollapsed: layout.sidebarCollapsed,
       sidebarWidth: layout.sidebarWidth,
+      sidebarExpanded: layout.sidebarExpanded,
     }),
   );
 }
@@ -660,6 +674,7 @@ export function dropZone(x: number, y: number): DropZone {
 export function loadLayout(
   storage: Pick<Storage, "getItem" | "setItem" | "removeItem">,
   key = TILE_STORAGE,
+  legacyExpanded?: Record<string, boolean>,
 ): TileLayout {
   let raw = storage.getItem(key);
   let migrated = false;
@@ -667,8 +682,10 @@ export function loadLayout(
     raw = storage.getItem(TILE_STORAGE);
     migrated = raw !== null;
   }
-  const layout = restoreLayout(raw);
-  if (raw !== null) saveLayout(storage, layout, key);
+  let layout = restoreLayout(raw);
+  if (legacyExpanded !== undefined && layout.sidebarExpanded === undefined)
+    layout = { ...layout, sidebarExpanded: raw === null ? {} : expansionMap(legacyExpanded) };
+  if (raw !== null || legacyExpanded !== undefined) saveLayout(storage, layout, key);
   if (migrated) storage.removeItem(TILE_STORAGE);
   return layout;
 }

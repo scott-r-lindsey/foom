@@ -165,7 +165,7 @@ test("preferences persist, reject malformed disk data, deduplicate pins and rest
     "  Named  ",
   );
   writePreferences(localStorage, value);
-  expect(readPreferences(localStorage)).toEqual(value);
+  expect(readPreferences(localStorage)).toEqual({ ...value, expanded: {} });
   expect(sessionName(row("one", "/a"), value)).toBe("Named");
   expect(sessionName(row("one", "/a"), renameSession(value, "one", "  "))).toBe("Claude Code");
   expect(renameSession(value, "one", "a".repeat(121)).names["one"]).toHaveLength(120);
