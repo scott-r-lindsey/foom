@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import {
   ApplicationError,
+  IncompleteRemovalError,
   applicationErrorCode,
   errorMessage,
 } from "../../../src/shared/application-errors";
@@ -107,4 +108,36 @@ test("child counts cross IPC only as positive safe integers with a closed reason
   expect(errorMessage(new Error("foom-error:session-busy:3"), "Close failed.")).toBe(
     "Close failed.",
   );
+});
+
+test("incomplete removal discloses only a canonical encoded target path and requires manual cleanup", () => {
+  for (const path of [
+    "/private/branch with spaces",
+    "C:\\worktrees\\日本語",
+    "\\\\server\\share\\checkout",
+  ]) {
+    const error = new IncompleteRemovalError(path);
+    expect(error).toBeInstanceOf(ApplicationError);
+    expect(applicationErrorCode(error)).toBe("worktree-removal-incomplete");
+    expect(
+      errorMessage(
+        new Error(
+          `Error invoking remote method 'workspace:sidebar-command': Error: ${error.message}`,
+        ),
+      ),
+    ).toBe(`Worktree removal is incomplete. Manually clean up: ${path}`);
+  }
+  for (const path of ["relative", "", "/bad\0path", "/" + "x".repeat(32768)])
+    expect(() => new IncompleteRemovalError(path)).toThrow("Invalid removal path");
+  for (const detail of [
+    "relative",
+    "%ZZ",
+    "%2Fprivate%00bad",
+    "/raw/path",
+    "%2fprivate",
+    "%2F" + "x".repeat(32768),
+  ])
+    expect(
+      errorMessage(new Error(`foom-error:worktree-removal-incomplete:${detail}`), "fallback"),
+    ).toBe("fallback");
 });

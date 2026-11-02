@@ -373,7 +373,7 @@ export function Sidebar(props: SidebarProps) {
                           const cleanupItem = cleanup?.items.find(
                             (item) =>
                               item.path === worktree.path &&
-                              (item.state !== "removed" || worktree.removed),
+                              (item.state !== "removed" || (worktree.removed && !sessions.length)),
                           );
                           const cleanupKey = `${cleanup?.id ?? ""}:${worktree.path}`;
                           const branch =

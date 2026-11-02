@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
-import { mkdir, realpath, rmdir } from "node:fs/promises";
+import { lstat, mkdir, realpath, rmdir } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import { ControlError } from "../../shared/control-validation";
@@ -75,18 +75,33 @@ export function assertInside(root: string, path: string): void {
 
 // Walk one component at a time so an existing symlink cannot redirect mkdir
 // outside the allowed root, even when the remaining parent directories are new.
-export async function prepareParent(root: string, path: string): Promise<void> {
+/** Canonical, non-symlink directory identity for empty-parent pruning only. */
+export async function parentIdentity(path: string): Promise<string> {
+  const entry = await lstat(path, { bigint: true });
+  if (!entry.isDirectory() || entry.isSymbolicLink() || (await realpath(path)) !== path)
+    throw new Error("Worktree parent has been redirected");
+  return [entry.dev, entry.ino, entry.birthtimeNs].map(String).join(":");
+}
+
+export async function prepareParent(root: string, path: string): Promise<string[]> {
   assertInside(root, path);
+  const created: string[] = [];
   let current = root;
   for (const part of relative(root, dirname(path)).split(sep).filter(Boolean)) {
     current = join(current, part);
-    await mkdir(current, { recursive: true });
+    try {
+      await mkdir(current);
+      created.push(current);
+    } catch (error) {
+      if (!record(error) || error["code"] !== "EEXIST") throw error;
+    }
     const canonical = await realpath(current);
     assertInside(root, canonical);
     if (canonical !== current) throw new Error("Worktree parent has been redirected");
   }
   // Reject an existing destination, including empty directories and symlinks.
   await mkdir(path);
+  return created;
 }
 
 /** The repository's remote: origin, or its only remote. */
@@ -417,7 +432,15 @@ export async function createWorktree(
   if (options.trackOrigin && !onRemote) throw new Error("PR branch unavailable");
   if (options.trackOrigin && exists)
     await git(repository.path, ["branch", "--set-upstream-to", tracked, "--", branch]);
-  await prepareParent(root, path);
+  const created = await prepareParent(root, path);
+  // The repository namespace is retained; only slash-branch parents are candidates.
+  if (location === "root") {
+    const namespace = resolve(root, repository.name);
+    for (const parent of created) {
+      if (parent !== namespace && within(namespace, parent))
+        context.createdParents.set(parent, await parentIdentity(parent));
+    }
+  }
   try {
     // The full remote ref avoids ambiguity with a local branch named like `origin/x`.
     await git(repository.path, [

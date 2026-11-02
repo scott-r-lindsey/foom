@@ -518,3 +518,59 @@ it(
     await expect(service.watchPaths(temporary)).rejects.toThrow("has not been added");
   }),
 );
+
+it("persists slash-parent provenance and prunes it only after its last child is removed", async () => {
+  const userData = join(temporary, "parent-state");
+  service = await WorktreeService.open(userData, root);
+  await service.addRepository(repo);
+  const first = await service.createWorktree(repo, "feature/nested/one");
+  const second = await service.createWorktree(repo, "feature/nested/two");
+  service = await WorktreeService.open(userData, root);
+  await service.removeWorktree(repo, first.path);
+  expect(await realpath(dirname(first.path))).toBe(dirname(first.path));
+  service = await WorktreeService.open(userData, root);
+  await service.removeWorktree(repo, second.path);
+  await expect(realpath(dirname(second.path))).rejects.toMatchObject({ code: "ENOENT" });
+  await expect(realpath(dirname(dirname(second.path)))).rejects.toMatchObject({ code: "ENOENT" });
+  expect(await realpath(join(root, "repo with spaces"))).toBe(join(root, "repo with spaces"));
+  expect(await realpath(root)).toBe(root);
+});
+
+it.each(["preexisting", "nonempty", "replaced", "adjacent"])(
+  "retains %s parent directories",
+  async (kind) => {
+    const parent = join(root, "repo with spaces", "feature");
+    if (kind === "preexisting") await mkdir(parent, { recursive: true });
+    const { path } = await service.createWorktree(repo, "feature/child", {
+      location: kind === "adjacent" ? "adjacent" : "root",
+    });
+    const actualParent = dirname(path);
+    if (kind === "nonempty") await writeFile(join(actualParent, "unknown"), "keep");
+    if (kind === "replaced") {
+      // Keep the checkout and its Git metadata valid while replacing only the parent.
+      const moved = actualParent + "-old";
+      await rename(actualParent, moved);
+      await mkdir(actualParent);
+      await rename(join(moved, "child"), path);
+    }
+    await service.removeWorktree(repo, path);
+    expect(await realpath(actualParent)).toBe(actualParent);
+    if (kind === "nonempty")
+      expect(await readFile(join(actualParent, "unknown"), "utf8")).toBe("keep");
+  },
+);
+
+it("never prunes a parent Git still lists as a worktree", async () => {
+  const { path } = await service.createWorktree(repo, "feature/child");
+  const parent = dirname(path);
+  const moved = join(temporary, "child-moved");
+  await rename(path, moved);
+  await git("worktree", "add", "--no-checkout", "-b", "outer", parent);
+  await rm(join(parent, ".git"));
+  await rename(moved, path);
+  await service.removeWorktree(repo, path);
+  expect(await realpath(parent)).toBe(parent);
+  expect(await service.listWorktrees(repo)).toContainEqual(
+    expect.objectContaining({ path: parent }),
+  );
+});
