@@ -132,7 +132,7 @@ it("rejects invalid transport and protocol input and supports deletion and reini
     { ...initialize, method: 1 },
     { ...initialize, extra: true },
     { ...initialize, params: { ...initialize.params, protocolVersion: 1 } },
-    { ...initialize, params: { ...initialize.params, protocolVersion: "old" } },
+    { ...initialize, params: { ...initialize.params, protocolVersion: 1 } },
     { ...initialize, params: { ...initialize.params, clientInfo: { name: 1, version: "1" } } },
     { ...initialize, params: { ...initialize.params, clientInfo: { name: "x", version: 1 } } },
     { ...initialize, id: undefined },
@@ -281,4 +281,38 @@ it.each(["headers", "body"])(
     }
   },
   10000,
+);
+
+it.each(["2024-11-05", "2099-01-01", "unknown", "2025-03-26", "2025-06-18", "2025-11-25"])(
+  "negotiates %s before serving the manual",
+  async (requested) => {
+    const version = requested.startsWith("2025-") ? requested : "2025-11-25";
+    const response = await send({
+      ...initialize,
+      params: { ...initialize.params, protocolVersion: requested },
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ result: { protocolVersion: version } });
+    session = response.headers.get("mcp-session-id") ?? "";
+    const headers = { "Mcp-Protocol-Version": version };
+    expect(
+      (await send({ jsonrpc: "2.0", method: "notifications/initialized" }, headers)).status,
+    ).toBe(202);
+    expect(
+      (
+        await send(
+          { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "manual" } },
+          headers,
+        )
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await send(
+          { jsonrpc: "2.0", id: 3, method: "ping" },
+          { "Mcp-Protocol-Version": version === "2025-03-26" ? "2025-06-18" : "2025-03-26" },
+        )
+      ).status,
+    ).toBe(400);
+  },
 );

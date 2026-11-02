@@ -74,50 +74,55 @@ it.each([
     expect(output).not.toHaveBeenCalled();
   },
 );
-it("relays the authenticated MCP handshake, notifications and the launch role without disclosing credentials", async () => {
-  const service: ControlService = new ControlService(
-    new Operations(
-      () => Promise.resolve(),
-      (actor) => {
-        service.assertActive(actor);
+it.each(["2025-11-25", "2099-01-01"])(
+  "relays a %s MCP handshake and authorized tools without disclosing credentials",
+  async (version) => {
+    const service: ControlService = new ControlService(
+      new Operations(
+        () => Promise.resolve(),
+        (actor) => {
+          service.assertActive(actor);
+        },
+      ),
+    );
+    const http = await ControlHttp.listen(service);
+    cleanup.push(() => http.close());
+    const launch = service.prepare(tmpdir(), tmpdir());
+    launch.bind("terminal", true);
+    const env = { ...base, ...launch.env, FOOM_CONTROL_URL: http.endpoint };
+    const result = await run(env, [
+      { ...initialize, params: { ...initialize.params, protocolVersion: version } },
+      initialized,
+      list,
+      { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "whoami" } },
+      {
+        jsonrpc: "2.0",
+        id: 4,
+        method: "tools/call",
+        params: { name: "operation_status", arguments: { operationId: "x" } },
       },
-    ),
-  );
-  const http = await ControlHttp.listen(service);
-  cleanup.push(() => http.close());
-  const launch = service.prepare(tmpdir(), tmpdir());
-  launch.bind("terminal", true);
-  const env = { ...base, ...launch.env, FOOM_CONTROL_URL: http.endpoint };
-  const result = await run(env, [
-    initialize,
-    initialized,
-    list,
-    { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "whoami" } },
-    {
-      jsonrpc: "2.0",
-      id: 4,
-      method: "tools/call",
-      params: { name: "operation_status", arguments: { operationId: "x" } },
-    },
-  ]);
-  expect(result.code).toBe(0);
-  expect(result.out).toHaveBeenCalledTimes(4);
-  const text = result.out.mock.calls.map(([line]) => line).join("");
-  expect(text).toContain('"name":"whoami"');
-  expect(text).toContain('"role":"agent"');
-  expect(text).toContain("call whoami to check");
-  expect(text).not.toContain(env.FOOM_CONTROL_TOKEN);
-  service.setRole("terminal", "orchestrator");
-  const elevated = await run(env, [
-    initialize,
-    initialized,
-    { jsonrpc: "2.0", id: 5, method: "tools/call", params: { name: "whoami" } },
-  ]);
-  expect(elevated.code).toBe(0);
-  expect(elevated.out.mock.calls.map(([line]) => line).join("")).toContain('"role":"orchestrator"');
-  launch.dispose();
-  expect((await run(env, [initialize])).code).toBe(4);
-});
+    ]);
+    expect(result.code).toBe(0);
+    expect(result.out).toHaveBeenCalledTimes(4);
+    const text = result.out.mock.calls.map(([line]) => line).join("");
+    expect(text).toContain('"name":"whoami"');
+    expect(text).toContain('"role":"agent"');
+    expect(text).toContain("call whoami to check");
+    expect(text).not.toContain(env.FOOM_CONTROL_TOKEN);
+    service.setRole("terminal", "orchestrator");
+    const elevated = await run(env, [
+      initialize,
+      initialized,
+      { jsonrpc: "2.0", id: 5, method: "tools/call", params: { name: "whoami" } },
+    ]);
+    expect(elevated.code).toBe(0);
+    expect(elevated.out.mock.calls.map(([line]) => line).join("")).toContain(
+      '"role":"orchestrator"',
+    );
+    launch.dispose();
+    expect((await run(env, [initialize])).code).toBe(4);
+  },
+);
 it("relays a config session's manual-only endpoint without granting control tools", async () => {
   const manual = await ManualMcp.listen();
   cleanup.push(() => {
@@ -347,3 +352,38 @@ it("preserves UTF-8 split across stdin chunks and refuses an incomplete trailing
     ),
   ).toBe(2);
 });
+
+it.each(["2024-11-05", "2099-01-01", "vendor-version"])(
+  "forwards server-negotiated %s in subsequent HTTP headers",
+  async (version) => {
+    const headers: (string | string[] | undefined)[] = [];
+    const server = createServer((req, res) => {
+      headers.push(req.headers["mcp-protocol-version"]);
+      req.resume();
+      req.on("end", () => {
+        if (headers.length === 1)
+          res
+            .writeHead(200, { "mcp-session-id": "negotiated" })
+            .end(JSON.stringify({ jsonrpc: "2.0", id: 1, result: { protocolVersion: version } }));
+        else res.writeHead(202).end();
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    cleanup.push(
+      () =>
+        new Promise((resolve) =>
+          server.close(() => {
+            resolve();
+          }),
+        ),
+    );
+    const address = server.address();
+    if (!address || typeof address === "string") throw Error("No port");
+    const result = await run(
+      { ...base, FOOM_CONTROL_URL: `http://127.0.0.1:${String(address.port)}/control/v1` },
+      [initialize, initialized],
+    );
+    expect(result.code).toBe(0);
+    expect(headers).toEqual([undefined, version]);
+  },
+);

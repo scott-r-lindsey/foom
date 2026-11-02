@@ -1,3 +1,4 @@
+import { negotiateMcpVersion } from "../../shared/mcp-protocol";
 import { mcpTools } from "../../shared/control-tools";
 import { mkdirSync, readFileSync, rmdirSync, writeFileSync, constants } from "node:fs";
 import { open } from "node:fs/promises";
@@ -201,7 +202,7 @@ export async function remoteMcp(
         if (
           id === undefined ||
           !keys(params, ["protocolVersion", "capabilities", "clientInfo"]) ||
-          !["2025-03-26", "2025-06-18", "2025-11-25"].includes(String(params["protocolVersion"])) ||
+          typeof params["protocolVersion"] !== "string" ||
           !record(params["capabilities"]) ||
           !record(params["clientInfo"]) ||
           typeof params["clientInfo"]["name"] !== "string" ||
@@ -219,7 +220,7 @@ export async function remoteMcp(
           jsonrpc: "2.0",
           id,
           result: {
-            protocolVersion: params["protocolVersion"],
+            protocolVersion: negotiateMcpVersion(params["protocolVersion"]),
             capabilities: { tools: {} },
             serverInfo: { name: "foom-remote", version: "1" },
             instructions: REMOTE_PHASE_2_REASON,
