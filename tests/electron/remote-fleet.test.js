@@ -591,8 +591,8 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
         },
       );
       assert.equal(cliState.status, 0, cliState.stderr);
-      assert.equal(JSON.parse(cliState.stdout).id, launched.resultId);
-      assert.deepEqual(JSON.parse(cliState.stdout).placement, launched.placement);
+      assert.equal(JSON.parse(cliState.stdout).result.id, launched.resultId);
+      assert.deepEqual(JSON.parse(cliState.stdout).result.placement, launched.placement);
       await needsYou("rules:codex:hooks_review");
       await expect.poll(() => page.evaluate(() => window.soundTones.length)).toBeGreaterThan(0);
       await send("2");
