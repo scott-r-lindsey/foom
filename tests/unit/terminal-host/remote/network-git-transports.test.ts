@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, expect, test } from "vitest";
@@ -8,6 +8,14 @@ import { networkGit } from "../../../../src/terminal-host/remote/network-git";
 let root: string;
 beforeEach(async () => {
   root = await realpath(await mkdtemp(join(tmpdir(), "git-transports-")));
+  const bin = join(root, "bin");
+  await mkdir(bin);
+  await symlink("/usr/bin/git", join(bin, "git"));
+  await writeFile(
+    join(bin, "ssh"),
+    `#!${process.execPath}\nthrow new Error('Unexpected default SSH transport');`,
+    { mode: 0o700 },
+  );
 });
 afterEach(async () => {
   await rm(root, { recursive: true, force: true });
@@ -21,7 +29,7 @@ function environment(): NodeJS.ProcessEnv {
   // Production networkGit invokes system Git with fixture configuration only.
   // Every SSH transport is a fixture executable; no SSH or network is used.
   return {
-    PATH: "/usr/bin",
+    PATH: join(root, "bin"),
     HOME: root,
     GIT_CONFIG_NOSYSTEM: "1",
     GIT_CEILING_DIRECTORIES: root,
@@ -29,7 +37,8 @@ function environment(): NodeJS.ProcessEnv {
   };
 }
 const origin = "git@fixture.test:repo";
-const advertisement = `process.stdout.write('0000');`;
+// Keep the fake upload-pack alive to consume Git's final protocol flush.
+const advertisement = `process.stdout.write('0000');process.stdin.resume();`;
 const promptChecks = `
 const assert=require('node:assert/strict'),fs=require('node:fs');
 assert.equal(process.env.GIT_TERMINAL_PROMPT,'0');
