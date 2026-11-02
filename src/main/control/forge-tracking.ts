@@ -452,7 +452,7 @@ export class ForgeTracking {
           );
           if (generation !== this.generation) return;
           if (provider?.batch) {
-            await this.pollRepository(entry.repository, remote, provider, retired);
+            await this.pollRepository(entry.repository, remote, provider, retired, candidates);
             return;
           }
           this.bind(entry, provider);
@@ -515,10 +515,15 @@ export class ForgeTracking {
     remote: string,
     provider: ForgeProvider,
     retired: Set<Entry>,
+    candidates: readonly Entry[],
   ): Promise<void> {
     const generation = this.generation;
-    const candidates = [...this.entries.values()].filter(
+    // The provider context captured these entries. A launch can replace an entry
+    // while provider preparation yields; never sample its new binding through
+    // the retired context or apply that context's failure/backoff to it.
+    candidates = candidates.filter(
       (entry) =>
+        this.entries.get(entry.path) === entry &&
         entry.repository === repository &&
         (entry.orchestrator || this.enabled) &&
         !this.remoteRetryDeferred(entry),

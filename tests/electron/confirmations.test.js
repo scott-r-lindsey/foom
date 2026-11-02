@@ -1748,8 +1748,21 @@ test("modal dismissal restores the same terminal input for cancel, approve, Esca
         .toContain(text);
     }
     await board.evaluate(() => window.desktop.appMenu.execute("about"));
-    await expect(board.getByRole("dialog", { name: "About Foom" })).toBeVisible();
-    await board.keyboard.press("Escape");
+    const about = board.getByRole("dialog", { name: "About Foom" });
+    await expect(about).toBeVisible();
+    // Visibility can precede the native focus handoff from the confirmation
+    // window. Native dialog cancellation needs the board to own keyboard input.
+    await expect.poll(() => board.evaluate(() => document.hasFocus())).toBe(true);
+    await expect
+      .poll(() => about.evaluate((dialog) => dialog.contains(document.activeElement)))
+      .toBe(true);
+    await app.evaluate(({ webContents }) => {
+      const contents = webContents.getFocusedWebContents();
+      if (!contents || contents.getURL() !== "app://bundle/index.html")
+        throw Error("The About dialog must own native keyboard focus");
+      contents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
+      contents.sendInputEvent({ type: "keyUp", keyCode: "Escape" });
+    });
     await expect(board.getByRole("dialog", { name: "About Foom" })).toHaveCount(0);
     await expect(board.locator(".xterm-helper-textarea")).toBeFocused();
     await typeIntoFocusedContents(app, "aboutrestored");
