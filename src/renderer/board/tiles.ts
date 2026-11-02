@@ -280,7 +280,11 @@ export function tidyTiles(layout: TileLayout): TileLayout {
 }
 
 /** Repair measured geometry without ever removing an occupied leaf. */
-export function fitLayout(layout: TileLayout, metrics: TileMetrics | undefined): TileLayout {
+export function fitLayout(
+  layout: TileLayout,
+  metrics: TileMetrics | undefined,
+  commit = true,
+): TileLayout {
   if (!metrics || !Object.values(metrics).every((value) => Number.isFinite(value) && value > 0))
     return layout;
   const { width, height } = metrics;
@@ -290,10 +294,12 @@ export function fitLayout(layout: TileLayout, metrics: TileMetrics | undefined):
   let tree = layout.tree;
   // Recompute after each removal: its sibling may now have enough room to survive.
   for (;;) {
-    const small = rectangles(tree, area).tiles.find(
-      ({ tile, rect }) =>
-        !tile.content && (rect.width + 0.01 < minWidth || rect.height + 0.01 < minHeight),
-    );
+    const small =
+      commit &&
+      rectangles(tree, area).tiles.find(
+        ({ tile, rect }) =>
+          !tile.content && (rect.width + 0.01 < minWidth || rect.height + 0.01 < minHeight),
+      );
     if (!small || tree.kind === "tile") break;
     const remove = (node: TileNode): TileNode | null => {
       if (node.id === small.tile.id) return null;
@@ -309,7 +315,10 @@ export function fitLayout(layout: TileLayout, metrics: TileMetrics | undefined):
     tree = remove(tree) ?? tree;
   }
   const minimum = (node: TileNode): { width: number; height: number } => {
-    if (node.kind === "tile") return { width: minWidth, height: minHeight };
+    if (node.kind === "tile")
+      return node.content || commit
+        ? { width: minWidth, height: minHeight }
+        : { width: 0, height: 0 };
     const a = minimum(node.first),
       b = minimum(node.second);
     return node.direction === "horizontal"
@@ -317,7 +326,7 @@ export function fitLayout(layout: TileLayout, metrics: TileMetrics | undefined):
       : { width: Math.max(a.width, b.width), height: a.height + b.height };
   };
   const fit = (node: TileNode, w: number, h: number): TileNode => {
-    if (node.kind === "tile") return node;
+    if (node.kind === "tile" || w <= 0 || h <= 0) return node;
     const a = minimum(node.first),
       b = minimum(node.second);
     const horizontal = node.direction === "horizontal";
@@ -342,6 +351,7 @@ export function fitLayout(layout: TileLayout, metrics: TileMetrics | undefined):
   };
   tree = fit(tree, width, height);
   if (
+    commit &&
     tree.kind === "split" &&
     rectangles(tree, area).tiles.some(
       ({ tile, rect }) =>
@@ -408,7 +418,7 @@ export function placeContent(
     const depth = (node: TileNode): number =>
       node.kind === "tile" ? 0 : 1 + Math.max(depth(node.first), depth(node.second));
     const canGrow = tiles.length < 256 && depth(layout.tree) < 64;
-    if (fits && canGrow) return addColumn(layout, content);
+    if (fits && canGrow) return fitLayout(addColumn(layout, content), placement.metrics);
     const eligible = tiles.filter(
       (tile) =>
         tile.content &&
@@ -419,19 +429,22 @@ export function placeContent(
     const oldest = (unfocused.length ? unfocused : eligible).sort(
       (a, b) => (placement.focusedAt?.get(a.id) ?? 0) - (placement.focusedAt?.get(b.id) ?? 0),
     )[0];
-    if (oldest) return placeContent({ ...layout, focused: oldest.id }, content, true);
-    return canGrow ? addColumn(layout, content) : null;
+    if (oldest) return placeContent({ ...layout, focused: oldest.id }, content, true, placement);
+    return canGrow ? fitLayout(addColumn(layout, content), placement.metrics) : null;
   }
   let tree = layout.tree;
   if (replace && visible && visible.id !== target.id)
     tree = update(tree, visible.id, (node) => ({ ...node, content: null }));
   tree = update(tree, target.id, (node) => ({ ...node, content }));
-  return {
-    ...layout,
-    tree,
-    focused: target.id,
-    maximized: layout.maximized ? target.id : null,
-  };
+  return fitLayout(
+    {
+      ...layout,
+      tree,
+      focused: target.id,
+      maximized: layout.maximized ? target.id : null,
+    },
+    placement.metrics,
+  );
 }
 /** Flat rectangles let React keep each leaf under the same parent across tree edits. */
 export function rectangles(
@@ -793,13 +806,13 @@ export function placeAgentPreview(
   layout: TileLayout;
   placement: "landing" | "empty" | "column" | "replace" | "existing" | "sidebar";
 } {
+  layout = fitLayout(layout, placement.metrics);
   if (
     leaves(layout.tree).some(
       (tile) => tile.content?.kind === "preview" && tile.content.preview === id,
     )
   )
     return { layout, placement: "existing" };
-  layout = fitLayout(layout, placement.metrics);
   const target = landingSpace(layout);
   const next = placeContent(layout, { kind: "preview", preview: id }, false, {
     ...placement,

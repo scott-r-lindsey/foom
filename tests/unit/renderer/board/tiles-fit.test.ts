@@ -147,3 +147,18 @@ test("repair validates stale focus after a background placement restores an obso
     placeSession({ ...start, focused: "missing" }, "new", true, { columns: 280, metrics }),
   ).toBeNull();
 });
+
+test("pointer previews clamp nested occupants while retaining zero-size collapse previews until commit", () => {
+  const start = nested();
+  const dragging = fitLayout(resizeSplit(start, "outer", 0.15), metrics, false);
+  expect(leaves(dragging.tree).map((tile) => tile.id)).toEqual(["a", "space", "other"]);
+  const occupied = rectangles(dragging.tree, { x: 0, y: 0, ...metrics }).tiles.find(
+    ({ tile }) => tile.id === "a",
+  );
+  expect(occupied?.rect.width).toBeGreaterThanOrEqual(metrics.minWidth - 0.01);
+  expect(fitLayout(dragging, metrics).tree).not.toEqual(dragging.tree);
+  const empty = splitTile(initialLayout(), "horizontal");
+  const zero = resizeSplit(empty, empty.tree.id, 0);
+  expect(fitLayout(zero, metrics, false)).toBe(zero);
+  expect(leaves(fitLayout(zero, metrics).tree)).toHaveLength(1);
+});

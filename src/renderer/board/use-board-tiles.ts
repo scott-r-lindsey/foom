@@ -120,7 +120,7 @@ export function useBoardTiles({
   const changeLayout = useCallback(
     (next: TileLayout, background = false, transient = false) => {
       if (movePendingRef.current) return;
-      if (!transient) next = fitLayout(next, measureTiles().metrics);
+      next = fitLayout(next, measureTiles().metrics, !transient);
       next = {
         ...next,
         sidebarCollapsed: next.sidebarCollapsed ?? layoutRef.current.sidebarCollapsed ?? false,

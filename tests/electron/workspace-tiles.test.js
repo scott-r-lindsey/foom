@@ -711,7 +711,7 @@ test("tile layouts restore v1 terminal content and v2 mixed content after invent
 }, async (context) => {
   const app = await launchApp(context, { fixture: "running-shell", shell: "hidden" });
   const page = await boardPage(app);
-  await sizeTileBoard(app, page);
+  await sizeTileBoard(app, page, 2400);
   await expect(page.locator(".board-row").first()).toBeVisible();
   const id = await page.locator(".board-row").first().getAttribute("data-drag-session");
   assert.ok(id);

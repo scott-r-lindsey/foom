@@ -533,11 +533,11 @@ test("shell launch paths select the new shell and its blinking input cursor", as
         .locator(".tree-name")
         .click();
     } else {
+      await sizeTileBoard(app, page);
       await page
         .locator(".terminal-tile[data-focused='true']")
         .getByRole("button", { name: /Tile \d+ menu/ })
         .click();
-      await sizeTileBoard(app, page);
       await page.getByRole("menuitem", { name: "Split terminal left", exact: true }).click();
       // Move away from sidebar rows before opening the space menu.
       await page.mouse.move(0, 0);

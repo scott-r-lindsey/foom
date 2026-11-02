@@ -753,7 +753,10 @@ function BoardContents({
             restoreFocusRequest={restoreFocusRequest}
             setLayout={changeLayout}
             resizeLayout={(next, commit) => {
+              const count = leaves(layoutRef.current.tree).length;
               changeLayout(next, false, !commit);
+              if (commit && leaves(layoutRef.current.tree).length < count)
+                setFocusRequest((value) => value + 1);
             }}
             rows={rows}
             previews={previews}

@@ -367,3 +367,27 @@ test("board area resizing repairs measured spaces and persists without remountin
   screen.unmount();
   expect(disconnect).toHaveBeenCalled();
 });
+
+test("keyboard nested-space collapse returns focus to the surviving terminal", async () => {
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    return DOMRect.fromRect({
+      width: this.classList.contains("tile-area") ? 2400 : 8.4,
+      height: 900,
+    });
+  });
+  const { screen, click, send } = setup();
+  click(0);
+  send("split-right");
+  send("split-right");
+  const gutter = screen.getAllByRole("separator", { name: "Resize tiles" })[0];
+  if (!gutter) throw new Error("Missing gutter");
+  gutter.focus();
+  fireEvent.keyDown(gutter, { key: "End" });
+  await act(async () => {});
+  expect(screen.container.querySelectorAll(".terminal-tile")).toHaveLength(2);
+  expect(document.activeElement?.closest(".terminal-tile")?.getAttribute("data-empty")).toBe(
+    "false",
+  );
+});

@@ -9,7 +9,8 @@ at most one terminal or preview; each split has a horizontal or vertical directi
 Split arrows move the occupied tile toward the arrow and add empty space on the
 opposite side, keep focus in the original tile,
 and make the newest space the landing spot. Hide and exited-session Close leave
-empty space in place, with sibling geometry unchanged, and make it the landing spot.
+usable empty space in place, with sibling geometry unchanged, and make it the landing
+spot. Spaces below the measured minimum collapse as described below.
 Hide keeps the session running; Close closes it through the sidebar command.
 Tile chrome never stops a running process. Reclaim space with Grow, gutters
 (including Home/End), or Tidy tiles.
@@ -139,11 +140,12 @@ maximized tile first and uses the existing tile resize motion (immediate with
 reduced motion). It applies only to the focused window, from View → Tidy tiles or its shortcut.
 
 When resizing between two occupied sides, gutters stay between 15% and 85%
-while dragging. Committed geometry additionally uses an absolute minimum of
+where those limits allow the occupied subtrees to fit. Geometry additionally uses
+an absolute minimum of
 60 terminal-cell widths at the current font and three terminal rows plus 38 CSS
 pixels for chrome (rows are estimated at 1.2 times the font size). These pixel
 minimums apply to every nested leaf, measured against the available board area,
-including after window or sidebar resizing, font changes, Tidy, evening a gutter,
+including after splits, window or sidebar resizing, font changes, Tidy, evening a gutter,
 maximize/restore and loading saved layouts. Undersized empty spaces are removed
 and their siblings take their share. Surviving ratios are clamped to fit each
 subtree's minimum when the area allows it; occupied leaves and their identities
@@ -153,7 +155,8 @@ hides, closes or evicts an occupant. The full-board placement exception above
 continues to apply. A single leaf uses the whole board even if the board itself
 is below the minimum.
 
-An all-space side can preview below the minimum during a drag. Below 8% (or
+Occupied subtrees keep their feasible pixel minimum during a drag; an all-space
+side can preview below the minimum. Below 8% (or
 above 92% for the second side), space previews collapse; on release, both that
 ratio rule and the absolute minimum remove empty space. Shrinking an ancestor
 also removes undersized nested spaces, including spaces inside mixed occupied
@@ -186,7 +189,8 @@ Plain terminal control keys remain terminal input. The split tree, ratios, leaf
 identities, focus and assigned session IDs persist as local view preferences.
 Maximize is temporary. On restart, eligible running sessions keep their tile
 positions and show a skeleton until their fresh terminal renders. Exited sessions
-and failed or unavailable restores leave empty spaces and keep their sidebar rows.
+and failed or unavailable restores leave empty spaces (subject to the same minimum
+repair) and keep their sidebar rows.
 Screens and scrollback are not restored. See [session restoration](../areas/sessions.md#restored-tile-placement-732)
 and [board loading](../areas/board.md#restored-tile-placement-732) for lifecycle and
 attachment rules. Visible terminals use WebGL within a per-page budget, with DOM

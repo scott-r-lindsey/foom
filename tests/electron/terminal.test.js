@@ -1408,6 +1408,12 @@ test("maximized-away terminals pause paints and restore without changing attachm
   const tile = page.locator(`.terminal-tile:has(.xterm-helper-textarea)`).first();
   const tileId = await tile.getAttribute("data-tile");
   const original = page.locator(`.terminal-tile[data-tile="${tileId}"]`);
+  await app.evaluate(({ ipcMain }, id) => {
+    globalThis.coveredParsed = 0;
+    ipcMain.on("terminal:ack", (_event, terminal, _token, count) => {
+      if (terminal === id) globalThis.coveredParsed += count;
+    });
+  }, session.id);
   await page.evaluate((id) => {
     window.coveredTokens = [];
     window.coveredUnits = 0;
@@ -1418,12 +1424,7 @@ test("maximized-away terminals pause paints and restore without changing attachm
       window.coveredUnits += data.length;
     });
   }, session.id);
-  await app.evaluate(({ ipcMain }, id) => {
-    globalThis.coveredParsed = 0;
-    ipcMain.on("terminal:ack", (_event, terminal, _token, count) => {
-      if (terminal === id) globalThis.coveredParsed += count;
-    });
-  }, session.id);
+
   const command = `${process.platform === "win32" ? "& " : ""}"${process.execPath}" "${path.join(__dirname, "streaming-buffer.js")}"\r`;
   await page.evaluate(({ id, command }) => window.desktop.input(id, command), {
     id: session.id,
