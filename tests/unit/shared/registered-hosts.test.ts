@@ -421,3 +421,8 @@ test("partial preflight requests, observations and explicit folder actions have 
   expect(remoteResponse({ type: "hello", build: "a".repeat(64), hostPreflight: 1 })).toBe(true);
   expect(remoteResponse({ type: "hello", build: "a".repeat(64), hostPreflight: 2 })).toBe(false);
 });
+
+test("local progress action accepts no host or arbitrary payload", () => {
+  expect(hostsAction({ action: "progress" })).toBe(true);
+  expect(hostsAction({ action: "progress", host: "worker" })).toBe(false);
+});

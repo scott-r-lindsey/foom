@@ -300,7 +300,11 @@ See the [channel and privacy policy](../product.md#updates-603).
 Add host takes an SSH alias or user@host and a code folder (default `~/foom`),
 then runs one full checklist. An incomplete host stays enrolled. Host, Tools,
 Agents, each repository and macOS Power rows retain their independent results;
-unrun checks say Not checked. Check again retries without creating directories.
+unrun checks say Not checked. While checking, a throbber and current step identify
+host inspection, Git access or checkout with the repository name and position.
+Pending repository checks stay visible as Checking… rows; completed observations
+appear as each step finishes. Reduced motion keeps the throbber still while the
+step text continues to update. Check again retries without creating directories.
 Missing folders offer Create, and Change folder selects a replacement. Install
 and Sign in appear only for available recipes and open a visible terminal tile;
 the user answers prompts there. Git access fixes remain user-run instructions.

@@ -124,7 +124,20 @@ export interface RepositoryLocation {
   host: string;
   result: HostResult;
 }
+/** Local observation of the existing management steps; never sent to the host. */
+export interface HostCheckProgress {
+  host: string;
+  phase: "inspect" | "origin" | "checkout";
+  repository?: string;
+  result?: HostResult;
+  repositories: readonly {
+    repository: string;
+    origin?: HostCheck;
+    checkout?: HostResult;
+  }[];
+}
 export interface HostsState {
+  progress?: HostCheckProgress;
   preflight?: HostPreflight;
   recipeFailure?: "recipe-unavailable";
   hosts: readonly HostRow[];
@@ -137,6 +150,7 @@ export type HostsAction =
   | { action: "create-folder"; host: string }
   | { action: "change-folder"; host: string; codeFolder: string }
   | { action: "list" }
+  | { action: "progress" }
   | { action: "add"; host: string; codeFolder: string }
   | { action: "test"; host: string; codeFolder: string }
   | { action: "refresh"; host: string }
