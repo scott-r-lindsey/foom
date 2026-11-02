@@ -602,8 +602,17 @@ export function HostsSettings({
                 }
               />
             </h3>
-            <span className="host-count">
-              {busy === entry.host ? "Checking…" : hostSummary(checks.get(entry.host))}
+            <span
+              className={busy === entry.host ? "host-count host-progress-summary" : "host-count"}
+            >
+              {busy === entry.host ? (
+                <span className="host-check-progress host-work" role="status">
+                  <span className="host-throbber" aria-hidden="true" />
+                  {hostProgressText(checkingHost === entry.host ? progress : undefined)}
+                </span>
+              ) : (
+                hostSummary(checks.get(entry.host))
+              )}
             </span>
             <button
               type="button"
@@ -683,18 +692,13 @@ export function HostsSettings({
           )}
           <footer className="host-footer">
             <span className="host-count">
-              {busy === entry.host ? (
-                <span className="host-check-progress host-work" role="status">
-                  <span className="host-throbber" aria-hidden="true" />
-                  {hostProgressText(checkingHost === entry.host ? progress : undefined)}
-                </span>
-              ) : entry.result?.ok && entry.result.facts.requirements?.packageManager === "none" ? (
-                "No install recipe"
-              ) : checks.get(entry.host) ? (
-                "Check complete"
-              ) : (
-                "Not checked"
-              )}
+              {busy === entry.host
+                ? "Checking…"
+                : entry.result?.ok && entry.result.facts.requirements?.packageManager === "none"
+                  ? "No install recipe"
+                  : checks.get(entry.host)
+                    ? "Check complete"
+                    : "Not checked"}
             </span>
             <button
               type="button"

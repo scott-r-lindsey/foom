@@ -179,6 +179,7 @@ process.stdin.on('data', bytes => {
   await page.getByLabel("SSH host", { exact: true }).fill("fixture-cloud");
   await page.getByRole("button", { name: "Add host", exact: true }).click();
   const card = page.getByRole("region", { name: "fixture-cloud", exact: true });
+  const progressStatus = card.locator(".host-check-progress[role=status]");
   await expect(card.getByRole("button", { name: "Check again", exact: true })).toBeEnabled();
   await expect(card.getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
   await expect(card.getByText("Not found", { exact: true })).toHaveCount(2);
@@ -189,7 +190,7 @@ process.stdin.on('data', bytes => {
   await updateScenario({ hold: true });
   await card.getByRole("button", { name: "Check again", exact: true }).click();
   await expect(card.getByText("Checking…", { exact: true }).first()).toBeVisible();
-  await expect(card.getByRole("status")).toHaveText("Checking host…");
+  await expect(progressStatus).toHaveText("Checking host…");
   await expect(card.locator(".host-throbber")).toBeVisible();
   await capture("progress-inspect");
   await updateScenario({});
@@ -200,7 +201,7 @@ process.stdin.on('data', bytes => {
   };
   await updateScenario(checkingOrigin);
   await card.getByRole("button", { name: "Check again", exact: true }).click();
-  await expect(card.getByRole("status")).toHaveText("Checking Git access · shell-fixture (1 of 1)");
+  await expect(progressStatus).toHaveText("Checking Git access · shell-fixture (1 of 1)");
   await expect(card.locator(".host-throbber")).toBeVisible();
   const originRow = card.locator(".host-check-row").filter({ hasText: "Git access to origin" });
   const checkoutRow = card.locator(".host-check-row").filter({ hasText: "Repository checkout" });
@@ -208,12 +209,28 @@ process.stdin.on('data', bytes => {
   await expect(checkoutRow).toContainText("Checking…");
   await expect(card.locator(".host-throbber")).toHaveCSS("animation-name", "host-check-spin");
   await capture("progress-origin");
+  await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .setContentSize(960, 960),
+  );
+  const progressBounds = await card.locator(".hosts-heading").evaluate((heading) => ({
+    width: heading.clientWidth,
+    scroll: heading.scrollWidth,
+  }));
+  assert.ok(progressBounds.scroll <= progressBounds.width + 1);
+  await capture("progress-origin-narrow");
+  await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .setContentSize(1280, 1200),
+  );
   await page.emulateMedia({ reducedMotion: "reduce" });
   await expect(card.locator(".host-throbber")).toHaveCSS("animation-name", "none");
   await capture("progress-origin-reduced");
   // Release origin, then hold checkout: the step text still advances without animation.
   await updateScenario({ ...checkingOrigin, hold: "repository" });
-  await expect(card.getByRole("status")).toHaveText("Checking checkout · shell-fixture (1 of 1)");
+  await expect(progressStatus).toHaveText("Checking checkout · shell-fixture (1 of 1)");
   await expect(originRow).toContainText("Pass · Reachable");
   await expect(checkoutRow).toContainText("Checking…");
   await capture("progress-checkout-reduced");

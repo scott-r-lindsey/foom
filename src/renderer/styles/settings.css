@@ -864,7 +864,14 @@
   font: 13px var(--font-mono);
 }
 
+.host-progress-summary {
+  flex: 1;
+  min-width: 0;
+}
 .host-check-progress {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
   display: inline-flex;
   align-items: center;
   gap: 8px;
