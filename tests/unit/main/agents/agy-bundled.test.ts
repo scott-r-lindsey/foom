@@ -1,3 +1,6 @@
+import { discoveryFacts } from "../../../../src/shared/agent-launch-values";
+import captured from "../../../fixtures/agy-1.4.12-hooks.json";
+import { reduceV2, type V2HookState } from "../../../../src/shared/agent-hook-events";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -154,7 +157,7 @@ it("accepts installed channel-less observers only through their launch-bound pro
 it.each([
   ["placement", "launch"],
   ["transport", "argv-last"],
-  ["version", 5],
+  ["version", 6],
   ["response", "silent"],
   ["delivery", "foreground"],
   ["timeoutMs", 2000],
@@ -209,3 +212,56 @@ it.each(["not-installed", "outdated", "disabled", "unavailable", "installed"] as
     expect(old.mcp).toBe(false);
   },
 );
+
+it("reduces agy 1.4.12 tool and no-tool shapes, keeping only lifecycle facts", () => {
+  const channel = provider.model.hooks?.channels[0];
+  if (!channel) throw Error("Missing channel");
+  const state: V2HookState = {};
+  const signals: HookSignal[] = [];
+  for (const [index, entry] of captured.events.entries()) {
+    const signal = reduceV2(
+      channel,
+      state,
+      "terminal",
+      "agy",
+      { ...captured.common, ...entry.fields },
+      entry.event,
+      String(index + 1),
+    );
+    expect(signal?.action).toBe(entry.action);
+    expect(signal?.conversationId).toBe(captured.common.conversationId);
+    if (signal) signals.push(signal);
+  }
+  expect(signals.at(-1)).toMatchObject({
+    fullyIdle: true,
+    terminationReason: "model_stop",
+    recoverTurn: true,
+  });
+  for (const privateValue of [
+    "private fixture prompt",
+    "/private-tool-input",
+    "/must-not-read",
+    "fixture-model",
+    "ReadFile",
+  ])
+    expect(JSON.stringify(signals)).not.toContain(privateValue);
+  expect(
+    reduceV2(channel, state, "terminal", "agy", { ...captured.common }, "PreToolUse", "1"),
+  ).toBeUndefined();
+  expect(() =>
+    reduceV2(
+      channel,
+      state,
+      "terminal",
+      "agy",
+      { ...captured.common, conversationId: "foreign" },
+      "PreToolUse",
+      "11",
+    ),
+  ).toThrow();
+});
+it.each(["1.4.2", "1.4.11", "1.4.12"])("retains compatible discovery for agy %s", (version) => {
+  expect(
+    discoveryFacts(provider.model, version, "--prompt-interactive", { setupState: "installed" }),
+  ).toMatchObject({ hookSupport: true, pluginMcp: true });
+});

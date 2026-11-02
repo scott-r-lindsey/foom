@@ -1,0 +1,110 @@
+{
+  "common": {
+    "artifactDirectoryPath": "/not-opened",
+    "conversationId": "fixture-agy-1412",
+    "lastUserInput": "private fixture prompt",
+    "modelName": "fixture-model",
+    "transcriptPath": "/must-not-read",
+    "workspacePaths": ["/fixture"]
+  },
+  "events": [
+    {
+      "event": "PreInvocation",
+      "fields": {
+        "initialNumSteps": 0,
+        "invocationNum": 0
+      },
+      "action": "working"
+    },
+    {
+      "event": "PreToolUse",
+      "fields": {
+        "stepIdx": 1,
+        "toolCall": {
+          "name": "ReadFile",
+          "args": {
+            "path": "/private-tool-input"
+          }
+        }
+      },
+      "action": "working"
+    },
+    {
+      "event": "PostToolUse",
+      "fields": {
+        "stepIdx": 1,
+        "toolCall": {
+          "name": "ReadFile"
+        },
+        "error": null
+      },
+      "action": "working"
+    },
+    {
+      "event": "PreInvocation",
+      "fields": {
+        "initialNumSteps": 2,
+        "invocationNum": 1
+      },
+      "action": "working"
+    },
+    {
+      "event": "Stop",
+      "fields": {
+        "executionNum": 0,
+        "fullyIdle": true,
+        "terminationReason": "NO_TOOL_CALL",
+        "error": null
+      },
+      "action": "classify"
+    },
+    {
+      "event": "PreInvocation",
+      "fields": {
+        "initialNumSteps": 3,
+        "invocationNum": 2
+      },
+      "action": "working"
+    },
+    {
+      "event": "Stop",
+      "fields": {
+        "executionNum": 1,
+        "fullyIdle": true,
+        "terminationReason": "model_stop",
+        "error": null
+      },
+      "action": "classify"
+    },
+    {
+      "event": "PreToolUse",
+      "fields": {
+        "stepIdx": 4,
+        "toolCall": {
+          "name": "ReadFile"
+        }
+      },
+      "action": "working"
+    },
+    {
+      "event": "Stop",
+      "fields": {
+        "executionNum": 2,
+        "fullyIdle": false,
+        "terminationReason": "NO_TOOL_CALL",
+        "error": null
+      },
+      "action": "working"
+    },
+    {
+      "event": "Stop",
+      "fields": {
+        "executionNum": 2,
+        "fullyIdle": true,
+        "terminationReason": "NO_TOOL_CALL",
+        "error": null
+      },
+      "action": "classify"
+    }
+  ]
+}

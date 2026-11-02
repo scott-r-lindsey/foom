@@ -1,0 +1,26 @@
+{
+  "agent": "agy",
+  "version": "1.4.12",
+  "state": "blocked",
+  "platform": "linux",
+  "date": "2026-11-02",
+  "size": {
+    "cols": 80,
+    "rows": 24
+  },
+  "rules": ["file_access_permission"],
+  "titles": [],
+  "progress": null,
+  "source": "Redacted fixed UI excerpt from the manual real CLI permission dialog in #1000. Prompt, response, path, and model values omitted.",
+  "tail": [
+    "File access",
+    "────────────────────────────────────────────────────────────────────────────────",
+    "Allow access to this file?",
+    "> 1. Yes, allow access",
+    "  2. Yes, and always allow non-workspace access",
+    "  3. No, deny access",
+    "",
+    "  ↑/↓ Navigate",
+    "esc to cancel                                         [model omitted]"
+  ]
+}

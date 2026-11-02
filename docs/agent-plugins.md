@@ -433,7 +433,7 @@ inheriting the launch environment is within that launch's trust boundary.
 
 ## Antigravity opt-in plugin MCP (#855)
 
-The bundled Antigravity ordered observer ABI version 4 stages lifecycle scripts
+The bundled Antigravity ordered observer ABI version 5 stages lifecycle scripts
 plus `mcp_config.json`, `mcp.sh` and `mcp.ps1`. Its definition fingerprint and
 installed-byte checks cover all these assets. The server uses the launching
 session's environment only; plugin files contain no credential values. Settings

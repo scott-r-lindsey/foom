@@ -1,5 +1,5 @@
 /** Version-2 ordered, detached native transport ABI. */
-export function orderedObserverFiles(): Record<string, string> {
+export function orderedObserverFiles(preToolProgress = false): Record<string, string> {
   return {
     "observer.sh": `#!/bin/sh
 if [ -n "$FOOM_REMOTE_HELPER" ] && [ -n "$FOOM_REMOTE_SOCKET" ]; then
@@ -7,7 +7,7 @@ if [ -n "$FOOM_REMOTE_HELPER" ] && [ -n "$FOOM_REMOTE_SOCKET" ]; then
 fi
 printf '{}\\n'
 [ -n "$FOOM_HOOK_URL" ] && [ -n "$FOOM_SESSION" ] && [ -n "$FOOM_TOKEN" ] || exit 0
-case "$1" in PreInvocation|PostToolUse|Stop) ;; *) exit 0 ;; esac
+case "$1" in PreInvocation${preToolProgress ? "|PreToolUse" : ""}|PostToolUse|Stop) ;; *) exit 0 ;; esac
 # Sequence allocation is local and fast; only the network runs in the background.
 # The launch owns this private file, which contains a number and no credentials.
 [ -n "$FOOM_HOOK_ORDER" ] || exit 0
@@ -36,7 +36,7 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 if (!$env:FOOM_HOOK_URL -or !$env:FOOM_SESSION -or !$env:FOOM_TOKEN) { exit 0 }
 if (!$env:FOOM_HOOK_ORDER) { exit 0 }
-if ($args.Count -ne 1 -or $args[0] -notin @('PreInvocation','PostToolUse','Stop')) { exit 0 }
+if ($args.Count -ne 1 -or $args[0] -notin @('PreInvocation'${preToolProgress ? ",'PreToolUse'" : ""},'PostToolUse','Stop')) { exit 0 }
 try {
   $order = [System.IO.File]::Open($env:FOOM_HOOK_ORDER, [System.IO.FileMode]::Open, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
   try {

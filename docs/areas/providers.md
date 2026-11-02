@@ -86,7 +86,7 @@ Enablement changes invalidate workspace discovery caches.
 
 ### Bundled Antigravity plugin MCP (#855)
 
-Antigravity's explicit opt-in lifecycle plugin version 4 includes a stdio MCP
+Antigravity's explicit opt-in lifecycle plugin version 5 includes a stdio MCP
 launcher. The generic setup inventory/fingerprint check must report installed,
 and discovery must verify agy 1.4.2+, before launch reports MCP attached and omits
 CLI fallback guidance. Absent, disabled, outdated or damaged plugins retain the

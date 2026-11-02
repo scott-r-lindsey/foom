@@ -132,7 +132,7 @@ it("rejects invalid transport and protocol input and supports deletion and reini
     { ...initialize, method: 1 },
     { ...initialize, extra: true },
     { ...initialize, params: { ...initialize.params, protocolVersion: 1 } },
-    { ...initialize, params: { ...initialize.params, protocolVersion: 1 } },
+    { ...initialize, params: { ...initialize.params, protocolVersion: null } },
     { ...initialize, params: { ...initialize.params, clientInfo: { name: 1, version: "1" } } },
     { ...initialize, params: { ...initialize.params, clientInfo: { name: "x", version: 1 } } },
     { ...initialize, id: undefined },

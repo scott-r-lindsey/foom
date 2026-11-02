@@ -39,7 +39,10 @@ export function pluginContent(
     const folder = channel.observer.protocol === "ordered-v2" ? "" : `observers/${channel.id}`;
     for (const [name, content] of Object.entries(observerAssets(channel, windows)))
       assets.push({ name: folder ? `${folder}/${name}` : name, content });
-    if (channel.observer.protocol === "ordered-v2" && channel.observer.version === 4)
+    if (
+      channel.observer.protocol === "ordered-v2" &&
+      (channel.observer.version === 4 || channel.observer.version === 5)
+    )
       for (const [name, content] of Object.entries(
         agyMcpFiles(windows, directory ?? "/FOOM_INSTALLED_PLUGIN_ROOT"),
       ))

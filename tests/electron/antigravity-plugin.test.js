@@ -211,7 +211,7 @@ const path = require('node:path');
 const {execFile} = require('node:child_process');
 const args = process.argv.slice(2);
 const directory = path.join(require('node:os').homedir(), '.gemini/config/plugins/foom');
-if (args[0] === '--version') { console.log('${firstRun ? "1.3.1" : "1.4.2"}'); process.exit(0); }
+if (args[0] === '--version') { console.log('${firstRun ? "1.3.1" : "1.4.12"}'); process.exit(0); }
 if (args[0] === '--help') { console.log('Antigravity CLI --prompt-interactive <prompt>'); process.exit(0); }
 if (args[0] === 'plugin') {
   if (args[1] === 'list') {
@@ -242,6 +242,7 @@ if (!${firstRun}) {
     let end;
     while ((end = buffer.indexOf('\\n')) >= 0) {
       const value = JSON.parse(buffer.slice(0,end)); buffer = buffer.slice(end+1);
+      if (value.id === 1 && value.result.protocolVersion !== '2025-11-25') process.exit(8);
       if (value.id === 2) {
         if (!value.result.tools.some((t) => t.name === 'whoami')) process.exit(5);
         console.log('MCP_TOOLS_AVAILABLE');
@@ -252,7 +253,7 @@ if (!${firstRun}) {
   mcp.stderr.on('data', () => process.exit(6));
   mcp.on('error', () => process.exit(7));
   for (const message of [
-    {jsonrpc:'2.0', id:1, method:'initialize', params:{protocolVersion:'2025-11-25',capabilities:{},clientInfo:{name:'fixture-agy',version:'1'}}},
+    {jsonrpc:'2.0', id:1, method:'initialize', params:{protocolVersion:'2099-01-01',capabilities:{},clientInfo:{name:'fixture-agy',version:'1'}}},
     {jsonrpc:'2.0', method:'notifications/initialized'},
     {jsonrpc:'2.0', id:2, method:'tools/list'},
     {jsonrpc:'2.0', id:3, method:'tools/call', params:{name:'whoami'}},
@@ -262,8 +263,14 @@ if (!${firstRun}) {
 process.stdin.on('data', (data) => {
   const key = data.toString();
   if (key === 'q') process.exit(0);
-  const event = key === 'w' ? 'PreInvocation' : 'Stop';
-  const child = execFile('sh', ['-c', spec[event][0].command], {cwd:process.cwd()}, (error, stdout, stderr) => {
+  if (key === 'p') {
+    console.log('\\x1b[2J\\x1b[HFile access\\nAllow access to this file?\\n> 1. Yes, allow access\\n  2. Yes, and always allow non-workspace access\\n  3. No, deny access\\n  ↑/↓ Navigate\\nesc to cancel');
+    return;
+  }
+  console.log('\\x1b[2J\\x1b[H');
+  const event = key === 'w' ? 'PreInvocation' : key === 't' ? 'PreToolUse' : 'Stop';
+  const handler = event === 'PreToolUse' ? spec[event][0].hooks[0] : spec[event][0];
+  const child = execFile('sh', ['-c', handler.command], {cwd:process.cwd()}, (error, stdout, stderr) => {
     if (error || stdout.trim() !== '{}' || stderr) process.exit(4);
     console.log('OBSERVER_RETURNED_' + event);
   });
@@ -474,6 +481,15 @@ for (const firstRun of [false, true]) {
         ),
       )
       .toBe("done");
+    // A pre-tool callback restores Working on a later turn even without a prompt callback.
+    await page.evaluate((id) => window.desktop.input(id, "t"), id);
+    await expect.poll(() => page.evaluate(() => window.agyTransitions.at(-1)?.to)).toBe("working");
+    await page.evaluate((id) => window.desktop.input(id, "p"), id);
+    await expect.poll(() => page.evaluate(() => window.agyTransitions.at(-1)?.to)).toBe("blocked");
+    await page.evaluate((id) => window.desktop.input(id, "w"), id);
+    await expect.poll(() => page.evaluate(() => window.agyTransitions.at(-1)?.to)).toBe("working");
+    await page.evaluate((id) => window.desktop.input(id, "s"), id);
+    await expect.poll(() => page.evaluate(() => window.agyTransitions.at(-1)?.to)).toBe("idle");
     // A later turn can lose its detached Working report. Its newer failed Stop
     // must still replace Done; sequence ordering already rejects old reports.
     await page.evaluate((id) => window.desktop.input(id, "f"), id);
