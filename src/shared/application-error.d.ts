@@ -11,6 +11,7 @@ export type ApplicationErrorCode =
   | "worktree-locked"
   | "worktree-missing"
   | "worktree-main"
+  | "worktree-removal-incomplete"
   | "prune-unsafe";
 
 export type CopyableErrorId = keyof typeof copyableErrorText;

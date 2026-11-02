@@ -370,3 +370,46 @@ test.each([
 ])("repository name %s relative to %s (enabled %s)", (path, root, enabled, expected) => {
   expect(repositoryDisplayName({ path, name: "foom" }, root, enabled)).toBe(expected);
 });
+
+test("completed cleanup drops empty tombstones and keeps removed checkouts with sessions", () => {
+  const repository = repo("/repo");
+  const removed = {
+    ...repository.worktrees[0],
+    path: "/repo/gone",
+    branch: "gone",
+    head: null,
+    bare: false,
+    locked: false,
+    prunable: false,
+    managed: true,
+    removed: true,
+  };
+  const withCleanup: SidebarRepository = {
+    ...repository,
+    worktrees: [...repository.worktrees, removed],
+    cleanup: { total: 1, done: 1, phase: "remove", stopped: false, items: [] },
+  };
+  expect(buildSidebar([], [withCleanup], emptyPreferences(), "").tree[0]?.worktrees).toHaveLength(
+    2,
+  );
+  const finished = {
+    ...withCleanup,
+    cleanup: {
+      ...withCleanup.cleanup,
+      total: 1,
+      done: 1,
+      stopped: false,
+      items: [],
+      phase: "finished" as const,
+    },
+  };
+  expect(
+    buildSidebar([], [finished], emptyPreferences(), "").tree[0]?.worktrees.map(
+      ({ tree }) => tree.path,
+    ),
+  ).toEqual(["/repo"]);
+  const session = { ...row("retained", "/repo"), worktree: removed.path, worktreeRemoved: true };
+  expect(
+    buildSidebar([session], [finished], emptyPreferences(), "").tree[0]?.worktrees[1]?.sessions,
+  ).toEqual([session]);
+});

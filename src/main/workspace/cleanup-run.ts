@@ -1,3 +1,4 @@
+import { IncompleteRemovalError, errorMessage } from "../../shared/application-errors";
 import { basename } from "node:path";
 import { randomUUID } from "node:crypto";
 import type {
@@ -178,6 +179,10 @@ export class CleanupRun implements CleanupFeed {
           const reason = error instanceof KeptWorktree ? error.reason : "removal failed";
           item.state = error instanceof KeptWorktree ? "kept" : "error";
           item.reason = reason;
+          // The checklist label is presentation text (also used for detached trees).
+          // Only this main-created error may disclose its validated leftover path.
+          if (error instanceof IncompleteRemovalError)
+            item.branch = `${item.branch} · ${errorMessage(error)}`;
         }
         this.done++;
         this.publish();
