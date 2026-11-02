@@ -1,4 +1,6 @@
 import { requirements, signInStatus } from "./host-facts";
+import { networkGit } from "./network-git";
+import { HostGitFailure } from "./git-failure";
 import { daemonHostPlatform, createHostPlatform } from "./host-platform";
 import { remoteReviewSnapshot } from "./review-snapshot";
 import {
@@ -289,16 +291,18 @@ export async function manageHost(
     if (!exists) {
       const temporary = await mkdtemp(join(folder, ".foom-clone-"));
       try {
-        await hostProbe(
-          "git",
-          ["--no-optional-locks", "clone", "--", request.origin, temporary],
+        await networkGit(
+          ["clone", "--", request.origin, temporary],
           folder,
           env,
-          true,
           HOST_CLONE_TIMEOUT_MS,
           signal,
         );
-        status = await checkout(temporary, request.origin);
+        try {
+          status = await checkout(temporary, request.origin);
+        } catch {
+          throw new HostGitFailure("checkout-invalid");
+        }
         signal?.throwIfAborted();
         await approvedCodeFolder(folder, home);
         // Do not replace a destination that appeared while cloning.
@@ -311,8 +315,15 @@ export async function manageHost(
         }
         signal?.throwIfAborted();
         await rename(temporary, path);
-      } catch {
-        return { ok: false, reason: "clone-failed" };
+      } catch (error) {
+        return {
+          ok: false,
+          reason: signal?.aborted
+            ? "cancelled"
+            : error instanceof HostGitFailure
+              ? error.reason
+              : "checkout-invalid",
+        };
       } finally {
         await rm(temporary, { recursive: true, force: true });
       }
@@ -324,20 +335,24 @@ export async function manageHost(
         path,
       );
       if (refs.trim()) throw new Error("Branch exists");
-      const remote = await git(
+      const remote = await networkGit(
         ["ls-remote", "--symref", "origin", "HEAD"],
         path,
+        env,
         HOST_NETWORK_GIT_TIMEOUT_MS,
+        signal,
       );
       const base = /^ref: refs\/heads\/(\S+)\s+HEAD$/mu.exec(remote)?.[1];
       if (!base || base.startsWith("-")) throw new Error("Default unavailable");
       await git(["check-ref-format", "--branch", base], path);
       if (request.fromOrigin && request.branch === base) throw new Error("Default branch");
       const source = request.fromOrigin ? request.branch : base;
-      await git(
+      await networkGit(
         ["fetch", "--no-tags", "origin", `+refs/heads/${source}:refs/remotes/origin/${source}`],
         path,
+        env,
         HOST_NETWORK_GIT_TIMEOUT_MS,
+        signal,
       );
       const destination = join(folder, `.foom-worktree-${randomUUID()}`);
       signal?.throwIfAborted();
@@ -486,7 +501,14 @@ export async function manageHost(
       };
     }
     return { ok: true, facts, checkout: { path, state: status ? "changed" : "clean" } };
-  } catch {
-    return { ok: false, reason: "checkout-refused" };
+  } catch (error) {
+    return {
+      ok: false,
+      reason: signal?.aborted
+        ? "cancelled"
+        : error instanceof HostGitFailure
+          ? error.reason
+          : "checkout-refused",
+    };
   }
 }

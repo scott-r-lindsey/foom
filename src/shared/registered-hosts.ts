@@ -199,6 +199,11 @@ export function hostResult(value: unknown): value is HostResult {
         "folder-refused",
         "unsafe-folder",
         "origin-unavailable",
+        "origin-auth",
+        "origin-host-key",
+        "origin-unreachable",
+        "timed-out",
+        "checkout-invalid",
         "clone-failed",
         "checkout-refused",
       ].includes(value["reason"])
