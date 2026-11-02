@@ -385,8 +385,11 @@ const hostFolder: Validator<string> = (value): value is string =>
   !/[\p{Cc}\u202a-\u202e\u2066-\u2069]/u.test(value) &&
   !value.split("/").some((part) => part === "." || part === "..");
 const hostRequestedFolder: Validator<string> = (value): value is string =>
-  hostFolder(value) ||
-  (typeof value === "string" && value.startsWith("~/") && hostFolder(value.slice(1)));
+  typeof value === "string" &&
+  value.length <= 4096 &&
+  !value.endsWith("/") &&
+  !value.includes("//") &&
+  (value.startsWith("~/") ? hostFolder(value.slice(1)) : hostFolder(value));
 const hostVersion: Validator<string> = (value): value is string =>
   typeof value === "string" &&
   !/\p{Cc}/u.test(value) &&
@@ -482,30 +485,7 @@ const validHostResult: Validator<HostResult> = either(
   shape({
     ok: literal(false),
     connection: either(absent, validHostConnection),
-    reason: literal(
-      "unreachable",
-      "version-mismatch",
-      "provider-invalid",
-      "configuration-changed",
-      "invalid-reply",
-      "cancelled",
-      "unsupported",
-      "facts-unavailable",
-      "libc-too-old",
-      "libc-unsupported",
-      "artifact-unavailable",
-      "folder-missing",
-      "folder-refused",
-      "unsafe-folder",
-      "origin-unavailable",
-      "origin-auth",
-      "origin-host-key",
-      "origin-unreachable",
-      "timed-out",
-      "checkout-invalid",
-      "clone-failed",
-      "checkout-refused",
-    ),
+    reason: validHostFailure,
   }),
   shape({
     ok: literal(true),

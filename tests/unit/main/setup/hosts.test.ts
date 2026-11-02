@@ -1134,3 +1134,59 @@ test("preflight preserves independent bootstrap observations and local origin re
   });
   expect(JSON.stringify(state)).not.toContain("raw");
 });
+
+test("opening Hosts after offline enrollment expands its pending folder and preserves other registrations", async () => {
+  settings = {
+    ...settings,
+    registeredHosts: [
+      { host: "worker", codeFolder: "~/code" },
+      { host: "other", codeFolder: "/other/code" },
+    ],
+  };
+  run.mockImplementation((_host, request) =>
+    Promise.resolve({
+      ok: true,
+      facts: {
+        ...facts,
+        codeFolder: request.codeFolder.startsWith("~/") ? facts.codeFolder : request.codeFolder,
+      },
+    }),
+  );
+  const state = await hosts.action({ action: "list" });
+  expect(state.hosts.map(({ host, codeFolder }) => ({ host, codeFolder }))).toEqual([
+    { host: "worker", codeFolder: facts.codeFolder },
+    { host: "other", codeFolder: "/other/code" },
+  ]);
+});
+
+test("preflight refreshes registered facts without running origin Git when Git is missing", async () => {
+  settings = { ...settings, registeredHosts: [{ host: "worker", codeFolder: "~/code" }] };
+  run.mockImplementation((_host, request) =>
+    Promise.resolve(
+      request.operation === "inspect"
+        ? {
+            ok: true,
+            facts: { ...facts, tools: [{ id: "git", state: "missing", signIn: "unknown" }] },
+          }
+        : { ok: false, reason: "folder-refused" },
+    ),
+  );
+  const state = await hosts.action({ action: "preflight", host: "worker", codeFolder: "~/code" });
+  expect(state.preflight?.repositories[0]?.origin).toEqual({ state: "not-checked" });
+  expect(state.hosts[0]?.codeFolder).toBe(facts.codeFolder);
+  expect(state.hosts[0]?.result).toMatchObject({
+    ok: true,
+    facts: { tools: [{ id: "git", state: "missing" }] },
+  });
+  expect(run.mock.calls.map(([, request]) => request.operation)).toEqual(["inspect", "repository"]);
+});
+
+test("refresh recovers an incomplete host with profile session inventory before its folder is expanded", async () => {
+  settings = { ...settings, registeredHosts: [{ host: "worker", codeFolder: "~/code" }] };
+  mock.inventory.mockResolvedValue({ type: "inventory-result", own: [], foreign: [] });
+  const service = new Hosts(store, () => [], "0.1.0", run, "f".repeat(32));
+  await service.action({ action: "refresh", host: "worker" });
+  expect(mock.inventory.mock.lastCall?.[2]).toEqual({ type: "inventory", profile: "f".repeat(32) });
+  expect(settings.registeredHosts).toEqual([{ host: "worker", codeFolder: facts.codeFolder }]);
+  service.dispose();
+});

@@ -1409,3 +1409,50 @@ test
   ]);
   await expect(lstat(join(home, "missing"))).rejects.toMatchObject({ code: "ENOENT" });
 });
+
+test.skipIf(process.platform === "win32")(
+  "partial inspection retains other observations after login discovery fails",
+  async () => {
+    const request = {
+      type: "manage",
+      operation: "inspect",
+      readOnly: true,
+      partial: true,
+      codeFolder: "~/missing",
+      agents: [],
+    } as const;
+    mock.login.mockRejectedValueOnce(new Error("raw login failure"));
+    const result = await manageHost(request, 0, "/fixture", "0.1.0", home);
+    expect(result).toMatchObject({
+      ok: true,
+      facts: {
+        folder: { state: "fail", reason: "folder-missing" },
+        tools: [
+          { id: "git", state: "ready" },
+          { id: "gh", state: "ready" },
+        ],
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain("raw");
+    mock.login.mockRejectedValueOnce(new Error("raw login failure"));
+    expect(
+      await manageHost(
+        { type: "manage", operation: "inspect", readOnly: true, codeFolder: "~/code", agents: [] },
+        0,
+        "/fixture",
+        "0.1.0",
+        home,
+      ),
+    ).toEqual({ ok: false, reason: "unreachable" });
+    mock.requirements.mockRejectedValueOnce(new Error("raw requirements failure"));
+    expect(
+      await manageHost(
+        { type: "manage", operation: "inspect", readOnly: true, codeFolder: "~/code", agents: [] },
+        0,
+        "/fixture",
+        "0.1.0",
+        home,
+      ),
+    ).toEqual({ ok: false, reason: "unreachable" });
+  },
+);

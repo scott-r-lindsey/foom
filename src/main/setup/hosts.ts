@@ -191,7 +191,11 @@ export class Hosts {
     const result = await remoteInventory(
       { host },
       this.version,
-      { type: "inventory", profile: this.profile, codeFolder: registered.codeFolder },
+      {
+        type: "inventory",
+        profile: this.profile,
+        ...(registered.codeFolder.startsWith("/") ? { codeFolder: registered.codeFolder } : {}),
+      },
       this.cancellation.signal,
     );
     this.registered(host, registered.codeFolder);
@@ -591,6 +595,7 @@ export class Hosts {
             }),
           );
           this.registered(input.host, registration.codeFolder);
+          await this.expandRegistration(input.host);
           const recipe = this.recipe(input.host, input.tool, input.operation);
           if (!recipe || !launchRecipe || !this.profile)
             return { ...this.state(), recipeFailure: "recipe-unavailable" as const };
@@ -637,7 +642,7 @@ export class Hosts {
             await this.sessions();
             for (const host of hosts) await this.readWorktrees(host.host, true);
           }
-          for (const host of hosts)
+          for (const host of hosts) {
             if (!this.results.has(host.host))
               this.results.set(
                 host.host,
@@ -649,13 +654,20 @@ export class Hosts {
                   codeFolder: host.codeFolder,
                 }),
               );
+            await this.expandRegistration(host.host);
+          }
           return this.state();
         }
         if (input.action === "preflight") {
           const registration = hosts.find((entry) => entry.host === input.host);
           if (registration && registration.codeFolder !== input.codeFolder)
             throw new Error("Folder changed");
-          return { ...this.state(), preflight: await this.preflight(input.host, input.codeFolder) };
+          const preflight = await this.preflight(input.host, input.codeFolder);
+          if (registration) {
+            this.results.set(input.host, preflight.result);
+            await this.expandRegistration(input.host);
+          }
+          return { ...this.state(), preflight };
         }
         if (input.action === "create-folder" || input.action === "change-folder") {
           const registration = this.registered(input.host);
@@ -754,15 +766,7 @@ export class Hosts {
               codeFolder: host.codeFolder,
             }),
           );
-          const observed = this.results.get(host.host);
-          if (observed?.ok && observed.facts.codeFolder !== host.codeFolder)
-            await this.store.update({
-              registeredHosts: hosts.map((entry) =>
-                entry.host === host.host
-                  ? { host: entry.host, codeFolder: observed.facts.codeFolder }
-                  : entry,
-              ),
-            });
+          await this.expandRegistration(host.host);
           return this.state();
         }
         if (!this.repositories().some((repo) => repo.path === input.repository))
@@ -861,6 +865,18 @@ export class Hosts {
       };
     }
   }
+  private async expandRegistration(host: string): Promise<void> {
+    const registration = this.registered(host);
+    const result = this.results.get(host);
+    if (!registration.codeFolder.startsWith("~/") || !result?.ok) return;
+    await this.store.update({
+      registeredHosts: (this.store.get().registeredHosts ?? []).map((entry) =>
+        entry.host === host ? { host, codeFolder: result.facts.codeFolder } : entry,
+      ),
+    });
+    this.locations = this.locations.filter((entry) => entry.host !== host);
+    this.invalidateWorktrees(host);
+  }
   private async preflight(host: string, codeFolder: string): Promise<HostPreflight> {
     const result = await this.run(host, {
       type: "manage",
@@ -888,7 +904,21 @@ export class Hosts {
     const repositories: HostPreflight["repositories"][number][] = [];
     for (const repo of this.repositories()) {
       let origin: HostCheck;
+      const git = result.ok ? result.facts.tools?.find((tool) => tool.id === "git") : undefined;
       try {
+        if (git && git.state !== "ready") {
+          repositories.push({
+            repository: repo.path,
+            origin: unknown,
+            checkout: await this.repository(
+              host,
+              result.ok ? result.facts.codeFolder : codeFolder,
+              repo.path,
+              false,
+            ),
+          });
+          continue;
+        }
         const url = await this.origin(repo.path);
         const access = await this.run(host, {
           type: "manage",

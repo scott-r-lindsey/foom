@@ -323,8 +323,15 @@ export async function selectHostArtifact(
             : "";
         return output.includes("FOOM-LIBC-TOO-OLD")
           ? ("libc-too-old" as const)
-          : ("libc-unsupported" as const);
+          : output.includes("FOOM-LIBC-UNSUPPORTED")
+            ? ("libc-unsupported" as const)
+            : ("unreachable" as const);
       });
+    if (libc === "unreachable") {
+      observe("ssh", { state: "fail", reason: "unreachable" });
+      observe("platform", { state: "not-checked" });
+      throw new LaunchFailure("remote_host_unreachable");
+    }
     observe("platform", libc ? { state: "fail", reason: libc } : { state: "pass" });
     if (libc) throw new UnsupportedRemotePlatform("Unsupported remote host platform");
   } else observe?.("platform", { state: "pass" });
@@ -340,8 +347,10 @@ export async function selectHostArtifact(
     artifact.version !== expectedVersion ||
     artifact.platform !== remote.platform ||
     artifact.arch !== remote.arch
-  )
+  ) {
+    observe?.("artifact", { state: "fail", reason: "version-mismatch" });
     throw new LaunchFailure("remote_artifact_mismatch");
+  }
   observe?.("artifact", { state: "pass" });
   return artifact;
 }

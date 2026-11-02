@@ -226,3 +226,29 @@ test.each(["unsupported", "libc-too-old", "libc-unsupported", "pass"])(
     }
   },
 );
+
+test("a disconnected libc probe does not invent an unsupported platform; mismatched artifacts remain explicit", async () => {
+  const f = await fixture();
+  const observe = vi.fn();
+  mock.execFile.mockImplementationOnce((_file, _args, _options, callback) => {
+    callback(null, { stdout: mock.output });
+  });
+  mock.execFile.mockImplementationOnce((_file, _args, _options, callback) => {
+    callback(new Error("raw network failure"), { stdout: "" });
+  });
+  await expect(
+    selectHostArtifact({ host: "fixture" }, "0.1.0", f.root, f.metadata, undefined, observe),
+  ).rejects.toThrow("unreachable");
+  expect(observe.mock.calls.slice(-2)).toEqual([
+    ["ssh", { state: "fail", reason: "unreachable" }],
+    ["platform", { state: "not-checked" }],
+  ]);
+  observe.mockClear();
+  await expect(
+    selectHostArtifact({ host: "fixture" }, "0.2.0", f.root, f.metadata, undefined, observe),
+  ).rejects.toThrow();
+  expect(observe).toHaveBeenLastCalledWith("artifact", {
+    state: "fail",
+    reason: "version-mismatch",
+  });
+});

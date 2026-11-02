@@ -422,3 +422,38 @@ test.each([
     });
   },
 );
+
+test("an incomplete enrollment closes the form and a missing folder offers explicit creation", async () => {
+  let state: HostsState = { hosts: [], locations: [] };
+  const api = vi.fn((action: HostsAction): Promise<HostsState> => {
+    if (action.action === "add")
+      state = {
+        hosts: [
+          {
+            ...host,
+            result: {
+              ok: true,
+              facts: { ...facts, folder: { state: "fail", reason: "folder-missing" } },
+            },
+          },
+        ],
+        locations: [],
+        result: {
+          ok: true,
+          facts: { ...facts, folder: { state: "fail", reason: "folder-missing" } },
+        },
+      };
+    if (action.action === "create-folder") state = { hosts: [host], locations: [] };
+    return Promise.resolve(state);
+  });
+  render(<HostsSettings source={{ hosts: api }} headingRef={createRef()} />);
+  await screen.findByText("No hosts");
+  fireEvent.click(screen.getByRole("button", { name: "Add host" }));
+  fireEvent.change(screen.getByLabelText("SSH host"), { target: { value: "worker" } });
+  fireEvent.click(screen.getByRole("button", { name: /^Add$/u }));
+  await screen.findByText("Code folder does not exist");
+  expect(screen.queryByLabelText("SSH host")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Create folder" }));
+  await screen.findByText("Connection ready · Code folder checked");
+  expect(api).toHaveBeenCalledWith({ action: "create-folder", host: "worker" });
+});

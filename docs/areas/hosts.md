@@ -17,7 +17,7 @@ mismatch, provider validation, changed agent configuration, invalid replies and
 cancellation have distinct reasons; only connection failures report unreachable.
 Inspection retries once when provider revision or enabled agents change, then
 reports configuration changed. Repository mutations are never replayed.
-Each failed check logs one fixed reason and step in main, without hostnames,
+Each refused management request logs one fixed reason and step in main, without hostnames,
 paths or remote output.
 
 Test and add use the existing exact-build artifact selection, SHA-256 bootstrap

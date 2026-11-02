@@ -31,7 +31,7 @@ import type {
 } from "../../shared/registered-hosts.d";
 import { hostDiscovery, hostProbe, hostLoginEnvironment } from "./agent-discovery";
 
-/** Validate existing ancestors; only enrollment and explicit cloning may create them. */
+/** Validate existing ancestors; only explicit folder creation may create them. */
 export async function approvedCodeFolder(
   input: string,
   home: string,
