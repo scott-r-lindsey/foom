@@ -65,3 +65,7 @@ requests, **Delete merged worktrees…** and reviewer cleanup. Later reviews wai
 for the visible one to close. Checking and fetching keep Delete disabled and show
 the current checking state; neither a queued review nor a background cleanup
 grants approval to another removal.
+
+When an agent removal finishes while its review is visible or waiting, that item
+leaves the review automatically. Other pending items still need approval. If none
+remain, the dialog closes and the board becomes usable without an extra click.

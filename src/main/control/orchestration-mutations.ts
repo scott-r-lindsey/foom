@@ -583,6 +583,7 @@ export class OrchestrationMutations extends OrchestrationAuthority {
           tree.path,
           tree.identity,
           async (branch, changes, automatic = false) => {
+            if (abort.signal.aborted) return false;
             if (automatic) {
               outcome.accepted = true;
               const record = await operations.finish(
@@ -688,6 +689,9 @@ export class OrchestrationMutations extends OrchestrationAuthority {
                 : "cancelled",
           });
       } finally {
+        // Completion owns the presentation lifetime, even if the host leaves a
+        // confirmation callback outstanding. Withdraw only this operation.
+        abort.abort();
         parent.aborts.delete(abort);
         this.changed();
       }
