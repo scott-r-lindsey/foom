@@ -1,3 +1,4 @@
+const { sizeTileBoard } = require("./tile-fixture.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const path = require("node:path");
@@ -128,6 +129,7 @@ test("multiple windows share sessions, keep views exclusive and retain terminals
     "rejected",
   );
   await first.getByRole("button", { name: "Tile 1 menu", exact: true }).click();
+  await sizeTileBoard(app, first);
   await first.getByRole("menuitem", { name: "Split terminal left", exact: true }).click();
   await first
     .getByRole("button", { name: "Actions for Main checkout", exact: true })
@@ -179,7 +181,7 @@ test("multiple windows restore independent layouts, bounds and interface size", 
   const app = await launchApp(context, options);
   const first = await boardPage(app);
   await expect(first.getByRole("button", { name: "Foom config", exact: true })).toBeVisible();
-  await first.evaluate(() => window.desktop.appMenu.execute("split-right"));
+  await first.evaluate(() => window.desktop.appMenu.execute("split-down"));
   await expect(first.locator(".terminal-tile")).toHaveCount(2);
   await first.evaluate(() => window.desktop.saveSetup({ interfaceScale: 110 }));
   await first.evaluate(() => window.desktop.appMenu.execute("new-window"));
@@ -194,7 +196,7 @@ test("multiple windows restore independent layouts, bounds and interface size", 
     .toBe(true);
   await expect(second.getByRole("button", { name: "Foom config", exact: true })).toBeVisible();
   await expect(second.locator(".terminal-tile")).toHaveCount(1);
-  await second.evaluate(() => window.desktop.appMenu.execute("split-right"));
+  await second.evaluate(() => window.desktop.appMenu.execute("split-down"));
   await expect(second.locator(".terminal-tile")).toHaveCount(2);
   await second.evaluate(() => window.desktop.appMenu.execute("split-down"));
   await expect(second.locator(".terminal-tile")).toHaveCount(3);

@@ -1,3 +1,4 @@
+const { sizeTileBoard } = require("./tile-fixture.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const path = require("node:path");
@@ -104,6 +105,7 @@ test("WebGL uses a visible context budget and releases hidden and unmounted view
 }, async (context) => {
   const app = await launchApp(context, { fixture: "running-shell", renderer: "webgl" });
   const page = await boardPage(app);
+  await sizeTileBoard(app, page, 2400, 1800);
   const [first] = (await page.evaluate(() => window.desktop.workspace())).terminals;
   for (let index = 1; index < 18; index++) {
     const largest = await page.locator(".terminal-tile").evaluateAll(
@@ -122,7 +124,10 @@ test("WebGL uses a visible context budget and releases hidden and unmounted view
       .click();
     await page
       .getByRole("menuitem", {
-        name: largest.width > largest.height * 1.5 ? "Split terminal left" : "Split terminal up",
+        name:
+          largest.width >= 1100 && largest.width > largest.height * 1.5
+            ? "Split terminal left"
+            : "Split terminal up",
         exact: true,
       })
       .click();

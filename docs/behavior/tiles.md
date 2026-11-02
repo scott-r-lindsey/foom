@@ -20,7 +20,7 @@ A single empty tile is a blank window: on first placement it becomes K equal
 columns, where K is the number of 100-terminal-cell widths that fit, clamped to
 1–3. The content fills the leftmost column. An arranged tree is never re-split.
 Otherwise, placement fills the landing spot, then the first empty space in tree
-order. A full board adds a column at the far right. Columns are the children of
+order, after removing spaces below the measured minimum described below. A full board adds a column at the far right. Columns are the children of
 the root's horizontal split chain; any other root is one column. With N columns,
 existing widths scale by N/(N+1), the new column gets 1/(N+1), and nested row ratios
 stay unchanged. If any resulting column would have fewer than about 60 terminal
@@ -138,9 +138,26 @@ focus and surviving leaf identities stay unchanged. An all-empty layout keeps on
 maximized tile first and uses the existing tile resize motion (immediate with
 reduced motion). It applies only to the focused window, from View → Tidy tiles or its shortcut.
 
-When resizing between two occupied sides, gutters stay between 15% and 85%.
-An all-space side has no minimum. Below 8% (or above 92% for the second side),
-space previews collapse and is removed on release. Focus a gutter and use its
+When resizing between two occupied sides, gutters stay between 15% and 85%
+while dragging. Committed geometry additionally uses an absolute minimum of
+60 terminal-cell widths at the current font and three terminal rows plus 38 CSS
+pixels for chrome (rows are estimated at 1.2 times the font size). These pixel
+minimums apply to every nested leaf, measured against the available board area,
+including after window or sidebar resizing, font changes, Tidy, evening a gutter,
+maximize/restore and loading saved layouts. Undersized empty spaces are removed
+and their siblings take their share. Surviving ratios are clamped to fit each
+subtree's minimum when the area allows it; occupied leaves and their identities
+are always retained. If all occupants cannot fit, they share the available area
+proportionally to their subtree minimums, even below the minimum. Repair never
+hides, closes or evicts an occupant. The full-board placement exception above
+continues to apply. A single leaf uses the whole board even if the board itself
+is below the minimum.
+
+An all-space side can preview below the minimum during a drag. Below 8% (or
+above 92% for the second side), space previews collapse; on release, both that
+ratio rule and the absolute minimum remove empty space. Shrinking an ancestor
+also removes undersized nested spaces, including spaces inside mixed occupied
+and empty subtrees. Focus a gutter and use its
 axis's arrow keys to resize by five percentage points; Home/End select the limits
 and collapse an empty side. Keyboard changes commit immediately. Maximize expands
 one tile from its own position while the others fade and stay mounted and attached.

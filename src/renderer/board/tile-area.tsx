@@ -75,6 +75,7 @@ function Gutter({
         setDragging(false);
       }}
       onLostPointerCapture={() => {
+        if (dragging) change(node.id, node.ratio, true);
         setDragging(false);
       }}
       onKeyDown={(event) => {
@@ -114,6 +115,7 @@ export function TileArea({
   source,
   layout,
   setLayout,
+  resizeLayout,
   rows,
   previews,
   arrivals,
@@ -131,6 +133,7 @@ export function TileArea({
   source: BoardSource;
   layout: TileLayout;
   setLayout: (next: TileLayout) => void;
+  resizeLayout: (next: TileLayout, commit: boolean) => void;
   rows: readonly BoardRow[];
   previews: readonly PreviewSummary[];
   arrivals: ReadonlySet<string>;
@@ -310,7 +313,7 @@ export function TileArea({
             change={(id, ratio, commit) => {
               const next = resizeSplit(layout, id, ratio, commit);
               if (leaves(next.tree).length < leaves(layout.tree).length) dropLayout(next);
-              else setLayout(next);
+              else resizeLayout(next, Boolean(commit));
             }}
           />
         ))}

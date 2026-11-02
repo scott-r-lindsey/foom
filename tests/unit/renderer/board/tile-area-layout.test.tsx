@@ -114,9 +114,9 @@ test("gutter pointer and keyboard changes persist ratios and clamp to 15–85 pe
     y: 0,
     left: 0,
     top: 0,
-    right: 1000,
+    right: 10000,
     bottom: 600,
-    width: 1000,
+    width: 10000,
     height: 600,
     toJSON: () => ({}),
   });
@@ -124,10 +124,10 @@ test("gutter pointer and keyboard changes persist ratios and clamp to 15–85 pe
   gutter.setPointerCapture = vi.fn();
   gutter.releasePointerCapture = vi.fn();
   vi.stubGlobal("PointerEvent", MouseEvent);
-  fireEvent.pointerDown(gutter, { clientX: 500 });
-  fireEvent.pointerMove(gutter, { clientX: 700 });
+  fireEvent.pointerDown(gutter, { clientX: 5000 });
+  fireEvent.pointerMove(gutter, { clientX: 7000 });
   expect(gutter.getAttribute("aria-valuenow")).toBe("70");
-  fireEvent.pointerMove(gutter, { clientX: 1100 });
+  fireEvent.pointerMove(gutter, { clientX: 11000 });
   expect(gutter.getAttribute("aria-valuenow")).toBe("85");
   fireEvent.pointerUp(gutter);
   fireEvent.keyDown(gutter, { key: "Home" });
@@ -321,3 +321,49 @@ test.each([100, 200, 300])(
     vi.restoreAllMocks();
   },
 );
+
+test("board area resizing repairs measured spaces and persists without remounting occupants", async () => {
+  let width = 2400;
+  let repair: (() => void) | undefined;
+  const disconnect = vi.fn();
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      constructor(private callback: () => void) {}
+      observe(element: Element) {
+        if (element.classList.contains("tile-area")) repair = this.callback;
+      }
+      disconnect = disconnect;
+    },
+  );
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    return DOMRect.fromRect({
+      width: this.classList.contains("tile-area") ? width : 8.4,
+      height: 900,
+    });
+  });
+  const { screen, click, send, views } = setup();
+  click(0);
+  send("split-right");
+  send("split-right");
+  await act(async () => {});
+  expect(screen.container.querySelectorAll(".terminal-tile")).toHaveLength(3);
+  const occupied = screen.container.querySelector('[data-empty="false"]');
+  const before = views.map((view) => view.open.mock.calls.length);
+  width = 1100;
+  act(() => {
+    repair?.();
+  });
+  expect(screen.container.querySelectorAll(".terminal-tile")).toHaveLength(2);
+  expect(screen.container.contains(occupied)).toBe(true);
+  expect(views.map((view) => view.open.mock.calls.length)).toEqual(before);
+  const saved = localStorage.getItem(TILE_STORAGE);
+  act(() => {
+    repair?.();
+  });
+  expect(localStorage.getItem(TILE_STORAGE)).toBe(saved);
+  screen.unmount();
+  expect(disconnect).toHaveBeenCalled();
+});

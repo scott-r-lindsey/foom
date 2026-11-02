@@ -357,8 +357,8 @@ test("preview bounds follow body measurement and transitions, hide under setting
   bounds.mockRejectedValueOnce(new Error("already closed"));
   screen.unmount();
   await act(async () => {});
-  expect(disconnect).toHaveBeenCalledTimes(1);
-  expect(observe).toHaveBeenCalledTimes(1);
+  expect(disconnect).toHaveBeenCalledTimes(2);
+  expect(observe).toHaveBeenCalledTimes(2);
   bounds.mockClear();
   fireEvent(window, new Event("resize"));
   expect(bounds).not.toHaveBeenCalled();
