@@ -44,7 +44,9 @@ restart independently. New windows use the defaults below, without copying anoth
 window. Existing saved windows, including blank windows without saved tiles, inherit the former shared expansion map once, then
 diverge. Revealing rows expands ancestors only in the requesting window; filtering
 expands matches temporarily in that window. Removed repository and worktree choices
-are pruned after inventory loads (locations with retained sessions remain visible).
+are pruned after workspace and sidebar inventory load successfully (locations with
+retained sessions remain visible). Pending or failed initial sidebar loads preserve
+saved expansion choices.
 Repositories with running sessions start expanded; idle repositories start collapsed.
 With one repository, everything starts expanded.
 Clicking or pressing Enter on a repository, main-checkout or worktree name opens its panel

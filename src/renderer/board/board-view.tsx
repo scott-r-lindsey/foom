@@ -212,7 +212,7 @@ function BoardContents({
     }
   };
   useEffect(() => {
-    if (source.isReady?.() === false) return;
+    if (source.isReady?.() === false || source.isSidebarReady?.() === false) return;
     const current = layoutRef.current;
     const repositories = sidebarRepositories(
       rows.filter((row) => !row.home && !row.config),

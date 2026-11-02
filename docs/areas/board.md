@@ -94,7 +94,9 @@ persist unchanged (including automatically added columns); out-of-range ratios
 clamp to 15–85%. Split construction
 shares the restore limits of 256 leaves and 64 levels, so every constructed tree
 can be restored. Missing sessions are
-pruned only after the source's first workspace snapshot completes. Preview
+pruned only after the source's first workspace snapshot completes. Sidebar
+expansion pruning additionally waits for the first successful sidebar inventory;
+pending or failed initial inventory reads retain saved repository/worktree choices. Preview
 assignments wait for their own first successful inventory, including while
 terminal reservations change, so independent asynchronous loads cannot erase
 valid assignments. File-picker replies publish preview inventory before returning
