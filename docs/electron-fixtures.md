@@ -182,3 +182,30 @@ so the held reader cannot mask the original race with extra elapsed time. On
 Windows the demonstration also asserts `EPERM` while that known reader is alive.
 Teardown releases that reader and waits before quitting the app.
 Windows unlink failures remain errors; the test neither retries nor ignores them.
+
+## Modal and review-loop CI races (#1008)
+
+In main run [41385523238](https://github.com/scott-r-lindsey/foom/actions/runs/41385523238),
+Windows shard 1's modal-restoration case spent 30 seconds waiting for About to
+close; Linux shard 1's review-loop `fix` case spent 15 seconds waiting for absent
+PR checks (19.215 seconds total). Both original reports show empty process lists
+after teardown. The modal case now waits for board document and dialog focus,
+then sends Escape through the native focused WebContents. A visible in-board
+modal alone does not establish native keyboard readiness after dismissing a
+separate trusted confirmation window.
+
+The forge regression reproduces an explicit PR binding replacing a tracker entry
+while an older poll prepares its provider context. Recollecting entries for that
+batch mixed the old context with the new entry, hiding the fresh binding and
+applying repository backoff. Batches retain the captured entry set and skip
+replaced entries; the next ordinary tick samples the new binding. The regression
+holds provider preparation explicitly rather than relying on elapsed time or load.
+
+The earlier macOS shard 2 failure in
+[41382537712](https://github.com/scott-r-lindsey/foom/actions/runs/41382537712/job/125076298948)
+was an Actions step timeout, not an identified third case failure or worker
+watchdog stop. Its log explicitly reports the 14-minute limit after completing
+the profile-lock case at 03:35:04 UTC. The uploaded JUnit contains only its opening
+envelope and the summary is empty: the runner was interrupted before finalizing
+reports. Orphan termination is subsequent Actions cleanup. No test, worker or CI
+deadline changes are made for these failures.
