@@ -297,7 +297,7 @@ files or Keychain entries. A status is an observation, not a guarantee of later
 access; Refresh repeats the non-interactive call, including after signing in on a
 Mac whose login Keychain may be locked over SSH.
 
-Settings Hosts keeps its existing layout; #963's onboarding redesign is deferred.
+Settings → Hosts uses the Add → Check → Fix checklist described below.
 Main selects checked-in recipes from the observed closed distro and the enabled
 bundled catalog. A user Install or Sign in click opens a human-owned visible tile
 on that host. Foreground tile placement waits for the refreshed row before closing Settings. The remote executable verifies a main-supplied SHA-256 digest of the fixed argv sequence before running it, without shell
@@ -354,11 +354,37 @@ folder. Invalid replies, cancellation and changed/invalid provider configuration
 still refuse enrollment. A later successful refresh expands a pending home-relative
 folder. `change-folder` explicitly selects a replacement without creating it;
 `create-folder` alone creates the registered folder. Both invalidate checkout caches.
-The existing Settings layout remains; missing folders expose Create folder and the
-Add button permits incomplete enrollment. The checklist redesign belongs to #963.
+Missing folders expose Create and the Add host button permits incomplete enrollment.
 
 Hello advertises `hostPreflight: 1`. Partial inspection, origin checks and explicit
 folder creation are refused with `facts-unavailable` before dispatch to a compatible
 older daemon without this capability. Existing host-facts, PTYs, sessions and idle
 upgrade behavior remain compatible. Main validates every new request/reply and the
 sandboxed preload validates and rebuilds all nested onboarding observations.
+
+
+## Remote host onboarding UI (#963)
+
+Add host takes the SSH selector and code folder in one form, enrolls the host,
+and runs the full preflight. Opening Hosts and Check again also run preflight;
+Host facts offers a separate session/worktree inventory refresh. The grouped checklist keeps
+Host, Tools, Agents, each repository and macOS Power observations independent.
+Unrun checks say Not checked, failed checks retain their fixed reason, and
+unknown sign-in probes say Sign-in unknown. The UI never infers Remote Login or
+Keychain state from a connection/authentication failure. Platform details are
+limited to the existing closed observations; no OS version or CPU is invented.
+
+Create explicitly creates the approved folder. Change folder edits its approved
+path and rechecks without creating it. Install and Sign in use the existing
+main-selected recipes and foreground tile placement; Settings closes once that
+tile is visible. No background install, recipe replay or terminal typing is added.
+Missing recipes show no Install button. Git-origin fixes offer HTTPS through gh,
+a deploy key or a persistent ssh-agent as user-run instructions. Host facts,
+foreign session End and foreign worktree counts remain under Host facts.
+
+Repositories → Locations groups rows beneath Local and each registered host,
+with checkout path copy controls, fixed states and Clone here. The existing
+projection supplies checkout paths rather than origin display strings and does
+not report local dirty state; Local says Checked out. No management protocol
+change is needed. Failed clone reasons remain visible until the next user check;
+unreachable replies reconcile through a read-only location/preflight check.
