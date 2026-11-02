@@ -135,7 +135,7 @@
       "name": "hooks.json",
       "scope": "plugin",
       "format": "json",
-      "content": "{\"foom-observer-v1\":{\"PreInvocation\":[{\"type\":\"command\",\"command\":{observerCommand:lifecycle.PreInvocation:json},\"timeout\":3}],\"PostToolUse\":[{\"matcher\":\"*\",\"hooks\":[{\"type\":\"command\",\"command\":{observerCommand:lifecycle.PostToolUse:json},\"timeout\":3}]}],\"Stop\":[{\"type\":\"command\",\"command\":{observerCommand:lifecycle.Stop:json},\"timeout\":3}]}}"
+      "content": "{\"foom-observer-v1\":{\"PreInvocation\":[{\"type\":\"command\",\"command\":{observerCommand:lifecycle.PreInvocation:json},\"timeout\":3}],\"PreToolUse\":[{\"matcher\":\"*\",\"hooks\":[{\"type\":\"command\",\"command\":{observerCommand:lifecycle.PreToolUse:json},\"timeout\":3}]}],\"PostToolUse\":[{\"matcher\":\"*\",\"hooks\":[{\"type\":\"command\",\"command\":{observerCommand:lifecycle.PostToolUse:json},\"timeout\":3}]}],\"Stop\":[{\"type\":\"command\",\"command\":{observerCommand:lifecycle.Stop:json},\"timeout\":3}]}}"
     }
   ],
   "reservedArguments": [
@@ -186,12 +186,29 @@
         "reason": "Workspace trust requested",
         "comment": "Trust dialog footer; bottom nonempty lines exclude blank padding.",
         "lines": 8
+      },
+      {
+        "id": "file_access_permission",
+        "state": "blocked",
+        "priority": 300,
+        "region": "bottom",
+        "lines": 12,
+        "match": {
+          "contains": [
+            "allow access to this file?",
+            "yes, allow access",
+            "no, deny access",
+            "esc to cancel"
+          ]
+        },
+        "reason": "Approval requested",
+        "comment": "Fixed file-access dialog labels observed on Linux agy 1.4.12 (#1000); no path or prompt matching."
       }
     ],
     "provenance": {
       "source": "https://github.com/herdrdev/herdr/tree/ff83689f1512f11b762fe52fb3a0032e7373c35e/src/detect/manifests/antigravity.toml",
       "license": "Apache-2.0; Herdr contributors (upstream provides no separate copyright notice)",
-      "modified": "Modified for Foom: bounded regions, restricted regexes, capture-backed subset and local reasons."
+      "modified": "Modified for Foom: bounded regions, restricted regexes, capture-backed subset and local reasons. #1000 adds the measured agy 1.4.12 file-access permission dialog."
     }
   },
   "execution": {
@@ -219,7 +236,7 @@
         "observer": {
           "transport": "stdin",
           "placement": "plugin",
-          "version": 4,
+          "version": 5,
           "response": "empty-json-first",
           "delivery": "detached",
           "timeoutMs": 1000,
@@ -244,6 +261,11 @@
             {
               "id": "PreInvocation",
               "event": "PreInvocation",
+              "action": "working"
+            },
+            {
+              "id": "PreToolUse",
+              "event": "PreToolUse",
               "action": "working"
             },
             {
@@ -465,7 +487,7 @@
           "source": "metadata",
           "path": ["manifest", "foomObserverVersion"]
         },
-        "currentVersion": 4,
+        "currentVersion": 5,
         "disabledField": {
           "source": "metadata",
           "path": ["manifest", "disabled"]
@@ -542,7 +564,7 @@
               {
                 "field": "version",
                 "op": "lt",
-                "value": 4
+                "value": 5
               }
             ]
           },

@@ -481,6 +481,7 @@ it.each([true, false])(
 describe("Antigravity lifecycle", () => {
   it.each([
     ["PreInvocation", {}, "working"],
+    ["PreToolUse", {}, "working"],
     ["PostToolUse", {}, "working"],
     ["Stop", { terminationReason: "model_stop", fullyIdle: true }, "classify"],
     ["Stop", { terminationReason: "NO_TOOL_CALL", fullyIdle: true }, "classify"],
@@ -546,7 +547,7 @@ describe("Antigravity lifecycle", () => {
     }
     expect(
       await post(launch, JSON.stringify({ conversationId: "two" }), {
-        "X-Foom-Event": "PreToolUse",
+        "X-Foom-Event": "UnknownFutureEvent",
       }),
     ).toBe(204);
     expect(

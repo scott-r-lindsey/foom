@@ -63,6 +63,7 @@ a generic process route alone does not identify feature policy.
 | `src/shared/launch-failure.ts` | Fixed launch diagnostics shared with the remote host | [Launch](areas/agent-launch.md), [control mutations](contracts/control-mutations.md) |
 | `src/shared/` | `.d.ts` contracts and browser-safe validators/data; no process-owned imports, Node or Electron; `providers/screen-rules.ts` shares live/capture matching | [Boundaries](areas/boundaries.md), [IPC](areas/ipc.md), plus the matching feature rows below |
 | `src/node-common/launch-selection.ts` | Bounded child model/effort validation and manifest-declared argv replacement | [Launch](areas/agent-launch.md), [orchestration](areas/orchestration.md), [control](areas/control.md) |
+| `src/shared/mcp-protocol.ts` | Shared MCP version negotiation | [MCP](areas/mcp.md) |
 | `src/node-common/` | Main/CLI-only private-file, handoff/control validators and bounded `probe-captures.ts` reads/replay (`owned-files.ts` containment); never renderer/shared/preload runtime | [Boundaries](areas/boundaries.md), [privacy](areas/privacy.md), [control](areas/control.md) |
 | `src/cli/` | Separate Node SEA console, bounded command parsing/client, pairing, handoff and offline config; no policy ownership | [Console ownership](areas/console.md), [console contract](contracts/console.md), [transport](contracts/control-transport.md) |
 

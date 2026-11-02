@@ -7,6 +7,11 @@ Decided implementation and security rules for this area. Read the [file map](../
 **Read-only MCP implemented in #153.** `POST /mcp` uses the same authentication,
 body/header/connection limits and service authorization as the versioned endpoint.
 It negotiates MCP 2025-03-26, 2025-06-18 or 2025-11-25, returns JSON responses and
+echoes a supported requested version, or answers any other string with the latest
+supported version (2025-11-25), leaving compatibility to the client. Later
+`MCP-Protocol-Version` headers must match the negotiated session version. This
+rule applies to control, manual, probe and remote stdio servers; the stdio bridge
+forwards the server-negotiated version without a supported-version allowlist. It
 binds one random protocol session to each live grant generation, so it survives a
 role change. Reinitializing replaces that grant's old protocol session; DELETE terminates it. GET authenticates and
 validates the session before returning 405 (no SSE stream). Revocation is rechecked

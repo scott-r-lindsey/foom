@@ -253,7 +253,7 @@ test.skipIf(process.platform === "win32")(
   async () => {
     const path = await stageRemotePlugin("agy", home);
     const metadata: unknown = JSON.parse(await readFile(join(path, "plugin.json"), "utf8"));
-    expect(metadata).toMatchObject({ name: "foom", foomObserverVersion: 4 });
+    expect(metadata).toMatchObject({ name: "foom", foomObserverVersion: 5 });
     const hooks = await readFile(join(path, "hooks.json"), "utf8");
     expect(hooks).toContain("--observe");
     expect(hooks).not.toContain("TOKEN");

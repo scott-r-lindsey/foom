@@ -233,7 +233,7 @@ export function validateV2(manifest: AgentManifestV2): void {
       (manifest.hooks?.channels.length !== 1 ||
         channel.observer.placement !== "plugin" ||
         channel.observer.transport !== "stdin" ||
-        ![2, 3, 4].includes(
+        ![2, 3, 4, 5].includes(
           typeof channel.observer.version === "number" ? channel.observer.version : -1,
         ) ||
         channel.observer.response !== "empty-json-first" ||
