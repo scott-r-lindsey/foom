@@ -226,6 +226,38 @@ const validDialogSummaryLine: Validator<DialogSummaryLine> = shape({
 const validDialogRequest: Validator<DialogRequest> = shape({
   id: nonempty,
   presented: boolean,
+  pluginSetup: either(
+    absent,
+    shape({
+      phase: literal("running", "success", "failure"),
+      steps: array(
+        shape({
+          id: literal(
+            "check",
+            "verify",
+            "uninstall",
+            "recheck",
+            "install",
+            "enable",
+            "remove",
+            "confirm",
+          ),
+          label: summaryText,
+          state: literal("pending", "running", "done", "failed"),
+        }),
+      ),
+      commands: array(
+        shape({
+          command: summaryText,
+          title: either(absent, summaryText),
+          exit: either(literal(null), range(-2147483648, 2147483647, true)),
+          durationMs: range(0, Number.MAX_SAFE_INTEGER),
+        }),
+      ),
+      receipt: either(absent, summaryText),
+      location: summaryText,
+    }),
+  ),
   theme: validInterfaceTheme,
   reply: either(
     absent,

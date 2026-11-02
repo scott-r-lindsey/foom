@@ -29,7 +29,32 @@ export interface DialogSummaryLine {
   /** Main-owned full text for the tooltip and accessible summary name. */
   title?: string;
 }
+/** Display-only facts produced by plugin setup in main. */
+export interface PluginSetupProgress {
+  phase: "running" | "success" | "failure";
+  steps: readonly {
+    id: "check" | "verify" | "uninstall" | "recheck" | "install" | "enable" | "remove" | "confirm";
+    label: string;
+    state: "pending" | "running" | "done" | "failed";
+  }[];
+  commands: readonly {
+    command: string;
+    title?: string;
+    exit: number | null;
+    durationMs: number;
+  }[];
+  receipt?: string;
+  location: string;
+}
+export interface PluginSetupFeed {
+  current(): PluginSetupProgress | undefined;
+  subscribe(listener: () => void): () => void;
+  accept(): void;
+}
 export interface DialogContent {
+  /** Main-only lifecycle; stripped before rendering. */
+  pluginFeed?: PluginSetupFeed;
+  pluginSetup?: PluginSetupProgress;
   /** Main-only grouping key and removal snapshot. */
   removal?: { group: string; item: RemovalItem };
   /** Main-only live review. */
@@ -62,7 +87,8 @@ export interface DialogContent {
   changes?: string;
   sessions?: readonly { id: string; name: string; location: string; state: string }[];
 }
-export interface DialogRequest extends Omit<DialogContent, "feed" | "removal" | "removalFeed"> {
+export interface DialogRequest
+  extends Omit<DialogContent, "feed" | "removal" | "removalFeed" | "pluginFeed"> {
   id: string;
   /** Main has completed the native presentation attempt for this request. */
   presented: boolean;

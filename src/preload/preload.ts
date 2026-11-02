@@ -982,6 +982,7 @@ const validAgentSetupState: Validator<AgentSetupState> = literal(
 
 const validAgentSetupStatus: Validator<AgentSetupStatus> = shape({
   state: validAgentSetupState,
+  result: either(absent, text),
   offer: either(absent, text),
   actions: array(
     shape({

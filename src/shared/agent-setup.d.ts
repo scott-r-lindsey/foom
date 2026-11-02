@@ -8,5 +8,6 @@ export type AgentSetupState =
 export interface AgentSetupStatus {
   state: AgentSetupState;
   offer?: string;
+  result?: string;
   actions: readonly { id: string; label: string }[];
 }

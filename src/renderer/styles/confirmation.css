@@ -533,3 +533,39 @@ li[data-dirty="true"] > .row > .why svg {
 .close-when-completed input {
   accent-color: var(--ink);
 }
+
+.plugin-progress ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.plugin-progress li {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 6px 0;
+}
+.plugin-progress li > span {
+  width: 14px;
+  flex-shrink: 0;
+}
+.plugin-progress [data-state="pending"] {
+  color: var(--muted);
+}
+.plugin-progress [data-state="running"] {
+  color: var(--accent);
+}
+.plugin-progress [data-state="done"] > span,
+.plugin-receipt.success {
+  color: var(--done-ink);
+}
+.plugin-progress [data-state="failed"],
+.plugin-receipt.failure {
+  color: var(--failed-ink);
+}
+.plugin-location,
+.plugin-command {
+  font: 12px / 1.6 var(--font-mono);
+  overflow-wrap: anywhere;
+  color: var(--muted);
+}

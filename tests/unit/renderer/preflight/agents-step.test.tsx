@@ -385,3 +385,25 @@ test("unavailable plugin status offers a bounded rescan from the row", () => {
   fireEvent.click(screen.getByRole("button", { name: "Retry status" }));
   expect(f.scan).toHaveBeenCalledWith(true);
 });
+
+test("retains main's setup receipt until an explicit scan", async () => {
+  const f = fixture();
+  const installationWithSetup = {
+    ...installation("claude"),
+    setup: {
+      state: "not-installed" as const,
+      actions: [{ id: "install", label: "Install" }],
+      result: "Installed Foom observer v5 · enabled",
+    },
+  };
+  f.source.changeAgentSetup = vi.fn(() => Promise.resolve(report(installationWithSetup)));
+  f.props.report = report(installationWithSetup);
+  render(<AgentsStep {...f.props} />);
+  fireEvent.click(screen.getByRole("button", { name: "Install" }));
+  expect(await screen.findByRole("status")).toHaveProperty(
+    "textContent",
+    "Installed Foom observer v5 · enabled",
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Scan again" }));
+  expect(screen.queryByRole("status")).toBeNull();
+});

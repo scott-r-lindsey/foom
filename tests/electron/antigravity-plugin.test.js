@@ -220,7 +220,17 @@ if (args[0] === 'plugin') {
     const entries = fs.existsSync(directory) ? [{name:'foom', path:directory, enabled: !JSON.parse(fs.readFileSync(path.join(directory, 'plugin.json'))).disabled, hooks:['foom-observer-v1']}] : [];
     console.log(${firstRun} ? entries.length ? JSON.stringify({imports: entries}) : 'No imported plugins.' : JSON.stringify(entries));
   }
-  else if (args[1] === 'install') { fs.mkdirSync(path.dirname(directory), {recursive:true}); fs.cpSync(args[2], directory, {recursive:true}); }
+  else if (args[1] === 'install') {
+    const install = () => {
+      if (fs.existsSync(path.join(path.dirname(directory), 'fail-install'))) { console.error('UNTRUSTED CLI OUTPUT'); process.exit(7); }
+      fs.mkdirSync(path.dirname(directory), {recursive:true}); fs.cpSync(args[2], directory, {recursive:true}); process.exit(0);
+    };
+    if (fs.existsSync(path.join(path.dirname(directory), 'hold-install'))) {
+      const timer = setInterval(() => { if (!fs.existsSync(path.join(path.dirname(directory), 'hold-install'))) { clearInterval(timer); install(); } }, 25);
+      return;
+    }
+    install();
+  }
   else if (args[1] === 'enable') { const file = path.join(directory,'plugin.json'); const metadata = JSON.parse(fs.readFileSync(file)); metadata.disabled = false; fs.writeFileSync(file, JSON.stringify(metadata)); }
   else if (args[1] === 'uninstall' && args[2] === 'foom') fs.rmSync(directory, {recursive:true, force:true});
   else process.exit(2);
@@ -357,6 +367,7 @@ for (const firstRun of [false, true]) {
     await page.getByRole("button", { name: "Install", exact: true }).click();
     disclosure = await confirmationPage(app);
     await disclosure.getByRole("button", { name: "Install", exact: true }).click();
+    await disclosure.getByRole("button", { name: "Done", exact: true }).click();
     await expect(page.getByText("Plugin · installed", { exact: true })).toBeVisible();
     await expect(agyRow.getByRole("button", { name: "Hooks", exact: true })).toBeVisible();
     if (!firstRun) {
@@ -395,6 +406,7 @@ for (const firstRun of [false, true]) {
       await checkCollapsedDisclosure(page, disclosure, "reinstall");
       await capture("reinstall-pending", disclosure);
       await disclosure.getByRole("button", { name: "Reinstall plugin", exact: true }).click();
+      await disclosure.getByRole("button", { name: "Done", exact: true }).click();
       await expect(agyRow.getByText("Plugin · installed", { exact: true })).toBeVisible();
       await rm(path.join(home, ".gemini/config/plugins/foom/observer.sh"));
       await scan();
@@ -404,6 +416,7 @@ for (const firstRun of [false, true]) {
       disclosure = await confirmationPage(app);
       await checkCollapsedDisclosure(page, disclosure, "update");
       await disclosure.getByRole("button", { name: "Update", exact: true }).click();
+      await disclosure.getByRole("button", { name: "Done", exact: true }).click();
       await expect(agyRow.getByText("Plugin · installed", { exact: true })).toBeVisible();
       const malformed = path.join(home, ".gemini/config/plugins/malformed");
       await writeFile(malformed, "");
@@ -525,6 +538,7 @@ for (const firstRun of [false, true]) {
     await page.getByRole("button", { name: "Remove", exact: true }).click();
     disclosure = await confirmationPage(app);
     await disclosure.getByRole("button", { name: "Remove", exact: true }).click();
+    await disclosure.getByRole("button", { name: "Done", exact: true }).click();
     await expect(page.getByRole("button", { name: "Install", exact: true })).toBeEnabled();
     await page.evaluate((id) => window.desktop.input(id, "q"), id);
     await expect
@@ -599,6 +613,7 @@ test("Antigravity plugin MCP inherits an owned child's read-only role", {
   await agyRow.getByRole("button", { name: "Install", exact: true }).click();
   const install = await confirmationPage(app);
   await install.getByRole("button", { name: "Install", exact: true }).click();
+  await install.getByRole("button", { name: "Done", exact: true }).click();
   await expect(agyRow.getByText("Plugin · installed", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Close settings (Esc)" }).click();
   const parentId = (await call("whoami")).terminalId;
@@ -634,3 +649,102 @@ test("Antigravity plugin MCP inherits an owned child's read-only role", {
     "succeeded",
   );
 });
+
+for (const mode of ["light", "dark"]) {
+  test(`Antigravity plugin progress and partial Reinstall failure in ${mode}`, {
+    timeout: deadline(60_000),
+    skip: process.platform === "win32" && "Fake CLI is POSIX; native setup covered in unit tests",
+  }, async (context) => {
+    const root = await mkdtemp(path.join(tmpdir(), "foom-agy-progress-"));
+    removeAfterApps(context, root);
+    const bin = path.join(root, "bin");
+    const home = path.join(root, "home");
+    const plugins = path.join(home, ".gemini/config/plugins");
+    await mkdir(bin);
+    await mkdir(plugins, { recursive: true });
+    await writeFile(path.join(bin, "agy"), agyFixture(false), { mode: 0o755 });
+    const profile = path.join(root, "profile");
+    await mkdir(profile);
+    await writeFile(
+      path.join(profile, "settings.json"),
+      JSON.stringify({
+        version: 1,
+        settings: {
+          setupComplete: true,
+          checkForUpdates: false,
+          interfaceTheme: `eclipse-${mode}`,
+        },
+      }),
+    );
+    const app = await launchApp(context, {
+      fixture: "agent",
+      args: [`--user-data-dir=${profile}`],
+      env: { HOME: home, PATH: bin },
+    });
+    const page = await boardPage(app);
+    await openSettingsScreen(page);
+    await page.getByRole("button", { name: "Agents", exact: true }).click();
+    const row = page
+      .locator(".agent-card")
+      .filter({ has: page.getByText("Antigravity", { exact: true }) });
+    const hold = path.join(plugins, "hold-install");
+    await writeFile(hold, "");
+    await row.getByRole("button", { name: "Install", exact: true }).click();
+    const dialog = await confirmationPage(app);
+    try {
+      await dialog.getByRole("button", { name: "Install", exact: true }).click();
+    } catch (error) {
+      console.info(
+        "Plugin consent diagnostics",
+        await page.getByRole("alert").allTextContents(),
+        await dialog.locator("body").innerText(),
+        await app.evaluate(({ BrowserWindow }) =>
+          BrowserWindow.getAllWindows().map((window) => ({
+            url: window.webContents.getURL(),
+            visible: window.isVisible(),
+            focused: window.isFocused(),
+            bounds: window.getBounds(),
+          })),
+        ),
+      );
+      throw error;
+    }
+    await expect(dialog.locator('[data-state="running"]')).toContainText(
+      "Running agy plugin install",
+    );
+    await expect(dialog.getByRole("button", { name: "Close", exact: true })).toBeDisabled();
+    await dialog.keyboard.press("Escape");
+    await expect(dialog.getByRole("list", { name: "Plugin setup steps" })).toBeVisible();
+    const capture = async (state) => {
+      if (process.env.FOOM_AGY_SCREENSHOTS)
+        await dialog.screenshot({ path: evidencePath(`agy-progress-999/${mode}-${state}.png`) });
+    };
+    await capture("progress");
+    await rm(hold);
+    await expect(dialog.locator(".plugin-receipt")).toHaveText(
+      "✓ Installed Foom observer v5 · enabled",
+    );
+    await expect(dialog.locator(".plugin-command")).toContainText(/exit 0 · [0-9.]+ s/u);
+    await assertAccessible(dialog);
+    await capture("success");
+    await dialog.getByRole("button", { name: "Done", exact: true }).click();
+    await expect(row.getByRole("status")).toContainText("Installed Foom observer v5");
+    await writeFile(path.join(plugins, "fail-install"), "");
+    await row.getByRole("button", { name: "Reinstall plugin", exact: true }).click();
+    await dialog.getByRole("button", { name: "Reinstall plugin", exact: true }).click();
+    await expect(dialog.locator('[data-state="failed"]')).toContainText(
+      "Running agy plugin install",
+    );
+    await expect(dialog.locator(".plugin-receipt")).toContainText("Uninstalled the old version");
+    await expect(dialog.locator(".plugin-command")).toHaveCount(2);
+    await expect(dialog.locator(".plugin-command").last()).toContainText("exit 7");
+    await expect(dialog.locator("body")).not.toContainText("UNTRUSTED CLI OUTPUT");
+    await assertAccessible(dialog);
+    await capture("failure");
+    await dialog.getByRole("button", { name: "Done", exact: true }).click();
+    await expect(row.getByRole("status")).toContainText("Uninstalled the old version");
+    await expect(row.getByRole("button", { name: "Install", exact: true })).toBeEnabled();
+    await page.getByRole("button", { name: "Scan again", exact: true }).click();
+    await expect(row.getByRole("status")).toHaveCount(0);
+  });
+}

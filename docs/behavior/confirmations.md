@@ -66,6 +66,13 @@ for the visible one to close. Checking and fetching keep Delete disabled and sho
 the current checking state; neither a queued review nor a background cleanup
 grants approval to another removal.
 
+Plugin setup keeps the same dialog after Install, Reinstall, Update, Enable or
+Remove. Fixed steps use symbols and labels for pending, running, done and failed.
+Close is disabled until setup finishes; Escape and native close also wait. The
+receipt shows the resulting observer version, enabled state, installation location
+and each mutation command's exit status and duration. CLI output is never shown.
+Done returns to Settings, where Scan again and the available plugin actions remain.
+
 When an agent removal finishes while its review is visible or waiting, that item
 leaves the review automatically. Other pending items still need approval. If none
 remain, the dialog closes and the board becomes usable without an extra click.

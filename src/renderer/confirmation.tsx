@@ -323,6 +323,7 @@ export function ConfirmationPage() {
     }
   }, [request, closeWhenCompleted]);
   if (!request) return null;
+  const plugin = request.pluginSetup;
   const cleanup = request.cleanup;
   const forceCleanup =
     cleanup?.stage === "ready" &&
@@ -335,6 +336,7 @@ export function ConfirmationPage() {
     (cleanup?.stage === "ready" && cleanup.progress.total === 0) ||
     (running && cleanup.progress.stopped);
   const answer = (accepted: boolean) => {
+    if (plugin?.phase === "running") return;
     window.confirmation.answer(
       request.id,
       accepted && request.removals ? request.removals.map((item) => item.id) : accepted,
@@ -409,6 +411,55 @@ export function ConfirmationPage() {
         </header>
         <div className="confirmation-content" tabIndex={0} role="region" aria-label="Details">
           <div ref={bodyRef}>
+            {plugin && (
+              <div className="plugin-progress" aria-live="polite">
+                {plugin.phase !== "success" && (
+                  <ol aria-label="Plugin setup steps">
+                    {plugin.steps.map((step) => (
+                      <li key={step.id} data-state={step.state}>
+                        <span aria-label={step.state}>
+                          {step.state === "done"
+                            ? "✓"
+                            : step.state === "running"
+                              ? "●"
+                              : step.state === "failed"
+                                ? "×"
+                                : "○"}
+                        </span>
+                        {step.label}
+                      </li>
+                    ))}
+                  </ol>
+                )}
+                {plugin.receipt && (
+                  <p className={`plugin-receipt ${plugin.phase}`}>
+                    <span aria-hidden="true">{plugin.phase === "success" ? "✓ " : "× "}</span>
+                    {plugin.receipt}
+                  </p>
+                )}
+                {plugin.phase !== "running" && (
+                  <>
+                    <p className="plugin-location">{plugin.location}</p>
+                    {plugin.commands.map((command, index) => (
+                      <p
+                        className="plugin-command"
+                        title={command.title}
+                        aria-label={
+                          command.title
+                            ? `${command.title} · ${command.exit === null ? "no exit status" : `exit ${String(command.exit)}`} · ${(command.durationMs / 1000).toFixed(1)} s`
+                            : undefined
+                        }
+                        key={`${String(index)}:${command.command}`}
+                      >
+                        {command.command} ·{" "}
+                        {command.exit === null ? "no exit status" : `exit ${String(command.exit)}`}{" "}
+                        · {(command.durationMs / 1000).toFixed(1)} s
+                      </p>
+                    ))}
+                  </>
+                )}
+              </div>
+            )}
             {cleanup && (
               <div className="cleanup" aria-live="polite">
                 {cleanup.error && <p>{cleanup.error}</p>}
@@ -665,17 +716,22 @@ export function ConfirmationPage() {
           <button
             type="button"
             ref={cancelRef}
+            disabled={plugin?.phase === "running"}
             onClick={() => {
               answer(false);
             }}
           >
-            {request.removals
-              ? "Decline"
-              : finished
-                ? "Done"
-                : running
-                  ? "Hide"
-                  : (request.cancel ?? "Cancel")}
+            {plugin
+              ? plugin.phase === "running"
+                ? "Close"
+                : "Done"
+              : request.removals
+                ? "Decline"
+                : finished
+                  ? "Done"
+                  : running
+                    ? "Hide"
+                    : (request.cancel ?? "Cancel")}
           </button>
           {request.removals && (
             <button
@@ -697,7 +753,7 @@ export function ConfirmationPage() {
                 : "Approve selected"}
             </button>
           )}
-          {!finished && (
+          {!finished && !plugin && (
             <button
               type="button"
               disabled={disabled || (deadline !== undefined && now >= deadline)}
