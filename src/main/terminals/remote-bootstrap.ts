@@ -1,6 +1,7 @@
 import { LaunchFailure } from "../../shared/launch-failure";
 import { remotePath } from "../../shared/remote-agent-protocol";
 import { ApplicationError } from "../../shared/application-errors";
+import type { HostCheck, HostConnectionChecks } from "../../shared/registered-hosts.d";
 import type { RemoteTarget } from "../../shared/remote-host";
 import { constants } from "node:fs";
 import { open } from "node:fs/promises";
@@ -47,16 +48,43 @@ async function boundedFile(path: string, limit: number): Promise<Buffer> {
     await fd.close();
   }
 }
+// Retain one content-addressed verification, including concurrent readers. Each
+// caller still opens bounded, non-symlink files and hashes their current bytes;
+// neither a path nor file timestamps establish trust. Sharing the verified buffers
+// avoids expanding a full Node SEA for every short-lived management connection.
+let verifiedArtifact: { key: string; value: ReturnType<typeof verifyArtifact> } | undefined;
+
 export async function hostArtifact(path: string, expectedSource?: string) {
   if (!isAbsolute(path)) throw new Error("Host artifact must be absolute");
   const stored = await boundedFile(path, 200 * 1024 * 1024);
   const compressed = path.endsWith(".gz");
+  const manifest = await boundedFile(join(dirname(path), "manifest.json"), 4096);
+  const key = createHash("sha256")
+    .update(stored)
+    .update(manifest)
+    .update(JSON.stringify([stored.length, manifest.length, compressed, expectedSource]))
+    .digest("hex");
+  if (verifiedArtifact?.key === key) return verifiedArtifact.value;
+  const value = verifyArtifact(stored, compressed, manifest, expectedSource).catch(
+    (error: unknown) => {
+      if (verifiedArtifact?.key === key) verifiedArtifact = undefined;
+      throw error;
+    },
+  );
+  verifiedArtifact = { key, value };
+  return value;
+}
+
+async function verifyArtifact(
+  stored: Buffer,
+  compressed: boolean,
+  manifest: Buffer,
+  expectedSource?: string,
+) {
   const bytes = compressed
     ? await promisify(gunzip)(stored, { maxOutputLength: 200 * 1024 * 1024 })
     : stored;
-  const value: unknown = JSON.parse(
-    (await boundedFile(join(dirname(path), "manifest.json"), 4096)).toString("utf8"),
-  );
+  const value: unknown = JSON.parse(manifest.toString("utf8"));
   if (
     typeof value !== "object" ||
     value === null ||
@@ -254,7 +282,9 @@ export async function selectHostArtifact(
   ),
   metadata = join(__dirname, "../../build-metadata.json"),
   signal?: AbortSignal,
+  observe?: (stage: keyof HostConnectionChecks, result: HostCheck) => void,
 ) {
+  let missingArtifact = false;
   let expectedSource: string | undefined;
   if (!target.artifact) {
     try {
@@ -271,7 +301,9 @@ export async function selectHostArtifact(
         throw new ApplicationError("remote-host-unavailable");
       expectedSource = value.source;
     } catch {
-      throw new ApplicationError("remote-host-unavailable");
+      observe?.("artifact", { state: "fail", reason: "artifact-unavailable" });
+      if (!observe) throw new ApplicationError("remote-host-unavailable");
+      missingArtifact = true;
     }
   }
   const { stdout } = await promisify(execFile)(
@@ -286,21 +318,67 @@ export async function selectHostArtifact(
       ...(signal ? { signal } : {}),
     },
   ).catch(() => {
+    observe?.("ssh", { state: "fail", reason: "unreachable" });
     throw new LaunchFailure("remote_host_unreachable");
   });
-  const remote = remotePlatform(stdout);
+  observe?.("ssh", { state: "pass" });
+  let remote: ReturnType<typeof remotePlatform>;
+  try {
+    remote = remotePlatform(stdout);
+  } catch (error) {
+    observe?.("platform", { state: "fail", reason: "unsupported" });
+    throw error;
+  }
+  if (observe && remote.platform === "linux") {
+    const libc = await promisify(execFile)(
+      "ssh",
+      [...sshArguments(target.host), "sh", "-c", `'${LINUX_LIBC_CHECK.replaceAll("'", "'\\''")}'`],
+      {
+        env: sshEnvironment(),
+        shell: false,
+        timeout: 10000,
+        maxBuffer: 256,
+        encoding: "utf8",
+        ...(signal ? { signal } : {}),
+      },
+    )
+      .then(() => undefined)
+      .catch((error: unknown) => {
+        const output =
+          error instanceof Error && "stdout" in error && typeof error.stdout === "string"
+            ? error.stdout
+            : "";
+        return output.includes("FOOM-LIBC-TOO-OLD")
+          ? ("libc-too-old" as const)
+          : output.includes("FOOM-LIBC-UNSUPPORTED")
+            ? ("libc-unsupported" as const)
+            : ("unreachable" as const);
+      });
+    if (libc === "unreachable") {
+      observe("ssh", { state: "fail", reason: "unreachable" });
+      observe("platform", { state: "not-checked" });
+      throw new LaunchFailure("remote_host_unreachable");
+    }
+    observe("platform", libc ? { state: "fail", reason: libc } : { state: "pass" });
+    if (libc) throw new UnsupportedRemotePlatform("Unsupported remote host platform");
+  } else observe?.("platform", { state: "pass" });
+  if (missingArtifact) throw new ApplicationError("remote-host-unavailable");
   const artifact = await hostArtifact(
     target.artifact ?? join(catalog, `${remote.platform}-${remote.arch}`, "foom-host.gz"),
     expectedSource,
   ).catch(() => {
+    observe?.("artifact", { state: "fail", reason: "artifact-unavailable" });
     throw new ApplicationError("remote-host-unavailable");
   });
   if (
     artifact.version !== expectedVersion ||
     artifact.platform !== remote.platform ||
     artifact.arch !== remote.arch
-  )
+  ) {
+    observe?.("artifact", { state: "fail", reason: "version-mismatch" });
     throw new LaunchFailure("remote_artifact_mismatch");
+  }
+  observe?.("artifact", { state: "pass" });
   return artifact;
 }
 

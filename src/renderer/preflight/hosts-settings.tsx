@@ -21,6 +21,7 @@ const reasons: Record<HostFailure, string> = {
   "libc-too-old": "Unsupported host: glibc 2.28 or newer is required",
   "libc-unsupported": "Unsupported host: glibc is required (musl is unsupported)",
   "artifact-unavailable": "Remote host artifact unavailable in this local build",
+  "folder-missing": "Code folder does not exist",
   "folder-refused": "Code folder unavailable",
   "unsafe-folder": "Code folder ownership or permissions are unsafe",
   "origin-unavailable": "Repository origin unavailable",
@@ -37,7 +38,9 @@ function Result({ result }: { result: HostResult | undefined }) {
     <span role="status" className={result && !result.ok ? "hosts-failure" : ""}>
       {result
         ? result.ok
-          ? "Connection ready · Code folder checked"
+          ? result.facts.folder?.state === "fail"
+            ? reasons[result.facts.folder.reason]
+            : "Connection ready · Code folder checked"
           : reasons[result.reason]
         : "Not checked"}
     </span>
@@ -84,7 +87,7 @@ export function HostsSettings({
         setState(next);
         if (next.recipeFailure) setError("Recipe unavailable for this host");
         if (action.action === "test" || action.action === "add") setTested(next.result);
-        if (action.action === "add" && next.result?.ok) {
+        if (action.action === "add" && next.hosts.some((entry) => entry.host === action.host)) {
           setAdding(false);
           setHost("");
           setFolder("~/foom");
@@ -161,7 +164,7 @@ export function HostsSettings({
             </button>
             <button
               type="button"
-              disabled={!tested?.ok}
+              disabled={!host.trim()}
               onClick={() => {
                 void act({ action: "add", host, codeFolder: folder });
               }}
@@ -225,6 +228,19 @@ export function HostsSettings({
             />
           </code>
           <Result result={entry.result} />
+          {entry.result?.ok &&
+            entry.result.facts.folder?.state === "fail" &&
+            entry.result.facts.folder.reason === "folder-missing" && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  void act({ action: "create-folder", host: entry.host });
+                }}
+              >
+                Create folder
+              </button>
+            )}
           {entry.foreignWorktrees !== undefined && <p>{entry.foreignWorktrees} other worktrees</p>}
           {entry.foreignSessions !== undefined && (
             <div className="host-facts">

@@ -369,7 +369,7 @@ export function serveHost(
           return;
         }
         negotiated = true;
-        await send(socket, { type: "hello", build, compatible: 2, hostFacts: 1 });
+        await send(socket, { type: "hello", build, compatible: 2, hostFacts: 1, hostPreflight: 1 });
         return;
       }
       if (message.type === "hello") throw new Error("Repeated negotiation");
@@ -528,7 +528,7 @@ export function serveHost(
       if (message.type === "manage") {
         if (id !== undefined) throw new Error("Session already open");
         const mutation =
-          (message.operation === "inspect" && !message.readOnly) || // Enrollment may create the approved folder.
+          message.operation === "create-folder" ||
           message.operation === "clone" ||
           message.operation === "create-worktree" ||
           message.operation === "remove-worktree";

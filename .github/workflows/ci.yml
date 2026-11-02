@@ -216,7 +216,7 @@ jobs:
           fi
           # Permit Chromium's user-namespace sandbox on this ephemeral CI runner.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-      # The full suite runs as four disjoint, duration-balanced named-test shards.
+      # The full suite uses four Linux, five Windows and six macOS named-test shards.
       # See docs/electron-shards.md for measurements and the checked-in plan.
       # Per-test deadlines and the Electron worker watchdog still bound hangs.
       - name: Test Electron on Linux

@@ -38,7 +38,18 @@ need you; Show clears the filter. Collapsed repository rows show their worktree 
 most urgent state; collapsed worktrees show the same roll-up. Urgency is Needs you, Failed,
 Working, Done, then Quiet. The main checkout is labeled **Main checkout**, with its branch on a secondary line and a folder icon.
 Session breadcrumbs also call it **Main checkout**. Other worktrees
-have a branch icon. Pins and repository/worktree expansion choices persist.
+have a branch icon. Pins and session names persist and are shared across windows.
+Delayed actions merge only their expansion edits into the latest window state, so
+choices made while an action is pending are retained.
+Repository/worktree expansion saves with each window’s tile layout and survives
+restart independently. New windows use the defaults below, without copying another
+window. Existing saved windows, including blank windows without saved tiles, inherit the former shared expansion map once, then
+diverge. Revealing rows expands ancestors only in the requesting window; filtering
+expands matches temporarily in that window. Removed repository and worktree choices
+are pruned after workspace and sidebar inventory load successfully (locations with
+retained sessions remain visible). Pending or failed initial sidebar loads preserve
+saved expansion choices. Unavailable repository membership retains worktree choices
+until recovery.
 Repositories with running sessions start expanded; idle repositories start collapsed.
 With one repository, everything starts expanded.
 Clicking or pressing Enter on a repository, main-checkout or worktree name opens its panel

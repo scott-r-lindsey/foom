@@ -297,11 +297,13 @@ See the [channel and privacy policy](../product.md#updates-603).
 
 ## Hosts and repository locations (#757 PR 1)
 
-Hosts adds an SSH alias or user@host after Test connection and a code-folder
-check. The folder defaults to `~/foom`. Each row has Refresh and Remove, daemon
+Hosts adds an SSH alias or user@host, including an incomplete host. Test connection
+and Check folder never create directories. The folder defaults to `~/foom`; a missing
+folder offers Create folder after enrollment. Each row has Refresh and Remove, daemon
 version, live sessions, CPU cores/load average, total/available memory and agents.
 Ready means installed and probeable; Not found and Unable to check are fixed
-states. Foom does not check sign-in. Remove forgets the host without stopping sessions.
+states. Declared bounded status probes report sign-in separately. Remove forgets
+the host without stopping sessions.
 
 Repositories shows Local plus registered hosts, each checkout's path and state,
 and Clone here where absent. Clones use that repository's own origin and the

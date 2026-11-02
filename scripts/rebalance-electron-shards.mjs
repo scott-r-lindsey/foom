@@ -80,12 +80,14 @@ export function readMeasurements(sources, platforms, names, count) {
     if (!/^\d+$/.test(basename(source)))
       throw new Error(`Source must be a numeric Actions run ID: ${source}`);
     for (const [index, platform] of platforms.entries()) {
+      const sourceCount = count instanceof Map ? count.get(basename(source)) : count;
+      const expectedCount = Array.isArray(sourceCount) ? sourceCount[index] : sourceCount;
       const reports = readdirSync(source)
         .filter((name) => name.startsWith(`electron-results-${platform}-`))
         .sort();
-      if (reports.length !== count)
+      if (reports.length !== expectedCount)
         throw new Error(
-          `Expected ${count} ${platform} reports in ${source}, got ${reports.length}`,
+          `Expected ${expectedCount} ${platform} reports in ${source}, got ${reports.length}`,
         );
       const seen = new Set();
       for (const report of reports) {
@@ -182,12 +184,46 @@ export function writePlan(path, plan) {
   }
 }
 
+// Historical runs may use a different matrix than the current plan. Explicit
+// per-run counts keep missing artifacts from being mistaken for an older matrix.
+export function measurementCounts(sources, defaults, options) {
+  let fallback = defaults;
+  const overrides = new Map();
+  let globalSeen = false;
+  const ids = sources.map((source) => basename(source));
+  for (const option of options) {
+    const parts = option.split(":");
+    const id = parts.length === 2 ? parts[0] : undefined;
+    const values = parts.at(-1).split(",");
+    if (
+      parts.length > 2 ||
+      !(values.length === 1 || values.length === defaults.length) ||
+      values.some((value) => !/^(?:[1-9]|1[0-6])$/.test(value)) ||
+      (id !== undefined && (!ids.includes(id) || overrides.has(id))) ||
+      (id === undefined && globalSeen)
+    )
+      throw new Error(`Invalid or duplicate source shard counts: ${option}`);
+    const counts = values.length === 1 ? defaults.map(() => Number(values[0])) : values.map(Number);
+    if (id === undefined) {
+      fallback = counts;
+      globalSeen = true;
+    } else overrides.set(id, counts);
+  }
+  return new Map(ids.map((id) => [id, overrides.get(id) ?? fallback]));
+}
+
 function main(args) {
   const sources = [
-    ...new Set(args.filter((arg) => arg !== "--write").map((arg) => resolve(arg))),
+    ...new Set(
+      args
+        .filter((arg) => arg !== "--write" && !arg.startsWith("--source-shards="))
+        .map((arg) => resolve(arg)),
+    ),
   ].sort();
   if (!sources.length || sources.some((source) => basename(source).startsWith("--"))) {
-    throw new Error("Usage: node scripts/rebalance-electron-shards.mjs RUN_DIR... [--write]");
+    throw new Error(
+      "Usage: node scripts/rebalance-electron-shards.mjs RUN_DIR... [--write] [--source-shards=[RUN_ID:]N[,N...]]",
+    );
   }
   const planPath = resolve(root, "tests/electron/shard-plan.json");
   const old = JSON.parse(readFileSync(planPath, "utf8"));
@@ -203,19 +239,31 @@ function main(args) {
     });
   }
   if (new Set(names).size !== names.length) throw new Error("Duplicate current test registration");
-  const durations = readMeasurements(sources, old.platforms, names, old.shards.length);
-  const shards = balance(durations, old.shards.length);
+  const counts = old.platforms.map((platform) => old.shardCounts[platform]);
+  const sourceCounts = measurementCounts(
+    sources,
+    counts,
+    args
+      .filter((arg) => arg.startsWith("--source-shards="))
+      .map((arg) => arg.slice("--source-shards=".length)),
+  );
+  const durations = readMeasurements(sources, old.platforms, names, sourceCounts);
+  const shards = Object.fromEntries(
+    [...new Set(counts)].map((count) => [count, balance(durations, count)]),
+  );
   console.info(
     `${names.length} current cases; per-platform maxima across ${sources.length} runs (seconds)`,
   );
-  for (const [label, assignments] of [
-    ["Before (including hash fallback)", old.shards],
-    ["After", shards],
-  ]) {
-    console.info(label);
-    projectedTotals(assignments, durations, old.platforms.length).forEach((totals, p) =>
-      console.info(`  ${old.platforms[p]}: ${totals.join(" / ")}`),
-    );
+  for (const [count, assignments] of Object.entries(shards)) {
+    for (const [label, plan] of [
+      ["Before (including hash fallback)", old.shards[count]],
+      ["After", assignments],
+    ]) {
+      console.info(`${count} shards: ${label}`);
+      projectedTotals(plan, durations, old.platforms.length).forEach((totals, p) =>
+        console.info(`  ${old.platforms[p]}: ${totals.join(" / ")}`),
+      );
+    }
   }
   if (args.includes("--write")) {
     writePlan(planPath, {

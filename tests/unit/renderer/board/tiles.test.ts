@@ -978,3 +978,16 @@ test("tile removal chooses Hide for live sessions and exited resumable agents on
     expect(tileRemovalAction({ ...row, kind, exited: false }, true)).toBe("close");
   }
 });
+
+test("window expansion restores only boolean entries with bounded identities", () => {
+  const layout = initialLayout();
+  const raw = (sidebarExpanded: unknown) =>
+    JSON.stringify({ version: 2, ...layout, sidebarExpanded });
+  expect(
+    restoreLayout(
+      raw({ "repository:/a": false, "worktree:/a": true, bad: "true", ["x".repeat(4097)]: true }),
+    ).sidebarExpanded,
+  ).toEqual({ "repository:/a": false, "worktree:/a": true });
+  for (const value of [null, [], "bad"])
+    expect(restoreLayout(raw(value)).sidebarExpanded).toEqual({});
+});

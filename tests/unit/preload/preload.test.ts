@@ -671,12 +671,14 @@ test("main-generated window arguments scope metadata without exposing paths", as
   process.argv = [
     ...original,
     "--foom-window-id=window-2",
+    "--foom-window-restored=true",
     "--foom-window-number=2",
     "--foom-initial-session=terminal-1",
   ];
   try {
     const api = (await bridge()).windows;
     expect(api?.id).toBe("window-2");
+    expect(api?.restored).toBe(true);
     expect(api?.number).toBe(2);
     expect(api?.initialSession).toBe("terminal-1");
   } finally {
@@ -1668,3 +1670,57 @@ test.each([
   mock.invoke.mockResolvedValue(withUndeclaredFields(value));
   await expect(api.hosts({ action: "list" })).resolves.toEqual(value);
 });
+
+test("preflight bridge validates and rebuilds every partial observation", async () => {
+  const api = await bridge();
+  const result = { ok: false, reason: "folder-refused" };
+  const check = { state: "fail", reason: "artifact-unavailable" };
+  const value = {
+    hosts: [{ host: "worker", codeFolder: "~/code" }],
+    locations: [],
+    preflight: {
+      ssh: { state: "pass" },
+      platform: { state: "not-checked" },
+      artifact: check,
+      result,
+      repositories: [
+        { repository: "/repo", origin: { state: "fail", reason: "origin-auth" }, checkout: result },
+      ],
+    },
+  };
+  mock.invoke.mockResolvedValue(withUndeclaredFields(value));
+  await expect(
+    api.hosts({ action: "preflight", host: "worker", codeFolder: "~/code" }),
+  ).resolves.toEqual(value);
+  for (const bad of [
+    { ...value.preflight, ssh: { state: "raw" } },
+    { ...value.preflight, artifact: { state: "fail", reason: "secret" } },
+    {
+      ...value.preflight,
+      repositories: [
+        {
+          repository: "/repo",
+          origin: { state: "pass" },
+          checkout: { ok: false, reason: "secret" },
+        },
+      ],
+    },
+  ]) {
+    mock.invoke.mockResolvedValue({ ...value, preflight: bad });
+    await expect(api.hosts({ action: "list" })).rejects.toThrow();
+  }
+});
+
+test.each([undefined, "false", "yes"])(
+  "window restore hint rejects absent or nontrue values (%s)",
+  async (value) => {
+    const original = process.argv;
+    process.argv =
+      value === undefined ? original : [...original, `--foom-window-restored=${value}`];
+    try {
+      expect((await bridge()).windows?.restored).toBe(false);
+    } finally {
+      process.argv = original;
+    }
+  },
+);

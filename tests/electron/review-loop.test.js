@@ -1,4 +1,5 @@
 const { evidencePath } = require("../helpers/evidence.js");
+const { sizeTileBoard } = require("./tile-fixture.js");
 const { launchTrustedParent } = require("./agent-fixture.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
@@ -339,6 +340,7 @@ for (const scenario of [
         // Keep the parent visible while another tile owns focus across restart.
         await parentRow.locator(":scope > .board-row").click();
         await expect(childTile).toHaveCount(0);
+        await sizeTileBoard(app, page);
         await page.evaluate(() => window.desktop.appMenu.execute("split-right"));
         await expect(page.locator(".terminal-tile")).toHaveCount(2);
         await page.locator(`[data-drag-session="${ids[0]}"]`).click();

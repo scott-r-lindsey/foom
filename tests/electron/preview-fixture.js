@@ -1,3 +1,4 @@
+const { sizeTileBoard } = require("./tile-fixture.js");
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const { writeFile } = require("node:fs/promises");
@@ -147,6 +148,7 @@ async function typeIntoFocusedContents(app, text, allowNoFocus = false) {
 async function composedPreview(context, borderWidth = 1, content, file = "overlay.html") {
   const app = await launchApp(context, { fixture: "running-shell" });
   const page = await boardPage(app);
+  await sizeTileBoard(app, page);
   const terminal = (await page.evaluate(() => window.desktop.workspace())).terminals[0];
   await writeFile(
     path.join(terminal.worktree, file),

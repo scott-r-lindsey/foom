@@ -23,11 +23,16 @@ export function requiresDesktop(paths) {
 /** Every run, including draft pull requests, validates all three platforms. */
 export const allPlatforms = ["ubuntu-24.04", "windows-2025", "macos-15"];
 
-/** Every platform needs four duration-balanced shards to keep each Electron step inside its timeout. */
+const { shardCounts } = JSON.parse(
+  readFileSync(new URL("../tests/electron/shard-plan.json", import.meta.url), "utf8"),
+);
+
+/** Platform counts follow the measured headroom in the checked-in plan. */
 export function desktopMatrix(platforms = allPlatforms) {
-  return platforms.flatMap((os) =>
-    Array.from({ length: 4 }, (_, index) => ({ os, shard: `${index + 1}/4` })),
-  );
+  return platforms.flatMap((os) => {
+    const count = shardCounts[os];
+    return Array.from({ length: count }, (_, index) => ({ os, shard: `${index + 1}/${count}` }));
+  });
 }
 
 export function detectDesktop(

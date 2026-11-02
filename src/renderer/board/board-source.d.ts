@@ -65,6 +65,8 @@ export interface BoardSource {
   confirmations?: ConfirmationClient;
   readonly isDevelopment?: boolean;
   isReady?: () => boolean;
+  /** False until the first successful sidebar inventory; unknown locations must not be pruned. */
+  isSidebarReady?: () => boolean;
   connect?: (errors?: BackgroundErrorReporter) => () => void;
   createView?: () => TerminalViewSource;
   getSidebar?: () => SidebarRepository[] | readonly SidebarRepository[];

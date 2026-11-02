@@ -30,7 +30,7 @@ attached stream. Host generations continue to reject delayed output acknowledgem
 `windows.json`. Each record has a stable random ID, display ID, normal bounds,
 and maximized flag. Legacy interface scales are read only for migration. Restore clamps geometry to a connected display,
 falling back to the primary. The preload receives only its window ID and optional
-pop-out terminal ID as main-generated arguments; it receives no profile paths.
+pop-out terminal ID as main-generated arguments; it receives no profile paths. A fixed boolean restore hint distinguishes saved windows (including blank ones without tile metadata) from new windows for one-time sidebar expansion migration.
 Each window uses its ID to namespace validated localStorage tile metadata, including the sidebar collapse choice and expanded width. New windows start expanded at 300px; the narrow rail override and temporary overlay do not change that choice. The
 legacy size file remains a fallback for the first window. Global settings retain
 one writer, including one app-wide interface scale. Every window applies the shared scale with its own remembered 100% size; only the requesting window uses the pointer anchor. The shared setting wins on migration, falling back to the first saved window’s scale. Setup scans and confirmations stay local to their requesting window. Removal

@@ -10,7 +10,7 @@ current tooling and CI graph. See the [documentation map](README.md) for other e
 
 Real-app integration tests are split into discovered feature suites, with a separate
 packaged smoke test. See [Electron test layout and sharding](electron-shards.md)
-for suite ownership, four named-test shards per platform and local commands, and
+for suite ownership, four Linux, five Windows and six macOS named-test shards and local commands, and
 [explicit Electron fixtures](electron-fixtures.md) for fixture selection and timing.
 On Linux, wrap Electron and packaged-smoke commands in `xvfb-run -a`.
 
@@ -108,8 +108,8 @@ shell removal on native exit and shutdown.
 
 ## Refreshing the Electron shard plan
 
-Use Node 24 and installed dependencies. Download all twelve `electron-results-*`
-artifacts per selected recent passing CI run. Keep numeric run-ID directories and
+Use Node 24 and installed dependencies. Download every `electron-results-*` artifact per selected recent passing CI run
+(fifteen for the current matrix, fourteen for the earlier four/five/five matrix, and twelve for historical four-shard runs). Keep numeric run-ID directories and
 artifact subdirectories intact, outside the repository or under ignored
 `test-results/`. Use a fresh source directory for each refresh:
 
@@ -119,8 +119,8 @@ for run in 39918020774 39946804406 39970696968 39973853488 39981523976; do
     --dir "test-results/rebalance/sources/$run"
 done
 # Preview with the same measurements for both assignments, then regenerate:
-node scripts/rebalance-electron-shards.mjs test-results/rebalance/sources/*
-node scripts/rebalance-electron-shards.mjs test-results/rebalance/sources/* --write
+node scripts/rebalance-electron-shards.mjs test-results/rebalance/sources/* --source-shards=4
+node scripts/rebalance-electron-shards.mjs test-results/rebalance/sources/* --source-shards=4 --write
 pnpm run format
 node --require ./tests/helpers/setup.js --test scripts/electron-shard.test.mjs
 ```
@@ -130,6 +130,15 @@ platforms. The script rejects failed cases, missing reports and unmeasured curre
 cases. It takes each case's maximum duration per platform and includes hash
 assignments for previously unplanned cases in the before projection. Review balance
 and headroom under the 600s Linux / 840s Windows and macOS step limits.
+The examples select historical four-shard inputs with `--source-shards=4`. Omit
+that option for current runs with four Linux, five Windows and six macOS shards. Each source run must have the expected report count per platform.
+When combining old and current matrices, specify per-run counts explicitly. For
+example, `--source-shards=4 --source-shards=41409300263:4,5,5` uses four reports
+per platform for historical sources and four/five/five for that newer run, in
+`platforms` order from the plan. Options can appear in any order. Unknown run IDs,
+duplicate overrides, invalid counts and missing artifacts fail; the tool never
+infers a smaller matrix from missing reports.
+
 Case sums exclude build/runner overhead; compare actual CI step times before
 calling the refresh validated. Regenerate after incorporating new tests from main
 and run full contributor validation. See the [sharding guide](electron-shards.md)

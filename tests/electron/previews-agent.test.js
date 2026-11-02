@@ -1,3 +1,4 @@
+const { sizeTileBoard } = require("./tile-fixture.js");
 const { evidencePath } = require("../helpers/evidence.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
 const { test } = require("./test-shard.js");
@@ -190,6 +191,7 @@ test("an agent fixture opens full-board previews in columns, retains focus and r
 }, async (context) => {
   const { app, page, repo, agent, shell, credentials, requestPreview } =
     await agentPreviewFixture(context);
+  await sizeTileBoard(app, page, 2400);
   const { existsSync } = require("node:fs");
   await page.evaluate(
     ({ shellId }) => {

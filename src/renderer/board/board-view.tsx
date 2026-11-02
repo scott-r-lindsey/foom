@@ -28,8 +28,19 @@ import {
   useBackgroundErrors,
 } from "./error-presentation";
 import { SidebarControls } from "./sidebar-controls";
-import { repositoryKey, rowRepository, rowWorktree, worktreeKey } from "./sidebar-model";
-import { createPreferencesStore, renameSession } from "./sidebar-preferences";
+import {
+  repositoryKey,
+  rowRepository,
+  rowWorktree,
+  worktreeKey,
+  sidebarRepositories,
+} from "./sidebar-model";
+import {
+  createPreferencesStore,
+  renameSession,
+  pruneExpansion,
+  mergeExpansion,
+} from "./sidebar-preferences";
 import { Sidebar } from "./sidebar-view";
 import { TileArea } from "./tile-area";
 import {
@@ -168,9 +179,6 @@ function BoardContents({
     otherViews,
     layout,
     boardRef,
-    fontSizeRef,
-    fontFamilyRef,
-    focusedAtRef,
     layoutRef,
     focusRequest,
     setFocusRequest,
@@ -187,21 +195,44 @@ function BoardContents({
     setRemoveError,
   });
   const [preferencesStore] = useState(() => createPreferencesStore(localStorage, window));
-  const preferences = useSyncExternalStore(
+  const sharedPreferences = useSyncExternalStore(
     preferencesStore.subscribe,
     preferencesStore.getSnapshot,
   );
+  const preferences = { ...sharedPreferences, expanded: layout.sidebarExpanded ?? {} };
   const revealRef = useRef<(row: BoardRow) => void>(undefined);
   const newWorktreeRef = useRef<(repository?: string) => boolean>(undefined);
   const options = useBoardOptions(source, inactive, settingsOpen);
   const save = (next: typeof preferences) => {
     try {
-      preferencesStore.save(preferences, next);
+      if (next.expanded !== preferences.expanded) {
+        const current = layoutRef.current;
+        const expanded = mergeExpansion(
+          current.sidebarExpanded ?? {},
+          preferences.expanded,
+          next.expanded,
+        );
+        if (expanded !== current.sidebarExpanded)
+          changeLayout({ ...current, sidebarExpanded: expanded });
+      }
+      preferencesStore.save(sharedPreferences, next);
       clearBackground("sidebar-preferences");
     } catch {
       reportBackground("sidebar-preferences", "Unable to save sidebar preferences.");
     }
   };
+  useEffect(() => {
+    if (source.isReady?.() === false || source.isSidebarReady?.() === false) return;
+    const current = layoutRef.current;
+    const repositories = sidebarRepositories(
+      rows.filter((row) => !row.home && !row.config),
+      source.getSidebar?.() ??
+        (source.getRepositories?.() ?? []).map((name) => ({ name, path: name, worktrees: [] })),
+    );
+    const expanded = pruneExpansion(current.sidebarExpanded ?? {}, repositories);
+    if (expanded !== current.sidebarExpanded)
+      changeLayout({ ...current, sidebarExpanded: expanded }, true);
+  }, [source, rows, layout.sidebarExpanded, changeLayout, layoutRef]);
   const [selection, setSelection] = useState(rows[0]?.id);
   const selected = rows.some((row) => row.id === selection) ? selection : rows[0]?.id;
   const buttonsRef = useRef(new Map<string, HTMLElement>());
@@ -659,24 +690,11 @@ function BoardContents({
               changeLayout({ ...layoutRef.current, focused: tile.id });
               setFocusRequest((value) => value + 1);
             } else {
-              const area = boardRef.current?.querySelector(".tile-area");
-              const probe = document.createElement("span");
-              probe.style.cssText = `position:absolute;visibility:hidden;font:${String(fontSizeRef.current)}px ${fontFamilyRef.current}`;
-              probe.textContent = "M";
-              boardRef.current?.append(probe);
-              const cell = probe.getBoundingClientRect().width || fontSizeRef.current * 0.6;
-              probe.remove();
               const next = placeContent(
                 layoutRef.current,
                 { kind: "preview", preview: id },
                 false,
-                {
-                  columns: (area?.getBoundingClientRect().width ?? 0) / cell,
-                  needsYou: new Set(
-                    rows.filter((row) => row.state === "needs_input").map((row) => row.id),
-                  ),
-                  focusedAt: focusedAtRef.current,
-                },
+                placementOptions(),
               );
               if (next) {
                 changeLayout(next);
@@ -768,6 +786,12 @@ function BoardContents({
             focusRequest={focusRequest}
             restoreFocusRequest={restoreFocusRequest}
             setLayout={changeLayout}
+            resizeLayout={(next, commit) => {
+              const count = leaves(layoutRef.current.tree).length;
+              changeLayout(next, false, !commit);
+              if (commit && leaves(layoutRef.current.tree).length < count)
+                setFocusRequest((value) => value + 1);
+            }}
             rows={rows}
             previews={previews}
             arrivals={arrivals}

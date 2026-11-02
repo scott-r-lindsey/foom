@@ -1,3 +1,4 @@
+const { sizeTileBoard } = require("./tile-fixture.js");
 const { evidencePath } = require("../helpers/evidence.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
@@ -1400,12 +1401,19 @@ test("maximized-away terminals pause paints and restore without changing attachm
 }, async (context) => {
   const app = await launchApp(context, { fixture: "running-shell" });
   const page = await boardPage(app);
+  await sizeTileBoard(app, page);
   const inventory = await page.evaluate(() => window.desktop.workspace());
   const [session] = inventory.terminals;
   const repository = inventory.repositories[0].path;
   const tile = page.locator(`.terminal-tile:has(.xterm-helper-textarea)`).first();
   const tileId = await tile.getAttribute("data-tile");
   const original = page.locator(`.terminal-tile[data-tile="${tileId}"]`);
+  await app.evaluate(({ ipcMain }, id) => {
+    globalThis.coveredParsed = 0;
+    ipcMain.on("terminal:ack", (_event, terminal, _token, count) => {
+      if (terminal === id) globalThis.coveredParsed += count;
+    });
+  }, session.id);
   await page.evaluate((id) => {
     window.coveredTokens = [];
     window.coveredUnits = 0;
@@ -1416,12 +1424,7 @@ test("maximized-away terminals pause paints and restore without changing attachm
       window.coveredUnits += data.length;
     });
   }, session.id);
-  await app.evaluate(({ ipcMain }, id) => {
-    globalThis.coveredParsed = 0;
-    ipcMain.on("terminal:ack", (_event, terminal, _token, count) => {
-      if (terminal === id) globalThis.coveredParsed += count;
-    });
-  }, session.id);
+
   const command = `${process.platform === "win32" ? "& " : ""}"${process.execPath}" "${path.join(__dirname, "streaming-buffer.js")}"\r`;
   await page.evaluate(({ id, command }) => window.desktop.input(id, command), {
     id: session.id,

@@ -1406,6 +1406,198 @@ test("removal review updates one live dialog as delayed requests arrive and expi
   }
 });
 
+// Keep presentation and completion independently gated to reproduce a stale host
+// callback: automatic removal settles while an earlier review is still outstanding.
+for (const queued of [false, true]) {
+  test(`settled automatic orchestrator removals withdraw ${queued ? "queued" : "visible"} confirmations`, {
+    timeout: deadline(60_000),
+  }, async (context) => {
+    const root = await require("node:fs/promises").realpath(
+      await mkdtemp(path.join(tmpdir(), "foom-settled-removal-")),
+    );
+    removeAfterApps(context, root);
+    const repo = path.join(root, "repo");
+    await mkdir(repo);
+    const git = (...args) =>
+      isolatedGit(["-c", "user.name=Test", "-c", "user.email=test@example.com", ...args], {
+        cwd: repo,
+      });
+    git("init", "-q", "-b", "main");
+    git("commit", "-q", "--allow-empty", "-m", "init");
+    git("clone", "--bare", repo, path.join(root, "remote.git"));
+    git("remote", "add", "origin", path.join(root, "remote.git"));
+    const app = await launchApp(context, { fixture: "empty-board" });
+    const board = await boardPage(app);
+    await app.evaluate(({ app, dialog }, repo) => {
+      const load = process
+        .getBuiltinModule("node:module")
+        .createRequire(app.getAppPath() + "/package.json");
+      const { Workspace } = load("./build/main/workspace/workspace.js");
+      const snapshot = Workspace.prototype.snapshot;
+      Workspace.prototype.snapshot = function (...args) {
+        globalThis.settledOwner = this.owner;
+        return snapshot.apply(this, args);
+      };
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
+    }, repo);
+    await board.evaluate(() => window.desktop.addRepository());
+    await board.evaluate(() => window.desktop.workspace());
+    await app.evaluate(
+      ({ app, BrowserWindow, session }, { queued, repository }) => {
+        const load = process
+          .getBuiltinModule("node:module")
+          .createRequire(app.getAppPath() + "/package.json");
+        const { TrustedDialog } = load("./build/main/confirmations/trusted-dialog.js");
+        const { Orchestration } = load("./build/main/control/orchestration.js");
+        const { Operations } = load("./build/main/control/operations.js");
+        const { ControlService } = load("./build/main/control/service.js");
+        const { resolveInterfaceTheme } = load("./build/shared/interface-themes.js");
+        const parent = BrowserWindow.getAllWindows().find(
+          (w) => w.webContents.getURL() === "app://bundle/index.html",
+        );
+        globalThis.settledTheme = "eclipse-light";
+        const dialog = new TrustedDialog(parent, session.fromPartition("confirmation"), () =>
+          resolveInterfaceTheme(globalThis.settledTheme, false),
+        );
+        globalThis.settledDialog = dialog;
+        const owner = globalThis.settledOwner;
+        owner.cleanup.configure(true);
+        const host = {
+          terminals: () => [
+            {
+              id: "parent",
+              repository,
+              worktree: repository,
+              branch: "main",
+              kind: "agent",
+              agent: "claude",
+              state: null,
+            },
+          ],
+          createWorktree: async (_repo, branch) => {
+            const tree = await owner.deps.worktrees.createWorktree(repository, branch);
+            return {
+              ...tree,
+              identity: await owner.deps.worktrees.launchIdentity(repository, tree.path),
+            };
+          },
+          dialog: (content, signal) => dialog.request(content, signal),
+          changed: () => {},
+          remove: async (_repo, tree, identity, confirm, revalidate) => {
+            // The fixture models an outstanding review before automatic eligibility
+            // completes. No production consent or deletion guard is bypassed.
+            const review = confirm(tree, "").catch(() => false);
+            await new Promise((resolve) => {
+              globalThis.settledReleases[tree] = resolve;
+            });
+            revalidate();
+            void review;
+            return owner.cleanup.removeOwnedTree(repository, tree, identity, confirm, revalidate);
+          },
+        };
+        const orchestration = new Orchestration(host);
+        let service;
+        const operations = new Operations(
+          async () => {},
+          (actor) => service.assertActive(actor),
+        );
+        service = new ControlService(operations, host.terminals, orchestration);
+        const slot = orchestration.reserve(repository);
+        const grant = service.prepare(repository, repository, "orchestrator");
+        grant.bind("parent");
+        slot.bind("parent");
+        const actor = service.authenticate(grant.env.FOOM_CONTROL_TOKEN);
+        globalThis.settledCall = (method, params) =>
+          service.call(actor, { version: 1, instanceId: service.instanceId, method, params });
+        globalThis.settledReleases = {};
+        globalThis.settledCleanup = () => {
+          dialog.dispose();
+          grant.dispose();
+        };
+        if (queued) void dialog.request({ title: "Unrelated decision", accept: "Allow" });
+      },
+      { queued, repository: repo },
+    );
+    try {
+      const trees = [];
+      for (const branch of ["merged-one", "merged-two"]) {
+        const tree = await app.evaluate(
+          (_, branch) =>
+            globalThis.settledCall("create_worktree", { branch, idempotencyKey: branch }),
+          branch,
+        );
+        trees.push(tree.resultId);
+        await app.evaluate(
+          (_, worktreeId) =>
+            globalThis.settledCall("remove_worktree", { worktreeId, idempotencyKey: worktreeId }),
+          tree.resultId,
+        );
+      }
+      let page;
+      await expect
+        .poll(async () => {
+          for (const candidate of app.windows()) {
+            if (
+              await candidate
+                .getByRole("alertdialog", {
+                  name: queued ? "Unrelated decision" : "Remove worktrees?",
+                  exact: true,
+                })
+                .count()
+            ) {
+              page = candidate;
+              return true;
+            }
+          }
+          return false;
+        })
+        .toBe(true);
+      if (!queued) await expect(page.getByRole("checkbox")).toHaveCount(2);
+      await app.evaluate(() => {
+        for (const release of Object.values(globalThis.settledReleases)) release();
+      });
+      for (const worktreeId of trees) {
+        await expect
+          .poll(() =>
+            app.evaluate(
+              (_, idempotencyKey) => globalThis.settledCall("operation_status", { idempotencyKey }),
+              worktreeId,
+            ),
+          )
+          .toMatchObject({ status: "succeeded" });
+      }
+      assert.equal(
+        git("worktree", "list", "--porcelain")
+          .toString()
+          .match(/^worktree /gm)?.length,
+        1,
+      );
+      for (const branch of ["merged-one", "merged-two"])
+        git("show-ref", "--verify", `refs/heads/${branch}`);
+      if (queued) await page.getByRole("button", { name: "Cancel", exact: true }).click();
+      await expect(page.getByRole("alertdialog")).toHaveCount(0);
+      await expect(board.locator(".board-confirmation-scrim")).toHaveCount(0);
+      await expect
+        .poll(() => app.evaluate(() => globalThis.settledDialog.pending === undefined))
+        .toBe(true);
+      for (const theme of ["light", "dark"]) {
+        await board.evaluate(
+          (theme) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${theme}` }),
+          theme,
+        );
+        await expect
+          .poll(() => board.evaluate(() => document.documentElement.style.colorScheme))
+          .toBe(theme);
+        await board.screenshot({
+          path: evidencePath(`1016-after-${queued ? "queued" : "visible"}-${theme}.png`),
+        });
+      }
+    } finally {
+      await app.evaluate(() => globalThis.settledCleanup());
+    }
+  });
+}
+
 test("config file agent arguments require trusted Allow before a fake Codex launch", {
   timeout: deadline(60_000),
 }, async (context) => {

@@ -87,6 +87,7 @@ export async function buildWindow(
       additionalArguments: [
         ...(app.isPackaged ? [] : ["--foom-development"]),
         `--foom-window-id=${windowId}`,
+        ...(placement ? ["--foom-window-restored=true"] : []),
         ...(initialSession ? [`--foom-initial-session=${initialSession}`] : []),
       ],
       webviewTag: false,

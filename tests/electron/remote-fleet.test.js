@@ -46,6 +46,10 @@ async function copyRemoteBranch(app, page, expected) {
 
 async function remoteFleet(context, agents, restart = false, reviewLoop = false) {
   const started = performance.now();
+  const reviewTiming = (stage) => {
+    if (reviewLoop)
+      context.diagnostic(`Remote review ${stage}: ${Math.round(performance.now() - started)}ms`);
+  };
   const restartTiming = (stage) => {
     if (restart)
       context.diagnostic(`Remote restart ${stage}: ${Math.round(performance.now() - started)}ms`);
@@ -155,10 +159,12 @@ notify.end(JSON.stringify({session_id:'fleet-parent-conversation',hook_event_nam
 const fs = require('node:fs'), path = require('node:path');
 const args = process.argv.slice(2), cwd = process.cwd();
 const state = JSON.parse(fs.readFileSync(${JSON.stringify(gitState)}, 'utf8'));
-if (args.includes('config')) console.log(${JSON.stringify(origin)});
+if (args.includes('--version')) console.log('git version 2.0.0');
+else if (args.includes('config')) console.log(${JSON.stringify(origin)});
 else if (args.includes('--show-toplevel')) console.log(cwd);
 else if (args.includes('--git-common-dir')) console.log(${JSON.stringify(path.join(remoteRepo, ".git"))});
 else if (args.includes('--absolute-git-dir')) console.log(path.join(${JSON.stringify(path.join(remoteRepo, ".git", "worktrees"))},path.basename(cwd)));
+else if (args.includes('ls-remote') && state.originFailure) {process.stderr.write('Permission denied (publickey). private fixture Git output'); process.exit(128);}
 else if (args.includes('ls-remote')) process.stdout.write('ref: refs/heads/main\\tHEAD\\n');
 else if (args.includes('symbolic-ref')) console.log(state[cwd]);
 else if (args.includes('worktree') && args.includes('add')) {
@@ -184,6 +190,7 @@ else process.exit(2);
       [
         "#!/bin/sh",
         'case " $* " in',
+        "  *' --version '*) printf 'git version 2.0.0\\n';;",
         "  *' config '*) printf '%s\\n' \"$FIXTURE_REMOTE_ORIGIN\";;",
         "  *' --show-toplevel '*) pwd -P;;",
         "  *' --git-common-dir '*) printf '%s/.git\\n' \"$FIXTURE_REMOTE_GIT_ROOT\";;",
@@ -287,6 +294,8 @@ const args=process.argv.slice(2), split=args.indexOf('--');
 if(args[split+1]!=='fleet-worker') process.exit(2);
 appendFileSync(${JSON.stringify(sshCalls)},'ssh\\n');
 if(args.at(-1)==='uname -s; uname -m') {process.stdout.write(require('node:os').type()+'\\n'+(process.arch==='x64'?'x86_64':process.platform==='darwin'?'arm64':'aarch64')+'\\n');process.exit(0);}
+// Standalone fixed libc preflight has no daemon protocol handshake.
+if (args.at(-1).includes('FOOM-LIBC-UNSUPPORTED') && !args.at(-1).includes('FOOM-READY')) process.exit(0);
 const {RemoteFrames}=require(${JSON.stringify(path.resolve("build/shared/remote-host-protocol.js"))});
 const frames=new RemoteFrames(), responses=new RemoteFrames(); let operation;
 const sent=bytes=>frames.push(bytes,message=>{if(message.type==='manage')operation=message.operation; if(message.type.startsWith('agent-'))appendFileSync(${JSON.stringify(launchCalls)},message.type+'\\n');});
@@ -364,6 +373,7 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
     options: launchOptions,
   });
   restartTiming("parent launched");
+  reviewTiming("parent launched");
   cleanup.apps.push(cleanup.apps.shift());
   const controlCall = async (actor, method, params = {}) => {
     const response = await fetch(actor.controlUrl, {
@@ -388,6 +398,37 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
   );
   await (await confirmationPage(app)).getByRole("button", { name: "Make orchestrator" }).click();
   await elevate;
+  // Origin preflight is host/repository behavior; exercise it once rather than
+  // repeating its SSH/bootstrap work in every provider and review scenario.
+  if (agents.length === 1 && agents[0] === "codex" && !restart && !reviewLoop) {
+    const preflight = await page.evaluate(
+      (codeFolder) =>
+        window.desktop.hosts({ action: "preflight", host: "fleet-worker", codeFolder }),
+      folder,
+    );
+    assert.deepEqual(
+      preflight.preflight.repositories.map(({ origin, checkout }) => ({
+        origin,
+        state: checkout.checkout?.state,
+      })),
+      [{ origin: { state: "pass" }, state: "clean" }],
+    );
+    await writeFile(gitState, JSON.stringify({ originFailure: true }));
+    const failed = await page.evaluate(
+      (codeFolder) =>
+        window.desktop.hosts({ action: "preflight", host: "fleet-worker", codeFolder }),
+      folder,
+    );
+    assert.deepEqual(
+      failed.preflight.repositories.map(({ origin, checkout }) => ({
+        origin,
+        state: checkout.checkout?.state,
+      })),
+      [{ origin: { state: "fail", reason: "origin-auth" }, state: "clean" }],
+    );
+    assert.ok(!JSON.stringify(failed).includes("private fixture"));
+    await writeFile(gitState, "{}");
+  }
   const registration = await page.evaluate(
     (folder) => window.desktop.hosts({ action: "add", host: "fleet-worker", codeFolder: folder }),
     folder,
@@ -400,6 +441,7 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
   for (const agent of agents)
     assert.equal(worker.agents.find((entry) => entry.id === agent).state, "ready");
   assert.ok(sessions.hosts.some((host) => host.host === null));
+  reviewTiming("host registered");
   let tree;
   if (agents.includes("codex") && !reviewLoop) {
     tree = await call("create_worktree", {
@@ -435,6 +477,7 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
             idempotencyKey: `tree-${agent}`,
           });
     assert.equal(checkout.status, "succeeded", JSON.stringify(checkout));
+    reviewTiming("checkout created");
     const launched = await call("launch", {
       host: "fleet-worker",
       worktreeId: checkout.resultId,
@@ -444,6 +487,7 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
       idempotencyKey: `launch-${agent}`,
     });
     assert.equal(launched.status, "succeeded", agent + ": " + JSON.stringify(launched));
+    reviewTiming("author launch acknowledged");
     assert.deepEqual(launched.placement, { kind: "remote", host: "fleet-worker" });
     assert.ok((await readFile(launchCalls, "utf8")).includes("agent-open\n"));
     assert.ok((await readFile(launchCalls, "utf8")).includes("agent-start\n"));
@@ -462,6 +506,7 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
         throw error;
       });
     const record = JSON.parse(await readFile(path.join(root, `${agent}-launch.json`), "utf8"));
+    reviewTiming("author hooks completed");
     assert.ok(record.cwd.startsWith(folder + "/.foom-worktree-"));
     const serialized = JSON.stringify(record);
     assert.ok(!serialized.includes(parentId));
@@ -513,6 +558,7 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
         });
     }
     const initialSnapshots = reviewLoop ? await snapshots() : 0;
+    reviewTiming("author ready with green checks");
     await call("send_keys", {
       id: launched.resultId,
       keys: ["1"],
@@ -528,6 +574,8 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
       })
       .not.toBeNull();
     const report = JSON.parse(await readFile(path.join(root, `${agent}-report.json`), "utf8"));
+    reviewTiming("author reported");
+    assert.equal(report.handoff.code, 0, JSON.stringify(report.handoff));
     assert.equal(JSON.parse(report.identity.output).role, "child");
     assert.equal(JSON.parse(report.forbidden.output).error, "phase_2_restricted");
     if (agent !== "agy") {
@@ -631,6 +679,7 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
           )
           .toBe(true);
         const current = JSON.parse(await readFile(path.join(root, `${agent}-launch.json`), "utf8"));
+        reviewTiming(`${stage} ready`);
         const state = (await call("sessions")).sessions;
         const participant =
           stage === "fix"
@@ -651,6 +700,14 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
           assert.ok(current.args.includes("author-conversation"));
         }
         await rm(path.join(root, `${agent}-report.json`));
+        if (stage === "fix") {
+          // A resumed author is the same child: the ten-second handoff limit
+          // spans launch generations. Fast review must not rely on setup cost
+          // accidentally consuming this interval before its second report.
+          const timestamp = Date.parse(JSON.parse(report.handoff.output).timestamp);
+          assert.ok(Number.isFinite(timestamp));
+          await expect.poll(() => Date.now() - timestamp).toBeGreaterThanOrEqual(10000);
+        }
         const completedSnapshots = await snapshots();
         await call("send_keys", {
           id: participant,
@@ -667,13 +724,14 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
           })
           .not.toBeNull();
         const next = JSON.parse(await readFile(path.join(root, `${agent}-report.json`), "utf8"));
+        reviewTiming(`${stage} reported`);
         const identity = JSON.parse(next.identity.output);
         assert.equal(identity.role, "child");
         assert.deepEqual(identity.capabilities.sort(), ["handoff", "manual", "whoami"]);
         assert.ok(!aliases.has(identity.alias));
         aliases.add(identity.alias);
         assert.equal(JSON.parse(next.forbidden.output).error, "phase_2_restricted");
-        assert.equal(next.handoff.code, 0);
+        assert.equal(next.handoff.code, 0, JSON.stringify(next.handoff));
         if (stage !== "fix") {
           await verifiedCompletion(completedSnapshots);
           await expect
@@ -703,6 +761,7 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
         .poll(async () => (await call("session_state", { id: launched.resultId })).review?.phase)
         .toBe(reviewLoop === "clean" ? "clean" : "waiting-on-parent");
       assert.equal((await call("session_state", { id: launched.resultId })).review.round, 1);
+      reviewTiming("loop settled");
       return;
     }
     if (restart && agent === "codex") {

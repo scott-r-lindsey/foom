@@ -3,7 +3,13 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { balance, parseCases, readMeasurements, writePlan } from "./rebalance-electron-shards.mjs";
+import {
+  balance,
+  measurementCounts,
+  parseCases,
+  readMeasurements,
+  writePlan,
+} from "./rebalance-electron-shards.mjs";
 
 function fixture(t, xml) {
   const directory = mkdtempSync(join(tmpdir(), "foom-rebalance-"));
@@ -91,4 +97,67 @@ test("maxima across runs feed deterministic balancing and no-op writes preserve 
   assert.equal(readFileSync(path, "utf8"), original);
   writePlan(path, { shards: [] });
   assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { shards: [] });
+});
+
+test("mixed platform shard counts require every report on each platform", (t) => {
+  const { source } = fixture(t, entry("1").replace('name="case"', 'name="case 0"'));
+  for (let index = 0; index < 2; index++) {
+    const report = join(source, `electron-results-windows-${index}`);
+    mkdirSync(report);
+    writeFileSync(
+      join(report, "electron.xml"),
+      `<testsuites><testcase name="case ${index}" file="C:\\tests\\test-shard.js" time="${index + 2}"/></testsuites>`,
+    );
+  }
+  assert.deepEqual(
+    [...readMeasurements([source], ["linux", "windows"], ["case 0"], [1, 2])],
+    [["case 0", [1, 2]]],
+  );
+  assert.throws(
+    () => readMeasurements([source], ["linux", "windows"], ["case 0"], [1, 3]),
+    /Expected 3 windows reports/,
+  );
+});
+
+test("source counts mix historical and current matrices without guessing missing reports", (t) => {
+  const defaults = [4, 5, 5];
+  const sources = ["/reports/123", "/reports/456"];
+  const counts = measurementCounts(sources, defaults, ["4", "456:4,5,5"]);
+  assert.deepEqual(
+    [...counts],
+    [
+      ["123", [4, 4, 4]],
+      ["456", defaults],
+    ],
+  );
+  assert.deepEqual([...measurementCounts(sources, defaults, ["456:4,5,5", "4"])], [...counts]);
+  assert.deepEqual(
+    [...measurementCounts(sources, defaults, [])],
+    [
+      ["123", defaults],
+      ["456", defaults],
+    ],
+  );
+  for (const options of [
+    ["0"],
+    ["17"],
+    ["4.5"],
+    ["4,5"],
+    ["4,,5"],
+    ["4", "5"],
+    ["789:4"],
+    ["123:4", "123:5"],
+    ["123:4:5"],
+    [":4"],
+  ])
+    assert.throws(() => measurementCounts(sources, defaults, options), /source shard counts/);
+  const { source } = fixture(t, entry("1"));
+  assert.deepEqual(
+    [...readMeasurements([source], ["linux"], ["case"], new Map([["123", [1]]]))],
+    [["case", [1]]],
+  );
+  assert.throws(
+    () => readMeasurements([source], ["linux"], ["case"], new Map([["123", [2]]])),
+    /Expected 2 linux reports/,
+  );
 });

@@ -3,8 +3,10 @@ import { afterEach, expect, test, vi } from "vitest";
 import {
   createPreferencesStore,
   emptyPreferences,
+  mergeExpansion,
   readPreferences,
   renameSession,
+  pruneExpansion,
   writePreferences,
 } from "../../../../src/renderer/board/sidebar-preferences";
 
@@ -41,13 +43,13 @@ test("stale snapshots merge only edited keys, including independent pins and res
   );
   expect(readPreferences(localStorage)).toEqual({
     pins: ["old", "a", "b"],
-    expanded: { old: true, b: false },
+    expanded: { old: true },
     names: { old: "Legacy", a: "Newest" },
   });
   writePreferences(localStorage, { pins: [], expanded: {}, names: {} }, b);
   expect(readPreferences(localStorage)).toEqual({
     pins: ["a", "b"],
-    expanded: { b: false },
+    expanded: { old: true },
     names: { a: "Newest" },
   });
   const current = readPreferences(localStorage);
@@ -81,7 +83,7 @@ test("external store applies current outside changes, ignores unrelated events a
   expect(store.getSnapshot()).toEqual({
     pins: ["a"],
     names: { a: "Shared" },
-    expanded: { a: false },
+    expanded: {},
   });
   localStorage.clear();
   external(null);
@@ -139,4 +141,75 @@ test("failed persistence propagates without advertising an unsaved snapshot", ()
     store.save(emptyPreferences(), renameSession(emptyPreferences(), "a", "Name"));
   }).toThrow("full");
   expect(store.getSnapshot()).toEqual(emptyPreferences());
+});
+
+test("expansion writes stay local and removed locations are pruned", () => {
+  writePreferences(localStorage, { ...emptyPreferences(), expanded: { "repository:/a": false } });
+  expect(readPreferences(localStorage).expanded).toEqual({});
+  const expanded = {
+    "repository:/a": false,
+    "worktree:/a": true,
+    "worktree:/gone": false,
+    "repository:/gone": true,
+  };
+  const repositories = [
+    {
+      name: "a",
+      path: "/a",
+      worktrees: [
+        {
+          path: "/a",
+          branch: "main",
+          head: null,
+          bare: false,
+          locked: false,
+          prunable: false,
+          managed: false,
+        },
+      ],
+    },
+  ];
+  const pruned = pruneExpansion(expanded, repositories);
+  expect(pruned).toEqual({ "repository:/a": false, "worktree:/a": true });
+  expect(pruneExpansion(pruned, repositories)).toBe(pruned);
+  expect(pruneExpansion(pruned, [])).toEqual({});
+  expect(pruneExpansion({ home: false }, [])).toEqual({ home: false });
+});
+
+test("unavailable repository membership preserves worktree choices until recovery", () => {
+  const expanded = {
+    "repository:/repo": false,
+    "worktree:/elsewhere/topic": false,
+    "repository:/removed": true,
+  };
+  const unavailable = { path: "/repo", name: "Repo", unavailable: true, worktrees: [] };
+  const retained = pruneExpansion(expanded, [unavailable]);
+  expect(retained).toEqual({ "repository:/repo": false, "worktree:/elsewhere/topic": false });
+  expect(pruneExpansion(retained, [{ ...unavailable, unavailable: false }])).toEqual({
+    "repository:/repo": false,
+  });
+});
+
+test("deferred expansion edits preserve newer untouched choices and apply explicit resets", () => {
+  const previous = { changed: true, removed: false, untouched: true, reset: false };
+  const next = { ...previous, changed: false, added: true };
+  const current = { changed: true, removed: false, untouched: false, newer: false };
+  expect(mergeExpansion(current, previous, next)).toEqual({
+    ...current,
+    changed: false,
+    added: true,
+  });
+  expect(mergeExpansion(current, previous, { untouched: true, reset: false })).toEqual({
+    untouched: false,
+    newer: false,
+  });
+  expect(mergeExpansion(current, previous, previous)).toBe(current);
+  expect(mergeExpansion(current, { changed: false }, { changed: true })).toBe(current);
+});
+
+test("expansion delta keys remain inert data", () => {
+  const next: Record<string, boolean> = Object.fromEntries([["__proto__", false]]);
+  const merged = mergeExpansion({}, {}, next);
+  expect(Object.entries(merged)).toEqual([["__proto__", false]]);
+  expect(mergeExpansion(merged, next, {})).toEqual({});
 });

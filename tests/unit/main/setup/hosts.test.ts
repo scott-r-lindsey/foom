@@ -61,7 +61,7 @@ beforeEach(() => {
   mock.execute.mockReset().mockResolvedValue({ stdout: "git@forge.test:me/repo.git\n" });
   hosts = new Hosts(store, () => repositories, "0.1.0", run);
 });
-test("test does not authorize, add requires a successful checked folder, refresh replaces stale facts, removal never kills", async () => {
+test("test does not authorize, add records enrollment, refresh replaces stale facts, removal never kills", async () => {
   expect(await hosts.action({ action: "list" })).toEqual({ hosts: [], locations: [] });
   expect(
     (await hosts.action({ action: "test", host: "worker", codeFolder: "~/code" })).hosts,
@@ -101,9 +101,8 @@ test("untrusted selectors, failed connections, malformed remote facts and write 
   expect(
     (await hosts.action({ action: "add", host: "worker", codeFolder: "~/code" })).result,
   ).toEqual({ ok: false, reason: "unreachable" });
-  run.mockResolvedValueOnce({ ok: false, reason: "unsafe-folder" });
-  await hosts.action({ action: "add", host: "worker", codeFolder: "~/code" });
-  expect(settings.registeredHosts).toBeUndefined();
+  expect(settings.registeredHosts).toEqual([{ host: "worker", codeFolder: "~/code" }]);
+  await hosts.action({ action: "remove", host: "worker" });
   run.mockResolvedValueOnce({ ok: true, facts: { ...facts, cores: -1 } });
   expect(
     (await hosts.action({ action: "test", host: "worker", codeFolder: "~/code" })).result,
@@ -112,7 +111,7 @@ test("untrusted selectors, failed connections, malformed remote facts and write 
   await expect(
     hosts.action({ action: "add", host: "worker", codeFolder: "~/code" }),
   ).rejects.toThrow();
-  expect(settings.registeredHosts).toBeUndefined();
+  expect(settings.registeredHosts).toEqual([]);
   settings = {
     ...settings,
     registeredHosts: Array.from({ length: 32 }, (_, n) => ({
@@ -1041,4 +1040,153 @@ test("remote home shells require a current registration and profile tag", async 
     profile: "f".repeat(32),
     human: true,
   });
+});
+
+test("preflight collects repository origin and checkout observations despite a missing folder", async () => {
+  run.mockImplementation((_host, request) =>
+    Promise.resolve(
+      request.operation === "inspect"
+        ? {
+            ok: true,
+            facts: {
+              ...facts,
+              folder: { state: "fail", reason: "folder-missing" },
+              tools: [{ id: "git", state: "ready", signIn: "unknown" }],
+            },
+          }
+        : { ok: false, reason: request.operation === "origin" ? "origin-auth" : "folder-refused" },
+    ),
+  );
+  const state = await hosts.action({ action: "preflight", host: "worker", codeFolder: "~/code" });
+  expect(state.preflight).toMatchObject({
+    ssh: { state: "pass" },
+    platform: { state: "pass" },
+    artifact: { state: "pass" },
+    result: { ok: true, facts: { folder: { state: "fail", reason: "folder-missing" } } },
+    repositories: [
+      {
+        repository: "/local/repo",
+        origin: { state: "fail", reason: "origin-auth" },
+        checkout: { ok: false, reason: "folder-refused" },
+      },
+    ],
+  });
+  expect(run.mock.calls.map(([, request]) => request.operation)).toEqual([
+    "inspect",
+    "origin",
+    "repository",
+  ]);
+  expect(store.update).not.toHaveBeenCalled();
+  await hosts.action({ action: "add", host: "worker", codeFolder: "~/code" });
+  expect(settings.registeredHosts).toEqual([{ host: "worker", codeFolder: facts.codeFolder }]);
+  run.mockResolvedValue({ ok: true, facts });
+  await hosts.action({ action: "create-folder", host: "worker" });
+  expect(run.mock.lastCall?.[1].operation).toBe("create-folder");
+  await hosts.action({ action: "change-folder", host: "worker", codeFolder: "~/different" });
+  expect(run.mock.lastCall?.[1]).toMatchObject({
+    operation: "inspect",
+    readOnly: true,
+    partial: true,
+  });
+});
+
+test.each([
+  "unreachable",
+  "artifact-unavailable",
+  "unsupported",
+  "libc-too-old",
+  "facts-unavailable",
+] as const)("incomplete enrollment retains %s and can be retried", async (reason) => {
+  run.mockResolvedValue({ ok: false, reason });
+  const state = await hosts.action({ action: "add", host: "worker", codeFolder: "~/code" });
+  expect(state.hosts[0]).toMatchObject({
+    host: "worker",
+    codeFolder: "~/code",
+    result: { ok: false, reason },
+  });
+  run.mockResolvedValue({ ok: true, facts });
+  await hosts.action({ action: "refresh", host: "worker" });
+  expect(settings.registeredHosts).toEqual([{ host: "worker", codeFolder: facts.codeFolder }]);
+});
+
+test("preflight preserves independent bootstrap observations and local origin refusal", async () => {
+  run.mockResolvedValue({
+    ok: false,
+    reason: "artifact-unavailable",
+    connection: {
+      ssh: { state: "pass" },
+      platform: { state: "fail", reason: "libc-too-old" },
+      artifact: { state: "fail", reason: "artifact-unavailable" },
+    },
+  });
+  mock.execute.mockRejectedValue(new Error("raw local origin"));
+  const state = await hosts.action({ action: "preflight", host: "worker", codeFolder: "~/code" });
+  expect(state.preflight).toMatchObject({
+    ssh: { state: "pass" },
+    platform: { state: "fail", reason: "libc-too-old" },
+    artifact: { state: "fail", reason: "artifact-unavailable" },
+    repositories: [
+      {
+        origin: { state: "fail", reason: "origin-unavailable" },
+        checkout: { ok: false, reason: "origin-unavailable" },
+      },
+    ],
+  });
+  expect(JSON.stringify(state)).not.toContain("raw");
+});
+
+test("opening Hosts after offline enrollment expands its pending folder and preserves other registrations", async () => {
+  settings = {
+    ...settings,
+    registeredHosts: [
+      { host: "worker", codeFolder: "~/code" },
+      { host: "other", codeFolder: "/other/code" },
+    ],
+  };
+  run.mockImplementation((_host, request) =>
+    Promise.resolve({
+      ok: true,
+      facts: {
+        ...facts,
+        codeFolder: request.codeFolder.startsWith("~/") ? facts.codeFolder : request.codeFolder,
+      },
+    }),
+  );
+  const state = await hosts.action({ action: "list" });
+  expect(state.hosts.map(({ host, codeFolder }) => ({ host, codeFolder }))).toEqual([
+    { host: "worker", codeFolder: facts.codeFolder },
+    { host: "other", codeFolder: "/other/code" },
+  ]);
+});
+
+test("preflight refreshes registered facts without running origin Git when Git is missing", async () => {
+  settings = { ...settings, registeredHosts: [{ host: "worker", codeFolder: "~/code" }] };
+  run.mockImplementation((_host, request) =>
+    Promise.resolve(
+      request.operation === "inspect"
+        ? {
+            ok: true,
+            facts: { ...facts, tools: [{ id: "git", state: "missing", signIn: "unknown" }] },
+          }
+        : { ok: false, reason: "folder-refused" },
+    ),
+  );
+  const state = await hosts.action({ action: "preflight", host: "worker", codeFolder: "~/code" });
+  expect(state.preflight?.repositories[0]?.origin).toEqual({ state: "not-checked" });
+  expect(state.hosts[0]?.codeFolder).toBe(facts.codeFolder);
+  expect(state.hosts[0]?.result).toMatchObject({
+    ok: true,
+    facts: { tools: [{ id: "git", state: "missing" }] },
+  });
+  expect(run.mock.calls.map(([, request]) => request.operation)).toEqual(["inspect", "repository"]);
+});
+
+test("refresh recovers an incomplete host with profile session inventory before its folder is expanded", async () => {
+  settings = { ...settings, registeredHosts: [{ host: "worker", codeFolder: "~/code" }] };
+  mock.inventory.mockResolvedValue({ type: "inventory-result", own: [], foreign: [] });
+  const service = new Hosts(store, () => [], "0.1.0", run, "f".repeat(32));
+  await service.action({ action: "refresh", host: "worker" });
+  expect(mock.inventory.mock.lastCall?.[2]).toEqual({ type: "inventory", profile: "f".repeat(32) });
+  expect(settings.registeredHosts).toEqual([{ host: "worker", codeFolder: facts.codeFolder }]);
+  service.dispose();
 });

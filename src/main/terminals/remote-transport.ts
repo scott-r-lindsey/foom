@@ -1,7 +1,12 @@
 import { createHash, randomBytes } from "node:crypto";
 import { IMAGE_TIMEOUT_MS } from "../../shared/image-paste";
 import type { ImagePut, ImagePutResult } from "../../shared/image-paste.d";
-import type { HostManagement, HostResult, HostFailure } from "../../shared/registered-hosts.d";
+import type {
+  HostManagement,
+  HostResult,
+  HostFailure,
+  HostConnectionChecks,
+} from "../../shared/registered-hosts.d";
 import {
   HOST_MANAGEMENT_TIMEOUT_MS,
   HOST_PREPARATION_TIMEOUT_MS,
@@ -52,6 +57,7 @@ export class RemoteTransport extends EventEmitter {
   private imageAbort: AbortController | undefined;
   private readonly expectedVersion: string;
   private readonly cancellation = new AbortController();
+  connectionChecks: HostConnectionChecks | undefined;
   managementFailure: HostFailure = "unreachable";
   private artifactUnavailable = false;
   launchFailure: LaunchFailure | undefined;
@@ -91,7 +97,24 @@ export class RemoteTransport extends EventEmitter {
           throw new Error("Remote launch unavailable");
         this.send({ type: "agent-activate", id: this.session.id });
       };
-    void selectHostArtifact(target, expectedVersion, undefined, undefined, this.cancellation.signal)
+    if (management?.type === "manage" && management.operation === "inspect" && management.partial)
+      this.connectionChecks = {
+        ssh: { state: "not-checked" },
+        platform: { state: "not-checked" },
+        artifact: { state: "not-checked" },
+      };
+    void selectHostArtifact(
+      target,
+      expectedVersion,
+      undefined,
+      undefined,
+      this.cancellation.signal,
+      this.connectionChecks
+        ? (stage, result) => {
+            if (this.connectionChecks) this.connectionChecks[stage] = result;
+          }
+        : undefined,
+    )
       .then((artifact) => {
         if (this.closed) return;
         if (artifact.version !== expectedVersion)
@@ -309,6 +332,18 @@ export class RemoteTransport extends EventEmitter {
             ) {
               this.managementFailure = "version-mismatch";
               throw new Error("Host version mismatch");
+            }
+            if (
+              this.management?.type === "manage" &&
+              (this.management.operation === "origin" ||
+                this.management.operation === "create-folder" ||
+                (this.management.operation === "inspect" && this.management.partial)) &&
+              value.build !== artifact.sha256 &&
+              value.hostPreflight !== 1
+            ) {
+              this.managementFailure = "facts-unavailable";
+              this.kill();
+              return;
             }
             if (
               this.management?.type === "manage" &&
@@ -687,7 +722,9 @@ export function remoteManagement(
     };
     const finish = (result: HostResult) => {
       signal?.removeEventListener("abort", cancel);
-      resolve(result);
+      resolve(
+        transport.connectionChecks ? { ...result, connection: transport.connectionChecks } : result,
+      );
     };
     transport.once("managed", finish);
     transport.once("exit", () => {

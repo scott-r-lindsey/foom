@@ -63,6 +63,54 @@ describe("worktree removal", () => {
     ).rejects.toThrow("not_found");
   });
 
+  it.each(["succeeded", "failed"] as const)(
+    "withdraws an outstanding review when removal execution ends as %s",
+    async (status) => {
+      const h = harness();
+      const tree = await h.mutate("create_worktree", { branch: "settled" });
+      let signal: AbortSignal | undefined;
+      let complete: () => void = () => undefined;
+      const gate = new Promise<void>((resolve) => {
+        complete = resolve;
+      });
+      let late: (() => Promise<boolean>) | undefined;
+      h.host.dialog.mockImplementationOnce((_content, abort) => {
+        signal = abort;
+        return new Promise<boolean>((resolve) => {
+          abort.addEventListener(
+            "abort",
+            () => {
+              resolve(false);
+            },
+            { once: true },
+          );
+        });
+      });
+      h.host.remove.mockImplementationOnce(async (_repository, _worktree, _identity, confirm) => {
+        // Reproduce a host settling independently of its outstanding presentation.
+        void confirm("settled", "").catch(() => false);
+        late = () => confirm("settled", "");
+        await gate;
+        if (status === "failed") throw new Error("removal failed");
+        return true;
+      });
+      await h.call("remove_worktree", { idempotencyKey: "settled", worktreeId: tree.resultId });
+      await vi.waitFor(() => {
+        expect(signal).toBeDefined();
+      });
+      expect(signal?.aborted).toBe(false);
+      complete();
+      await vi.waitFor(async () => {
+        expect(await h.call("operation_status", { idempotencyKey: "settled" })).toMatchObject({
+          status,
+        });
+        expect(signal?.aborted).toBe(true);
+      });
+      expect(await late?.()).toBe(false);
+      expect(h.host.dialog).toHaveBeenCalledOnce();
+    },
+  );
+
   it("records a declined removal and shows changed files in the dialog", async () => {
     const h = harness();
     const tree = await h.mutate("create_worktree", { branch: "dirty" });

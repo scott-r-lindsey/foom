@@ -160,4 +160,5 @@ checks, and a failed save can be retried without caching its failed availability
 ## Registered hosts (#757 PR 1)
 
 Settings → Hosts and Repositories locations follow the [host contract](hosts.md).
-Host registration is profile-only and requires a successful connection and code-folder check.
+Host registration is profile-only and may retain incomplete preflight checks. Folder
+creation is explicit; checkout operations still require a canonical approved folder.

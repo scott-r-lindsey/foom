@@ -543,6 +543,7 @@ export function createAppSource(): BoardSource {
     },
     confirmations: window.desktop.confirmations,
     isReady: () => loaded,
+    isSidebarReady: () => inventoryLoaded,
     getSidebar: () => sidebar,
     shellName: () => shellName,
     homeShell: () => home,

@@ -140,6 +140,11 @@ its latest feed when its turn arrives. Each review stays on its selected board,
 and batching, per-item cancellation, snapshot revalidation and exact-ID approval
 checks remain in force. Repository reservations prevent forgetting a repository,
 not overlapping removal reviews; they do not replace this presentation queue.
+Each orchestrator removal owns its presentation signal until execution ends.
+Success (including automatic completion), failure and cancellation abort that
+signal in main, withdrawing its item from a visible or queued batch. Remaining
+items retain their consent requirements; an empty batch closes and releases the
+shared slot. Callbacks arriving after completion decline without creating a review.
 Cancellation is registered when main receives the request, before either queue.
 Closing/destroying its board, confirmed-shutdown disposal, or an actor/caller abort
 declines the queued caller immediately; it does not wait for another board's
