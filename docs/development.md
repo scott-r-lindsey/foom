@@ -18,6 +18,24 @@ Packaging commands delegate to Forge, whose mandatory `prePackage` hook performs
 `FOOM_REQUIRE_REMOTE_HOSTS=1` builds require the complete verified catalog (see
 [validation](validation.md#bundled-remote-host-artifacts-825)).
 
+For a development build with remote hosts on Linux or macOS, run
+`pnpm run start:hosts`. It reuses `.cache/remote-hosts/` when all four targets
+verify against the package version and `HEAD`; otherwise it uses authenticated
+GitHub CLI (`gh`) to find the successful `ci.yml` push run on `main` for that exact
+commit and download its four `remote-host-<target>` artifacts (retained three days).
+All four must verify before the cache is replaced. Missing `gh`, authentication,
+a matching successful run, expired artifacts or invalid downloads produce a
+one-line reason and continue without hosts, preserving the previous cache.
+Local commits and branches usually have no matching main push run.
+The wrapper runs normal `pnpm start` with `FOOM_REMOTE_HOST_ARTIFACTS` pointing to
+the cache, uses the persistent **Foom Dev** profile, and forwards extra arguments
+and the exit status. It does not pull, install dependencies or change Git state.
+To download and verify without launching a window, run:
+
+```sh
+node --input-type=module -e 'import { prepareHosts } from "./scripts/start-hosts.mjs"; await prepareHosts(process.cwd())'
+```
+
 A previous `pnpm run start:samples` build is replaced before packaging, so its development sample data cannot ship.
 
 The build also writes the app icon set to `build/icons/` from the generator in
