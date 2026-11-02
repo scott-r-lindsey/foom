@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { createRef } from "react";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { HostsSettings, RepositoryHosts } from "../../../../src/renderer/preflight/hosts-settings";
 import type {
@@ -637,4 +637,54 @@ test("Mac protected-folder warning never hides a missing-folder failure or its C
   await screen.findByText("Code folder does not exist · folder-missing · Protected folder");
   expect(screen.getByRole("button", { name: "Create" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Change folder" })).toBeTruthy();
+});
+
+test("a failed connection row is not repeated as helper copy, and credential tips only accompany auth failures", async () => {
+  const result = { ok: false as const, reason: "artifact-unavailable" as const };
+  const view = mount({
+    ...initial,
+    hosts: [{ ...host, result }],
+    preflight: {
+      ...preflight,
+      result,
+      artifact: { state: "fail", reason: "artifact-unavailable" },
+      repositories: [
+        {
+          repository: "/local/project",
+          origin: { state: "fail", reason: "artifact-unavailable" },
+          checkout: result,
+        },
+      ],
+    },
+  });
+  await screen.findAllByText("This build has no remote host support · artifact-unavailable");
+  expect(screen.queryByText("This build has no remote host support", { exact: true })).toBeNull();
+  expect(screen.queryByLabelText("Git access fixes")).toBeNull();
+  view.unmount();
+  mount({ hosts: [{ ...host, result: { ok: false, reason: "version-mismatch" } }], locations: [] });
+  await screen.findByText("Host version mismatch");
+});
+
+test("host aliases and agent IDs are literal data even when they name object prototypes", async () => {
+  const result = {
+    ok: true as const,
+    facts: { ...facts, agents: [{ id: "constructor", state: "unable" as const }] },
+  };
+  const state: HostsState = { hosts: [{ ...host, host: "constructor", result }], locations: [] };
+  let finish: ((next: HostsState) => void) | undefined;
+  const pending = new Promise<HostsState>((resolve) => {
+    finish = resolve;
+  });
+  const api = vi.fn((action: HostsAction) =>
+    action.action === "preflight" ? pending : Promise.resolve(state),
+  );
+  render(<HostsSettings source={{ hosts: api }} headingRef={createRef()} />);
+  await screen.findByRole("region", { name: "constructor" });
+  expect(screen.getAllByText("constructor")).toHaveLength(2);
+  await act(async () => {
+    finish?.({ ...state, preflight: { ...preflight, result } });
+    await pending;
+  });
+  await screen.findByText("Pass · Host key trusted");
+  expect(screen.getAllByText("constructor")).toHaveLength(2);
 });

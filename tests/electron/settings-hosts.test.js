@@ -319,7 +319,9 @@ process.stdin.on('data', bytes => {
     await page.getByRole("button", { name: "Add host", exact: true }).click();
     await page.getByLabel("SSH host", { exact: true }).fill(host);
     await page.getByRole("button", { name: "Add host", exact: true }).click();
-    await expect(page.getByText(text, { exact: true })).toBeVisible();
+    await expect(
+      page.getByText(host === "offline-cloud" ? `${text} · unreachable` : text, { exact: true }),
+    ).toBeVisible();
     if (enrolled) {
       const added = page.getByRole("region", { name: host, exact: true });
       await expect(added.getByRole("button", { name: "Remove", exact: true })).toBeEnabled();
@@ -331,7 +333,10 @@ process.stdin.on('data', bytes => {
   await rm(artifactPath);
   await card.getByRole("button", { name: "Check again", exact: true }).click();
   await expect(
-    card.getByText("This build has no remote host support", { exact: true }),
+    card
+      .locator(".host-check-row")
+      .filter({ hasText: "Remote daemon" })
+      .getByText("This build has no remote host support · artifact-unavailable", { exact: true }),
   ).toBeVisible();
   await expect(card.getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
   await capture("missing-build-support");

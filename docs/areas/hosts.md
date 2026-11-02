@@ -378,7 +378,7 @@ Create explicitly creates the approved folder. Change folder edits its approved
 path and rechecks without creating it. Install and Sign in use the existing
 main-selected recipes and foreground tile placement; Settings closes once that
 tile is visible. No background install, recipe replay or terminal typing is added.
-Missing recipes show no Install button. Git-origin fixes offer HTTPS through gh,
+Missing recipes show no Install button. For origin-auth, Git-origin fixes offer HTTPS through gh,
 a deploy key or a persistent ssh-agent as user-run instructions. Host facts,
 foreign session End and foreign worktree counts remain under Host facts.
 

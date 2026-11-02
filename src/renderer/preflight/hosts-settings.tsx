@@ -128,13 +128,13 @@ function canClone(result: HostResult | undefined) {
 function Group({ children }: { children: ReactNode }) {
   return <h4 className="host-check-group">{children}</h4>;
 }
-const agentNames: Record<string, string> = {
-  claude: "Claude Code",
-  codex: "Codex",
-  agy: "Antigravity",
-  pi: "Pi",
-  opencode: "OpenCode",
-};
+const agentNames = new Map<string, string>([
+  ["claude", "Claude Code"],
+  ["codex", "Codex"],
+  ["agy", "Antigravity"],
+  ["pi", "Pi"],
+  ["opencode", "OpenCode"],
+]);
 function Checklist({
   entry,
   preflight,
@@ -188,7 +188,7 @@ function Checklist({
       return (
         <Fragment key={agent.id}>
           <Row
-            name={agentNames[agent.id] ?? agent.id}
+            name={agentNames.get(agent.id) ?? agent.id}
             tone={
               needsCLT || agent.state === "missing"
                 ? "need"
@@ -215,7 +215,7 @@ function Checklist({
             <Row
               name={
                 <>
-                  {agentNames[agent.id] ?? agent.id} sign-in{" "}
+                  {agentNames.get(agent.id) ?? agent.id} sign-in{" "}
                   {agent.id === "gh" && <span className="host-tag">PRs</span>}
                 </>
               }
@@ -271,11 +271,15 @@ function Checklist({
           </>
         }
       />
-      {result && !result.ok && (
-        <p className="hosts-failure" role="status">
-          {reasons[result.reason]}
-        </p>
-      )}
+      {result &&
+        !result.ok &&
+        ![connection?.ssh, connection?.platform, connection?.artifact].some(
+          (check) => check?.state === "fail" && check.reason === result.reason,
+        ) && (
+          <p className="hosts-failure" role="status">
+            {reasons[result.reason]}
+          </p>
+        )}
       <Group>Tools</Group>
       {mac && (
         <Row
@@ -301,7 +305,7 @@ function Checklist({
               ? { tone: "work" as const, text: "Re-checking…" }
               : checkPresentation(repo.origin, "Reachable"))}
           />
-          {repo.origin.state === "fail" && (
+          {repo.origin.state === "fail" && repo.origin.reason === "origin-auth" && (
             <div className="host-origin-fixes" aria-label="Git access fixes">
               <span
                 title={
@@ -357,7 +361,9 @@ export function HostsSettings({
   headingRef: RefObject<HTMLHeadingElement | null>;
 }) {
   const [state, setState] = useState<HostsState>({ hosts: [], locations: [] });
-  const [checks, setChecks] = useState<Record<string, HostPreflight>>({});
+  const [checks, setChecks] = useState<ReadonlyMap<string, HostPreflight>>(
+    () => new Map<string, HostPreflight>(),
+  );
   const [adding, setAdding] = useState(false);
   const [host, setHost] = useState("");
   const [folder, setFolder] = useState("~/foom");
@@ -384,7 +390,7 @@ export function HostsSettings({
           if (next) {
             setState(next);
             const preflight = next.preflight;
-            if (preflight) setChecks((previous) => ({ ...previous, [entry.host]: preflight }));
+            if (preflight) setChecks((previous) => new Map(previous).set(entry.host, preflight));
           }
         }
       } catch {
@@ -406,7 +412,7 @@ export function HostsSettings({
       setState(next);
       if (action.action === "preflight" && next.preflight) {
         const preflight = next.preflight;
-        setChecks((previous) => ({ ...previous, [action.host]: preflight }));
+        setChecks((previous) => new Map(previous).set(action.host, preflight));
       }
       if (next.recipeFailure) setError("Recipe unavailable for this host");
       if (action.action === "add" && next.hosts.some((entry) => entry.host === action.host)) {
@@ -455,7 +461,7 @@ export function HostsSettings({
                     ),
                   }
                 : observed;
-            if (preflight) setChecks((previous) => ({ ...previous, [entry.host]: preflight }));
+            if (preflight) setChecks((previous) => new Map(previous).set(entry.host, preflight));
           }
         }
       }
@@ -550,7 +556,7 @@ export function HostsSettings({
               />
             </h3>
             <span className="host-count">
-              {busy === entry.host ? "Checking…" : hostSummary(checks[entry.host])}
+              {busy === entry.host ? "Checking…" : hostSummary(checks.get(entry.host))}
             </span>
             <button
               type="button"
@@ -583,7 +589,7 @@ export function HostsSettings({
           </div>
           <Checklist
             entry={entry}
-            preflight={checks[entry.host]}
+            preflight={checks.get(entry.host)}
             checking={busy === entry.host}
             disabled={busy !== undefined}
             act={(action) => {
@@ -633,7 +639,7 @@ export function HostsSettings({
                 ? "Checking…"
                 : entry.result?.ok && entry.result.facts.requirements?.packageManager === "none"
                   ? "No install recipe"
-                  : checks[entry.host]
+                  : checks.get(entry.host)
                     ? "Check complete"
                     : "Not checked"}
             </span>
