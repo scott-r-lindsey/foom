@@ -231,27 +231,6 @@ export async function manageHost(
     GIT_NO_REPLACE_OBJECTS: "1",
     GIT_GRAFT_FILE: "/dev/null",
   };
-  if (request.operation === "origin") {
-    try {
-      await networkGit(
-        ["ls-remote", "--", request.origin, "HEAD"],
-        home,
-        env,
-        HOST_NETWORK_GIT_TIMEOUT_MS,
-        signal,
-      );
-      return { ok: true, facts };
-    } catch (error) {
-      return {
-        ok: false,
-        reason: signal?.aborted
-          ? "cancelled"
-          : error instanceof HostGitFailure
-            ? error.reason
-            : "origin-unreachable",
-      };
-    }
-  }
   const git = (args: string[], cwd: string, timeout = 5000) =>
     hostProbe("git", ["--no-optional-locks", ...args], cwd, env, true, timeout, signal);
   const checkout = async (directory: string, origin: string) => {
@@ -270,6 +249,43 @@ export async function manageHost(
     await git(["rev-parse", "--verify", "HEAD^{commit}"], directory);
     return await git(["status", "--porcelain", "-z", "--untracked-files=normal"], directory);
   };
+  if (request.operation === "origin") {
+    try {
+      let cwd = home;
+      if (folderCheck.state === "pass") {
+        try {
+          await approvedCodeFolder(folder, home);
+          cwd = folder;
+          try {
+            const candidate = join(folder, request.directory);
+            await checkout(candidate, request.origin);
+            cwd = candidate;
+          } catch {
+            // A missing/refused checkout must not hide origin access.
+          }
+        } catch {
+          // A disappeared/refused folder still permits an account-level check.
+        }
+      }
+      await networkGit(
+        ["ls-remote", "--", request.origin, "HEAD"],
+        cwd,
+        env,
+        HOST_NETWORK_GIT_TIMEOUT_MS,
+        signal,
+      );
+      return { ok: true, facts };
+    } catch (error) {
+      return {
+        ok: false,
+        reason: signal?.aborted
+          ? "cancelled"
+          : error instanceof HostGitFailure
+            ? error.reason
+            : "origin-unreachable",
+      };
+    }
+  }
   try {
     // Revalidate without recreating a folder removed since the initial check.
     signal?.throwIfAborted();

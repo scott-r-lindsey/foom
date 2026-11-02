@@ -343,7 +343,10 @@ checks. Tool and agent discovery and recipes reuse #971/#988 capabilities.
 and a fixed folder check (`folder-missing`, `folder-refused`, or `unsafe-folder`),
 even when it cannot approve the directory. It grants no checkout authority. Origin
 checks run `ls-remote -- ORIGIN HEAD` with the host's own login environment and the
-existing no-prompt network Git helper, independently of folder/checkout validity.
+existing no-prompt network Git helper. A valid canonical checkout supplies Git's
+working directory so repository-local and conditional credential/SSH configuration
+is preserved. Otherwise the approved folder, or the account home when that folder
+is unavailable, supplies the context. Folder/checkout failures do not suppress the check.
 Only fixed results cross the wire. Failed origin access does not hide checkout state.
 
 Add can enroll an incomplete host, retaining its failed observation and proposed

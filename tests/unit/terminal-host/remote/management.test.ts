@@ -1456,3 +1456,47 @@ test.skipIf(process.platform === "win32")(
     ).toEqual({ ok: false, reason: "unreachable" });
   },
 );
+
+test
+  .skipIf(process.platform === "win32")
+  .each(["folder", "checkout", "invalid", "disappeared"] as const)(
+  "origin access preserves credential context and safe fallback: %s",
+  async (context) => {
+    const folder = join(home, "code");
+    const candidate = join(folder, "repo");
+    const origin = "git@fixture.test:team/repo.git";
+    if (context === "checkout" || context === "invalid") await mkdir(candidate, { mode: 0o700 });
+    if (context === "invalid") await chmod(candidate, 0o777);
+    if (context === "disappeared")
+      mock.login.mockImplementationOnce(async () => {
+        await rm(folder, { recursive: true });
+        return { PATH: "/fixture-login" };
+      });
+    if (context === "checkout")
+      mock.probe
+        .mockResolvedValueOnce(origin)
+        .mockResolvedValueOnce(candidate)
+        .mockResolvedValueOnce("commit")
+        .mockResolvedValueOnce("");
+    const result = await manageHost(
+      {
+        type: "manage",
+        operation: "origin",
+        codeFolder: "~/code",
+        directory: "repo",
+        origin,
+        agents: [],
+      },
+      0,
+      "/fixture",
+      "0.1.0",
+      home,
+    );
+    expect(result).toMatchObject({ ok: true });
+    expect(mock.probe.mock.lastCall?.slice(0, 3)).toEqual([
+      "git",
+      ["--no-optional-locks", "ls-remote", "--", origin, "HEAD"],
+      context === "checkout" ? candidate : context === "disappeared" ? home : folder,
+    ]);
+  },
+);
