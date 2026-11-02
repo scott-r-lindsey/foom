@@ -223,6 +223,7 @@ export interface OrchestrationCommandsContext {
 }
 
 export interface ExecutionEventsContext {
+  focusOrchestrator(id: string): void;
   readonly closed: boolean;
   readonly configTokens: Map<string, string>;
   readonly executionOwner: Pick<
@@ -242,7 +243,7 @@ export interface ExecutionEventsContext {
   readonly hookKeys: Map<string, string>;
   readonly launched: Map<string, WorkspaceTerminal>;
   readonly lifecycle: Pick<SessionLifecycle, "exited" | "removed">;
-  readonly orchestration: Pick<Orchestration, "removed">;
+  readonly orchestration: Pick<Orchestration, "removed" | "view">;
   readonly persist: () => void;
   readonly probeIds: Set<string>;
   probes: AgentProbes | undefined;

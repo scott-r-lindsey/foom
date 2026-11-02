@@ -569,6 +569,9 @@ export function workspaceFeatureWiring(owner: WorkspaceContext): {
           return owner.deps.onChange?.bind(owner.deps);
         },
       },
+      focusOrchestrator: (id) => {
+        owner.focusOrchestrator(id);
+      },
     } satisfies ExecutionEventsContext,
     orchestrationHost: {
       get launchAgent() {

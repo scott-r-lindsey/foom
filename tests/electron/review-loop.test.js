@@ -324,6 +324,10 @@ for (const scenario of [
         })
         .toBe(3);
       await roundTrips();
+      // Keep the parent visible while another tile owns focus across restart.
+      await parentRow.locator(":scope > .board-row").click();
+      await page.evaluate(() => window.desktop.appMenu.execute("split-right"));
+      await page.locator(`[data-drag-session="${ids[0]}"]`).click();
       await quitAndWait(app, async () => {
         await app.evaluate(({ app }) => app.quit());
         await (await confirmationPage(app))
@@ -374,6 +378,20 @@ for (const scenario of [
         })
         .toBe(true);
       await roundTrips();
+      const reminderTile = restoredPage.locator(".terminal-tile").filter({
+        has: restoredPage.locator(".tile-attention", { hasText: "Child report unread" }),
+      });
+      await expect(reminderTile).toBeVisible();
+      await reminderTile.getByRole("button", { name: "Dismiss incorrect attention flag" }).click();
+      try {
+        await expect(
+          restoredPage.locator(".tile-attention", { hasText: "Child report unread" }),
+        ).toHaveCount(0);
+      } catch (error) {
+        context.diagnostic(JSON.stringify(await rows(restoredPage)));
+        throw error;
+      }
+      await expect(restoredPage.getByText("Unable to record feedback. Try again.")).toHaveCount(0);
       // Two new active loops beside the three restored/escalated loops must
       // also settle without resurrecting dormant automation.
       await launchMore("restored");
