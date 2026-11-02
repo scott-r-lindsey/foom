@@ -1,3 +1,4 @@
+import { buildFacts } from "./build-facts";
 import { requirements, signInStatus } from "./host-facts";
 import { networkGit } from "./network-git";
 import { HostGitFailure } from "./git-failure";
@@ -563,7 +564,15 @@ export async function manageHost(
         },
       };
     }
-    return { ok: true, facts, checkout: { path, state: status ? "changed" : "clean" } };
+    return {
+      ok: true,
+      facts,
+      checkout: {
+        path,
+        state: status ? "changed" : "clean",
+        build: await buildFacts(path, env, signal),
+      },
+    };
   } catch (error) {
     return {
       ok: false,

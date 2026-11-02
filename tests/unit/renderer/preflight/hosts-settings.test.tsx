@@ -249,7 +249,8 @@ test.each([false, true])(
     ).toBeTruthy();
     if (!ready) {
       expect(screen.getByText("Do this on the Mac")).toBeTruthy();
-      expect(screen.getByText("Warning · Protected folder")).toBeTruthy();
+      expect(screen.getByText("Warning · Protected folder").closest(".host-neutral")).toBeTruthy();
+      expect(screen.getByText("Warning · Sleeps when idle").closest(".host-neutral")).toBeTruthy();
       expect(screen.getByText("Needs Command Line Tools")).toBeTruthy();
       expect(screen.queryByRole("button", { name: "Install git" })).toBeNull();
     }
@@ -563,7 +564,7 @@ test("complete means every check and checkout passed; changed checkouts remain u
       ],
     },
   });
-  await screen.findByText("Complete");
+  await screen.findByText("Ready · 1 repository");
   expect(screen.getByText("Changes")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Clone here" })).toBeNull();
 });
@@ -688,3 +689,111 @@ test("host aliases and agent IDs are literal data even when they name object pro
   await screen.findByText("Pass · Host key trusted");
   expect(screen.getAllByText("constructor")).toHaveLength(2);
 });
+
+test("usable hosts keep optional missing agents, sign-in and checkouts neutral", async () => {
+  const result = {
+    ...host.result,
+    facts: {
+      ...facts,
+      tools: [
+        { id: "git", state: "ready" as const, signIn: "unknown" as const },
+        { id: "gh", state: "missing" as const, signIn: "unknown" as const },
+      ],
+      agents: [
+        ...facts.agents,
+        { id: "opencode", state: "missing" as const },
+        { id: "pi", state: "missing" as const },
+      ],
+    },
+  };
+  mount({
+    ...initial,
+    hosts: [{ ...host, result, recipes: [{ tool: "pi", install: true, signIn: false }] }],
+    preflight: { ...preflight, result },
+  });
+  await screen.findByText("Ready · 0 repositories");
+  expect(screen.getByText("Not checked out").closest(".host-status")?.className).toContain(
+    "host-neutral",
+  );
+  expect(screen.getAllByText("Not found").every((item) => item.closest(".host-neutral"))).toBe(
+    true,
+  );
+  expect(screen.getByRole("button", { name: "Install pi" })).toBeTruthy();
+});
+test("host-key fix identifies only the repository; declared build facts are neutral", async () => {
+  const state: HostsState = {
+    ...initial,
+    preflight: {
+      ...preflight,
+      repositories: [
+        {
+          repository: "/local/project",
+          origin: { state: "fail", reason: "origin-host-key" },
+          checkout: {
+            ...host.result,
+            checkout: {
+              path: "/remote/project",
+              state: "clean",
+              build: [
+                { tool: "node", required: ">=24", version: "22.18.0" },
+                { tool: "pnpm", required: "10.34.7" },
+              ],
+            },
+          },
+        },
+      ],
+    },
+  };
+  const { api } = mount(state);
+  await screen.findByText("22.18.0 · requires >=24");
+  expect(screen.getByText("Unavailable · requires 10.34.7")).toBeTruthy();
+  await waitFor(() => {
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Trust host key" }).disabled).toBe(
+      false,
+    );
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Trust host key" }));
+  await waitFor(() => {
+    expect(api).toHaveBeenCalledWith({
+      action: "trust-origin",
+      host: "worker",
+      repository: "/local/project",
+    });
+  });
+});
+test.each(["hosts", "repositories"])(
+  "%s clone row stays busy until its result arrives",
+  async (surface) => {
+    const api = vi
+      .fn<(action: HostsAction) => Promise<HostsState>>()
+      .mockResolvedValue(surface === "hosts" ? initial : locations());
+    render(
+      surface === "hosts" ? (
+        <HostsSettings source={{ hosts: api }} headingRef={createRef()} />
+      ) : (
+        <RepositoryHosts source={{ hosts: api }} repositories={repositories} />
+      ),
+    );
+    await waitFor(() => {
+      expect(screen.getByRole<HTMLButtonElement>("button", { name: "Clone here" }).disabled).toBe(
+        false,
+      );
+    });
+    let finish: ((state: HostsState) => void) | undefined;
+    api.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Clone here" }));
+    expect(screen.getByText("Cloning…").closest(".host-status")?.className).toContain("host-work");
+    await act(async () => {
+      finish?.(surface === "hosts" ? initial : locations());
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(screen.queryByText("Cloning…")).toBeNull();
+    });
+  },
+);

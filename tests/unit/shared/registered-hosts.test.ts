@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import {
+  originSshArgs,
   hostAlias,
   codeFolder,
   registeredHosts,
@@ -420,4 +421,80 @@ test("partial preflight requests, observations and explicit folder actions have 
   ).toBe(false);
   expect(remoteResponse({ type: "hello", build: "a".repeat(64), hostPreflight: 1 })).toBe(true);
   expect(remoteResponse({ type: "hello", build: "a".repeat(64), hostPreflight: 2 })).toBe(false);
+});
+
+test("origin trust selects only SSH targets and preserves explicit ports without a command", () => {
+  expect(originSshArgs("git@forge.test:team/repo.git")?.slice(-2)).toEqual([
+    "--",
+    "git@forge.test",
+  ]);
+  expect(originSshArgs("ssh://git@forge.test:2222/team/repo.git")?.slice(-4)).toEqual([
+    "-p",
+    "2222",
+    "--",
+    "git@forge.test",
+  ]);
+  expect(originSshArgs("forge.test:team/repo.git")?.at(-1)).toBe("forge.test");
+  expect(originSshArgs("ssh://forge.test/team/repo.git")?.at(-1)).toBe("forge.test");
+  for (const origin of [
+    "https://forge.test/team/repo.git",
+    "ssh://forge.test:99999/team/repo",
+    "-oProxyCommand=x",
+    "git@forge.test:a;bad",
+    null,
+  ])
+    expect(originSshArgs(origin)).toBeUndefined();
+  expect(hostsAction({ action: "trust-origin", host: "worker", repository: "/local/repo" })).toBe(
+    true,
+  );
+  expect(
+    hostsAction({
+      action: "trust-origin",
+      host: "worker",
+      repository: "/local/repo",
+      origin: "bad",
+    }),
+  ).toBe(false);
+  const request = {
+    type: "open",
+    id: "trust",
+    request: 1,
+    cols: 80,
+    rows: 24,
+    reattach: false,
+    human: true,
+    trustOrigin: "git@forge.test:team/repo.git",
+  };
+  expect(remoteRequest(request)).toBe(true);
+  for (const patch of [
+    { human: false },
+    { reattach: true },
+    { checkout: {} },
+    { context: {} },
+    { recipe: {} },
+    { trustOrigin: "https://forge.test/repo" },
+  ])
+    expect(remoteRequest({ ...request, ...patch })).toBe(false);
+});
+test("build facts have a closed bounded response schema", () => {
+  const result = {
+    ok: true,
+    facts,
+    checkout: {
+      path: "/code/repo",
+      state: "clean",
+      build: [{ tool: "node", required: ">=24", version: "22.18.0" }],
+    },
+  };
+  expect(hostResult(result)).toBe(true);
+  for (const build of [
+    null,
+    [null],
+    [{ tool: "bad", required: "24" }],
+    [{ tool: "node", required: "24", raw: "secret" }],
+    [{ tool: "node", required: "\nsecret" }],
+    [{ tool: "node", required: "24", version: "secret" }],
+    Array(3).fill({ tool: "node", required: "24" }),
+  ])
+    expect(hostResult({ ...result, checkout: { ...result.checkout, build } })).toBe(false);
 });

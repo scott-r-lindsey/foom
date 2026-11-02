@@ -23,7 +23,10 @@ vi.mock("../../../../src/terminal-host/remote/agent-discovery", () => ({
   hostDiscovery: mock.discovery,
   hostLoginEnvironment: mock.login,
 }));
-import { runHostRecipe as executeRecipe } from "../../../../src/terminal-host/remote/host-recipe";
+import {
+  runHostRecipe as executeRecipe,
+  runOriginTrust,
+} from "../../../../src/terminal-host/remote/host-recipe";
 async function runHostRecipe(args: readonly string[], home: string) {
   const [tool, action, distro] = args;
   const recipe =
@@ -150,4 +153,49 @@ test("mismatched command digests refuse before executing anything", async () => 
     2,
   );
   expect(mock.spawn).not.toHaveBeenCalled();
+});
+
+test("origin trust runs only interactive ssh argv with fingerprint confirmation left to the user", async () => {
+  mock.discovery.mockResolvedValue({ command: "/fixture/ssh" });
+  expect(await runOriginTrust(["ssh://git@forge.test:2222/repo"], "/fixture/home")).toBe(0);
+  expect(mock.spawn).toHaveBeenCalledWith(
+    "/fixture/ssh",
+    [
+      "-T",
+      "-o",
+      "StrictHostKeyChecking=ask",
+      "-o",
+      "BatchMode=no",
+      "-o",
+      "ForwardAgent=no",
+      "-o",
+      "ForwardX11=no",
+      "-o",
+      "ClearAllForwardings=yes",
+      "-p",
+      "2222",
+      "--",
+      "git@forge.test",
+    ],
+    {
+      cwd: "/fixture/home",
+      env: { PATH: "/fixture:/usr/local/bin" },
+      shell: false,
+      stdio: "inherit",
+    },
+  );
+  for (const argv of [[], ["https://forge.test/repo"], ["git@forge.test:repo", "extra"]])
+    expect(await runOriginTrust(argv, "/fixture/home")).toBe(2);
+  mock.spawn.mockImplementation(() => {
+    const child = new EventEmitter();
+    queueMicrotask(() => child.emit("error", new Error("missing")));
+    return child;
+  });
+  expect(await runOriginTrust(["git@forge.test:repo"], "/fixture/home")).toBe(1);
+  mock.spawn.mockImplementation(() => {
+    const child = new EventEmitter();
+    queueMicrotask(() => child.emit("exit", null));
+    return child;
+  });
+  expect(await runOriginTrust(["git@forge.test:repo"], "/fixture/home")).toBe(1);
 });

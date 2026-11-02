@@ -80,7 +80,7 @@ function checkoutPresentation(result: HostResult | undefined): { tone: Tone; tex
   if (!result) return { tone: "neutral", text: "Not checked" };
   if (!result.ok) return { tone: "fail", text: `${reasons[result.reason]} · ${result.reason}` };
   if (!result.checkout) return { tone: "neutral", text: "Not checked" };
-  if (result.checkout.state === "absent") return { tone: "need", text: "Not checked out" };
+  if (result.checkout.state === "absent") return { tone: "neutral", text: "Not checked out" };
   return {
     tone: result.checkout.state === "clean" ? "pass" : "neutral",
     text: result.checkout.state === "clean" ? "Clean" : "Changes",
@@ -92,23 +92,17 @@ function hostSummary(preflight: HostPreflight | undefined) {
   if (!result.ok) return "Needs you";
   const facts = result.facts;
   const checks = [preflight.ssh, preflight.platform, preflight.artifact, facts.folder];
-  const inventory = [...(facts.tools ?? []), ...facts.agents];
-  const mac = facts.requirements?.mac;
-  return !facts.tools ||
-    checks.some((check) => check?.state !== "pass") ||
-    inventory.some(
-      (tool) => tool.state !== "ready" || (tool.id !== "git" && tool.signIn !== "signed-in"),
-    ) ||
-    preflight.repositories.some(
-      (repo) =>
-        repo.origin.state !== "pass" ||
-        !repo.checkout.ok ||
-        !repo.checkout.checkout ||
-        repo.checkout.checkout.state === "absent",
-    ) ||
-    (mac && (!mac.commandLineTools || mac.protectedFolder || !mac.staysAwake))
-    ? "Needs you"
-    : "Complete";
+  const ready =
+    checks.every((check) => check?.state === "pass") &&
+    facts.tools?.some((tool) => tool.id === "git" && tool.state === "ready") &&
+    facts.requirements?.mac?.commandLineTools !== false &&
+    facts.agents.some((agent) => agent.state === "ready");
+  if (!ready) return "Needs you";
+  const count = preflight.repositories.filter(
+    (repo) =>
+      repo.checkout.ok && repo.checkout.checkout && repo.checkout.checkout.state !== "absent",
+  ).length;
+  return `Ready · ${String(count)} ${count === 1 ? "repository" : "repositories"}`;
 }
 function canClone(result: HostResult | undefined) {
   return (
@@ -139,6 +133,7 @@ function Checklist({
   entry,
   preflight,
   checking,
+  cloning,
   disabled,
   act,
   changeFolder,
@@ -146,6 +141,7 @@ function Checklist({
   entry: HostRow;
   preflight: HostPreflight | undefined;
   checking: boolean;
+  cloning: string | undefined;
   disabled: boolean;
   act: (action: HostsAction) => void;
   changeFolder: () => void;
@@ -157,7 +153,7 @@ function Checklist({
   const folder = facts?.folder;
   const folderStatus = checkPresentation(folder, "Valid");
   if (mac?.protectedFolder) {
-    if (folder?.state !== "fail") folderStatus.tone = "need";
+    if (folder?.state !== "fail") folderStatus.tone = "neutral";
     folderStatus.text =
       folder?.state === "fail"
         ? `${folderStatus.text} · Protected folder`
@@ -190,7 +186,7 @@ function Checklist({
           <Row
             name={agentNames.get(agent.id) ?? agent.id}
             tone={
-              needsCLT || agent.state === "missing"
+              needsCLT || (agent.id === "git" && agent.state === "missing")
                 ? "need"
                 : agent.state === "ready"
                   ? "pass"
@@ -219,13 +215,7 @@ function Checklist({
                   {agent.id === "gh" && <span className="host-tag">PRs</span>}
                 </>
               }
-              tone={
-                agent.signIn === "signed-in"
-                  ? "pass"
-                  : agent.signIn === "signed-out"
-                    ? "need"
-                    : "neutral"
-              }
+              tone={agent.signIn === "signed-in" ? "pass" : "neutral"}
               text={
                 agent.signIn === "signed-in"
                   ? "Pass · Signed in"
@@ -304,6 +294,19 @@ function Checklist({
             {...(checking
               ? { tone: "work" as const, text: "Re-checking…" }
               : checkPresentation(repo.origin, "Reachable"))}
+            action={
+              repo.origin.state === "fail" && repo.origin.reason === "origin-host-key" ? (
+                <button
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => {
+                    act({ action: "trust-origin", host: entry.host, repository: repo.repository });
+                  }}
+                >
+                  Trust host key
+                </button>
+              ) : undefined
+            }
           />
           {repo.origin.state === "fail" && repo.origin.reason === "origin-auth" && (
             <div className="host-origin-fixes" aria-label="Git access fixes">
@@ -322,7 +325,9 @@ function Checklist({
           )}
           <Row
             name="Repository checkout"
-            {...checkoutPresentation(repo.checkout)}
+            {...(cloning === repo.repository
+              ? { tone: "work" as const, text: "Cloning…" }
+              : checkoutPresentation(repo.checkout))}
             action={
               canClone(repo.checkout) ? (
                 <button
@@ -337,6 +342,15 @@ function Checklist({
               ) : undefined
             }
           />
+          {repo.checkout.ok &&
+            repo.checkout.checkout?.build?.map((fact) => (
+              <Row
+                key={fact.tool}
+                name={fact.tool === "node" ? "Node" : fact.tool}
+                tone="neutral"
+                text={`${fact.version ?? "Unavailable"} · requires ${fact.required}`}
+              />
+            ))}
         </Fragment>
       ))}
       {mac && (
@@ -344,7 +358,7 @@ function Checklist({
           <Group>Power</Group>
           <Row
             name="Stays awake"
-            tone={mac.staysAwake ? "pass" : "need"}
+            tone={mac.staysAwake ? "pass" : "neutral"}
             text={mac.staysAwake ? "Pass · Stays awake" : "Warning · Sleeps when idle"}
             action={!mac.staysAwake ? "On the Mac · Battery → Options" : undefined}
           />
@@ -369,6 +383,7 @@ export function HostsSettings({
   const [folder, setFolder] = useState("~/foom");
   const [changing, setChanging] = useState<{ host: string; folder: string }>();
   const [busy, setBusy] = useState<string | undefined>("");
+  const [cloning, setCloning] = useState<{ host: string; repository: string }>();
   const [error, setError] = useState("");
   const api = source.hosts;
   useEffect(() => {
@@ -405,6 +420,7 @@ export function HostsSettings({
   }, [api]);
   const act = async (action: HostsAction) => {
     setBusy("host" in action ? action.host : "");
+    if (action.action === "clone") setCloning(action);
     setError("");
     try {
       let next = await api?.(action);
@@ -435,7 +451,10 @@ export function HostsSettings({
                 location.host === action.host && location.repository === action.repository,
             )?.result
           : undefined;
-      if ("host" in action && !["remove", "recipe", "end", "preflight"].includes(action.action)) {
+      if (
+        "host" in action &&
+        !["remove", "recipe", "trust-origin", "end", "preflight"].includes(action.action)
+      ) {
         const entry = next.hosts.find((entry) => entry.host === action.host);
         if (entry) {
           next = await api?.({
@@ -468,6 +487,7 @@ export function HostsSettings({
     } catch {
       setError("Unable to update hosts");
     } finally {
+      setCloning(undefined);
       setBusy(undefined);
     }
   };
@@ -590,7 +610,8 @@ export function HostsSettings({
           <Checklist
             entry={entry}
             preflight={checks.get(entry.host)}
-            checking={busy === entry.host}
+            checking={busy === entry.host && !cloning}
+            cloning={cloning?.host === entry.host ? cloning.repository : undefined}
             disabled={busy !== undefined}
             act={(action) => {
               void act(action);
@@ -719,6 +740,7 @@ export function RepositoryHosts({
 }) {
   const [state, setState] = useState<HostsState>({ hosts: [], locations: [] });
   const [busy, setBusy] = useState(false);
+  const [cloning, setCloning] = useState<{ host: string; repository: string }>();
   const [error, setError] = useState("");
   const api = source.hosts;
   useEffect(() => {
@@ -737,6 +759,7 @@ export function RepositoryHosts({
   }, [api, repositories]);
   const act = async (action: HostsAction) => {
     setBusy(true);
+    if (action.action === "clone") setCloning(action);
     setError("");
     try {
       let next = await api?.(action);
@@ -757,6 +780,7 @@ export function RepositoryHosts({
         action.action === "clone" ? "Unable to clone repository" : "Unable to check locations",
       );
     } finally {
+      setCloning(undefined);
       setBusy(false);
     }
   };
@@ -799,6 +823,7 @@ export function RepositoryHosts({
               (entry) => entry.host === host.host && entry.repository === repo.path,
             )?.result;
             const checkout = result?.ok ? result.checkout : undefined;
+            const isCloning = cloning?.host === host.host && cloning.repository === repo.path;
             const path = host.host === null ? repo.path : checkout?.path;
             return (
               <div className="host-repository-row" key={repo.path}>
@@ -821,9 +846,13 @@ export function RepositoryHosts({
                 <Status
                   {...(host.host === null
                     ? { tone: "neutral" as const }
-                    : { tone: checkoutPresentation(result).tone })}
+                    : { tone: isCloning ? ("work" as const) : checkoutPresentation(result).tone })}
                 >
-                  {host.host === null ? "Checked out" : checkoutPresentation(result).text}
+                  {host.host === null
+                    ? "Checked out"
+                    : isCloning
+                      ? "Cloning…"
+                      : checkoutPresentation(result).text}
                 </Status>
                 <span className="host-check-action">
                   {host.host !== null && canClone(result) && (

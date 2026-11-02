@@ -64,6 +64,38 @@ export function gitOrigin(value: unknown): value is string {
       ))
   );
 }
+/** Only validated SSH origins can select this human-owned command. */
+export function originSshArgs(origin: unknown): string[] | undefined {
+  if (!gitOrigin(origin) || origin.startsWith("https://")) return undefined;
+  const flags = [
+    "-T",
+    "-o",
+    "StrictHostKeyChecking=ask",
+    "-o",
+    "BatchMode=no",
+    "-o",
+    "ForwardAgent=no",
+    "-o",
+    "ForwardX11=no",
+    "-o",
+    "ClearAllForwardings=yes",
+  ];
+  if (origin.startsWith("ssh://")) {
+    try {
+      const url = new URL(origin);
+      return [
+        ...flags,
+        ...(url.port ? ["-p", url.port] : []),
+        "--",
+        `${url.username ? `${url.username}@` : ""}${url.hostname}`,
+      ];
+    } catch {
+      return undefined;
+    }
+  }
+  return [...flags, "--", origin.split(":")[0] ?? ""];
+}
+
 export function hostBranch(value: unknown): value is string {
   return (
     typeof value === "string" &&
@@ -338,7 +370,21 @@ export function hostResult(value: unknown): value is HostResult {
     ) &&
     (checkout === undefined ||
       (record(checkout) &&
-        keys(checkout, ["path", "state"]) &&
+        keys(checkout, ["path", "state", "build"]) &&
+        (checkout["build"] === undefined ||
+          (Array.isArray(checkout["build"]) &&
+            checkout["build"].length <= 2 &&
+            checkout["build"].every(
+              (fact: unknown) =>
+                record(fact) &&
+                keys(fact, ["tool", "required", "version"]) &&
+                closed(fact["tool"], ["node", "npm", "pnpm", "yarn", "bun"]) &&
+                typeof fact["required"] === "string" &&
+                /^[a-zA-Z0-9.*+^~|<>= .-]{1,128}$/u.test(fact["required"]) &&
+                (fact["version"] === undefined ||
+                  (typeof fact["version"] === "string" &&
+                    /^[0-9][a-zA-Z0-9.+-]{0,63}$/u.test(fact["version"]))),
+            ))) &&
         remotePath(checkout["path"]) &&
         typeof checkout["state"] === "string" &&
         ["clean", "changed", "absent"].includes(checkout["state"])))
@@ -369,7 +415,7 @@ export function hostsAction(value: unknown): value is HostsAction {
   )
     return keys(value, ["action", "host", "codeFolder"]) && codeFolder(value["codeFolder"]);
   return (
-    value["action"] === "clone" &&
+    (value["action"] === "clone" || value["action"] === "trust-origin") &&
     keys(value, ["action", "host", "repository"]) &&
     typeof value["repository"] === "string" &&
     value["repository"].length <= 4096

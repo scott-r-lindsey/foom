@@ -45,6 +45,11 @@ export interface HostConnectionChecks {
   platform: HostCheck;
   artifact: HostCheck;
 }
+export interface HostBuildFact {
+  tool: "node" | "npm" | "pnpm" | "yarn" | "bun";
+  required: string;
+  version?: string;
+}
 export interface HostPreflight extends HostConnectionChecks {
   result: HostResult;
   repositories: readonly { repository: string; origin: HostCheck; checkout: HostResult }[];
@@ -95,7 +100,11 @@ export type HostResult = { connection?: HostConnectionChecks } & (
   | {
       ok: true;
       facts: HostFacts;
-      checkout?: { path: string; state: "clean" | "changed" | "absent" };
+      checkout?: {
+        path: string;
+        state: "clean" | "changed" | "absent";
+        build?: readonly HostBuildFact[];
+      };
       inventory?: { own: readonly RemoteWorktree[]; other: number };
       worktree?: {
         path: string;
@@ -132,6 +141,7 @@ export interface HostsState {
   result?: HostResult | undefined;
 }
 export type HostsAction =
+  | { action: "trust-origin"; host: string; repository: string }
   | { action: "recipe"; host: string; tool: string; operation: "install" | "sign-in" }
   | { action: "preflight"; host: string; codeFolder: string }
   | { action: "create-folder"; host: string }

@@ -1429,7 +1429,18 @@ test("host bridge validates every nested fact and strips undeclared host data", 
     },
     tools: [{ id: "gh", state: "ready", signIn: "signed-out" }],
   };
-  const result = { ok: true, facts, checkout: { path: "/home/worker/foom/repo", state: "clean" } };
+  const result = {
+    ok: true,
+    facts,
+    checkout: {
+      path: "/home/worker/foom/repo",
+      state: "clean",
+      build: [
+        { tool: "node", required: ">=24", version: "22.18.0" },
+        { tool: "pnpm", required: "10.34.7" },
+      ],
+    },
+  };
   const value = {
     hosts: [{ host: "worker", codeFolder: facts.codeFolder, result, foreignWorktrees: 3 }],
     locations: [{ host: "worker", repository: "/local/repo", result }],

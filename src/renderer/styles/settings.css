@@ -712,6 +712,7 @@
   font-size: 9px;
 }
 .host-work .host-symbol {
+  animation: host-spin 1s linear infinite;
   border: 2px solid var(--accent);
   border-right-color: transparent;
   border-radius: 50%;
@@ -862,4 +863,15 @@
 .repository-host-card > .hosts-heading h3 {
   flex: none;
   font: 13px var(--font-mono);
+}
+
+@keyframes host-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .host-work .host-symbol {
+    animation: none;
+  }
 }

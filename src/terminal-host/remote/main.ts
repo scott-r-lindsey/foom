@@ -1,4 +1,4 @@
-import { runHostRecipe } from "./host-recipe";
+import { runHostRecipe, runOriginTrust } from "./host-recipe";
 import { record } from "../../shared/remote-agent-protocol";
 import { stageRemotePlugin } from "./agent-launch";
 import { observeRemote, remoteCli, remoteMcp } from "./agent-helper";
@@ -14,8 +14,10 @@ import { checkSocket, hostSocket } from "./private-path";
 // Hash the SEA itself: identical application versions with different builds cannot
 // silently attach to each other or replace a daemon with live sessions.
 export function runHost(argv: readonly string[] = process.argv): void {
-  if (argv[2] === "--recipe") {
-    void runHostRecipe(argv.slice(3)).then(
+  if (argv[2] === "--recipe" || argv[2] === "--trust-origin") {
+    void (
+      argv[2] === "--recipe" ? runHostRecipe(argv.slice(3)) : runOriginTrust(argv.slice(3))
+    ).then(
       (code) => {
         process.exitCode = code;
       },
