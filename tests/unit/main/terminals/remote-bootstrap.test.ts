@@ -189,7 +189,16 @@ test("compressed catalogs validate both compressed and expanded bytes", async ()
   };
   await writeFile(path, upload);
   await writeFile(join(f.root, "manifest.json"), JSON.stringify(manifest));
-  const artifact = await hostArtifact(path, f.manifest.source);
+  const [artifact, concurrent] = await Promise.all([
+    hostArtifact(path, f.manifest.source),
+    hostArtifact(path, f.manifest.source),
+  ]);
+  expect(concurrent).toBe(artifact);
+  const repeated = await Promise.all([
+    hostArtifact(path, f.manifest.source),
+    hostArtifact(path, f.manifest.source),
+  ]);
+  for (const current of repeated) expect(current).toBe(artifact);
   await expect(hostArtifact(path, "b".repeat(40))).rejects.toThrow("mismatch");
   expect(gunzipSync(artifact.upload)).toEqual(f.bytes);
   for (const patch of [
@@ -217,6 +226,26 @@ test("compressed catalogs validate both compressed and expanded bytes", async ()
   await expect(hostArtifact(path)).rejects.toThrow("mismatch");
   await writeFile(path, "corrupt gzip");
   await expect(hostArtifact(path)).rejects.toThrow();
+});
+
+test("artifact reuse rechecks current contents, source and file boundaries", async () => {
+  const f = await fixture();
+  const first = await hostArtifact(f.path, f.manifest.source);
+  expect(await hostArtifact(f.path, f.manifest.source)).toBe(first);
+  // Same length, different bytes must not inherit a successful verification.
+  await writeFile(f.path, Buffer.alloc(f.bytes.length, 42));
+  await expect(hostArtifact(f.path, f.manifest.source)).rejects.toThrow("mismatch");
+  await writeFile(f.path, f.bytes);
+  const recovered = await hostArtifact(f.path, f.manifest.source);
+  expect(recovered.bytes).toEqual(f.bytes);
+  await expect(hostArtifact(f.path, "b".repeat(40))).rejects.toThrow("mismatch");
+  await rm(f.path);
+  if (process.platform !== "win32") {
+    const replacement = join(f.root, "replacement");
+    await writeFile(replacement, f.bytes);
+    await symlink(replacement, f.path);
+    await expect(hostArtifact(f.path, f.manifest.source)).rejects.toThrow();
+  } else await expect(hostArtifact(f.path, f.manifest.source)).rejects.toThrow();
 });
 
 test.skipIf(process.platform === "win32")(
