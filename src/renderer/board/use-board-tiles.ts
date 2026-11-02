@@ -1,3 +1,4 @@
+import { readPreferences } from "./sidebar-preferences";
 import { errorMessage } from "../../shared/application-errors";
 import { prepareMove, finishMove } from "./move-placement";
 import { useBackgroundErrors } from "./error-presentation";
@@ -48,7 +49,12 @@ export function useBoardTiles({
   const [otherViews, setOtherViews] = useState<ReadonlySet<string>>(() => new Set());
   const [layout, setLayout] = useState(() => {
     try {
-      return loadLayout(localStorage, storageKey);
+      return loadLayout(
+        localStorage,
+        storageKey,
+        readPreferences(localStorage).expanded,
+        source.windows?.restored,
+      );
     } catch {
       return restoreLayout(null);
     }
@@ -132,6 +138,7 @@ export function useBoardTiles({
       next = fitLayout(next, measureTiles().metrics, !transient);
       next = {
         ...next,
+        sidebarExpanded: next.sidebarExpanded ?? layoutRef.current.sidebarExpanded ?? {},
         sidebarCollapsed: next.sidebarCollapsed ?? layoutRef.current.sidebarCollapsed ?? false,
         sidebarWidth: next.sidebarWidth ?? layoutRef.current.sidebarWidth,
       };
