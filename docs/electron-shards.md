@@ -560,4 +560,19 @@ its observed per-shard overhead projects Windows maxima of 615.4 / 600.9 seconds
 and macOS maxima of 626.1 / 654.2 seconds. This is a model, not observed speedup:
 moving cases between runners can change their cost. Three actual CI runs with the
 refreshed assignment must verify the approximately eleven-minute target. Further
-validation results are recorded in PR #1015.
+validation results are recorded below and in PR #1015.
+
+### Current-fixture plan validation
+
+Passing Electron step wall seconds in shard order, including test-runner overhead:
+
+| Run | Platform | Shard step seconds |
+| --- | --- | --- |
+| [41444554329](https://github.com/scott-r-lindsey/foom/actions/runs/41444554329) | Linux | 429 / 518 / 472 / 486 |
+| [41444554329](https://github.com/scott-r-lindsey/foom/actions/runs/41444554329) | Windows | 448 / 566 / 568 / 636 / 593 |
+| [41444554329](https://github.com/scott-r-lindsey/foom/actions/runs/41444554329) | macOS | 592 / 649 / 525 / 480 / 649 |
+
+The Windows shard 4 native-input readiness assertion failed on its first attempt
+and passed the single failed-jobs rerun. No test body or deadline changed.
+Windows peaks at 10m36s and macOS at 10m49s in this first validation run. Two more
+runs of the same assignment are needed to establish repeatability.
