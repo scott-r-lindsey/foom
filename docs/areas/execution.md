@@ -20,7 +20,7 @@ is reused. Revoked hook capabilities cannot address that invocation.
 | Claude | Per-launch UserPromptSubmit/PreToolUse observer hooks; half-circle title | PermissionRequest hook; live screen forms | Stop hook; star title |
 | Codex | Trusted per-launch UserPromptSubmit/PreToolUse/PostToolUse hooks; braille spinner title | PermissionRequest hook; Action Required title | Stop hook; fallback turn-complete notify; plain title |
 | Pi | Per-launch agent/turn/tool events | Blocking extension UI notifications and screen rules | Final agent_settled, with errors/aborts recorded as failure evidence |
-| Antigravity | Opt-in PreInvocation/PostToolUse observers | Screen rules | Fully idle Stop; error/step-limit Stop is failure |
+| Antigravity | Opt-in PreInvocation/PreToolUse/PostToolUse observers | Screen rules | Fully idle Stop; error/step-limit Stop is failure |
 
 Evidence precedence is: process exit; lifecycle hooks (including Codex); active permission hooks; agent-specific
 blocked forms/titles; agent working titles; generic shell patterns; neutral fallback.
@@ -124,7 +124,7 @@ bypass setup ownership or consent. New scans and actions use the model.
 The same `agy` enable/hooks/defaults/session keys are retained.
 
 The version-3 ordered observer preserves root-level filenames and native script bytes, but anchors commands to the absolute CLI-owned installed plugin directory (#467/#723). Generic staging under Foom's profile adds only a definition fingerprint
-to plugin metadata; the CLI alone copies it into its installation. Version 4 adds the environment-only MCP launcher (#855). Legacy versions 1–3 offer Update; version 4 requires the current definition fingerprint.
+to plugin metadata; the CLI alone copies it into its installation. Version 4 adds the environment-only MCP launcher (#855). Version 5 adds pre-tool progress (#1000). Legacy versions 1–4 offer Update; version 5 requires the current definition fingerprint.
 Older versions offer Update; disabled versions offer Enable; explicit fingerprint
 mismatches offer reviewed Update. Owned installed/outdated/disabled plugins also offer a confirmed Reinstall (uninstall then install); unavailable status offers Retry status in the row. Launch adds credentials only when hooks are
 enabled and installed or outdated. Channel-less reports are accepted only for the

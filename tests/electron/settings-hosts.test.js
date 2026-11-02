@@ -27,6 +27,8 @@ test("Settings authorizes checked SSH hosts and shows repository locations witho
   await mkdir(bin);
   const calls = path.join(root, "calls.jsonl");
   const recipeCalls = path.join(root, "recipes.jsonl");
+  const cloneReason = path.join(root, "clone-reason");
+  await writeFile(cloneReason, "origin-auth");
   await writeFile(recipeCalls, "");
   const recipeFixture = path.join(root, "recipe-fixture.js");
   await writeFile(
@@ -103,7 +105,7 @@ process.stdin.on('data', bytes => {
   let result;
   if(message.codeFolder==='~/unsafe') result={ok:false,reason:'unsafe-folder'};
   else if(message.codeFolder==='~/refused') result={ok:false,reason:'folder-refused'};
-  else if(message.operation==='clone' && host==='fixture-cloud') result={ok:false,reason:'clone-failed'};
+  else if(message.operation==='clone' && host==='fixture-cloud') {process.stderr.write('RAW GIT SECRET');result={ok:false,reason:require('node:fs').readFileSync(${JSON.stringify(cloneReason)},'utf8')};}
   else {
    const folder=message.codeFolder.startsWith('~/')?'/remote/account/'+message.codeFolder.slice(2):message.codeFolder;
    result={ok:true,facts:{codeFolder:folder,version:${JSON.stringify(manifest.version)},sessions:2,cores:8,load:[0.42,0.31,0.25],memoryTotal:17179869184,memoryAvailable:11811160064,requirements:{distro:'debian',libc:'supported',packageManager:'apt'},tools:[{id:'git',state:'missing',signIn:'unknown'},{id:'gh',state:'ready',signIn:'signed-out'}],agents:[{id:'claude',state:'ready'},{id:'codex',state:'missing'},{id:'agy',state:'unable'}]}};
@@ -180,7 +182,11 @@ process.stdin.on('data', bytes => {
         .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
         .toBe(mode === "dark");
       if (["host-facts-agents", "host-recipes"].includes(name)) await assertHostColumns();
-      await page.screenshot({ path: evidencePath(`screenshots-757/${name}-${mode}.png`) });
+      await page.screenshot({
+        path: evidencePath(
+          `${name.startsWith("1004-") ? "1004" : "screenshots-757"}/${name}-${mode}.png`,
+        ),
+      });
     }
   };
   await openSettingsScreen(page);
@@ -264,8 +270,21 @@ process.stdin.on('data', bytes => {
   await expect(page.getByRole("columnheader", { name: "Local", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Clone here", exact: true })).toHaveCount(2);
   await expect(page.getByText("Not checked out", { exact: true })).toHaveCount(2);
-  await page.getByRole("button", { name: "Clone here", exact: true }).first().click();
-  await expect(page.getByText("Could not clone from origin", { exact: true })).toBeVisible();
+  // Each management connection has its own fixture process; the selected reason
+  // comes from a fixture file and never from raw remote output.
+  for (const [reason, text] of [
+    ["origin-auth", "Origin authentication failed"],
+    ["origin-host-key", "Origin SSH host key is not trusted"],
+    ["origin-unreachable", "Origin unreachable"],
+    ["timed-out", "Git operation timed out"],
+    ["checkout-invalid", "Checkout validation failed"],
+  ]) {
+    await writeFile(cloneReason, reason);
+    await page.getByRole("button", { name: "Clone here", exact: true }).first().click();
+    await expect(page.getByText(text, { exact: true })).toBeVisible();
+    await expect(page.getByText("RAW GIT SECRET", { exact: true })).toHaveCount(0);
+    await capture(`1004-${reason}`);
+  }
   await capture("repository-hosts");
   await page.getByRole("button", { name: "Clone here", exact: true }).last().click();
   await expect(page.getByText("Clean", { exact: true })).toBeVisible();

@@ -20,7 +20,7 @@ it.each([false, true])(
     const model = agentProvider("agy").model;
     const files = pluginContent(model, {}, windows, "/installed path").content;
     const metadata = files.find((f) => f.name === "plugin.json");
-    expect(metadata?.content).toContain('"foomObserverVersion":4');
+    expect(metadata?.content).toContain('"foomObserverVersion":5');
     const config = files.find((f) => f.name === "mcp_config.json");
     expect(JSON.parse(config?.content ?? "{}")).toEqual({
       mcpServers: {

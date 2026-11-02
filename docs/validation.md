@@ -108,8 +108,8 @@ shell removal on native exit and shutdown.
 
 ## Refreshing the Electron shard plan
 
-Use Node 24 and installed dependencies. Download all fourteen `electron-results-*`
-artifacts per selected recent passing CI run. Keep numeric run-ID directories and
+Use Node 24 and installed dependencies. Download every `electron-results-*` artifact per selected recent passing CI run
+(fourteen for the current matrix, twelve for historical four-shard runs). Keep numeric run-ID directories and
 artifact subdirectories intact, outside the repository or under ignored
 `test-results/`. Use a fresh source directory for each refresh:
 
@@ -119,8 +119,8 @@ for run in 39918020774 39946804406 39970696968 39973853488 39981523976; do
     --dir "test-results/rebalance/sources/$run"
 done
 # Preview with the same measurements for both assignments, then regenerate:
-node scripts/rebalance-electron-shards.mjs test-results/rebalance/sources/*
-node scripts/rebalance-electron-shards.mjs test-results/rebalance/sources/* --write
+node scripts/rebalance-electron-shards.mjs test-results/rebalance/sources/* --source-shards=4
+node scripts/rebalance-electron-shards.mjs test-results/rebalance/sources/* --source-shards=4 --write
 pnpm run format
 node --require ./tests/helpers/setup.js --test scripts/electron-shard.test.mjs
 ```
@@ -130,8 +130,8 @@ platforms. The script rejects failed cases, missing reports and unmeasured curre
 cases. It takes each case's maximum duration per platform and includes hash
 assignments for previously unplanned cases in the before projection. Review balance
 and headroom under the 600s Linux / 840s Windows and macOS step limits.
-Use `--source-shards=4` when refreshing from older runs with four shards on every
-platform. Each source run must have the expected report count per platform.
+The examples select historical four-shard inputs with `--source-shards=4`. Omit
+that option for current runs with four Linux and five Windows/macOS shards. Each source run must have the expected report count per platform.
 Case sums exclude build/runner overhead; compare actual CI step times before
 calling the refresh validated. Regenerate after incorporating new tests from main
 and run full contributor validation. See the [sharding guide](electron-shards.md)

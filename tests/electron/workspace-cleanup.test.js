@@ -112,8 +112,14 @@ test("merged cleanup deletes external worktrees and branches while preserving a 
   }
   for (const branch of ["merged-one", "merged-two"]) {
     await assert.rejects(realpath(paths[branch]), { code: "ENOENT" });
+    // A hidden tombstone still leaves stale navigation/empty content behind.
+    await expect(
+      page.getByRole("treeitem", { name: branch, exact: true, includeHidden: true }),
+    ).toHaveCount(0);
     await expect.poll(() => git("branch", "--list", branch).toString().trim()).toBe("");
   }
+  await expect(page.getByRole("button", { name: "Actions for dirty", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Main checkout", exact: true })).toBeVisible();
   assert.equal(await readFile(path.join(paths.dirty, "keep.txt"), "utf8"), "must survive");
   assert.ok(git("branch", "--list", "dirty").includes("dirty"));
 });

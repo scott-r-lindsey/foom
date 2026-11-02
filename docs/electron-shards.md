@@ -203,7 +203,7 @@ cases by descending maximum fraction of a platform's total duration, breaking
 ties by test name. Place each case on the shard that minimizes the largest
 projected fraction across all platform/shard pairs; break ties by the selected
 shard's sum of platform fractions, then shard index. This balances all three
-platforms with one deterministic assignment.
+platforms with one deterministic assignment for each configured shard count.
 
 Historical projected case sums for the original plan (maxima across its three
 source runs), seconds:
@@ -233,9 +233,9 @@ for run in 39698958046 39717071939 39718663296; do
     --dir "test-results/rebalance/sources/$run"
 done
 # Preview before/after totals without changing the plan:
-node scripts/rebalance-electron-shards.mjs test-results/rebalance/sources/*
+node scripts/rebalance-electron-shards.mjs test-results/rebalance/sources/* --source-shards=4
 # Rebuild, then apply repository JSON formatting:
-node scripts/rebalance-electron-shards.mjs test-results/rebalance/sources/* --write
+node scripts/rebalance-electron-shards.mjs test-results/rebalance/sources/* --source-shards=4 --write
 pnpm run format
 # Registration audit, including exactly-once coverage and hash fallback:
 node --require ./tests/helpers/setup.js --test scripts/electron-shard.test.mjs
@@ -472,7 +472,7 @@ coverage rules and Quality gate requirements stay unchanged.
 
 ## Windows/macOS headroom (#1014)
 
-Refresh all 262 current registrations from the complete passing Electron JUnit
+Refresh all 263 current registrations from the complete passing Electron JUnit
 reports downloaded with `gh run download` from
 [41390347255](https://github.com/scott-r-lindsey/foom/actions/runs/41390347255),
 [41397433670](https://github.com/scott-r-lindsey/foom/actions/runs/41397433670),
@@ -484,7 +484,7 @@ unmodified under ignored `test-results/rebalance/sources/`.
 
 Four-way rebalancing cannot reach approximately 660 seconds: Windows case maxima
 sum to 2912.2 seconds, requiring at least 728.1 seconds per shard even with perfect
-balance, before build/runner overhead. macOS totals 2790.0 seconds, or 697.5 per
+balance, before build/runner overhead. macOS totals 2804.5 seconds, or 701.1 per
 shard. Keep Linux at four shards and use five on Windows/macOS. The matrix reads
 platform counts from the plan; the test helper selects the measured assignment
 for the requested count. New names and unplanned counts still use name hashing.
@@ -496,9 +496,9 @@ Conservative case sums in seconds (per-case/platform maxima across four sources)
 
 | Platform | Old assignment, four shards | Regenerated four shards | Regenerated five shards |
 | --- | --- | --- | --- |
-| Linux | 470.5 / 502.2 / 472.6 / 489.2 | 487.1 / 485.7 / 480.6 / 481.1 | unused |
-| Windows | 697.6 / 713.8 / 740.5 / 760.3 | 729.4 / 724.6 / 730.1 / 728.1 | 584.5 / 577.8 / 582.1 / 583.5 / 584.3 |
-| macOS | 704.4 / 695.7 / 735.9 / 654.0 | 683.7 / 702.6 / 701.9 / 701.8 | 551.7 / 560.5 / 558.0 / 558.3 / 561.6 |
+| Linux | 476.8 / 502.2 / 472.6 / 489.2 | 481.1 / 484.8 / 488.2 / 486.7 | unused |
+| Windows | 697.6 / 713.8 / 740.5 / 760.3 | 725.8 / 724.9 / 730.8 / 730.7 | 581.5 / 580.7 / 585.6 / 585.1 / 579.3 |
+| macOS | 718.9 / 695.7 / 735.9 / 654.0 | 705.8 / 703.7 / 692.5 / 702.5 | 559.9 / 557.9 / 561.8 / 561.3 / 563.7 |
 
 Regenerate these inputs with:
 
@@ -507,7 +507,23 @@ node scripts/rebalance-electron-shards.mjs test-results/rebalance/sources/* --so
 pnpm run format
 ```
 
-The five-way maximum leaves 75.5 seconds on Windows and 98.4 seconds on macOS
+The five-way maximum leaves 74.4 seconds on Windows and 96.3 seconds on macOS
 for build/runner overhead under the 660-second target. These projections combine
 maxima from different runs and are not measured step times. Actual PR CI step
 measurements across three runs must establish headroom before review.
+
+
+The first PR run used the original 262-case refresh. Its merge commit also picked
+up main's new restored-unread case through hash fallback. Merge main and regenerate
+all 263 registrations from the same four sources before subsequent measurements.
+The initial run's step times, in shard order (seconds), were Linux
+399 / 468 / 529 / 517, Windows 561 / 628 (failed) / 637 / 483 / 549, and macOS
+645 / 684 (failed) / 724 / 685 / 679. Windows shard 2 lost its theme-menu click;
+macOS shard 2 missed a preview snapshot. These are assertion failures, not budget
+exhaustion; a failed-jobs rerun is required before using this as green evidence.
+The slowest passing macOS shard took 12m04s, above the approximate target.
+One macOS report contains 570.0 seconds of named cases versus 679 seconds of step
+wall time: build, runner and empty-file overhead is material. Projections alone
+do not establish the acceptance criterion. See
+[run 41409300263](https://github.com/scott-r-lindsey/foom/actions/runs/41409300263)
+for the initial observations and PR #1015 for subsequent measurements.

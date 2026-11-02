@@ -28,6 +28,12 @@ export class WorktreeStore {
     return {
       version: 1,
       repositories: state["repositories"].filter(absolutePath),
+      parents: Array.isArray(state["parents"])
+        ? state["parents"].filter(
+            (entry): entry is { path: string; identity: string } =>
+              record(entry) && absolutePath(entry["path"]) && typeof entry["identity"] === "string",
+          )
+        : [],
       managed: state["managed"]
         .filter(
           (entry): entry is WorktreeStoredState["managed"][number] =>
