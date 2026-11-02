@@ -132,6 +132,13 @@ assignments for previously unplanned cases in the before projection. Review bala
 and headroom under the 600s Linux / 840s Windows and macOS step limits.
 The examples select historical four-shard inputs with `--source-shards=4`. Omit
 that option for current runs with four Linux and five Windows/macOS shards. Each source run must have the expected report count per platform.
+When combining old and current matrices, specify per-run counts explicitly. For
+example, `--source-shards=4 --source-shards=41409300263:4,5,5` uses four reports
+per platform for historical sources and four/five/five for that newer run, in
+`platforms` order from the plan. Options can appear in any order. Unknown run IDs,
+duplicate overrides, invalid counts and missing artifacts fail; the tool never
+infers a smaller matrix from missing reports.
+
 Case sums exclude build/runner overhead; compare actual CI step times before
 calling the refresh validated. Regenerate after incorporating new tests from main
 and run full contributor validation. See the [sharding guide](electron-shards.md)

@@ -251,7 +251,9 @@ cases without measurements on any platform. It prints the old assignment's
 projected totals using the same new measurements, including hash fallback for
 previously unplanned names, then applies the deterministic assignment above.
 The current platform shard counts come from the plan. Use `--source-shards=4`
-for historical inputs with four reports per platform. Regeneration keeps the
+for historical inputs with four reports per platform. A run-specific override,
+for example `--source-shards=41409300263:4,5,5`, permits combining historical
+and current matrices without guessing missing artifact counts. Regeneration keeps the
 configured counts, test deadlines and workflow step limits. Unchanged plans
 retain their existing bytes. Parser, input-validation and deterministic-assignment
 fixtures run in `pnpm run test:ci`.
@@ -472,7 +474,8 @@ coverage rules and Quality gate requirements stay unchanged.
 
 ## Windows/macOS headroom (#1014)
 
-Refresh all 263 current registrations from the complete passing Electron JUnit
+The four-source refresh measures all 263 registrations after merging main, using
+complete passing Electron JUnit
 reports downloaded with `gh run download` from
 [41390347255](https://github.com/scott-r-lindsey/foom/actions/runs/41390347255),
 [41397433670](https://github.com/scott-r-lindsey/foom/actions/runs/41397433670),
@@ -492,7 +495,7 @@ The gate requires every matrix job; no deadlines or step limits change.
 This adds two desktop jobs (17 Electron/companion jobs in total) and requests
 seven macOS jobs including the combined Darwin host builder.
 
-Conservative case sums in seconds (per-case/platform maxima across four sources):
+Initial conservative case sums in seconds (per-case/platform maxima across four sources):
 
 | Platform | Old assignment, four shards | Regenerated four shards | Regenerated five shards |
 | --- | --- | --- | --- |
@@ -520,10 +523,38 @@ The initial run's step times, in shard order (seconds), were Linux
 399 / 468 / 529 / 517, Windows 561 / 628 (failed) / 637 / 483 / 549, and macOS
 645 / 684 (failed) / 724 / 685 / 679. Windows shard 2 lost its theme-menu click;
 macOS shard 2 missed a preview snapshot. These are assertion failures, not budget
-exhaustion; a failed-jobs rerun is required before using this as green evidence.
+exhaustion. Both passed on the single failed-jobs rerun: Windows shard 2 took
+646 seconds and macOS shard 2 took 575 seconds. The complete run is green.
 The slowest passing macOS shard took 12m04s, above the approximate target.
 One macOS report contains 570.0 seconds of named cases versus 679 seconds of step
 wall time: build, runner and empty-file overhead is material. Projections alone
 do not establish the acceptance criterion. See
 [run 41409300263](https://github.com/scott-r-lindsey/foom/actions/runs/41409300263)
 for the initial observations and PR #1015 for subsequent measurements.
+
+
+Add all fourteen complete passing reports from that green PR run as a fifth
+source (62 reports total). For duplicate artifact names, select by creation time
+and match the selected ID against the successful job's upload log. The rerun
+artifacts are Windows ID 13127438067 and macOS ID 13129147676; their XML is used
+unchanged. Failed first-attempt reports are diagnostic evidence only.
+
+Rebalance both plans using per-case/platform maxima across all five runs:
+
+```sh
+node scripts/rebalance-electron-shards.mjs test-results/rebalance/sources/* --source-shards=4 --source-shards=41409300263:4,5,5 --write
+pnpm run format
+```
+
+| Platform / count | Before, same five-source measurements | After |
+| --- | --- | --- |
+| Linux / 4 | 482.9 / 487.3 / 494.4 / 487.7 | 491.6 / 491.5 / 484.3 / 485.0 |
+| Windows / 5 | 590.9 / 623.2 / 623.3 / 601.0 / 617.7 | 614.7 / 614.8 / 608.3 / 608.3 / 610.0 |
+| macOS / 5 | 593.6 / 597.1 / 658.1 / 599.2 / 603.2 | 608.3 / 605.3 / 613.2 / 612.8 / 611.8 |
+
+This moves the observed expensive macOS cases apart and reduces its largest
+projected case sum by 44.9 seconds. With these same measurements a regenerated
+four-way plan still peaks at 766.3 seconds on Windows and 766.9 seconds on macOS,
+before overhead. Five shards remain necessary. Three subsequent CI runs of this
+assignment must measure actual Electron step wall times; summed maxima are a
+conservative planning input, not proof of the approximately eleven-minute target.
