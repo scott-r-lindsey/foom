@@ -219,8 +219,8 @@ child.on('close', code => { appendFileSync(${JSON.stringify(sshLog)}, 'fixture s
     .click();
   await expect(page.getByText("Code folder does not exist")).toBeVisible();
   await page.screenshot({ path: evidencePath("1005-incomplete-host.png") });
-  await page.getByRole("button", { name: "Create folder", exact: true }).click();
-  await expect(page.getByText("Connection ready · Code folder checked")).toBeVisible();
+  await page.getByRole("button", { name: "Create", exact: true }).click();
+  await expect(page.getByText("Pass · Valid", { exact: true })).toBeVisible();
   assert.ok((await stat(path.join(remoteHome, "code"))).isDirectory());
   await page.keyboard.press("Escape");
   await page.evaluate(() => {
@@ -384,6 +384,7 @@ child.on('close', code => { appendFileSync(${JSON.stringify(sshLog)}, 'fixture s
     .getByRole("navigation", { name: "Settings sections" })
     .getByRole("button", { name: "Hosts", exact: true })
     .click();
+  await restored.locator(".host-details > summary").click();
   await expect(restored.getByText("Other profiles or untagged: 1", { exact: true })).toBeVisible();
   await restored.getByRole("button", { name: "Copy host alias", exact: true }).click();
   await expect

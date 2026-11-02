@@ -4,7 +4,7 @@ const { gitSync: isolatedGit } = require("../helpers/git.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const path = require("node:path");
-const { mkdir, mkdtemp, readFile, writeFile } = require("node:fs/promises");
+const { mkdir, mkdtemp, readFile, utimes, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const { deadline, expect } = require("./test-policy.js");
 const {
@@ -237,6 +237,8 @@ test("Settings shares live preflight values, sizes the terminal and restores key
   const repository = path.join(root, "settings-example");
   await mkdir(repository);
   isolatedGit(["init", "-q", repository]);
+  const tenDaysAgo = new Date(Date.now() - 10 * 86400000);
+  await utimes(path.join(repository, ".git", "HEAD"), tenDaysAgo, tenDaysAgo);
   const app = await launchApp(context, { fixture: "running-shell" });
   await app.evaluate(({ dialog }, folder) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [folder] });
@@ -280,6 +282,8 @@ test("Settings shares live preflight values, sizes the terminal and restores key
     .poll(() => page.evaluate(async () => (await window.desktop.setupState()).settings.hooks))
     .toBe(false);
   await section("Repositories");
+  await tabToControl(page.locator(".settings-repository-picker > summary"));
+  await page.keyboard.press("Enter");
   await page.getByRole("button", { name: "Choose folder…" }).waitFor();
   await tabTo(page, "Choose folder…");
   await page.keyboard.press("Enter");
@@ -294,6 +298,22 @@ test("Settings shares live preflight values, sizes the terminal and restores key
       ),
     )
     .toContain("settings-example");
+  const recentDays = page.getByRole("spinbutton", { name: "Recent repository days" });
+  await expect(recentDays).toHaveCount(1);
+  await tabToControl(recentDays);
+  await recentDays.fill("1");
+  const older = page.getByRole("region", { name: "Older", exact: true });
+  await expect(older.getByRole("checkbox", { name: /settings-example/ })).toBeChecked();
+  await expect(recentDays).toBeFocused();
+  await page.screenshot({ path: evidencePath("963/review-recent-days.png") });
+  await recentDays.fill("30");
+  await expect(
+    page
+      .getByRole("region", { name: "Recent · last 30 days", exact: true })
+      .getByRole("checkbox", { name: /settings-example/ }),
+  ).toBeChecked();
+  await expect(recentDays).toHaveCount(1);
+  await expect(recentDays).toBeFocused();
   await section("General");
   await tabToControl(page.getByRole("radio", { name: /Keep worktrees/ }));
   await page.keyboard.press("ArrowDown");

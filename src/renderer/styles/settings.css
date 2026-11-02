@@ -527,112 +527,339 @@
   font-size: 12px;
 }
 
-.hosts-page {
-  display: flex;
-  flex-direction: column;
+/* Remote host onboarding: Add → Check → Fix. */
+.hosts-page,
+.repository-hosts {
+  display: grid;
   gap: 20px;
+  min-width: 0;
 }
 .hosts-heading {
+  padding: 0;
+  background: transparent;
+  border: 0;
   display: flex;
   align-items: center;
   gap: 12px;
+  min-width: 0;
 }
 .hosts-heading h2,
 .hosts-heading h3 {
   flex: 1;
   margin: 0;
-}
-.host-card {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  padding: 20px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
   min-width: 0;
 }
-.host-card label {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+.host-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  min-width: 0;
+  overflow: hidden;
 }
-.host-card input {
-  width: 100%;
-  box-sizing: border-box;
+.host-card > .hosts-heading {
+  padding: 18px 20px;
+}
+.host-card h3 {
+  font-size: 16px;
+  font-weight: 600;
+}
+.host-card h4 {
+  margin: 0;
 }
 .host-card code,
 .repository-hosts code {
   overflow-wrap: anywhere;
+  font-size: 11px;
+}
+.host-card label {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
   font-size: 12px;
 }
-.host-actions {
+.host-card input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  font-family: var(--font-mono);
+}
+.host-add {
+  position: relative;
+  padding: 18px 20px 20px;
+}
+.host-add h3 {
+  margin: 0 0 18px;
+}
+.host-add-fields {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1.2fr 1fr auto;
+  align-items: end;
+  gap: 14px;
+  min-width: 0;
+}
+.host-add-fields > button {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
+  font-weight: 600;
+  height: 40px;
+}
+.host-notice {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 11px;
+}
+.host-cancel {
+  position: absolute;
+  top: 12px;
+  right: 20px;
+}
+.host-meta {
   display: flex;
   flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 20px 16px;
+  color: var(--muted);
+  font: 11px var(--font-mono);
+}
+.host-checks {
+  padding: 0 20px;
+}
+.host-check-group {
+  font: 10px var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  padding: 16px 0 6px;
+}
+.host-check-group:first-child {
+  padding-top: 2px;
+}
+.host-check-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(130px, 1fr) minmax(150px, 1.3fr) minmax(100px, auto);
+  gap: 9px;
+  align-items: center;
+  min-height: 39px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+.host-check-name {
+  padding-left: 25px;
+  font-weight: 500;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.host-check-row > .host-status {
+  position: static;
+}
+.host-status {
+  display: inline-flex;
+  align-items: center;
   gap: 8px;
+  font-size: 11px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.host-check-row .host-symbol {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  left: 2px;
+}
+.host-symbol {
+  display: inline-flex;
+  flex: 0 0 12px;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.host-pass {
+  color: var(--done-ink);
+}
+.host-need {
+  color: var(--attention-ink);
+}
+.host-fail,
+.hosts-failure {
+  color: var(--failed-ink);
+}
+.host-neutral {
+  color: var(--muted);
+}
+.host-work {
+  color: var(--accent);
+}
+.host-need .host-symbol {
+  flex-basis: 7px;
+  height: 7px;
+  width: 7px;
+  border-radius: 50%;
+  background: var(--attention);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--attention) 23%, transparent);
+}
+.host-fail .host-symbol {
+  background: var(--failed);
+  color: var(--surface);
+  font-size: 9px;
+}
+.host-work .host-symbol {
+  border: 2px solid var(--accent);
+  border-right-color: transparent;
+  border-radius: 50%;
+  width: 11px;
+  height: 11px;
+}
+.host-check-action {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: end;
+  gap: 8px;
+  text-align: right;
+  font-size: 11px;
+  min-width: 0;
+}
+.host-check-action button {
+  font-size: 11px;
+  padding: 5px 9px;
+}
+.host-origin-fixes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding: 10px 0 12px 25px;
+  border-bottom: 1px solid var(--line);
+  font-size: 11px;
+}
+.host-origin-fixes span {
+  border-bottom: 1px dotted var(--muted);
+}
+.host-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+  border-top: 1px solid var(--line);
+  margin-top: 16px;
+}
+.host-count {
+  font-size: 11px;
+  color: var(--muted);
+}
+.host-tag {
+  color: var(--badge-ink);
+  background: var(--badge-fill);
+  padding: 3px 6px;
+  border-radius: 3px;
+  font: 10px var(--font-mono);
+}
+.host-details {
+  border-top: 1px solid var(--line);
+  padding: 12px 20px;
+  font-size: 11px;
+}
+.host-details summary {
+  cursor: pointer;
+  color: var(--muted);
 }
 .host-facts {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
-  margin: 0;
 }
 .host-facts dt {
   color: var(--muted);
-  font-size: 12px;
 }
 .host-facts dd {
-  font-family: var(--font-mono);
   margin: 4px 0 0;
+  font-family: var(--font-mono);
 }
-.host-agents {
-  display: grid;
-  grid-template-columns:
-    minmax(0, 0.65fr) minmax(0, 1fr) minmax(0, 1.1fr)
-    minmax(0, 2.25fr);
-  column-gap: 16px;
-  list-style: none;
-  margin: 0;
-  padding: 0;
+.host-folder-form {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 16px 20px;
 }
-.host-agents li {
-  display: grid;
-  grid-column: 1 / -1;
-  grid-template-columns: subgrid;
-  align-items: center;
-  padding: 8px 0;
-  border-top: 1px solid var(--line);
-}
-.host-agents li > span {
-  min-width: 0;
-  overflow-wrap: anywhere;
-  text-align: left;
-}
-.host-agent-action {
-  justify-self: start;
-}
-.host-card h4 {
-  margin: 0;
-}
-.hosts-failure {
-  color: var(--failed);
-}
-.host-table-scroll {
-  overflow-x: auto;
-  max-width: 100%;
-}
-.repository-hosts table {
-  border-collapse: collapse;
-  width: 100%;
-}
-.repository-hosts th,
-.repository-hosts td {
-  text-align: left;
-  vertical-align: top;
-  padding: 12px;
+.repository-host-card > .hosts-heading {
   border-bottom: 1px solid var(--line);
-  min-width: 150px;
+  flex-wrap: wrap;
 }
-.repository-hosts td > * {
-  display: block;
-  margin-bottom: 8px;
+.repository-host-card > .hosts-heading code {
+  margin-left: auto;
+  color: var(--muted);
+}
+.host-repository-row {
+  display: grid;
+  grid-template-columns: minmax(100px, 1fr) minmax(0, 2fr) minmax(130px, 1.3fr) 100px;
+  align-items: center;
+  gap: 16px;
+  padding: 9px 20px;
+  min-height: 48px;
+  border-bottom: 1px solid var(--line);
+}
+.host-repository-row:last-child {
+  border-bottom: 0;
+}
+.host-repository-row > span:first-child {
+  font: 12px var(--font-mono);
+  overflow-wrap: anywhere;
+}
+@media (max-width: 900px) {
+  .host-check-row {
+    position: relative;
+    grid-template-columns: minmax(110px, 1fr) minmax(130px, 1.3fr) minmax(80px, auto);
+  }
+  .host-repository-row {
+    grid-template-columns: 1fr 1fr;
+  }
+  .host-add-fields {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 650px) {
+  .host-check-row {
+    position: relative;
+    grid-template-columns: 1fr auto;
+    padding: 8px 0;
+  }
+  .host-check-row > .host-status {
+    grid-column: 1;
+    padding-left: 25px;
+  }
+  .host-check-row .host-symbol {
+    left: 2px;
+    right: auto;
+  }
+  .host-check-action {
+    grid-column: 2;
+    grid-row: 1 / 3;
+  }
+}
+
+.settings-repository-picker {
+  margin-top: 20px;
+  font-size: 12px;
+}
+.settings-repository-picker > summary {
+  cursor: pointer;
+  color: var(--muted);
+  margin-bottom: 16px;
+}
+.repository-hosts > .hosts-heading h2 {
+  margin: 0;
+}
+
+.repository-host-card > .hosts-heading h3 {
+  flex: none;
+  font: 13px var(--font-mono);
 }

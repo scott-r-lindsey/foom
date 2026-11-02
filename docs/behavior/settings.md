@@ -297,16 +297,22 @@ See the [channel and privacy policy](../product.md#updates-603).
 
 ## Hosts and repository locations (#757 PR 1)
 
-Hosts adds an SSH alias or user@host, including an incomplete host. Test connection
-and Check folder never create directories. The folder defaults to `~/foom`; a missing
-folder offers Create folder after enrollment. Each row has Refresh and Remove, daemon
-version, live sessions, CPU cores/load average, total/available memory and agents.
-Ready means installed and probeable; Not found and Unable to check are fixed
-states. Declared bounded status probes report sign-in separately. Remove forgets
-the host without stopping sessions.
+Add host takes an SSH alias or user@host and a code folder (default `~/foom`),
+then runs one full checklist. An incomplete host stays enrolled. Host, Tools,
+Agents, each repository and macOS Power rows retain their independent results;
+unrun checks say Not checked. Check again retries without creating directories.
+Missing folders offer Create, and Change folder selects a replacement. Install
+and Sign in appear only for available recipes and open a visible terminal tile;
+the user answers prompts there. Git access fixes remain user-run instructions.
 
-Repositories shows Local plus registered hosts, each checkout's path and state,
-and Clone here where absent. Clones use that repository's own origin and the
+Remove forgets the host without stopping sessions. Host facts contains daemon
+version, live sessions, CPU cores/load average, total/available memory, foreign
+session/worktree counts and Refresh facts. Ready tool/agent checks mean installed
+and probeable; Not found and Unable to check are fixed states. Declared bounded
+status probes report sign-in separately; unknown status never becomes a pass.
+
+Repositories groups rows under Local and each registered host, with checkout paths and states,
+and Clone here where absent. Choose repositories opens the local selection controls. Clones use that repository's own origin and the
 host's own Git access, inside its approved code folder. Failures show fixed reasons.
 This profile’s live remote sessions survive hub restarts with screen replay.
 Profile-owned worktrees remain in the sidebar without a session, including after

@@ -1,9 +1,14 @@
 // @vitest-environment jsdom
 import { createRef } from "react";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { HostsSettings, RepositoryHosts } from "../../../../src/renderer/preflight/hosts-settings";
-import type { HostsAction, HostsState } from "../../../../src/shared/registered-hosts.d";
+import type {
+  HostFailure,
+  HostPreflight,
+  HostsAction,
+  HostsState,
+} from "../../../../src/shared/registered-hosts.d";
 const facts = {
   codeFolder: "/home/worker/code",
   version: "0.1.0",
@@ -12,448 +17,674 @@ const facts = {
   load: [1, 2, 3],
   memoryTotal: 8 * 1024 ** 3,
   memoryAvailable: 4 * 1024 ** 3,
-  agents: [
-    { id: "claude", state: "ready" as const },
-    { id: "codex", state: "missing" as const },
-    { id: "pi", state: "unable" as const },
+  folder: { state: "pass" as const },
+  requirements: {
+    distro: "debian" as const,
+    libc: "supported" as const,
+    packageManager: "apt" as const,
+  },
+  tools: [
+    { id: "git", state: "ready" as const, signIn: "unknown" as const },
+    { id: "gh", state: "ready" as const, signIn: "signed-in" as const },
   ],
+  agents: [{ id: "claude", state: "ready" as const, signIn: "signed-in" as const }],
 };
 const host = {
-  foreignWorktrees: 2,
   host: "worker",
   codeFolder: facts.codeFolder,
+  foreignWorktrees: 2,
+  foreignSessions: 1,
   result: { ok: true as const, facts },
 };
+const preflight: HostPreflight = {
+  ssh: { state: "pass" },
+  platform: { state: "pass" },
+  artifact: { state: "pass" },
+  result: host.result,
+  repositories: [
+    {
+      repository: "/local/project",
+      origin: { state: "pass" },
+      checkout: { ...host.result, checkout: { path: "/remote/project", state: "absent" } },
+    },
+  ],
+};
+const initial: HostsState = { hosts: [host], locations: [], preflight };
+function mount(state: HostsState = initial) {
+  const api = vi.fn<(action: HostsAction) => Promise<HostsState>>().mockResolvedValue(state);
+  const view = render(<HostsSettings source={{ hosts: api }} headingRef={createRef()} />);
+  return { api, ...view };
+}
 afterEach(cleanup);
-test("host form requires a check, clears stale results on edits, and shows live numeric facts and fixed agent states", async () => {
+test("Add host enrolls then runs full preflight, without separate connection/folder tests", async () => {
   let state: HostsState = { hosts: [], locations: [] };
-  const api = vi.fn((action: HostsAction): Promise<HostsState> => {
-    if (action.action === "test") return Promise.resolve({ ...state, result: { ok: true, facts } });
-    if (action.action === "add")
-      state = { hosts: [host], locations: [], result: { ok: true, facts } };
-    if (action.action === "remove") state = { hosts: [], locations: [] };
+  const api = vi.fn((action: HostsAction) => {
+    if (action.action === "add") state = initial;
     return Promise.resolve(state);
   });
   render(<HostsSettings source={{ hosts: api }} headingRef={createRef()} />);
   await screen.findByText("No hosts");
   fireEvent.click(screen.getByRole("button", { name: "Add host" }));
-  expect(screen.getByPlaceholderText("user@host")).toBe(
-    screen.getByRole("textbox", { name: "SSH host" }),
-  );
-  expect(screen.getByRole<HTMLButtonElement>("button", { name: "Add" }).disabled).toBe(true);
-  fireEvent.change(screen.getByLabelText("SSH host"), { target: { value: "worker" } });
+  expect(screen.getByRole<HTMLButtonElement>("button", { name: "Add host" }).disabled).toBe(true);
+  fireEvent.change(screen.getByLabelText("SSH host"), { target: { value: " worker " } });
   fireEvent.change(screen.getByLabelText("Code folder"), { target: { value: "~/code" } });
-  fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
-  await screen.findByText("Connection ready · Code folder checked");
-  fireEvent.change(screen.getByLabelText("Code folder"), { target: { value: "~/foom" } });
-  await screen.findByText("Not checked");
-  fireEvent.click(screen.getByRole("button", { name: "Check folder" }));
-  await screen.findByText("Connection ready · Code folder checked");
-  fireEvent.click(screen.getByRole("button", { name: "Add" }));
+  fireEvent.click(screen.getByRole("button", { name: "Add host" }));
   await screen.findByRole("region", { name: "worker" });
-  expect(screen.getByText("2 other worktrees")).toBeTruthy();
-  expect(screen.getByText("8.0 GiB")).toBeTruthy();
-  expect(screen.getByText("4.0 GiB")).toBeTruthy();
-  expect(screen.getByText("1.00 · 2.00 · 3.00")).toBeTruthy();
-  for (const text of ["Ready", "Not found", "Unable to check", "Live sessions"])
+  await screen.findByText("Pass · Reachable");
+  expect(screen.queryByLabelText("SSH host")).toBeNull();
+  expect(api).toHaveBeenCalledWith({ action: "add", host: "worker", codeFolder: "~/code" });
+  expect(api).toHaveBeenCalledWith({
+    action: "preflight",
+    host: "worker",
+    codeFolder: host.codeFolder,
+  });
+});
+test("all independent checks, resource facts, refresh, folder editing, End and removal remain available", async () => {
+  const { api } = mount();
+  await screen.findByText("Pass · Host key trusted");
+  for (const text of [
+    "Pass · Supported",
+    "Pass · In this build",
+    "Pass · Valid",
+    "Claude Code",
+    "Pass · Reachable",
+    "Not checked out",
+    "2 other worktrees",
+    "8.0 GiB",
+    "4.0 GiB",
+    "1.00 · 2.00 · 3.00",
+  ])
     expect(screen.getByText(text)).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+  fireEvent.click(screen.getByRole("button", { name: "Refresh facts" }));
   await waitFor(() => {
     expect(api).toHaveBeenCalledWith({ action: "refresh", host: "worker" });
   });
   await waitFor(() => {
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Check again" }).disabled).toBe(
+      false,
+    );
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+  await waitFor(() => {
+    expect(api).toHaveBeenCalledWith({
+      action: "preflight",
+      host: "worker",
+      codeFolder: host.codeFolder,
+    });
+  });
+  await waitFor(() => {
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Change folder" }).disabled).toBe(
+      false,
+    );
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Change folder" }));
+  fireEvent.change(screen.getByLabelText("Code folder"), { target: { value: "~/new" } });
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(screen.queryByLabelText("Code folder")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Change folder" }));
+  fireEvent.change(screen.getByLabelText("Code folder"), { target: { value: "~/new" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() => {
+    expect(api).toHaveBeenCalledWith({
+      action: "change-folder",
+      host: "worker",
+      codeFolder: "~/new",
+    });
+  });
+  await waitFor(() => {
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "End…" }).disabled).toBe(false);
+  });
+  fireEvent.click(screen.getByRole("button", { name: "End…" }));
+  await waitFor(() => {
+    expect(api).toHaveBeenCalledWith({ action: "end", host: "worker" });
+  });
+  await waitFor(() => {
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Clone here" }).disabled).toBe(
+      false,
+    );
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Clone here" }));
+  await waitFor(() => {
+    expect(api).toHaveBeenCalledWith({
+      action: "clone",
+      host: "worker",
+      repository: "/local/project",
+    });
+  });
+  await waitFor(() => {
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "Remove" }).disabled).toBe(false);
   });
+  api.mockResolvedValue({ hosts: [], locations: [] });
   fireEvent.click(screen.getByRole("button", { name: "Remove" }));
   await screen.findByText("No hosts");
-  fireEvent.click(screen.getByRole("button", { name: "Add host" }));
-  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-  expect(screen.queryByLabelText("SSH host")).toBeNull();
 });
-test("host failures use fixed text, failed adds stay in the form, and action/load errors are visible", async () => {
-  const api = vi
-    .fn<(action: HostsAction) => Promise<HostsState>>()
-    .mockRejectedValueOnce(new Error("raw secret"));
-  const { unmount } = render(<HostsSettings source={{ hosts: api }} headingRef={createRef()} />);
-  await screen.findByText("Unable to load hosts");
-  api.mockResolvedValue({
-    hosts: [],
-    locations: [],
-    result: { ok: false, reason: "unsafe-folder" },
-  });
-  fireEvent.click(screen.getByRole("button", { name: "Add host" }));
-  fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
-  await screen.findByText("Code folder ownership or permissions are unsafe");
-  api.mockRejectedValueOnce(new Error("raw secret"));
-  fireEvent.click(screen.getByRole("button", { name: "Check folder" }));
-  await screen.findByText("Unable to update hosts");
-  expect(screen.queryByText("raw secret")).toBeNull();
-  unmount();
-  render(
-    <HostsSettings
-      source={{
-        hosts: () =>
-          Promise.resolve({
-            hosts: [
-              { ...host, result: { ok: false, reason: "unreachable" } },
-              { host: "unchecked", codeFolder: "/code" },
-            ],
-            locations: [],
-          }),
-      }}
-      headingRef={createRef()}
-    />,
-  );
-  await screen.findByText("Host unreachable");
-  await screen.findByText("Not checked");
-});
-test("repositories show Local and host paths, states, Clone here and fixed clone failures", async () => {
-  const repositories = [
-    { name: "project", path: "/local/project" },
-    { name: "changed", path: "/local/changed" },
-    { name: "clean", path: "/local/clean" },
-  ];
-  let state: HostsState = {
-    hosts: [host],
-    locations: repositories.map((repo, index) => ({
-      repository: repo.path,
-      host: "worker",
-      result: {
-        ok: true,
-        facts,
-        checkout: {
-          path: `${facts.codeFolder}/${repo.name}`,
-          state: index === 0 ? "absent" : index === 1 ? "changed" : "clean",
-        },
-      },
-    })),
-  };
-  const api = vi.fn((action: HostsAction): Promise<HostsState> => {
-    if (action.action === "clone")
-      state = {
-        ...state,
-        locations: state.locations.map((entry) =>
-          entry.repository === action.repository
-            ? { ...entry, result: { ok: false, reason: "clone-failed" } }
-            : entry,
-        ),
-      };
-    return Promise.resolve(state);
-  });
-  render(<RepositoryHosts source={{ hosts: api }} repositories={repositories} />);
-  await screen.findByRole("columnheader", { name: "worker" });
-  expect(screen.getByRole("columnheader", { name: "Local" })).toBeTruthy();
-  expect(screen.getByText("/local/project")).toBeTruthy();
-  expect(screen.getByText("Changes")).toBeTruthy();
-  expect(screen.getByText("Clean")).toBeTruthy();
-  expect(screen.getByText("Not checked out")).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "Clone here" }));
-  await screen.findByText("Could not clone from origin");
-  expect(api).toHaveBeenCalledWith({
-    action: "clone",
-    host: "worker",
-    repository: "/local/project",
-  });
-  api.mockRejectedValueOnce(new Error("raw secret"));
-  fireEvent.click(screen.getByRole("button", { name: "Clone here" }));
-  await screen.findByText("Unable to clone repository");
-  expect(within(screen.getByRole("table")).getAllByText("Checked out")).toHaveLength(3);
-});
-test("location loading fails with fixed text and disposes pending subscriptions safely", async () => {
-  const { unmount } = render(
-    <RepositoryHosts
-      source={{
-        hosts: () => Promise.reject(new Error("raw")),
-      }}
-      repositories={[]}
-    />,
-  );
-  await screen.findByText("Unable to check locations");
-  unmount();
-  let resolve: ((state: HostsState) => void) | undefined;
-  const pending = new Promise<HostsState>((done) => {
-    resolve = done;
-  });
-  const view = render(<HostsSettings source={{ hosts: () => pending }} headingRef={createRef()} />);
-  view.unmount();
-  resolve?.({ hosts: [], locations: [] });
-});
-
-test("interrupted clones reconcile locations and Refresh locations can recover a lost successful reply", async () => {
-  const repositories = [{ name: "project", path: "/local/project" }];
-  const location = {
-    repository: "/local/project",
-    host: "worker",
-    result: {
-      ok: true as const,
-      facts,
-      checkout: { path: "/remote/project", state: "absent" as const },
-    },
-  };
-  const initial: HostsState = { hosts: [host], locations: [location] };
-  const recovered: HostsState = {
-    ...initial,
-    locations: [
-      {
-        ...location,
-        result: { ...location.result, checkout: { path: "/remote/project", state: "clean" } },
-      },
+test("partial facts retain passes and expose Create plus available Install and Sign in actions", async () => {
+  const partialFacts = {
+    ...facts,
+    folder: { state: "fail" as const, reason: "folder-missing" as const },
+    tools: [
+      { id: "git", state: "missing" as const, signIn: "unknown" as const },
+      { id: "gh", state: "ready" as const, signIn: "signed-out" as const },
+    ],
+    agents: [
+      { id: "codex", state: "missing" as const },
+      { id: "pi", state: "unable" as const },
+      { id: "custom", state: "ready" as const },
     ],
   };
-  const api = vi
-    .fn<(action: HostsAction) => Promise<HostsState>>()
-    .mockResolvedValueOnce(initial)
-    .mockResolvedValueOnce({
-      ...initial,
-      locations: [{ ...location, result: { ok: false, reason: "unreachable" } }],
-    })
-    .mockResolvedValueOnce(recovered);
-  render(<RepositoryHosts source={{ hosts: api }} repositories={repositories} />);
-  fireEvent.click(await screen.findByRole("button", { name: "Clone here" }));
-  await screen.findByText("Clean");
-  expect(api.mock.calls.map(([action]) => action.action)).toEqual([
-    "locations",
-    "clone",
-    "locations",
-  ]);
-  api.mockRejectedValueOnce(new Error("private error"));
-  fireEvent.click(screen.getByRole("button", { name: "Refresh locations" }));
-  await screen.findByText("Unable to check locations");
-  api.mockResolvedValueOnce(recovered);
-  fireEvent.click(screen.getByRole("button", { name: "Refresh locations" }));
-  await waitFor(() => {
-    expect(screen.queryByRole("alert")).toBeNull();
-  });
-});
-
-test("registered values have named copy controls that send only host and repository identifiers", async () => {
-  const copyHost = vi.fn(async () => {});
-  const hosts = () =>
-    Promise.resolve({
-      hosts: [host],
-      locations: [
-        {
-          host: "worker",
-          repository: "/local",
-          result: {
-            ok: true as const,
-            facts,
-            checkout: { path: "/remote/repo", state: "clean" as const },
-          },
-        },
-      ],
-    });
-  const view = render(<HostsSettings source={{ hosts, copyHost }} headingRef={createRef()} />);
-  await screen.findByRole("button", { name: "Copy host alias" });
-  fireEvent.click(screen.getByRole("button", { name: "Copy host alias" }));
-  expect(copyHost).toHaveBeenLastCalledWith({ kind: "copy-host-alias", host: "worker" });
-  fireEvent.click(screen.getByRole("button", { name: "Copy code folder" }));
-  expect(copyHost).toHaveBeenLastCalledWith({ kind: "copy-host-code-folder", host: "worker" });
-  view.unmount();
-  render(
-    <RepositoryHosts
-      source={{ hosts, copyHost }}
-      repositories={[{ name: "Repo", path: "/local" }]}
-    />,
-  );
-  await screen.findByText("/remote/repo");
-  const buttons = screen.getAllByRole("button", { name: "Copy checkout path" });
-  fireEvent.click(buttons[0] ?? document.body);
-  expect(copyHost).toHaveBeenLastCalledWith({
-    kind: "copy-checkout-path",
-    host: null,
-    repository: "/local",
-  });
-  fireEvent.click(buttons[1] ?? document.body);
-  expect(copyHost).toHaveBeenLastCalledWith({
-    kind: "copy-checkout-path",
-    host: "worker",
-    repository: "/local",
-  });
-  await waitFor(() => {
-    expect(buttons[1]?.getAttribute("data-copied")).toBe("true");
-  });
-});
-
-test("unavailable copy capabilities show the fixed failure beside each value", async () => {
-  const hosts = () =>
-    Promise.resolve({
-      hosts: [host],
-      locations: [
-        {
-          host: "worker",
-          repository: "/local",
-          result: {
-            ok: true as const,
-            facts,
-            checkout: { path: "/remote/repo", state: "clean" as const },
-          },
-        },
-      ],
-    });
-  const view = render(<HostsSettings source={{ hosts }} headingRef={createRef()} />);
-  fireEvent.click(await screen.findByRole("button", { name: "Copy host alias" }));
-  fireEvent.click(screen.getByRole("button", { name: "Copy code folder" }));
-  await waitFor(() => {
-    expect(screen.getAllByText("Unable to copy")).toHaveLength(2);
-  });
-  view.unmount();
-  render(<RepositoryHosts source={{ hosts }} repositories={[{ name: "Repo", path: "/local" }]} />);
-  await screen.findByText("/remote/repo");
-  for (const button of screen.getAllByRole("button", { name: "Copy checkout path" }))
-    fireEvent.click(button);
-  await waitFor(() => {
-    expect(screen.getAllByText("Unable to copy")).toHaveLength(2);
-  });
-});
-
-test("fixed recipe actions show only where available and never accept argv", async () => {
-  const state: HostsState = {
+  const result = { ok: true as const, facts: partialFacts };
+  const { api } = mount({
+    ...initial,
     hosts: [
       {
         ...host,
+        result,
         recipes: [
           { tool: "git", install: true, signIn: false },
           { tool: "gh", install: true, signIn: true },
         ],
-        result: {
-          ok: true,
-          facts: {
-            ...facts,
-            requirements: {
-              distro: "darwin",
-              libc: "supported",
-              packageManager: "brew",
-              mac: { commandLineTools: false, staysAwake: false, protectedFolder: true },
-            },
-            tools: [
-              { id: "git", state: "missing", signIn: "unknown" },
-              { id: "gh", state: "ready", signIn: "signed-out" },
-            ],
-          },
-        },
       },
     ],
-    locations: [],
-  };
-  const api = vi.fn<(action: HostsAction) => Promise<HostsState>>().mockResolvedValue(state);
-  render(<HostsSettings source={{ hosts: api }} headingRef={createRef()} />);
-  await screen.findByRole("button", { name: "Install git" });
-  expect(screen.queryByRole("button", { name: "Install codex" })).toBeNull();
-  expect(screen.getByText("Install unavailable: no package-manager recipe")).toBeDefined();
-  fireEvent.click(screen.getByRole("button", { name: "Install git" }));
-  await waitFor(() => {
-    expect(api).toHaveBeenCalledWith({
-      action: "recipe",
-      host: "worker",
-      tool: "git",
-      operation: "install",
-    });
+    preflight: {
+      ...preflight,
+      result,
+      repositories: [
+        {
+          repository: "/local/project",
+          origin: { state: "fail", reason: "origin-auth" },
+          checkout: {
+            ...host.result,
+            checkout: { path: "/remote/project", state: "absent" as const },
+          },
+        },
+      ],
+    },
   });
+  await screen.findByText("Pass · Host key trusted");
+  expect(screen.getByText(/Code folder does not exist · folder-missing/u)).toBeTruthy();
+  expect(screen.getByLabelText("Git access fixes").textContent).toContain("Use HTTPS through gh");
+  expect(screen.queryByRole("button", { name: "Install codex" })).toBeNull();
+  expect(screen.getByText("Unable to check")).toBeTruthy();
+  for (const [button, action] of [
+    ["Create", { action: "create-folder", host: "worker" }],
+    ["Install git", { action: "recipe", host: "worker", tool: "git", operation: "install" }],
+    ["Sign in gh", { action: "recipe", host: "worker", tool: "gh", operation: "sign-in" }],
+  ] as const) {
+    await waitFor(() => {
+      expect(screen.getByRole<HTMLButtonElement>("button", { name: button }).disabled).toBe(false);
+    });
+    fireEvent.click(screen.getByRole("button", { name: button }));
+    await waitFor(() => {
+      expect(api).toHaveBeenCalledWith(action);
+    });
+  }
+  api.mockResolvedValue({ ...initial, recipeFailure: "recipe-unavailable" });
   await waitFor(() => {
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "Sign in gh" }).disabled).toBe(
       false,
     );
   });
-  api.mockResolvedValue({ ...state, recipeFailure: "recipe-unavailable" });
   fireEvent.click(screen.getByRole("button", { name: "Sign in gh" }));
   await screen.findByText("Recipe unavailable for this host");
-  expect(api).toHaveBeenCalledWith({
-    action: "recipe",
-    host: "worker",
-    tool: "gh",
-    operation: "sign-in",
+});
+test.each([false, true])(
+  "Mac observations: CLT, protected folder and power warnings (%s)",
+  async (ready) => {
+    const result = {
+      ok: true as const,
+      facts: {
+        ...facts,
+        requirements: {
+          distro: "darwin" as const,
+          libc: "supported" as const,
+          packageManager: "brew" as const,
+          mac: { commandLineTools: ready, protectedFolder: !ready, staysAwake: ready },
+        },
+      },
+    };
+    mount({ ...initial, hosts: [{ ...host, result }], preflight: { ...preflight, result } });
+    await screen.findByText("Command Line Tools");
+    expect(
+      screen.getByText(ready ? "Pass · Stays awake" : "Warning · Sleeps when idle"),
+    ).toBeTruthy();
+    if (!ready) {
+      expect(screen.getByText("Do this on the Mac")).toBeTruthy();
+      expect(screen.getByText("Warning · Protected folder")).toBeTruthy();
+      expect(screen.getByText("Needs Command Line Tools")).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "Install git" })).toBeNull();
+    }
+  },
+);
+const failures: HostFailure[] = [
+  "unreachable",
+  "unsupported",
+  "libc-too-old",
+  "libc-unsupported",
+  "artifact-unavailable",
+  "facts-unavailable",
+  "folder-missing",
+  "folder-refused",
+  "unsafe-folder",
+  "origin-unavailable",
+  "origin-auth",
+  "origin-host-key",
+  "origin-unreachable",
+  "timed-out",
+  "checkout-invalid",
+  "clone-failed",
+  "checkout-refused",
+  "version-mismatch",
+  "provider-invalid",
+  "configuration-changed",
+  "invalid-reply",
+  "cancelled",
+];
+test.each(failures)(
+  "fixed %s reason is visible beside independent unrun checks",
+  async (reason) => {
+    const result = { ok: false as const, reason };
+    mount({
+      ...initial,
+      hosts: [{ ...host, result }],
+      preflight: {
+        ssh: { state: "pass" },
+        platform: { state: "fail", reason },
+        artifact: { state: "not-checked" },
+        result,
+        repositories: [],
+      },
+    });
+    await screen.findByText(new RegExp(` · ${reason}$`, "u"));
+    expect(screen.getByText("Pass · Host key trusted")).toBeTruthy();
+    expect(screen.getAllByText("Not checked").length).toBeGreaterThan(1);
+  },
+);
+test("legacy and missing facts stay unknown; pending checks and rejected promises use fixed messages", async () => {
+  const { api, unmount } = mount({
+    hosts: [
+      { host: "unchecked", codeFolder: "/code" },
+      {
+        ...host,
+        result: {
+          ...host.result,
+          facts: {
+            codeFolder: facts.codeFolder,
+            version: facts.version,
+            sessions: facts.sessions,
+            cores: facts.cores,
+            load: facts.load,
+            memoryTotal: facts.memoryTotal,
+            memoryAvailable: facts.memoryAvailable,
+            agents: facts.agents,
+          },
+        },
+      },
+    ],
+    locations: [],
+  });
+  await screen.findAllByText("git / gh");
+  await waitFor(() => {
+    expect(
+      screen.getAllByRole<HTMLButtonElement>("button", { name: "Check again" })[0]?.disabled,
+    ).toBe(false);
+  });
+  api.mockRejectedValue(new Error("RAW SECRET"));
+  fireEvent.click(screen.getAllByRole("button", { name: "Check again" })[0] ?? document.body);
+  await screen.findByText("Unable to update hosts");
+  expect(screen.queryByText("RAW SECRET")).toBeNull();
+  unmount();
+  const view = mount();
+  await screen.findByText("Pass · Host key trusted");
+  let resolve: ((state: HostsState) => void) | undefined;
+  view.api.mockImplementation(
+    () =>
+      new Promise((done) => {
+        resolve = done;
+      }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+  expect(screen.getAllByText("Checking…")).toHaveLength(2);
+  view.unmount();
+  resolve?.(initial);
+});
+test("initial load rejection, cancelled add, absent API and unmount during initial preflight", async () => {
+  const api = vi
+    .fn<(action: HostsAction) => Promise<HostsState>>()
+    .mockRejectedValue(new Error("secret"));
+  const view = render(<HostsSettings source={{ hosts: api }} headingRef={createRef()} />);
+  await screen.findByText("Unable to load hosts");
+  api.mockResolvedValue({
+    hosts: [],
+    locations: [],
+    result: { ok: false, reason: "invalid-reply" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Add host" }));
+  fireEvent.change(screen.getByLabelText("SSH host"), { target: { value: "worker" } });
+  fireEvent.click(screen.getByRole("button", { name: "Add host" }));
+  await screen.findByText("Invalid host reply");
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(screen.queryByLabelText("SSH host")).toBeNull();
+  view.unmount();
+  const absent = render(<HostsSettings source={{}} headingRef={createRef()} />);
+  await waitFor(() => {
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Add host" }).disabled).toBe(
+      false,
+    );
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Add host" }));
+  fireEvent.change(screen.getByLabelText("SSH host"), { target: { value: "worker" } });
+  fireEvent.click(screen.getByRole("button", { name: "Add host" }));
+  await waitFor(() => {
+    expect(screen.queryByText("Checking…")).toBeNull();
+  });
+  absent.unmount();
+  let resolve: ((state: HostsState) => void) | undefined;
+  api.mockResolvedValueOnce(initial).mockImplementation(
+    () =>
+      new Promise((done) => {
+        resolve = done;
+      }),
+  );
+  const pending = render(<HostsSettings source={{ hosts: api }} headingRef={createRef()} />);
+  await waitFor(() => {
+    expect(api).toHaveBeenCalledWith({
+      action: "preflight",
+      host: "worker",
+      codeFolder: host.codeFolder,
+    });
+  });
+  pending.unmount();
+  resolve?.(initial);
+});
+const repositories = [
+  { name: "project", path: "/local/project" },
+  { name: "changed", path: "/local/changed" },
+  { name: "clean", path: "/local/clean" },
+];
+function locations(): HostsState {
+  return {
+    ...initial,
+    locations: repositories.map((repo, index) => ({
+      host: "worker",
+      repository: repo.path,
+      result: {
+        ...host.result,
+        checkout: {
+          path: `/remote/${repo.name}`,
+          state: index === 0 ? "absent" : index === 1 ? "changed" : "clean",
+        },
+      },
+    })),
+  };
+}
+test("repository locations are per-host lists with paths, states, clones and recovery after lost reply", async () => {
+  const state = locations();
+  const recovered = {
+    ...state,
+    locations: state.locations.map((entry) => ({
+      ...entry,
+      result: { ...host.result, checkout: { path: "/remote/project", state: "clean" as const } },
+    })),
+  };
+  const api = vi
+    .fn<(action: HostsAction) => Promise<HostsState>>()
+    .mockResolvedValueOnce(state)
+    .mockResolvedValueOnce({
+      ...state,
+      locations: [
+        {
+          host: "worker",
+          repository: "/local/project",
+          result: { ok: false, reason: "unreachable" },
+        },
+      ],
+    })
+    .mockResolvedValue(recovered);
+  render(<RepositoryHosts source={{ hosts: api }} repositories={repositories} />);
+  const remote = await screen.findByRole("region", { name: "worker" });
+  expect(screen.getByRole("region", { name: "Local" })).toBeTruthy();
+  expect(screen.queryByRole("table")).toBeNull();
+  for (const text of ["Not checked out", "Changes", "Clean"])
+    expect(within(remote).getByText(text)).toBeTruthy();
+  fireEvent.click(within(remote).getByRole("button", { name: "Clone here" }));
+  await waitFor(() => {
+    expect(within(remote).getAllByText("Clean")).toHaveLength(3);
+  });
+  expect(api.mock.calls.map(([action]) => action.action)).toEqual([
+    "locations",
+    "clone",
+    "locations",
+  ]);
+  api.mockRejectedValueOnce(new Error("private"));
+  fireEvent.click(screen.getByRole("button", { name: "Refresh locations" }));
+  await screen.findByText("Unable to check locations");
+  fireEvent.click(screen.getByRole("button", { name: "Refresh locations" }));
+  await waitFor(() => {
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });
-
-test.each([
-  ["artifact-unavailable", "Remote host artifact unavailable in this local build"],
-  ["version-mismatch", "Host version mismatch"],
-  ["provider-invalid", "Agent configuration unavailable"],
-  ["configuration-changed", "Agent configuration changed"],
-  ["invalid-reply", "Invalid host reply"],
-  ["cancelled", "Host check cancelled"],
-] as const)("Add host displays fixed %s text", async (reason, text) => {
-  render(
-    <HostsSettings
-      source={{
-        hosts: () => Promise.resolve({ hosts: [], locations: [], result: { ok: false, reason } }),
-      }}
-      headingRef={createRef()}
-    />,
-  );
-  await screen.findByText("No hosts");
-  fireEvent.click(screen.getByRole("button", { name: "Add host" }));
-  fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
-  await screen.findByText(text);
-  expect(screen.getByRole<HTMLButtonElement>("button", { name: "Add" }).disabled).toBe(true);
-});
-
-test.each([
-  ["origin-auth", "Origin authentication failed"],
-  ["origin-host-key", "Origin SSH host key is not trusted"],
-  ["origin-unreachable", "Origin unreachable"],
-  ["timed-out", "Git operation timed out"],
-  ["checkout-invalid", "Checkout validation failed"],
-] as const)(
-  "repository clone %s shows a fixed reason and permits a user retry",
-  async (reason, message) => {
-    const result = { ok: false, reason } as const;
-    const api = vi.fn(() =>
-      Promise.resolve({
-        hosts: [host],
-        locations: [{ host: host.host, repository: "/local/project", result }],
-      }),
-    );
+test.each(failures)(
+  "repository %s reports a fixed reason; only retryable failures offer Clone here",
+  async (reason) => {
+    const state = {
+      ...initial,
+      locations: [
+        { host: "worker", repository: "/local/project", result: { ok: false as const, reason } },
+      ],
+    };
+    const api = vi.fn<(action: HostsAction) => Promise<HostsState>>().mockResolvedValue(state);
     render(
       <RepositoryHosts
         source={{ hosts: api }}
         repositories={[{ name: "project", path: "/local/project" }]}
       />,
     );
-    await screen.findByText(message);
-    fireEvent.click(screen.getByRole("button", { name: "Clone here" }));
-    await waitFor(() => {
-      expect(api).toHaveBeenCalledWith({
-        action: "clone",
-        host: host.host,
+    await screen.findByText(new RegExp(` · ${reason}$`, "u"));
+    const button = screen.queryByRole("button", { name: "Clone here" });
+    if (button) {
+      api.mockRejectedValueOnce(new Error("raw"));
+      fireEvent.click(button);
+      await screen.findByText("Unable to clone repository");
+    }
+  },
+);
+test("location load rejection, missing observations and unmount before locations settle", async () => {
+  const api = vi
+    .fn<(action: HostsAction) => Promise<HostsState>>()
+    .mockRejectedValue(new Error("secret"));
+  const view = render(<RepositoryHosts source={{ hosts: api }} repositories={repositories} />);
+  await screen.findByText("Unable to check locations");
+  view.unmount();
+  api.mockResolvedValue({
+    ...initial,
+    locations: [{ host: "worker", repository: "/local/project", result: host.result }],
+  });
+  const unknown = render(<RepositoryHosts source={{ hosts: api }} repositories={repositories} />);
+  await screen.findByRole("region", { name: "worker" });
+  expect(screen.getAllByText("Not checked")).toHaveLength(3);
+  unknown.unmount();
+  let resolve: ((state: HostsState) => void) | undefined;
+  api.mockImplementation(
+    () =>
+      new Promise((done) => {
+        resolve = done;
+      }),
+  );
+  const pending = render(<RepositoryHosts source={{ hosts: api }} repositories={repositories} />);
+  pending.unmount();
+  resolve?.(initial);
+});
+test.each([true, false])(
+  "copies send only registered identifiers, capability available %s",
+  async (available) => {
+    const copyHost = vi.fn(async () => {});
+    const source = {
+      hosts: () => Promise.resolve(locations()),
+      ...(available ? { copyHost } : {}),
+    };
+    const view = render(<HostsSettings source={source} headingRef={createRef()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Copy host alias" }));
+    fireEvent.click(screen.getByRole("button", { name: "Copy code folder" }));
+    if (available)
+      expect(copyHost).toHaveBeenLastCalledWith({ kind: "copy-host-code-folder", host: "worker" });
+    else
+      await waitFor(() => {
+        expect(screen.getAllByText("Unable to copy")).toHaveLength(2);
+      });
+    view.unmount();
+    render(<RepositoryHosts source={source} repositories={repositories} />);
+    await screen.findByText("/remote/project");
+    for (const button of screen.getAllByRole("button", { name: "Copy checkout path" }))
+      fireEvent.click(button);
+    if (available)
+      expect(copyHost).toHaveBeenCalledWith({
+        kind: "copy-checkout-path",
+        host: "worker",
         repository: "/local/project",
       });
-    });
+    else
+      await waitFor(() => {
+        expect(screen.getAllByText("Unable to copy")).toHaveLength(6);
+      });
   },
 );
 
-test("an incomplete enrollment closes the form and a missing folder offers explicit creation", async () => {
-  let state: HostsState = { hosts: [], locations: [] };
-  const api = vi.fn((action: HostsAction): Promise<HostsState> => {
-    if (action.action === "add")
-      state = {
-        hosts: [
-          {
-            ...host,
-            result: {
-              ok: true,
-              facts: { ...facts, folder: { state: "fail", reason: "folder-missing" } },
-            },
-          },
-        ],
-        locations: [],
-        result: {
-          ok: true,
-          facts: { ...facts, folder: { state: "fail", reason: "folder-missing" } },
+test("complete means every check and checkout passed; changed checkouts remain usable", async () => {
+  mount({
+    ...initial,
+    preflight: {
+      ...preflight,
+      repositories: [
+        {
+          repository: "/local/project",
+          origin: { state: "pass" },
+          checkout: { ...host.result, checkout: { path: "/remote/project", state: "changed" } },
         },
-      };
-    if (action.action === "create-folder") state = { hosts: [host], locations: [] };
-    return Promise.resolve(state);
+      ],
+    },
   });
+  await screen.findByText("Complete");
+  expect(screen.getByText("Changes")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Clone here" })).toBeNull();
+});
+test("unknown distro offers no install recipe and initial preflight failures stay fixed", async () => {
+  const result = {
+    ...host.result,
+    facts: {
+      ...facts,
+      requirements: {
+        distro: "unknown" as const,
+        libc: "supported" as const,
+        packageManager: "none" as const,
+      },
+    },
+  };
+  const api = vi
+    .fn<(action: HostsAction) => Promise<HostsState>>()
+    .mockResolvedValueOnce({ ...initial, hosts: [{ ...host, result }] })
+    .mockRejectedValueOnce(new Error("secret"));
   render(<HostsSettings source={{ hosts: api }} headingRef={createRef()} />);
-  await screen.findByText("No hosts");
-  fireEvent.click(screen.getByRole("button", { name: "Add host" }));
-  fireEvent.change(screen.getByLabelText("SSH host"), { target: { value: "worker" } });
-  fireEvent.click(screen.getByRole("button", { name: /^Add$/u }));
-  await screen.findByText("Code folder does not exist");
-  expect(screen.queryByLabelText("SSH host")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Create folder" }));
-  await screen.findByText("Connection ready · Code folder checked");
-  expect(api).toHaveBeenCalledWith({ action: "create-folder", host: "worker" });
+  await screen.findByText("Unable to load hosts");
+  expect(screen.getByText("No install recipe")).toBeTruthy();
+});
+test("failed clone remains visible after independent preflight, until explicit recheck", async () => {
+  const { api } = mount();
+  fireEvent.click(await screen.findByRole("button", { name: "Clone here" }));
+  // Wait for initial observation before sending the mutation.
+  await waitFor(() => {
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Clone here" }).disabled).toBe(
+      false,
+    );
+  });
+  api
+    .mockResolvedValueOnce({
+      ...initial,
+      locations: [
+        {
+          host: "worker",
+          repository: "/local/project",
+          result: { ok: false, reason: "origin-auth" },
+        },
+      ],
+    })
+    .mockResolvedValue(initial);
+  fireEvent.click(screen.getByRole("button", { name: "Clone here" }));
+  await screen.findByText("Origin authentication failed · origin-auth");
+  await waitFor(() => {
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Check again" }).disabled).toBe(
+      false,
+    );
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+  await screen.findByText("Not checked out");
+});
+
+test("Mac protected-folder warning never hides a missing-folder failure or its Create action", async () => {
+  const result = {
+    ok: true as const,
+    facts: {
+      ...facts,
+      folder: { state: "fail" as const, reason: "folder-missing" as const },
+      requirements: {
+        distro: "darwin" as const,
+        libc: "supported" as const,
+        packageManager: "brew" as const,
+        mac: { commandLineTools: true, protectedFolder: true, staysAwake: true },
+      },
+    },
+  };
+  mount({ ...initial, hosts: [{ ...host, result }], preflight: { ...preflight, result } });
+  await screen.findByText("Code folder does not exist · folder-missing · Protected folder");
+  expect(screen.getByRole("button", { name: "Create" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Change folder" })).toBeTruthy();
+});
+
+test("a failed connection row is not repeated as helper copy, and credential tips only accompany auth failures", async () => {
+  const result = { ok: false as const, reason: "artifact-unavailable" as const };
+  const view = mount({
+    ...initial,
+    hosts: [{ ...host, result }],
+    preflight: {
+      ...preflight,
+      result,
+      artifact: { state: "fail", reason: "artifact-unavailable" },
+      repositories: [
+        {
+          repository: "/local/project",
+          origin: { state: "fail", reason: "artifact-unavailable" },
+          checkout: result,
+        },
+      ],
+    },
+  });
+  await screen.findAllByText("This build has no remote host support · artifact-unavailable");
+  expect(screen.queryByText("This build has no remote host support", { exact: true })).toBeNull();
+  expect(screen.queryByLabelText("Git access fixes")).toBeNull();
+  view.unmount();
+  mount({ hosts: [{ ...host, result: { ok: false, reason: "version-mismatch" } }], locations: [] });
+  await screen.findByText("Host version mismatch");
+});
+
+test("host aliases and agent IDs are literal data even when they name object prototypes", async () => {
+  const result = {
+    ok: true as const,
+    facts: { ...facts, agents: [{ id: "constructor", state: "unable" as const }] },
+  };
+  const state: HostsState = { hosts: [{ ...host, host: "constructor", result }], locations: [] };
+  let finish: ((next: HostsState) => void) | undefined;
+  const pending = new Promise<HostsState>((resolve) => {
+    finish = resolve;
+  });
+  const api = vi.fn((action: HostsAction) =>
+    action.action === "preflight" ? pending : Promise.resolve(state),
+  );
+  render(<HostsSettings source={{ hosts: api }} headingRef={createRef()} />);
+  await screen.findByRole("region", { name: "constructor" });
+  expect(screen.getAllByText("constructor")).toHaveLength(2);
+  await act(async () => {
+    finish?.({ ...state, preflight: { ...preflight, result } });
+    await pending;
+  });
+  await screen.findByText("Pass · Host key trusted");
+  expect(screen.getAllByText("constructor")).toHaveLength(2);
 });

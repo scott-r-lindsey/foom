@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { BUILTIN_AGENTS } from "../../../../src/shared/providers/catalog";
 import type { ReadinessReport } from "../../../../src/shared/readiness";
 import {
@@ -756,7 +757,7 @@ test("Settings rolls back refused repository changes and prevents leaving during
   expect(close).toHaveBeenCalledOnce();
 });
 
-test("repository controls explain immediate selection when used outside guided setup", async () => {
+test("repository settings keep local selection under Choose repositories", async () => {
   render(
     <RepositoriesStep
       recentDays={30}
@@ -771,7 +772,9 @@ test("repository controls explain immediate selection when used outside guided s
       immediate
     />,
   );
-  expect(screen.getByText(/Changes to the selection apply immediately/)).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Repositories" })).toBeTruthy();
+  expect(screen.getByText("Choose repositories").closest("details")?.open).toBe(true);
+  expect(screen.queryByText(/Changes to the selection apply immediately/)).toBeNull();
   await screen.findByRole("button", { name: "Choose folder…" });
 });
 
@@ -1249,5 +1252,68 @@ test.each(["MacIntel", "Linux x86_64", "Win32"])(
       expect(toggle).toHaveProperty("checked", true);
     } else expect(toggle).toBeNull();
     vi.restoreAllMocks();
+  },
+);
+
+test.each([30, 1])(
+  "Settings retains one recent-days control when Recent empties (initial %s)",
+  (initialDays) => {
+    const source = fake(setupState());
+    const scanCode = vi.fn();
+    const setCode = vi.fn();
+    const path = "/home/me/code/ten-day";
+    const selection = {
+      scan: {
+        ...codeScan,
+        repositories: [
+          {
+            path,
+            name: "ten-day",
+            relative: "ten-day",
+            branch: "main",
+            lastActive: Date.now() - 10 * 86_400_000,
+            recent: true,
+            added: true,
+          },
+        ],
+      },
+      selected: new Set([path]),
+    };
+    function SettingsRepositories() {
+      const [days, setDays] = useState(initialDays);
+      return (
+        <RepositoriesStep
+          immediate
+          headingRef={{ current: null }}
+          source={source}
+          code={selection}
+          repositories={[{ path, name: "ten-day" }]}
+          codeScanning={undefined}
+          scanCode={scanCode}
+          setCode={setCode}
+          recentDays={days}
+          onRecentDays={setDays}
+        />
+      );
+    }
+    render(<SettingsRepositories />);
+    const control = screen.getByRole<HTMLInputElement>("spinbutton", {
+      name: "Recent repository days",
+    });
+    control.focus();
+    fireEvent.change(control, { target: { value: "1" } });
+    expect(screen.queryByRole("region", { name: /Recent · last/ })).toBeNull();
+    expect(screen.getByRole("spinbutton", { name: "Recent repository days" })).toBe(control);
+    expect(document.activeElement).toBe(control);
+    expect(
+      within(screen.getByRole("region", { name: "Older" })).getByRole("checkbox"),
+    ).toHaveProperty("checked", true);
+    fireEvent.change(control, { target: { value: "30" } });
+    expect(
+      within(screen.getByRole("region", { name: "Recent · last 30 days" })).getByRole("checkbox"),
+    ).toHaveProperty("checked", true);
+    expect(screen.getAllByRole("spinbutton", { name: "Recent repository days" })).toHaveLength(1);
+    expect(scanCode).not.toHaveBeenCalled();
+    expect(setCode).not.toHaveBeenCalled();
   },
 );
