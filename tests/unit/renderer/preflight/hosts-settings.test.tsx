@@ -365,3 +365,26 @@ test("fixed recipe actions show only where available and never accept argv", asy
     operation: "sign-in",
   });
 });
+
+test.each([
+  ["artifact-unavailable", "Remote host artifact unavailable in this local build"],
+  ["version-mismatch", "Host version mismatch"],
+  ["provider-invalid", "Agent configuration unavailable"],
+  ["configuration-changed", "Agent configuration changed"],
+  ["invalid-reply", "Invalid host reply"],
+  ["cancelled", "Host check cancelled"],
+] as const)("Add host displays fixed %s text", async (reason, text) => {
+  render(
+    <HostsSettings
+      source={{
+        hosts: () => Promise.resolve({ hosts: [], locations: [], result: { ok: false, reason } }),
+      }}
+      headingRef={createRef()}
+    />,
+  );
+  await screen.findByText("No hosts");
+  fireEvent.click(screen.getByRole("button", { name: "Add host" }));
+  fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
+  await screen.findByText(text);
+  expect(screen.getByRole<HTMLButtonElement>("button", { name: "Add" }).disabled).toBe(true);
+});

@@ -11,7 +11,13 @@ list, test, add, refresh, remove, locations, clone, end or recipe. Main selects 
 executables from its validated manifest catalog. Renderer inputs cannot choose
 remote commands, probe arguments, origins or checkout destinations. Replies are
 validated in preload and rebuilt from declared fields. All failures are fixed
-states/reasons, with no raw SSH, Git or agent output.
+states/reasons, with no raw SSH, Git or agent output. Artifact absence, version/handshake
+mismatch, provider validation, changed agent configuration, invalid replies and
+cancellation have distinct reasons; only connection failures report unreachable.
+Inspection retries once when provider revision or enabled agents change, then
+reports configuration changed. Repository mutations are never replayed.
+Each failed check logs one fixed reason and step in main, without hostnames,
+paths or remote output.
 
 Test and add use the existing exact-build artifact selection, SHA-256 bootstrap
 and SSH stdio protocol. SSH retains BatchMode, disabled agent/X11 forwarding,

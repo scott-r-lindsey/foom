@@ -8,6 +8,7 @@ import {
   hostPlatforms,
   packageRemoteHosts,
   prepareRemoteHosts,
+  prepareBuildRemoteHosts,
   requireRemoteHosts,
   writeHostManifest,
   digest,
@@ -130,4 +131,37 @@ test("local packaging omits missing, stale or corrupt catalogs; CI cannot opt ou
   }
   assert.equal(warnings.length, 6);
   assert.ok(warnings.every((warning) => warning.includes("Remote host artifact unavailable")));
+});
+
+test("development builds record catalog absence on CI while packaging and supplied catalogs stay strict", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "host-dev-modes-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const source = join(root, "source");
+  const output = join(root, "output");
+  const revision = "a".repeat(40);
+  const prepare = (env) =>
+    prepareBuildRemoteHosts(source, output, "0.1.0", revision, env, () => {});
+  for (const env of [{}, { CI: "true" }, { GITHUB_ACTIONS: "true" }])
+    assert.equal(await prepare(env), false);
+  for (const env of [
+    { CI: "true", FOOM_PACKAGE: "1", FOOM_REQUIRE_REMOTE_HOSTS: "0" },
+    { GITHUB_ACTIONS: "true", FOOM_PACKAGE: "1" },
+    { CI: "true", FOOM_REMOTE_HOST_ARTIFACTS: source },
+    { FOOM_REQUIRE_REMOTE_HOSTS: "1" },
+  ])
+    await assert.rejects(prepare(env));
+  for (const target of hostPlatforms) {
+    const directory = join(source, target);
+    await mkdir(directory, { recursive: true });
+    await writeFile(join(directory, "foom-host"), "fixture host");
+    const [platform, arch] = target.split("-");
+    await writeHostManifest(directory, { version: "0.1.0", platform, arch, source: revision });
+  }
+  assert.equal(await prepare({}), true);
+  assert.equal(await prepare({ CI: "true" }), true);
+  const manifestPath = join(source, "darwin-arm64", "manifest.json");
+  const manifest = JSON.parse(await readFile(manifestPath));
+  await writeFile(manifestPath, JSON.stringify({ ...manifest, source: "b".repeat(40) }));
+  assert.equal(await prepare({}), false);
+  await assert.rejects(readFile(join(output, "linux-x64", "manifest.json")), /ENOENT/);
 });

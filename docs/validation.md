@@ -245,25 +245,39 @@ upload and the expanded hash after upload and on cache reuse. No Release secrets
 environments, workflow permissions or credential stages change. The user verifies
 real notarization after merge with `publish_nightly`.
 
-For development, [start:hosts](development.md#how-typescript-fits-into-electron)
-fetches and verifies the exact-HEAD main push artifacts before normal startup.
+For development, run `pnpm run start:hosts`. The
+[start:hosts wrapper](development.md#how-typescript-fits-into-electron) reuses a
+verified cache or fetches and verifies all four exact-HEAD main push artifacts
+before normal startup. If no matching catalog is available, startup continues
+without remote hosts.
 
-Local `package` and `make` try `.cache/remote-hosts/TARGET/`, or the catalog root
-specified by `FOOM_REMOTE_HOST_ARTIFACTS`. No CI download or detached checkout is
-needed. If any entry is missing, stale or invalid, the build warns and omits the
-**entire** catalog, removes any partially copied entries, and records
-`remoteHostsAvailable: false` inside ASAR. Remote shells then refuse with
-"Remote host artifact unavailable in this local build." The sealed omission is
-checked before SSH discovery or bootstrap; the transport and client preserve a
-fixed application error code through launch and IPC, never SSH output. An explicit
-native artifact override still undergoes runtime platform, version and byte verification. A complete supplied
-catalog must pass the same checks as CI. Local packaged smoke verifies the sealed
-omission and absence of unpacked hosts, or validates all four entries when present.
+Development builds (`pnpm start`, `pnpm run start:fresh`) and local `package` and
+`make` try `.cache/remote-hosts/TARGET/`, or the catalog root specified by
+`FOOM_REMOTE_HOST_ARTIFACTS`. These build commands do not download artifacts or
+need a detached checkout. If any entry is missing, stale or invalid, the build
+warns and omits the **entire** catalog, removes any partially copied entries, and
+records `remoteHostsAvailable: false` in build metadata (inside ASAR for packages).
+Remote shells then refuse with "Remote host artifact unavailable in this local
+build." The sealed omission is checked before SSH discovery or bootstrap; the
+transport and client preserve a fixed application error code through launch and
+IPC, never SSH output. An explicit native artifact override still undergoes
+runtime platform, version and byte verification. A complete supplied catalog must
+pass the same checks as CI.
 
-`CI` or `GITHUB_ACTIONS` being nonempty always requires all four exact-revision
+Besides `pnpm run start:hosts`, developers can place all four same-revision
+artifacts in `.cache/remote-hosts/TARGET/`, or run
+`FOOM_REMOTE_HOST_ARTIFACTS=/absolute/catalog pnpm start`. Rebuild after replacing
+the catalog. A missing or invalid runtime artifact also reports artifact
+unavailable; SSH failures retain Host unreachable. Local packaged smoke verifies
+the sealed omission and absence of unpacked hosts, or validates all four entries
+when present.
+
+For packaging, `CI` or `GITHUB_ACTIONS` being nonempty always requires all four exact-revision
 artifacts; `FOOM_REQUIRE_REMOTE_HOSTS=0` cannot weaken this. Local release/packaging
 jobs must set `FOOM_REQUIRE_REMOTE_HOSTS=1` to select that same strict path.
 Missing entries, wrong revision/version/protocol, sizes or hashes stop packaging.
+Development fixture builds on CI may omit the catalog; their Electron harness
+installs only its verified native fixture. An explicitly supplied CI catalog is strict.
 Fixture tests exercise missing, stale and corrupt entries through both modes.
 Developer ID signing also refuses a sealed omission; only local ad-hoc signing
 accepts it. Each native builder accepts `FOOM_REMOTE_HOST_OUTPUT` as a catalog

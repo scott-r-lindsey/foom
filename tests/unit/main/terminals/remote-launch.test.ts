@@ -72,7 +72,7 @@ test.each(["omitted", "invalid"])(
       for (let attempt = 0; attempt < 2; attempt++) {
         const result: unknown = await launch().catch((error: unknown) => error);
         expect(result).toBeInstanceOf(Error);
-        if (kind === "omitted") {
+        {
           expect(result).toBeInstanceOf(ApplicationError);
           expect(errorMessage(result)).toBe(
             "Remote host artifact unavailable in this local build.",
@@ -87,9 +87,6 @@ test.each(["omitted", "invalid"])(
               ),
             ),
           ).toBe("Remote host artifact unavailable in this local build.");
-        } else {
-          expect(result).not.toBeInstanceOf(ApplicationError);
-          expect(errorMessage(result)).toBe("Unable to complete this action.");
         }
         expect(client.runningCount).toBe(0);
       }

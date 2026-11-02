@@ -1650,3 +1650,16 @@ test("projects board records and rejects malformed board replies", async () => {
   await expect(api.messageBoard.threads({})).rejects.toThrow();
   await expect(api.messageBoard.resolve({ thread: "t", idempotencyKey: "r" })).rejects.toThrow();
 });
+
+test.each([
+  "version-mismatch",
+  "provider-invalid",
+  "configuration-changed",
+  "invalid-reply",
+  "cancelled",
+])("host bridge preserves the fixed %s failure reason", async (reason) => {
+  const api = await bridge();
+  const value = { hosts: [], locations: [], result: { ok: false, reason } };
+  mock.invoke.mockResolvedValue(withUndeclaredFields(value));
+  await expect(api.hosts({ action: "list" })).resolves.toEqual(value);
+});

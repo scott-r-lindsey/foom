@@ -11,6 +11,11 @@ import type { SetupSource } from "./setup-source.d";
 import type { Repository } from "../../shared/worktrees";
 const reasons: Record<HostFailure, string> = {
   unreachable: "Host unreachable",
+  "version-mismatch": "Host version mismatch",
+  "provider-invalid": "Agent configuration unavailable",
+  "configuration-changed": "Agent configuration changed",
+  "invalid-reply": "Invalid host reply",
+  cancelled: "Host check cancelled",
   unsupported: "Unsupported host platform",
   "facts-unavailable": "Host daemon needs an update for host facts",
   "libc-too-old": "Unsupported host: glibc 2.28 or newer is required",

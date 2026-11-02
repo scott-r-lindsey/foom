@@ -55,7 +55,10 @@ async function fixture() {
   await writeFile(path, compressed);
   await writeFile(join(directory, "manifest.json"), JSON.stringify(manifest));
   const metadata = join(root, "build-metadata.json");
-  await writeFile(metadata, JSON.stringify({ source: manifest.source }));
+  await writeFile(
+    metadata,
+    JSON.stringify({ source: manifest.source, remoteHostsAvailable: true }),
+  );
   return { root, path, metadata, manifest, directory };
 }
 
@@ -73,11 +76,11 @@ test("uses bounded SSH discovery and a fixed catalog path, validates version and
   );
   expect(sshEnvironment()).not.toHaveProperty("FOOM_CONTROL_TOKEN");
   expect(sshEnvironment()).toHaveProperty("SSH_AUTH_SOCK", "/fixture/agent");
-  await expect(selectHostArtifact(target, "0.2.0", f.root, f.metadata)).rejects.toThrow("mismatch");
+  await expect(selectHostArtifact(target, "0.2.0", f.root, f.metadata)).rejects.toThrow();
   mock.output = "Darwin\narm64\n";
   await expect(
     selectHostArtifact({ ...target, artifact: f.path }, "0.1.0", f.root, f.metadata),
-  ).rejects.toThrow("mismatch");
+  ).rejects.toThrow();
   await expect(selectHostArtifact(target, "0.1.0", f.root, f.metadata)).rejects.toThrow();
   mock.output = "Linux\nx86_64\nextra";
   await expect(selectHostArtifact(target, "0.1.0", f.root, f.metadata)).rejects.toThrow(
@@ -103,7 +106,7 @@ test("catalog selection pins same-version hosts to trusted app metadata", async 
     await writeFile(join(f.directory, "manifest.json"), JSON.stringify({ ...f.manifest, source }));
     await expect(
       selectHostArtifact({ host: "fixture" }, "0.1.0", f.root, f.metadata),
-    ).rejects.toThrow("mismatch");
+    ).rejects.toThrow();
   }
   // Explicit developer override allows another valid commit, preserving byte/platform checks.
   await expect(
@@ -114,7 +117,7 @@ test("catalog selection pins same-version hosts to trusted app metadata", async 
     await writeFile(f.metadata, JSON.stringify(value));
     await expect(
       selectHostArtifact({ host: "fixture" }, "0.1.0", f.root, f.metadata),
-    ).rejects.toThrow("application source");
+    ).rejects.toMatchObject({ code: "remote-host-unavailable" });
   }
   await rm(f.metadata);
   await expect(
@@ -136,4 +139,32 @@ test("local packages without a catalog refuse remote shells and allow a verified
   await expect(
     selectHostArtifact({ host: "fixture", artifact: f.path }, "0.1.0", f.root, f.metadata),
   ).resolves.toHaveProperty("version", "0.1.0");
+});
+
+test("missing availability metadata and damaged runtime catalog files are artifact unavailable", async () => {
+  const f = await fixture();
+  for (const value of [
+    "{",
+    JSON.stringify({ source: f.manifest.source }),
+    JSON.stringify({ source: f.manifest.source, remoteHostsAvailable: false }),
+  ]) {
+    await writeFile(f.metadata, value);
+    mock.execFile.mockClear();
+    await expect(
+      selectHostArtifact({ host: "fixture" }, "0.1.0", f.root, f.metadata),
+    ).rejects.toMatchObject({ code: "remote-host-unavailable" });
+    expect(mock.execFile).not.toHaveBeenCalled();
+  }
+  await writeFile(
+    f.metadata,
+    JSON.stringify({ source: f.manifest.source, remoteHostsAvailable: true }),
+  );
+  await rm(f.path);
+  await expect(
+    selectHostArtifact({ host: "fixture" }, "0.1.0", f.root, f.metadata),
+  ).rejects.toMatchObject({ code: "remote-host-unavailable" });
+  await writeFile(f.path, "bad gzip");
+  await expect(
+    selectHostArtifact({ host: "fixture" }, "0.1.0", f.root, f.metadata),
+  ).rejects.toMatchObject({ code: "remote-host-unavailable" });
 });

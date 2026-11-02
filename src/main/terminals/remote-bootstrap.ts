@@ -257,18 +257,22 @@ export async function selectHostArtifact(
 ) {
   let expectedSource: string | undefined;
   if (!target.artifact) {
-    const value: unknown = JSON.parse((await boundedFile(metadata, 4096)).toString("utf8"));
-    if (
-      typeof value !== "object" ||
-      value === null ||
-      !("source" in value) ||
-      typeof value.source !== "string" ||
-      !/^[a-f0-9]{40}$/u.test(value.source)
-    )
-      throw new Error("Invalid application source revision");
-    if ("remoteHostsAvailable" in value && value.remoteHostsAvailable === false)
+    try {
+      const value: unknown = JSON.parse((await boundedFile(metadata, 4096)).toString("utf8"));
+      if (
+        typeof value !== "object" ||
+        value === null ||
+        !("source" in value) ||
+        typeof value.source !== "string" ||
+        !/^[a-f0-9]{40}$/u.test(value.source)
+      )
+        throw new ApplicationError("remote-host-unavailable");
+      if (!("remoteHostsAvailable" in value) || value.remoteHostsAvailable !== true)
+        throw new ApplicationError("remote-host-unavailable");
+      expectedSource = value.source;
+    } catch {
       throw new ApplicationError("remote-host-unavailable");
-    expectedSource = value.source;
+    }
   }
   const { stdout } = await promisify(execFile)(
     "ssh",
@@ -288,13 +292,15 @@ export async function selectHostArtifact(
   const artifact = await hostArtifact(
     target.artifact ?? join(catalog, `${remote.platform}-${remote.arch}`, "foom-host.gz"),
     expectedSource,
-  );
+  ).catch(() => {
+    throw new ApplicationError("remote-host-unavailable");
+  });
   if (
     artifact.version !== expectedVersion ||
     artifact.platform !== remote.platform ||
     artifact.arch !== remote.arch
   )
-    throw new Error("Host application version or platform mismatch");
+    throw new LaunchFailure("remote_artifact_mismatch");
   return artifact;
 }
 

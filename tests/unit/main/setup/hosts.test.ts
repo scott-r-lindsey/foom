@@ -107,7 +107,7 @@ test("untrusted selectors, failed connections, malformed remote facts and write 
   run.mockResolvedValueOnce({ ok: true, facts: { ...facts, cores: -1 } });
   expect(
     (await hosts.action({ action: "test", host: "worker", codeFolder: "~/code" })).result,
-  ).toEqual({ ok: false, reason: "unreachable" });
+  ).toEqual({ ok: false, reason: "invalid-reply" });
   store.update.mockRejectedValueOnce(new Error("write failed"));
   await expect(
     hosts.action({ action: "add", host: "worker", codeFolder: "~/code" }),
@@ -193,7 +193,7 @@ test("initial registered host reads refresh facts once and reject foreign paths"
   run.mockResolvedValueOnce({ ok: true, facts: { ...facts, codeFolder: "/foreign" } });
   expect((await hosts.action({ action: "refresh", host: "worker" })).hosts[0]?.result).toEqual({
     ok: false,
-    reason: "unreachable",
+    reason: "invalid-reply",
   });
   expect((await hosts.action({ action: "locations" })).locations[0]?.result).toEqual({
     ok: false,
@@ -302,7 +302,9 @@ test("registration revocation or a manifest-selection change during inventory ca
     settings = { ...settings, agents: { ...settings.agents, codex: false } };
     return Promise.resolve({ ok: true, facts });
   });
-  expect(await hosts.inventory("worker")).toEqual({ ok: false, reason: "unreachable" });
+  expect((await hosts.inventory("worker")).ok).toBe(true);
+  expect(run).toHaveBeenCalledTimes(2);
+  settings = { ...settings, agents: { ...settings.agents, codex: true } };
   run.mockImplementationOnce(() => {
     settings = { ...settings, registeredHosts: [] };
     return Promise.resolve({ ok: true, facts });

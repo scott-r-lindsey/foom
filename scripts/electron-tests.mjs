@@ -87,6 +87,14 @@ if (!packaged) {
       mkdirSync(catalog, { recursive: true });
       for (const name of ["foom-host.gz", "manifest.json"])
         cpSync(join("build/remote-host", name), join(catalog, name));
+      // The isolated test catalog intentionally contains only this platform's fixture.
+      writeFileSync(
+        "build/build-metadata.json",
+        JSON.stringify({
+          source: checkoutRevision(process.cwd()),
+          remoteHostsAvailable: true,
+        }),
+      );
     }
   }
   if (!reuse) {
