@@ -32,6 +32,7 @@ export function RepositoriesStep({
     <RepositoryPicker
       recentDays={recentDays}
       onRecentDays={onRecentDays}
+      showRecentDaysInput={!immediate}
       source={source}
       selection={code}
       added={repositories}
@@ -55,6 +56,9 @@ export function RepositoriesStep({
           open={!repositories.length || code !== undefined || codeScanning !== undefined}
         >
           <summary>Choose repositories</summary>
+          <p className="repo-folder">
+            Recent · last <RecentDaysInput value={recentDays} onChange={onRecentDays} /> days
+          </p>
           {picker}
         </details>
       </>

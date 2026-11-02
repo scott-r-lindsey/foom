@@ -80,9 +80,11 @@ export function RepositoryPicker({
   onScan,
   onSelection,
   recentDays = 30,
+  showRecentDaysInput = true,
   onRecentDays = () => undefined,
 }: {
   recentDays?: number;
+  showRecentDaysInput?: boolean;
   onRecentDays?: (days: number) => void;
   source: SetupSource;
   selection: CodeSelection | undefined;
@@ -284,7 +286,7 @@ export function RepositoryPicker({
                 aria-label={title}
               >
                 <h3>
-                  {title.startsWith("Recent") ? (
+                  {title.startsWith("Recent") && showRecentDaysInput ? (
                     <>
                       Recent · last <RecentDaysInput value={recentDays} onChange={onRecentDays} />{" "}
                       days
