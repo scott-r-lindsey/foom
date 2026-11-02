@@ -1,9 +1,15 @@
-import { act, render } from "@testing-library/react";
+import { act, fireEvent, render } from "@testing-library/react";
 import { Board } from "../../../../src/renderer/board/board-view";
 import { agent, mock, settle, verdict } from "./app-board-fixture";
 // @vitest-environment jsdom
 import { expect, test, vi } from "vitest";
 import { createAppSource } from "../../../../src/renderer/board/live-board-source";
+import {
+  initialLayout,
+  restoreLayout,
+  saveLayout,
+  TILE_STORAGE,
+} from "../../../../src/renderer/board/tiles";
 import type { WorkspaceSnapshot } from "../../../../src/shared/workspace";
 test("source connects independently of views, reconciles events, preserves ordering, and keeps activity outside snapshots", async () => {
   const source = createAppSource();
@@ -506,3 +512,87 @@ test("home-shell source refreshes rows and preserves its request-specific result
   });
   expect(source.getSnapshot().some((row) => row.id === "home-created")).toBe(true);
 });
+
+test.each([false, true])(
+  "saved expansion waits for successful sidebar inventory after workspace loads (initial failure: %s)",
+  async (fails) => {
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe = vi.fn();
+        disconnect = vi.fn();
+      },
+    );
+    const expanded = {
+      "repository:/repo": false,
+      "worktree:/repo/topic": false,
+      "repository:/removed": false,
+      "worktree:/removed/topic": true,
+    };
+    saveLayout(localStorage, { ...initialLayout(), sidebarExpanded: expanded });
+    const saved = () => restoreLayout(localStorage.getItem(TILE_STORAGE)).sidebarExpanded;
+    mock.workspace.mockResolvedValue({
+      repositories: [{ path: "/repo", name: "Repo" }],
+      terminals: [],
+    });
+    const initial =
+      Promise.withResolvers<Awaited<ReturnType<typeof window.desktop.sidebarInventory>>>();
+    mock.sidebarInventory.mockReturnValueOnce(initial.promise);
+    const source = createAppSource();
+    const view = render(<Board source={source} />);
+    try {
+      await settle();
+      expect(source.isReady?.()).toBe(true);
+      expect(source.isSidebarReady?.()).toBe(false);
+      expect(saved()).toEqual(expanded);
+      let inventory = initial;
+      if (fails) {
+        initial.reject(new Error("fixture inventory unavailable"));
+        await settle();
+        expect(source.isSidebarReady?.()).toBe(false);
+        expect(saved()).toEqual(expanded);
+        inventory =
+          Promise.withResolvers<Awaited<ReturnType<typeof window.desktop.sidebarInventory>>>();
+        mock.sidebarInventory.mockReturnValueOnce(inventory.promise);
+        mock.changed?.();
+        await settle();
+        expect(saved()).toEqual(expanded);
+      }
+      const checkout = (path: string, branch: string) => ({
+        path,
+        branch,
+        head: "abc",
+        bare: false,
+        locked: false,
+        prunable: false,
+        managed: false,
+      });
+      const main = checkout("/repo", "main");
+      inventory.resolve({
+        repositories: [
+          { path: "/repo", name: "Repo", worktrees: [main, checkout("/repo/topic", "topic")] },
+        ],
+        shell: "bash",
+      });
+      await settle();
+      expect(source.isSidebarReady?.()).toBe(true);
+      expect(saved()).toEqual({
+        "repository:/repo": false,
+        "worktree:/repo/topic": false,
+      });
+      fireEvent.click(view.getByRole("button", { name: "Expand Repo" }));
+      expect(view.getByRole("button", { name: "Expand topic" })).toBeTruthy();
+      mock.sidebarInventory.mockResolvedValue({
+        repositories: [{ path: "/repo", name: "Repo", worktrees: [main] }],
+        shell: "bash",
+      });
+      mock.changed?.();
+      await settle();
+      expect(saved()).toEqual({ "repository:/repo": true });
+    } finally {
+      view.unmount();
+      mock.sidebarInventory.mockResolvedValue({ repositories: [], shell: "bash" });
+      vi.unstubAllGlobals();
+    }
+  },
+);

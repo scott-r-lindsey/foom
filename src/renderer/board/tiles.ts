@@ -1,6 +1,7 @@
 import type { BoardRow } from "./board.d";
 import { conversationId } from "../../shared/conversation";
 import type {
+  TileMetrics,
   TileDirection,
   TileContent,
   TilePlacement,
@@ -278,12 +279,119 @@ export function tidyTiles(layout: TileLayout): TileLayout {
   };
 }
 
+/** Repair measured geometry without ever removing an occupied leaf. */
+export function fitLayout(
+  layout: TileLayout,
+  metrics: TileMetrics | undefined,
+  commit = true,
+): TileLayout {
+  if (!metrics || !Object.values(metrics).every((value) => Number.isFinite(value) && value > 0))
+    return layout;
+  const { width, height } = metrics;
+  const minWidth = Math.min(metrics.minWidth, width);
+  const minHeight = Math.min(metrics.minHeight, height);
+  const area = { x: 0, y: 0, width, height };
+  let tree = layout.tree;
+  // Recompute after each removal: its sibling may now have enough room to survive.
+  for (;;) {
+    const small =
+      commit &&
+      rectangles(tree, area).tiles.find(
+        ({ tile, rect }) =>
+          !tile.content && (rect.width + 0.01 < minWidth || rect.height + 0.01 < minHeight),
+      );
+    if (!small || tree.kind === "tile") break;
+    const remove = (node: TileNode): TileNode | null => {
+      if (node.id === small.tile.id) return null;
+      if (node.kind === "tile") return node;
+      const first = remove(node.first),
+        second = remove(node.second);
+      return first && second
+        ? first === node.first && second === node.second
+          ? node
+          : { ...node, first, second }
+        : (first ?? second);
+    };
+    tree = remove(tree) ?? tree;
+  }
+  const minimum = (node: TileNode): { width: number; height: number } => {
+    if (node.kind === "tile")
+      return node.content || commit
+        ? { width: minWidth, height: minHeight }
+        : { width: 0, height: 0 };
+    const a = minimum(node.first),
+      b = minimum(node.second);
+    return node.direction === "horizontal"
+      ? { width: a.width + b.width, height: Math.max(a.height, b.height) }
+      : { width: Math.max(a.width, b.width), height: a.height + b.height };
+  };
+  const fit = (node: TileNode, w: number, h: number): TileNode => {
+    if (node.kind === "tile" || w <= 0 || h <= 0) return node;
+    const a = minimum(node.first),
+      b = minimum(node.second);
+    const horizontal = node.direction === "horizontal";
+    const total = horizontal ? w : h;
+    const firstMin = horizontal ? a.width : a.height;
+    const secondMin = horizontal ? b.width : b.height;
+    // If occupants cannot all fit, share the shortage without hiding any of them.
+    const scale = Math.min(1, total / (firstMin + secondMin));
+    const ratio = Math.max(
+      (firstMin * scale) / total,
+      Math.min(1 - (secondMin * scale) / total, node.ratio),
+    );
+    const first = fit(node.first, horizontal ? w * ratio : w, horizontal ? h : h * ratio);
+    const second = fit(
+      node.second,
+      horizontal ? w * (1 - ratio) : w,
+      horizontal ? h : h * (1 - ratio),
+    );
+    return ratio === node.ratio && first === node.first && second === node.second
+      ? node
+      : { ...node, ratio, first, second };
+  };
+  tree = fit(tree, width, height);
+  if (
+    commit &&
+    tree.kind === "split" &&
+    rectangles(tree, area).tiles.some(
+      ({ tile, rect }) =>
+        !tile.content && (rect.width + 0.01 < minWidth || rect.height + 0.01 < minHeight),
+    )
+  )
+    return fitLayout({ ...layout, tree }, metrics);
+  const tiles = leaves(tree);
+  const focused = tiles.some((tile) => tile.id === layout.focused)
+    ? layout.focused
+    : (terminals(tree)[0]?.id ?? tiles[0]?.id ?? tree.id);
+  const maximized = tiles.some((tile) => tile.id === layout.maximized) ? layout.maximized : null;
+  const landing = tiles.some((tile) => tile.id === layout.landing && !tile.content)
+    ? layout.landing
+    : undefined;
+  return tree === layout.tree &&
+    focused === layout.focused &&
+    maximized === layout.maximized &&
+    landing === layout.landing
+    ? layout
+    : { ...layout, tree, focused, maximized, landing };
+}
+
 export function placeContent(
   layout: TileLayout,
   content: TileContent,
   replace = false,
   placement: TilePlacement = { columns: 0 },
 ): TileLayout | null {
+  const requested = leaves(layout.tree).find((tile) => tile.id === layout.focused);
+  if (replace && !requested) return null;
+  layout = fitLayout(layout, placement.metrics);
+  // An asynchronous New shell here reply may outlive its now-collapsed space.
+  if (
+    replace &&
+    requested &&
+    !requested.content &&
+    !leaves(layout.tree).some((tile) => tile.id === requested.id)
+  )
+    replace = false;
   if (!replace && layout.tree.kind === "tile" && layout.tree.content === null) {
     const count = blankColumns(placement.columns);
     if (count > 1) {
@@ -310,7 +418,7 @@ export function placeContent(
     const depth = (node: TileNode): number =>
       node.kind === "tile" ? 0 : 1 + Math.max(depth(node.first), depth(node.second));
     const canGrow = tiles.length < 256 && depth(layout.tree) < 64;
-    if (fits && canGrow) return addColumn(layout, content);
+    if (fits && canGrow) return fitLayout(addColumn(layout, content), placement.metrics);
     const eligible = tiles.filter(
       (tile) =>
         tile.content &&
@@ -321,19 +429,22 @@ export function placeContent(
     const oldest = (unfocused.length ? unfocused : eligible).sort(
       (a, b) => (placement.focusedAt?.get(a.id) ?? 0) - (placement.focusedAt?.get(b.id) ?? 0),
     )[0];
-    if (oldest) return placeContent({ ...layout, focused: oldest.id }, content, true);
-    return canGrow ? addColumn(layout, content) : null;
+    if (oldest) return placeContent({ ...layout, focused: oldest.id }, content, true, placement);
+    return canGrow ? fitLayout(addColumn(layout, content), placement.metrics) : null;
   }
   let tree = layout.tree;
   if (replace && visible && visible.id !== target.id)
     tree = update(tree, visible.id, (node) => ({ ...node, content: null }));
   tree = update(tree, target.id, (node) => ({ ...node, content }));
-  return {
-    ...layout,
-    tree,
-    focused: target.id,
-    maximized: layout.maximized ? target.id : null,
-  };
+  return fitLayout(
+    {
+      ...layout,
+      tree,
+      focused: target.id,
+      maximized: layout.maximized ? target.id : null,
+    },
+    placement.metrics,
+  );
 }
 /** Flat rectangles let React keep each leaf under the same parent across tree edits. */
 export function rectangles(
@@ -402,6 +513,16 @@ export function neighbor(layout: TileLayout, direction: "left" | "right" | "up" 
   );
 }
 export const TILE_STORAGE = "foom.tiles.v1";
+/** Bounded, inert view metadata, including explicit collapsed choices. */
+function expansionMap(value: unknown): Record<string, boolean> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value).filter(
+      (entry): entry is [string, boolean] =>
+        entry[0].length <= 4096 && typeof entry[1] === "boolean",
+    ),
+  );
+}
 /** Bounded, fail-closed parsing: persisted layout metadata never grants capabilities. */
 export function restoreLayout(raw: string | null): TileLayout {
   try {
@@ -508,6 +629,9 @@ export function restoreLayout(raw: string | null): TileLayout {
       focused,
       maximized: null,
       ...(landing ? { landing } : {}),
+      ...("sidebarExpanded" in value
+        ? { sidebarExpanded: expansionMap(value.sidebarExpanded) }
+        : {}),
       ...("sidebarWidth" in value &&
       typeof value.sidebarWidth === "number" &&
       Number.isFinite(value.sidebarWidth) &&
@@ -573,6 +697,7 @@ export function saveLayout(
       landing: layout.landing,
       sidebarCollapsed: layout.sidebarCollapsed,
       sidebarWidth: layout.sidebarWidth,
+      sidebarExpanded: layout.sidebarExpanded,
     }),
   );
 }
@@ -660,6 +785,8 @@ export function dropZone(x: number, y: number): DropZone {
 export function loadLayout(
   storage: Pick<Storage, "getItem" | "setItem" | "removeItem">,
   key = TILE_STORAGE,
+  legacyExpanded?: Record<string, boolean>,
+  restored = false,
 ): TileLayout {
   let raw = storage.getItem(key);
   let migrated = false;
@@ -667,8 +794,13 @@ export function loadLayout(
     raw = storage.getItem(TILE_STORAGE);
     migrated = raw !== null;
   }
-  const layout = restoreLayout(raw);
-  if (raw !== null) saveLayout(storage, layout, key);
+  let layout = restoreLayout(raw);
+  if (legacyExpanded !== undefined && layout.sidebarExpanded === undefined)
+    layout = {
+      ...layout,
+      sidebarExpanded: raw === null && !restored ? {} : expansionMap(legacyExpanded),
+    };
+  if (raw !== null || legacyExpanded !== undefined) saveLayout(storage, layout, key);
   if (migrated) storage.removeItem(TILE_STORAGE);
   return layout;
 }
@@ -695,6 +827,7 @@ export function placeAgentPreview(
   layout: TileLayout;
   placement: "landing" | "empty" | "column" | "replace" | "existing" | "sidebar";
 } {
+  layout = fitLayout(layout, placement.metrics);
   if (
     leaves(layout.tree).some(
       (tile) => tile.content?.kind === "preview" && tile.content.preview === id,

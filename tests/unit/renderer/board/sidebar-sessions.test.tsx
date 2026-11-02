@@ -5,6 +5,7 @@ import type { BoardSource } from "../../../../src/renderer/board/board-source.d"
 import { Board } from "../../../../src/renderer/board/board-view";
 import type { BoardRow } from "../../../../src/renderer/board/board.d";
 import { createSampleSource } from "../../../../src/renderer/board/sample-board-source";
+import { restoreLayout, TILE_STORAGE } from "../../../../src/renderer/board/tiles";
 import { emptyPreferences } from "../../../../src/renderer/board/sidebar-preferences";
 import { Sidebar, launcherActions } from "../../../../src/renderer/board/sidebar-view";
 import type { SidebarPreferences } from "../../../../src/renderer/board/sidebar.d";
@@ -714,3 +715,45 @@ test("marks children in their own checkouts, highlights relationships and retain
   compact.unmount();
   vi.unstubAllGlobals();
 });
+
+test.each([false, true])(
+  "deferred renamed restart retains newer expansion choices (initial main collapse: %s)",
+  async (initiallyCollapsed) => {
+    const view = setup();
+    await act(async () => {});
+    act(() => {
+      view.base.update("a", { kind: "shell", agent: "shell", state: "done", exited: true });
+    });
+    const row = view.container.querySelector(".board-row");
+    if (!row) throw Error("Missing row");
+    fireEvent.keyDown(row, { key: "F2" });
+    fireEvent.change(view.getByLabelText("Session name"), { target: { value: "Tests" } });
+    fireEvent.keyDown(view.getByLabelText("Session name"), { key: "Enter" });
+    if (initiallyCollapsed)
+      fireEvent.click(view.getByRole("button", { name: "Collapse Main checkout" }));
+    const pending = Promise.withResolvers<undefined>();
+    view.command.mockImplementationOnce(() => pending.promise);
+    fireEvent.click(view.getByRole("button", { name: "Actions for Tests in feature" }));
+    fireEvent.click(view.getByRole("menuitem", { name: "Restart shell" }));
+    expect(view.command).toHaveBeenCalledWith({ kind: "restart", id: "a" });
+    fireEvent.click(
+      view.getByRole("button", {
+        name: `${initiallyCollapsed ? "Expand" : "Collapse"} Main checkout`,
+      }),
+    );
+    fireEvent.click(view.getByRole("button", { name: "Toggle home shells" }));
+    const saved = () => restoreLayout(localStorage.getItem(TILE_STORAGE)).sidebarExpanded;
+    expect(saved()?.["worktree:/foom"]).toBe(initiallyCollapsed);
+    expect(saved()?.["home"]).toBe(false);
+    await act(async () => {
+      view.base.update("a", { id: "replacement", exited: false, state: "working" });
+      pending.resolve(undefined);
+      await pending.promise;
+    });
+    expect(saved()?.["worktree:/foom"]).toBe(initiallyCollapsed);
+    expect(saved()?.["home"]).toBe(false);
+    expect(saved()?.["worktree:/tree"]).toBe(true);
+    expect(saved()?.["repository:/foom"]).toBe(true);
+    expect(view.getByRole("button", { name: "Actions for Tests in feature" })).toBeTruthy();
+  },
+);

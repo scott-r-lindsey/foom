@@ -386,7 +386,6 @@
       "config probe CLI drives only scratch fixture screens and the user can interrupt its tile": [
         11.068, 52.003, 13.991
       ],
-      "empty-space split refusals stay inside the menu at resource limits": [2.317, 8.956, 4.978],
       "every interface theme applies live to native chrome and passes axe on board and Settings": [
         19.052, 24.407, 15.827
       ],

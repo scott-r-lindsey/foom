@@ -1,3 +1,4 @@
+import { readPreferences } from "./sidebar-preferences";
 import { errorMessage } from "../../shared/application-errors";
 import { prepareMove, finishMove } from "./move-placement";
 import { useBackgroundErrors } from "./error-presentation";
@@ -8,6 +9,7 @@ import type { SetupSource } from "../preflight/setup-source.d";
 import type { BoardSource } from "./board-source.d";
 import type { BoardRow } from "./board.d";
 import {
+  fitLayout,
   closeTile,
   closeSpace,
   growTile,
@@ -47,7 +49,12 @@ export function useBoardTiles({
   const [otherViews, setOtherViews] = useState<ReadonlySet<string>>(() => new Set());
   const [layout, setLayout] = useState(() => {
     try {
-      return loadLayout(localStorage, storageKey);
+      return loadLayout(
+        localStorage,
+        storageKey,
+        readPreferences(localStorage).expanded,
+        source.windows?.restored,
+      );
     } catch {
       return restoreLayout(null);
     }
@@ -55,17 +62,22 @@ export function useBoardTiles({
   const boardRef = useRef<HTMLDivElement>(null);
   const fontSizeRef = useRef(14);
   const fontFamilyRef = useRef(TERMINAL_FONT_FALLBACK);
+  const fontSettingsSourceRef = useRef<typeof soundSetup>(undefined);
   const focusedAtRef = useRef(new Map<string, number>());
   const focusClockRef = useRef(0);
+  const repairTilesRef = useRef<(() => void) | undefined>(undefined);
   const unrestoredRolesRef = useRef(new Set<string>());
   useEffect(() => {
     if (!soundSetup) return;
     let active = true;
     let changed = false;
     const off = soundSetup.subscribe((state) => {
+      if (!active) return;
       changed = true;
       fontSizeRef.current = state.settings.terminalFontSize;
       fontFamilyRef.current = terminalFontStack(state.settings.terminalFont);
+      fontSettingsSourceRef.current = soundSetup;
+      repairTilesRef.current?.();
     });
     void soundSetup
       .state()
@@ -73,11 +85,14 @@ export function useBoardTiles({
         if (active && !changed) {
           fontSizeRef.current = state.settings.terminalFontSize;
           fontFamilyRef.current = terminalFontStack(state.settings.terminalFont);
+          fontSettingsSourceRef.current = soundSetup;
+          repairTilesRef.current?.();
         }
       })
       .catch(() => {});
     return () => {
       active = false;
+      if (fontSettingsSourceRef.current === soundSetup) fontSettingsSourceRef.current = undefined;
       off();
     };
   }, [soundSetup]);
@@ -94,12 +109,36 @@ export function useBoardTiles({
       ),
     [source],
   );
+  const measureTiles = useCallback(() => {
+    const area = boardRef.current?.querySelector(".tile-area")?.getBoundingClientRect();
+    const probe = document.createElement("span");
+    probe.style.cssText = `position:absolute;visibility:hidden;font:${String(fontSizeRef.current)}px ${fontFamilyRef.current}`;
+    probe.textContent = "M";
+    boardRef.current?.append(probe);
+    const cell = probe.getBoundingClientRect().width || fontSizeRef.current * 0.6;
+    probe.remove();
+    return {
+      columns: (area?.width ?? 0) / cell,
+      // Do not destroy saved spaces using fallback font metrics before settings arrive.
+      metrics:
+        fontSettingsSourceRef.current === soundSetup
+          ? {
+              width: area?.width ?? 0,
+              height: area?.height ?? 0,
+              minWidth: 60 * cell,
+              minHeight: 38 + 3 * fontSizeRef.current * 1.2,
+            }
+          : undefined,
+    };
+  }, [soundSetup]);
   const [focusRequest, setFocusRequest] = useState(0);
   const changeLayout = useCallback(
-    (next: TileLayout, background = false) => {
+    (next: TileLayout, background = false, transient = false) => {
       if (movePendingRef.current) return;
+      next = fitLayout(next, measureTiles().metrics, !transient);
       next = {
         ...next,
+        sidebarExpanded: next.sidebarExpanded ?? layoutRef.current.sidebarExpanded ?? {},
         sidebarCollapsed: next.sidebarCollapsed ?? layoutRef.current.sidebarCollapsed ?? false,
         sidebarWidth: next.sidebarWidth ?? layoutRef.current.sidebarWidth,
       };
@@ -135,6 +174,7 @@ export function useBoardTiles({
       }
       layoutRef.current = next;
       setLayout(next);
+      if (transient) return;
       try {
         saveLayout(localStorage, next, storageKey);
         clear("tile-layout");
@@ -142,18 +182,11 @@ export function useBoardTiles({
         report("tile-layout", "Unable to save tile layout.");
       }
     },
-    [storageKey, source, clear, report],
+    [storageKey, source, clear, report, measureTiles],
   );
   const placementOptions = useCallback(() => {
-    const area = boardRef.current?.querySelector(".tile-area");
-    const probe = document.createElement("span");
-    probe.style.cssText = `position:absolute;visibility:hidden;font:${String(fontSizeRef.current)}px ${fontFamilyRef.current}`;
-    probe.textContent = "M";
-    boardRef.current?.append(probe);
-    const cell = probe.getBoundingClientRect().width || fontSizeRef.current * 0.6;
-    probe.remove();
     return {
-      columns: (area?.getBoundingClientRect().width ?? 0) / cell,
+      ...measureTiles(),
       needsYou: new Set(
         source
           .getSnapshot()
@@ -162,7 +195,23 @@ export function useBoardTiles({
       ),
       focusedAt: focusedAtRef.current,
     };
-  }, [source]);
+  }, [source, measureTiles]);
+  useEffect(() => {
+    const area = boardRef.current?.querySelector(".tile-area");
+    if (!area) return;
+    const repair = () => {
+      const next = fitLayout(layoutRef.current, measureTiles().metrics);
+      if (next !== layoutRef.current) changeLayout(next, true);
+    };
+    repairTilesRef.current = repair;
+    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(repair);
+    observer?.observe(area);
+    repair();
+    return () => {
+      observer?.disconnect();
+      repairTilesRef.current = undefined;
+    };
+  }, [changeLayout, measureTiles]);
   useEffect(() => {
     const api = source.windows?.moves;
     if (!api) return;
@@ -263,10 +312,13 @@ export function useBoardTiles({
           : sessionId(tile) && !sessions.has(sessionId(tile) ?? ""),
       )
     ) {
-      const next = pruneContent(current, {
-        sessions,
-        previews: previewIds(current),
-      });
+      const next = fitLayout(
+        pruneContent(current, {
+          sessions,
+          previews: previewIds(current),
+        }),
+        measureTiles().metrics,
+      );
       layoutRef.current = next;
       setLayout(next);
       try {
@@ -276,7 +328,7 @@ export function useBoardTiles({
         report("tile-layout", "Unable to save tile layout.");
       }
     }
-  }, [source, rows, previews, previewIds, storageKey, clear, report]);
+  }, [source, rows, previews, previewIds, storageKey, clear, report, measureTiles]);
   useEffect(() => {
     const api = source.windows;
     if (!api) return;
