@@ -10,7 +10,7 @@ current tooling and CI graph. See the [documentation map](README.md) for other e
 
 Real-app integration tests are split into discovered feature suites, with a separate
 packaged smoke test. See [Electron test layout and sharding](electron-shards.md)
-for suite ownership, four Linux and five Windows/macOS named-test shards and local commands, and
+for suite ownership, four Linux, five Windows and six macOS named-test shards and local commands, and
 [explicit Electron fixtures](electron-fixtures.md) for fixture selection and timing.
 On Linux, wrap Electron and packaged-smoke commands in `xvfb-run -a`.
 
@@ -109,7 +109,7 @@ shell removal on native exit and shutdown.
 ## Refreshing the Electron shard plan
 
 Use Node 24 and installed dependencies. Download every `electron-results-*` artifact per selected recent passing CI run
-(fourteen for the current matrix, twelve for historical four-shard runs). Keep numeric run-ID directories and
+(fifteen for the current matrix, fourteen for the earlier four/five/five matrix, and twelve for historical four-shard runs). Keep numeric run-ID directories and
 artifact subdirectories intact, outside the repository or under ignored
 `test-results/`. Use a fresh source directory for each refresh:
 
@@ -131,7 +131,7 @@ cases. It takes each case's maximum duration per platform and includes hash
 assignments for previously unplanned cases in the before projection. Review balance
 and headroom under the 600s Linux / 840s Windows and macOS step limits.
 The examples select historical four-shard inputs with `--source-shards=4`. Omit
-that option for current runs with four Linux and five Windows/macOS shards. Each source run must have the expected report count per platform.
+that option for current runs with four Linux, five Windows and six macOS shards. Each source run must have the expected report count per platform.
 When combining old and current matrices, specify per-run counts explicitly. For
 example, `--source-shards=4 --source-shards=41409300263:4,5,5` uses four reports
 per platform for historical sources and four/five/five for that newer run, in

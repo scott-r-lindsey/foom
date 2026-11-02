@@ -99,7 +99,7 @@ test("Electron shards register every test exactly once, preserve filtering and r
           env: { ...env, FOOM_ELECTRON_SHARD: shard },
         },
       );
-    for (const count of [1, 2, 3, 4, 5, 16]) {
+    for (const count of [1, 2, 3, 4, 5, 6, 16]) {
       const registered = [];
       for (let index = 1; index <= count; index++) {
         const shard = `${index}/${count}`;

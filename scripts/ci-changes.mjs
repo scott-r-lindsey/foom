@@ -27,7 +27,7 @@ const { shardCounts } = JSON.parse(
   readFileSync(new URL("../tests/electron/shard-plan.json", import.meta.url), "utf8"),
 );
 
-/** Keep Linux at four shards; slower Windows/macOS runners need five. */
+/** Platform counts follow the measured headroom in the checked-in plan. */
 export function desktopMatrix(platforms = allPlatforms) {
   return platforms.flatMap((os) => {
     const count = shardCounts[os];
