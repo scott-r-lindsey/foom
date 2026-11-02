@@ -1,3 +1,4 @@
+const { sizeTileBoard } = require("./tile-fixture.js");
 const { evidencePath } = require("../helpers/evidence.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
 const assert = require("node:assert/strict");
@@ -571,6 +572,7 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
         .toBe(parentId);
       await page.evaluate((id) => window.desktop.input(id, "w"), parentId);
       await expect(parentBoard).toHaveAttribute("data-state", "working");
+      await sizeTileBoard(app, page);
       await page.evaluate(() => window.desktop.appMenu.execute("split-right"));
       await expect(page.locator(".terminal-tile")).toHaveCount(2);
       const childRow = page.locator(`[data-drag-session="${childId}"]`);

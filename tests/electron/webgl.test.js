@@ -106,35 +106,50 @@ test("WebGL uses a visible context budget and releases hidden and unmounted view
   const page = await boardPage(app);
   const [first] = (await page.evaluate(() => window.desktop.workspace())).terminals;
   for (let index = 1; index < 18; index++) {
-    const largest = await page.locator(".terminal-tile").evaluateAll(
-      (nodes) =>
-        nodes
-          .map((node, index) => {
-            const { width, height } = node.getBoundingClientRect();
-            return { index, width, height, area: width * height };
-          })
-          .sort((a, b) => b.area - a.area)[0],
-    );
-    await page
-      .locator(".terminal-tile")
-      .nth(largest.index)
-      .getByRole("button", { name: /^Tile \d+ menu$/ })
-      .click();
-    await page
-      .getByRole("menuitem", {
-        name: largest.width > largest.height * 1.5 ? "Split terminal left" : "Split terminal up",
-        exact: true,
-      })
-      .click();
     await page.evaluate(
       ({ repository, worktree }) =>
         window.desktop.sidebarCommand({ kind: "launch", repository, worktree, run: "shell" }),
       first,
     );
-    await expect(page.locator(".board-row[data-kind='shell']")).toHaveCount(index + 1);
-    await page.locator(".board-row[data-kind='shell']").nth(index).click();
-    await expect(page.locator(".terminal-tile[data-empty=false]")).toHaveCount(index + 1);
   }
+  await expect(page.locator(".board-row[data-kind='shell']")).toHaveCount(18);
+  // Restore occupied leaves directly: tiny empty split slots must now collapse.
+  // The infeasible width minimum must retain all 18 occupants at ordinary size.
+  await page.evaluate(async () => {
+    const sessions = (await window.desktop.workspace()).terminals;
+    const rows = (start, count) =>
+      count === 1
+        ? {
+            kind: "tile",
+            id: `budget-${start}`,
+            content: { kind: "terminal", session: sessions[start].id },
+          }
+        : {
+            kind: "split",
+            id: `rows-${start}-${count}`,
+            direction: "vertical",
+            ratio: Math.floor(count / 2) / count,
+            first: rows(start, Math.floor(count / 2)),
+            second: rows(start + Math.floor(count / 2), Math.ceil(count / 2)),
+          };
+    const columns = (start, count) =>
+      count === 1
+        ? rows(start * 6, 6)
+        : {
+            kind: "split",
+            id: `columns-${start}`,
+            direction: "horizontal",
+            ratio: 1 / count,
+            first: rows(start * 6, 6),
+            second: columns(start + 1, count - 1),
+          };
+    localStorage.setItem(
+      `foom.tiles.v1.${window.desktop.windows.id}`,
+      JSON.stringify({ version: 2, tree: columns(0, 3), focused: "budget-0", maximized: null }),
+    );
+  });
+  await page.reload();
+  context.diagnostic("WebGL budget fixture restored 18 occupied tiles at ordinary window size");
   await expect(page.locator(".xterm")).toHaveCount(18);
   await expectContexts(app, page, 12);
   await expect(page.locator(".terminal-tile[data-empty=false] .xterm-rows")).toHaveCount(6);
