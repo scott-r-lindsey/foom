@@ -3,7 +3,14 @@ export interface RegisteredHost {
   host: string;
   codeFolder: string;
 }
+export type HostGitFailureReason =
+  | "origin-auth"
+  | "origin-host-key"
+  | "origin-unreachable"
+  | "timed-out"
+  | "checkout-invalid";
 export type HostFailure =
+  | HostGitFailureReason
   | "unreachable"
   | "version-mismatch"
   | "provider-invalid"

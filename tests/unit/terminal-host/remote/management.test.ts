@@ -15,6 +15,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { HostGitFailure } from "../../../../src/terminal-host/remote/git-failure";
 import { LaunchFailure } from "../../../../src/shared/launch-failure";
 import {
   HOST_CLONE_TIMEOUT_MS,
@@ -283,7 +284,7 @@ test.skipIf(process.platform === "win32")(
     mock.probe.mockRejectedValueOnce(new Error("host denied credentials secret"));
     expect(
       await manageHost({ ...request, operation: "clone" }, 0, "/fixture", "0.1.0", home),
-    ).toEqual({ ok: false, reason: "clone-failed" });
+    ).toEqual({ ok: false, reason: "origin-unreachable" });
     mock.probe.mockImplementation((_cmd: string, args: string[], cwd: string) => {
       if (args.includes("clone")) {
         return Promise.resolve("");
@@ -307,6 +308,13 @@ test.skipIf(process.platform === "win32")(
       join(home, "code"),
       {
         PATH: "/fixture-login",
+        LC_ALL: "C",
+        GCM_INTERACTIVE: "never",
+        GIT_ASKPASS: "/usr/bin/false",
+        SSH_ASKPASS: "/usr/bin/false",
+        SSH_ASKPASS_REQUIRE: "never",
+        GIT_SSH_COMMAND: `${request.origin} -o BatchMode=yes`,
+        GIT_SSH_VARIANT: "ssh",
         GIT_TERMINAL_PROMPT: "0",
         GIT_NO_REPLACE_OBJECTS: "1",
         GIT_GRAFT_FILE: "/dev/null",
@@ -314,6 +322,8 @@ test.skipIf(process.platform === "win32")(
       true,
       HOST_CLONE_TIMEOUT_MS,
       undefined,
+      "probe",
+      true,
     );
     mock.probe
       .mockResolvedValueOnce(request.origin)
@@ -378,6 +388,7 @@ test.skipIf(process.platform === "win32")(
     const destination = join(folder, "repo");
     let fail = true;
     mock.probe.mockImplementation(async (_command: string, args: string[], cwd: string) => {
+      if (args.includes("core.sshCommand")) return "ssh";
       if (!args.includes("clone")) return gitSync(args, { cwd }).toString();
       const staging = args.at(-1);
       if (!staging) throw new Error("Missing staging directory");
@@ -405,7 +416,7 @@ test.skipIf(process.platform === "win32")(
     });
     expect(await manageHost(request, 0, "/fixture", "0.1.0", home)).toEqual({
       ok: false,
-      reason: "clone-failed",
+      reason: "origin-unreachable",
     });
     expect(await readdir(folder)).toEqual([]);
     expect(
@@ -461,6 +472,7 @@ test.skipIf(process.platform === "win32").each(["unborn", "destination-appeared"
     const path = join(folder, "repo");
     const origin = "git@forge.test:me/repo.git";
     mock.probe.mockImplementation(async (_command: string, args: string[], cwd: string) => {
+      if (args.includes("core.sshCommand")) return "ssh";
       if (!args.includes("clone")) return gitSync(args, { cwd }).toString();
       const staging = args.at(-1);
       if (!staging) throw new Error("Missing staging directory");
@@ -502,7 +514,7 @@ test.skipIf(process.platform === "win32").each(["unborn", "destination-appeared"
       ),
     ).toEqual({
       ok: false,
-      reason: scenario === "unborn" ? "clone-failed" : "checkout-refused",
+      reason: scenario === "unborn" ? "checkout-invalid" : "checkout-refused",
     });
     expect(await readdir(folder)).toEqual(scenario === "unborn" ? [] : ["repo"]);
     if (scenario === "destination-appeared") expect(await readdir(path)).toEqual(["keep"]);
@@ -557,6 +569,8 @@ test.skipIf(process.platform === "win32")(
       true,
       HOST_NETWORK_GIT_TIMEOUT_MS,
       undefined,
+      "probe",
+      true,
     );
     expect(mock.probe).toHaveBeenCalledWith(
       "git",
@@ -572,6 +586,8 @@ test.skipIf(process.platform === "win32")(
       true,
       HOST_CLONE_TIMEOUT_MS,
       undefined,
+      "probe",
+      true,
     );
     expect(mock.probe).toHaveBeenCalledWith(
       "git",
@@ -616,6 +632,8 @@ test.skipIf(process.platform === "win32")(
       true,
       HOST_CLONE_TIMEOUT_MS,
       undefined,
+      "probe",
+      true,
     );
     expect(mock.probe).toHaveBeenCalledWith(
       "git",
@@ -1051,7 +1069,7 @@ test.skipIf(process.platform === "win32")(
         home,
         cancellation.signal,
       ),
-    ).toEqual({ ok: false, reason: "checkout-refused" });
+    ).toEqual({ ok: false, reason: "cancelled" });
     const untagged = join(folder, ".foom-worktree-untagged");
     const foreign = join(folder, ".foom-worktree-other-profile");
     const foreignRepo = join(folder, ".foom-worktree-other-repository");
@@ -1147,7 +1165,7 @@ test.skipIf(process.platform === "win32").each(["redirected", "cancelled"] as co
         home,
         cancellation.signal,
       ),
-    ).toEqual({ ok: false, reason: "checkout-refused" });
+    ).toEqual({ ok: false, reason: mode === "cancelled" ? "cancelled" : "checkout-refused" });
     expect(await readdir(outside)).toEqual([]);
     if (mode === "cancelled") expect(await readdir(folder)).toEqual(["repo"]);
   },
@@ -1210,3 +1228,55 @@ test.skipIf(process.platform === "win32")(
     });
   },
 );
+
+for (const command of ["clone", "fetch", "ls-remote"] as const) {
+  test
+    .skipIf(process.platform === "win32")
+    .each([
+      "origin-auth",
+      "origin-host-key",
+      "origin-unreachable",
+      "timed-out",
+      "checkout-invalid",
+      "cancelled",
+    ] as const)(
+    `${command} management preserves %s and never returns diagnostics`,
+    async (reason) => {
+      const folder = join(home, "code");
+      const path = join(folder, "repo");
+      await mkdir(command === "clone" ? folder : path, { recursive: true, mode: 0o700 });
+      const origin = "git@fixture.test:team/repo.git";
+      const cancellation = new AbortController();
+      mock.probe.mockImplementation((_cmd: string, args: string[], cwd: string) => {
+        if (args.includes(command)) {
+          if (reason === "cancelled") cancellation.abort();
+          throw new HostGitFailure(reason);
+        }
+        if (args.includes("core.sshCommand")) return Promise.resolve("ssh");
+        if (args.includes("config")) return Promise.resolve(origin);
+        if (args.includes("--show-toplevel")) return Promise.resolve(cwd);
+        if (args.includes("ls-remote")) return Promise.resolve("ref: refs/heads/main\tHEAD\n");
+        return Promise.resolve("");
+      });
+      const base = {
+        type: "manage",
+        codeFolder: folder,
+        directory: "repo",
+        origin,
+        agents: [],
+      } as const;
+      const result = await manageHost(
+        command === "clone"
+          ? { ...base, operation: "clone" }
+          : { ...base, operation: "create-worktree", branch: "feature", profile: "a".repeat(32) },
+        0,
+        "/fixture",
+        "0.1.0",
+        home,
+        cancellation.signal,
+      );
+      expect(result).toEqual({ ok: false, reason });
+      expect(await readdir(folder)).toEqual(command === "clone" ? [] : ["repo"]);
+    },
+  );
+}

@@ -154,6 +154,11 @@ test("typed results expose bounded facts and fixed states only", () => {
     "folder-refused",
     "unsafe-folder",
     "origin-unavailable",
+    "origin-auth",
+    "origin-host-key",
+    "origin-unreachable",
+    "timed-out",
+    "checkout-invalid",
     "clone-failed",
     "checkout-refused",
   ])
