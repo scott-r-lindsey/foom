@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { chmod, copyFile, cp, glob, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { checkoutRevision, prepareRemoteHosts } from "./remote-host-artifacts.mjs";
+import { checkoutRevision, prepareBuildRemoteHosts } from "./remote-host-artifacts.mjs";
 import { writeIcons } from "./icon/foom-icon.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -239,7 +239,7 @@ await import("./build-cli.mjs");
 
 // Development and packaged builds verify the same complete, exact-revision catalog.
 const { version } = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
-const remoteHostsAvailable = await prepareRemoteHosts(
+const remoteHostsAvailable = await prepareBuildRemoteHosts(
   process.env.FOOM_REMOTE_HOST_ARTIFACTS ?? join(root, ".cache/remote-hosts"),
   join(root, "build/remote-hosts"),
   version,

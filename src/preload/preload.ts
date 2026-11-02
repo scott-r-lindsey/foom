@@ -446,6 +446,11 @@ const validHostResult: Validator<HostResult> = either(
     ok: literal(false),
     reason: literal(
       "unreachable",
+      "version-mismatch",
+      "provider-invalid",
+      "configuration-changed",
+      "invalid-reply",
+      "cancelled",
       "unsupported",
       "facts-unavailable",
       "libc-too-old",

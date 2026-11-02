@@ -70,7 +70,7 @@ const { appendFileSync } = require('node:fs');
 const args = process.argv.slice(2);
 for (const flag of ['BatchMode=yes','ClearAllForwardings=yes','ForwardAgent=no','ForwardX11=no','ConnectTimeout=10']) assert.ok(args.includes(flag));
 const split = args.indexOf('--'); const host = args[split+1];
-assert.ok(['fixture-cloud','other-cloud','offline-cloud','version-cloud','invalid-cloud'].includes(host));
+assert.ok(['fixture-cloud','other-cloud','offline-cloud','version-cloud','invalid-cloud','provider-cloud','configuration-cloud','cancelled-cloud'].includes(host));
 if (host === 'offline-cloud') { process.stderr.write('RAW SSH SECRET'); process.exit(1); }
 if (args.at(-1) === 'uname -s; uname -m') { process.stdout.write(${JSON.stringify(`${platform === "darwin" ? "Darwin" : "Linux"}\n${process.arch === "x64" ? "x86_64" : platform === "darwin" ? "arm64" : "aarch64"}\n`)}); process.exit(0); }
 process.stdout.write('FOOM-READY\\n');
@@ -110,6 +110,8 @@ process.stdin.on('data', bytes => {
    if(message.operation==='repository' || message.operation==='clone') result.checkout={path:folder+'/'+message.directory,state:message.operation==='clone'?'clean':'absent'};
   }
   if(host==='invalid-cloud') result={ok:true,facts:{}};
+  const failures={'provider-cloud':'provider-invalid','configuration-cloud':'configuration-changed','cancelled-cloud':'cancelled'};
+  if(failures[host]) result={ok:false,reason:failures[host]};
   send({type:'managed',result});
  }
 });
@@ -207,6 +209,9 @@ process.stdin.on('data', bytes => {
   for (const [host, text, name] of [
     ["version-cloud", "Host version mismatch", "version"],
     ["invalid-cloud", "Invalid host reply", "reply"],
+    ["provider-cloud", "Agent configuration unavailable", "provider"],
+    ["configuration-cloud", "Agent configuration changed", "configuration"],
+    ["cancelled-cloud", "Host check cancelled", "cancelled"],
   ]) {
     await page.getByLabel("SSH host", { exact: true }).fill(host);
     await page.getByRole("button", { name: "Test connection", exact: true }).click();

@@ -54,6 +54,22 @@ export function requireRemoteHosts(env = process.env) {
   return Boolean(env.CI || env.GITHUB_ACTIONS || env.FOOM_REQUIRE_REMOTE_HOSTS === "1");
 }
 
+/** Fixture/development builds can omit a catalog even on CI; packaging stays strict. */
+export function prepareBuildRemoteHosts(
+  source,
+  output,
+  version,
+  revision,
+  env = process.env,
+  warn = console.warn,
+) {
+  const policy =
+    env.FOOM_PACKAGE === "1" || env.FOOM_REMOTE_HOST_ARTIFACTS
+      ? env
+      : { FOOM_REQUIRE_REMOTE_HOSTS: env.FOOM_REQUIRE_REMOTE_HOSTS };
+  return prepareRemoteHosts(source, output, version, revision, policy, warn);
+}
+
 /** Local packages omit the entire catalog if any entry fails strict validation. */
 export async function prepareRemoteHosts(
   source,

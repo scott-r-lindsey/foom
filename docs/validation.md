@@ -261,10 +261,12 @@ the catalog. A missing or invalid runtime artifact also reports artifact unavail
 SSH failures retain Host unreachable. Local packaged smoke verifies the sealed
 omission and absence of unpacked hosts, or validates all four entries when present.
 
-`CI` or `GITHUB_ACTIONS` being nonempty always requires all four exact-revision
+For packaging, `CI` or `GITHUB_ACTIONS` being nonempty always requires all four exact-revision
 artifacts; `FOOM_REQUIRE_REMOTE_HOSTS=0` cannot weaken this. Local release/packaging
 jobs must set `FOOM_REQUIRE_REMOTE_HOSTS=1` to select that same strict path.
 Missing entries, wrong revision/version/protocol, sizes or hashes stop packaging.
+Development fixture builds on CI may omit the catalog; their Electron harness
+installs only its verified native fixture. An explicitly supplied CI catalog is strict.
 Fixture tests exercise missing, stale and corrupt entries through both modes.
 Developer ID signing also refuses a sealed omission; only local ad-hoc signing
 accepts it. Each native builder accepts `FOOM_REMOTE_HOST_OUTPUT` as a catalog
