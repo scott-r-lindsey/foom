@@ -1,3 +1,4 @@
+const { sizeTileBoard } = require("./tile-fixture.js");
 const { evidencePath } = require("../helpers/evidence.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
 const { test } = require("./test-shard.js");
@@ -195,6 +196,7 @@ test("launching into a narrow full tile uses the focused fallback and empty tile
   await expect(page.locator('.board-row[data-refused="true"]')).toHaveCount(0);
   await expect(page.locator(".xterm-helper-textarea").first()).toBeFocused();
   assert.equal(sessions.find((session) => session.id === original.id).exited, false);
+  await sizeTileBoard(app, page);
 
   await page.evaluate(() => window.desktop.appMenu.execute("split-right"));
   await expect(page.locator(".terminal-tile")).toHaveCount(2);
@@ -269,6 +271,7 @@ test("tile leader avoids AltGr chords and cancels unmatched keys", {
 }, async (context) => {
   const app = await launchApp(context, { fixture: "running-shell" });
   const page = await boardPage(app);
+  await sizeTileBoard(app, page);
   const terminalId = await page.locator(".terminal-tile").getAttribute("data-tile");
   const terminal = page.locator(`[data-tile="${terminalId}"]`);
   const leader = async (keyCode) => {
@@ -298,6 +301,7 @@ test("tile leader avoids AltGr chords and cancels unmatched keys", {
 test("tile terminal viewport has no native overflow bars", async (context) => {
   const app = await launchApp(context, { fixture: "running-shell" });
   const page = await boardPage(app);
+  await sizeTileBoard(app, page);
   const terminalId = await page.locator(".terminal-tile").getAttribute("data-tile");
   const terminal = page.locator(`[data-tile="${terminalId}"]`);
   await page.emulateMedia({ reducedMotion: "reduce" });
@@ -707,6 +711,7 @@ test("tile layouts restore v1 terminal content and v2 mixed content after invent
 }, async (context) => {
   const app = await launchApp(context, { fixture: "running-shell", shell: "hidden" });
   const page = await boardPage(app);
+  await sizeTileBoard(app, page);
   await expect(page.locator(".board-row").first()).toBeVisible();
   const id = await page.locator(".board-row").first().getAttribute("data-drag-session");
   assert.ok(id);
@@ -1103,7 +1108,7 @@ test("directional pads and empty-space menu split, grow, launch and close", {
   await narrow.press("Escape");
 });
 
-test("empty-space split refusals stay inside the menu at resource limits", async (context) => {
+test("restoring a depth-limit layout removes degenerate spaces before opening its menu", async (context) => {
   const app = await launchApp(context, { fixture: "empty-board" });
   const page = await boardPage(app);
   await page.emulateMedia({ reducedMotion: "reduce" });
@@ -1128,17 +1133,71 @@ test("empty-space split refusals stay inside the menu at resource limits", async
   await expect(space).toBeVisible();
   await space.click({ button: "right", position: { x: 100, y: 100 } });
   const menu = page.getByRole("menu", { name: "Empty space", exact: true });
+  await expect(page.locator(".terminal-tile")).toHaveCount(1);
+  await expect(page.getByRole("separator", { name: "Resize tiles" })).toHaveCount(0);
   for (const axis of ["horizontal", "vertical"]) {
     const button = menu.getByRole("menuitem", { name: `Split ${axis}`, exact: true });
-    await expect(button).toBeDisabled();
-    await button.focus();
-    await expect(button).toHaveAccessibleDescription("Split depth limit reached");
-    const reason = menu.locator(`[id="${await button.getAttribute("aria-describedby")}"]`);
-    await expect(reason).toBeVisible();
-    const bounds = await menu.boundingBox();
-    const tip = await reason.boundingBox();
-    assert.ok(bounds && tip);
-    assert.ok(tip.y >= bounds.y && tip.y + tip.height <= bounds.y + bounds.height);
-    assert.ok(tip.x >= bounds.x && tip.x + tip.width <= bounds.x + bounds.width);
+    await expect(button).toBeEnabled();
+    await expect(button).not.toHaveAttribute("aria-describedby");
   }
 });
+
+for (const shrink of ["ancestor drag", "window resize", "sidebar resize", "restore"]) {
+  test(`nested empty spaces collapse after ${shrink}`, async (context) => {
+    const app = await launchApp(context, { fixture: "running-shell" });
+    const page = await boardPage(app);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    const size = async (width) => {
+      await app.evaluate(({ BrowserWindow }, width) => {
+        BrowserWindow.getAllWindows()
+          .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+          .setContentSize(width, 900);
+      }, width);
+      await expect.poll(() => page.evaluate(() => innerWidth)).toBe(width);
+    };
+    await size(shrink === "sidebar resize" ? 2250 : 2400);
+    if (shrink === "sidebar resize")
+      await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
+    // Two nested horizontal splits leave a landing space inside a mixed side.
+    // At this size each quarter of the board has room for about 60 cells.
+    await page.getByRole("button", { name: "Tile 1 menu", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Split terminal left", exact: true }).click();
+    await expect(page.locator(".terminal-tile")).toHaveCount(2);
+    await page.getByRole("button", { name: "Tile 1 menu", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Split terminal left", exact: true }).click();
+    await expect(page.locator(".terminal-tile")).toHaveCount(3);
+    const landing = await page.locator('[data-empty="true"]').first().getAttribute("data-tile");
+    assert.ok(landing);
+    if (shrink === "ancestor drag") {
+      const area = await page.locator(".tile-area").boundingBox();
+      const gutter = await page
+        .getByRole("separator", { name: "Resize tiles" })
+        .first()
+        .boundingBox();
+      assert.ok(area && gutter);
+      await page.mouse.move(gutter.x + gutter.width / 2, gutter.y + gutter.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(area.x + area.width * 0.15, gutter.y + gutter.height / 2, { steps: 8 });
+      await page.mouse.up();
+    } else if (shrink === "window resize") {
+      await size(900);
+    } else if (shrink === "sidebar resize") {
+      await page.getByRole("button", { name: "Expand sidebar", exact: true }).click();
+    } else {
+      await page.evaluate(() => {
+        const key = `foom.tiles.v1.${window.desktop.windows.id}`;
+        const saved = JSON.parse(localStorage.getItem(key));
+        saved.tree.ratio = 0.001;
+        localStorage.setItem(key, JSON.stringify(saved));
+      });
+      await page.reload();
+    }
+    await expect(page.locator(`[data-tile="${landing}"]`)).toHaveCount(0);
+    // Placement must use surviving visible space rather than the collapsed landing.
+    await page.getByRole("button", { name: "Hide", exact: true }).click();
+    await page.locator(".board-row").first().click();
+    await expect(page.locator('[data-empty="false"]')).toHaveCount(1);
+    const visible = await page.locator('[data-empty="false"]').boundingBox();
+    assert.ok(visible && visible.width >= 100 && visible.height >= 60);
+  });
+}

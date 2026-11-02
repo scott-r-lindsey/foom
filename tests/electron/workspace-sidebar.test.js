@@ -1,3 +1,4 @@
+const { sizeTileBoard } = require("./tile-fixture.js");
 const { evidencePath } = require("../helpers/evidence.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
 const { test } = require("./test-shard.js");
@@ -431,6 +432,7 @@ test("sidebar preferences sync between windows without losing independent edits"
   ).toBeVisible();
   await second.getByRole("button", { name: "Expand shell-fixture", exact: true }).click();
   await expect(first.locator(".board-row")).toContainText("Shared helper");
+  await sizeTileBoard(app, first);
   // Tile layouts remain independent while metadata is shared.
   await first.evaluate(() => window.desktop.appMenu.execute("split-right"));
   await expect(first.locator(".terminal-tile")).toHaveCount(2);
@@ -535,6 +537,7 @@ test("shell launch paths select the new shell and its blinking input cursor", as
         .locator(".terminal-tile[data-focused='true']")
         .getByRole("button", { name: /Tile \d+ menu/ })
         .click();
+      await sizeTileBoard(app, page);
       await page.getByRole("menuitem", { name: "Split terminal left", exact: true }).click();
       // Move away from sidebar rows before opening the space menu.
       await page.mouse.move(0, 0);

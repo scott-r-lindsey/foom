@@ -21,7 +21,7 @@ export interface TileLayout {
   tree: TileNode;
   focused: string;
   maximized: string | null;
-  landing?: string;
+  landing?: string | undefined;
 }
 export interface TileRect {
   x: number;
@@ -44,7 +44,16 @@ export type TileAction =
   | "close"
   | "popout";
 
+/** CSS pixels, measured against the unmaximized board. */
+export interface TileMetrics {
+  width: number;
+  height: number;
+  minWidth: number;
+  minHeight: number;
+}
+
 export interface TilePlacement {
+  metrics?: TileMetrics | undefined;
   /** Available tile-area width in terminal character cells at the current font size. */
   columns: number;
   needsYou?: ReadonlySet<string>;

@@ -1,6 +1,7 @@
 import type { BoardRow } from "./board.d";
 import { conversationId } from "../../shared/conversation";
 import type {
+  TileMetrics,
   TileDirection,
   TileContent,
   TilePlacement,
@@ -278,12 +279,109 @@ export function tidyTiles(layout: TileLayout): TileLayout {
   };
 }
 
+/** Repair measured geometry without ever removing an occupied leaf. */
+export function fitLayout(layout: TileLayout, metrics: TileMetrics | undefined): TileLayout {
+  if (!metrics || !Object.values(metrics).every((value) => Number.isFinite(value) && value > 0))
+    return layout;
+  const { width, height } = metrics;
+  const minWidth = Math.min(metrics.minWidth, width);
+  const minHeight = Math.min(metrics.minHeight, height);
+  const area = { x: 0, y: 0, width, height };
+  let tree = layout.tree;
+  // Recompute after each removal: its sibling may now have enough room to survive.
+  for (;;) {
+    const small = rectangles(tree, area).tiles.find(
+      ({ tile, rect }) =>
+        !tile.content && (rect.width + 0.01 < minWidth || rect.height + 0.01 < minHeight),
+    );
+    if (!small || tree.kind === "tile") break;
+    const remove = (node: TileNode): TileNode | null => {
+      if (node.id === small.tile.id) return null;
+      if (node.kind === "tile") return node;
+      const first = remove(node.first),
+        second = remove(node.second);
+      return first && second
+        ? first === node.first && second === node.second
+          ? node
+          : { ...node, first, second }
+        : (first ?? second);
+    };
+    tree = remove(tree) ?? tree;
+  }
+  const minimum = (node: TileNode): { width: number; height: number } => {
+    if (node.kind === "tile") return { width: minWidth, height: minHeight };
+    const a = minimum(node.first),
+      b = minimum(node.second);
+    return node.direction === "horizontal"
+      ? { width: a.width + b.width, height: Math.max(a.height, b.height) }
+      : { width: Math.max(a.width, b.width), height: a.height + b.height };
+  };
+  const fit = (node: TileNode, w: number, h: number): TileNode => {
+    if (node.kind === "tile") return node;
+    const a = minimum(node.first),
+      b = minimum(node.second);
+    const horizontal = node.direction === "horizontal";
+    const total = horizontal ? w : h;
+    const firstMin = horizontal ? a.width : a.height;
+    const secondMin = horizontal ? b.width : b.height;
+    // If occupants cannot all fit, share the shortage without hiding any of them.
+    const scale = Math.min(1, total / (firstMin + secondMin));
+    const ratio = Math.max(
+      (firstMin * scale) / total,
+      Math.min(1 - (secondMin * scale) / total, node.ratio),
+    );
+    const first = fit(node.first, horizontal ? w * ratio : w, horizontal ? h : h * ratio);
+    const second = fit(
+      node.second,
+      horizontal ? w * (1 - ratio) : w,
+      horizontal ? h : h * (1 - ratio),
+    );
+    return ratio === node.ratio && first === node.first && second === node.second
+      ? node
+      : { ...node, ratio, first, second };
+  };
+  tree = fit(tree, width, height);
+  if (
+    tree.kind === "split" &&
+    rectangles(tree, area).tiles.some(
+      ({ tile, rect }) =>
+        !tile.content && (rect.width + 0.01 < minWidth || rect.height + 0.01 < minHeight),
+    )
+  )
+    return fitLayout({ ...layout, tree }, metrics);
+  const tiles = leaves(tree);
+  const focused = tiles.some((tile) => tile.id === layout.focused)
+    ? layout.focused
+    : (terminals(tree)[0]?.id ?? tiles[0]?.id ?? tree.id);
+  const maximized = tiles.some((tile) => tile.id === layout.maximized) ? layout.maximized : null;
+  const landing = tiles.some((tile) => tile.id === layout.landing && !tile.content)
+    ? layout.landing
+    : undefined;
+  return tree === layout.tree &&
+    focused === layout.focused &&
+    maximized === layout.maximized &&
+    landing === layout.landing
+    ? layout
+    : { ...layout, tree, focused, maximized, landing };
+}
+
 export function placeContent(
   layout: TileLayout,
   content: TileContent,
   replace = false,
   placement: TilePlacement = { columns: 0 },
 ): TileLayout | null {
+  const requested = leaves(layout.tree).find((tile) => tile.id === layout.focused);
+  if (replace && !requested) return null;
+  layout = fitLayout(layout, placement.metrics);
+  // An asynchronous New shell here reply may outlive its now-collapsed space.
+  if (
+    replace &&
+    requested &&
+    !requested.content &&
+    !leaves(layout.tree).some((tile) => tile.id === requested.id)
+  )
+    replace = false;
   if (!replace && layout.tree.kind === "tile" && layout.tree.content === null) {
     const count = blankColumns(placement.columns);
     if (count > 1) {
@@ -701,6 +799,7 @@ export function placeAgentPreview(
     )
   )
     return { layout, placement: "existing" };
+  layout = fitLayout(layout, placement.metrics);
   const target = landingSpace(layout);
   const next = placeContent(layout, { kind: "preview", preview: id }, false, {
     ...placement,

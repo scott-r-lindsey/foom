@@ -1,3 +1,4 @@
+const { sizeTileBoard } = require("./tile-fixture.js");
 const { evidencePath } = require("../helpers/evidence.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
@@ -1400,6 +1401,7 @@ test("maximized-away terminals pause paints and restore without changing attachm
 }, async (context) => {
   const app = await launchApp(context, { fixture: "running-shell" });
   const page = await boardPage(app);
+  await sizeTileBoard(app, page);
   const inventory = await page.evaluate(() => window.desktop.workspace());
   const [session] = inventory.terminals;
   const repository = inventory.repositories[0].path;

@@ -1,3 +1,4 @@
+const { sizeTileBoard } = require("./tile-fixture.js");
 const { evidencePath } = require("../helpers/evidence.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
@@ -524,6 +525,7 @@ test("version 2 themes scope portaled colors, shape and warnings and hold attent
 test("terminal font picker updates open shells and config shells and refits their grids", async (context) => {
   const app = await launchApp(context, { fixture: "running-shell" });
   const page = await boardPage(app);
+  await sizeTileBoard(app, page, 2400);
   await page.getByRole("button", { name: "Tile 1 menu", exact: true }).click();
   await page.getByRole("menuitem", { name: "Split terminal left", exact: true }).click();
   await page.evaluate(() => window.desktop.sidebarCommand({ kind: "config-launch", run: "shell" }));

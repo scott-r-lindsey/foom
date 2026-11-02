@@ -1,3 +1,4 @@
+const { sizeTileBoard } = require("./tile-fixture.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
@@ -51,6 +52,7 @@ test("worktree panel previews pick contained Markdown and HTML, persist v2 tiles
   await expect(
     page.getByRole("button", { name: "Actions for topic/preview", exact: true }),
   ).toBeVisible();
+  await sizeTileBoard(app, page);
   // A deliberate split establishes the landing spot before the first open.
   await page.evaluate(() => window.desktop.appMenu.execute("split-right"));
   const landing = await page.locator('[data-landing="true"]').getAttribute("data-tile");
