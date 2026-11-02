@@ -1,4 +1,5 @@
 import { LaunchFailure } from "../../shared/launch-failure";
+import { HostGitFailure, gitFailureReason } from "./git-failure";
 import { spawn } from "node:child_process";
 import { devNull } from "node:os";
 import { access, lstat, realpath, stat } from "node:fs/promises";
@@ -28,6 +29,7 @@ export async function hostProbe(
   timeoutMs = 5000,
   signal?: AbortSignal,
   stdoutBudget: "probe" | "review-snapshot" | "status" = "probe",
+  networkGit = false,
 ): Promise<string> {
   signal?.throwIfAborted();
   return new Promise((resolve, reject) => {
@@ -42,6 +44,7 @@ export async function hostProbe(
       stdio: ["ignore", "pipe", "pipe"],
     });
     const chunks: Buffer[] = [];
+    const diagnostics: Buffer[] = [];
     let stdout = 0;
     let stderr = 0;
     let failure: Error | undefined;
@@ -55,13 +58,13 @@ export async function hostProbe(
       }
     };
     const cancel = () => {
-      failure = new Error("Remote probe cancelled");
+      failure = networkGit ? new HostGitFailure("cancelled") : new Error("Remote probe cancelled");
       kill();
     };
     signal?.addEventListener("abort", cancel, { once: true });
     if (signal?.aborted) cancel();
     const timer = setTimeout(() => {
-      failure = new Error("Remote probe timed out");
+      failure = networkGit ? new HostGitFailure("timed-out") : new Error("Remote probe timed out");
       kill();
     }, timeoutMs);
     child.stdout.on("data", (data: Buffer) => {
@@ -78,7 +81,7 @@ export async function hostProbe(
       if (stderr > 256 * 1024) {
         failure = new Error("Remote probe output exceeded");
         kill();
-      }
+      } else if (networkGit) diagnostics.push(data);
     });
     child.once("error", (error) => {
       failure = error;
@@ -87,8 +90,18 @@ export async function hostProbe(
     child.once("close", (code) => {
       clearTimeout(timer);
       signal?.removeEventListener("abort", cancel);
-      if (failure) reject(failure);
-      else if (code !== 0) reject(new HostProbeExit(code));
+      if (failure)
+        reject(
+          networkGit && !(failure instanceof HostGitFailure)
+            ? new HostGitFailure("origin-unreachable")
+            : failure,
+        );
+      else if (code !== 0)
+        reject(
+          networkGit
+            ? new HostGitFailure(gitFailureReason(Buffer.concat(diagnostics).toString("utf8")))
+            : new HostProbeExit(code),
+        );
       else {
         try {
           resolve(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks)));

@@ -388,3 +388,37 @@ test.each([
   await screen.findByText(text);
   expect(screen.getByRole<HTMLButtonElement>("button", { name: "Add" }).disabled).toBe(true);
 });
+
+test.each([
+  ["origin-auth", "Origin authentication failed"],
+  ["origin-host-key", "Origin SSH host key is not trusted"],
+  ["origin-unreachable", "Origin unreachable"],
+  ["timed-out", "Git operation timed out"],
+  ["checkout-invalid", "Checkout validation failed"],
+] as const)(
+  "repository clone %s shows a fixed reason and permits a user retry",
+  async (reason, message) => {
+    const result = { ok: false, reason } as const;
+    const api = vi.fn(() =>
+      Promise.resolve({
+        hosts: [host],
+        locations: [{ host: host.host, repository: "/local/project", result }],
+      }),
+    );
+    render(
+      <RepositoryHosts
+        source={{ hosts: api }}
+        repositories={[{ name: "project", path: "/local/project" }]}
+      />,
+    );
+    await screen.findByText(message);
+    fireEvent.click(screen.getByRole("button", { name: "Clone here" }));
+    await waitFor(() => {
+      expect(api).toHaveBeenCalledWith({
+        action: "clone",
+        host: host.host,
+        repository: "/local/project",
+      });
+    });
+  },
+);

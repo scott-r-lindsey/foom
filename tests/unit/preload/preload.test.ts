@@ -1657,6 +1657,11 @@ test.each([
   "configuration-changed",
   "invalid-reply",
   "cancelled",
+  "origin-auth",
+  "origin-host-key",
+  "origin-unreachable",
+  "timed-out",
+  "checkout-invalid",
 ])("host bridge preserves the fixed %s failure reason", async (reason) => {
   const api = await bridge();
   const value = { hosts: [], locations: [], result: { ok: false, reason } };

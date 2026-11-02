@@ -69,7 +69,18 @@ a valid HEAD commit; an initialized repository with an unborn HEAD is refused.
 
 Clone here runs Git with an argument array on the host, with the host's own login
 PATH and Git configuration/access. No local files, credentials, SSH keys or agent
-sockets are copied/forwarded. Clone failures use a fixed reason. The host cannot
+sockets are copied/forwarded. Clone, fetch and ls-remote disable terminal prompts and both Git/SSH askpass.
+They run in a detached process group with no controlling terminal. The host keeps
+its configured `core.sshCommand` (or SSH's normal configuration when absent) and
+adds `-o BatchMode=yes`; no SSH configuration or keys are read by Foom. Diagnostics
+are bounded and classified on the host, under the C locale, into `origin-auth`,
+`origin-host-key`, `origin-unreachable`, `timed-out` or `checkout-invalid`. A refused
+public key, including a passphrase-protected key unavailable from the host agent,
+is `origin-auth`. Successful clones that fail checkout validation report
+`checkout-invalid`; cancellation reports `cancelled` and still removes staging.
+Only the closed reason crosses management, main and preload; raw output is never
+attached to an exception or reply. Older daemons' `clone-failed` remains accepted.
+The host cannot
 select a local executable or write location. Git output never reaches the UI.
 Clone, fetch and default-branch network queries each have an explicit five-minute
 subprocess deadline; discovery and Git inspection probes retain five seconds.

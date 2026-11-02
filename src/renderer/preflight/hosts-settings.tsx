@@ -24,6 +24,11 @@ const reasons: Record<HostFailure, string> = {
   "folder-refused": "Code folder unavailable",
   "unsafe-folder": "Code folder ownership or permissions are unsafe",
   "origin-unavailable": "Repository origin unavailable",
+  "origin-auth": "Origin authentication failed",
+  "origin-host-key": "Origin SSH host key is not trusted",
+  "origin-unreachable": "Origin unreachable",
+  "timed-out": "Git operation timed out",
+  "checkout-invalid": "Checkout validation failed",
   "clone-failed": "Could not clone from origin",
   "checkout-refused": "Checkout unavailable",
 };
@@ -512,17 +517,26 @@ export function RepositoryHosts({
                       ) : (
                         <>
                           <Result result={result} />
-                          {result && !result.ok && result.reason === "clone-failed" && (
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={() => {
-                                void clone(host.host, repo.path);
-                              }}
-                            >
-                              Clone here
-                            </button>
-                          )}
+                          {result &&
+                            !result.ok &&
+                            [
+                              "clone-failed",
+                              "origin-auth",
+                              "origin-host-key",
+                              "origin-unreachable",
+                              "timed-out",
+                              "checkout-invalid",
+                            ].includes(result.reason) && (
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => {
+                                  void clone(host.host, repo.path);
+                                }}
+                              >
+                                Clone here
+                              </button>
+                            )}
                         </>
                       )}
                     </td>
