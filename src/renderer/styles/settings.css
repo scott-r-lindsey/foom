@@ -756,7 +756,7 @@
   color: var(--muted);
 }
 .host-tag {
-  color: var(--muted);
+  color: var(--badge-ink);
   background: var(--badge-fill);
   padding: 3px 6px;
   border-radius: 3px;
@@ -857,4 +857,9 @@
 }
 .repository-hosts > .hosts-heading h2 {
   margin: 0;
+}
+
+.repository-host-card > .hosts-heading h3 {
+  flex: none;
+  font: 13px var(--font-mono);
 }

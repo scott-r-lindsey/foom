@@ -210,7 +210,7 @@ origin. The hub's existing forge CLI performs read-only queries with its own log
 no forge credential enters SSH. See [remote tracking](../contracts/forge-tracking.md#registered-remote-checkouts-940).
 
 Host aliases and code folders have copy controls in Hosts; checkout paths have
-them in Repositories → Locations (their existing location). Copies resolve only
+them in Repositories. Copies resolve only
 registered objects and cached validated checkout observations in main; they
 never initiate SSH. Removed hosts discard cached locations. See the
 [copy IPC contract](ipc.md#visible-fact-copy-controls-960).

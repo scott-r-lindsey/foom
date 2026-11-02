@@ -1034,6 +1034,7 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
     .getByRole("navigation", { name: "Settings sections" })
     .getByRole("button", { name: "Hosts", exact: true })
     .click();
+  await restored.locator(".host-details > summary").click();
   await expect(restored.getByText("2 other worktrees", { exact: true })).toBeVisible();
   for (const theme of ["eclipse-light", "eclipse-dark"]) {
     await restored.evaluate(

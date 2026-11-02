@@ -663,7 +663,7 @@ export function HostsSettings({
             )}
             {entry.foreignSessions !== undefined && (
               <p>
-                Other profiles or untagged: {entry.foreignSessions}{" "}
+                <span>Other profiles or untagged: {entry.foreignSessions}</span>{" "}
                 {entry.foreignSessions > 0 && (
                   <button
                     type="button"
@@ -782,7 +782,7 @@ export function RepositoryHosts({
           aria-label={host.host ?? "Local"}
         >
           <header className="hosts-heading">
-            <h4>{host.host ?? "Local"}</h4>
+            <h3>{host.host ?? "Local"}</h3>
             <span className="host-tag">
               {repositories.length} {repositories.length === 1 ? "repository" : "repositories"}
             </span>

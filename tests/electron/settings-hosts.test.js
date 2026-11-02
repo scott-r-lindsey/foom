@@ -156,6 +156,7 @@ process.stdin.on('data', bytes => {
       await expect
         .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
         .toBe(mode === "dark");
+      if (["partial-facts", "repositories-per-host"].includes(name)) await assertAccessible(page);
       await page.screenshot({ path: evidencePath(`963/${name}-${mode}.png`) });
     }
   };
