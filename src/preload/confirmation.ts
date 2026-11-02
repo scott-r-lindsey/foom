@@ -249,6 +249,7 @@ const validDialogRequest: Validator<DialogRequest> = shape({
       commands: array(
         shape({
           command: summaryText,
+          title: either(absent, summaryText),
           exit: either(literal(null), range(-2147483648, 2147483647, true)),
           durationMs: range(0, Number.MAX_SAFE_INTEGER),
         }),

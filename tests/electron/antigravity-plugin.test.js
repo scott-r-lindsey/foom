@@ -663,12 +663,25 @@ for (const mode of ["light", "dark"]) {
     await mkdir(bin);
     await mkdir(plugins, { recursive: true });
     await writeFile(path.join(bin, "agy"), agyFixture(false), { mode: 0o755 });
-    const app = await launchApp(context, { fixture: "agent", env: { HOME: home, PATH: bin } });
-    const page = await boardPage(app);
-    await page.evaluate(
-      (interfaceTheme) => window.desktop.saveSetup({ interfaceTheme }),
-      `eclipse-${mode}`,
+    const profile = path.join(root, "profile");
+    await mkdir(profile);
+    await writeFile(
+      path.join(profile, "settings.json"),
+      JSON.stringify({
+        version: 1,
+        settings: {
+          setupComplete: true,
+          checkForUpdates: false,
+          interfaceTheme: `eclipse-${mode}`,
+        },
+      }),
     );
+    const app = await launchApp(context, {
+      fixture: "agent",
+      args: [`--user-data-dir=${profile}`],
+      env: { HOME: home, PATH: bin },
+    });
+    const page = await boardPage(app);
     await openSettingsScreen(page);
     await page.getByRole("button", { name: "Agents", exact: true }).click();
     const row = page
@@ -678,7 +691,24 @@ for (const mode of ["light", "dark"]) {
     await writeFile(hold, "");
     await row.getByRole("button", { name: "Install", exact: true }).click();
     const dialog = await confirmationPage(app);
-    await dialog.getByRole("button", { name: "Install", exact: true }).click();
+    try {
+      await dialog.getByRole("button", { name: "Install", exact: true }).click();
+    } catch (error) {
+      console.info(
+        "Plugin consent diagnostics",
+        await page.getByRole("alert").allTextContents(),
+        await dialog.locator("body").innerText(),
+        await app.evaluate(({ BrowserWindow }) =>
+          BrowserWindow.getAllWindows().map((window) => ({
+            url: window.webContents.getURL(),
+            visible: window.isVisible(),
+            focused: window.isFocused(),
+            bounds: window.getBounds(),
+          })),
+        ),
+      );
+      throw error;
+    }
     await expect(dialog.locator('[data-state="running"]')).toContainText(
       "Running agy plugin install",
     );

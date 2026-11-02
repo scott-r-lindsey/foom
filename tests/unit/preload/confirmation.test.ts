@@ -347,7 +347,14 @@ test("validates plugin progress and strips output and main-only capabilities", a
   const progress = {
     phase: "failure",
     steps: [{ id: "install", label: "Running agy plugin install", state: "failed" }],
-    commands: [{ command: "agy plugin install /fixture", exit: 7, durationMs: 12 }],
+    commands: [
+      {
+        command: "agy plugin install /fixture",
+        title: "agy plugin install /fixture/full",
+        exit: 7,
+        durationMs: 12,
+      },
+    ],
     receipt: "Install failed",
     location: "~/.gemini/config/plugins/foom",
   };
@@ -378,6 +385,7 @@ test("validates plugin progress and strips output and main-only capabilities", a
     { ...progress, commands: [{ command: "x", exit: "0", durationMs: 1 }] },
     { ...progress, commands: [{ command: "x", exit: null, durationMs: -1 }] },
     { ...progress, receipt: "unsafe\ntext" },
+    { ...progress, commands: [{ command: "x", title: "unsafe\ntext", exit: 0, durationMs: 1 }] },
   ]) {
     listener({}, { ...request, pluginSetup: invalid });
     expect(render).toHaveBeenLastCalledWith(null);

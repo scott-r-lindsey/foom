@@ -222,3 +222,11 @@
   padding-top: 6px;
   line-height: 1.6;
 }
+
+.agent-setup-result {
+  flex-basis: 100%;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}

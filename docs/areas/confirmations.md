@@ -238,3 +238,8 @@ page. Once settled, Done dismisses; no progress answer can approve another actio
 Loss of the window does not cancel an already accepted command. Existing native
 availability guards still release the board on presentation failure. Main retains
 the setup lock and all identity checks and five-second command bounds.
+
+Long receipt commands use a main-authored middle-truncated line with the complete
+command retained in the tooltip and accessible name, alongside its exit and elapsed
+time. The preload applies the same bounded, control-free summary validation to
+both command forms.

@@ -441,7 +441,16 @@ export function ConfirmationPage() {
                   <>
                     <p className="plugin-location">{plugin.location}</p>
                     {plugin.commands.map((command, index) => (
-                      <p className="plugin-command" key={`${String(index)}:${command.command}`}>
+                      <p
+                        className="plugin-command"
+                        title={command.title}
+                        aria-label={
+                          command.title
+                            ? `${command.title} · ${command.exit === null ? "no exit status" : `exit ${String(command.exit)}`} · ${(command.durationMs / 1000).toFixed(1)} s`
+                            : undefined
+                        }
+                        key={`${String(index)}:${command.command}`}
+                      >
                         {command.command} ·{" "}
                         {command.exit === null ? "no exit status" : `exit ${String(command.exit)}`}{" "}
                         · {(command.durationMs / 1000).toFixed(1)} s

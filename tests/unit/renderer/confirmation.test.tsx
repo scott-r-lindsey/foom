@@ -1005,10 +1005,17 @@ test("plugin progress blocks Close and Escape and replaces steps with a receipt"
         ...pluginSetup,
         phase: "success",
         receipt: "Installed v5",
-        commands: [{ command: "agy plugin install /fixture", exit: 0, durationMs: 25 }],
+        commands: [
+          {
+            command: "agy plugin install /fixture",
+            title: "agy plugin install /fixture/full",
+            exit: 0,
+            durationMs: 25,
+          },
+        ],
       },
     });
   });
   expect(view.queryByRole("list", { name: "Plugin setup steps" })).toBeNull();
-  expect(view.getByText(/exit 0/u)).toBeTruthy();
+  expect(view.getByText(/exit 0/u)).toHaveProperty("title", "agy plugin install /fixture/full");
 });

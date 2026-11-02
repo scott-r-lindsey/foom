@@ -421,6 +421,7 @@ else process.exit(2);
     await card.getByRole("button", { name: label, exact: true }).click();
     dialog = await confirmationPage(app);
     await dialog.getByRole("button", { name: label, exact: true }).click();
+    await dialog.getByRole("button", { name: "Done", exact: true }).click();
     await expect(
       card.getByText(`Plugin · ${state === "unavailable" ? "Status unavailable" : state}`, {
         exact: true,

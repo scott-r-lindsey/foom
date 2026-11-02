@@ -265,13 +265,18 @@ export function AgentsStep({
                               type="button"
                               disabled={reviewing || scanning}
                               onClick={() => {
+                                setResults({});
                                 void scan(true);
                               }}
                             >
                               Retry status
                             </button>
                           )}
-                          {results[id] && <span role="status">{results[id]}</span>}
+                          {results[id] && (
+                            <span className="agent-setup-result" role="status" title={results[id]}>
+                              {results[id]}
+                            </span>
+                          )}
                           {agent.setup.offer && <span>{agent.setup.offer}</span>}
                           {agent.setup.actions.map((action) => (
                             <button

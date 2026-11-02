@@ -39,6 +39,7 @@ export interface PluginSetupProgress {
   }[];
   commands: readonly {
     command: string;
+    title?: string;
     exit: number | null;
     durationMs: number;
   }[];

@@ -315,15 +315,20 @@ export class PluginSetup {
         throw error;
       } finally {
         if (progress) {
+          const fullCommand = [
+            basename(executable),
+            ...args.map((arg) => (/[\s"\\]/u.test(arg) ? JSON.stringify(arg) : arg)),
+          ].join(" ");
           progress = {
             ...progress,
             commands: [
               ...progress.commands,
               {
-                command: [
-                  basename(executable),
-                  ...args.map((arg) => (/[\s"\\]/u.test(arg) ? JSON.stringify(arg) : arg)),
-                ].join(" "),
+                command:
+                  fullCommand.length > 68
+                    ? `${fullCommand.slice(0, 38)}…${fullCommand.slice(-29)}`
+                    : fullCommand,
+                title: fullCommand,
                 exit,
                 durationMs: Math.max(0, Math.round(performance.now() - started)),
               },
@@ -397,7 +402,6 @@ export class PluginSetup {
       const accepted = await Promise.race([input.confirm(disclosure), consent]);
       await setupOffers.answer(model.id);
       if (!accepted) return;
-      if (action.kind === "instructions") return;
       const operation = args[1];
       const steps: PluginSetupProgress["steps"][number][] = [
         { id: "check", label: "Checking agy and existing plugins", state: "running" },
@@ -431,14 +435,15 @@ export class PluginSetup {
         },
         { id: "confirm", label: "Confirming installation", state: "pending" },
       ];
-      progress = {
-        phase: "running",
-        steps,
-        commands: [],
-        location: model.setup?.status.ownership
-          ? `~/${model.setup.status.ownership.directory}`
-          : "No installation change",
-      };
+      if (action.kind !== "instructions")
+        progress = {
+          phase: "running",
+          steps,
+          commands: [],
+          location: model.setup?.status.ownership
+            ? `~/${model.setup.status.ownership.directory}`
+            : "No installation change",
+        };
       publish();
       await validate();
       const after = await this.inspect(model, executable, input.facts(), signal);
@@ -452,6 +457,8 @@ export class PluginSetup {
       if (staging) step("verify");
       await staging?.verify();
       await validate();
+      if (action.kind === "instructions") return;
+      if (!progress) throw new Error("Missing setup progress");
       // Independently guard mutation even if a case was authored incorrectly.
       const allowed =
         operation === "install"
