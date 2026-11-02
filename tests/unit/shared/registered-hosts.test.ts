@@ -361,3 +361,63 @@ test("worktree inventory is bounded and validates private profile metadata and e
   ])
     expect(hostResult({ ...result, inventory })).toBe(false);
 });
+
+test("partial preflight requests, observations and explicit folder actions have closed payloads", () => {
+  const request = {
+    type: "manage",
+    operation: "inspect",
+    codeFolder: "~/code",
+    readOnly: true,
+    partial: true,
+  };
+  expect(hostManagement(request)).toBe(true);
+  expect(hostManagement({ ...request, readOnly: undefined })).toBe(false);
+  expect(hostManagement({ ...request, partial: "yes" })).toBe(false);
+  expect(hostManagement({ type: "manage", operation: "create-folder", codeFolder: "~/code" })).toBe(
+    true,
+  );
+  expect(
+    hostManagement({
+      type: "manage",
+      operation: "origin",
+      codeFolder: "~/code",
+      directory: "repo",
+      origin: "git@fixture.test:team/repo.git",
+    }),
+  ).toBe(true);
+  for (const action of ["preflight", "change-folder"])
+    expect(hostsAction({ action, host: "worker", codeFolder: "~/code" })).toBe(true);
+  expect(hostsAction({ action: "create-folder", host: "worker" })).toBe(true);
+  expect(
+    hostsAction({ action: "create-folder", host: "worker", codeFolder: "/unregistered" }),
+  ).toBe(false);
+  expect(registeredHosts([{ host: "worker", codeFolder: "~/code" }])).toBe(true);
+  for (const folder of [
+    { state: "pass" },
+    { state: "not-checked" },
+    { state: "fail", reason: "folder-missing" },
+  ])
+    expect(hostResult({ ok: true, facts: { ...facts, folder } })).toBe(true);
+  for (const folder of [
+    { state: "pass", secret: true },
+    { state: "fail", reason: "raw" },
+    { state: "fail" },
+    null,
+  ])
+    expect(hostResult({ ok: true, facts: { ...facts, folder } })).toBe(false);
+  const connection = {
+    ssh: { state: "pass" },
+    platform: { state: "not-checked" },
+    artifact: { state: "fail", reason: "artifact-unavailable" },
+  };
+  expect(hostResult({ ok: false, reason: "artifact-unavailable", connection })).toBe(true);
+  expect(
+    hostResult({
+      ok: false,
+      reason: "artifact-unavailable",
+      connection: { ...connection, raw: true },
+    }),
+  ).toBe(false);
+  expect(remoteResponse({ type: "hello", build: "a".repeat(64), hostPreflight: 1 })).toBe(true);
+  expect(remoteResponse({ type: "hello", build: "a".repeat(64), hostPreflight: 2 })).toBe(false);
+});

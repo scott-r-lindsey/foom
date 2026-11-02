@@ -26,11 +26,12 @@ import type {
   HostManagement,
   HostResult,
   HostFacts,
+  HostCheck,
   RemoteWorktree,
 } from "../../shared/registered-hosts.d";
 import { hostDiscovery, hostProbe, hostLoginEnvironment } from "./agent-discovery";
 
-/** Validate existing ancestors; only enrollment and explicit cloning may create them. */
+/** Validate existing ancestors; only explicit folder creation may create them. */
 export async function approvedCodeFolder(
   input: string,
   home: string,
@@ -76,36 +77,52 @@ export async function manageHost(
 ): Promise<HostResult> {
   signal?.throwIfAborted();
   if (!hostManagement(request)) return { ok: false, reason: "folder-refused" };
-  let folder: string;
+  // Resolve the proposed folder without touching it. Facts and origin access use
+  // the account home, so a missing/refused folder cannot suppress those rows.
+  let folder = request.codeFolder.startsWith("~/")
+    ? join(home, request.codeFolder.slice(2))
+    : request.codeFolder;
+  let folderCheck: HostCheck = { state: "pass" };
+  const partial = request.operation === "inspect" && request.partial;
+
   try {
     folder = await approvedCodeFolder(
       request.codeFolder,
       home,
-      (request.operation === "inspect" && !request.readOnly) || request.operation === "clone"
-        ? "create"
-        : "existing",
+      request.operation === "create-folder" ? "create" : "existing",
     );
   } catch (error) {
-    return {
-      ok: false,
+    const reason =
+      error instanceof Error && error.message === "unsafe-folder"
+        ? "unsafe-folder"
+        : "folder-refused";
+    if (!partial && request.operation !== "origin") return { ok: false, reason };
+    folderCheck = {
+      state: "fail",
       reason:
-        error instanceof Error && error.message === "unsafe-folder"
-          ? "unsafe-folder"
-          : "folder-refused",
+        error instanceof Error && "code" in error && error.code === "ENOENT"
+          ? "folder-missing"
+          : reason,
     };
   }
+  const inspection = request.operation === "inspect" || request.operation === "create-folder";
   let facts: HostFacts;
   try {
     const agents: HostFacts["agents"][number][] = [];
-    const env =
-      request.operation === "inspect"
-        ? await hostLoginEnvironment(shell, home, signal, true)
-        : undefined;
+    const env = inspection
+      ? await hostLoginEnvironment(shell, home, signal, true).catch((error: unknown) => {
+          if (!partial) throw error;
+          return undefined;
+        })
+      : undefined;
     const system = env
-      ? await requirements(process.platform, folder, home, env, signal)
+      ? await requirements(process.platform, folder, home, env, signal).catch((error: unknown) => {
+          if (!partial) throw error;
+          return undefined;
+        })
       : undefined;
     const tools: NonNullable<HostFacts["tools"]>[number][] = [];
-    for (const model of (request.operation === "inspect" ? request.agents : []) ??
+    for (const model of (inspection ? request.agents : []) ??
       bundledAgentData.map((data) => parseAgentManifest(JSON.stringify(data), "bundled").model)) {
       try {
         signal?.throwIfAborted();
@@ -157,7 +174,7 @@ export async function manageHost(
         });
       }
     }
-    for (const id of request.operation === "inspect" ? ["git", "gh"] : []) {
+    for (const id of inspection ? ["git", "gh"] : []) {
       // macOS's system git shim can open the CLT installer even for --version.
       if (id === "git" && system?.mac?.commandLineTools === false) {
         tools.push({ id, state: "unable", signIn: "unknown" });
@@ -183,20 +200,29 @@ export async function manageHost(
     }
     facts = {
       codeFolder: folder,
-      ...(system ? { requirements: system, tools } : {}),
+      ...(partial ? { folder: folderCheck } : {}),
+      ...(system ? { requirements: system } : {}),
+      ...(inspection ? { tools } : {}),
       version,
       sessions,
       cores: cpus().length,
       load: loadavg(),
       memoryTotal: totalmem(),
-      memoryAvailable: Math.min(totalmem(), await daemonHostPlatform.memoryAvailable(signal)),
+      memoryAvailable: Math.min(
+        totalmem(),
+        await daemonHostPlatform.memoryAvailable(signal).catch((error: unknown) => {
+          if (!partial) throw error;
+          return 0;
+        }),
+      ),
       agents,
     };
   } catch {
     return { ok: false, reason: "unreachable" };
   }
   signal?.throwIfAborted();
-  if (request.operation === "inspect") return { ok: true, facts };
+  if (request.operation === "inspect" || request.operation === "create-folder")
+    return { ok: true, facts };
 
   const env = {
     ...(await hostLoginEnvironment(shell, home, signal)),
@@ -223,6 +249,43 @@ export async function manageHost(
     await git(["rev-parse", "--verify", "HEAD^{commit}"], directory);
     return await git(["status", "--porcelain", "-z", "--untracked-files=normal"], directory);
   };
+  if (request.operation === "origin") {
+    try {
+      let cwd = home;
+      if (folderCheck.state === "pass") {
+        try {
+          await approvedCodeFolder(folder, home);
+          cwd = folder;
+          try {
+            const candidate = join(folder, request.directory);
+            await checkout(candidate, request.origin);
+            cwd = candidate;
+          } catch {
+            // A missing/refused checkout must not hide origin access.
+          }
+        } catch {
+          // A disappeared/refused folder still permits an account-level check.
+        }
+      }
+      await networkGit(
+        ["ls-remote", "--", request.origin, "HEAD"],
+        cwd,
+        env,
+        HOST_NETWORK_GIT_TIMEOUT_MS,
+        signal,
+      );
+      return { ok: true, facts };
+    } catch (error) {
+      return {
+        ok: false,
+        reason: signal?.aborted
+          ? "cancelled"
+          : error instanceof HostGitFailure
+            ? error.reason
+            : "origin-unreachable",
+      };
+    }
+  }
   try {
     // Revalidate without recreating a folder removed since the initial check.
     signal?.throwIfAborted();

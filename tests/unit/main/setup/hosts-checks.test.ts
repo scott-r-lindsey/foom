@@ -83,7 +83,7 @@ test("real bundled and config providers succeed with enrollment and read-only in
   });
   const result = (await check()).result;
   expect(result?.ok).toBe(true);
-  expect(execute.mock.calls[0]?.[1]).not.toHaveProperty("readOnly");
+  expect(execute.mock.calls[0]?.[1]).toHaveProperty("readOnly", true);
   expect(execute.mock.calls[0]?.[1].agents?.map(({ id }) => id)).toEqual(
     agentProviders().map(({ id }) => id),
   );

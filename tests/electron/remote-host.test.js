@@ -91,7 +91,12 @@ const { spawn } = require('node:child_process');
 const { appendFileSync } = require('node:fs');
 const args = process.argv.slice(2);
 const split = args.indexOf('--');
-if (split < 0 || args[split + 1] !== 'fixture-cloud') process.exit(2);
+if (split < 0 || !['fixture-cloud', 'fixture-unreachable', 'fixture-unsupported', 'fixture-no-artifact', 'fixture-old-libc'].includes(args[split + 1])) process.exit(2);
+const host = args[split + 1];
+if (host === 'fixture-unreachable') { process.stderr.write('private fixture SSH output'); process.exit(255); }
+if (host === 'fixture-unsupported') { process.stdout.write('Plan9\\nx86_64\\n'); process.exit(0); }
+if (host === 'fixture-no-artifact') { process.stdout.write('Darwin\\n' + (process.platform === 'darwin' && process.arch === 'arm64' ? 'x86_64' : 'arm64') + '\\n'); process.exit(0); }
+if (host === 'fixture-old-libc' && args.at(-1).includes('FOOM-LIBC-TOO-OLD')) { process.stdout.write('FOOM-LIBC-TOO-OLD\\n'); process.exit(1); }
 if (args.at(-1) === 'uname -s; uname -m') { process.stdout.write(require('node:os').type() + '\\n' + (process.arch === 'x64' ? 'x86_64' : process.platform === 'darwin' ? 'arm64' : 'aarch64') + '\\n'); process.exit(0); }
 appendFileSync(${JSON.stringify(pidFile)}, process.pid + '\\n');
 appendFileSync(${JSON.stringify(sshLog)}, 'fixture ssh started\\n');
@@ -152,11 +157,72 @@ child.on('close', code => { appendFileSync(${JSON.stringify(sshLog)}, 'fixture s
     await readFile(path.join(profilePath, "settings.json"), "utf8"),
   ).remoteProfile;
   assert.match(profileTag, /^[a-f0-9]{32}$/u);
+  for (const [host, row, reason] of [
+    ["fixture-unreachable", "ssh", "unreachable"],
+    ["fixture-unsupported", "platform", "unsupported"],
+    ["fixture-no-artifact", "artifact", "artifact-unavailable"],
+    ...(process.platform === "linux" ? [["fixture-old-libc", "platform", "libc-too-old"]] : []),
+  ]) {
+    const checked = await page.evaluate(
+      ({ host, codeFolder }) => window.desktop.hosts({ action: "preflight", host, codeFolder }),
+      { host, codeFolder: path.join(remoteHome, "code") },
+    );
+    assert.deepEqual(checked.preflight[row], { state: "fail", reason });
+    if (row !== "ssh") assert.deepEqual(checked.preflight.ssh, { state: "pass" });
+    if (row === "artifact") assert.deepEqual(checked.preflight.platform, { state: "pass" });
+    assert.ok(!JSON.stringify(checked).includes("private fixture"));
+  }
+  const offline = await page.evaluate(() =>
+    window.desktop.hosts({ action: "add", host: "fixture-unreachable", codeFolder: "~/pending" }),
+  );
+  assert.equal(offline.hosts[0].codeFolder, "~/pending");
+  assert.equal(offline.hosts[0].result.reason, "unreachable");
+  await page.evaluate(() =>
+    window.desktop.hosts({ action: "remove", host: "fixture-unreachable" }),
+  );
+  const preflight = await page.evaluate(
+    (codeFolder) =>
+      window.desktop.hosts({ action: "preflight", host: "fixture-cloud", codeFolder }),
+    path.join(remoteHome, "code"),
+  );
+  assert.deepEqual(preflight.preflight.ssh, { state: "pass" });
+  assert.deepEqual(preflight.preflight.platform, { state: "pass" });
+  assert.deepEqual(preflight.preflight.artifact, { state: "pass" });
+  assert.deepEqual(preflight.preflight.result.facts.folder, {
+    state: "fail",
+    reason: "folder-missing",
+  });
+  assert.ok(preflight.preflight.result.facts.requirements);
+  assert.deepEqual(
+    preflight.preflight.result.facts.tools.map(({ id, state }) => ({ id, state })),
+    [
+      { id: "git", state: "missing" },
+      { id: "gh", state: "missing" },
+    ],
+  );
+  assert.ok(preflight.preflight.result.facts.agents.every(({ state }) => state === "missing"));
+  await assert.rejects(stat(path.join(remoteHome, "code")), { code: "ENOENT" });
   const enrolled = await page.evaluate(
     (codeFolder) => window.desktop.hosts({ action: "add", host: "fixture-cloud", codeFolder }),
     path.join(remoteHome, "code"),
   );
   assert.equal(enrolled.result.ok, true);
+  assert.deepEqual(enrolled.hosts[0].result.facts.folder, {
+    state: "fail",
+    reason: "folder-missing",
+  });
+  await assert.rejects(stat(path.join(remoteHome, "code")), { code: "ENOENT" });
+  await openSettingsScreen(page);
+  await page
+    .getByRole("region", { name: "Settings" })
+    .getByRole("button", { name: "Hosts", exact: true })
+    .click();
+  await expect(page.getByText("Code folder does not exist")).toBeVisible();
+  await page.screenshot({ path: evidencePath("1005-incomplete-host.png") });
+  await page.getByRole("button", { name: "Create folder", exact: true }).click();
+  await expect(page.getByText("Connection ready · Code folder checked")).toBeVisible();
+  assert.ok((await stat(path.join(remoteHome, "code"))).isDirectory());
+  await page.keyboard.press("Escape");
   await page.evaluate(() => {
     window.remoteReplayTokens = new Set();
     window.stopRemoteReplay = window.desktop.onData((_id, token) =>

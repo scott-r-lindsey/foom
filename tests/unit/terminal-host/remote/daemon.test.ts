@@ -354,7 +354,13 @@ test.skipIf(process.platform === "win32").each(["close", "takeover"])(
     const next = await client();
     next.send({ type: "hello", build });
     await vi.waitFor(() => {
-      expect(next.messages).toContainEqual({ type: "hello", build, compatible: 2, hostFacts: 1 });
+      expect(next.messages).toContainEqual({
+        type: "hello",
+        build,
+        compatible: 2,
+        hostFacts: 1,
+        hostPreflight: 1,
+      });
     });
     if (operation === "close") {
       next.send({ type: "agent-close", id: "child", request: 2 });
@@ -1238,9 +1244,9 @@ test.skipIf(process.platform === "win32")(
 
 test.skipIf(process.platform === "win32").each([
   ["clone", "inspect-worktree"],
-  ["inspect", "inspect-worktree"],
+  ["create-folder", "inspect-worktree"],
   ["clone", "list-worktrees"],
-  ["inspect", "list-worktrees"],
+  ["create-folder", "list-worktrees"],
 ] as const)(
   "read-only %s / %s inspections overlap without releasing or taking the mutation reserve",
   async (operation, read) => {
@@ -1269,7 +1275,7 @@ test.skipIf(process.platform === "win32").each([
         origin: "git@fixture.test:team/repo.git",
       } as const;
       const mutation =
-        operation === "inspect"
+        operation === "create-folder"
           ? ({ type: "manage", operation, codeFolder: "/code" } as const)
           : request;
       clone.send(mutation);
@@ -1397,7 +1403,13 @@ test.skipIf(process.platform === "win32")(
     const newer = await client();
     newer.send({ type: "hello", build: "b".repeat(64) });
     await newer.wait(1);
-    expect(newer.messages[0]).toEqual({ type: "hello", build, compatible: 2, hostFacts: 1 });
+    expect(newer.messages[0]).toEqual({
+      type: "hello",
+      build,
+      compatible: 2,
+      hostFacts: 1,
+      hostPreflight: 1,
+    });
     expect(mock.stop).not.toHaveBeenCalled();
     await disconnect(newer);
     shell.send({ type: "kill", id: "one", request: 2 });
@@ -1765,7 +1777,13 @@ test.skipIf(process.platform === "win32")(
       const newer = await client();
       newer.send({ type: "hello", build: "b".repeat(64) });
       await newer.wait(1);
-      expect(newer.messages[0]).toEqual({ type: "hello", build, compatible: 2, hostFacts: 1 });
+      expect(newer.messages[0]).toEqual({
+        type: "hello",
+        build,
+        compatible: 2,
+        hostFacts: 1,
+        hostPreflight: 1,
+      });
       expect(host.server.listening).toBe(true);
     } finally {
       pending.resolve(undefined);
@@ -2421,14 +2439,14 @@ test.skipIf(process.platform === "win32")(
     const next = await client();
     next.send({ type: "hello", build });
     await next.wait(1);
-    next.send({ type: "manage", operation: "inspect", codeFolder: "~/code", agents: [] });
+    next.send({ type: "manage", operation: "create-folder", codeFolder: "~/code", agents: [] });
     await next.wait(2);
     expect(next.messages[1]).toEqual({
       type: "managed",
       result: { ok: false, reason: "checkout-refused" },
     });
     mock.exited("recipe", 0);
-    next.send({ type: "manage", operation: "inspect", codeFolder: "~/code", agents: [] });
+    next.send({ type: "manage", operation: "create-folder", codeFolder: "~/code", agents: [] });
     await next.wait(3);
     expect(mock.manage).toHaveBeenCalledTimes(1);
   },
@@ -2479,7 +2497,7 @@ test.skipIf(process.platform === "win32").each(
   await next.wait(1);
   const inspect = {
     type: "manage",
-    operation: "inspect",
+    operation: "create-folder",
     codeFolder: "~/code",
     agents: [],
   } as const;

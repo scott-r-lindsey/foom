@@ -1,6 +1,7 @@
 import { LaunchFailure } from "../../shared/launch-failure";
 import { remotePath } from "../../shared/remote-agent-protocol";
 import { ApplicationError } from "../../shared/application-errors";
+import type { HostCheck, HostConnectionChecks } from "../../shared/registered-hosts.d";
 import type { RemoteTarget } from "../../shared/remote-host";
 import { constants } from "node:fs";
 import { open } from "node:fs/promises";
@@ -254,7 +255,9 @@ export async function selectHostArtifact(
   ),
   metadata = join(__dirname, "../../build-metadata.json"),
   signal?: AbortSignal,
+  observe?: (stage: keyof HostConnectionChecks, result: HostCheck) => void,
 ) {
+  let missingArtifact = false;
   let expectedSource: string | undefined;
   if (!target.artifact) {
     try {
@@ -271,7 +274,9 @@ export async function selectHostArtifact(
         throw new ApplicationError("remote-host-unavailable");
       expectedSource = value.source;
     } catch {
-      throw new ApplicationError("remote-host-unavailable");
+      observe?.("artifact", { state: "fail", reason: "artifact-unavailable" });
+      if (!observe) throw new ApplicationError("remote-host-unavailable");
+      missingArtifact = true;
     }
   }
   const { stdout } = await promisify(execFile)(
@@ -286,21 +291,67 @@ export async function selectHostArtifact(
       ...(signal ? { signal } : {}),
     },
   ).catch(() => {
+    observe?.("ssh", { state: "fail", reason: "unreachable" });
     throw new LaunchFailure("remote_host_unreachable");
   });
-  const remote = remotePlatform(stdout);
+  observe?.("ssh", { state: "pass" });
+  let remote: ReturnType<typeof remotePlatform>;
+  try {
+    remote = remotePlatform(stdout);
+  } catch (error) {
+    observe?.("platform", { state: "fail", reason: "unsupported" });
+    throw error;
+  }
+  if (observe && remote.platform === "linux") {
+    const libc = await promisify(execFile)(
+      "ssh",
+      [...sshArguments(target.host), "sh", "-c", `'${LINUX_LIBC_CHECK.replaceAll("'", "'\\''")}'`],
+      {
+        env: sshEnvironment(),
+        shell: false,
+        timeout: 10000,
+        maxBuffer: 256,
+        encoding: "utf8",
+        ...(signal ? { signal } : {}),
+      },
+    )
+      .then(() => undefined)
+      .catch((error: unknown) => {
+        const output =
+          error instanceof Error && "stdout" in error && typeof error.stdout === "string"
+            ? error.stdout
+            : "";
+        return output.includes("FOOM-LIBC-TOO-OLD")
+          ? ("libc-too-old" as const)
+          : output.includes("FOOM-LIBC-UNSUPPORTED")
+            ? ("libc-unsupported" as const)
+            : ("unreachable" as const);
+      });
+    if (libc === "unreachable") {
+      observe("ssh", { state: "fail", reason: "unreachable" });
+      observe("platform", { state: "not-checked" });
+      throw new LaunchFailure("remote_host_unreachable");
+    }
+    observe("platform", libc ? { state: "fail", reason: libc } : { state: "pass" });
+    if (libc) throw new UnsupportedRemotePlatform("Unsupported remote host platform");
+  } else observe?.("platform", { state: "pass" });
+  if (missingArtifact) throw new ApplicationError("remote-host-unavailable");
   const artifact = await hostArtifact(
     target.artifact ?? join(catalog, `${remote.platform}-${remote.arch}`, "foom-host.gz"),
     expectedSource,
   ).catch(() => {
+    observe?.("artifact", { state: "fail", reason: "artifact-unavailable" });
     throw new ApplicationError("remote-host-unavailable");
   });
   if (
     artifact.version !== expectedVersion ||
     artifact.platform !== remote.platform ||
     artifact.arch !== remote.arch
-  )
+  ) {
+    observe?.("artifact", { state: "fail", reason: "version-mismatch" });
     throw new LaunchFailure("remote_artifact_mismatch");
+  }
+  observe?.("artifact", { state: "pass" });
   return artifact;
 }
 

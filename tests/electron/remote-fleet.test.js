@@ -155,10 +155,12 @@ notify.end(JSON.stringify({session_id:'fleet-parent-conversation',hook_event_nam
 const fs = require('node:fs'), path = require('node:path');
 const args = process.argv.slice(2), cwd = process.cwd();
 const state = JSON.parse(fs.readFileSync(${JSON.stringify(gitState)}, 'utf8'));
-if (args.includes('config')) console.log(${JSON.stringify(origin)});
+if (args.includes('--version')) console.log('git version 2.0.0');
+else if (args.includes('config')) console.log(${JSON.stringify(origin)});
 else if (args.includes('--show-toplevel')) console.log(cwd);
 else if (args.includes('--git-common-dir')) console.log(${JSON.stringify(path.join(remoteRepo, ".git"))});
 else if (args.includes('--absolute-git-dir')) console.log(path.join(${JSON.stringify(path.join(remoteRepo, ".git", "worktrees"))},path.basename(cwd)));
+else if (args.includes('ls-remote') && state.originFailure) {process.stderr.write('Permission denied (publickey). private fixture Git output'); process.exit(128);}
 else if (args.includes('ls-remote')) process.stdout.write('ref: refs/heads/main\\tHEAD\\n');
 else if (args.includes('symbolic-ref')) console.log(state[cwd]);
 else if (args.includes('worktree') && args.includes('add')) {
@@ -184,6 +186,7 @@ else process.exit(2);
       [
         "#!/bin/sh",
         'case " $* " in',
+        "  *' --version '*) printf 'git version 2.0.0\\n';;",
         "  *' config '*) printf '%s\\n' \"$FIXTURE_REMOTE_ORIGIN\";;",
         "  *' --show-toplevel '*) pwd -P;;",
         "  *' --git-common-dir '*) printf '%s/.git\\n' \"$FIXTURE_REMOTE_GIT_ROOT\";;",
@@ -287,6 +290,8 @@ const args=process.argv.slice(2), split=args.indexOf('--');
 if(args[split+1]!=='fleet-worker') process.exit(2);
 appendFileSync(${JSON.stringify(sshCalls)},'ssh\\n');
 if(args.at(-1)==='uname -s; uname -m') {process.stdout.write(require('node:os').type()+'\\n'+(process.arch==='x64'?'x86_64':process.platform==='darwin'?'arm64':'aarch64')+'\\n');process.exit(0);}
+// Standalone fixed libc preflight has no daemon protocol handshake.
+if (args.at(-1).includes('FOOM-LIBC-UNSUPPORTED') && !args.at(-1).includes('FOOM-READY')) process.exit(0);
 const {RemoteFrames}=require(${JSON.stringify(path.resolve("build/shared/remote-host-protocol.js"))});
 const frames=new RemoteFrames(), responses=new RemoteFrames(); let operation;
 const sent=bytes=>frames.push(bytes,message=>{if(message.type==='manage')operation=message.operation; if(message.type.startsWith('agent-'))appendFileSync(${JSON.stringify(launchCalls)},message.type+'\\n');});
@@ -388,6 +393,37 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
   );
   await (await confirmationPage(app)).getByRole("button", { name: "Make orchestrator" }).click();
   await elevate;
+  // Origin preflight is host/repository behavior; exercise it once rather than
+  // repeating its SSH/bootstrap work in every provider and review scenario.
+  if (agents.length === 1 && agents[0] === "codex" && !restart && !reviewLoop) {
+    const preflight = await page.evaluate(
+      (codeFolder) =>
+        window.desktop.hosts({ action: "preflight", host: "fleet-worker", codeFolder }),
+      folder,
+    );
+    assert.deepEqual(
+      preflight.preflight.repositories.map(({ origin, checkout }) => ({
+        origin,
+        state: checkout.checkout?.state,
+      })),
+      [{ origin: { state: "pass" }, state: "clean" }],
+    );
+    await writeFile(gitState, JSON.stringify({ originFailure: true }));
+    const failed = await page.evaluate(
+      (codeFolder) =>
+        window.desktop.hosts({ action: "preflight", host: "fleet-worker", codeFolder }),
+      folder,
+    );
+    assert.deepEqual(
+      failed.preflight.repositories.map(({ origin, checkout }) => ({
+        origin,
+        state: checkout.checkout?.state,
+      })),
+      [{ origin: { state: "fail", reason: "origin-auth" }, state: "clean" }],
+    );
+    assert.ok(!JSON.stringify(failed).includes("private fixture"));
+    await writeFile(gitState, "{}");
+  }
   const registration = await page.evaluate(
     (folder) => window.desktop.hosts({ action: "add", host: "fleet-worker", codeFolder: folder }),
     folder,

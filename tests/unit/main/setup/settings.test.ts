@@ -913,7 +913,7 @@ test("copy on select default off, validate booleans and persist in the profile",
   expect((await SettingsStore.open(dir)).get().copyOnSelect).toBe(false);
 });
 
-test("registered hosts persist only validated profile-owned absolute folders", async () => {
+test("registered hosts persist only validated profile-owned folders, including pending home expansion", async () => {
   const dir = await directory();
   const hosts = [{ host: "me@worker", codeFolder: "/home/me/foom" }];
   const store = await SettingsStore.open(dir);
@@ -931,9 +931,12 @@ test("registered hosts persist only validated profile-owned absolute folders", a
     }),
   );
   expect((await SettingsStore.open(dir)).get().registeredHosts).toBeUndefined();
-  expect(() =>
+  await store.update(
     parseSettingsPatch({ registeredHosts: [{ host: "worker", codeFolder: "~/foom" }] }),
-  ).toThrow();
+  );
+  expect((await SettingsStore.open(dir)).get().registeredHosts).toEqual([
+    { host: "worker", codeFolder: "~/foom" },
+  ]);
 });
 test.each([
   [{ interfaceTheme: "follow", colorMode: "system" }, "follow"],

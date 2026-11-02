@@ -28,6 +28,7 @@ async function setup() {
   // The test runner owns tmpdir(); keep HOME short enough for macOS Unix sockets.
   root = await mkdtemp(join(await realpath("/tmp"), "mc-"));
   const home = root;
+  await mkdir(join(home, "code"), { mode: 0o700 });
   const bin = join(home, "bin");
   await mkdir(bin);
   const started = join(home, "started");
