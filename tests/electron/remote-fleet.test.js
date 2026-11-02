@@ -393,18 +393,21 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
   );
   await (await confirmationPage(app)).getByRole("button", { name: "Make orchestrator" }).click();
   await elevate;
-  const preflight = await page.evaluate(
-    (codeFolder) => window.desktop.hosts({ action: "preflight", host: "fleet-worker", codeFolder }),
-    folder,
-  );
-  assert.deepEqual(
-    preflight.preflight.repositories.map(({ origin, checkout }) => ({
-      origin,
-      state: checkout.checkout?.state,
-    })),
-    [{ origin: { state: "pass" }, state: "clean" }],
-  );
-  if (!reviewLoop) {
+  // Origin preflight is host/repository behavior; exercise it once rather than
+  // repeating its SSH/bootstrap work in every provider and review scenario.
+  if (agents.length === 1 && agents[0] === "codex" && !restart && !reviewLoop) {
+    const preflight = await page.evaluate(
+      (codeFolder) =>
+        window.desktop.hosts({ action: "preflight", host: "fleet-worker", codeFolder }),
+      folder,
+    );
+    assert.deepEqual(
+      preflight.preflight.repositories.map(({ origin, checkout }) => ({
+        origin,
+        state: checkout.checkout?.state,
+      })),
+      [{ origin: { state: "pass" }, state: "clean" }],
+    );
     await writeFile(gitState, JSON.stringify({ originFailure: true }));
     const failed = await page.evaluate(
       (codeFolder) =>
