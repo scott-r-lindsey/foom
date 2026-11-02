@@ -174,3 +174,17 @@ test("expansion writes stay local and removed locations are pruned", () => {
   expect(pruneExpansion(pruned, [])).toEqual({});
   expect(pruneExpansion({ home: false }, [])).toEqual({ home: false });
 });
+
+test("unavailable repository membership preserves worktree choices until recovery", () => {
+  const expanded = {
+    "repository:/repo": false,
+    "worktree:/elsewhere/topic": false,
+    "repository:/removed": true,
+  };
+  const unavailable = { path: "/repo", name: "Repo", unavailable: true, worktrees: [] };
+  const retained = pruneExpansion(expanded, [unavailable]);
+  expect(retained).toEqual({ "repository:/repo": false, "worktree:/elsewhere/topic": false });
+  expect(pruneExpansion(retained, [{ ...unavailable, unavailable: false }])).toEqual({
+    "repository:/repo": false,
+  });
+});

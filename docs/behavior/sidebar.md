@@ -46,7 +46,8 @@ diverge. Revealing rows expands ancestors only in the requesting window; filteri
 expands matches temporarily in that window. Removed repository and worktree choices
 are pruned after workspace and sidebar inventory load successfully (locations with
 retained sessions remain visible). Pending or failed initial sidebar loads preserve
-saved expansion choices.
+saved expansion choices. Unavailable repository membership retains worktree choices
+until recovery.
 Repositories with running sessions start expanded; idle repositories start collapsed.
 With one repository, everything starts expanded.
 Clicking or pressing Enter on a repository, main-checkout or worktree name opens its panel

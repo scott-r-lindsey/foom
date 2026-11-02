@@ -96,7 +96,8 @@ shares the restore limits of 256 leaves and 64 levels, so every constructed tree
 can be restored. Missing sessions are
 pruned only after the source's first workspace snapshot completes. Sidebar
 expansion pruning additionally waits for the first successful sidebar inventory;
-pending or failed initial inventory reads retain saved repository/worktree choices. Preview
+pending or failed initial inventory reads retain saved repository/worktree choices.
+Unavailable repository membership also retains worktree choices until recovery. Preview
 assignments wait for their own first successful inventory, including while
 terminal reservations change, so independent asynchronous loads cannot erase
 valid assignments. File-picker replies publish preview inventory before returning

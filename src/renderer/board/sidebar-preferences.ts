@@ -168,6 +168,11 @@ export function pruneExpansion(
       ...repo.worktrees.map((tree) => worktreeKey(tree.path)),
     ]),
   );
-  const entries = Object.entries(expanded).filter(([key]) => key === "home" || known.has(key));
+  // Keys do not retain repository ownership; worktrees may live outside repository paths.
+  const membershipUnknown = repositories.some((repo) => repo.unavailable === true);
+  const entries = Object.entries(expanded).filter(
+    ([key]) =>
+      key === "home" || known.has(key) || (membershipUnknown && key.startsWith("worktree:")),
+  );
   return entries.length === Object.keys(expanded).length ? expanded : Object.fromEntries(entries);
 }
