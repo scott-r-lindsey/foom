@@ -155,6 +155,14 @@ function Checklist({
   const mac = facts?.requirements?.mac;
   const connection = preflight ?? result?.connection;
   const folder = facts?.folder;
+  const folderStatus = checkPresentation(folder, "Valid");
+  if (mac?.protectedFolder) {
+    if (folder?.state !== "fail") folderStatus.tone = "need";
+    folderStatus.text =
+      folder?.state === "fail"
+        ? `${folderStatus.text} · Protected folder`
+        : "Warning · Protected folder";
+  }
   const recipe = (id: string, operation: "install" | "sign-in") => (
     <button
       type="button"
@@ -243,9 +251,7 @@ function Checklist({
       <Row name="Remote daemon" {...checkPresentation(connection?.artifact, "In this build")} />
       <Row
         name="Code folder"
-        {...(mac?.protectedFolder
-          ? { tone: "need" as const, text: "Warning · Protected folder" }
-          : checkPresentation(folder, "Valid"))}
+        {...folderStatus}
         action={
           <>
             {folder?.state === "fail" && folder.reason === "folder-missing" && (
@@ -699,9 +705,11 @@ export function HostsSettings({
 export function RepositoryHosts({
   source,
   repositories,
+  headingRef,
 }: {
   source: Pick<SetupSource, "hosts" | "copyHost">;
   repositories: readonly Repository[];
+  headingRef?: RefObject<HTMLHeadingElement | null>;
 }) {
   const [state, setState] = useState<HostsState>({ hosts: [], locations: [] });
   const [busy, setBusy] = useState(false);
@@ -749,7 +757,9 @@ export function RepositoryHosts({
   return (
     <section className="repository-hosts" aria-label="Repository locations">
       <header className="hosts-heading">
-        <h3>Locations</h3>
+        <h2 ref={headingRef} tabIndex={-1}>
+          Repositories
+        </h2>
         <button
           type="button"
           disabled={busy}
@@ -773,7 +783,9 @@ export function RepositoryHosts({
         >
           <header className="hosts-heading">
             <h4>{host.host ?? "Local"}</h4>
-            <span className="host-tag">{repositories.length} repositories</span>
+            <span className="host-tag">
+              {repositories.length} {repositories.length === 1 ? "repository" : "repositories"}
+            </span>
             <code>{host.codeFolder}</code>
           </header>
           {repositories.map((repo) => {

@@ -618,3 +618,23 @@ test("failed clone remains visible after independent preflight, until explicit r
   fireEvent.click(screen.getByRole("button", { name: "Check again" }));
   await screen.findByText("Not checked out");
 });
+
+test("Mac protected-folder warning never hides a missing-folder failure or its Create action", async () => {
+  const result = {
+    ok: true as const,
+    facts: {
+      ...facts,
+      folder: { state: "fail" as const, reason: "folder-missing" as const },
+      requirements: {
+        distro: "darwin" as const,
+        libc: "supported" as const,
+        packageManager: "brew" as const,
+        mac: { commandLineTools: true, protectedFolder: true, staysAwake: true },
+      },
+    },
+  };
+  mount({ ...initial, hosts: [{ ...host, result }], preflight: { ...preflight, result } });
+  await screen.findByText("Code folder does not exist · folder-missing · Protected folder");
+  expect(screen.getByRole("button", { name: "Create" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Change folder" })).toBeTruthy();
+});

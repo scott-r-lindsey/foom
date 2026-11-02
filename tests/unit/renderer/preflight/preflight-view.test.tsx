@@ -756,7 +756,7 @@ test("Settings rolls back refused repository changes and prevents leaving during
   expect(close).toHaveBeenCalledOnce();
 });
 
-test("repository controls explain immediate selection when used outside guided setup", async () => {
+test("repository settings keep local selection under Choose repositories", async () => {
   render(
     <RepositoriesStep
       recentDays={30}
@@ -771,7 +771,9 @@ test("repository controls explain immediate selection when used outside guided s
       immediate
     />,
   );
-  expect(screen.getByText(/Changes to the selection apply immediately/)).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Repositories" })).toBeTruthy();
+  expect(screen.getByText("Choose repositories").closest("details")?.open).toBe(true);
+  expect(screen.queryByText(/Changes to the selection apply immediately/)).toBeNull();
   await screen.findByRole("button", { name: "Choose folder…" });
 });
 

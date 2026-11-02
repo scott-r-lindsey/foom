@@ -28,6 +28,38 @@ export function RepositoriesStep({
   scanCode: (folder: string | null) => void;
   setCode: (selection: CodeSelection) => void;
 }) {
+  const picker = (
+    <RepositoryPicker
+      recentDays={recentDays}
+      onRecentDays={onRecentDays}
+      source={source}
+      selection={code}
+      added={repositories}
+      progress={codeScanning}
+      onScan={scanCode}
+      onSelection={setCode}
+    />
+  );
+  if (immediate) {
+    return (
+      <>
+        {source.hosts ? (
+          <RepositoryHosts source={source} repositories={repositories} headingRef={headingRef} />
+        ) : (
+          <h2 ref={headingRef} tabIndex={-1}>
+            Repositories
+          </h2>
+        )}
+        <details
+          className="settings-repository-picker"
+          open={!repositories.length || code !== undefined || codeScanning !== undefined}
+        >
+          <summary>Choose repositories</summary>
+          {picker}
+        </details>
+      </>
+    );
+  }
   return (
     <>
       <p className="preflight-eyebrow">T-1 · Repositories</p>
@@ -35,33 +67,10 @@ export function RepositoriesStep({
         Where do you keep your code?
       </h2>
       <p className="preflight-intro">
-        Foom looks for Git repositories there.{" "}
-        {immediate ? (
-          "Added repositories start checked. Changes to the selection apply immediately."
-        ) : (
-          <>
-            Ones you've worked in over the last{" "}
-            <RecentDaysInput value={recentDays} onChange={onRecentDays} /> days start checked.
-          </>
-        )}
-        {immediate && (
-          <>
-            {" "}
-            Recent · last <RecentDaysInput value={recentDays} onChange={onRecentDays} /> days.
-          </>
-        )}
+        Foom looks for Git repositories there. Ones you've worked in over the last{" "}
+        <RecentDaysInput value={recentDays} onChange={onRecentDays} /> days start checked.
       </p>
-      {immediate && source.hosts && <RepositoryHosts source={source} repositories={repositories} />}
-      <RepositoryPicker
-        recentDays={recentDays}
-        onRecentDays={onRecentDays}
-        source={source}
-        selection={code}
-        added={repositories}
-        progress={codeScanning}
-        onScan={scanCode}
-        onSelection={setCode}
-      />
+      {picker}
     </>
   );
 }

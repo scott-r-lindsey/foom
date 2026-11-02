@@ -309,7 +309,7 @@ and probeable; Not found and Unable to check are fixed states. Declared bounded
 status probes report sign-in separately; unknown status never becomes a pass.
 
 Repositories groups rows under Local and each registered host, with checkout paths and states,
-and Clone here where absent. Clones use that repository's own origin and the
+and Clone here where absent. Choose repositories opens the local selection controls. Clones use that repository's own origin and the
 host's own Git access, inside its approved code folder. Failures show fixed reasons.
 This profile’s live remote sessions survive hub restarts with screen replay.
 Profile-owned worktrees remain in the sidebar without a session, including after

@@ -383,7 +383,9 @@ a deploy key or a persistent ssh-agent as user-run instructions. Host facts,
 foreign session End and foreign worktree counts remain under Host facts.
 
 Repositories → Locations groups rows beneath Local and each registered host,
-with checkout path copy controls, fixed states and Clone here. The existing
+with checkout path copy controls, fixed states and Clone here. Local selection
+controls remain available under Choose repositories, opening for an empty list or
+an active scan/selection. The existing
 projection supplies checkout paths rather than origin display strings and does
 not report local dirty state; Local says Checked out. No management protocol
 change is needed. Failed clone reasons remain visible until the next user check;
