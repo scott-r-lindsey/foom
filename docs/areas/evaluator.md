@@ -164,3 +164,7 @@ no path, tool argument or prompt content participates. The redacted real UI
 excerpt is retained with the detection fixtures (#1000). This remains permission
 attention even after pre-tool progress; a later cleared dialog and working hook
 resume the turn through the existing execution owner.
+
+Codex's captured hook-review dialog is a permission blocker before observers can
+run (#1025). The bounded rule requires the heading, both trust choices and the
+confirmation footer, and wins over a working title locally and remotely.
