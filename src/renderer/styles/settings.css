@@ -864,12 +864,12 @@
   font: 13px var(--font-mono);
 }
 
-.host-name {
+.host-card .host-name {
   font: inherit;
   color: inherit;
   background: transparent;
-  border-color: transparent;
-  padding: 0;
+  border: 0;
+  padding: 4px 0;
   text-align: left;
   overflow-wrap: anywhere;
 }

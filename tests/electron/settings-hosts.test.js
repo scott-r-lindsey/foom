@@ -210,10 +210,10 @@ process.stdin.on('data', bytes => {
   await expect(card.getByRole("button", { name: "Save name", exact: true })).toBeDisabled();
   await nicknameCapture("invalid");
   await card.getByLabel("Host nickname", { exact: true }).press("Escape");
-  await openSettingsScreen(page, "Repositories");
+  await navigation.getByRole("button", { name: "Repositories", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Build box", exact: true })).toBeVisible();
   await nicknameCapture("repositories");
-  await openSettingsScreen(page, "Hosts");
+  await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
   await expect(card.getByRole("button", { name: "Check again", exact: true })).toBeEnabled();
   await expect(card.getByRole("button", { name: "Rename Build box", exact: true })).toBeVisible();
   await card.getByRole("button", { name: "Rename Build box", exact: true }).click();
