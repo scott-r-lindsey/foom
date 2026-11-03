@@ -44,7 +44,7 @@ async function copyRemoteBranch(app, page, expected) {
   await page.keyboard.press("Escape");
 }
 
-async function remoteFleet(context, agents, restart = false, reviewLoop = false) {
+async function remoteFleet(context, agents, restart = false, reviewLoop = false, smoke = false) {
   const started = performance.now();
   const reviewTiming = (stage) => {
     if (reviewLoop)
@@ -352,6 +352,35 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
       }
     })
     .toBe(true);
+  if (smoke) {
+    const { electronHub, smokeSteps } = await import("../../scripts/smoke-host.mjs");
+    await symlink(path.join(remoteBin, "git"), path.join(bin, "git"));
+    const options = { host: "fleet-worker", repository: repo, codeFolder: folder };
+    const probeLog = path.join(root, "smoke-forbidden-probes");
+    await writeFile(probeLog, "");
+    const hub = await electronHub(
+      options,
+      root,
+      { ...process.env, HOME: home, PATH: bin, SSH_AUTH_SOCK: "" },
+      (pid) => cleanup.audit.add(pid),
+      { directories: [root], log: probeLog },
+    );
+    cleanup.apps.unshift(() => hub.close());
+    const lines = [];
+    assert.equal(
+      await smokeSteps(options, hub, (line) => {
+        lines.push(line);
+        context.diagnostic(line);
+      }),
+      0,
+      lines.join("\n"),
+    );
+    await hub.close();
+    assert.deepEqual(JSON.parse(await readFile(gitState, "utf8")), {});
+    assert.equal(await readFile(probeLog, "utf8"), "");
+    assert.ok((await readFile(sshCalls, "utf8")).includes("ssh"));
+    return;
+  }
   const credentials = path.join(root, "credentials");
   // Review transitions exercise durable control/session writes, as in review-loop.test.js.
   const profile = reviewLoop
@@ -1072,4 +1101,13 @@ test(
   "registered-host review findings resume the author with fresh restricted identity",
   fleetOptions,
   (context) => remoteFleet(context, ["codex"], false, "findings"),
+);
+
+test(
+  "host smoke command uses fake SSH and survives a real hub restart",
+  {
+    skip: process.platform === "win32",
+    timeout: deadline(120000),
+  },
+  (context) => remoteFleet(context, [], false, false, true),
 );

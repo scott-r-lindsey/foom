@@ -532,3 +532,59 @@ grant and the single invalidation uses the existing distribution
 `EWHI9NJ60HNKA`. Implementation never
 dispatches workflows or uses real AWS in tests. Until provisioned, new nightly
 builds quietly see missing feed metadata and cannot update automatically.
+
+## One-command remote host qualification (#964)
+
+From a built checkout with the verified remote-host catalog, the human runs:
+
+```sh
+# Linux: use a virtual display, including on a desktop.
+xvfb-run -a pnpm run smoke:host -- dozer
+# macOS / Windows hub:
+pnpm run smoke:host -- dozer
+# Optional local repository and existing approved remote code folder:
+xvfb-run -a pnpm run smoke:host -- dozer --repository /absolute/local/repo --code-folder "~/foom"
+```
+
+The default repository is the current working directory and the default remote
+folder is `~/foom`. Its own origin must be credential-free HTTPS or SSH. Build
+first with a complete same-revision catalog (see
+[bundled artifacts](#bundled-remote-host-artifacts-825)). The command never downloads
+artifacts or builds automatically. SSH uses normal user trust and configuration
+with production BatchMode and forwarding restrictions. It does not edit SSH
+configuration, credentials, agent configuration or the everyday profile. Only the
+human runs it against a real host; CI uses fake SSH and a local fixture daemon.
+
+This replaces the covered #949 manual steps and is the short-run command for the
+#943 qualification matrix: record hub/host OS and architecture, build revision,
+command exit code and printed PASS/FAIL lines for each matrix row. A disposable
+windowless hub profile is created, persisted across an actual Electron process
+restart, then deleted. The driver reuses onboarding's `Hosts` preflight (#963,
+#1005) and fixed Git reasons (#1004). Failed or unrun SSH, platform, artifact,
+folder, Git or origin checks stop before enrollment. `origin-auth` means the host
+has no usable Git credentials for origin; `artifact-unavailable` means the remote
+daemon is not bundled in this build. Missing folders require explicit creation
+through Settings; the smoke command never creates an approved code folder.
+
+The sequence enrolls the host, clones or reuses the origin checkout, creates a
+uniquely named remote worktree, and starts a fixed POSIX shell fixture in that
+worktree. No real agent CLI is selected or probed. The fixture prints a random
+marker and its PID, then answers a fixed challenge. After hub restart the driver
+requires the same session ID, replayed marker and PID and a fresh reply from that
+PID. It creates one second-profile fixture to verify foreign ownership and ends
+only that exact confirmed incarnation. Existing foreign/legacy sessions are never
+ended. Each step prints PASS/FAIL; skipped legacy End and 24h soak are explicit.
+The exit code is nonzero for any failed step or cleanup.
+
+Cleanup ends the command's sessions, removes its clean owned worktree and forgets
+its registration. A clone is retained as a reusable checkout. Changed worktrees
+are refused rather than deleted. Cleanup runs after failures and between-step
+interrupts; if it fails, printed recovery identifiers identify remaining fixtures.
+Machine failure/SIGKILL cannot guarantee cleanup. The command leaves the host's
+verified daemon cache in place, like ordinary Foom enrollment.
+
+Still manual: the #943 24h idle/detach soak, sleep/wake and network-loss checks,
+and legacy-daemon upgrade/End with deliberately prepared legacy fixtures. Do not
+use a user's existing sessions as legacy test fixtures. This command checks the
+production shell/session and management path; provider-specific hooks, MCP and
+sign-in remain separate qualification rows.
