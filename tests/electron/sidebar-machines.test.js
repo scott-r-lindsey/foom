@@ -272,13 +272,34 @@ process.stdin.on('data',bytes=>frames.push(bytes,message=>{
   const refreshAgents = async (choice) => {
     await writeFile(`${agentChoice}.next`, choice);
     await rename(`${agentChoice}.next`, agentChoice);
-    await page.evaluate(() =>
+    const checked = await page.evaluate(() =>
       window.desktop.hosts({
         action: "preflight",
         host: "fixture-cloud",
         codeFolder: "/remote/code",
       }),
     );
+    // The host check and the board's inventory projection settle independently.
+    const inventory = await page.evaluate(() => window.desktop.sidebarInventory());
+    const machine = inventory.machines.find((entry) => entry.host === "fixture-cloud");
+    const cached = await page.evaluate(() => window.desktop.hosts({ action: "progress" }));
+    const observations = (result) =>
+      result?.ok ? result.facts.agents.map(({ id, state }) => ({ id, state })) : result;
+    context.diagnostic(
+      JSON.stringify({
+        choice,
+        checked: observations(checked.preflight?.result),
+        cached: observations(cached.hosts.find((entry) => entry.host === "fixture-cloud")?.result),
+        sidebarAgents: machine?.agents.map((agent) => agent.id),
+      }),
+    );
+    assert.ok(machine?.available);
+    assert.deepEqual(
+      machine.agents.map((agent) => agent.id),
+      choice === "multiple" ? ["claude", "codex"] : [],
+    );
+    if (choice === "none")
+      assert.ok(checked.preflight.result.facts.agents.every((agent) => agent.state !== "ready"));
   };
   await refreshAgents("multiple");
   await hostMenu.click();
@@ -301,7 +322,37 @@ process.stdin.on('data',bytes=>frames.push(bytes,message=>{
   assert.equal((await preparedRows()).at(-1).agent, "codex");
   await refreshAgents("none");
   await hostMenu.click();
-  await expect(page.getByRole("menuitem", { name: "shell-fixture", exact: true })).toHaveCount(0);
+  const emptyAgentMenu = page.getByRole("menu", { name: "Actions for Builder", exact: true });
+  context.diagnostic(
+    JSON.stringify({
+      menus: await page.getByRole("menu").evaluateAll((elements) =>
+        elements.map((element) => ({
+          name: element.getAttribute("aria-label"),
+          items: Array.from(element.querySelectorAll('[role="menuitem"]')).map(
+            (item) => item.textContent,
+          ),
+        })),
+      ),
+    }),
+  );
+  try {
+    await expect(emptyAgentMenu).toBeVisible();
+    await expect(
+      emptyAgentMenu.getByRole("menuitem", { name: "New Claude Code", exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      emptyAgentMenu.getByRole("menuitem", { name: "New Codex", exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      emptyAgentMenu.getByRole("menuitem", { name: "shell-fixture", exact: true }),
+    ).toHaveCount(0);
+  } catch (error) {
+    await page.screenshot({
+      path: evidencePath(`1024/prepare-zero-failure-${process.platform}.png`),
+      animations: "disabled",
+    });
+    throw error;
+  }
   await capture("prepare-no-agents");
   await page.keyboard.press("Escape");
   await writeFile(offline, "offline");

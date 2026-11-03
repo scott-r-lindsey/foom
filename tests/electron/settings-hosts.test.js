@@ -2,7 +2,7 @@ const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const { createHash } = require("node:crypto");
 const { gzipSync } = require("node:zlib");
-const { mkdir, mkdtemp, readFile, writeFile, rm } = require("node:fs/promises");
+const { mkdir, mkdtemp, readFile, writeFile, rename, rm } = require("node:fs/promises");
 const path = require("node:path");
 const { tmpdir } = require("node:os");
 const { gitSync } = require("../helpers/git.js");
@@ -174,8 +174,15 @@ process.stdin.on('data', bytes => {
     }
   };
   const updateScenario = async (value) => {
-    await writeFile(scenario, JSON.stringify(value));
+    await writeFile(`${scenario}.next`, JSON.stringify(value));
+    await rename(`${scenario}.next`, scenario);
   };
+  const heldCloneCount = async () =>
+    (await readFile(calls, "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line))
+      .filter(({ message, phase }) => message.operation === "clone" && phase === "held").length;
   await page.evaluate(() =>
     window.desktop.saveSetup({
       agents: { claude: true, codex: true, agy: false, copilot: false, opencode: false, pi: false },
@@ -455,10 +462,12 @@ process.stdin.on('data', bytes => {
     ).every(Boolean),
   );
   await capture("ready-optional-agents");
+  const heldHostClones = await heldCloneCount();
   await updateScenario({ ...optional, holdClone: true });
   await card.getByRole("button", { name: "Clone here", exact: true }).click();
   await expect(card.getByText("Cloning…", { exact: true })).toBeVisible();
   await capture("hosts-cloning");
+  await expect.poll(heldCloneCount).toBe(heldHostClones + 1);
   await updateScenario({ ...optional, checkout: "clean" });
   await expect(
     card.getByText("Origin authentication failed · origin-auth", { exact: true }),
@@ -553,21 +562,13 @@ process.stdin.on('data', bytes => {
   await navigation.getByRole("button", { name: "Repositories", exact: true }).click();
   await expect(page.getByRole("region", { name: "Local", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Clone here", exact: true })).toHaveCount(1);
+  const heldRepositoryClones = await heldCloneCount();
   await updateScenario({ holdClone: true, cloneSuccess: true });
   await page.getByRole("button", { name: "Clone here", exact: true }).click();
   await expect(page.getByText("Cloning…", { exact: true })).toBeVisible();
   await capture("repositories-cloning");
-  // Cloning is optimistic UI; wait for the fixture to hold the successful reply
-  // before clearing the scenario, even on a slow SSH process startup.
-  await expect
-    .poll(async () =>
-      (await readFile(calls, "utf8"))
-        .trim()
-        .split("\n")
-        .map((line) => JSON.parse(line))
-        .some(({ message, phase }) => message.operation === "clone" && phase === "held"),
-    )
-    .toBe(true);
+  // Each optimistic clone waits for its own held reply, not an earlier clone.
+  await expect.poll(heldCloneCount).toBe(heldRepositoryClones + 1);
   await updateScenario({});
   await expect(page.getByText("Clean", { exact: true })).toBeVisible();
   await capture("repositories-clone-clean");
