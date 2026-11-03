@@ -307,7 +307,17 @@ appear as each step finishes. Reduced motion keeps the throbber still while the
 step text continues to update. Check again retries without creating directories.
 Missing folders offer Create, and Change folder selects a replacement. Install
 and Sign in appear only for available recipes and open a visible terminal tile;
-the user answers prompts there. Git access fixes remain user-run instructions.
+the user answers prompts there. Origin SSH host-key failures offer Trust host key
+in a human-owned tile; the user verifies and accepts the fingerprint. Other Git
+access fixes remain user-run instructions. Ready means the host checks and Git
+pass with at least one installed agent; optional missing agents, gh sign-in and
+absent checkouts stay neutral. The summary counts existing repositories.
+Clone here shows Cloning… in its row, then the result or fixed failure reason.
+Host checks are language neutral and never execute anything from a checkout.
+Preparing a host to build a repository is left to an agent the user runs on that
+host ([#1024](https://github.com/scott-r-lindsey/foom/issues/1024)).
+Codex hook trust is not inferred from installation or
+sign-in; the first launch may need hook review in Codex's tile.
 
 Remove forgets the host without stopping sessions. Host facts contains daemon
 version, live sessions, CPU cores/load average, total/available memory, foreign

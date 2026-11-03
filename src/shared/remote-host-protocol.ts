@@ -1,6 +1,6 @@
 import { recipeLaunch } from "./registered-host-recipes";
 import { imagePut, imagePutResult, imageNonce } from "./image-paste";
-import { hostAlias, hostManagement, hostResult } from "./registered-hosts";
+import { hostAlias, hostManagement, hostResult, originSshArgs } from "./registered-hosts";
 import { isLaunchReason } from "./launch-failure";
 import {
   remotePath,
@@ -30,6 +30,7 @@ function hello(value: object): boolean {
   return (
     "type" in value &&
     value.type === "hello" &&
+    (!("originTrust" in value) || value.originTrust === 1) &&
     (!("hostPreflight" in value) || value.hostPreflight === 1) &&
     (!("hostFacts" in value) || value.hostFacts === 1) &&
     "build" in value &&
@@ -122,6 +123,13 @@ export function remoteRequest(value: unknown): value is RemoteRequest {
     );
   if (value["type"] === "open")
     return (
+      (value["trustOrigin"] === undefined ||
+        (originSshArgs(value["trustOrigin"]) !== undefined &&
+          value["human"] === true &&
+          value["recipe"] === undefined &&
+          value["checkout"] === undefined &&
+          value["context"] === undefined &&
+          value["reattach"] === false)) &&
       (value["recipe"] === undefined ||
         (recipeLaunch(value["recipe"]) &&
           value["checkout"] === undefined &&

@@ -12,6 +12,7 @@ const mock = vi.hoisted(() => ({
   mcp: vi.fn(),
   stage: vi.fn(),
   recipe: vi.fn(),
+  trust: vi.fn(),
 }));
 vi.mock("../../../../src/terminal-host/remote/agent-helper", () => ({
   observeRemote: mock.observe,
@@ -21,7 +22,10 @@ vi.mock("../../../../src/terminal-host/remote/agent-helper", () => ({
 vi.mock("../../../../src/terminal-host/remote/agent-launch", () => ({
   stageRemotePlugin: mock.stage,
 }));
-vi.mock("../../../../src/terminal-host/remote/host-recipe", () => ({ runHostRecipe: mock.recipe }));
+vi.mock("../../../../src/terminal-host/remote/host-recipe", () => ({
+  runHostRecipe: mock.recipe,
+  runOriginTrust: mock.trust,
+}));
 vi.mock("node:sea", () => ({ isSea: () => false }));
 vi.mock("node:fs", () => ({ readFileSync: mock.read }));
 vi.mock("node:net", () => ({ createConnection: mock.socket }));
@@ -224,4 +228,13 @@ test("recipe mode returns only the helper exit code or a fixed failure", async (
   await vi.waitFor(() => {
     expect(process.exitCode).toBe(1);
   });
+});
+
+test("trust-origin selects the interactive helper without starting a daemon", async () => {
+  mock.trust.mockResolvedValue(0);
+  runHost(["host", "host", "--trust-origin", "git@forge.test:repo"]);
+  await vi.waitFor(() => {
+    expect(mock.trust).toHaveBeenCalledWith(["git@forge.test:repo"]);
+  });
+  expect(mock.serve).not.toHaveBeenCalled();
 });
