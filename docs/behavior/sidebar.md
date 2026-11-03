@@ -208,9 +208,14 @@ option; unavailable locations cannot launch. New agent uses the chosen machine's
 main checkout. Creating a worktree launches nothing.
 
 A machine menu lists pinned repositories checked out on that host. Their
-**Prepare for <repo>** command opens an agent-choice submenu with the same order
-and labels as that host's agent launch commands. With exactly one installed,
-enabled agent it launches directly; with none it is hidden. Prepare opens a normal
+**Prepare for <repo>** command opens an agent-choice submenu in the same order
+as that host's agent launch commands, labeled with just the agent names. With
+exactly one installed, enabled agent it launches directly; with none it is hidden. Prepare opens a normal
 human-owned agent tile in that checkout with fixed guidance to read its contributor
 docs and set up build/test prerequisites, ask before sudo, and report failures.
 Foom executes no repository setup code itself and adds no approval or control grant.
+
+Remote main-checkout agent launches, including Prepare and new conversations,
+use the shared-checkout confirmation while holding the checkout launch lock.
+Cancelling leaves the current sessions unchanged. Shells from these checkout
+panels restart on the same host and repository clone.

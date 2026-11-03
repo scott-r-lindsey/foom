@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { ConfirmationClient } from "../../shared/confirmation";
 import type { ReactNode } from "react";
 import type { SidebarCommand, SidebarMachine } from "../../shared/workspace";
 import { RowMenu } from "./row-menu";
@@ -9,12 +10,14 @@ export function SidebarMachineRow({
   children,
   compact,
   command,
+  confirmations,
   repositories = [],
 }: {
   machine: SidebarMachine;
   children: ReactNode;
   compact: boolean;
   command: (command: SidebarCommand) => Promise<void>;
+  confirmations?: ConfirmationClient | undefined;
   repositories?: readonly { path: string; name: string }[];
 }) {
   const [menu, setMenu] = useState<{
@@ -27,6 +30,10 @@ export function SidebarMachineRow({
   const anchor = current ? menu.anchor : undefined;
   const setAnchor = (anchor: HTMLElement | undefined) => {
     setMenu({ available: machine.available, compact, anchor });
+  };
+  const launch = async (value: SidebarCommand) => {
+    await command(value);
+    setAnchor(undefined);
   };
   const label = `${machine.name}${machine.available ? "" : " · Unavailable"}`;
   return (
@@ -47,7 +54,7 @@ export function SidebarMachineRow({
           >
             <span className="tree-label">{machine.name}</span>
           </button>
-          {!machine.available && <span className="tree-count">⊘ Unavailable</span>}
+          {!machine.available && <span className="machine-status">⊘ Unavailable</span>}
           <button
             type="button"
             className="row-actions"
@@ -70,18 +77,15 @@ export function SidebarMachineRow({
         <RowMenu
           anchor={anchor}
           label={`Actions for ${machine.name}`}
-          onAction={(action) => {
-            setAnchor(undefined);
-            void action.run();
-          }}
+          confirmations={confirmations}
           actions={[
             {
               label: "New shell",
-              run: () => command({ kind: "machine-launch", host: machine.host, run: "shell" }),
+              run: () => launch({ kind: "machine-launch", host: machine.host, run: "shell" }),
             },
             ...machine.agents.map((agent) => ({
               label: `New ${agent.name}`,
-              run: () => command({ kind: "machine-launch", host: machine.host, run: agent.id }),
+              run: () => launch({ kind: "machine-launch", host: machine.host, run: agent.id }),
             })),
             ...(machine.agents.length > 0
               ? repositories
@@ -100,9 +104,9 @@ export function SidebarMachineRow({
                           ...(machine.agents.length > 1
                             ? {
                                 submenu: machine.agents.map((agent) => ({
-                                  label: `New ${agent.name}`,
+                                  label: agent.name,
                                   run: () =>
-                                    command({
+                                    launch({
                                       kind: "repository-prepare",
                                       repository: repository.path,
                                       host: machine.host,
@@ -114,7 +118,7 @@ export function SidebarMachineRow({
                           run: () => {
                             const agent = machine.agents[0];
                             if (agent)
-                              return command({
+                              return launch({
                                 kind: "repository-prepare",
                                 repository: repository.path,
                                 host: machine.host,

@@ -52,7 +52,7 @@ test("preparation requires an installed agent and a pinned repository checked ou
   expect(view.queryByRole("menu")).toBeNull();
 });
 
-test("preparation agent choices match host launch order and labels", async () => {
+test("preparation agent choices follow host launch order with bare agent names", async () => {
   const command = vi.fn().mockResolvedValue(undefined);
   const view = render(
     <SidebarMachineRow
@@ -82,9 +82,9 @@ test("preparation agent choices match host launch order and labels", async () =>
   const choices = view.getByRole("menu", { name: "Prepare for example" });
   expect(
     Array.from(choices.querySelectorAll('[role="menuitem"]')).map((item) => item.textContent),
-  ).toEqual(launchLabels);
+  ).toEqual(launchLabels.map((label) => label.replace(/^New /, "")));
   expect(command).not.toHaveBeenCalled();
-  fireEvent.click(within(choices).getByRole("menuitem", { name: "New Claude Code" }));
+  fireEvent.click(within(choices).getByRole("menuitem", { name: "Claude Code" }));
   await waitFor(() => {
     expect(command).toHaveBeenCalledWith({
       kind: "repository-prepare",

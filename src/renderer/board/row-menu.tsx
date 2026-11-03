@@ -446,6 +446,7 @@ export function RowMenu({
         <RowMenu
           anchor={sub.anchor}
           actions={submenu}
+          confirmations={confirmations}
           close={close}
           label={actions[sub.index]?.label ?? label}
           {...(onAction ? { onAction } : {})}

@@ -95,7 +95,8 @@ export interface WorkspaceMethods {
     location?: Pick<WorkspaceTerminal, "repository" | "worktree" | "branch">,
     conversation?: string,
     prompt?: string,
-  ): Promise<string>;
+    confirm?: ConfirmWorkspace,
+  ): Promise<string | undefined>;
   startHomeShell(restoreId?: string, remote?: RemoteTarget): Promise<string>;
   resumeId(
     command: Extract<SidebarCommand, { kind: "resume-id" }>,

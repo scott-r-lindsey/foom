@@ -225,22 +225,21 @@ export async function sidebarCommand(
       return id ? { terminalId: id } : undefined;
     }
     const location = { repository: command.repository, worktree: command.repository, branch: null };
-    return {
-      terminalId:
-        prompt === undefined
-          ? await this.startMachine(command.host, command.run, undefined, location)
-          : await this.startMachine(
-              command.host,
-              command.run,
-              undefined,
-              location,
-              undefined,
-              prompt,
-            ),
-    };
+    const id = await this.startMachine(
+      command.host,
+      command.run,
+      undefined,
+      location,
+      undefined,
+      prompt,
+      confirm,
+    );
+    return id ? { terminalId: id } : undefined;
   }
-  if (command.kind === "machine-launch")
-    return { terminalId: await this.startMachine(command.host, command.run) };
+  if (command.kind === "machine-launch") {
+    const id = await this.startMachine(command.host, command.run);
+    return id ? { terminalId: id } : undefined;
+  }
   if (command.kind === "home-shell") return { terminalId: await this.startHomeShell() };
   if (command.kind === "config-launch") {
     await this.startConfig(command.run);
@@ -414,13 +413,19 @@ export async function sidebarCommand(
         return;
       }
       if (entry.remote && !remoteRole && entry.placement?.kind === "remote") {
-        await this.startMachine(entry.placement.host, entry.agent, entry.id, {
-          repository: entry.repository,
-          worktree: this.deps.hosts?.placement?.(entry.worktree, entry.repository)
-            ? entry.worktree
-            : entry.repository,
-          branch: entry.branch,
-        });
+        await this.startMachine(
+          entry.placement.host,
+          entry.agent,
+          entry.id,
+          {
+            repository: entry.repository,
+            worktree: entry.branch === "Main checkout" ? entry.repository : entry.worktree,
+            branch: entry.branch,
+          },
+          undefined,
+          undefined,
+          confirm,
+        );
         return;
       }
       if (entry.remote && (remoteRole?.role !== "child" || remoteRole.takenOver))
@@ -474,6 +479,16 @@ export async function sidebarCommand(
           entry.placement?.kind === "remote" ? entry.placement.host : null,
           "shell",
         );
+      else if (
+        entry.remote &&
+        entry.placement?.kind === "remote" &&
+        entry.branch === "Main checkout"
+      )
+        await this.startMachine(entry.placement.host, "shell", undefined, {
+          repository: entry.repository,
+          worktree: entry.repository,
+          branch: null,
+        });
       else if (entry.config) await this.startConfig("shell");
       else if (entry.home && entry.remote) {
         const target =
@@ -574,15 +589,20 @@ export async function sidebarCommand(
         row.placement?.kind === "remote" &&
         !this.orchestration.view(row.id),
     );
-    if (
-      human?.placement?.kind === "remote" &&
-      !this.deps.hosts?.placement?.(command.worktree, command.repository)
-    ) {
-      await this.startMachine(human.placement.host, command.run, undefined, {
-        repository: command.repository,
-        worktree: command.repository,
-        branch: null,
-      });
+    if (human?.placement?.kind === "remote" && human.branch === "Main checkout") {
+      await this.startMachine(
+        human.placement.host,
+        command.run,
+        undefined,
+        {
+          repository: command.repository,
+          worktree: command.repository,
+          branch: null,
+        },
+        undefined,
+        undefined,
+        confirm,
+      );
       return;
     }
     await this.startExisting(command.repository, command.worktree, command.run, confirm);

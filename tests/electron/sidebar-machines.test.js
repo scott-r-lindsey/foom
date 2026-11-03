@@ -145,6 +145,16 @@ process.stdin.on('data',bytes=>frames.push(bytes,message=>{
     await page.locator(".machine-section > .machine-row > .tree-name").allTextContents(),
     ["localhost", "Builder", "offline-cloud"],
   );
+  const statusTypography = await page
+    .locator(".machine-status")
+    .first()
+    .evaluate((element) => ({
+      family: getComputedStyle(element).fontFamily,
+      size: getComputedStyle(element).fontSize,
+      rowFamily: getComputedStyle(element.parentElement.querySelector(".tree-name")).fontFamily,
+    }));
+  assert.equal(statusTypography.family, statusTypography.rowFamily);
+  assert.equal(statusTypography.size, "11px");
   await capture("machines");
   await page.getByRole("button", { name: "Actions for Builder", exact: true }).click();
   await expect(page.getByRole("menuitem", { name: "New Claude Code", exact: true })).toBeVisible();
@@ -244,6 +254,12 @@ process.stdin.on('data',bytes=>frames.push(bytes,message=>{
   assert.equal(await prepare.getAttribute("aria-haspopup"), null);
   await capture("prepare-single");
   await prepare.click();
+  const shared = () =>
+    page.getByRole("menuitem", { name: "Click again for multiple agents here", exact: true });
+  await expect(shared()).toBeVisible();
+  // The existing shared-checkout warning requires an interval before its second click.
+  await page.waitForTimeout(310);
+  await shared().click();
   const preparedRows = async () =>
     page.evaluate(async () =>
       (await window.desktop.workspace()).terminals.filter(
@@ -314,10 +330,13 @@ process.stdin.on('data',bytes=>frames.push(bytes,message=>{
   await expect(prepareChoices).toBeVisible();
   assert.deepEqual(
     await prepareChoices.getByRole("menuitem").allTextContents(),
-    hostLabels.slice(1, 3),
+    hostLabels.slice(1, 3).map((label) => label.replace(/^New /, "")),
   );
   await capture("prepare-agents");
-  await prepareChoices.getByRole("menuitem", { name: "New Codex", exact: true }).click();
+  await prepareChoices.getByRole("menuitem", { name: "Codex", exact: true }).click();
+  await expect(shared()).toBeVisible();
+  await page.waitForTimeout(310);
+  await shared().click();
   await expect.poll(async () => (await preparedRows()).length).toBe(3);
   assert.equal((await preparedRows()).at(-1).agent, "codex");
   await refreshAgents("none");

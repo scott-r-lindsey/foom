@@ -1995,6 +1995,9 @@ button.failure-mark {
 .machine-row[data-unavailable="true"] {
   color: var(--muted);
 }
+.machine-status {
+  font: 11px var(--font-mono);
+}
 .machine-sessions .board-row {
   margin-left: 18px;
 }

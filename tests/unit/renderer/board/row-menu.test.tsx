@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import type { ArmedConfirmation } from "../../../../src/shared/confirmation";
 import { RowMenu } from "../../../../src/renderer/board/row-menu";
 afterEach(cleanup);
 test("menu uses untransformed dimensions to fit the viewport, navigates and restores focus on Escape", () => {
@@ -252,6 +253,53 @@ test("pointer pinning leaves focus to the pressed launcher while keyboard pinnin
   view.rerender(<RowMenu {...props} panel={panel} />);
   view.rerender(<RowMenu {...props} panel={{ ...panel, pinned: true }} />);
   expect(document.activeElement).toBe(view.getByRole("menuitem", { name: "Agent" }));
+  view.unmount();
+  anchor.remove();
+});
+
+test("nested menu actions retain the shared-agent confirmation until accepted", async () => {
+  const listeners = new Set<(arm: ArmedConfirmation | null, accepted?: boolean) => void>();
+  const operation = Promise.withResolvers<undefined>();
+  const confirm = vi.fn(() => {
+    operation.resolve(undefined);
+    return Promise.resolve();
+  });
+  const confirmations = {
+    subscribe(callback: Parameters<typeof listeners.add>[0]) {
+      listeners.add(callback);
+      return () => {
+        listeners.delete(callback);
+      };
+    },
+    confirm,
+    cancel: vi.fn(() => Promise.resolve()),
+  };
+  const anchor = document.createElement("button");
+  document.body.append(anchor);
+  const close = vi.fn();
+  const run = vi.fn(() => operation.promise);
+  const view = render(
+    <RowMenu
+      anchor={anchor}
+      close={close}
+      confirmations={confirmations}
+      actions={[{ label: "Prepare", run: () => {}, submenu: [{ label: "Codex", run }] }]}
+    />,
+  );
+  fireEvent.click(view.getByRole("menuitem", { name: "Prepare" }));
+  fireEvent.click(view.getByRole("menuitem", { name: "Codex" }));
+  const arm = { nonce: "n", target: "repo", label: "Click again for multiple agents here" };
+  act(() => {
+    for (const receive of listeners) receive(arm);
+  });
+  expect(close).not.toHaveBeenCalled();
+  fireEvent.click(view.getByRole("menuitem", { name: arm.label }));
+  expect(confirm).toHaveBeenCalledExactlyOnceWith(arm);
+  await act(async () => {
+    await operation.promise;
+  });
+  expect(run).toHaveBeenCalledOnce();
+  expect(close).toHaveBeenCalledOnce();
   view.unmount();
   anchor.remove();
 });

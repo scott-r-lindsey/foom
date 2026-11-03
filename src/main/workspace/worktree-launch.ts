@@ -317,10 +317,12 @@ export async function startMachine(
   location?: Pick<WorkspaceTerminal, "repository" | "worktree" | "branch">,
   conversation?: string,
   prompt?: string,
-): Promise<string> {
+  confirm?: ConfirmWorkspace,
+): Promise<string | undefined> {
+  let reservation: string | undefined;
   if (prompt !== undefined && (host === null || run === "shell" || !location))
     throw new Error("Preparation requires a remote repository agent");
-  const perform = async (): Promise<string> => {
+  const perform = async (): Promise<string | undefined> => {
     const ensureOpen = () => {
       if (this.closed) throw new Error("Workspace is closed");
       if (this.enabled[run] === false) throw new LaunchFailure("agent_disabled");
@@ -395,6 +397,28 @@ export async function startMachine(
       const installation = scan.agents.find((agent) => agent.id === run);
       if (!installation?.path) throw new LaunchFailure("agent_unavailable");
       command = installation.path;
+    }
+    // startExisting already holds the linked-checkout lock and confirmation.
+    // Direct human launches supply confirm; main clones always require this gate.
+    if (
+      run !== "shell" &&
+      trackedLocation &&
+      (confirm || trackedLocation.branch === "Main checkout")
+    ) {
+      const key =
+        trackedLocation.branch === "Main checkout"
+          ? `remote-main\0${trackedLocation.worktree}`
+          : `${trackedLocation.repository}\0:remote:${trackedLocation.worktree}`;
+      if (this.busyWorktrees.has(key)) throw new Error("This worktree is busy");
+      this.busyWorktrees.add(key);
+      reservation = key;
+      if (
+        !(await this.confirmAgentLaunch(
+          trackedLocation.worktree,
+          confirm ?? (() => Promise.resolve(false)),
+        ))
+      )
+        return;
     }
     if (location && !remote)
       await this.deps.worktrees.launchIdentity(location.repository, location.worktree);
@@ -485,7 +509,11 @@ export async function startMachine(
       throw error;
     }
   };
-  return await (location ? this.withRepository(location.repository, perform) : perform());
+  try {
+    return await (location ? this.withRepository(location.repository, perform) : perform());
+  } finally {
+    if (reservation !== undefined) this.busyWorktrees.delete(reservation);
+  }
 }
 
 export async function startHomeShell(

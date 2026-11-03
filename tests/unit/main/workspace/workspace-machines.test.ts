@@ -307,3 +307,141 @@ test("failed replacement of a machine agent retains its dormant session for retr
     exited: true,
   });
 });
+
+function remoteMainFixture() {
+  deps.hosts = {
+    fleet: vi.fn(),
+    registered: vi.fn((host: string) => ({ host, codeFolder: "/code" })),
+    requireAgent: vi.fn(),
+    worktree: vi.fn(),
+    shellTarget: vi.fn((host: string): RemoteTarget => ({ host, human: true })),
+    repositoryTarget: vi.fn(
+      (host: string): Promise<RemoteTarget> =>
+        Promise.resolve({
+          host,
+          human: true,
+          machine: {
+            codeFolder: "/code",
+            repository: { directory: "repository-clone", origin: "git@fixture.test:team/repo.git" },
+          },
+        }),
+    ),
+  };
+  const create = vi.spyOn(deps.terminals, "create");
+  let sequence = 0;
+  create.mockImplementation(() => Promise.resolve(`remote-${String(++sequence)}`));
+  return { workspace: new Workspace(deps), create };
+}
+
+test.each(["repository-launch", "repository-prepare"] as const)(
+  "%s confirms sharing a remote main checkout before creating another PTY",
+  async (kind) => {
+    const { repo } = await import("./workspace-fixture");
+    const { workspace, create } = remoteMainFixture();
+    const command = { kind, repository: repo.path, host: "dozer", run: "claude" } as const;
+    await workspace.sidebarCommand(command, () => Promise.resolve(true));
+    const deny = vi.fn(() => Promise.resolve(false));
+    expect(await workspace.sidebarCommand(command, deny)).toBeUndefined();
+    expect(deny).toHaveBeenCalledExactlyOnceWith({ kind: "shared-agent" });
+    expect(create).toHaveBeenCalledTimes(1);
+    await workspace.sidebarCommand(command, () => Promise.resolve(true));
+    expect(create).toHaveBeenCalledTimes(2);
+  },
+);
+
+test("remote main-checkout shells restart on their host without local identity validation", async () => {
+  const { repo } = await import("./workspace-fixture");
+  const { workspace, create } = remoteMainFixture();
+  await workspace.sidebarCommand(
+    { kind: "repository-launch", repository: repo.path, host: "dozer", run: "claude" },
+    () => Promise.resolve(true),
+  );
+  const worktree = workspace.snapshot().terminals[0]?.worktree;
+  if (!worktree) throw new Error("Missing remote checkout");
+  await workspace.sidebarCommand(
+    { kind: "launch", repository: repo.path, worktree, run: "shell" },
+    () => Promise.resolve(true),
+  );
+  await workspace.exited("remote-2", 0);
+  const identity = vi.spyOn(deps.worktrees, "launchIdentity");
+  identity.mockRejectedValue(new Error("Synthetic path is not local"));
+  await workspace.sidebarCommand({ kind: "restart", id: "remote-2" }, () => Promise.resolve(true));
+  expect(identity).not.toHaveBeenCalled();
+  expect(create).toHaveBeenCalledTimes(3);
+  expect(create.mock.calls[2]?.[0].remote).toMatchObject({
+    host: "dozer",
+    machine: { repository: { directory: "repository-clone" } },
+  });
+  expect(workspace.snapshot().terminals.map((row) => row.id)).toEqual(["remote-1", "remote-3"]);
+});
+
+test("remote main-checkout launch locks cover confirmation and spawn and release after failure", async () => {
+  const { repo } = await import("./workspace-fixture");
+  const { workspace, create } = remoteMainFixture();
+  const command = {
+    kind: "repository-launch",
+    repository: repo.path,
+    host: "dozer",
+    run: "claude",
+  } as const;
+  const spawning = Promise.withResolvers<string>();
+  const entered = Promise.withResolvers<undefined>();
+  create.mockImplementationOnce(() => {
+    entered.resolve(undefined);
+    return spawning.promise;
+  });
+  const first = workspace.sidebarCommand(command, () => Promise.resolve(true));
+  await entered.promise;
+  await expect(workspace.sidebarCommand(command, () => Promise.resolve(true))).rejects.toThrow(
+    "busy",
+  );
+  spawning.reject(new Error("spawn failed"));
+  await expect(first).rejects.toThrow("spawn failed");
+  await workspace.sidebarCommand(command, () => Promise.resolve(true));
+  const confirming = Promise.withResolvers<boolean>();
+  const asked = Promise.withResolvers<undefined>();
+  const second = workspace.sidebarCommand(command, () => {
+    asked.resolve(undefined);
+    return confirming.promise;
+  });
+  await asked.promise;
+  await expect(workspace.sidebarCommand(command, () => Promise.resolve(true))).rejects.toThrow(
+    "busy",
+  );
+  confirming.resolve(false);
+  expect(await second).toBeUndefined();
+  await workspace.sidebarCommand(command, () => Promise.resolve(true));
+  expect(create).toHaveBeenCalledTimes(3);
+});
+
+test("remote main-checkout sharing guards panel launches and replacements without mixing hosts or exited agents", async () => {
+  const { repo } = await import("./workspace-fixture");
+  const { workspace, create } = remoteMainFixture();
+  const command = {
+    kind: "repository-launch",
+    repository: repo.path,
+    host: "dozer",
+    run: "claude",
+  } as const;
+  await workspace.sidebarCommand(command, () => Promise.resolve(true));
+  const worktree = workspace.snapshot().terminals[0]?.worktree;
+  if (!worktree) throw new Error("Missing remote checkout");
+  const deny = vi.fn(() => Promise.resolve(false));
+  await workspace.sidebarCommand(
+    { kind: "launch", repository: repo.path, worktree, run: "claude" },
+    deny,
+  );
+  expect(create).toHaveBeenCalledTimes(1);
+  await workspace.sidebarCommand({ ...command, host: "other" }, deny);
+  expect(deny).toHaveBeenCalledTimes(1);
+  await workspace.sidebarCommand(command, () => Promise.resolve(true));
+  await workspace.exited("remote-1", 0);
+  await workspace.sidebarCommand({ kind: "new-conversation", id: "remote-1" }, deny);
+  expect(deny).toHaveBeenCalledTimes(2);
+  expect(vi.spyOn(deps.terminals, "kill")).not.toHaveBeenCalled();
+  await workspace.exited("remote-3", 0);
+  await workspace.sidebarCommand({ ...command, run: "shell" }, deny);
+  await workspace.sidebarCommand(command, deny);
+  expect(deny).toHaveBeenCalledTimes(2);
+  expect(create).toHaveBeenCalledTimes(5);
+});
