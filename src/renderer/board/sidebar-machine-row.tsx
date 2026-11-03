@@ -68,6 +68,10 @@ export function SidebarMachineRow({
         <RowMenu
           anchor={anchor}
           label={`Actions for ${machine.name}`}
+          onAction={(action) => {
+            setAnchor(undefined);
+            void action.run();
+          }}
           actions={[
             {
               label: "New shell",

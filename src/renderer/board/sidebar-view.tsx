@@ -536,7 +536,7 @@ export function Sidebar(props: SidebarProps) {
                                         },
                                       ]
                                     : [
-                                        ...launchers(target),
+                                        ...launchers(target, worktree.host),
                                         {
                                           label: "Resume conversation…",
                                           expanded: menu?.id === wid && fieldOpen,

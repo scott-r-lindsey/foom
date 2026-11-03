@@ -518,7 +518,12 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
       (row) => row.id === launched.resultId,
     );
     assert.ok(row.branch.includes("fleet-worker"));
-    await expect(page.getByText(row.branch, { exact: true }).first()).toBeVisible();
+    await expect(
+      page
+        .locator(".worktree-row")
+        .filter({ hasText: row.branch.replace(" · fleet-worker", "") })
+        .getByLabel("Host: fleet-worker"),
+    ).toBeVisible();
     if (!reviewLoop && agent === agents[0])
       await copyRemoteBranch(
         app,

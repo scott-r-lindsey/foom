@@ -115,7 +115,10 @@ process.stdin.on('data',bytes=>frames.push(bytes,message=>{
       await expect
         .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
         .toBe(mode === "dark");
-      await page.screenshot({ path: evidencePath(`1024/${name}-${mode}.png`) });
+      await page.screenshot({
+        path: evidencePath(`1024/${name}-${mode}.png`),
+        animations: "disabled",
+      });
     }
   };
   await expect(page.getByRole("group", { name: "Machines" })).toHaveCount(0);
@@ -150,6 +153,9 @@ process.stdin.on('data',bytes=>frames.push(bytes,message=>{
       ),
     )
     .toBe(1);
+  await expect(
+    page.getByRole("menu", { name: "Actions for fixture-cloud", exact: true }),
+  ).toHaveCount(0);
   await page.getByRole("button", { name: "Actions for fixture-cloud", exact: true }).click();
   await page.getByRole("menuitem", { name: "New Claude Code", exact: true }).click();
   await expect
@@ -221,7 +227,13 @@ process.stdin.on('data',bytes=>frames.push(bytes,message=>{
   ).toBeVisible();
   await capture("worktree-tile-chip");
   await writeFile(offline, "offline");
-  await page.evaluate(() => window.desktop.hosts({ action: "refresh", host: "fixture-cloud" }));
+  await page.evaluate(() =>
+    window.desktop.hosts({
+      action: "preflight",
+      host: "fixture-cloud",
+      codeFolder: "/remote/code",
+    }),
+  );
   await expect(remoteWorktree.getByLabel("fixture-cloud · Unavailable")).toBeVisible();
   await capture("unavailable-chip");
   await assertAccessible(page);

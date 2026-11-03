@@ -184,6 +184,13 @@ test("window focus refreshes external workspace inventory", async () => {
   expect(mock.workspace.refresh).toHaveBeenCalledOnce();
 });
 
+test("completed host checks refresh workspace inventory immediately", async () => {
+  await start();
+  mock.workspace.refresh.mockClear();
+  mock.setup.deps?.hostsChanged?.();
+  expect(mock.workspace.refresh).toHaveBeenCalledOnce();
+});
+
 test("new windows share one workspace and route reservations, focus and popout independently", async () => {
   await start();
   await newWindow();

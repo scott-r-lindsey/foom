@@ -230,7 +230,7 @@ export function SidebarSessionRow({
               <span aria-hidden="true">⊘</span> Worktree removed
             </span>
           )}
-          {row.kind !== "shell" && (
+          {row.kind !== "shell" && (!row.unavailable || row.reason !== "Unavailable") && (
             <span className="board-reason" title={row.reason}>
               <Highlight text={row.reason} filter={filter} />
             </span>

@@ -273,9 +273,21 @@ export function useSidebar(props: SidebarProps) {
       }),
     [source, save, preferences, setCollapsed, narrow, setOverlay],
   );
-  const launchers = (location: SidebarLocation) =>
-    launcherActions(options, source.shellName?.()).map((action) => ({
+  const launchers = (location: SidebarLocation, host?: string) => {
+    const machine = source.getMachines?.().find((machine) => machine.host === host);
+    const actions = host
+      ? [
+          ...(machine?.agents ?? []).map((agent) => ({
+            label: agent.name,
+            badge: agentBadges.get(agent.id) ?? agent.id,
+            run: agent.id,
+          })),
+          { label: "Shell", badge: ">_", run: "shell" },
+        ]
+      : launcherActions(options, source.shellName?.());
+    return actions.map((action) => ({
       ...action,
+      ...(host ? { disabled: !machine?.available } : {}),
       run: () => {
         return command({
           kind: "launch",
@@ -285,6 +297,7 @@ export function useSidebar(props: SidebarProps) {
         });
       },
     }));
+  };
   const subjects = new Map<
     string,
     { subject: PanelSubject; name: string; kind: string; mark: string }

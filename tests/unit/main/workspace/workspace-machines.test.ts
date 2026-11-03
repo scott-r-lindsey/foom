@@ -22,7 +22,27 @@ test("machine rows are absent without hosts and follow settings order after loca
     },
     { host: "offline", result: { ok: false, reason: "unreachable" } },
   ]);
-  deps.hosts = { fleet, registered: vi.fn(), requireAgent: vi.fn(), worktree: vi.fn() };
+  deps.hosts = {
+    fleet,
+    registered: vi.fn(),
+    requireAgent: vi.fn(),
+    worktree: vi.fn(),
+    locationsForSidebar: vi.fn().mockResolvedValue({
+      locations: [
+        {
+          host: "user@dozer.local",
+          repository: "/repo",
+          result: { ok: true, checkout: { state: "clean" } },
+        },
+        {
+          host: "user@dozer.local",
+          repository: "/absent",
+          result: { ok: true, checkout: { state: "absent" } },
+        },
+        { host: "offline", repository: "/failed", result: { ok: false } },
+      ],
+    }),
+  };
   const inventory = await new Workspace(deps).sidebarInventory();
   expect(inventory.machines).toEqual([
     {
@@ -35,7 +55,7 @@ test("machine rows are absent without hosts and follow settings order after loca
       host: "user@dozer.local",
       name: "dozer",
       available: true,
-      repositories: [],
+      repositories: ["/repo"],
       agents: [{ id: "codex", name: "Codex" }],
     },
     { host: "offline", name: "offline", available: false, repositories: [], agents: [] },
