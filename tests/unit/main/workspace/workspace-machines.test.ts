@@ -2,7 +2,7 @@ import type { RemoteTarget } from "../../../../src/shared/remote-host";
 import { expect, test, vi } from "vitest";
 import { Workspace } from "../../../../src/main/workspace/workspace";
 import { machineHostName } from "../../../../src/main/workspace/sidebar-commands";
-import { agents, deps } from "./workspace-fixture";
+import { agents, bound, deps } from "./workspace-fixture";
 import { repositoryPreparationPrompt } from "../../../../src/shared/repository-preparation";
 
 test("machine rows are absent without hosts and follow settings order after localhost", async () => {
@@ -153,6 +153,40 @@ test("machine shells restart on their selected machine and local agents resume t
   await workspace.exited("t1", 0);
   await workspace.sidebarCommand({ kind: "restart", id: "t1" }, () => Promise.resolve(true));
   expect(vi.spyOn(deps.terminals, "create")).toHaveBeenCalledTimes(2);
+});
+
+test("resuming a local machine agent preserves its conversation without another hook", async () => {
+  const save = vi.fn(() => Promise.resolve());
+  deps.sessions = { load: () => Promise.resolve([]), save, flush: () => Promise.resolve() };
+  const workspace = new Workspace(deps);
+  await workspace.sidebarCommand({ kind: "machine-launch", host: null, run: "claude" }, () =>
+    Promise.resolve(true),
+  );
+  await workspace.hook({
+    terminalId: await bound(),
+    action: "needs_input",
+    signal: "plugin:claude:PermissionRequest",
+    conversationId: "saved-conversation",
+  });
+  await workspace.exited("t1", 0);
+  // Resumed v2 launches return no conversation ID; only new conversations generate one.
+  agents.launch.mockResolvedValue({ id: "t1", attention: "evaluator" });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await workspace.sidebarCommand({ kind: "resume", id: "t1" }, () => Promise.resolve(true));
+    expect(agents.launch).toHaveBeenLastCalledWith(
+      expect.objectContaining({ terminalId: "t1", conversationId: "saved-conversation" }),
+    );
+    expect(workspace.snapshot().terminals[0]).toMatchObject({
+      id: "t1",
+      conversationId: "saved-conversation",
+      exited: false,
+    });
+    expect(save).toHaveBeenLastCalledWith([
+      expect.objectContaining({ id: "t1", conversationId: "saved-conversation", running: true }),
+    ]);
+    await workspace.exited("t1", 0);
+  }
+  await workspace.dispose();
 });
 
 test("disabled agents, missing hosts and failed remote readiness create no terminal", async () => {

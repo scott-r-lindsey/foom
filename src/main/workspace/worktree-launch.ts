@@ -475,6 +475,7 @@ export async function startMachine(
           ...(remote ? { remote } : {}),
           ...(run === "shell" ? { shellIntegration: true } : {}),
         }));
+      const conversationId = agentResult?.conversationId ?? conversation;
       this.launched.set(id, {
         ...this.replacementVersion(restoreId),
         id,
@@ -485,7 +486,7 @@ export async function startMachine(
         branch: null,
         ...(trackedLocation ?? { home: true, machine: true }),
         attention: agentResult?.attention ?? "evaluator",
-        ...(agentResult?.conversationId ? { conversationId: agentResult.conversationId } : {}),
+        ...(conversationId ? { conversationId } : {}),
         state: null,
         placement: remote ? { kind: "remote", host: remote.host } : { kind: "local" },
         ...(remote ? { remote: true } : {}),
