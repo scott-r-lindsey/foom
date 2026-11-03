@@ -342,15 +342,6 @@ function Checklist({
               ) : undefined
             }
           />
-          {repo.checkout.ok &&
-            repo.checkout.checkout?.build?.map((fact) => (
-              <Row
-                key={fact.tool}
-                name={fact.tool === "node" ? "Node" : fact.tool}
-                tone="neutral"
-                text={`${fact.version ?? "Unavailable"} · requires ${fact.required}`}
-              />
-            ))}
         </Fragment>
       ))}
       {mac && (

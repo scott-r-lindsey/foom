@@ -476,25 +476,3 @@ test("origin trust selects only SSH targets and preserves explicit ports without
   ])
     expect(remoteRequest({ ...request, ...patch })).toBe(false);
 });
-test("build facts have a closed bounded response schema", () => {
-  const result = {
-    ok: true,
-    facts,
-    checkout: {
-      path: "/code/repo",
-      state: "clean",
-      build: [{ tool: "node", required: ">=24", version: "22.18.0" }],
-    },
-  };
-  expect(hostResult(result)).toBe(true);
-  for (const build of [
-    null,
-    [null],
-    [{ tool: "bad", required: "24" }],
-    [{ tool: "node", required: "24", raw: "secret" }],
-    [{ tool: "node", required: "\nsecret" }],
-    [{ tool: "node", required: "24", version: "secret" }],
-    Array(3).fill({ tool: "node", required: "24" }),
-  ])
-    expect(hostResult({ ...result, checkout: { ...result.checkout, build } })).toBe(false);
-});

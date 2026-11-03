@@ -159,6 +159,23 @@
     "minimumEngineVersion": 1,
     "rules": [
       {
+        "id": "hooks_review",
+        "state": "blocked",
+        "priority": 1100,
+        "region": "bottom",
+        "lines": 12,
+        "match": {
+          "contains": [
+            "Hooks need review",
+            "Trust all and continue",
+            "Continue without trusting",
+            "enter confirm"
+          ]
+        },
+        "reason": "Approval requested",
+        "comment": "Captured Codex hook trust screen before lifecycle observers can run; requires the review heading, choices and confirmation footer (#1025)."
+      },
+      {
         "id": "provider_capacity",
         "state": "blocked",
         "priority": 1000,

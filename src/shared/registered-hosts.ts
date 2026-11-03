@@ -370,21 +370,7 @@ export function hostResult(value: unknown): value is HostResult {
     ) &&
     (checkout === undefined ||
       (record(checkout) &&
-        keys(checkout, ["path", "state", "build"]) &&
-        (checkout["build"] === undefined ||
-          (Array.isArray(checkout["build"]) &&
-            checkout["build"].length <= 2 &&
-            checkout["build"].every(
-              (fact: unknown) =>
-                record(fact) &&
-                keys(fact, ["tool", "required", "version"]) &&
-                closed(fact["tool"], ["node", "npm", "pnpm", "yarn", "bun"]) &&
-                typeof fact["required"] === "string" &&
-                /^[a-zA-Z0-9.*+^~|<>= .-]{1,128}$/u.test(fact["required"]) &&
-                (fact["version"] === undefined ||
-                  (typeof fact["version"] === "string" &&
-                    /^[0-9][a-zA-Z0-9.+-]{0,63}$/u.test(fact["version"]))),
-            ))) &&
+        keys(checkout, ["path", "state"]) &&
         remotePath(checkout["path"]) &&
         typeof checkout["state"] === "string" &&
         ["clean", "changed", "absent"].includes(checkout["state"])))

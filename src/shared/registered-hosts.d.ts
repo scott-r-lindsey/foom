@@ -45,11 +45,6 @@ export interface HostConnectionChecks {
   platform: HostCheck;
   artifact: HostCheck;
 }
-export interface HostBuildFact {
-  tool: "node" | "npm" | "pnpm" | "yarn" | "bun";
-  required: string;
-  version?: string;
-}
 export interface HostPreflight extends HostConnectionChecks {
   result: HostResult;
   repositories: readonly { repository: string; origin: HostCheck; checkout: HostResult }[];
@@ -100,11 +95,7 @@ export type HostResult = { connection?: HostConnectionChecks } & (
   | {
       ok: true;
       facts: HostFacts;
-      checkout?: {
-        path: string;
-        state: "clean" | "changed" | "absent";
-        build?: readonly HostBuildFact[];
-      };
+      checkout?: { path: string; state: "clean" | "changed" | "absent" };
       inventory?: { own: readonly RemoteWorktree[]; other: number };
       worktree?: {
         path: string;

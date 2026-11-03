@@ -125,7 +125,7 @@ process.stdin.on('data', bytes => {
    result={ok:true,facts:{folder:{state:'pass'},codeFolder:folder,version:${JSON.stringify(manifest.version)},sessions:2,cores:8,load:[0.42,0.31,0.25],memoryTotal:17179869184,memoryAvailable:11811160064,requirements:{distro:'debian',libc:'supported',packageManager:'apt'},tools:[{id:'git',state:'missing',signIn:'unknown'},{id:'gh',state:'ready',signIn:'signed-out'}],agents:[{id:'claude',state:'ready'},{id:'codex',state:'missing'},{id:'agy',state:'unable'}]}};
    if(message.operation==='repository' || message.operation==='clone') result.checkout={path:folder+'/'+message.directory,state:message.operation==='clone'?'clean':'absent'};
   }
-  if(result.ok) { if(settings.facts) Object.assign(result.facts,settings.facts); if(message.operation==='origin' && settings.origin) result={ok:false,reason:settings.origin}; if(message.operation==='repository' && settings.checkout && result.ok) { result.checkout.state=settings.checkout; if(settings.build) result.checkout.build=settings.build; } }
+  if(result.ok) { if(settings.facts) Object.assign(result.facts,settings.facts); if(message.operation==='origin' && settings.origin) result={ok:false,reason:settings.origin}; if(message.operation==='repository' && settings.checkout && result.ok) { result.checkout.state=settings.checkout; } }
   if(host==='invalid-cloud') result={ok:true,facts:{}};
   const failures={'provider-cloud':'provider-invalid','configuration-cloud':'configuration-changed','cancelled-cloud':'cancelled'};
   if(failures[host]) result={ok:false,reason:failures[host]};
@@ -289,16 +289,10 @@ process.stdin.on('data', bytes => {
     },
     checkout: "clean",
   };
-  ready.build = [
-    { tool: "node", required: "^24.0.0", version: "22.18.0" },
-    { tool: "pnpm", required: "10.34.7" },
-  ];
   await updateScenario(ready);
   await card.getByRole("button", { name: "Check again", exact: true }).click();
   await expect(card.getByText("Ready · 1 repository", { exact: true })).toBeVisible();
-  await expect(card.getByText("22.18.0 · requires ^24.0.0", { exact: true })).toBeVisible();
-  await expect(card.getByText("Unavailable · requires 10.34.7", { exact: true })).toBeVisible();
-  await capture("ready-build-requirements");
+  await capture("ready");
   await page.evaluate(() =>
     window.desktop.saveSetup({
       agents: { claude: true, codex: true, agy: false, copilot: false, opencode: true, pi: true },

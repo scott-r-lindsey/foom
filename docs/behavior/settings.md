@@ -309,8 +309,10 @@ access fixes remain user-run instructions. Ready means the host checks and Git
 pass with at least one installed agent; optional missing agents, gh sign-in and
 absent checkouts stay neutral. The summary counts existing repositories.
 Clone here shows Cloning… in its row, then the result or fixed failure reason.
-Checkouts may show their own declared Node/package-manager requirements beside
-host version observations. Codex hook trust is not inferred from installation or
+Host checks are language neutral and never execute anything from a checkout.
+Preparing a host to build a repository is left to an agent the user runs on that
+host ([#1024](https://github.com/scott-r-lindsey/foom/issues/1024)).
+Codex hook trust is not inferred from installation or
 sign-in; the first launch may need hook review in Codex's tile.
 
 Remove forgets the host without stopping sessions. Host facts contains daemon

@@ -1225,3 +1225,25 @@ test("Trust host key re-reads registered origin and launches a human tile with n
   ).toBe("recipe-unavailable");
   expect(launch).toHaveBeenCalledTimes(1);
 });
+
+test("session metadata can read cached fleet observations without waiting for stale or unavailable SSH", async () => {
+  settings = { ...settings, registeredHosts: [{ host: "worker", codeFolder: facts.codeFolder }] };
+  expect(await hosts.fleet(false)).toEqual([
+    { host: "worker", result: { ok: false, reason: "facts-unavailable" } },
+  ]);
+  expect(run).not.toHaveBeenCalled();
+  const cached = await hosts.inventory("worker");
+  run.mockClear();
+  settings = { ...settings, agents: { ...settings.agents, codex: false } };
+  expect(await hosts.fleet(false)).toEqual([{ host: "worker", result: cached }]);
+  expect(run).not.toHaveBeenCalled();
+  run.mockResolvedValueOnce({ ok: false, reason: "unreachable" });
+  await hosts.fleet();
+  run.mockClear();
+  expect(await hosts.fleet(false)).toEqual([
+    { host: "worker", result: { ok: false, reason: "unreachable" } },
+  ]);
+  expect(run).not.toHaveBeenCalled();
+  settings = { ...settings, registeredHosts: [] };
+  expect(await hosts.fleet(false)).toEqual([]);
+});

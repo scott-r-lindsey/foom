@@ -481,10 +481,6 @@ const validHostFacts: Validator<HostFacts> = copying(
     value.agents.length <= 100,
   (value) => project(hostFactsShape, value),
 );
-const hostBuildRequired: Validator<string> = (value): value is string =>
-  typeof value === "string" && /^[a-zA-Z0-9.*+^~|<>= .-]{1,128}$/u.test(value);
-const hostBuildVersion: Validator<string> = (value): value is string =>
-  typeof value === "string" && /^[0-9][a-zA-Z0-9.+-]{0,63}$/u.test(value);
 const validHostResult: Validator<HostResult> = either(
   shape({
     ok: literal(false),
@@ -497,20 +493,7 @@ const validHostResult: Validator<HostResult> = either(
     facts: validHostFacts,
     checkout: either(
       absent,
-      shape({
-        path: hostFolder,
-        state: literal("clean", "changed", "absent"),
-        build: either(
-          absent,
-          array(
-            shape({
-              tool: literal("node", "npm", "pnpm", "yarn", "bun"),
-              required: hostBuildRequired,
-              version: either(absent, hostBuildVersion),
-            }),
-          ),
-        ),
-      }),
+      shape({ path: hostFolder, state: literal("clean", "changed", "absent") }),
     ),
   }),
 );

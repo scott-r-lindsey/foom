@@ -720,7 +720,7 @@ test("usable hosts keep optional missing agents, sign-in and checkouts neutral",
   );
   expect(screen.getByRole("button", { name: "Install pi" })).toBeTruthy();
 });
-test("host-key fix identifies only the repository; declared build facts are neutral", async () => {
+test("host-key fix identifies only the repository", async () => {
   const state: HostsState = {
     ...initial,
     preflight: {
@@ -734,10 +734,6 @@ test("host-key fix identifies only the repository; declared build facts are neut
             checkout: {
               path: "/remote/project",
               state: "clean",
-              build: [
-                { tool: "node", required: ">=24", version: "22.18.0" },
-                { tool: "pnpm", required: "10.34.7" },
-              ],
             },
           },
         },
@@ -745,8 +741,6 @@ test("host-key fix identifies only the repository; declared build facts are neut
     },
   };
   const { api } = mount(state);
-  await screen.findByText("22.18.0 · requires >=24");
-  expect(screen.getByText("Unavailable · requires 10.34.7")).toBeTruthy();
   await waitFor(() => {
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "Trust host key" }).disabled).toBe(
       false,
