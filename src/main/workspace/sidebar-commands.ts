@@ -422,7 +422,7 @@ export async function sidebarCommand(
             worktree: entry.branch === "Main checkout" ? entry.repository : entry.worktree,
             branch: entry.branch,
           },
-          undefined,
+          replacement.conversationId,
           undefined,
           confirm,
         );

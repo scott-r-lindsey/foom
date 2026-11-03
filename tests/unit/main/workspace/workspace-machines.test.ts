@@ -1,8 +1,14 @@
+import { locationId } from "../../../../src/main/control/metadata";
+import { Hosts } from "../../../../src/main/setup/hosts";
+import { DEFAULT_SETTINGS } from "../../../../src/main/setup/settings";
+import * as remoteTransport from "../../../../src/main/terminals/remote-transport";
+import { discoverRemoteSessions } from "../../../../src/main/workspace/remote-session-restore";
+import { readSessions } from "../../../../src/main/workspace/session-store";
 import type { RemoteTarget } from "../../../../src/shared/remote-host";
 import { expect, test, vi } from "vitest";
 import { Workspace } from "../../../../src/main/workspace/workspace";
 import { machineHostName } from "../../../../src/main/workspace/sidebar-commands";
-import { agents, bound, deps } from "./workspace-fixture";
+import { agents, bound, deps, tree } from "./workspace-fixture";
 import { repositoryPreparationPrompt } from "../../../../src/shared/repository-preparation";
 
 test("machine rows are absent without hosts and follow settings order after localhost", async () => {
@@ -478,4 +484,130 @@ test("remote main-checkout sharing guards panel launches and replacements withou
   await workspace.sidebarCommand(command, deny);
   expect(deny).toHaveBeenCalledTimes(2);
   expect(create).toHaveBeenCalledTimes(5);
+});
+
+function remoteLinkedFixture() {
+  const repository = "/repos/app";
+  const checkout = {
+    host: "dozer",
+    codeFolder: "/code",
+    localRepository: repository,
+    repository: "/code/repository-clone",
+    path: "/code/.foom-worktree-topic",
+    branch: "topic",
+    identity: "a".repeat(64),
+  };
+  const worktree = `/foom-remote/${locationId(JSON.stringify([checkout.host, checkout.path]))}`;
+  deps.hosts = {
+    fleet: vi.fn(),
+    registered: vi.fn(() => ({ host: checkout.host, codeFolder: checkout.codeFolder })),
+    requireAgent: vi.fn(),
+    worktree: vi.fn(() => Promise.resolve({ ...checkout, changes: "", sourceOrigin: "origin" })),
+    placement: vi.fn(() => checkout),
+    worktrees: vi.fn(() =>
+      Promise.resolve([{ ...tree, path: worktree, branch: checkout.branch, host: checkout.host }]),
+    ),
+    shellTarget: vi.fn((): RemoteTarget => ({ host: checkout.host, human: true })),
+  };
+  return { repository, worktree, branch: "topic", checkout };
+}
+
+test.each(["claude", "codex"] as const)(
+  "orphaned remote %s Resume forwards the saved conversation into the remote launch argv",
+  async (agent) => {
+    const location = remoteLinkedFixture();
+    const save = vi.fn(async () => {});
+    deps.sessions = {
+      load: () =>
+        Promise.resolve(
+          readSessions([
+            {
+              id: "t1",
+              agent,
+              repository: location.repository,
+              worktree: location.worktree,
+              branch: location.branch,
+              conversationId: "saved-conversation",
+              remote: true,
+              placement: { kind: "remote", host: "dozer" },
+              running: false,
+            },
+          ]),
+        ),
+      save,
+      flush: async () => {},
+    };
+    const workspace = new Workspace(deps);
+    await workspace.restore();
+    expect(workspace.snapshot().terminals[0]?.orchestration).toBeUndefined();
+    await workspace.sidebarCommand({ kind: "resume", id: "t1" }, () => Promise.resolve(true));
+    const create = vi.spyOn(deps.terminals, "create");
+    expect(create.mock.calls.at(-1)?.[0].remote?.machine).toMatchObject({
+      agent,
+      defaults:
+        agent === "claude" ? ["--resume", "saved-conversation"] : ["resume", "saved-conversation"],
+    });
+    expect(workspace.snapshot().terminals[0]).toMatchObject({
+      conversationId: "saved-conversation",
+      exited: false,
+    });
+    expect(save).toHaveBeenLastCalledWith([
+      expect.objectContaining({ conversationId: "saved-conversation", running: true }),
+    ]);
+    await workspace.exited("t1", 0);
+    await workspace.sidebarCommand({ kind: "new-conversation", id: "t1" }, () =>
+      Promise.resolve(true),
+    );
+    expect(create.mock.calls.at(-1)?.[0].remote?.machine?.defaults).toEqual([]);
+    expect(workspace.snapshot().terminals[0]?.conversationId).toBeUndefined();
+    await workspace.dispose();
+  },
+);
+
+test("human linked-checkout launches recover as repository agents from daemon inventory before checkout inventory is warm", async () => {
+  const location = remoteLinkedFixture();
+  const workspace = new Workspace(deps);
+  await workspace.sidebarCommand(
+    { kind: "launch", repository: location.repository, worktree: location.worktree, run: "claude" },
+    () => Promise.resolve(true),
+  );
+  const target = vi.spyOn(deps.terminals, "create").mock.calls[0]?.[0].remote;
+  if (!target?.context || !target.checkout) throw new Error("Missing remote session context");
+  const settings = {
+    ...DEFAULT_SETTINGS,
+    registeredHosts: [{ host: "dozer", codeFolder: "/code" }],
+  };
+  const inventory = vi.spyOn(remoteTransport, "remoteInventory").mockResolvedValue({
+    type: "inventory-result",
+    own: [{ id: "t1", context: target.context, checkout: target.checkout }],
+    foreign: [],
+  });
+  const hosts = new Hosts(
+    { get: () => settings, update: vi.fn() },
+    () => [{ path: location.repository, name: "app" }],
+    "0.1.0",
+    vi.fn(),
+    "a".repeat(32),
+  );
+  // A fresh host service has neither remembered local rows nor checkout inventory.
+  expect(hosts.placement(location.worktree)).toBeUndefined();
+  const recovered = await discoverRemoteSessions(hosts);
+  expect(inventory).toHaveBeenCalledOnce();
+  expect(recovered).toEqual([
+    expect.objectContaining({
+      agent: "claude",
+      kind: "agent",
+      repository: location.repository,
+      worktree: location.worktree,
+      remoteCheckout: {
+        repository: location.checkout.repository,
+        path: location.checkout.path,
+        branch: location.branch,
+        identity: location.checkout.identity,
+      },
+    }),
+  ]);
+  expect(recovered[0]?.home).toBeUndefined();
+  expect(hosts.placement(location.worktree)?.localRepository).toBe(location.repository);
+  await workspace.dispose();
 });

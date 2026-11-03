@@ -339,6 +339,7 @@ export async function startMachine(
           : ["-l"]
         : [...(this.defaultArguments[run] ?? [])];
     if (host !== null) {
+      if (conversation && run !== "shell") args.push(...resumeArguments(run, conversation));
       const registered = hosts?.registered(host);
       if (!registered || !hosts?.shellTarget) throw new LaunchFailure("remote_host_unreachable");
       if (run !== "shell") await hosts.requireAgent(host, run);
@@ -365,7 +366,7 @@ export async function startMachine(
             }
           : {}),
         context: {
-          repository: checkout?.repository ?? registered.codeFolder,
+          repository: location?.repository ?? registered.codeFolder,
           worktree: location?.worktree ?? registered.codeFolder,
           branch: location?.branch ?? null,
           agent: run,

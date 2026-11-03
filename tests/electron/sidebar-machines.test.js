@@ -286,6 +286,12 @@ process.stdin.on('data',bytes=>frames.push(bytes,message=>{
   await expect(page.locator(`[data-tile="${await preparedTile()}"]`)).toBeVisible();
   await capture("prepare-tile");
   const refreshAgents = async (choice) => {
+    // Main publishes the new row before the launch command finishes refreshing
+    // renderer inventory. Its menu closes only after that refresh completes;
+    // otherwise the older command reply can overwrite the following host check.
+    const menu = page.getByRole("menu", { name: "Actions for Builder", exact: true });
+    await expect(menu).toHaveCount(0);
+    await expect(hostMenu).toHaveAttribute("aria-expanded", "false");
     await writeFile(`${agentChoice}.next`, choice);
     await rename(`${agentChoice}.next`, agentChoice);
     const checked = await page.evaluate(() =>
@@ -295,7 +301,16 @@ process.stdin.on('data',bytes=>frames.push(bytes,message=>{
         codeFolder: "/remote/code",
       }),
     );
-    // The host check and the board's inventory projection settle independently.
+    // The bridge and the rendered menu settle independently.
+    await expect
+      .poll(() =>
+        page.evaluate(async () =>
+          (await window.desktop.sidebarInventory()).machines
+            .find((entry) => entry.host === "fixture-cloud")
+            ?.agents.map((agent) => agent.id),
+        ),
+      )
+      .toEqual(choice === "multiple" ? ["claude", "codex"] : []);
     const inventory = await page.evaluate(() => window.desktop.sidebarInventory());
     const machine = inventory.machines.find((entry) => entry.host === "fixture-cloud");
     const cached = await page.evaluate(() => window.desktop.hosts({ action: "progress" }));
@@ -316,9 +331,15 @@ process.stdin.on('data',bytes=>frames.push(bytes,message=>{
     );
     if (choice === "none")
       assert.ok(checked.preflight.result.facts.agents.every((agent) => agent.state !== "ready"));
+    await hostMenu.click();
+    await expect(menu).toBeVisible();
+    await expect(menu.getByRole("menuitem")).toHaveText(
+      choice === "multiple"
+        ? ["New shell", "New Claude Code", "New Codex", "shell-fixture"]
+        : ["New shell"],
+    );
   };
   await refreshAgents("multiple");
-  await hostMenu.click();
   await expect(page.getByRole("menuitem", { name: "New Codex", exact: true })).toBeVisible();
   const hostLabels = await page
     .getByRole("menu", { name: "Actions for Builder", exact: true })
@@ -340,7 +361,6 @@ process.stdin.on('data',bytes=>frames.push(bytes,message=>{
   await expect.poll(async () => (await preparedRows()).length).toBe(3);
   assert.equal((await preparedRows()).at(-1).agent, "codex");
   await refreshAgents("none");
-  await hostMenu.click();
   const emptyAgentMenu = page.getByRole("menu", { name: "Actions for Builder", exact: true });
   context.diagnostic(
     JSON.stringify({
