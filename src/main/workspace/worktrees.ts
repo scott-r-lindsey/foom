@@ -1,3 +1,5 @@
+import { checkRemovalRetry, RetryRefusal } from "./worktree-removal-retry";
+import type { PendingRemoval } from "./worktree-state.d";
 import { ControlError } from "../../shared/control-validation";
 import { forgeBranch } from "../control/forge";
 import { reviewRefs, unchangedReview } from "./review-worktrees";
@@ -43,8 +45,16 @@ export class WorktreeService {
   private readonly repositories = new Map<string, Repository>();
   private readonly managed = new Map<
     string,
-    { repository: string; root: string; identity: string; review?: ReviewCheckout }
+    {
+      repository: string;
+      root: string;
+      identity: string;
+      directoryIdentity?: string;
+      review?: ReviewCheckout;
+    }
   >();
+  private readonly pendingRemovals = new Map<string, PendingRemoval>();
+  private readonly retrying = new Set<string>();
   private readonly root: string;
   private readonly createdParents = new Map<string, string>();
   reviewIdentity(repository: string, path: string): string | undefined {
@@ -73,6 +83,7 @@ export class WorktreeService {
     await this.store?.save(() => ({
       version: 1,
       repositories: [...this.repositories.keys()],
+      pendingRemovals: [...this.pendingRemovals.values()],
       parents: [...this.createdParents].map(([path, identity]) => ({ path, identity })),
       managed: [...this.managed].map(([path, ownership]) => ({ path, ...ownership })),
     }));
@@ -96,7 +107,7 @@ export class WorktreeService {
       this.checkRemovalIdentity(repository, path, identity),
     mergedDefault: (repository, refresh) => this.mergedDefault(repository, refresh),
     validateBranch: (repository, branch) => this.validateBranch(repository, branch),
-    listWorktrees: (repository) => this.listWorktrees(repository),
+    listWorktrees: (repository) => this.registeredWorktrees(repository),
     changes: (repository, path, identity) => this.changes(repository, path, identity),
     forgeRemote: (repository) => this.forgeRemote(repository),
     forgeProviderFor: (repository, path, remote) => this.forgeProviderFor(repository, path, remote),
@@ -104,7 +115,7 @@ export class WorktreeService {
   });
   private readonly branchCleanup = new WorktreeBranchCleanup({
     validateBranch: (repository, branch) => this.validateBranch(repository, branch),
-    listWorktrees: (repository) => this.listWorktrees(repository),
+    listWorktrees: (repository) => this.registeredWorktrees(repository),
   });
 
   async panelFacts(repository: string, worktree: string): Promise<GitPanelFacts> {
@@ -170,7 +181,9 @@ export class WorktreeService {
         assertInside(root, path);
         if ((await realpath(path)) !== path) continue;
         if (
-          !(await this.listWorktrees(repository)).some((tree) => tree.path === path && !tree.bare)
+          !(await this.registeredWorktrees(repository)).some(
+            (tree) => tree.path === path && !tree.bare,
+          )
         )
           continue;
         if ((await worktreeIdentity(path)) !== identity) continue;
@@ -178,6 +191,7 @@ export class WorktreeService {
           repository,
           root,
           identity,
+          ...(entry.directoryIdentity ? { directoryIdentity: entry.directoryIdentity } : {}),
           ...(entry.review ? { review: entry.review } : {}),
         });
       } catch {
@@ -194,7 +208,15 @@ export class WorktreeService {
       }
     }
     this.store = store;
+    for (const entry of state.pendingRemovals ?? []) {
+      if (!this.repositories.has(entry.repository)) continue;
+      this.pendingRemovals.set(entry.path, entry);
+    }
     await this.save();
+    // Exactly one attempt per saved record during startup reconciliation.
+    for (const entry of [...this.pendingRemovals.values()]) {
+      await this.retryRemoval(entry.repository, entry.path).catch(() => undefined);
+    }
   }
 
   constructor(
@@ -251,6 +273,9 @@ export class WorktreeService {
         for (const [tree, entry] of this.managed) {
           if (entry.repository === path) this.managed.delete(tree);
         }
+        for (const [tree, entry] of this.pendingRemovals) {
+          if (entry.repository === path) this.pendingRemovals.delete(tree);
+        }
         this.repositories.delete(path);
       }
     };
@@ -271,6 +296,9 @@ export class WorktreeService {
       return {
         version: 1,
         repositories: [...repositories.keys()],
+        pendingRemovals: [...this.pendingRemovals.values()].filter(
+          (entry) => repository || entry.repository !== path,
+        ),
         parents: [...this.createdParents].map(([path, identity]) => ({ path, identity })),
         managed: [...this.managed]
           .filter(([, entry]) => repository || entry.repository !== path)
@@ -307,10 +335,10 @@ export class WorktreeService {
     return inventoryWatchPaths(await realpath(common));
   }
 
-  async listWorktrees(repositoryPath: string): Promise<readonly Worktree[]> {
+  private async registeredWorktrees(repositoryPath: string): Promise<readonly Worktree[]> {
     const repository = this.repository(repositoryPath);
     const output = await git(repository.path, ["worktree", "list", "--porcelain", "-z"]);
-    return Promise.all(
+    const trees: Worktree[] = await Promise.all(
       output
         .split("\0\0")
         .filter(Boolean)
@@ -333,6 +361,26 @@ export class WorktreeService {
           };
         }),
     );
+    return trees;
+  }
+
+  /** Presentation includes persisted failures; these rows never grant Git membership. */
+  async listWorktrees(repositoryPath: string): Promise<readonly Worktree[]> {
+    const trees = [...(await this.registeredWorktrees(repositoryPath))];
+    for (const entry of this.pendingRemovals.values()) {
+      if (entry.repository === repositoryPath && !trees.some((tree) => tree.path === entry.path))
+        trees.push({
+          path: entry.path,
+          head: null,
+          bare: false,
+          branch: null,
+          locked: false,
+          prunable: true,
+          managed: false,
+          removalFailed: true,
+        });
+    }
+    return trees;
   }
 
   private async isManaged(repository: string, path: string): Promise<boolean> {
@@ -364,7 +412,7 @@ export class WorktreeService {
   /** Main-only snapshot for an explicitly confirmed removal, including external trees. */
   async removalIdentity(repositoryPath: string, path: string): Promise<string> {
     return checkoutIdentity(
-      { listWorktrees: this.listWorktrees.bind(this), git, validatePath, realpath },
+      { listWorktrees: this.registeredWorktrees.bind(this), git, validatePath, realpath },
       repositoryPath,
       path,
       false,
@@ -374,7 +422,7 @@ export class WorktreeService {
   /** Validate any selected checkout belonging to an added repository. */
   async launchIdentity(repositoryPath: string, path: string): Promise<string> {
     return checkoutIdentity(
-      { listWorktrees: this.listWorktrees.bind(this), git, validatePath, realpath },
+      { listWorktrees: this.registeredWorktrees.bind(this), git, validatePath, realpath },
       repositoryPath,
       path,
       true,
@@ -384,7 +432,9 @@ export class WorktreeService {
   /** Prune only Git's recorded checkout; no caller-selected recursive deletion. */
   async pruneWorktree(repositoryPath: string, path: string): Promise<void> {
     this.repository(repositoryPath);
-    const tree = (await this.listWorktrees(repositoryPath)).find((entry) => entry.path === path);
+    const tree = (await this.registeredWorktrees(repositoryPath)).find(
+      (entry) => entry.path === path,
+    );
     if (!tree || !tree.prunable || tree.locked || tree.bare || path === repositoryPath)
       throw new ApplicationError("prune-unsafe");
     const checkFolder = async (): Promise<string | undefined> => {
@@ -428,7 +478,8 @@ export class WorktreeService {
   /** Broken-row cleanup never recursively deletes an uninspectable directory. */
   async cleanupBrokenWorktree(repository: string, path: string): Promise<void> {
     this.repository(repository);
-    const trees = await this.listWorktrees(repository);
+    if (this.pendingRemovals.has(path)) return this.retryRemoval(repository, path);
+    const trees = await this.registeredWorktrees(repository);
     const selected = trees.find((tree) => tree.path === path);
     if (!selected?.prunable || selected.locked || selected.bare || path === repository)
       throw new ApplicationError("prune-unsafe");
@@ -485,7 +536,9 @@ export class WorktreeService {
   ): Promise<void> {
     if ((await this.removalIdentity(repositoryPath, path)) !== identity)
       throw new RemovalError("identity_changed");
-    const tree = (await this.listWorktrees(repositoryPath)).find((item) => item.path === path);
+    const tree = (await this.registeredWorktrees(repositoryPath)).find(
+      (item) => item.path === path,
+    );
     if (tree?.branch === null) {
       const refs = await git(path, [
         "-c",
@@ -804,7 +857,7 @@ export class WorktreeService {
       ),
       git(repository.path, ["for-each-ref", "--format=%(refname)", "--", "refs/heads/"]),
       git(repository.path, ["remote"]),
-      this.listWorktrees(repository.path),
+      this.registeredWorktrees(repository.path),
     ]);
     const remote = pickRemote(remotes);
     const remoteRefs = remote
@@ -891,7 +944,7 @@ export class WorktreeService {
         managed: this.managed,
         repository: this.repository.bind(this),
         validateBranch: this.validateBranch.bind(this),
-        listWorktrees: this.listWorktrees.bind(this),
+        listWorktrees: this.registeredWorktrees.bind(this),
         save: this.save.bind(this),
       },
       repositoryPath,
@@ -932,8 +985,31 @@ export class WorktreeService {
     }
     // Callers with an approved snapshot must validate after the identity await,
     // immediately before Git. Direct callers keep Git's existing dirty policy.
+    const creation = this.managed.get(resolved);
+    const root = await realpath(this.root).catch(() => undefined);
+    if (
+      creation?.repository === repositoryPath &&
+      creation.root === root &&
+      root &&
+      resolved !== root &&
+      within(root, resolved) &&
+      creation.directoryIdentity &&
+      (await parentIdentity(resolved)) === creation.directoryIdentity
+    ) {
+      this.pendingRemovals.set(resolved, {
+        path: resolved,
+        repository: repositoryPath,
+        root,
+        directoryIdentity: creation.directoryIdentity,
+      });
+      await this.save();
+    } else {
+      console.error("Worktree removal retry refused: not-created-by-foom", resolved);
+    }
+    // Persistence awaits must precede the final identity and approved-snapshot checks.
+    await this.checkRemovalIdentity(repositoryPath, resolved, expected);
     await beforeRemove?.();
-    // Git performs its own dirty/locked checks before removing the tree.
+    // Persist before Git so a crash after unregistration cannot lose retry identity.
     await git(repository.path, [
       "worktree",
       "remove",
@@ -942,22 +1018,71 @@ export class WorktreeService {
       resolved,
     ]);
     // Git may unregister the checkout despite leaving files behind. Never delete
-    // those files ourselves, and never report that partial effect as success.
+    // those files in the initial attempt, and never report a partial effect as success.
     try {
       await lstat(resolved);
     } catch (error) {
       if (!record(error) || error["code"] !== "ENOENT") throw new IncompleteRemovalError(resolved);
       this.managed.delete(resolved);
+      this.pendingRemovals.delete(resolved);
       await this.pruneCreatedParents(repository.path, resolved);
       await this.save();
       return;
     }
     throw new IncompleteRemovalError(resolved);
   }
+  /** One attempt per explicit row action or startup reconcile; never a timer loop. */
+  async retryRemoval(repository: string, path: string): Promise<void> {
+    this.repository(repository);
+    const entry = this.pendingRemovals.get(path);
+    if (!entry || entry.repository !== repository) {
+      console.error("Worktree removal retry refused: not-created-by-foom", path);
+      throw new IncompleteRemovalError(path);
+    }
+    if (this.retrying.has(path)) {
+      console.error("Worktree removal retry refused: retry-in-progress", path);
+      throw new IncompleteRemovalError(path);
+    }
+    this.retrying.add(path);
+    try {
+      const state = await checkRemovalRetry(entry, this.root, async () => {
+        const paths: string[] = [];
+        for (const repository of this.repositories.keys()) {
+          const output = await git(repository, ["worktree", "list", "--porcelain", "-z"]);
+          if (!output) throw new Error("Missing Git worktree inventory");
+          for (const record of output.split("\0\0").filter(Boolean)) {
+            const path = record
+              .split("\0")
+              .find((field) => field.startsWith("worktree "))
+              ?.slice(9);
+            if (!path || !isAbsolute(path)) throw new Error("Invalid Git worktree record");
+            paths.push(resolve(path));
+          }
+        }
+        return paths;
+      });
+      if (state === "present") await rm(path, { recursive: true });
+      this.pendingRemovals.delete(path);
+      this.managed.delete(path);
+      await this.pruneCreatedParents(repository, path);
+      await this.save();
+    } catch (error) {
+      const reason = error instanceof RetryRefusal ? error.reason : "inspection-or-delete-failed";
+      console.error(`Worktree removal retry refused: ${reason}`, path);
+      if (reason === "re-registered") {
+        this.pendingRemovals.delete(path);
+        await this.save();
+      }
+      throw new IncompleteRemovalError(path);
+    } finally {
+      this.retrying.delete(path);
+    }
+  }
+
   private async pruneCreatedParents(repository: string, path: string): Promise<void> {
     const root = await realpath(this.root).catch(() => undefined);
     if (!root || !within(root, path)) return;
-    const trees = await this.listWorktrees(repository);
+    const trees = await this.registeredWorktrees(repository);
     for (
       let parent = dirname(path);
       parent !== root && within(root, parent);

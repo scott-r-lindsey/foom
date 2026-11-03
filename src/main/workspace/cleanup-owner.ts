@@ -19,6 +19,7 @@ export interface CleanupOwnerDependencies {
     | "removalIdentity"
     | "launchIdentity"
     | "removeWorktree"
+    | "cleanupBrokenWorktree"
     | "removeRepository"
     | "mergedDefault"
     | "mergedFetchTime"
@@ -325,6 +326,7 @@ export class CleanupOwner {
     return Promise.all(
       trees.map(async (tree) => {
         let reason: CleanupReason | undefined;
+        if (tree.removalFailed) return { tree, reason: this.sessionSkip(tree.path) };
         if (tree.path === repository || tree.bare) reason = "main checkout";
         else if (tree.host || tree.locked || tree.prunable) reason = "unavailable";
         else reason = this.sessionSkip(tree.path);
@@ -420,6 +422,21 @@ export class CleanupOwner {
           }
         },
         remove: async ({ tree, identity, changes = "" }, base) => {
+          if (tree.removalFailed) {
+            // The prior approved removal grants only the persisted identity-bound exception.
+            // Do not route an unregistered folder through Git-based removal authorization.
+            this.requireIdleWorktree(tree.path);
+            if (this.deps.terminals().some((entry) => entry.worktree === tree.path))
+              throw new KeptWorktree("unavailable");
+            const release = await this.deps.prepareWorktreeRemoval?.(tree.path);
+            try {
+              await this.deps.worktrees.cleanupBrokenWorktree(repository, tree.path);
+              await this.deps.worktreeRemoved?.(tree.path);
+            } finally {
+              release?.();
+            }
+            return;
+          }
           const readSnapshot = () =>
             tree.branch === null || changes
               ? this.deps.worktrees.cleanupChanges(repository, tree.path, identity, tree.head)

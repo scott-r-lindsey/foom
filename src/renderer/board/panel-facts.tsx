@@ -327,7 +327,13 @@ export function PanelFacts({
       )}
       {subject.kind === "worktree" && (
         <>
-          {subject.tree.prunable && <Fact label="State">Broken checkout</Fact>}
+          {subject.tree.prunable && (
+            <Fact label="State">
+              {subject.tree.removalFailed
+                ? "Removal failed — Clean up to retry"
+                : "Broken checkout"}
+            </Fact>
+          )}
           {subject.tree.pullRequest && (
             <>
               <Fact label={subject.tree.pullRequest.requestLabel ?? "Pull request"}>
