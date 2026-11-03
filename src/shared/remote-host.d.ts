@@ -48,6 +48,7 @@ export interface MachineLaunch {
 }
 export type RemoteTarget = {
   machine?: MachineLaunch;
+  trustOrigin?: string;
   recipe?: HostRecipeLaunch;
   host: string;
   artifact?: string;
@@ -69,6 +70,7 @@ export type RemoteRequest =
   | {
       type: "open";
       machine?: MachineLaunch;
+      trustOrigin?: string;
       recipe?: HostRecipeLaunch;
       request: number;
       id: string;
@@ -120,6 +122,7 @@ export type RemoteResponse =
       hostFacts?: 1;
       hostPreflight?: 1;
       humanMachines?: 1;
+      originTrust?: 1;
     }
   | HostResponse
   | RemoteFragment

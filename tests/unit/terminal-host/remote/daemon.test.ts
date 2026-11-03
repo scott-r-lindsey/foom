@@ -365,6 +365,7 @@ test.skipIf(process.platform === "win32").each(["close", "takeover"])(
         compatible: 2,
         hostFacts: 1,
         hostPreflight: 1,
+        originTrust: 1,
         humanMachines: 1,
       });
     });
@@ -1415,6 +1416,7 @@ test.skipIf(process.platform === "win32")(
       compatible: 2,
       hostFacts: 1,
       hostPreflight: 1,
+      originTrust: 1,
       humanMachines: 1,
     });
     expect(mock.stop).not.toHaveBeenCalled();
@@ -1790,6 +1792,7 @@ test.skipIf(process.platform === "win32")(
         compatible: 2,
         hostFacts: 1,
         hostPreflight: 1,
+        originTrust: 1,
         humanMachines: 1,
       });
       expect(host.server.listening).toBe(true);
@@ -2745,5 +2748,34 @@ test.skipIf(process.platform === "win32")(
     });
     await closed;
     expect(mock.create).not.toHaveBeenCalled();
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "origin trust opens a human PTY with only the fixed helper",
+  async () => {
+    await start();
+    const c = await client();
+    c.send({ type: "hello", build });
+    await c.wait(1);
+    c.send({
+      type: "open",
+      profile: "f".repeat(32),
+      reattach: false,
+      human: true,
+      id: "trust",
+      request: 1,
+      cols: 80,
+      rows: 24,
+      trustOrigin: "git@forge.test:team/repo.git",
+    });
+    await c.wait(2);
+    expect(mock.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: process.execPath,
+        args: ["--trust-origin", "git@forge.test:team/repo.git"],
+      }),
+      "trust",
+    );
   },
 );

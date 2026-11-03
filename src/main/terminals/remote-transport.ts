@@ -167,6 +167,7 @@ export class RemoteTransport extends EventEmitter {
           ...metadata,
           ...(this.target.human ? { human: true } : {}),
           ...(!reattach && this.target.machine ? { machine: this.target.machine } : {}),
+          ...(!reattach && this.target.trustOrigin ? { trustOrigin: this.target.trustOrigin } : {}),
           ...(!reattach && this.target.recipe ? { recipe: this.target.recipe } : {}),
           ...(this.target.checkout ? { checkout: this.target.checkout } : {}),
         };
@@ -359,11 +360,15 @@ export class RemoteTransport extends EventEmitter {
               return;
             }
             if (
-              this.target.machine &&
-              !this.opened &&
-              !this.target.reattach &&
-              value.build !== artifact.sha256 &&
-              value.humanMachines !== 1
+              (this.target.machine &&
+                !this.opened &&
+                !this.target.reattach &&
+                value.build !== artifact.sha256 &&
+                value.humanMachines !== 1) ||
+              (this.target.trustOrigin &&
+                !this.opened &&
+                value.build !== artifact.sha256 &&
+                value.originTrust !== 1)
             ) {
               this.launchFailure = new LaunchFailure("remote_host_facts_unavailable");
               this.kill();

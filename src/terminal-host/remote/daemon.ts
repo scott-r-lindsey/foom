@@ -381,6 +381,7 @@ export function serveHost(
           hostFacts: 1,
           hostPreflight: 1,
           humanMachines: 1,
+          originTrust: 1,
         });
         return;
       }
@@ -895,7 +896,8 @@ export function serveHost(
                 : owned.agent
                   ? { ...owned.agent.spec, cols: message.cols, rows: message.rows }
                   : {
-                      command: message.recipe ? process.execPath : remoteShell(),
+                      command:
+                        message.recipe || message.trustOrigin ? process.execPath : remoteShell(),
                       args: message.recipe
                         ? [
                             "--recipe",
@@ -904,7 +906,9 @@ export function serveHost(
                             message.recipe.distro,
                             message.recipe.digest,
                           ]
-                        : ["-i", "-l"],
+                        : message.trustOrigin
+                          ? ["--trust-origin", message.trustOrigin]
+                          : ["-i", "-l"],
                       cwd: message.checkout?.path ?? home,
                       cols: message.cols,
                       rows: message.rows,

@@ -1,3 +1,4 @@
+import hooksReview from "../../../fixtures/agent-detection/codex-hooks-review.json";
 import agyFileAccess from "../../../fixtures/agent-detection/agy-1.4.12-file-access.json";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -306,5 +307,32 @@ test("agy 1.4.12 file-access permission stays blocked under progress and drops a
         input.tail.filter((line) => line !== missing),
       ),
     ).toBeUndefined();
+  }
+});
+
+test("Codex hook review requests permission attention before observers run, even under a working title", () => {
+  for (const title of ["", "codex", "⠋ codex"]) {
+    const input = { terminalId: "t", agent: "codex", evidence: { title, progress: null } };
+    expect(evaluateRules({ ...input, tail: hooksReview.tail })).toMatchObject({
+      state: "needs_input",
+      attentionKind: "permission",
+      signal: "rules:codex:hooks_review",
+    });
+    for (const required of [
+      "Hooks need review",
+      "Trust all and continue",
+      "Continue without trusting",
+      "enter confirm",
+    ])
+      expect(
+        evaluateRules({
+          ...input,
+          tail: hooksReview.tail.filter((line) => !line.includes(required)),
+        }).signal,
+      ).not.toBe("rules:codex:hooks_review");
+    expect(
+      evaluateRules({ ...input, tail: [...hooksReview.tail, ...Array<string>(12).fill("Working")] })
+        .state,
+    ).not.toBe("needs_input");
   }
 });

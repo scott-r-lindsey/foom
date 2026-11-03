@@ -1370,3 +1370,45 @@ test.each([false, true])(
       ).toBe(false);
   },
 );
+
+test.each([true, false])(
+  "origin trust on a compatible older daemon requires its capability: %s",
+  async (supported) => {
+    transport.kill();
+    transport = new RemoteTransport(
+      {
+        host: "fixture",
+        artifact: "/artifact",
+        human: true,
+        trustOrigin: "git@forge.test:team/repo.git",
+      },
+      "0.1.0",
+    );
+    await Promise.resolve();
+    transport.postMessage({
+      type: "create",
+      id: "trust",
+      request: 1,
+      spec: { command: "/bin/sh", args: [], cwd: "/", cols: 80, rows: 24 },
+    });
+    child.header();
+    child.message({
+      type: "hello",
+      build: "b".repeat(64),
+      compatible: 2,
+      ...(supported ? { originTrust: 1 } : {}),
+    });
+    if (supported)
+      expect(child.messages).toContainEqual(
+        expect.objectContaining({
+          type: "open",
+          human: true,
+          trustOrigin: "git@forge.test:team/repo.git",
+        }),
+      );
+    else {
+      expect(transport.launchFailure?.reason).toBe("remote_host_facts_unavailable");
+      expect(child.messages).not.toContainEqual(expect.objectContaining({ type: "open" }));
+    }
+  },
+);

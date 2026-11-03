@@ -1233,3 +1233,60 @@ test("repository human launch targets require an approved registration and check
   run.mockResolvedValue({ ok: true, facts });
   await expect(hosts.repositoryTarget("worker", "/local/repo")).rejects.toThrow();
 });
+
+test("Trust host key re-reads registered origin and launches a human tile with no renderer command", async () => {
+  hosts = new Hosts(store, () => repositories, "0.1.0", run, "f".repeat(32));
+  await hosts.action({ action: "add", host: "worker", codeFolder: "~/code" });
+  const launch = vi.fn(async () => {});
+  await hosts.action(
+    { action: "trust-origin", host: "worker", repository: "/local/repo" },
+    undefined,
+    launch,
+  );
+  expect(launch).toHaveBeenCalledExactlyOnceWith({
+    host: "worker",
+    profile: "f".repeat(32),
+    human: true,
+    trustOrigin: "git@forge.test:me/repo.git",
+  });
+  await expect(
+    hosts.action(
+      { action: "trust-origin", host: "worker", repository: "/unregistered" },
+      undefined,
+      launch,
+    ),
+  ).rejects.toThrow("not registered");
+  mock.execute.mockResolvedValue({ stdout: "https://forge.test/me/repo.git" });
+  expect(
+    (
+      await hosts.action(
+        { action: "trust-origin", host: "worker", repository: "/local/repo" },
+        undefined,
+        launch,
+      )
+    ).recipeFailure,
+  ).toBe("recipe-unavailable");
+  expect(launch).toHaveBeenCalledTimes(1);
+});
+
+test("session metadata can read cached fleet observations without waiting for stale or unavailable SSH", async () => {
+  settings = { ...settings, registeredHosts: [{ host: "worker", codeFolder: facts.codeFolder }] };
+  expect(await hosts.fleet(false)).toEqual([
+    { host: "worker", result: { ok: false, reason: "facts-unavailable" } },
+  ]);
+  expect(run).not.toHaveBeenCalled();
+  const cached = await hosts.inventory("worker");
+  run.mockClear();
+  settings = { ...settings, agents: { ...settings.agents, codex: false } };
+  expect(await hosts.fleet(false)).toEqual([{ host: "worker", result: cached }]);
+  expect(run).not.toHaveBeenCalled();
+  run.mockResolvedValueOnce({ ok: false, reason: "unreachable" });
+  await hosts.fleet();
+  run.mockClear();
+  expect(await hosts.fleet(false)).toEqual([
+    { host: "worker", result: { ok: false, reason: "unreachable" } },
+  ]);
+  expect(run).not.toHaveBeenCalled();
+  settings = { ...settings, registeredHosts: [] };
+  expect(await hosts.fleet(false)).toEqual([]);
+});

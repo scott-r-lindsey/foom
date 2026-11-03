@@ -454,7 +454,7 @@ export class ControlService {
     }
     if (actor.role === "orchestrator" && (method === "sessions" || method === "session_state")) {
       const result = object(this.dispatch(actor, input));
-      const hosts = (await this.orchestration?.hosts?.()) ?? [];
+      const hosts = (await this.orchestration?.hosts?.(method === "sessions")) ?? [];
       this.assertActive(actor);
       return { ...result, hosts };
     }

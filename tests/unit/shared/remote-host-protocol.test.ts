@@ -352,6 +352,16 @@ test("human machine opens accept bounded identifiers and defaults but never reci
   expect(
     remoteRequest({
       ...base,
+      machine: { codeFolder: "/code" },
+      trustOrigin: "git@fixture.test:repo.git",
+    }),
+  ).toBe(false);
+  expect(
+    remoteResponse({ type: "hello", build: "a".repeat(64), humanMachines: 1, originTrust: 1 }),
+  ).toBe(true);
+  expect(
+    remoteRequest({
+      ...base,
       machine: { codeFolder: "/code", agent: "claude", defaults: ["--model", "fixture"] },
     }),
   ).toBe(true);

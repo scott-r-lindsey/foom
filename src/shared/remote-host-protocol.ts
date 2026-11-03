@@ -1,6 +1,12 @@
 import { recipeLaunch } from "./registered-host-recipes";
 import { imagePut, imagePutResult, imageNonce } from "./image-paste";
-import { gitOrigin, hostAlias, hostManagement, hostResult } from "./registered-hosts";
+import {
+  gitOrigin,
+  hostAlias,
+  hostManagement,
+  hostResult,
+  originSshArgs,
+} from "./registered-hosts";
 import { isLaunchReason } from "./launch-failure";
 import {
   remotePath,
@@ -30,6 +36,7 @@ function hello(value: object): boolean {
   return (
     "type" in value &&
     value.type === "hello" &&
+    (!("originTrust" in value) || value.originTrust === 1) &&
     (!("hostPreflight" in value) || value.hostPreflight === 1) &&
     (!("hostFacts" in value) || value.hostFacts === 1) &&
     (!("humanMachines" in value) || value.humanMachines === 1) &&
@@ -124,6 +131,14 @@ export function remoteRequest(value: unknown): value is RemoteRequest {
     );
   if (value["type"] === "open")
     return (
+      (value["trustOrigin"] === undefined ||
+        (originSshArgs(value["trustOrigin"]) !== undefined &&
+          value["human"] === true &&
+          value["recipe"] === undefined &&
+          value["machine"] === undefined &&
+          value["checkout"] === undefined &&
+          value["context"] === undefined &&
+          value["reattach"] === false)) &&
       (value["recipe"] === undefined ||
         (recipeLaunch(value["recipe"]) &&
           value["checkout"] === undefined &&
@@ -138,6 +153,7 @@ export function remoteRequest(value: unknown): value is RemoteRequest {
       (value["machine"] === undefined ||
         (value["human"] === true &&
           value["recipe"] === undefined &&
+          value["trustOrigin"] === undefined &&
           record(value["machine"]) &&
           keys(value["machine"], ["codeFolder", "agent", "defaults", "repository"]) &&
           (value["machine"]["repository"] === undefined ||
