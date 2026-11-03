@@ -1,6 +1,6 @@
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
-const { spawn } = require("node:child_process");
+const { spawn, spawnSync } = require("node:child_process");
 const { once } = require("node:events");
 const { createHash } = require("node:crypto");
 const {
@@ -29,6 +29,7 @@ const {
   openSettingsScreen,
   fixtureCleanup,
   createMemoryFixture,
+  installSoundSink,
   removeAfterApps,
 } = require("./harness.js");
 const { auditProcesses } = require("./process-audit.js");
@@ -209,6 +210,10 @@ else process.exit(2);
       { mode: 0o700 },
     );
   }
+  const attentionCase = agents.length === 1 && agents[0] === "codex" && !restart && !reviewLoop;
+  const hookReview = require("../fixtures/agent-detection/codex-hooks-review.json").tail.join(
+    "\r\n",
+  );
   for (const agent of agents) {
     await writeFile(
       path.join(remoteBin, agent),
@@ -220,6 +225,14 @@ if (args[0]==='--help') {console.log('-c --no-alt-screen --plugin-dir --addition
 if (args[0]==='plugin') {console.log('[]'); process.exit(0);}
 if (agent==='codex' && args[0]==='login' && args[1]==='status') process.exit(0);
 const env=process.env;
+const attentionCase=${JSON.stringify(attentionCase)};
+function hook(event) {
+ const definition=args.find(arg=>arg.startsWith('hooks.'+event+'='));
+ const command=JSON.parse(definition.match(/command=("(?:[^"\\\\]|\\\\.)*")/)[1]);
+ const payload={session_id:'attention-conversation',hook_event_name:event,turn_id:'turn',source:'startup',tool_name:'Bash',prompt:'PRIVATE PROMPT MUST NOT RELAY',transcript_path:'/never/read'};
+ const result=spawnSync('/bin/sh',['-c',command],{env,input:JSON.stringify(payload),encoding:'utf8'});
+ if(result.status!==0 || result.stdout || result.stderr) throw new Error('Fixture observer failed');
+}
 const reviewLoop=${JSON.stringify(reviewLoop)};
 const reviewer=reviewLoop && args.some(arg=>arg.includes('Review PR #340'));
 const resumed=reviewLoop && !reviewer && args.includes('resume');
@@ -255,8 +268,13 @@ if(agent==='pi') {
 }
 fs.writeFileSync(${JSON.stringify(path.join(root, `${agent}-launch.json`))},JSON.stringify({args,reviewer,resumed,cwd:process.cwd(),env:Object.fromEntries(Object.entries(env).filter(([key])=>key.startsWith('FOOM_'))),pid:process.pid,attachment,hookFile:env.OPENCODE_CONFIG}));
 process.stdout.write('REMOTE_'+agent.toUpperCase()+'_READY\\r\\n'); process.stdin.setRawMode(true);
+if(attentionCase) process.stdout.write(${JSON.stringify(hookReview)}+'\\r\\n');
 process.stdin.on('data', bytes=>{
- if(!bytes.toString().includes('1')) return;
+ const key=bytes.toString();
+ if(attentionCase && key.includes('2')) {process.stdout.write('\\x1b[2J\\x1b[H\\x1b]0;⠋ codex\\x07REMOTE_WORKING\\r\\n');hook('SessionStart');hook('UserPromptSubmit');}
+ if(attentionCase && key.includes('3')) hook('PermissionRequest');
+ if(attentionCase && key.includes('4')) {process.stdout.write('\\x1b[2J\\x1b[HREMOTE_RESUMED\\r\\n');hook('PostToolUse');}
+ if(!key.includes('1')) return;
  const cli=(words,input)=>{const result=spawnSync(env.FOOM_REMOTE_HELPER,['--cli',...words,'--json'],{env,input,encoding:'utf8'}); return {code:result.status,output:result.stdout};};
  const identity=cli(['whoami']), forbidden=cli(['sessions']);
  let mcp;
@@ -418,8 +436,16 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
     return result.result;
   };
   const call = (method, params) => controlCall(parent, method, params);
+  if (attentionCase) await installSoundSink(page);
   const parentId = (await call("whoami")).terminalId;
-  await page.evaluate(() => window.desktop.saveSetup({ closeFinishedAgents: false }));
+  await page.evaluate(
+    (attentionCase) =>
+      window.desktop.saveSetup({
+        closeFinishedAgents: false,
+        ...(attentionCase ? { showNewChildren: false } : {}),
+      }),
+    attentionCase,
+  );
   let persistent;
   const elevate = page.evaluate(
     (id) => window.desktop.sidebarCommand({ kind: "make-orchestrator", id }),
@@ -558,6 +584,56 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
       (await call("session_state", { id: launched.resultId, host: "fleet-worker" })).host,
       "fleet-worker",
     );
+    if (attentionCase) {
+      const current = async () =>
+        (await page.evaluate(() => window.desktop.workspace())).terminals.find(
+          (entry) => entry.id === launched.resultId,
+        );
+      const needsYou = async (signal) => {
+        await expect.poll(async () => (await current())?.state?.signal).toBe(signal);
+        await expect.poll(async () => (await current())?.state?.state).toBe("needs_input");
+        await expect(page.locator(`[data-drag-session="${launched.resultId}"]`)).toHaveAttribute(
+          "data-state",
+          "needs_input",
+        );
+        assert.equal((await call("session_state", { id: launched.resultId })).state, "needs_input");
+      };
+      const send = (key) =>
+        call("send_keys", {
+          id: launched.resultId,
+          keys: [key],
+          idempotencyKey: `attention-${key}`,
+        });
+      const cliState = spawnSync(
+        path.resolve("build/console/foom"),
+        ["session-state", launched.resultId, "--json"],
+        {
+          env: {
+            HOME: home,
+            PATH: bin,
+            FOOM_CONTROL_URL: parent.controlUrl,
+            FOOM_CONTROL_TOKEN: parent.controlToken,
+            FOOM_CONTROL_INSTANCE: parent.instanceId,
+          },
+          encoding: "utf8",
+          timeout: deadline(10000),
+        },
+      );
+      assert.equal(cliState.status, 0, cliState.stderr);
+      assert.equal(JSON.parse(cliState.stdout).result.id, launched.resultId);
+      assert.deepEqual(JSON.parse(cliState.stdout).result.placement, launched.placement);
+      await needsYou("rules:codex:hooks_review");
+      await expect.poll(() => page.evaluate(() => window.soundTones.length)).toBeGreaterThan(0);
+      await send("2");
+      await expect.poll(async () => (await current())?.execution?.phase).toBe("working");
+      const tones = await page.evaluate(() => window.soundTones.length);
+      await send("3");
+      await needsYou("plugin:codex:PermissionRequest");
+      await expect.poll(() => page.evaluate(() => window.soundTones.length)).toBeGreaterThan(tones);
+      await send("4");
+      await expect.poll(async () => (await current())?.execution?.phase).toBe("working");
+      await expect.poll(async () => (await current())?.state?.state).toBe("working");
+    }
     if (reviewLoop) {
       // Board discovery also makes API calls. Observe the bound child status
       // request before waiting for its validated publication.

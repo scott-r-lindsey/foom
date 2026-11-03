@@ -8,7 +8,7 @@
     "cols": 110,
     "rows": 32
   },
-  "rules": [],
+  "rules": ["hooks_review"],
   "titles": [],
   "progress": null,
   "tail": [
