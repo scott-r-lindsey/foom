@@ -8,7 +8,7 @@ the host expands it; canonical absolute observations are required before checkou
 confer no later fleet authority. Host-aware orchestration (#756) uses the same registration and management service.
 
 `setup:hosts` accepts one closed action from the registered board main frame:
-list, test, add, preflight, create-folder, change-folder, refresh, remove, locations, clone, end or recipe. Main selects enabled agent
+list, test, add, preflight, create-folder, change-folder, refresh, remove, locations, clone, trust-origin, end or recipe. Main selects enabled agent
 executables from its validated manifest catalog. Renderer inputs cannot choose
 remote commands, probe arguments, origins or checkout destinations. Replies are
 validated in preload and rebuilt from declared fields. All failures are fixed
@@ -391,3 +391,33 @@ projection supplies checkout paths rather than origin display strings and does
 not report local dirty state; Local says Checked out. No management protocol
 change is needed. Failed clone reasons remain visible until the next user check;
 unreachable replies reconcile through a read-only location/preflight check.
+
+## Host card readiness and repository fixes (#1026)
+
+A host is Ready when SSH, platform, daemon, code folder and Git pass and at least
+one enabled agent is installed and probeable. The summary counts existing usable
+checkouts. Optional missing agents, gh sign-in, absent checkouts and nonblocking macOS
+folder/power warnings are neutral;
+Install, Sign in and Clone here remain available. Repository access failures keep
+their fixed failure rows without making an otherwise usable host unavailable.
+Clone here shows Cloning… with the activity spinner in the selected row until
+its resulting state or fixed failure reason is available.
+
+An origin-host-key failure offers Trust host key. Main re-reads the registered
+repository's validated SSH origin and opens a human-owned tile on the registered
+host. The fixed command is ssh -T with StrictHostKeyChecking=ask, forwarding
+disabled, and the origin's account/host and optional port. HTTPS cannot select this
+action. Compatible older daemons must advertise originTrust=1; otherwise the
+launch refuses until the host daemon is updated. The user verifies the fingerprint and answers SSH; Foom never supplies an
+answer or accepts a key. Check again observes the result.
+
+Codex's hook trust is not exposed by the existing version/help or exit-code sign-in
+probes. Foom does not inspect or modify Codex's hook-trust store. On a new host,
+the first Codex launch may show “Hooks need review”; review Foom's hooks in that
+Codex tile. Installed and signed-in observations do not claim hook trust.
+
+Host checks are language neutral and never execute anything from a checkout.
+They do not inspect language or package manifests, infer build requirements, or
+run repository scripts, plugins or package-manager probes. Preparing a host to
+build a repository is left to an agent the user runs on that host
+([#1024](https://github.com/scott-r-lindsey/foom/issues/1024)).

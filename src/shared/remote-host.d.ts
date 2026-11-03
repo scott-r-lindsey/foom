@@ -40,6 +40,7 @@ export interface RemoteInventoryResult {
   foreign: ForeignRemoteSession[];
 }
 export type RemoteTarget = {
+  trustOrigin?: string;
   recipe?: HostRecipeLaunch;
   host: string;
   artifact?: string;
@@ -60,6 +61,7 @@ export type RemoteRequest =
   | { type: "hello"; build: string }
   | {
       type: "open";
+      trustOrigin?: string;
       recipe?: HostRecipeLaunch;
       request: number;
       id: string;
@@ -104,7 +106,14 @@ export type RemoteResponse =
   | ImagePutResult
   | { type: "managed"; result: HostResult }
   | { type: "agent-failed"; id: string; reason: LaunchReason }
-  | { type: "hello"; build: string; compatible?: 2; hostFacts?: 1; hostPreflight?: 1 }
+  | {
+      type: "hello";
+      build: string;
+      compatible?: 2;
+      hostFacts?: 1;
+      hostPreflight?: 1;
+      originTrust?: 1;
+    }
   | HostResponse
   | RemoteFragment
   | RemoteOpenResult

@@ -14,7 +14,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createHash } from "node:crypto";
 import { devNull } from "node:os";
-import { hostsAction, gitOrigin, hostResult } from "../../shared/registered-hosts";
+import { hostsAction, gitOrigin, hostResult, originSshArgs } from "../../shared/registered-hosts";
 import type {
   HostFailure,
   HostCheck,
@@ -584,6 +584,22 @@ export class Hosts {
       .catch(() => undefined)
       .then(async () => {
         const hosts = this.store.get().registeredHosts ?? [];
+        if (input.action === "trust-origin") {
+          const registration = this.registered(input.host);
+          if (!this.repositories().some((repo) => repo.path === input.repository))
+            throw new Error("Repository is not registered");
+          const origin = await this.origin(input.repository);
+          this.registered(input.host, registration.codeFolder);
+          if (!originSshArgs(origin) || !launchRecipe || !this.profile)
+            return { ...this.state(), recipeFailure: "recipe-unavailable" as const };
+          await launchRecipe({
+            host: input.host,
+            profile: this.profile,
+            human: true,
+            trustOrigin: origin,
+          });
+          return this.state();
+        }
         if (input.action === "recipe") {
           const registration = this.registered(input.host);
           this.results.set(

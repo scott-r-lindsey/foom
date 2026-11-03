@@ -132,6 +132,7 @@ export interface HostsState {
   result?: HostResult | undefined;
 }
 export type HostsAction =
+  | { action: "trust-origin"; host: string; repository: string }
   | { action: "recipe"; host: string; tool: string; operation: "install" | "sign-in" }
   | { action: "preflight"; host: string; codeFolder: string }
   | { action: "create-folder"; host: string }
