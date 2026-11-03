@@ -70,7 +70,7 @@ const frames=new RemoteFrames();const send=value=>{for(const frame of remoteResp
 let output='FIXTURE_MACHINE_READY\\r\\n';
 process.stdin.on('data',bytes=>frames.push(bytes,message=>{
  fs.appendFileSync(${JSON.stringify(calls)},JSON.stringify({host,message})+'\\n');
- if(message.type==='hello'){send({type:'hello',build:${JSON.stringify(manifest.sha256)},humanMachines:2});return;}
+ if(message.type==='hello'){send({type:'hello',build:${JSON.stringify(manifest.sha256)},humanMachines:1});return;}
  if(message.type==='inventory'){send({type:'inventory-result',own:[],foreign:[]});return;}
  if(message.type==='open'){
   assert.equal(message.human,true);assert.equal(message.agent,undefined);
@@ -159,7 +159,6 @@ process.stdin.on('data',bytes=>frames.push(bytes,message=>{
   await page.getByRole("button", { name: "Actions for Builder", exact: true }).click();
   await expect(page.getByRole("menuitem", { name: "New Claude Code", exact: true })).toBeVisible();
   await expect(page.getByRole("menuitem", { name: "New Codex", exact: true })).toHaveCount(0);
-  await capture("machine-menu");
   await page.getByRole("menuitem", { name: "New shell", exact: true }).click();
   await expect
     .poll(() =>
@@ -242,53 +241,10 @@ process.stdin.on('data',bytes=>frames.push(bytes,message=>{
       .getByLabel("Host: Builder"),
   ).toBeVisible();
   await capture("worktree-tile-chip");
-  // Prepare is available only for pinned, checked-out repositories.
-  await page.getByRole("button", { name: "Actions for shell-fixture", exact: true }).click();
-  await page.getByRole("menuitem", { name: "Pin to top", exact: true }).click();
-  await expect(page.getByLabel("Pinned", { exact: true })).toBeVisible();
   const hostMenu = page.getByRole("button", { name: "Actions for Builder", exact: true });
-  const prepare = page.getByRole("menuitem", { name: "Prepare for shell-fixture", exact: true });
-  await hostMenu.click();
-  await page.getByRole("menuitem", { name: "shell-fixture", exact: true }).hover();
-  await expect(prepare).toBeVisible();
-  assert.equal(await prepare.getAttribute("aria-haspopup"), null);
-  await capture("prepare-single");
-  await prepare.click();
-  const shared = () =>
-    page.getByRole("menuitem", { name: "Click again for multiple agents here", exact: true });
-  await expect(shared()).toBeVisible();
-  // The existing shared-checkout warning requires an interval before its second click.
-  await page.waitForTimeout(310);
-  await shared().click();
-  const preparedRows = async () =>
-    page.evaluate(async () =>
-      (await window.desktop.workspace()).terminals.filter(
-        (row) => row.branch === "Main checkout" && row.placement?.kind === "remote",
-      ),
-    );
-  await expect.poll(async () => (await preparedRows()).length).toBe(2);
-  const prepared = (await preparedRows()).at(-1);
-  assert.equal(prepared.agent, "claude");
-  assert.equal(prepared.placement.host, "fixture-cloud");
-  assert.equal(prepared.orchestration, undefined);
-  const preparedTile = () =>
-    page.evaluate((id) => {
-      const layout = JSON.parse(localStorage.getItem(`foom.tiles.v1.${window.desktop.windows.id}`));
-      const locate = (node) =>
-        node.kind === "split"
-          ? locate(node.first) || locate(node.second)
-          : node.content?.session === id
-            ? node.id
-            : null;
-      return locate(layout.tree);
-    }, prepared.id);
-  await expect.poll(preparedTile).toBeTruthy();
-  await expect(page.locator(`[data-tile="${await preparedTile()}"]`)).toBeVisible();
-  await capture("prepare-tile");
   const refreshAgents = async (choice) => {
-    // Main publishes the new row before the launch command finishes refreshing
-    // renderer inventory. Its menu closes only after that refresh completes;
-    // otherwise the older command reply can overwrite the following host check.
+    // Await the preceding launch command's renderer refresh before changing host facts.
+    await expect(page.locator(".sidebar-panel")).toHaveCount(0);
     const menu = page.getByRole("menu", { name: "Actions for Builder", exact: true });
     await expect(menu).toHaveCount(0);
     await expect(hostMenu).toHaveAttribute("aria-expanded", "false");
@@ -334,65 +290,14 @@ process.stdin.on('data',bytes=>frames.push(bytes,message=>{
     await hostMenu.click();
     await expect(menu).toBeVisible();
     await expect(menu.getByRole("menuitem")).toHaveText(
-      choice === "multiple"
-        ? ["New shell", "New Claude Code", "New Codex", "shell-fixture"]
-        : ["New shell"],
+      choice === "multiple" ? ["New shell", "New Claude Code", "New Codex"] : ["New shell"],
     );
   };
   await refreshAgents("multiple");
   await expect(page.getByRole("menuitem", { name: "New Codex", exact: true })).toBeVisible();
-  const hostLabels = await page
-    .getByRole("menu", { name: "Actions for Builder", exact: true })
-    .getByRole("menuitem")
-    .allTextContents();
-  await page.getByRole("menuitem", { name: "shell-fixture", exact: true }).hover();
-  await prepare.hover();
-  const prepareChoices = page.getByRole("menu", { name: "Prepare for shell-fixture", exact: true });
-  await expect(prepareChoices).toBeVisible();
-  assert.deepEqual(
-    await prepareChoices.getByRole("menuitem").allTextContents(),
-    hostLabels.slice(1, 3).map((label) => label.replace(/^New /, "")),
-  );
-  await capture("prepare-agents");
-  await prepareChoices.getByRole("menuitem", { name: "Codex", exact: true }).click();
-  await expect(shared()).toBeVisible();
-  await page.waitForTimeout(310);
-  await shared().click();
-  await expect.poll(async () => (await preparedRows()).length).toBe(3);
-  assert.equal((await preparedRows()).at(-1).agent, "codex");
+  await capture("machine-menu");
+  await page.keyboard.press("Escape");
   await refreshAgents("none");
-  const emptyAgentMenu = page.getByRole("menu", { name: "Actions for Builder", exact: true });
-  context.diagnostic(
-    JSON.stringify({
-      menus: await page.getByRole("menu").evaluateAll((elements) =>
-        elements.map((element) => ({
-          name: element.getAttribute("aria-label"),
-          items: Array.from(element.querySelectorAll('[role="menuitem"]')).map(
-            (item) => item.textContent,
-          ),
-        })),
-      ),
-    }),
-  );
-  try {
-    await expect(emptyAgentMenu).toBeVisible();
-    await expect(
-      emptyAgentMenu.getByRole("menuitem", { name: "New Claude Code", exact: true }),
-    ).toHaveCount(0);
-    await expect(
-      emptyAgentMenu.getByRole("menuitem", { name: "New Codex", exact: true }),
-    ).toHaveCount(0);
-    await expect(
-      emptyAgentMenu.getByRole("menuitem", { name: "shell-fixture", exact: true }),
-    ).toHaveCount(0);
-  } catch (error) {
-    await page.screenshot({
-      path: evidencePath(`1024/prepare-zero-failure-${process.platform}.png`),
-      animations: "disabled",
-    });
-    throw error;
-  }
-  await capture("prepare-no-agents");
   await page.keyboard.press("Escape");
   await writeFile(offline, "offline");
   await page.evaluate(() =>
@@ -411,22 +316,6 @@ process.stdin.on('data',bytes=>frames.push(bytes,message=>{
     .trim()
     .split("\n")
     .map((line) => JSON.parse(line));
-  const preparations = observed.filter(
-    (call) => call.message.type === "open" && call.message.machine?.prompt,
-  );
-  assert.deepEqual(
-    preparations.map((call) => call.message.machine.agent),
-    ["claude", "codex"],
-  );
-  const { repositoryPreparationPrompt } = require("../../build/shared/repository-preparation.js");
-  for (const { host, message } of preparations) {
-    assert.equal(host, "fixture-cloud");
-    assert.equal(message.human, true);
-    assert.equal(message.agent, undefined);
-    assert.equal(message.machine.prompt, repositoryPreparationPrompt("shell-fixture"));
-    assert.ok(message.machine.repository.directory.startsWith("repository-"));
-    assert.equal(message.machine.repository.origin, "git@forge.test:team/project.git");
-  }
   assert.ok(
     observed.some(
       (call) => call.message.type === "open" && call.message.machine.agent === "claude",

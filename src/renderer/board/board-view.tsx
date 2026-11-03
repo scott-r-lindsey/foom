@@ -62,7 +62,6 @@ const commandFailures: Readonly<Record<SidebarCommand["kind"], string>> = {
   "open-handoff-link": "Unable to open link.",
   "home-shell": "Unable to start shell.",
   "repository-launch": "Unable to start session.",
-  "repository-prepare": "Unable to prepare repository.",
   "machine-launch": "Unable to start session.",
   "copy-home-path": "Unable to copy home path.",
   "config-launch": "Unable to launch Foom config.",
@@ -461,15 +460,12 @@ function BoardContents({
           value.kind === "home-shell" ||
           value.kind === "machine-launch" ||
           value.kind === "repository-launch" ||
-          value.kind === "repository-prepare" ||
           value.kind === "config-launch"
         ) {
           const created = source
             .getSnapshot()
             .find((row) =>
-              value.kind === "home-shell" ||
-              value.kind === "machine-launch" ||
-              value.kind === "repository-prepare"
+              value.kind === "home-shell" || value.kind === "machine-launch"
                 ? row.id === result?.terminalId
                 : !before.has(row.id) && (value.kind !== "config-launch" || row.config),
             );

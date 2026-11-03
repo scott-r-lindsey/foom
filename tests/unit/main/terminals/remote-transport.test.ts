@@ -1371,43 +1371,6 @@ test.each([false, true])(
   },
 );
 
-test.each([undefined, 1, 2] as const)(
-  "human preparation requires prompt capability version 2 (%s)",
-  async (humanMachines) => {
-    transport.kill();
-    child = new Child();
-    mock.spawn.mockReturnValue(child);
-    const machine = {
-      codeFolder: "/remote/code",
-      agent: "claude",
-      defaults: [],
-      repository: {
-        directory: `repository-${"a".repeat(24)}`,
-        origin: "git@fixture.test:team/repo.git",
-      },
-      prompt: "Prepare the repository.",
-    };
-    transport = new RemoteTransport({ host: "fixture", human: true, machine }, "0.1.0");
-    transport.postMessage(create);
-    await Promise.resolve();
-    child.header();
-    child.message({
-      type: "hello",
-      build: "b".repeat(64),
-      compatible: 2,
-      ...(humanMachines === undefined ? {} : { humanMachines }),
-    });
-    if (humanMachines === 2) {
-      expect(child.messages).toContainEqual(
-        expect.objectContaining({ type: "open", human: true, machine }),
-      );
-    } else {
-      expect(transport.launchFailure?.reason).toBe("remote_host_facts_unavailable");
-      expect(child.messages).not.toContainEqual(expect.objectContaining({ type: "open" }));
-    }
-  },
-);
-
 test.each([true, false])(
   "origin trust on a compatible older daemon requires its capability: %s",
   async (supported) => {

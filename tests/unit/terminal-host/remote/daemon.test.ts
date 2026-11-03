@@ -366,7 +366,7 @@ test.skipIf(process.platform === "win32").each(["close", "takeover"])(
         hostFacts: 1,
         hostPreflight: 1,
         originTrust: 1,
-        humanMachines: 2,
+        humanMachines: 1,
       });
     });
     if (operation === "close") {
@@ -1417,7 +1417,7 @@ test.skipIf(process.platform === "win32")(
       hostFacts: 1,
       hostPreflight: 1,
       originTrust: 1,
-      humanMachines: 2,
+      humanMachines: 1,
     });
     expect(mock.stop).not.toHaveBeenCalled();
     await disconnect(newer);
@@ -1793,7 +1793,7 @@ test.skipIf(process.platform === "win32")(
         hostFacts: 1,
         hostPreflight: 1,
         originTrust: 1,
-        humanMachines: 2,
+        humanMachines: 1,
       });
       expect(host.server.listening).toBe(true);
     } finally {
@@ -2556,11 +2556,9 @@ test.skipIf(process.platform === "win32").each(
   expect(mock.create).toHaveBeenCalledTimes(2);
 });
 
-test
-  .skipIf(process.platform === "win32")
-  .each([undefined, "Prepare this checkout. Ask before sudo."])(
-  "machine launches resolve only bundled installed agents and approved folders without child control (%s)",
-  async (prompt) => {
+test.skipIf(process.platform === "win32")(
+  "machine launches resolve only bundled installed agents and approved folders without child control",
+  async () => {
     await start();
     const c = await client();
     c.send({ type: "hello", build });
@@ -2578,7 +2576,6 @@ test
         codeFolder: "/code",
         agent: "claude",
         defaults: ["--model", "fixture"],
-        ...(prompt === undefined ? {} : { prompt }),
       },
     });
     await c.wait(2);
@@ -2592,7 +2589,7 @@ test
     expect(mock.create).toHaveBeenCalledWith(
       expect.objectContaining({
         command: "/fixture/claude",
-        args: ["--model", "fixture", ...(prompt === undefined ? [] : ["--", prompt])],
+        args: ["--model", "fixture"],
         cwd: "/code",
         env: { PATH: "/fixture" },
         replaceEnvironment: true,

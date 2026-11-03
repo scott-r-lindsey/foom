@@ -439,15 +439,10 @@ including unreachable results. Machine sessions persist as human-owned session m
 reattaches the existing PTY. Local agent rows without a conversation ID remain
 exited after restart, following ordinary session restoration eligibility.
 
-Hello advertises `humanMachines: 2`: version 1 supports ordinary machine launches;
-version 2 additionally accepts a bounded human initial prompt through the agent's
-manifest-declared interactive prompt arguments. Preparation uses the checked-in
-repository-preparation prompt and adds only the repository's quoted display name.
-Foom executes no setup instructions from the checkout and never types into a tile
-after launch. Normal permission settings and attention handling apply.
+Hello advertises `humanMachines: 1` for ordinary machine launches.
 New machine launches refuse a compatible older
 active daemon lacking this capability before sending open; they never fall back
-to an ordinary home shell. Existing PTYs still reattach. Machine preparation uses
+to an ordinary home shell. Existing PTYs still reattach. Machine launches use
 the existing host-preparation budget, in addition to bootstrap.
 
 ## Host card readiness and repository fixes (#1026)

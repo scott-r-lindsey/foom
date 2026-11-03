@@ -283,10 +283,10 @@ test("nested menu actions retain the shared-agent confirmation until accepted", 
       anchor={anchor}
       close={close}
       confirmations={confirmations}
-      actions={[{ label: "Prepare", run: () => {}, submenu: [{ label: "Codex", run }] }]}
+      actions={[{ label: "New agent", run: () => {}, submenu: [{ label: "Codex", run }] }]}
     />,
   );
-  fireEvent.click(view.getByRole("menuitem", { name: "Prepare" }));
+  fireEvent.click(view.getByRole("menuitem", { name: "New agent" }));
   fireEvent.click(view.getByRole("menuitem", { name: "Codex" }));
   const arm = { nonce: "n", target: "repo", label: "Click again for multiple agents here" };
   act(() => {

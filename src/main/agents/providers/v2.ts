@@ -211,8 +211,7 @@ export function v2Provider(
         userDefaults = collected.args;
         prompts.push(...collected.values);
       }
-      if (request.prompt !== undefined)
-        prompts.push(request.humanPrompt ? request.prompt : `${CHILD_PROMPT}\n\n${request.prompt}`);
+      if (request.prompt !== undefined) prompts.push(`${CHILD_PROMPT}\n\n${request.prompt}`);
       if (configGreeting && promptSupported) prompts.push(CONFIG_PROMPT);
       else if (guidance) prompts.push(CLI_GUIDANCE);
       const newId =

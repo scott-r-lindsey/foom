@@ -39,7 +39,7 @@ function hello(value: object): boolean {
     (!("originTrust" in value) || value.originTrust === 1) &&
     (!("hostPreflight" in value) || value.hostPreflight === 1) &&
     (!("hostFacts" in value) || value.hostFacts === 1) &&
-    (!("humanMachines" in value) || value.humanMachines === 1 || value.humanMachines === 2) &&
+    (!("humanMachines" in value) || value.humanMachines === 1) &&
     "build" in value &&
     typeof value.build === "string" &&
     /^[a-f0-9]{64}$/u.test(value.build)
@@ -155,14 +155,7 @@ export function remoteRequest(value: unknown): value is RemoteRequest {
           value["recipe"] === undefined &&
           value["trustOrigin"] === undefined &&
           record(value["machine"]) &&
-          keys(value["machine"], ["codeFolder", "agent", "defaults", "repository", "prompt"]) &&
-          (value["machine"]["prompt"] === undefined ||
-            (typeof value["machine"]["agent"] === "string" &&
-              typeof value["machine"]["prompt"] === "string" &&
-              value["machine"]["prompt"].length > 0 &&
-              new TextEncoder().encode(value["machine"]["prompt"]).length <= 16384 &&
-              !value["machine"]["prompt"].trimStart().startsWith("-") &&
-              !/[^\P{Cc}\n\t]/u.test(value["machine"]["prompt"]))) &&
+          keys(value["machine"], ["codeFolder", "agent", "defaults", "repository"]) &&
           (value["machine"]["repository"] === undefined ||
             (value["checkout"] === undefined &&
               record(value["machine"]["repository"]) &&

@@ -110,8 +110,6 @@ export interface AgentLaunch {
   readonly control?: { readonly role: "orchestrator" } | { readonly parentId: string };
   /** Main-validated initial prompt for an orchestrator's child, passed as one argv entry. */
   readonly prompt?: string;
-  /** Main-only human workflow prompt; never adds child instructions or authority. */
-  readonly humanPrompt?: true;
   /** Main-only Environment layers (All sessions, then this agent's); never from IPC. */
   readonly environment?: readonly (readonly EnvironmentVariable[])[];
 }

@@ -22,7 +22,6 @@ import type {
 } from "./workspace-capabilities";
 import { agentProviders } from "../agents/providers/registry";
 import { homeDirectory, homeShellFacts } from "./home-shell";
-import { repositoryPreparationPrompt } from "../../shared/repository-preparation";
 
 /** Validate clipboard metadata independently of SSH enrollment. */
 function copyableUrl(value: string, web: boolean): boolean {
@@ -195,33 +194,18 @@ export async function sidebarCommand(
     await this.resumeId(command, confirm);
     return;
   }
-  if (command.kind === "repository-launch" || command.kind === "repository-prepare") {
+  if (command.kind === "repository-launch") {
     const repository = this.deps.worktrees
       .listRepositories()
       .find((repo) => repo.path === command.repository);
     if (!repository) throw new Error("Unknown repository");
-    const prompt =
-      command.kind === "repository-prepare"
-        ? repositoryPreparationPrompt(repository.name)
-        : undefined;
-    if (prompt !== undefined && command.run === "shell")
-      throw new Error("Preparation requires an agent");
     if (command.host === null) {
-      const id =
-        prompt === undefined
-          ? await this.startExisting(command.repository, command.repository, command.run, confirm)
-          : await this.startExisting(
-              command.repository,
-              command.repository,
-              command.run,
-              confirm,
-              undefined,
-              undefined,
-              false,
-              undefined,
-              undefined,
-              prompt,
-            );
+      const id = await this.startExisting(
+        command.repository,
+        command.repository,
+        command.run,
+        confirm,
+      );
       return id ? { terminalId: id } : undefined;
     }
     const location = { repository: command.repository, worktree: command.repository, branch: null };
@@ -231,7 +215,6 @@ export async function sidebarCommand(
       undefined,
       location,
       undefined,
-      prompt,
       confirm,
     );
     return id ? { terminalId: id } : undefined;
@@ -423,7 +406,6 @@ export async function sidebarCommand(
             branch: entry.branch,
           },
           replacement.conversationId,
-          undefined,
           confirm,
         );
         return;
@@ -599,7 +581,6 @@ export async function sidebarCommand(
           worktree: command.repository,
           branch: null,
         },
-        undefined,
         undefined,
         confirm,
       );

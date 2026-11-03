@@ -223,7 +223,6 @@ export type SidebarCommand =
   | { kind: "open-handoff-link"; id: string; seq: number; index: number }
   | { kind: "home-shell" }
   | { kind: "repository-launch"; repository: string; host: string | null; run: AgentId }
-  | { kind: "repository-prepare"; repository: string; host: string | null; run: AgentId }
   | { kind: "machine-launch"; host: string | null; run: AgentId }
   | { kind: "copy-home-path" }
   | { kind: "config-launch"; run: AgentId }

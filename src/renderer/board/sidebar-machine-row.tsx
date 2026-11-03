@@ -1,5 +1,4 @@
 import { useState } from "react";
-import type { ConfirmationClient } from "../../shared/confirmation";
 import type { ReactNode } from "react";
 import type { SidebarCommand, SidebarMachine } from "../../shared/workspace";
 import { RowMenu } from "./row-menu";
@@ -10,15 +9,11 @@ export function SidebarMachineRow({
   children,
   compact,
   command,
-  confirmations,
-  repositories = [],
 }: {
   machine: SidebarMachine;
   children: ReactNode;
   compact: boolean;
   command: (command: SidebarCommand) => Promise<void>;
-  confirmations?: ConfirmationClient | undefined;
-  repositories?: readonly { path: string; name: string }[];
 }) {
   const [menu, setMenu] = useState<{
     available: boolean;
@@ -77,7 +72,6 @@ export function SidebarMachineRow({
         <RowMenu
           anchor={anchor}
           label={`Actions for ${machine.name}`}
-          confirmations={confirmations}
           actions={[
             {
               label: "New shell",
@@ -87,49 +81,6 @@ export function SidebarMachineRow({
               label: `New ${agent.name}`,
               run: () => launch({ kind: "machine-launch", host: machine.host, run: agent.id }),
             })),
-            ...(machine.agents.length > 0
-              ? repositories
-                  .filter(
-                    (repository) =>
-                      machine.host === null || machine.repositories?.includes(repository.path),
-                  )
-                  .flatMap((repository, index) => [
-                    ...(index === 0 ? [null] : []),
-                    {
-                      label: repository.name,
-                      run: () => {},
-                      submenu: [
-                        {
-                          label: `Prepare for ${repository.name}`,
-                          ...(machine.agents.length > 1
-                            ? {
-                                submenu: machine.agents.map((agent) => ({
-                                  label: agent.name,
-                                  run: () =>
-                                    launch({
-                                      kind: "repository-prepare",
-                                      repository: repository.path,
-                                      host: machine.host,
-                                      run: agent.id,
-                                    }),
-                                })),
-                              }
-                            : {}),
-                          run: () => {
-                            const agent = machine.agents[0];
-                            if (agent)
-                              return launch({
-                                kind: "repository-prepare",
-                                repository: repository.path,
-                                host: machine.host,
-                                run: agent.id,
-                              });
-                          },
-                        },
-                      ],
-                    },
-                  ])
-              : []),
           ]}
           close={() => {
             setAnchor(undefined);

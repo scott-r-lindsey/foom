@@ -349,13 +349,7 @@ test("human machine opens accept bounded identifiers and defaults but never reci
     profile: "a".repeat(32),
   };
   expect(remoteRequest({ ...base, machine: { codeFolder: "~/code" } })).toBe(true);
-  expect(remoteResponse({ type: "hello", build: "a".repeat(64), humanMachines: 2 })).toBe(true);
-  expect(
-    remoteRequest({
-      ...base,
-      machine: { codeFolder: "/code", agent: "claude", prompt: "Prepare\nthis repo" },
-    }),
-  ).toBe(true);
+  expect(remoteResponse({ type: "hello", build: "a".repeat(64), humanMachines: 1 })).toBe(true);
   expect(
     remoteRequest({
       ...base,
@@ -396,11 +390,6 @@ test("human machine opens accept bounded identifiers and defaults but never reci
     { codeFolder: "/code", defaults: ["x".repeat(4097)] },
     { codeFolder: "/code", defaults: Array.from({ length: 129 }, () => "x") },
     { codeFolder: "/code", command: "id" },
-    { codeFolder: "/code", prompt: "Prepare" },
-    { codeFolder: "/code", agent: "claude", prompt: "" },
-    { codeFolder: "/code", agent: "claude", prompt: " -flag" },
-    { codeFolder: "/code", agent: "claude", prompt: "\u001b" },
-    { codeFolder: "/code", agent: "claude", prompt: "x".repeat(16385) },
     {
       codeFolder: "/code",
       repository: { directory: "../repo", origin: "git@fixture.test:repo.git" },

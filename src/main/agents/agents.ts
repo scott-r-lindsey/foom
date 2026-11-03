@@ -192,8 +192,6 @@ export class AgentService {
 
   async launch(request: AgentLaunch): Promise<AgentLaunched> {
     this.ensureOpen();
-    if (request.humanPrompt && (request.prompt === undefined || request.control !== undefined))
-      throw new Error("Invalid human prompt launch");
     if (!knownAgentId(request.agent)) throw new Error("Unknown agent");
     if (
       ![request.cols, request.rows].every(

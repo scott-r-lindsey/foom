@@ -364,7 +364,7 @@ export class RemoteTransport extends EventEmitter {
                 !this.opened &&
                 !this.target.reattach &&
                 value.build !== artifact.sha256 &&
-                (value.humanMachines ?? 0) < (this.target.machine.prompt === undefined ? 1 : 2)) ||
+                value.humanMachines !== 1) ||
               (this.target.trustOrigin &&
                 !this.opened &&
                 value.build !== artifact.sha256 &&

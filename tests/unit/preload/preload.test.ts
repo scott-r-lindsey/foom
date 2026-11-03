@@ -1774,14 +1774,6 @@ test("machine inventory and session markers are validated and projected without 
       run: "claude",
     }),
   ).resolves.toEqual({ terminalId: "machine-one" });
-  await expect(
-    api.sidebarCommand({
-      kind: "repository-prepare",
-      host: "worker",
-      repository: "/repo",
-      run: "claude",
-    }),
-  ).resolves.toEqual({ terminalId: "machine-one" });
   mock.invoke.mockResolvedValue(undefined);
   await expect(
     api.sidebarCommand({
