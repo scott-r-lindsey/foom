@@ -264,3 +264,12 @@ test.skipIf(process.platform === "win32")(
     expect(probe).not.toHaveBeenCalled();
   },
 );
+
+test("a manager binary may live in a PATH directory without a Node binary", async () => {
+  const root = await fixture({ packageManager: "yarn@1.22.22" });
+  const value = fixtures.get(root);
+  if (!value) throw new Error("Missing fixture");
+  await rm(join(value.bin, "node"));
+  probe.mockResolvedValue("1.22.22");
+  expect(await observe(root)).toEqual([{ tool: "yarn", required: "1.22.22", version: "1.22.22" }]);
+});
