@@ -104,10 +104,10 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
     return current;
   };
   return {
-    hosts: async () => {
+    hosts: async (refresh = true) => {
       const local = await localResources().catch(() => undefined);
       const scan = await caps.scanAgents(false);
-      const remote = (await caps.deps.hosts?.fleet()) ?? [];
+      const remote = (await caps.deps.hosts?.fleet(refresh)) ?? [];
       return [
         {
           host: null,

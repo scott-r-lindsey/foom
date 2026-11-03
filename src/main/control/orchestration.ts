@@ -92,8 +92,8 @@ export class Orchestration extends OrchestrationMutations {
   remoteCheckout(path: string, agent: AgentId) {
     return this.host.remoteCheckout?.(path, agent);
   }
-  hosts(): Promise<unknown> {
-    return this.host.hosts?.() ?? Promise.resolve([]);
+  hosts(refresh = true): Promise<unknown> {
+    return this.host.hosts?.(refresh) ?? Promise.resolve([]);
   }
   async call(
     actor: Principal,

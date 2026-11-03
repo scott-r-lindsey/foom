@@ -1247,3 +1247,25 @@ test("local progress reads bypass the mutation queue and retain completed reposi
   await pending;
   expect((await hosts.action({ action: "progress" })).progress).toBeUndefined();
 });
+
+test("session metadata can read cached fleet observations without waiting for stale or unavailable SSH", async () => {
+  settings = { ...settings, registeredHosts: [{ host: "worker", codeFolder: facts.codeFolder }] };
+  expect(await hosts.fleet(false)).toEqual([
+    { host: "worker", result: { ok: false, reason: "facts-unavailable" } },
+  ]);
+  expect(run).not.toHaveBeenCalled();
+  const cached = await hosts.inventory("worker");
+  run.mockClear();
+  settings = { ...settings, agents: { ...settings.agents, codex: false } };
+  expect(await hosts.fleet(false)).toEqual([{ host: "worker", result: cached }]);
+  expect(run).not.toHaveBeenCalled();
+  run.mockResolvedValueOnce({ ok: false, reason: "unreachable" });
+  await hosts.fleet();
+  run.mockClear();
+  expect(await hosts.fleet(false)).toEqual([
+    { host: "worker", result: { ok: false, reason: "unreachable" } },
+  ]);
+  expect(run).not.toHaveBeenCalled();
+  settings = { ...settings, registeredHosts: [] };
+  expect(await hosts.fleet(false)).toEqual([]);
+});

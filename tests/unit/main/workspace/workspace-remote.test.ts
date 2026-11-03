@@ -226,6 +226,10 @@ test("registered remote children have sidebar checkout rows without a local shad
     ),
   );
   expect(started["status"]).toBe("succeeded");
+  await workspace.orchestration.hosts(false);
+  expect(hosts.fleet).toHaveBeenLastCalledWith(false);
+  await workspace.orchestration.hosts();
+  expect(hosts.fleet).toHaveBeenLastCalledWith(true);
   expect(deps.worktrees.createWorktree).not.toHaveBeenCalled();
   const row = workspace.snapshot().terminals.find((row) => row.id === "remote-registered");
   expect(row).toMatchObject({
