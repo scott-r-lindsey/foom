@@ -1557,13 +1557,19 @@ for (const queued of [false, true]) {
         for (const release of Object.values(globalThis.settledReleases)) release();
       });
       for (const worktreeId of trees) {
+        let diagnosed = false;
         await expect
-          .poll(() =>
-            app.evaluate(
+          .poll(async () => {
+            const operation = await app.evaluate(
               (_, idempotencyKey) => globalThis.settledCall("operation_status", { idempotencyKey }),
               worktreeId,
-            ),
-          )
+            );
+            if (operation.status === "failed" && !diagnosed) {
+              diagnosed = true;
+              context.diagnostic(`Settled removal refusal: ${JSON.stringify(operation)}`);
+            }
+            return operation;
+          })
           .toMatchObject({ status: "succeeded" });
       }
       assert.equal(

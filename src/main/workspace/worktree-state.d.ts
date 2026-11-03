@@ -5,12 +5,14 @@ import type { FetchFacts, ForgeProviderFor } from "./worktree-features.d";
 export interface WorktreeStoredState {
   version: 1;
   repositories: string[];
+  pendingRemovals?: PendingRemoval[];
   parents?: { path: string; identity: string }[];
   managed: {
     path: string;
     repository: string;
     root: string;
     identity: string;
+    directoryIdentity?: string;
     review?: ReviewCheckout;
   }[];
 }
@@ -43,4 +45,11 @@ export interface MergePolicyDependencies extends BranchCleanupDependencies {
   forgeRemote(repository: string): Promise<string | undefined>;
   forgeProviderFor: ForgeProviderFor;
   fetchFacts: (repository: string) => FetchFacts | undefined;
+}
+
+export interface PendingRemoval {
+  path: string;
+  repository: string;
+  root: string;
+  directoryIdentity: string;
 }

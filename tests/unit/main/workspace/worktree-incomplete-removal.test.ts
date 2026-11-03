@@ -18,7 +18,7 @@ afterEach(async () => {
 });
 
 test(
-  "Git success with leftover files is an incomplete removal, never deletion authority",
+  "Git success with a replaced directory never grants retry deletion authority",
   fixture.usingFixture(async () => {
     const { service, repo } = await fixture.create();
     const { path } = await service.createWorktree(repo, "feature/incomplete");
@@ -35,8 +35,12 @@ test(
     expect(error).toBeInstanceOf(IncompleteRemovalError);
     expect(errorMessage(error)).toContain(`Manually clean up: ${path}`);
     expect(await readFile(join(path, "unknown.txt"), "utf8")).toBe("must survive");
-    expect(await service.listWorktrees(repo)).not.toContainEqual(expect.objectContaining({ path }));
-    await expect(service.removeWorktree(repo, path, true)).rejects.toThrow("worktree-missing");
+    expect(await service.listWorktrees(repo)).toContainEqual(
+      expect.objectContaining({ path, removalFailed: true }),
+    );
+    await expect(service.cleanupBrokenWorktree(repo, path)).rejects.toThrow(
+      "worktree-removal-incomplete",
+    );
     expect(await realpath(path)).toBe(path);
   }),
 );

@@ -1,3 +1,4 @@
+import * as operations from "../../../../src/main/workspace/worktree-operations";
 import { mkdir, readFile, realpath, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -5,6 +6,10 @@ import { WorktreeService } from "../../../../src/main/workspace/worktrees";
 import { git as execute } from "../../../helpers/git.js";
 import { nativeDeadline } from "../../../helpers/native-test-policy";
 import { createWorktreeFixture } from "./worktree-git-fixture";
+
+vi.mock("../../../../src/main/workspace/worktree-operations", async (original) => ({
+  ...(await original<typeof operations>()),
+}));
 
 // Real Git startup and filesystem IO are slower on Windows (run 39076862694).
 vi.setConfig({ testTimeout: nativeDeadline(5000), hookTimeout: nativeDeadline(10_000) });
@@ -286,9 +291,11 @@ describe("pruning stale worktrees", () => {
     "refuses any .git entry, even when Git reports the checkout as prunable",
     usingFixture(async () => {
       const { path } = await service.createWorktree(repo, "still-git");
-      const inventory = await service.listWorktrees(repo);
-      vi.spyOn(service, "listWorktrees").mockResolvedValue(
-        inventory.map((tree) => ({ ...tree, prunable: tree.path === path })),
+      const original = operations.git;
+      vi.spyOn(operations, "git").mockImplementation((cwd, args) =>
+        args[0] === "worktree" && args[1] === "list"
+          ? Promise.resolve(`worktree ${path}\0HEAD abc\0prunable\0\0`)
+          : original(cwd, args),
       );
       await expect(service.pruneWorktree(repo, path)).rejects.toThrow("prune-unsafe");
       await rm(join(path, ".git"));

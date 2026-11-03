@@ -8,8 +8,10 @@ Failures of actions the user starts (menus, sidebar commands and Settings action
 open an in-board error dialog. It shows a failure square, one fixed short sentence
 chosen by error code, Dismiss and a fix button when available. It never displays
 exception text or Electron's transport wrapper. An incomplete worktree removal
-adds only the main-validated leftover path with manual-cleanup guidance; it offers
-no automatic retry deletion once Git has unregistered the checkout. Unknown codes use a fixed sentence
+adds only the main-validated leftover path with manual-cleanup guidance. Recorded
+Foom creations under its configured root retain a fixed failed row and a Clean up
+action, with one identity-bound retry per action or startup reconciliation under
+the [worktree retry policy](../areas/worktrees.md#identity-bound-incomplete-removal-retry-994). Unknown codes use a fixed sentence
 for the operation. No button is selected on opening; Escape dismisses without
 acting and restores focus. Trusted confirmation windows remain reserved for
 confirmations. Settings field validation stays beside its field.

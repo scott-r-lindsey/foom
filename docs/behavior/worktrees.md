@@ -128,9 +128,15 @@ including **Discard changes and remove** and external linked checkouts.
 If Git reports successful removal but the directory remains or cannot be checked,
 Foom reports an incomplete-removal failure naming the path. The cleanup checklist
 keeps that candidate failed, and single removal shows an action error. Leave that
-directory for manual cleanup: Foom never retries deletion after Git unregisters it
-and never scans historical orphan directories. The retry portion of #994 remains
-deferred pending a human deletion-safety decision.
+directory in place until retry: for directories Foom created and recorded inside
+its configured worktree root, the sidebar retains **Removal failed — Clean up to
+retry** and offers **Clean up**. An approved Delete merged worktrees run also
+retries these entries. Each action tries once; startup reconciliation tries once
+per saved entry. There is no background retry loop. Every attempt checks the
+original directory identity, containment, symlinks, absence of any `.git` entry,
+and Git registration across all known repositories. Re-registration drops retry
+authority. Unsafe or uninspectable entries remain for manual cleanup; historical
+orphan directories and directories without creation records are never scanned.
 
 Removing a slash-named branch also prunes its now-empty parents only when Foom
 recorded creating those exact directories inside its worktree root. Existing,

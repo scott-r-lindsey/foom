@@ -665,7 +665,15 @@ async function startApplication(wiring: ApplicationWiring): Promise<void> {
     for (const placement of placements) await wiring.createWindow(undefined, placement);
   else await wiring.createWindow(await loadWindowSize(app.getPath("userData")));
   wiring.workspace.configure(wiring.settings.get());
-  void wiring.workspace.restartSaved();
+  void wiring.workspace
+    .restartSaved()
+    .then(() => wiring.worktrees.reconcileRemovals(() => wiring.quitPending || wiring.quitting))
+    .then(() => {
+      if (!wiring.quitPending && !wiring.quitting) wiring.workspace.refresh();
+    })
+    .catch(() => {
+      console.error("Unable to reconcile saved worktree removals");
+    });
   wiring.updates.configure(wiring.settings.get().checkForUpdates);
 }
 
