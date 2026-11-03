@@ -151,28 +151,48 @@ test("the sidebar uses display preferences without changing repository command p
   expect(source.getSidebar()[0]?.path).toBe("/code/work/foom");
 });
 
-test("a broken checkout has a single Clean up command and a visible state", async () => {
-  const { source, command, base, ...view } = setup();
-  const repositories = source.getSidebar?.() ?? [];
-  source.getSidebar = () =>
-    repositories.map((repo) => ({
-      ...repo,
-      worktrees: repo.worktrees.map((tree) =>
-        tree.path === "/tree" ? { ...tree, prunable: true } : tree,
-      ),
-    }));
-  // A source notification refreshes the inventory without launching anything.
-  await act(async () => {
-    base.update("a", { seen: true });
-    await Promise.resolve();
-  });
-  fireEvent.click(view.getByRole("button", { name: "Actions for feature" }));
-  expect(view.getAllByText("Broken checkout").length).toBeGreaterThan(0);
-  expect(view.getAllByRole("menuitem")).toHaveLength(1);
-  // The existing fixture has a live session: cleanup must require closing it.
-  expect(view.getByRole("menuitem", { name: "Clean up" }).hasAttribute("disabled")).toBe(true);
-  expect(command).not.toHaveBeenCalled();
-});
+test.each([
+  { removalFailed: false, host: undefined },
+  { removalFailed: true, host: undefined },
+  { removalFailed: false, host: "worker" },
+  { removalFailed: true, host: "worker" },
+])(
+  "a broken checkout keeps its Clean up command and state (pending removal: $removalFailed, host: $host)",
+  async ({ removalFailed, host }) => {
+    const { source, command, base, ...view } = setup();
+    const repositories = source.getSidebar?.() ?? [];
+    source.getSidebar = () =>
+      repositories.map((repo) => ({
+        ...repo,
+        worktrees: repo.worktrees.map((tree) =>
+          tree.path === "/tree"
+            ? {
+                ...tree,
+                prunable: true,
+                removalFailed,
+                ...(host ? { host } : {}),
+              }
+            : tree,
+        ),
+      }));
+    // A source notification refreshes the inventory without launching anything.
+    await act(async () => {
+      base.update("a", { seen: true });
+      await Promise.resolve();
+    });
+    fireEvent.click(view.getByRole("button", { name: "Actions for feature" }));
+    expect(
+      view.getAllByText(removalFailed ? "Removal failed — Clean up to retry" : "Broken checkout")
+        .length,
+    ).toBeGreaterThan(0);
+    const checkout = within(view.getByRole("treeitem", { name: "feature" }));
+    expect(checkout.queryByLabelText("Host: worker") !== null).toBe(Boolean(host));
+    expect(view.getAllByRole("menuitem")).toHaveLength(1);
+    // The existing fixture has a live session: cleanup must require closing it.
+    expect(view.getByRole("menuitem", { name: "Clean up" }).hasAttribute("disabled")).toBe(true);
+    expect(command).not.toHaveBeenCalled();
+  },
+);
 
 test("remote checkout labels use profile nicknames and short-name fallback without changing keys", async () => {
   const { repository } = await import("./sidebar-view-fixtures");
@@ -208,7 +228,7 @@ test("remote checkout labels use profile nicknames and short-name fallback witho
   expect(view.getAllByLabelText("Host: Build box")).toHaveLength(2);
   cleanup();
   render(<Board source={{ ...base, getSidebar: () => [remote] }} />);
-  expect(view.queryByLabelText("Host: Build box")).toBeNull();
+  expect(view.queryByLabelText("Host: worker")).toBeNull();
   expect(document.querySelectorAll('[aria-label="Host: dozer"]')).toHaveLength(2);
   expect(document.body.textContent).not.toContain("feature ·");
 });

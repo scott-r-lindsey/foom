@@ -2,6 +2,7 @@ import { DEFAULT_SETTINGS } from "../../../src/main/setup/settings";
 import { malformedValues, withUndeclaredFields } from "./malformed-values";
 import {
   replies,
+  worktree,
   setup,
   config,
   requestId,
@@ -1819,4 +1820,18 @@ test("host progress is projected and rejects malformed steps and observations", 
     mock.invoke.mockResolvedValue({ ...value, progress: bad });
     await expect(api.hosts({ action: "progress" })).rejects.toThrow();
   }
+});
+
+test("worktree replies validate and preserve the optional persisted-removal failure flag", async () => {
+  const api = await bridge();
+  const trees = [worktree];
+  mock.invoke.mockResolvedValue(trees);
+  expect(await api.worktrees("/repo")).toEqual(trees);
+  for (const removalFailed of [false, true]) {
+    const value = trees.map((tree) => ({ ...tree, removalFailed }));
+    mock.invoke.mockResolvedValue(value);
+    expect(await api.worktrees("/repo")).toEqual(value);
+  }
+  mock.invoke.mockResolvedValue(trees.map((tree) => ({ ...tree, removalFailed: "true" })));
+  await expect(api.worktrees("/repo")).rejects.toThrow();
 });

@@ -60,6 +60,7 @@ function fixture() {
       events.push("remove");
       return Promise.resolve();
     }),
+    cleanupBrokenWorktree: vi.fn(async () => {}),
     removeRepository: vi.fn(async () => {}),
     mergedDefault: vi.fn(() => Promise.resolve("base")),
     mergedFetchTime: vi.fn(() => 500),

@@ -521,3 +521,21 @@ test("an unavailable config plugin still protects its recorded conversation from
     await workspace.dispose();
   }
 });
+
+test("approved merged cleanup retries one pending removal without Git authorization or branch deletion", async () => {
+  const workspace = new Workspace(deps);
+  vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([
+    { ...tree, branch: null, head: null, prunable: true, removalFailed: true },
+  ]);
+  await cleanupCommand(workspace, { kind: "delete-merged-worktrees", repository: repo.path }, () =>
+    Promise.resolve(true),
+  );
+  expect(deps.worktrees.cleanupBrokenWorktree).toHaveBeenCalledExactlyOnceWith(
+    repo.path,
+    tree.path,
+  );
+  expect(deps.worktrees.removeWorktree).not.toHaveBeenCalled();
+  expect(deps.worktrees.removalIdentity).not.toHaveBeenCalled();
+  expect(deps.worktrees.deleteMergedBranches).toHaveBeenCalledWith(repo.path, []);
+  await workspace.dispose();
+});

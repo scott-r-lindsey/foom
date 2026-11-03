@@ -151,7 +151,11 @@ export function SidebarWorktreeSection({
         {!worktree.host && worktree.unavailable && (
           <span className="worktree-removed">Unavailable</span>
         )}
-        {worktree.prunable && <span className="worktree-removed">Broken checkout</span>}
+        {worktree.prunable && (
+          <span className="worktree-removed">
+            {worktree.removalFailed ? "Removal failed — Clean up to retry" : "Broken checkout"}
+          </span>
+        )}
         {worktree.pullRequest && (
           <PullRequestMark pr={worktree.pullRequest} open={openPullRequest} />
         )}

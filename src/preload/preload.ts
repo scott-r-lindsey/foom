@@ -928,6 +928,7 @@ const validBoardPullRequest: Validator<BoardPullRequest> = shape({
 } satisfies Contract<BoardPullRequest>);
 
 const validWorktree: Validator<Worktree> = shape({
+  removalFailed: either(absent, boolean),
   host: either(absent, hostAlias),
   unavailable: either(absent, boolean),
   pullRequest: either(absent, validBoardPullRequest),

@@ -1,3 +1,4 @@
+import * as operations from "../../../../src/main/workspace/worktree-operations";
 import * as fs from "node:fs/promises";
 import { mkdir, readFile, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -12,6 +13,10 @@ import { nativeDeadline } from "../../../helpers/native-test-policy";
 import { createWorktreeFixture } from "./worktree-git-fixture";
 
 vi.mock("node:fs/promises", async (original) => ({ ...(await original<typeof fs>()) }));
+
+vi.mock("../../../../src/main/workspace/worktree-operations", async (original) => ({
+  ...(await original<typeof operations>()),
+}));
 
 // Real Git startup and filesystem IO are slower on Windows (run 39076862694).
 vi.setConfig({ testTimeout: nativeDeadline(5000), hookTimeout: nativeDeadline(10_000) });
@@ -440,14 +445,11 @@ it("rejects main, missing, locked, prunable, bare and unrelated removal targets"
   await git("worktree", "lock", path);
   await expect(service.removeWorktree(repo, path, true, identity)).rejects.toThrow("locked");
   await git("worktree", "unlock", path);
-  const inventory = await service.listWorktrees(repo);
-  const listing = vi.spyOn(service, "listWorktrees");
-  for (const flags of [{ prunable: true }, { bare: true }]) {
-    listing.mockResolvedValueOnce(
-      inventory.map((tree) => (tree.path === path ? { ...tree, ...flags } : tree)),
-    );
+  const listing = vi.spyOn(operations, "git");
+  for (const flag of ["prunable", "bare"]) {
+    listing.mockResolvedValueOnce(`worktree ${path}\0HEAD abc\0${flag}\0\0`);
     await expect(service.removalIdentity(repo, path)).rejects.toThrow(
-      flags.prunable ? "worktree-prunable" : "worktree-missing",
+      flag === "prunable" ? "worktree-prunable" : "worktree-missing",
     );
   }
   listing.mockRestore();

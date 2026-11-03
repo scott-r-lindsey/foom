@@ -473,6 +473,7 @@ export async function createWorktree(
     repository: repository.path,
     root,
     identity: await worktreeIdentity(path),
+    directoryIdentity: await parentIdentity(path),
   });
   await context.save();
   return { path, outcome: exists ? "existing" : onRemote ? "origin" : "new" };

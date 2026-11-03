@@ -28,6 +28,16 @@ export class WorktreeStore {
     return {
       version: 1,
       repositories: state["repositories"].filter(absolutePath),
+      pendingRemovals: Array.isArray(state["pendingRemovals"])
+        ? state["pendingRemovals"].filter(
+            (entry): entry is NonNullable<WorktreeStoredState["pendingRemovals"]>[number] =>
+              record(entry) &&
+              absolutePath(entry["path"]) &&
+              absolutePath(entry["repository"]) &&
+              absolutePath(entry["root"]) &&
+              typeof entry["directoryIdentity"] === "string",
+          )
+        : [],
       parents: Array.isArray(state["parents"])
         ? state["parents"].filter(
             (entry): entry is { path: string; identity: string } =>
@@ -50,6 +60,9 @@ export class WorktreeStore {
             repository: entry.repository,
             root: entry.root,
             identity: entry.identity,
+            ...(typeof entry.directoryIdentity === "string"
+              ? { directoryIdentity: entry.directoryIdentity }
+              : {}),
             ...(record(review) &&
             forgeBranch(review["branch"]) &&
             typeof review["head"] === "string" &&
