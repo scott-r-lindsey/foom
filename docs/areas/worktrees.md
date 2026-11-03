@@ -335,8 +335,8 @@ history authorizes empty-parent pruning only, never orphan-checkout deletion.
 
 Only Foom-created directories recorded at creation under the configured Foom
 worktree root can retain retry authority. Creation stores a separate directory
-device/inode/birth-time identity; legacy records without it and adjacent or
-user-supplied paths grant no retry authority. After ordinary removal approval and
+device/inode/birth-time identity; legacy records without it, adjacent paths outside
+the configured root, and user-supplied paths grant no retry authority. After ordinary removal approval and
 final checks, main persists a pending-removal record before invoking Git, so a
 crash immediately after unregistration does not lose it. This record is separate
 from ordinary Git/marker creation history. Forgetting the repository drops it.
