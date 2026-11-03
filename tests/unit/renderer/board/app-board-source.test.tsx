@@ -673,3 +673,46 @@ test("remote host failures make sessions dormant without calling their worktrees
   });
   disconnect?.();
 });
+
+test("machine inventory changes preserve the focused terminal DOM and never reopen or refocus its view", async () => {
+  const input = document.createElement("textarea");
+  input.className = "xterm-helper-textarea";
+  mock.mount.mockImplementationOnce((element: HTMLElement) => {
+    element.append(input);
+  });
+  mock.workspace.mockResolvedValue({ repositories: [], terminals: [agent("a")] });
+  const source = createAppSource();
+  const view = render(<Board source={source} />);
+  await settle();
+  const row = view.container.querySelector<HTMLElement>('[data-drag-session="a"]');
+  if (!row) throw new Error("Missing session row");
+  fireEvent.click(row);
+  await settle();
+  expect(input.isConnected).toBe(true);
+  input.focus();
+  const opened = mock.open.mock.calls.length;
+  const mounted = mock.mount.mock.calls.length;
+  const focused = mock.focus.mock.calls.length;
+  const hidden = mock.hide.mock.calls.length;
+  for (const agents of [[], [{ id: "claude", name: "Claude Code" }], []]) {
+    mock.sidebarInventory.mockResolvedValue({
+      repositories: [],
+      shell: "bash",
+      machines: [
+        { host: null, name: "localhost", available: true, agents: [] },
+        { host: "worker", name: "Builder", available: true, agents },
+      ],
+    });
+    act(() => {
+      mock.changed?.();
+    });
+    await settle();
+    expect(view.getByRole("button", { name: "Actions for Builder" })).toBeTruthy();
+    expect(view.container.querySelector(".xterm-helper-textarea")).toBe(input);
+    expect(document.activeElement).toBe(input);
+    expect(mock.open).toHaveBeenCalledTimes(opened);
+    expect(mock.mount).toHaveBeenCalledTimes(mounted);
+    expect(mock.focus).toHaveBeenCalledTimes(focused);
+    expect(mock.hide).toHaveBeenCalledTimes(hidden);
+  }
+});
