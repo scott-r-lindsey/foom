@@ -271,6 +271,10 @@ export function Sidebar(props: SidebarProps) {
                   machine={machine}
                   compact={compact}
                   command={command}
+                  repositories={(source.getSidebar?.() ?? []).filter(
+                    (repository) =>
+                      preferences.pins.includes(repository.path) && !repository.unavailable,
+                  )}
                 >
                   {rows
                     .filter(

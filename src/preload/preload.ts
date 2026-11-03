@@ -1860,11 +1860,12 @@ const desktop: DesktopApi = {
     if (
       command.kind === "home-shell" ||
       command.kind === "machine-launch" ||
-      command.kind === "repository-launch"
+      command.kind === "repository-launch" ||
+      command.kind === "repository-prepare"
     ) {
       return reply(
         "workspace:sidebar-command",
-        command.kind === "repository-launch"
+        command.kind === "repository-launch" || command.kind === "repository-prepare"
           ? either(
               absent,
               shape({

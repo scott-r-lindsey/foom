@@ -166,7 +166,10 @@ never become copy targets. Copy buttons join the dialog's existing focus trap.
 `workspace:sidebar` also projects machine labels, availability, installed agent
 IDs/names and checked repository location IDs. `machine-launch` accepts exactly
 `kind`, nullable registered `host` and known `run`; `repository-launch` additionally
-requires a registered `repository`. Neither accepts a cwd, executable or arguments.
+requires a registered `repository`. `repository-prepare` has the same closed shape,
+requires an agent instead of a shell, and accepts no prompt: main selects the fixed
+preparation prompt using the registered repository's name. None accepts a cwd,
+executable or arguments.
 Successful human launches return their request-specific terminal ID. Main alone
 selects the folder and launch defaults. `workspace:create-worktree` accepts an
 optional fourth registered-host selector, retaining the existing local location

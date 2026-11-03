@@ -366,7 +366,7 @@ test.skipIf(process.platform === "win32").each(["close", "takeover"])(
         hostFacts: 1,
         hostPreflight: 1,
         originTrust: 1,
-        humanMachines: 1,
+        humanMachines: 2,
       });
     });
     if (operation === "close") {
@@ -1417,7 +1417,7 @@ test.skipIf(process.platform === "win32")(
       hostFacts: 1,
       hostPreflight: 1,
       originTrust: 1,
-      humanMachines: 1,
+      humanMachines: 2,
     });
     expect(mock.stop).not.toHaveBeenCalled();
     await disconnect(newer);
@@ -1793,7 +1793,7 @@ test.skipIf(process.platform === "win32")(
         hostFacts: 1,
         hostPreflight: 1,
         originTrust: 1,
-        humanMachines: 1,
+        humanMachines: 2,
       });
       expect(host.server.listening).toBe(true);
     } finally {
@@ -2556,9 +2556,11 @@ test.skipIf(process.platform === "win32").each(
   expect(mock.create).toHaveBeenCalledTimes(2);
 });
 
-test.skipIf(process.platform === "win32")(
-  "machine launches resolve only bundled installed agents and approved folders without child control",
-  async () => {
+test
+  .skipIf(process.platform === "win32")
+  .each([undefined, "Prepare this checkout. Ask before sudo."])(
+  "machine launches resolve only bundled installed agents and approved folders without child control (%s)",
+  async (prompt) => {
     await start();
     const c = await client();
     c.send({ type: "hello", build });
@@ -2572,7 +2574,12 @@ test.skipIf(process.platform === "win32")(
       reattach: false,
       human: true,
       profile: "a".repeat(32),
-      machine: { codeFolder: "/code", agent: "claude", defaults: ["--model", "fixture"] },
+      machine: {
+        codeFolder: "/code",
+        agent: "claude",
+        defaults: ["--model", "fixture"],
+        ...(prompt === undefined ? {} : { prompt }),
+      },
     });
     await c.wait(2);
     expect(mock.folder).toHaveBeenCalledWith("/code", root);
@@ -2585,7 +2592,7 @@ test.skipIf(process.platform === "win32")(
     expect(mock.create).toHaveBeenCalledWith(
       expect.objectContaining({
         command: "/fixture/claude",
-        args: ["--model", "fixture"],
+        args: ["--model", "fixture", ...(prompt === undefined ? [] : ["--", prompt])],
         cwd: "/code",
         env: { PATH: "/fixture" },
         replaceEnvironment: true,

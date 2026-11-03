@@ -937,6 +937,7 @@ test("machine launch IPC accepts only a host selector and known agent, with a re
     { kind: "machine-launch", host: null, run: "shell" },
     { kind: "machine-launch", host: "worker", run: "claude" },
     { kind: "repository-launch", repository: "/repo", host: "worker", run: "codex" },
+    { kind: "repository-prepare", repository: "/repo", host: "worker", run: "codex" },
   ]) {
     await invoke("workspace:sidebar-command", [value]);
     expect(command).toHaveBeenLastCalledWith(value, expect.any(Function));
@@ -950,6 +951,14 @@ test("machine launch IPC accepts only a host selector and known agent, with a re
     { kind: "repository-launch", host: null, run: "shell" },
     { kind: "repository-launch", host: null, repository: "", run: "shell" },
     { kind: "repository-launch", host: null, repository: "/repo", run: "shell", args: [] },
+    { kind: "repository-prepare", host: null, repository: "/repo", run: "shell" },
+    {
+      kind: "repository-prepare",
+      host: "worker",
+      repository: "/repo",
+      run: "claude",
+      prompt: "arbitrary",
+    },
   ])
     expect(() => invoke("workspace:sidebar-command", [value])).toThrow();
   await invoke("workspace:create-worktree", ["/repo", "new-branch", undefined, "worker"]);

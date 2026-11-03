@@ -44,6 +44,7 @@ export interface MachineLaunch {
   codeFolder: string;
   agent?: string;
   defaults?: string[];
+  prompt?: string;
   repository?: { directory: string; origin: string };
 }
 export type RemoteTarget = {
@@ -121,7 +122,7 @@ export type RemoteResponse =
       compatible?: 2;
       hostFacts?: 1;
       hostPreflight?: 1;
-      humanMachines?: 1;
+      humanMachines?: 1 | 2;
       originTrust?: 1;
     }
   | HostResponse

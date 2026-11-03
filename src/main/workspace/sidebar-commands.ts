@@ -20,6 +20,7 @@ import type {
 } from "./workspace-capabilities";
 import { agentProviders } from "../agents/providers/registry";
 import { homeDirectory, homeShellFacts } from "./home-shell";
+import { repositoryPreparationPrompt } from "../../shared/repository-preparation";
 
 /** Validate clipboard metadata independently of SSH enrollment. */
 function copyableUrl(value: string, web: boolean): boolean {
@@ -192,22 +193,48 @@ export async function sidebarCommand(
     await this.resumeId(command, confirm);
     return;
   }
-  if (command.kind === "repository-launch") {
+  if (command.kind === "repository-launch" || command.kind === "repository-prepare") {
+    const repository = this.deps.worktrees
+      .listRepositories()
+      .find((repo) => repo.path === command.repository);
+    if (!repository) throw new Error("Unknown repository");
+    const prompt =
+      command.kind === "repository-prepare"
+        ? repositoryPreparationPrompt(repository.name)
+        : undefined;
+    if (prompt !== undefined && command.run === "shell")
+      throw new Error("Preparation requires an agent");
     if (command.host === null) {
-      const id = await this.startExisting(
-        command.repository,
-        command.repository,
-        command.run,
-        confirm,
-      );
+      const id =
+        prompt === undefined
+          ? await this.startExisting(command.repository, command.repository, command.run, confirm)
+          : await this.startExisting(
+              command.repository,
+              command.repository,
+              command.run,
+              confirm,
+              undefined,
+              undefined,
+              false,
+              undefined,
+              undefined,
+              prompt,
+            );
       return id ? { terminalId: id } : undefined;
     }
+    const location = { repository: command.repository, worktree: command.repository, branch: null };
     return {
-      terminalId: await this.startMachine(command.host, command.run, undefined, {
-        repository: command.repository,
-        worktree: command.repository,
-        branch: null,
-      }),
+      terminalId:
+        prompt === undefined
+          ? await this.startMachine(command.host, command.run, undefined, location)
+          : await this.startMachine(
+              command.host,
+              command.run,
+              undefined,
+              location,
+              undefined,
+              prompt,
+            ),
     };
   }
   if (command.kind === "machine-launch")

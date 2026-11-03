@@ -204,3 +204,11 @@ Repository New worktree and New agent menus offer a machine choice when that
 repository has a checked-out location on a registered host. Localhost remains an
 option; unavailable locations cannot launch. New agent uses the chosen machine's
 main checkout. Creating a worktree launches nothing.
+
+A machine menu lists pinned repositories checked out on that host. Their
+**Prepare for <repo>** command opens an agent-choice submenu with the same order
+and labels as that host's agent launch commands. With exactly one installed,
+enabled agent it launches directly; with none it is hidden. Prepare opens a normal
+human-owned agent tile in that checkout with fixed guidance to read its contributor
+docs and set up build/test prerequisites, ask before sudo, and report failures.
+Foom executes no repository setup code itself and adds no approval or control grant.

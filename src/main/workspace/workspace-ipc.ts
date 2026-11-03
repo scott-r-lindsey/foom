@@ -62,14 +62,14 @@ function sidebarCommand(value: unknown): SidebarCommand {
     if (Object.keys(value).length !== 1) throw new Error("Invalid home shell request");
     return { kind };
   }
-  if (kind === "machine-launch" || kind === "repository-launch") {
+  if (kind === "machine-launch" || kind === "repository-launch" || kind === "repository-prepare") {
     if (
-      Object.keys(value).length !== (kind === "repository-launch" ? 4 : 3) ||
+      Object.keys(value).length !== (kind === "machine-launch" ? 3 : 4) ||
       !(value["host"] === null || text(value["host"], 256)) ||
-      !(value["run"] === "shell" || agent(value["run"]))
+      !((value["run"] === "shell" && kind !== "repository-prepare") || agent(value["run"]))
     )
       throw new Error("Invalid machine launch");
-    if (kind === "repository-launch") {
+    if (kind !== "machine-launch") {
       if (!text(value["repository"])) throw new Error("Invalid repository launch");
       return { kind, repository: value["repository"], host: value["host"], run: value["run"] };
     }

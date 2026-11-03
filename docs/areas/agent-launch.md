@@ -275,3 +275,10 @@ its own executable and login environment. These launches add no bypass flags, ch
 launches reuse ordinary per-launch hooks and bypass consent; the remote plain CLI
 launch attaches no MCP or hook assets. Evaluation remains local. Repository placement uses the selected machine's checked main checkout;
 existing remote worktree launches retain profile provenance and identity checks.
+
+Repository preparation uses the same human launch with a main-selected fixed
+starting prompt. The main-only `humanPrompt` marker keeps that prompt free of
+child instructions and cannot accompany orchestration authority. The prompt asks
+the agent to read contributor docs, prepare build/test prerequisites, ask before
+sudo, and report anything it could not install. Foom itself runs no checkout setup
+code, grants no automatic approval, and sends no post-launch terminal input.

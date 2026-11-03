@@ -129,7 +129,7 @@ process.stdin.on('data', bytes => {
   if(host==='invalid-cloud') result={ok:true,facts:{}};
   const failures={'provider-cloud':'provider-invalid','configuration-cloud':'configuration-changed','cancelled-cloud':'cancelled'};
   if(failures[host]) result={ok:false,reason:failures[host]};
-  if((settings.hold && message.operation==='inspect') || (settings.holdClone && message.operation==='clone')) { const timer=setInterval(()=>{ if(!JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8')).hold && !JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8')).holdClone) {clearInterval(timer);send({type:'managed',result});}},20); } else send({type:'managed',result});
+  if((settings.hold && message.operation==='inspect') || (settings.holdClone && message.operation==='clone')) { appendFileSync(${JSON.stringify(calls)},JSON.stringify({host,message,phase:'held'})+'\\n'); const timer=setInterval(()=>{ if(!JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8')).hold && !JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8')).holdClone) {clearInterval(timer);send({type:'managed',result});}},20); } else send({type:'managed',result});
  }
 });
 `,
@@ -432,6 +432,17 @@ process.stdin.on('data', bytes => {
   await page.getByRole("button", { name: "Clone here", exact: true }).click();
   await expect(page.getByText("Cloning…", { exact: true })).toBeVisible();
   await capture("repositories-cloning");
+  // Cloning is optimistic UI; wait for the fixture to hold the successful reply
+  // before clearing the scenario, even on a slow SSH process startup.
+  await expect
+    .poll(async () =>
+      (await readFile(calls, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line))
+        .some(({ message, phase }) => message.operation === "clone" && phase === "held"),
+    )
+    .toBe(true);
   await updateScenario({});
   await expect(page.getByText("Clean", { exact: true })).toBeVisible();
   await capture("repositories-clone-clean");

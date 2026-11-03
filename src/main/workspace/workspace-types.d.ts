@@ -67,6 +67,7 @@ export interface WorkspaceMethods {
       AgentLaunch,
       | "control"
       | "prompt"
+      | "humanPrompt"
       | "conversationId"
       | "pinConversation"
       | "beforeSpawn"
@@ -93,6 +94,7 @@ export interface WorkspaceMethods {
     restoreId?: string,
     location?: Pick<WorkspaceTerminal, "repository" | "worktree" | "branch">,
     conversation?: string,
+    prompt?: string,
   ): Promise<string>;
   startHomeShell(restoreId?: string, remote?: RemoteTarget): Promise<string>;
   resumeId(
@@ -109,6 +111,7 @@ export interface WorkspaceMethods {
     restoring?: boolean,
     authorityIdentity?: string,
     pastedId?: string,
+    humanPrompt?: string,
   ): Promise<string | undefined>;
   revokeConfig(id: string): void;
   bindConfig(id: string, token: string): void;

@@ -310,6 +310,18 @@ it("prepares ordered argv, UUID, display and prompt; resume adds no greeting or 
   expect(() => minimal.provider.resume("saved")).toThrow("cannot resume");
   await expect(launch(m, { conversationId: "saved" })).rejects.toThrow("cannot resume");
 });
+
+it("human workflow prompts use ordinary preparation without child instructions", async () => {
+  const prompt = "Read contributor docs and prepare this checkout. Ask before sudo.";
+  const prepared = await launch(
+    parseAgentManifest(JSON.stringify(claudeManifest), "bundled").model,
+    { prompt, humanPrompt: true },
+    ["--model", "user-choice"],
+  );
+  expect(prepared.prepared.args).toContain(prompt);
+  expect(prepared.prepared.args.join(" ")).not.toContain("Task from your Foom orchestrator");
+  expect(prepared.prepared.args).toContain("user-choice");
+});
 it.each(["--system-prompt", "--model", "--effort"])(
   "preserves literal tool option values owned by %s when attaching Claude MCP",
   async (flag) => {

@@ -18,6 +18,7 @@ import { approvedCodeFolder } from "./management";
 import { manageHost } from "./management";
 import { version } from "../../../package.json";
 import { LaunchFailure } from "../../shared/launch-failure";
+import { humanPromptArguments } from "../../shared/repository-preparation";
 import { record } from "../../shared/remote-agent-protocol";
 import { prepareRemoteAgent } from "./agent-launch";
 import type { RemoteControlResult } from "../../shared/remote-agent";
@@ -380,7 +381,7 @@ export function serveHost(
           compatible: 2,
           hostFacts: 1,
           hostPreflight: 1,
-          humanMachines: 1,
+          humanMachines: 2,
           originTrust: 1,
         });
         return;
@@ -868,7 +869,12 @@ export function serveHost(
                 cancellation.signal.throwIfAborted();
                 return {
                   command: found?.command ?? remoteShell(),
-                  args: model ? [...(machine.defaults ?? [])] : ["-i", "-l"],
+                  args:
+                    model && found
+                      ? machine.prompt === undefined
+                        ? [...(machine.defaults ?? [])]
+                        : humanPromptArguments(model, machine.defaults ?? [], machine.prompt, found)
+                      : ["-i", "-l"],
                   cwd,
                   ...(found
                     ? {

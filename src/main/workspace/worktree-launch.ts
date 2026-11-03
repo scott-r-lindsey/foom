@@ -75,6 +75,7 @@ export async function launchAgent(
     AgentLaunch,
     | "control"
     | "prompt"
+    | "humanPrompt"
     | "conversationId"
     | "pinConversation"
     | "beforeSpawn"
@@ -315,7 +316,10 @@ export async function startMachine(
   restoreId?: string,
   location?: Pick<WorkspaceTerminal, "repository" | "worktree" | "branch">,
   conversation?: string,
+  prompt?: string,
 ): Promise<string> {
+  if (prompt !== undefined && (host === null || run === "shell" || !location))
+    throw new Error("Preparation requires a remote repository agent");
   const perform = async (): Promise<string> => {
     const ensureOpen = () => {
       if (this.closed) throw new Error("Workspace is closed");
@@ -368,7 +372,7 @@ export async function startMachine(
         machine: {
           ...repositoryTarget?.machine,
           codeFolder: registered.codeFolder,
-          ...(run === "shell" ? {} : { agent: run, defaults: args }),
+          ...(run === "shell" ? {} : { agent: run, defaults: args, ...(prompt ? { prompt } : {}) }),
         },
       };
       if (repositoryTarget?.machine?.repository && location) {
@@ -563,6 +567,7 @@ export async function startExisting(
   restoring = false,
   authorityIdentity?: string,
   pastedId?: string,
+  humanPrompt?: string,
 ): Promise<string | undefined> {
   return this.withRepository(repository, async () => {
     let reservation: string | undefined;
@@ -600,11 +605,21 @@ export async function startExisting(
       if (run !== "shell" && !restoring && !(await this.confirmAgentLaunch(worktree, confirm)))
         return;
       if (registeredRemote && !control && run !== "shell") {
-        return await this.startMachine(registeredRemote.target.host, run, replacement?.id, {
+        const location = {
           repository,
           worktree,
           branch: tree.branch,
-        });
+        };
+        return humanPrompt === undefined
+          ? await this.startMachine(registeredRemote.target.host, run, replacement?.id, location)
+          : await this.startMachine(
+              registeredRemote.target.host,
+              run,
+              replacement?.id,
+              location,
+              undefined,
+              humanPrompt,
+            );
       }
       if (run !== "shell") {
         if (!isRemote) await this.scanAgents(false);
@@ -642,6 +657,7 @@ export async function startExisting(
               identity,
               replacement,
               {
+                ...(humanPrompt === undefined ? {} : { prompt: humanPrompt, humanPrompt: true }),
                 ...(registeredRemote ? { remoteCheckout: registeredRemote } : {}),
                 ...(isRemote && control && "parentId" in control
                   ? {

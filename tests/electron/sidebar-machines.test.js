@@ -20,6 +20,7 @@ test("sidebar machines launch human shells and agents and keep remote worktrees 
   await mkdir(bin);
   const calls = path.join(root, "calls.jsonl");
   const offline = path.join(root, "offline");
+  const agentChoice = path.join(root, "agents");
   const catalog = path.resolve("build/remote-hosts", `${process.platform}-${process.arch}`);
   const backups = new Map();
   for (const name of ["foom-host.gz", "manifest.json"]) {
@@ -69,12 +70,12 @@ const frames=new RemoteFrames();const send=value=>{for(const frame of remoteResp
 let output='FIXTURE_MACHINE_READY\\r\\n';
 process.stdin.on('data',bytes=>frames.push(bytes,message=>{
  fs.appendFileSync(${JSON.stringify(calls)},JSON.stringify({host,message})+'\\n');
- if(message.type==='hello'){send({type:'hello',build:${JSON.stringify(manifest.sha256)}});return;}
+ if(message.type==='hello'){send({type:'hello',build:${JSON.stringify(manifest.sha256)},humanMachines:2});return;}
  if(message.type==='inventory'){send({type:'inventory-result',own:[],foreign:[]});return;}
  if(message.type==='open'){
   assert.equal(message.human,true);assert.equal(message.agent,undefined);
   assert.equal(message.machine.codeFolder,'/remote/code');
-  if(message.machine.agent){assert.equal(message.machine.agent,'claude');assert.deepEqual(message.machine.defaults,[]);}
+  if(message.machine.agent){assert.ok(['claude','codex'].includes(message.machine.agent));assert.deepEqual(message.machine.defaults,[]);}
   output='FIXTURE_'+(message.machine.agent||'shell')+' /remote/code\\r\\n';
   send({type:'open-result',id:message.id,request:message.request,state:'live'});return;
  }
@@ -83,7 +84,8 @@ process.stdin.on('data',bytes=>frames.push(bytes,message=>{
   send({type:'result',id:message.id,request:message.request,lines:output.split('\\r\\n'),cols:80,rows:24,title:'Machine'});return;
  }
  assert.equal(message.type,'manage');
- const facts={codeFolder:'/remote/code',version:${JSON.stringify(manifest.version)},sessions:0,cores:4,load:[0,0,0],memoryTotal:1000,memoryAvailable:900,agents:[{id:'claude',state:'ready'},{id:'codex',state:'missing'}]};
+ const choice=fs.existsSync(${JSON.stringify(agentChoice)})?fs.readFileSync(${JSON.stringify(agentChoice)},'utf8'):'';
+ const facts={codeFolder:'/remote/code',version:${JSON.stringify(manifest.version)},sessions:0,cores:4,load:[0,0,0],memoryTotal:1000,memoryAvailable:900,agents:[{id:'claude',state:choice==='none'?'missing':'ready'},{id:'codex',state:choice==='multiple'?'ready':'missing'}]};
  const result={ok:true,facts};
  if(['repository','clone'].includes(message.operation))result.checkout={path:'/remote/code/'+message.directory,state:'clean'};
  if(message.operation==='inspect-worktree')result.worktree={path:message.path,branch:'remote-work',identity:message.identity,changes:''};
@@ -226,6 +228,77 @@ process.stdin.on('data',bytes=>frames.push(bytes,message=>{
       .getByLabel("Host: fixture-cloud"),
   ).toBeVisible();
   await capture("worktree-tile-chip");
+  // Prepare is available only for pinned, checked-out repositories.
+  await page.getByRole("button", { name: "Actions for shell-fixture", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Pin to top", exact: true }).click();
+  await expect(page.getByLabel("Pinned", { exact: true })).toBeVisible();
+  const hostMenu = page.getByRole("button", { name: "Actions for fixture-cloud", exact: true });
+  const prepare = page.getByRole("menuitem", { name: "Prepare for shell-fixture", exact: true });
+  await hostMenu.click();
+  await page.getByRole("menuitem", { name: "shell-fixture", exact: true }).hover();
+  await expect(prepare).toBeVisible();
+  assert.equal(await prepare.getAttribute("aria-haspopup"), null);
+  await capture("prepare-single");
+  await prepare.click();
+  const preparedRows = async () =>
+    page.evaluate(async () =>
+      (await window.desktop.workspace()).terminals.filter(
+        (row) => row.branch === "Main checkout" && row.placement?.kind === "remote",
+      ),
+    );
+  await expect.poll(async () => (await preparedRows()).length).toBe(2);
+  const prepared = (await preparedRows()).at(-1);
+  assert.equal(prepared.agent, "claude");
+  assert.equal(prepared.placement.host, "fixture-cloud");
+  assert.equal(prepared.orchestration, undefined);
+  const preparedTile = () =>
+    page.evaluate((id) => {
+      const layout = JSON.parse(localStorage.getItem(`foom.tiles.v1.${window.desktop.windows.id}`));
+      const locate = (node) =>
+        node.kind === "split"
+          ? locate(node.first) || locate(node.second)
+          : node.content?.session === id
+            ? node.id
+            : null;
+      return locate(layout.tree);
+    }, prepared.id);
+  await expect.poll(preparedTile).toBeTruthy();
+  await expect(page.locator(`[data-tile="${await preparedTile()}"]`)).toBeVisible();
+  await capture("prepare-tile");
+  const refreshAgents = async (choice) => {
+    await writeFile(agentChoice, choice);
+    await page.evaluate(() =>
+      window.desktop.hosts({
+        action: "preflight",
+        host: "fixture-cloud",
+        codeFolder: "/remote/code",
+      }),
+    );
+  };
+  await refreshAgents("multiple");
+  await hostMenu.click();
+  await expect(page.getByRole("menuitem", { name: "New Codex", exact: true })).toBeVisible();
+  const hostLabels = await page
+    .getByRole("menu", { name: "Actions for fixture-cloud", exact: true })
+    .getByRole("menuitem")
+    .allTextContents();
+  await page.getByRole("menuitem", { name: "shell-fixture", exact: true }).hover();
+  await prepare.hover();
+  const prepareChoices = page.getByRole("menu", { name: "Prepare for shell-fixture", exact: true });
+  await expect(prepareChoices).toBeVisible();
+  assert.deepEqual(
+    await prepareChoices.getByRole("menuitem").allTextContents(),
+    hostLabels.slice(1, 3),
+  );
+  await capture("prepare-agents");
+  await prepareChoices.getByRole("menuitem", { name: "New Codex", exact: true }).click();
+  await expect.poll(async () => (await preparedRows()).length).toBe(3);
+  assert.equal((await preparedRows()).at(-1).agent, "codex");
+  await refreshAgents("none");
+  await hostMenu.click();
+  await expect(page.getByRole("menuitem", { name: "shell-fixture", exact: true })).toHaveCount(0);
+  await capture("prepare-no-agents");
+  await page.keyboard.press("Escape");
   await writeFile(offline, "offline");
   await page.evaluate(() =>
     window.desktop.hosts({
@@ -243,6 +316,22 @@ process.stdin.on('data',bytes=>frames.push(bytes,message=>{
     .trim()
     .split("\n")
     .map((line) => JSON.parse(line));
+  const preparations = observed.filter(
+    (call) => call.message.type === "open" && call.message.machine?.prompt,
+  );
+  assert.deepEqual(
+    preparations.map((call) => call.message.machine.agent),
+    ["claude", "codex"],
+  );
+  const { repositoryPreparationPrompt } = require("../../build/shared/repository-preparation.js");
+  for (const { host, message } of preparations) {
+    assert.equal(host, "fixture-cloud");
+    assert.equal(message.human, true);
+    assert.equal(message.agent, undefined);
+    assert.equal(message.machine.prompt, repositoryPreparationPrompt("shell-fixture"));
+    assert.ok(message.machine.repository.directory.startsWith("repository-"));
+    assert.equal(message.machine.repository.origin, "git@forge.test:team/project.git");
+  }
   assert.ok(
     observed.some(
       (call) => call.message.type === "open" && call.message.machine.agent === "claude",

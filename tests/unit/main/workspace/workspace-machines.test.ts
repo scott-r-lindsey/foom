@@ -3,6 +3,7 @@ import { expect, test, vi } from "vitest";
 import { Workspace } from "../../../../src/main/workspace/workspace";
 import { machineHostName } from "../../../../src/main/workspace/sidebar-commands";
 import { agents, deps } from "./workspace-fixture";
+import { repositoryPreparationPrompt } from "../../../../src/shared/repository-preparation";
 
 test("machine rows are absent without hosts and follow settings order after localhost", async () => {
   const workspace = new Workspace(deps);
@@ -163,48 +164,91 @@ test("disabled agents, missing hosts and failed remote readiness create no termi
   expect(vi.spyOn(deps.terminals, "create")).not.toHaveBeenCalled();
 });
 
-test("repository agent placement uses the checked remote clone without an orchestration grant", async () => {
-  const { repo } = await import("./workspace-fixture");
-  const remote: RemoteTarget = {
-    host: "dozer",
-    profile: "a".repeat(32),
-    human: true as const,
-    machine: {
-      codeFolder: "/code",
-      repository: {
-        directory: `repository-${"a".repeat(24)}`,
-        origin: "git@fixture.test:team/repo.git",
+test.each(["repository-launch", "repository-prepare"] as const)(
+  "%s uses the checked remote clone without an orchestration grant",
+  async (kind) => {
+    const { repo } = await import("./workspace-fixture");
+    const remote: RemoteTarget = {
+      host: "dozer",
+      profile: "a".repeat(32),
+      human: true as const,
+      machine: {
+        codeFolder: "/code",
+        repository: {
+          directory: `repository-${"a".repeat(24)}`,
+          origin: "git@fixture.test:team/repo.git",
+        },
       },
-    },
-  };
-  deps.hosts = {
-    fleet: vi.fn(),
-    registered: vi.fn(() => ({ host: "dozer", codeFolder: "/code" })),
-    requireAgent: vi.fn(),
-    worktree: vi.fn(),
-    shellTarget: vi.fn((): RemoteTarget => ({ host: "dozer", human: true as const })),
-    repositoryTarget: vi.fn(() => Promise.resolve(remote)),
-  };
+    };
+    deps.hosts = {
+      fleet: vi.fn(),
+      registered: vi.fn(() => ({ host: "dozer", codeFolder: "/code" })),
+      requireAgent: vi.fn(),
+      worktree: vi.fn(),
+      shellTarget: vi.fn((): RemoteTarget => ({ host: "dozer", human: true as const })),
+      repositoryTarget: vi.fn(() => Promise.resolve(remote)),
+    };
+    const workspace = new Workspace(deps);
+    await workspace.sidebarCommand(
+      { kind, repository: repo.path, host: "dozer", run: "claude" },
+      () => Promise.resolve(true),
+    );
+    const row = workspace.snapshot().terminals[0];
+    expect(row).toMatchObject({
+      repository: repo.path,
+      branch: "Main checkout",
+      placement: { kind: "remote", host: "dozer" },
+    });
+    expect(row?.home).toBeUndefined();
+    expect(row?.machine).toBeUndefined();
+    expect(row?.orchestration).toBeUndefined();
+    expect(row?.worktree).toMatch(/^\/foom-remote\//);
+    const opened = vi.spyOn(deps.terminals, "create").mock.calls[0]?.[0];
+    expect(opened?.remote?.machine?.prompt).toBe(
+      kind === "repository-prepare" ? repositoryPreparationPrompt(repo.name) : undefined,
+    );
+    expect(opened?.remote?.human).toBe(true);
+    expect(opened?.remote?.agent).toBeUndefined();
+    await workspace.exited("t1", 0);
+    await workspace.sidebarCommand({ kind: "new-conversation", id: "t1" }, () =>
+      Promise.resolve(true),
+    );
+    expect(vi.spyOn(deps.terminals, "kill")).toHaveBeenCalledWith("t1", "dozer");
+  },
+);
+
+test("local preparation follows the normal human launcher with a fixed initial prompt", async () => {
+  const { repo, tree } = await import("./workspace-fixture");
+  vi.spyOn(deps.worktrees, "listWorktrees").mockResolvedValue([
+    { ...tree, path: repo.path, branch: "main" },
+  ]);
   const workspace = new Workspace(deps);
   await workspace.sidebarCommand(
-    { kind: "repository-launch", repository: repo.path, host: "dozer", run: "claude" },
+    { kind: "repository-prepare", repository: repo.path, host: null, run: "claude" },
     () => Promise.resolve(true),
   );
-  const row = workspace.snapshot().terminals[0];
-  expect(row).toMatchObject({
-    repository: repo.path,
-    branch: "Main checkout",
-    placement: { kind: "remote", host: "dozer" },
-  });
-  expect(row?.home).toBeUndefined();
-  expect(row?.machine).toBeUndefined();
-  expect(row?.orchestration).toBeUndefined();
-  expect(row?.worktree).toMatch(/^\/foom-remote\//);
-  await workspace.exited("t1", 0);
-  await workspace.sidebarCommand({ kind: "new-conversation", id: "t1" }, () =>
-    Promise.resolve(true),
+  expect(agents.launch).toHaveBeenCalledWith(
+    expect.objectContaining({
+      agent: "claude",
+      repository: repo.path,
+      worktree: repo.path,
+      prompt: repositoryPreparationPrompt(repo.name),
+      humanPrompt: true,
+    }),
   );
-  expect(vi.spyOn(deps.terminals, "kill")).toHaveBeenCalledWith("t1", "dozer");
+  expect(agents.launch.mock.calls[0]?.[0].control).toBeUndefined();
+  await expect(
+    workspace.sidebarCommand(
+      { kind: "repository-prepare", repository: repo.path, host: null, run: "shell" },
+      () => Promise.resolve(true),
+    ),
+  ).rejects.toThrow("requires an agent");
+  await expect(
+    workspace.sidebarCommand(
+      { kind: "repository-prepare", repository: "/unregistered", host: "worker", run: "claude" },
+      () => Promise.resolve(true),
+    ),
+  ).rejects.toThrow("Unknown repository");
 });
 
 test("remote worktree creation validates the branch, records placement and launches nothing", async () => {

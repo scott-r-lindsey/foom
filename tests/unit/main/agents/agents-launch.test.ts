@@ -364,6 +364,20 @@ describe("per-child selections", () => {
 });
 
 describe("human home launches", () => {
+  it("refuses a human prompt mixed with orchestration authority or without its prompt", async () => {
+    await expect(agentFixture.service.launch({ ...request, humanPrompt: true })).rejects.toThrow(
+      "Invalid human prompt",
+    );
+    await expect(
+      agentFixture.service.launch({
+        ...request,
+        humanPrompt: true,
+        prompt: "Prepare",
+        control: { role: "orchestrator" },
+      }),
+    ).rejects.toThrow("Invalid human prompt");
+    expect(create).not.toHaveBeenCalled();
+  });
   it("uses ordinary launch preparation and hooks without Git membership or a repository grant", async () => {
     const home = (await import("node:os")).homedir();
     await agentFixture.service.launch({

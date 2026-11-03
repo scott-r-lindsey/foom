@@ -404,7 +404,7 @@ Human machine launches reuse profile-owned SSH terminal transport. A closed
 `machine` open request names the approved code folder and optionally a bundled
 agent ID with validated user defaults. The host rechecks the folder, resolves the
 agent with its own login PATH, and starts an argument-array PTY. It adds no bypass
-arguments, task prompt, hook files or orchestration grant. A repository launch
+arguments, hook files or orchestration grant. A repository launch
 additionally names the origin-derived clone directory, validated through the
 existing read-only repository operation; worktree launches reuse profile provenance
 and checkout identity checks. Hub environment values and credentials stay local.
@@ -413,7 +413,13 @@ including unreachable results. Machine sessions persist as human-owned session m
 reattaches the existing PTY. Local agent rows without a conversation ID remain
 exited after restart, following ordinary session restoration eligibility.
 
-Hello advertises `humanMachines: 1`. New machine launches refuse a compatible older
+Hello advertises `humanMachines: 2`: version 1 supports ordinary machine launches;
+version 2 additionally accepts a bounded human initial prompt through the agent's
+manifest-declared interactive prompt arguments. Preparation uses the checked-in
+repository-preparation prompt and adds only the repository's quoted display name.
+Foom executes no setup instructions from the checkout and never types into a tile
+after launch. Normal permission settings and attention handling apply.
+New machine launches refuse a compatible older
 active daemon lacking this capability before sending open; they never fall back
 to an ordinary home shell. Existing PTYs still reattach. Machine preparation uses
 the existing host-preparation budget, in addition to bootstrap.
