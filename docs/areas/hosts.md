@@ -420,6 +420,13 @@ Validated checkouts optionally show Node engines and packageManager declarations
 from their own package.json, beside the host's --version observations. Missing
 versions remain explicit. These are neutral facts, not a build guarantee or an
 inferred dependency list. Only node and the declared npm/pnpm/yarn/bun get fixed
-version probes; no package scripts, installs or undeclared tools run. Manifests
+version probes. Probes use an ephemeral private empty working directory and HOME,
+never the checkout, and discard inherited preload/configuration selectors. Only
+absolute login-PATH entries outside the canonical checkout are searched; executable
+symlinks back into that checkout are refused. Corepack project selection/network,
+Yarn executable delegation and pnpm runtime hooks/version management are disabled.
+A manager that cannot report its installed version under this isolation remains
+Unavailable. The private directory is removed after success, failure or cancellation.
+No package scripts, installs or undeclared tools run. Manifests
 are bounded to 64 KiB, regular files only, and symlinks are refused. Absent or
 malformed declarations add no row. Older daemons may omit these optional facts.

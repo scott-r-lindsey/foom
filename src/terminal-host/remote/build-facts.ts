@@ -1,6 +1,6 @@
 import { constants } from "node:fs";
-import { open } from "node:fs/promises";
-import { join } from "node:path";
+import { open, access, stat, realpath, mkdtemp, rm } from "node:fs/promises";
+import { join, isAbsolute, delimiter, sep, basename } from "node:path";
 import type { HostBuildFact } from "../../shared/registered-hosts.d";
 import { record } from "../../shared/remote-agent-protocol";
 import { hostProbe } from "./agent-discovery";
@@ -9,6 +9,7 @@ import { hostProbe } from "./agent-discovery";
 export async function buildFacts(
   checkout: string,
   env: NodeJS.ProcessEnv,
+  home: string,
   signal?: AbortSignal,
 ): Promise<HostBuildFact[]> {
   const facts: HostBuildFact[] = [];
@@ -41,25 +42,78 @@ export async function buildFacts(
     const tool = match?.[1];
     if (tool === "npm" || tool === "pnpm" || tool === "yarn" || tool === "bun")
       facts.push({ tool, required: match?.[2] ?? "" });
-    for (const fact of facts) {
+    if (!facts.length) return facts;
+    const root = await realpath(checkout);
+    const accountHome = await realpath(home);
+    const inCheckout = (path: string) => path === root || path.startsWith(`${root}${sep}`);
+    if (inCheckout(accountHome)) return facts;
+    const directories: string[] = [];
+    for (const path of (env["PATH"] ?? "").split(delimiter)) {
+      if (!isAbsolute(path)) continue;
       try {
-        const version = (
-          await hostProbe(
-            fact.tool,
-            ["--version"],
-            checkout,
-            { ...env, COREPACK_ENABLE_NETWORK: "0", COREPACK_ENABLE_AUTO_PIN: "0" },
-            false,
-            5000,
-            signal,
-          )
-        )
-          .trim()
-          .replace(/^v/u, "");
-        if (/^[0-9][a-zA-Z0-9.+-]{0,63}$/u.test(version)) fact.version = version;
+        const directory = await realpath(path);
+        if (inCheckout(directory)) continue;
+        const node = await realpath(join(directory, "node")).catch(() => undefined);
+        if (!node || !inCheckout(node)) directories.push(directory);
       } catch {
-        signal?.throwIfAborted();
+        /* Missing PATH entries do not authorize a fallback lookup. */
       }
+    }
+    // A private empty cwd and HOME keep project config, plugins and preload files
+    // out of observational probes. Never run a version probe inside a checkout.
+    const cwd = await mkdtemp(join(accountHome, ".foom-build-probe-"));
+    try {
+      const probeEnv: NodeJS.ProcessEnv = {
+        PATH: directories.join(delimiter),
+        HOME: cwd,
+        USERPROFILE: cwd,
+        XDG_CONFIG_HOME: cwd,
+        LANG: "C",
+        LC_ALL: "C",
+        COREPACK_ENABLE_NETWORK: "0",
+        COREPACK_ENABLE_AUTO_PIN: "0",
+        COREPACK_ENABLE_PROJECT_SPEC: "0",
+        COREPACK_ENABLE_ENV_FILE: "0",
+        YARN_IGNORE_PATH: "1",
+        YARN_RC_FILENAME: `${basename(cwd)}.yml`,
+        npm_config_userconfig: join(cwd, "npm-user.rc"),
+        npm_config_globalconfig: join(cwd, "npm-global.rc"),
+        npm_config_ignore_scripts: "true",
+        npm_config_ignore_pnpmfile: "true",
+        npm_config_manage_package_manager_versions: "false",
+        pnpm_config_pm_on_fail: "ignore",
+        pnpm_config_ignore_pnpmfile: "true",
+        pnpm_config_ignore_scripts: "true",
+      };
+      for (const fact of facts) {
+        try {
+          let command: string | undefined;
+          for (const directory of directories) {
+            try {
+              const candidate = await realpath(join(directory, fact.tool));
+              if (inCheckout(candidate)) continue;
+              await access(candidate, constants.X_OK);
+              if ((await stat(candidate)).isFile()) {
+                command = candidate;
+                break;
+              }
+            } catch {
+              /* Try only the remaining approved absolute PATH entries. */
+            }
+          }
+          if (!command) continue;
+          const version = (
+            await hostProbe(command, ["--version"], cwd, probeEnv, false, 5000, signal)
+          )
+            .trim()
+            .replace(/^v/u, "");
+          if (/^[0-9][a-zA-Z0-9.+-]{0,63}$/u.test(version)) fact.version = version;
+        } catch {
+          signal?.throwIfAborted();
+        }
+      }
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
     }
   } catch {
     signal?.throwIfAborted();

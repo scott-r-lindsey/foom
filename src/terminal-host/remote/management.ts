@@ -570,7 +570,7 @@ export async function manageHost(
       checkout: {
         path,
         state: status ? "changed" : "clean",
-        build: await buildFacts(path, env, signal),
+        build: await buildFacts(path, env, home, signal),
       },
     };
   } catch (error) {
