@@ -113,6 +113,23 @@ and refuses substituted symlinks. Normal teardown still quits apps before
 removing fixtures. This does not cover `SIGKILL` or machine failure; the harness
 does not sweep unmarked shared-memory entries whose ownership it cannot prove.
 
+## Appearance picker readiness (#1035)
+
+The terminal-font case holds its fixture enumeration reply until the Terminal
+section's heading has received focus, then waits for the requested family in the
+closed menu before typing. Section visibility alone precedes both the heading's
+focus effect and the font IPC reply. Typing before enumeration finishes can leave
+the family present but inactive after the reply; installed host fonts are not a
+precondition for this case.
+
+The first-run theme case drains the serialized save queue and observes the
+renderer’s resolved Default label before forcing native light/dark changes.
+Config publication and the final save apply both set the native theme source;
+main-process save completion alone does not drain renderer IPC or React updates.
+The complete menu contents use a retrying UI assertion, retaining both resolved
+names and the full choice order. Neither case changes its deadline or relies on
+the desktop's initial light/dark preference.
+
 ## Timing method
 
 The harness emits `Fixture timing: {...}` diagnostics into Node's JUnit comments
