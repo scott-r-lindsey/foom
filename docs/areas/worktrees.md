@@ -347,6 +347,10 @@ persisted membership blockers, even though they are omitted from usable reposito
 inventory. Unrelated saves and subsequent restarts retain these identities and any
 pending-removal records; only successful repository validation clears the blocker.
 Unknown membership never becomes absence because a repository could not load.
+Membership refusal recognizes Windows case, separator and namespace spellings;
+existing registered paths are also resolved to catch short-name and other aliases.
+An unavailable resolution refuses deletion. Case folding is used only to refuse
+retry membership, never to grant root containment or filesystem identity.
 Every retry also checks strict containment in the same canonical configured
 root, walks every component below that root with lstat to refuse symlinks and
 non-directories, requires the original directory identity, and refuses any .git

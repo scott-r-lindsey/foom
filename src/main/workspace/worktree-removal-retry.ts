@@ -1,5 +1,5 @@
 import { lstat, realpath } from "node:fs/promises";
-import { join, relative, sep } from "node:path";
+import { join, relative, sep, win32 } from "node:path";
 import { assertInside, parentIdentity, record } from "./worktree-operations";
 import type { PendingRemoval } from "./worktree-state.d";
 
@@ -7,6 +7,17 @@ export class RetryRefusal extends Error {
   constructor(readonly reason: string) {
     super(reason);
   }
+}
+
+/** Conservative membership refusal only: never use case folding to grant deletion. */
+export function sameRemovalPath(
+  left: string,
+  right: string,
+  windows = process.platform === "win32",
+): boolean {
+  if (!windows) return left === right;
+  const key = (path: string) => win32.normalize(win32.toNamespacedPath(path)).toLowerCase();
+  return key(left) === key(right);
 }
 
 /** A creation-time directory identity grants only this narrow, revalidated exception. */
@@ -27,7 +38,15 @@ export async function checkRemovalRetry(
     return refuse("outside-root");
   }
   // Query every known repository; unavailable membership never means unregistered.
-  if ((await registeredPaths()).includes(entry.path)) refuse("re-registered");
+  for (const path of await registeredPaths()) {
+    if (sameRemovalPath(path, entry.path)) refuse("re-registered");
+    // Git may spell an existing checkout with an NTFS short name or another alias.
+    const canonical = await realpath(path).catch((error: unknown) => {
+      if (record(error) && error["code"] === "ENOENT") return undefined;
+      return refuse("membership-unavailable");
+    });
+    if (canonical && sameRemovalPath(canonical, entry.path)) refuse("re-registered");
+  }
   let current = root;
   const parts = relative(root, entry.path).split(sep);
   for (const [index, part] of parts.entries()) {

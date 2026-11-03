@@ -4,7 +4,10 @@ import { lstat, mkdir, readFile, rename, rm, symlink, writeFile } from "node:fs/
 import { join } from "node:path";
 import { afterEach, expect, test, vi } from "vitest";
 import * as operations from "../../../../src/main/workspace/worktree-operations";
-import { checkRemovalRetry } from "../../../../src/main/workspace/worktree-removal-retry";
+import {
+  checkRemovalRetry,
+  sameRemovalPath,
+} from "../../../../src/main/workspace/worktree-removal-retry";
 import { WorktreeService } from "../../../../src/main/workspace/worktrees";
 import { git } from "../../../helpers/git.js";
 import { nativeDeadline } from "../../../helpers/native-test-policy";
@@ -20,6 +23,40 @@ afterEach(async () => {
   vi.restoreAllMocks();
   await fixture.cleanup();
 });
+
+test.each([
+  ["C:\\Foom\\Repo\\Child", "c:/foom/repo/child", true],
+  ["C:\\Foom\\Repo\\Child", "\\\\?\\C:\\Foom\\Repo\\Child", true],
+  ["\\\\Server\\Share\\Child", "\\\\?\\UNC\\server\\share\\child", true],
+  ["C:\\Foom\\Repo\\Child", "D:\\Foom\\Repo\\Child", false],
+  ["C:\\Foom\\Repo\\Child", "C:\\Foom\\Repo\\Child-other", false],
+])("Windows membership refusal compares %s with %s", (left, right, expected) => {
+  expect(sameRemovalPath(left, right, true)).toBe(expected);
+});
+
+test("POSIX membership remains case sensitive", () => {
+  expect(sameRemovalPath("/root/child", "/root/child", false)).toBe(true);
+  expect(sameRemovalPath("/root/Child", "/root/child", false)).toBe(false);
+});
+
+test(
+  "directory identity retains bigint inode precision and stays stable when contents change",
+  fixture.usingFixture(async () => {
+    const { repo, service } = await fixture.create();
+    const { path } = await service.createWorktree(repo, "identity");
+    const before = await operations.parentIdentity(path);
+    await writeFile(join(path, "new-file"), "changed contents");
+    expect(await operations.parentIdentity(path)).toBe(before);
+    const stat = await fs.lstat(path, { bigint: true });
+    stat.ino = 9007199254740993n;
+    vi.spyOn(fs, "lstat").mockResolvedValueOnce(stat);
+    const large = await operations.parentIdentity(path);
+    expect(large.split(":")[1]).toBe("9007199254740993");
+    stat.ino += 1n;
+    vi.spyOn(fs, "lstat").mockResolvedValueOnce(stat);
+    expect(await operations.parentIdentity(path)).not.toBe(large);
+  }),
+);
 
 async function pendingFixture() {
   const { temporary, repo, root } = await fixture.create();
@@ -43,6 +80,41 @@ async function pendingFixture() {
   spy.mockRestore();
   return { service, repo, root, path, profile, temporary };
 }
+
+for (const unavailable of [false, true]) {
+  test(
+    `retry resolves registered short-name aliases and refuses ${unavailable ? "unavailable resolution" : "re-registration"}`,
+    fixture.usingFixture(async () => {
+      const { profile, root, path } = await pendingFixture();
+      const entry = (await new WorktreeStore(join(profile, "worktrees.json")).read())
+        ?.pendingRemovals?.[0];
+      if (!entry) throw new Error("Missing pending removal");
+      const resolve = vi.spyOn(fs, "realpath").mockResolvedValueOnce(root);
+      if (unavailable)
+        resolve.mockRejectedValueOnce(Object.assign(new Error("unavailable"), { code: "EACCES" }));
+      else resolve.mockResolvedValueOnce(path);
+      await expect(
+        checkRemovalRetry(entry, root, () => Promise.resolve(["C:\\FOOM~1\\child"])),
+      ).rejects.toMatchObject({
+        reason: unavailable ? "membership-unavailable" : "re-registered",
+      });
+      expect(await readFile(join(path, "retained"), "utf8")).toBe("retained data");
+    }),
+  );
+}
+
+test(
+  "an unrelated missing registered directory does not hide the current retry target",
+  fixture.usingFixture(async () => {
+    const { profile, root, path } = await pendingFixture();
+    const entry = (await new WorktreeStore(join(profile, "worktrees.json")).read())
+      ?.pendingRemovals?.[0];
+    if (!entry) throw new Error("Missing pending removal");
+    await expect(
+      checkRemovalRetry(entry, root, () => Promise.resolve([`${path}-missing`])),
+    ).resolves.toBe("present");
+  }),
+);
 
 test(
   "retry removes only the original directory and persists success across restart",
