@@ -555,8 +555,8 @@ with production BatchMode and forwarding restrictions. It does not edit SSH
 configuration, credentials, agent configuration or the everyday profile. Only the
 human runs it against a real host; CI uses fake SSH and a local fixture daemon.
 
-This replaces the covered #949 manual steps and is the short-run command for the
-#943 qualification matrix: record hub/host OS and architecture, build revision,
+This replaces the covered #949 manual steps and is the automated prelude to the
+[manual qualification matrix](#manual-real-host-qualification-matrix-v1-943): record hub/host OS and architecture, build revision,
 command exit code and printed PASS/FAIL lines for each matrix row. A disposable
 windowless hub profile is created, persisted across an actual Electron process
 restart, then deleted. The driver reuses onboarding's `Hosts` preflight (#963,
@@ -583,8 +583,149 @@ interrupts; if it fails, printed recovery identifiers identify remaining fixture
 Machine failure/SIGKILL cannot guarantee cleanup. The command leaves the host's
 verified daemon cache in place, like ordinary Foom enrollment.
 
-Still manual: the #943 24h idle/detach soak, sleep/wake and network-loss checks,
+Still manual: the 24h idle/detach soak, sleep/wake and network-loss checks,
 and legacy-daemon upgrade/End with deliberately prepared legacy fixtures. Do not
 use a user's existing sessions as legacy test fixtures. This command checks the
 production shell/session and management path; provider-specific hooks, MCP and
 sign-in remain separate qualification rows.
+
+
+## Manual real-host qualification matrix v1 (#943)
+
+This is matrix **v1**. Run it as a human against a **packaged build of an exact
+revision**, after the [automated smoke prelude](#one-command-remote-host-qualification-964).
+Smoke uses a built checkout and a shell fixture; record its revision separately
+and require it to match the package. A successful smoke run establishes management,
+fixture PTY/replay, hub restart and cleanup evidence. It does not qualify real CLI
+configuration, provider interoperability, a clone longer than ten seconds, or the
+remaining manual rows. Do not count a reused smoke checkout as a real clone.
+
+Use dedicated, disposable test repositories, branches and sessions on hosts you
+own. Prepare host-key trust, Git origin access and provider sign-in on the host
+through the human's normal setup before testing. Never copy secrets from the hub,
+forward credentials/agent sockets/ports, or edit global agent or SSH configuration
+for this run. Keep the production BatchMode and forwarding restrictions. Use an
+already installed opt-in Antigravity observer for its hook test; record its version
+and enabled state. If it is unavailable, record the hook portion as unrun and test
+the documented screen/CLI fallback without installing or changing global config.
+Tails and handoffs may enter the local orchestrator's model context: use harmless
+unique markers, never credentials, private source or raw launch files in evidence.
+Automated tests continue to use fake SSH and fixture agents; this matrix is not
+permission for an automated test or coding agent to contact real hosts or run real
+agent CLIs.
+
+Create one results record per hub/host OS and architecture pair, package revision
+and CLI version set. Cover linux-x64, linux-arm64, darwin-arm64 and darwin-x64 host
+artifacts with available human-owned machines; list missing pairs as unrun rather
+than extrapolating from Linux or a translated process. Record native versus Rosetta
+execution. Repeat affected rows after changing the package, daemon, CLI, plugin or
+provider version. Keep the matrix version with the results so future checklist
+changes do not silently reinterpret old evidence. A run is complete only when all
+applicable rows pass; a missing agent, unavailable model or untested platform is a
+qualification gap, not a pass. Record failures and follow-up links explicitly.
+
+The expectations below follow [host enrollment and lifecycle](areas/hosts.md),
+[remote launch attachments](areas/agent-launch.md#remote-agent-phase-2-755),
+[host-bound forge tracking](contracts/forge-tracking.md#registered-remote-checkouts-940),
+[child input](contracts/control-mutations.md) and
+[handoff privacy](contracts/control-privacy.md). They do not widen remote grants
+or give Foom merge authority.
+
+| ID | Human procedure | Pass evidence |
+| --- | --- | --- |
+| H01 Enrollment | In the packaged app, use Settings → Hosts Add → Check → Fix with a test host and approved code folder; enroll and Refresh. Exercise an incomplete/missing folder and explicitly create or select it. | Independent SSH/platform/artifact/folder/origin/checkout observations remain visible; incomplete checks do not become passes. Successful refresh shows canonical folder, daemon version, live count and agent inventory. |
+| H02 Missing CLI | On a dedicated account with one bundled CLI absent, Refresh, then attempt that agent's launch. Restore availability through the human's normal setup and Refresh. | Absent CLI shows Not found, failed probes show Unable to check, and launch gives a fixed refusal without spawning or falling back locally. Installed/probeable CLI becomes Ready; readiness alone is not sign-in proof. |
+| H03 Origin access | Check an allowed credential-free HTTPS or SSH origin first without access, then with the host's own access. Inspect repository locations. | A specific fixed origin failure appears without raw output or prompts; successful access and checkout presence are independent observations. No hub credentials are copied and no shadow local checkout is created. |
+| H04 Real long clone | Select a fresh test origin/destination and use Settings → Repositories → Clone here. Choose a real repository/link whose actual clone takes **more than 10 seconds**; record start/end UTC and elapsed seconds. Do not simulate delay with sleep. | Exactly one valid checkout is published and locations refresh after success; no ten-second unreachable failure. Record origin label and resulting HEAD. If elapsed ≤10 s, this row remains unrun and needs another real clone. |
+| H05 Fresh/default worktree | From a local human-elevated orchestrator, create a new branch on the registered host without a PR selector. Inspect its branch, HEAD and placement. | Starts at freshly fetched origin default, has its own branch without tracking default, and returns a host-bound worktree ID. Launch stays on that host. |
+| H06 PR worktree | Create/adopt an open same-repository PR through the PR selector on the host. Inspect branch, HEAD and tracking. Use it for a real child run. | Fetches the validated PR head and tracks its origin branch; placement and PR identity remain correct. An existing branch is refused rather than overwritten. This is ordinary PR adoption, not an unsupported detached remote review checkout. |
+| H07 PR/check tracking | For a remote child's test PR, push a harmless commit with pending checks; observe a failing check and then a green head. Read tile, sessions/session_state and parent wait_for after each transition. | PR URL/head and check status agree with the forge and wake waits on revision changes. Forge reads use the hub's existing local forge CLI credentials; no credentials move to the host. Old-head green cannot qualify a newer head. |
+| H08 Local merge | Once the test PR's required checks are green, the human or explicitly authorized local orchestrator performs the normal merge through its local forge CLI. Refresh remote PR state and fetched default. | Merge succeeds under existing repository policy; remote tile/session/wait shows MERGED and the fetched default contains the validated merge result. Foom itself performs no forge write and remote child tools gain no merge authority. |
+| H09 Cleanup | Stop/close only run-owned children, then request their remote worktree removal. Exercise a dirty disposable worktree and decline removal before explicitly approving its discard. Remove the test host registration separately. | Active sessions prevent removal; dirty/unproved remote removals require trusted confirmation, decline preserves files, approved removal rechecks identity/changes and keeps the branch. Forgetting a host does not kill live sessions. Check no run-owned sessions or launch attachments remain; list retained clones/cache/branches. |
+| H10 Network interruption | Interrupt the test host's connection during a clone/fetch/worktree mutation, then separately during a running agent. Restore the connection, Refresh locations and reconnect. Also exercise hub sleep/wake. | Lost mutation replies are reported as uncertain/refused rather than success; refresh reconciles actual locations before any deliberate retry and no duplicate clone/worktree is created. Existing live PTY reattaches with the same session/PID and replay, without relaunch; unavailable host/PR facts do not become green or merged proof. Record interruption point and recovery. |
+| H11 Hub restart and soak | With a run-owned agent alive, quit/restart the same hub profile and verify replay. Detach/leave idle for 24 hours, then reconnect. | Same live session/PID survives; no live-detach expiry or replacement launch. Exited rows remain history. Record duration and observed idle resource use; do not infer a 24h result from smoke. |
+| H12 Daemon upgrade | Prepare a dedicated older compatible daemon with a run-owned live session. Connect a newer exact-revision packaged hub, then end the test sessions and reconnect when idle. Separately prepare a disposable legacy daemon to exercise the explicit confirmed End path. | Compatible live daemon/PTYs survive with version negotiation; capability gaps show needs-update/facts-unavailable. Idle upgrade uses the new verified build only after sessions, outstanding work and clients settle. Legacy daemon is untouched by upgrade; End requires confirmation and targets the observed incarnation. Record old/new build/protocol and PID evidence, and do not use existing user sessions as fixtures. |
+
+### Real CLI attachment cases
+
+Run **A01–A08 for each of the six agents below** through the packaged app's
+registered-host launch path. Use separate worktrees, a harmless initial marker and
+a local owning orchestrator; include both H05 and H06 placements across the run.
+Actual CLI consumption is required: directly invoking the helper MCP executable
+cannot establish a provider's attachment result. Inspect only nonsecret UI/status
+facts; never copy endpoint tokens or private config contents into a report.
+
+| Agent | Attachment evidence to collect in addition to A01–A08 |
+| --- | --- |
+| Claude Code (`claude`) | Actual CLI loads invocation-only stdio MCP and manifest lifecycle hooks. |
+| Codex (`codex`) | Actual CLI loads invocation-only stdio MCP; record lifecycle-hook versus notifier fallback and observed attention. |
+| Antigravity (`agy`) | Remote Unix-socket observer when already installed/enabled, screen fallback otherwise, and launch-provided CLI handoff guidance. Remote loopback MCP remains inactive; do not claim local plugin MCP evidence as remote attachment evidence. |
+| GitHub Copilot (`copilot`) | Actual CLI consumes its manifest stdio MCP and invocation-only lifecycle plugin attachments; record any measured fallback. |
+| OpenCode (`opencode`) | Actual CLI consumes invocation-only config, generated context-event module and stdio MCP; new conversation ID retains `ses_` and resume reuses the conversation. |
+| Pi (`pi`) | Actual CLI consumes the fixed private extension, context/events and session-only MCP registration; record connector policy and resumed conversation. |
+
+| ID | Human procedure for each agent | Pass evidence |
+| --- | --- | --- |
+| A01 Restricted tools | Ask the real child to report available Foom tools, call manual and sanitized whoami, and attempt a harmless out-of-grant read such as sessions. Use the CLI fallback where remote MCP is intentionally unavailable. | Exactly handoff, manual and sanitized whoami are granted. Out-of-grant access is refused; no hub/parent terminal IDs or hub credentials appear. Native provider filesystem tools are not part of this Foom tool restriction. |
+| A02 Model/effort | Launch with an explicit supported model and declared effort selector, where available. Compare launch selection metadata with the CLI's displayed active model. | Requested selectors reach the real CLI and it accepts/uses them. Metadata alone is not proof. Record actual model/effort and explicitly note unsupported effort capabilities. |
+| A03 Prompt | Supply a unique harmless marker as the launch prompt; ask the child to echo it. | Real CLI receives exactly the intended task and marker through its declared prompt path, without command/subcommand interpretation. |
+| A04 Attention | Run a short task and a harmless permission/question interaction, then answer it and let the turn finish. | Working, Needs you and completion/idle match observed behavior and text/glyphs; record hook/plugin/screen source and any fallback. Idle alone is not completion evidence. |
+| A05 Parent prompt | From the owning local orchestrator, send a second marker with prompt and wait for the child's reply. | Input reaches only the owned remote child once; its real CLI processes it and attention clears appropriately. Use no sensitive input in this case. |
+| A06 Tail and wait_for | Parent reads a bounded tail containing the marker and waits from the last metadata revision through attention, PR/check and handoff changes. | Tail is bounded, redacted and marked untrusted; waits wake with the correct child/revision and facts. These are parent operations, never extra remote child tools. |
+| A07 Handoff | Ask the child to report a harmless summary and test URL using its actual attachment/CLI, with a unique idempotency key. Parent reads it; the child retries the same report/key. | One accepted sequence/status, untrusted summary/link, wait wake and matching idempotent replay. Handoff sends no PTY input and does not itself stop the child. |
+| A08 Resume/revocation | Capture the conversation, end the invocation, Resume the remote child and ask it to recall the first marker and hand off again. Stop/close the run-owned session. | Same conversation on the same host, fresh launch identity/credentials and working attachments/model selection; former credentials/launch files are revoked/removed. No local fallback or global config edits. Record resume ID evidence without secrets. |
+
+### Per-run results template (v1)
+
+Copy this template into the run's human-maintained evidence record. Expand every
+agent row into A01–A08 results; keep a separate result for every H row and smoke
+step. Use **PASS / FAIL / UNRUN**, with notes and evidence/follow-up links. No blank
+cell, skipped smoke step or missing platform counts as PASS. An unsupported
+optional effort/hook path needs an explicit capability/fallback note; it does not
+excuse skipping the agent or its other attachment cases.
+
+```text
+Matrix version: v1 (#943)
+Run ID / human operator / UTC start and end:
+Overall: PASS | FAIL | INCOMPLETE
+Package version / full app source revision / artifact provenance and SHA-256:
+Smoke checkout full revision (must match package) / command / exit code:
+Hub OS version / architecture / native or translated execution:
+Host OS version / architecture / native or translated execution:
+Host daemon before and after: version / full revision / protocol / PID:
+Host SSH implementation/version / Git version / login shell/version:
+Hub forge CLI/version / forge type:
+Repository nonsecret label / origin type / default branch and HEAD:
+Test PR URL / branch / tested head / merged head:
+Provider versions, active models/efforts and attachment/observer configuration:
+  Claude Code version:
+  Codex version:
+  Antigravity version / existing observer version and enabled state:
+  GitHub Copilot version:
+  OpenCode version:
+  Pi version / connector policy:
+
+ID or smoke step | PASS/FAIL/UNRUN | observed result | notes / safe evidence link
+Smoke <repeat each printed step, including cleanup> | | |
+H01 | | |
+H02 | | |
+H03 | | |
+H04 | | | start UTC / end UTC / elapsed seconds (>10 required) / clone HEAD
+H05 | | |
+H06 | | |
+H07 | | | pending/failing/green head and wait revisions
+H08 | | | required checks / local merge actor and result
+H09 | | | remaining run-owned resources and recovery instructions
+H10 | | | interrupted operation / reconciliation / same session and PID
+H11 | | | restart / detach UTC and duration / idle resource observation
+H12 | | | old/new daemon builds and protocols / live vs idle / legacy End
+claude A01–A08 <one row per case> | | |
+codex A01–A08 <one row per case> | | |
+agy A01–A08 <one row per case> | | |
+copilot A01–A08 <one row per case> | | |
+opencode A01–A08 <one row per case> | | |
+pi A01–A08 <one row per case> | | |
+
+Unrun platform pairs / missing capabilities / failures and follow-up links:
+Retained test clones/cache/branches / cleanup confirmation / recovery owner:
+```
