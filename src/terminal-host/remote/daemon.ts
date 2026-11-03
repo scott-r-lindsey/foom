@@ -369,7 +369,14 @@ export function serveHost(
           return;
         }
         negotiated = true;
-        await send(socket, { type: "hello", build, compatible: 2, hostFacts: 1, hostPreflight: 1 });
+        await send(socket, {
+          type: "hello",
+          build,
+          compatible: 2,
+          hostFacts: 1,
+          hostPreflight: 1,
+          originTrust: 1,
+        });
         return;
       }
       if (message.type === "hello") throw new Error("Repeated negotiation");
@@ -789,7 +796,8 @@ export function serveHost(
               owned.agent
                 ? { ...owned.agent.spec, cols: message.cols, rows: message.rows }
                 : {
-                    command: message.recipe ? process.execPath : remoteShell(),
+                    command:
+                      message.recipe || message.trustOrigin ? process.execPath : remoteShell(),
                     args: message.recipe
                       ? [
                           "--recipe",
@@ -798,7 +806,9 @@ export function serveHost(
                           message.recipe.distro,
                           message.recipe.digest,
                         ]
-                      : ["-i", "-l"],
+                      : message.trustOrigin
+                        ? ["--trust-origin", message.trustOrigin]
+                        : ["-i", "-l"],
                     cwd: message.checkout?.path ?? home,
                     cols: message.cols,
                     rows: message.rows,

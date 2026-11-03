@@ -90,6 +90,15 @@ process.stdin.on('data', bytes => {
   const n=input.readUInt32BE(0); const {message}=JSON.parse(input.subarray(4,4+n)); input=input.subarray(4+n);
   if(message.type==='open') {
     assert.equal(message.human,true);
+    if(message.trustOrigin) {
+      const {originSshArgs}=require(${JSON.stringify(path.resolve("build/shared/registered-hosts.js"))});
+      assert.equal(message.trustOrigin,'git@forge.test:team/project.git');
+      const args=originSshArgs(message.trustOrigin);
+      assert.ok(args.includes('StrictHostKeyChecking=ask'));
+      assert.deepEqual(args.slice(-2),['--','git@forge.test']);
+      terminalOutput='FIXTURE_VERIFY_FINGERPRINT_AND_ANSWER_SSH\\r\\n';
+      send({type:'open-result',id:message.id,request:message.request,state:'live'});continue;
+    }
     const recipe=selectHostRecipe(message.recipe,{distro:'debian',libc:'supported',packageManager:'apt'});
     assert.equal(message.recipe.digest,require('node:crypto').createHash('sha256').update(JSON.stringify(recipe.steps)).digest('hex'));
     assert.ok(recipe); assert.equal(recipe.steps.length,1);
@@ -110,17 +119,17 @@ process.stdin.on('data', bytes => {
   let result;
   if(message.codeFolder==='~/unsafe') result={ok:false,reason:'unsafe-folder'};
   else if(message.codeFolder==='~/refused') result={ok:false,reason:'folder-refused'};
-  else if(message.operation==='clone' && host==='fixture-cloud') {process.stderr.write('RAW GIT SECRET');result={ok:false,reason:require('node:fs').readFileSync(${JSON.stringify(cloneReason)},'utf8')};}
+  else if(message.operation==='clone' && host==='fixture-cloud' && !settings.cloneSuccess) {process.stderr.write('RAW GIT SECRET');result={ok:false,reason:require('node:fs').readFileSync(${JSON.stringify(cloneReason)},'utf8')};}
   else {
    const folder=message.codeFolder.startsWith('~/')?'/remote/account/'+message.codeFolder.slice(2):message.codeFolder;
    result={ok:true,facts:{folder:{state:'pass'},codeFolder:folder,version:${JSON.stringify(manifest.version)},sessions:2,cores:8,load:[0.42,0.31,0.25],memoryTotal:17179869184,memoryAvailable:11811160064,requirements:{distro:'debian',libc:'supported',packageManager:'apt'},tools:[{id:'git',state:'missing',signIn:'unknown'},{id:'gh',state:'ready',signIn:'signed-out'}],agents:[{id:'claude',state:'ready'},{id:'codex',state:'missing'},{id:'agy',state:'unable'}]}};
    if(message.operation==='repository' || message.operation==='clone') result.checkout={path:folder+'/'+message.directory,state:message.operation==='clone'?'clean':'absent'};
   }
-  if(result.ok) { if(settings.facts) Object.assign(result.facts,settings.facts); if(message.operation==='origin' && settings.origin) result={ok:false,reason:settings.origin}; if(message.operation==='repository' && settings.checkout && result.ok) result.checkout.state=settings.checkout; }
+  if(result.ok) { if(settings.facts) Object.assign(result.facts,settings.facts); if(message.operation==='origin' && settings.origin) result={ok:false,reason:settings.origin}; if(message.operation==='repository' && settings.checkout && result.ok) { result.checkout.state=settings.checkout; } }
   if(host==='invalid-cloud') result={ok:true,facts:{}};
   const failures={'provider-cloud':'provider-invalid','configuration-cloud':'configuration-changed','cancelled-cloud':'cancelled'};
   if(failures[host]) result={ok:false,reason:failures[host]};
-  if(settings.hold && message.operation==='inspect') { const timer=setInterval(()=>{ if(!JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8')).hold) {clearInterval(timer);send({type:'managed',result});}},20); } else send({type:'managed',result});
+  if((settings.hold && message.operation==='inspect') || (settings.holdClone && message.operation==='clone')) { const timer=setInterval(()=>{ if(!JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8')).hold && !JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8')).holdClone) {clearInterval(timer);send({type:'managed',result});}},20); } else send({type:'managed',result});
  }
 });
 `,
@@ -157,7 +166,7 @@ process.stdin.on('data', bytes => {
         .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
         .toBe(mode === "dark");
       if (["partial-facts", "repositories-per-host"].includes(name)) await assertAccessible(page);
-      await page.screenshot({ path: evidencePath(`963/${name}-${mode}.png`) });
+      await page.screenshot({ path: evidencePath(`1026/${name}-${mode}.png`) });
     }
   };
   const updateScenario = async (value) => {
@@ -354,8 +363,82 @@ process.stdin.on('data', bytes => {
   };
   await updateScenario(ready);
   await card.getByRole("button", { name: "Check again", exact: true }).click();
-  await expect(card.getByText("Complete", { exact: true })).toBeVisible();
-  await capture("complete");
+  await expect(card.getByText("Ready · 1 repository", { exact: true })).toBeVisible();
+  await capture("ready");
+  await page.evaluate(() =>
+    window.desktop.saveSetup({
+      agents: { claude: true, codex: true, agy: false, copilot: false, opencode: true, pi: true },
+    }),
+  );
+  const optional = {
+    ...ready,
+    checkout: "absent",
+    facts: {
+      ...ready.facts,
+      agents: [
+        { id: "claude", state: "ready", signIn: "unknown" },
+        { id: "codex", state: "ready", signIn: "unknown" },
+        { id: "opencode", state: "missing" },
+        { id: "pi", state: "missing" },
+      ],
+    },
+  };
+  await updateScenario(optional);
+  await card.getByRole("button", { name: "Check again", exact: true }).click();
+  await expect(card.getByText("Ready · 0 repositories", { exact: true })).toBeVisible();
+  assert.equal(
+    await card
+      .getByText("Not checked out", { exact: true })
+      .evaluate((el) => el.closest(".host-status").classList.contains("host-neutral")),
+    true,
+  );
+  assert.ok(
+    (
+      await card
+        .getByText("Not found", { exact: true })
+        .evaluateAll((els) =>
+          els.map((el) => el.closest(".host-status").classList.contains("host-neutral")),
+        )
+    ).every(Boolean),
+  );
+  await capture("ready-optional-agents");
+  await updateScenario({ ...optional, holdClone: true });
+  await card.getByRole("button", { name: "Clone here", exact: true }).click();
+  await expect(card.getByText("Cloning…", { exact: true })).toBeVisible();
+  await capture("hosts-cloning");
+  await updateScenario({ ...optional, checkout: "clean" });
+  await expect(
+    card.getByText("Origin authentication failed · origin-auth", { exact: true }),
+  ).toBeVisible();
+  await capture("hosts-clone-failed");
+  await updateScenario({ ...optional, cloneSuccess: true, checkout: "clean" });
+  await card.getByRole("button", { name: "Clone here", exact: true }).click();
+  await expect(card.getByText("Clean", { exact: true })).toBeVisible();
+  await capture("hosts-clone-clean");
+  await updateScenario({ ...optional, origin: "origin-host-key" });
+  await card.getByRole("button", { name: "Check again", exact: true }).click();
+  await expect(card.getByRole("button", { name: "Trust host key", exact: true })).toBeEnabled();
+  await capture("origin-host-key");
+  await card.getByRole("button", { name: "Trust host key", exact: true }).click();
+  await expect(page.locator(".terminal-tile[data-kind='shell']").last()).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const id = (await window.desktop.workspace()).terminals.at(-1)?.id;
+        return id ? (await window.desktop.tail(id, 40)).join("\n") : "";
+      }),
+    )
+    .toContain("FIXTURE_VERIFY_FINGERPRINT_AND_ANSWER_SSH");
+  await capture("trust-host-key-tile");
+  await openSettingsScreen(page);
+  await page
+    .getByRole("navigation", { name: "Settings sections" })
+    .getByRole("button", { name: "Hosts", exact: true })
+    .click();
+  await expect(card.getByRole("button", { name: "Check again", exact: true })).toBeEnabled();
+  await updateScenario(ready);
+  await card.getByRole("button", { name: "Check again", exact: true }).click();
+  await expect(card.getByText("Ready · 1 repository", { exact: true })).toBeVisible();
   await app.evaluate(({ BrowserWindow }) =>
     BrowserWindow.getAllWindows()
       .find((window) => window.webContents.getURL() === "app://bundle/index.html")
@@ -417,6 +500,15 @@ process.stdin.on('data', bytes => {
   await navigation.getByRole("button", { name: "Repositories", exact: true }).click();
   await expect(page.getByRole("region", { name: "Local", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Clone here", exact: true })).toHaveCount(1);
+  await updateScenario({ holdClone: true, cloneSuccess: true });
+  await page.getByRole("button", { name: "Clone here", exact: true }).click();
+  await expect(page.getByText("Cloning…", { exact: true })).toBeVisible();
+  await capture("repositories-cloning");
+  await updateScenario({});
+  await expect(page.getByText("Clean", { exact: true })).toBeVisible();
+  await capture("repositories-clone-clean");
+  await page.getByRole("button", { name: "Refresh locations", exact: true }).click();
+  await expect(page.getByText("Not checked out", { exact: true })).toBeVisible();
   for (const [reason, text] of [
     ["origin-auth", "Origin authentication failed"],
     ["origin-host-key", "Origin SSH host key is not trusted"],
@@ -438,11 +530,11 @@ process.stdin.on('data', bytes => {
       async () => (await readFile(recipeCalls, "utf8")).trim().split("\n").filter(Boolean).length,
     )
     .toBe(1);
-  await expect(page.locator(".terminal-tile[data-kind='shell']")).toBeVisible();
+  await expect(page.locator(".terminal-tile[data-kind='shell']").last()).toBeVisible();
   await expect
     .poll(async () =>
       page.evaluate(async () => {
-        const id = (await window.desktop.workspace()).terminals[0]?.id;
+        const id = (await window.desktop.workspace()).terminals.at(-1)?.id;
         return id ? (await window.desktop.tail(id, 40)).join("\n") : "";
       }),
     )

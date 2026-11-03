@@ -135,6 +135,7 @@ export interface HostsState {
 }
 export type HostsAction =
   | { action: "rename"; host: string; nickname: string }
+  | { action: "trust-origin"; host: string; repository: string }
   | { action: "recipe"; host: string; tool: string; operation: "install" | "sign-in" }
   | { action: "preflight"; host: string; codeFolder: string }
   | { action: "create-folder"; host: string }

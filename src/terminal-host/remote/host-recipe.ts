@@ -1,3 +1,4 @@
+import { originSshArgs } from "../../shared/registered-hosts";
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { homedir } from "node:os";
@@ -60,4 +61,21 @@ export async function runHostRecipe(argv: readonly string[], home = homedir()): 
     if (code !== 0) return code;
   }
   return 0;
+}
+
+/** Interactive only: the user verifies and accepts the fingerprint in this PTY. */
+export async function runOriginTrust(argv: readonly string[], home = homedir()): Promise<number> {
+  const args = argv.length === 1 ? originSshArgs(argv[0]) : undefined;
+  if (!args) return 2;
+  const env = await hostLoginEnvironment(remoteShell(), home, undefined, true);
+  const found = await hostDiscovery({ executables: ["ssh"] }, remoteShell(), home);
+  return new Promise<number>((resolve) => {
+    const child = spawn(found.command, args, { cwd: home, env, shell: false, stdio: "inherit" });
+    child.once("error", () => {
+      resolve(1);
+    });
+    child.once("exit", (code) => {
+      resolve(code ?? 1);
+    });
+  });
 }

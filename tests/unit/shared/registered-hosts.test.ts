@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import {
+  originSshArgs,
   hostAlias,
   codeFolder,
   registeredHosts,
@@ -497,4 +498,58 @@ test("clearing nicknames checks the effective default against other nicknames, p
       "",
     ),
   ).toBe("Name already used");
+});
+
+test("origin trust selects only SSH targets and preserves explicit ports without a command", () => {
+  expect(originSshArgs("git@forge.test:team/repo.git")?.slice(-2)).toEqual([
+    "--",
+    "git@forge.test",
+  ]);
+  expect(originSshArgs("ssh://git@forge.test:2222/team/repo.git")?.slice(-4)).toEqual([
+    "-p",
+    "2222",
+    "--",
+    "git@forge.test",
+  ]);
+  expect(originSshArgs("forge.test:team/repo.git")?.at(-1)).toBe("forge.test");
+  expect(originSshArgs("ssh://forge.test/team/repo.git")?.at(-1)).toBe("forge.test");
+  for (const origin of [
+    "https://forge.test/team/repo.git",
+    "ssh://forge.test:99999/team/repo",
+    "-oProxyCommand=x",
+    "git@forge.test:a;bad",
+    null,
+  ])
+    expect(originSshArgs(origin)).toBeUndefined();
+  expect(hostsAction({ action: "trust-origin", host: "worker", repository: "/local/repo" })).toBe(
+    true,
+  );
+  expect(
+    hostsAction({
+      action: "trust-origin",
+      host: "worker",
+      repository: "/local/repo",
+      origin: "bad",
+    }),
+  ).toBe(false);
+  const request = {
+    type: "open",
+    id: "trust",
+    request: 1,
+    cols: 80,
+    rows: 24,
+    reattach: false,
+    human: true,
+    trustOrigin: "git@forge.test:team/repo.git",
+  };
+  expect(remoteRequest(request)).toBe(true);
+  for (const patch of [
+    { human: false },
+    { reattach: true },
+    { checkout: {} },
+    { context: {} },
+    { recipe: {} },
+    { trustOrigin: "https://forge.test/repo" },
+  ])
+    expect(remoteRequest({ ...request, ...patch })).toBe(false);
 });

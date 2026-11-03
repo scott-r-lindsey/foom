@@ -1264,6 +1264,41 @@ test("a colliding nickname reset leaves the profile valid and survives reopening
   }
 });
 
+test("Trust host key re-reads registered origin and launches a human tile with no renderer command", async () => {
+  hosts = new Hosts(store, () => repositories, "0.1.0", run, "f".repeat(32));
+  await hosts.action({ action: "add", host: "worker", codeFolder: "~/code" });
+  const launch = vi.fn(async () => {});
+  await hosts.action(
+    { action: "trust-origin", host: "worker", repository: "/local/repo" },
+    undefined,
+    launch,
+  );
+  expect(launch).toHaveBeenCalledExactlyOnceWith({
+    host: "worker",
+    profile: "f".repeat(32),
+    human: true,
+    trustOrigin: "git@forge.test:me/repo.git",
+  });
+  await expect(
+    hosts.action(
+      { action: "trust-origin", host: "worker", repository: "/unregistered" },
+      undefined,
+      launch,
+    ),
+  ).rejects.toThrow("not registered");
+  mock.execute.mockResolvedValue({ stdout: "https://forge.test/me/repo.git" });
+  expect(
+    (
+      await hosts.action(
+        { action: "trust-origin", host: "worker", repository: "/local/repo" },
+        undefined,
+        launch,
+      )
+    ).recipeFailure,
+  ).toBe("recipe-unavailable");
+  expect(launch).toHaveBeenCalledTimes(1);
+});
+
 test("session metadata can read cached fleet observations without waiting for stale or unavailable SSH", async () => {
   settings = { ...settings, registeredHosts: [{ host: "worker", codeFolder: facts.codeFolder }] };
   expect(await hosts.fleet(false)).toEqual([

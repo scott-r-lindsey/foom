@@ -20,6 +20,7 @@ import {
   hostResult,
   hostNicknameError,
   hostDisplayName,
+  originSshArgs,
 } from "../../shared/registered-hosts";
 import type {
   HostFailure,
@@ -600,6 +601,22 @@ export class Hosts {
               const registration = { host: entry.host, codeFolder: entry.codeFolder };
               return input.nickname ? { ...registration, nickname: input.nickname } : registration;
             }),
+          });
+          return this.state();
+        }
+        if (input.action === "trust-origin") {
+          const registration = this.registered(input.host);
+          if (!this.repositories().some((repo) => repo.path === input.repository))
+            throw new Error("Repository is not registered");
+          const origin = await this.origin(input.repository);
+          this.registered(input.host, registration.codeFolder);
+          if (!originSshArgs(origin) || !launchRecipe || !this.profile)
+            return { ...this.state(), recipeFailure: "recipe-unavailable" as const };
+          await launchRecipe({
+            host: input.host,
+            profile: this.profile,
+            human: true,
+            trustOrigin: origin,
           });
           return this.state();
         }

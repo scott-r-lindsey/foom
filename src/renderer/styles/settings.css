@@ -712,6 +712,7 @@
   font-size: 9px;
 }
 .host-work .host-symbol {
+  animation: host-spin 1s linear infinite;
   border: 2px solid var(--accent);
   border-right-color: transparent;
   border-radius: 50%;
@@ -888,4 +889,15 @@
 .host-name-form [role="alert"] {
   flex-basis: 100%;
   font-size: 12px;
+}
+
+@keyframes host-spin {
+  to {
+    rotate: 360deg;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .host-work .host-symbol {
+    animation: none;
+  }
 }
