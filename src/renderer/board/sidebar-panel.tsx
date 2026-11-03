@@ -1,3 +1,5 @@
+import { useMemo } from "react";
+import { HostChip } from "./sidebar-machine-row";
 import type { BoardSource, LaunchOptions } from "./board-source.d";
 import type { PanelSubject } from "./panel-facts";
 import type { PanelTarget } from "./panel-intent";
@@ -46,6 +48,21 @@ export function SidebarPanel({
   pin,
 }: SidebarPanelProps) {
   const fieldOpen = Boolean(menu.field);
+  const worktrees = source.worktrees;
+  const branchSource = useMemo(() => {
+    if (!worktrees || !menu.host) return worktrees;
+    return {
+      branches: () =>
+        Promise.resolve({
+          head: "origin default branch",
+          local: [],
+          remote: null,
+          remoteBranches: [],
+        }),
+      create: (repository: string, branch: string) =>
+        worktrees.create(repository, branch, menu.host),
+    };
+  }, [worktrees, menu.host]);
   return (
     <RowMenu
       panel={{
@@ -58,7 +75,15 @@ export function SidebarPanel({
               }}
             />
           ) : (
-            name
+            <>
+              {name}
+              {subject.kind === "repository" &&
+                menu.host &&
+                source
+                  .getMachines?.()
+                  .filter((machine) => machine.host === menu.host)
+                  .map((machine) => <HostChip key={machine.host} machine={machine} />)}
+            </>
           ),
         kind: kind,
         mark: mark,
@@ -108,13 +133,13 @@ export function SidebarPanel({
                 />
               </div>
             );
-          return fieldOpen && subject.kind === "repository" && source.worktrees ? (
+          return fieldOpen && subject.kind === "repository" && branchSource ? (
             <div className="panel-side" data-field>
               {facts}
               <BranchField
                 key={`${menu.id}:branch`}
                 repository={subject.repository.path}
-                source={source.worktrees}
+                source={branchSource}
                 back={() => {
                   back();
                 }}

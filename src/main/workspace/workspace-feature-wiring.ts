@@ -23,6 +23,9 @@ export function workspaceFeatureWiring(owner: WorkspaceContext): {
 } {
   return {
     worktreeLaunch: {
+      get closed() {
+        return owner.closed;
+      },
       get addWorktree() {
         return owner.addWorktree.bind(owner);
       },
@@ -89,6 +92,9 @@ export function workspaceFeatureWiring(owner: WorkspaceContext): {
       get startExisting() {
         return owner.startExisting.bind(owner);
       },
+      get startMachine() {
+        return owner.startMachine.bind(owner);
+      },
       get startShell() {
         return owner.startShell.bind(owner);
       },
@@ -99,6 +105,9 @@ export function workspaceFeatureWiring(owner: WorkspaceContext): {
         return owner.worktrees.bind(owner);
       },
       deps: {
+        get hosts() {
+          return owner.deps.hosts;
+        },
         worktrees: {
           get launchIdentity() {
             return owner.deps.worktrees.launchIdentity.bind(owner.deps.worktrees);
@@ -249,6 +258,15 @@ export function workspaceFeatureWiring(owner: WorkspaceContext): {
       },
       get startExisting() {
         return owner.startExisting.bind(owner);
+      },
+      get startMachine() {
+        return owner.startMachine.bind(owner);
+      },
+      get scanAgents() {
+        return owner.scanAgents.bind(owner);
+      },
+      get enabled() {
+        return owner.enabled;
       },
       get startHomeShell() {
         return owner.startHomeShell.bind(owner);
@@ -441,7 +459,13 @@ export function workspaceFeatureWiring(owner: WorkspaceContext): {
         return owner.withRepository.bind(owner);
       },
       deps: {
+        get hosts() {
+          return owner.deps.hosts;
+        },
         worktrees: {
+          get validateBranch() {
+            return owner.deps.worktrees.validateBranch.bind(owner.deps.worktrees);
+          },
           get createWorktree() {
             return owner.deps.worktrees.createWorktree.bind(owner.deps.worktrees);
           },

@@ -596,3 +596,123 @@ test.each([false, true])(
     }
   },
 );
+
+test("remote host failures make sessions dormant without calling their worktrees removed and recover on a fresh inventory", async () => {
+  const remote = {
+    ...agent("remote", verdict("remote")),
+    branch: "topic · worker",
+    placement: { kind: "remote" as const, host: "worker" },
+  };
+  const loose = {
+    ...agent("loose"),
+    repository: "/home/fixture",
+    worktree: "/home/fixture",
+    branch: null,
+    home: true,
+    machine: true,
+  };
+  mock.workspace.mockResolvedValue({
+    repositories: [{ path: "/code/app", name: "app" }],
+    terminals: [remote, loose],
+  });
+  mock.sidebarInventory.mockResolvedValue({
+    repositories: [{ path: "/code/app", name: "app", worktrees: [] }],
+    shell: "bash",
+    machines: [{ host: "worker", name: "worker", available: false, agents: [] }],
+  });
+  const source = createAppSource();
+  const disconnect = source.connect?.();
+  await settle();
+  expect(source.getMachines?.()).toEqual([
+    { host: "worker", name: "worker", available: false, agents: [] },
+  ]);
+  expect(source.getSnapshot().find((row) => row.id === "remote")).toMatchObject({
+    branch: "topic",
+    dormant: true,
+    unavailable: true,
+    state: "needs_input",
+    worktreeRemoved: false,
+  });
+  expect(source.getSnapshot().find((row) => row.id === "loose")).toMatchObject({
+    home: true,
+    machine: true,
+    branch: "~",
+  });
+  mock.state?.(verdict("remote", 200));
+  expect(source.getSnapshot().find((row) => row.id === "remote")?.reason).toBe("Unavailable");
+  mock.sidebarInventory.mockResolvedValue({
+    repositories: [
+      {
+        path: "/code/app",
+        name: "app",
+        worktrees: [
+          {
+            host: "worker",
+            path: remote.worktree,
+            branch: "topic",
+            head: null,
+            bare: false,
+            locked: false,
+            prunable: false,
+            managed: false,
+          },
+        ],
+      },
+    ],
+    shell: "bash",
+    machines: [{ host: "worker", name: "worker", available: true, agents: [] }],
+  });
+  mock.changed?.();
+  await settle();
+  expect(source.getSnapshot().find((row) => row.id === "remote")).toMatchObject({
+    branch: "topic",
+    dormant: false,
+    unavailable: false,
+    state: "needs_input",
+    worktreeRemoved: false,
+  });
+  disconnect?.();
+});
+
+test("machine inventory changes preserve the focused terminal DOM and never reopen or refocus its view", async () => {
+  const input = document.createElement("textarea");
+  input.className = "xterm-helper-textarea";
+  mock.mount.mockImplementationOnce((element: HTMLElement) => {
+    element.append(input);
+  });
+  mock.workspace.mockResolvedValue({ repositories: [], terminals: [agent("a")] });
+  const source = createAppSource();
+  const view = render(<Board source={source} />);
+  await settle();
+  const row = view.container.querySelector<HTMLElement>('[data-drag-session="a"]');
+  if (!row) throw new Error("Missing session row");
+  fireEvent.click(row);
+  await settle();
+  expect(input.isConnected).toBe(true);
+  input.focus();
+  const opened = mock.open.mock.calls.length;
+  const mounted = mock.mount.mock.calls.length;
+  const focused = mock.focus.mock.calls.length;
+  const hidden = mock.hide.mock.calls.length;
+  for (const agents of [[], [{ id: "claude", name: "Claude Code" }], []]) {
+    mock.sidebarInventory.mockResolvedValue({
+      repositories: [],
+      shell: "bash",
+      machines: [
+        { host: null, name: "localhost", available: true, agents: [] },
+        { host: "worker", name: "Builder", available: true, agents },
+      ],
+    });
+    act(() => {
+      mock.changed?.();
+    });
+    await settle();
+    expect(view.getByRole("button", { name: "Actions for Builder" })).toBeTruthy();
+    expect(view.container.querySelector(".xterm-helper-textarea")).toBe(input);
+    expect(document.activeElement).toBe(input);
+    expect(mock.open).toHaveBeenCalledTimes(opened);
+    expect(mock.mount).toHaveBeenCalledTimes(mounted);
+    expect(mock.focus).toHaveBeenCalledTimes(focused);
+    expect(mock.hide).toHaveBeenCalledTimes(hidden);
+  }
+});

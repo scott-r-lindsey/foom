@@ -292,23 +292,32 @@ export class Hosts {
     ) {
       let pending = this.inventoryReads.get(host);
       if (!pending) {
-        pending = this.run(host, {
-          type: "manage",
-          operation: "inspect",
-          readOnly: true,
-          codeFolder: registration.codeFolder,
+        // Explicit host checks can finish while this background read is in flight.
+        const previous = this.results.get(host);
+        const current = () => this.results.get(host) === previous;
+        pending = this.run(
+          host,
+          {
+            type: "manage",
+            operation: "inspect",
+            readOnly: true,
+            codeFolder: registration.codeFolder,
+          },
+          current,
+        ).then((result) => {
+          this.registered(host, registration.codeFolder);
+          if (current()) this.results.set(host, result);
+          return result;
         });
         this.inventoryReads.set(host, pending);
       }
-      let result: HostResult;
       try {
-        result = await pending;
+        await pending;
       } finally {
         if (this.inventoryReads.get(host) === pending) this.inventoryReads.delete(host);
       }
 
       this.registered(host, registration.codeFolder);
-      this.results.set(host, result);
     }
     return this.results.get(host) ?? { ok: false, reason: "unreachable" };
   }
@@ -528,6 +537,33 @@ export class Hosts {
         }
       : result;
   }
+  private sidebarLocations: { at: number; read: Promise<HostsState> } | undefined;
+  locationsForSidebar(): Promise<HostsState> {
+    if (!this.sidebarLocations || Date.now() - this.sidebarLocations.at > 60_000) {
+      this.sidebarLocations = { at: Date.now(), read: this.action({ action: "locations" }) };
+    }
+    return this.sidebarLocations.read;
+  }
+  async repositoryTarget(host: string, repository: string): Promise<RemoteTarget> {
+    const registration = this.registered(host);
+    if (!this.repositories().some((repo) => repo.path === repository))
+      throw new ControlError("not_found");
+    const result = await this.repository(host, registration.codeFolder, repository, false);
+    if (!result.ok || !result.checkout || result.checkout.state === "absent")
+      throw new LaunchFailure("remote_worktree_unavailable");
+    const origin = await this.origin(repository);
+    this.registered(host, registration.codeFolder);
+    return {
+      ...this.shellTarget(host),
+      machine: {
+        codeFolder: registration.codeFolder,
+        repository: {
+          directory: result.checkout.path.slice(registration.codeFolder.length + 1),
+          origin,
+        },
+      },
+    };
+  }
   shellTarget(host: string): RemoteTarget {
     this.registered(host);
     if (!this.profile) throw new ControlError("not_found");
@@ -591,6 +627,19 @@ export class Hosts {
   ): Promise<HostsState> {
     if (!hostsAction(input)) return Promise.reject(new Error("Invalid host action"));
     if (input.action === "progress") return Promise.resolve(this.state());
+    if (
+      [
+        "add",
+        "remove",
+        "clone",
+        "change-folder",
+        "create-folder",
+        "refresh",
+        "preflight",
+        "locations",
+      ].includes(input.action)
+    )
+      this.sidebarLocations = undefined;
     const work = this.pending
       .catch(() => undefined)
       .then(async () => {
@@ -841,7 +890,11 @@ export class Hosts {
     this.pending = work;
     return work;
   }
-  private async run(host: string, request: HostManagement): Promise<HostResult> {
+  private async run(
+    host: string,
+    request: HostManagement,
+    currentObservation: () => boolean = () => true,
+  ): Promise<HostResult> {
     const failed = (
       reason: HostFailure,
       step: "providers" | "connection" | "reply" | "configuration" | "cancellation",
@@ -904,7 +957,7 @@ export class Hosts {
         if (request.operation === "inspect" && attempt === 0) continue;
         return failed("configuration-changed", "configuration");
       }
-      if (request.operation === "inspect")
+      if (request.operation === "inspect" && currentObservation())
         this.observed.set(host, { at: Date.now(), revision, enabled });
       return {
         ...result,

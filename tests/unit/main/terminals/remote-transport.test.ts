@@ -1327,6 +1327,50 @@ test.each([false, true])(
   },
 );
 
+test.each([false, true])(
+  "human machine launch capability gates older compatible daemons (%s)",
+  async (supported) => {
+    transport.kill();
+    child = new Child();
+    mock.spawn.mockReturnValue(child);
+    transport = new RemoteTransport(
+      {
+        host: "fixture",
+        human: true,
+        machine: { codeFolder: "/remote/code", agent: "claude", defaults: [] },
+      },
+      "0.1.0",
+    );
+    transport.postMessage(create);
+    await Promise.resolve();
+    child.header();
+    child.message({
+      type: "hello",
+      build: "b".repeat(64),
+      compatible: 2,
+      ...(supported ? { humanMachines: 1 as const } : {}),
+    });
+    if (supported)
+      expect(child.messages).toContainEqual(
+        expect.objectContaining({
+          type: "open",
+          human: true,
+          machine: { codeFolder: "/remote/code", agent: "claude", defaults: [] },
+        }),
+      );
+    else
+      expect(
+        child.messages.some(
+          (message) =>
+            typeof message === "object" &&
+            message !== null &&
+            "type" in message &&
+            message.type === "open",
+        ),
+      ).toBe(false);
+  },
+);
+
 test.each([true, false])(
   "origin trust on a compatible older daemon requires its capability: %s",
   async (supported) => {

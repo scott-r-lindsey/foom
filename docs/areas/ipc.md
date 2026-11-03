@@ -162,3 +162,14 @@ boolean success. Stale requests and unknown paths fail without copying or
 answering the confirmation. Preload validates replies and bounds pending calls;
 a missing reply fails after three seconds. Pairing, disclosure and other facts
 never become copy targets. Copy buttons join the dialog's existing focus trap.
+
+`workspace:sidebar` also projects machine labels, availability, installed agent
+IDs/names and checked repository location IDs. `machine-launch` accepts exactly
+`kind`, nullable registered `host` and known `run`; `repository-launch` additionally
+requires a registered `repository`. Neither accepts a cwd, executable, prompt or
+arguments.
+Successful human launches return their request-specific terminal ID. Main alone
+selects the folder and launch defaults. `workspace:create-worktree` accepts an
+optional fourth registered-host selector, retaining the existing local location
+parameter; remote creation uses the registered repository origin and approved
+folder and confers no orchestration role.

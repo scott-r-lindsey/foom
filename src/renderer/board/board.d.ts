@@ -1,3 +1,4 @@
+import type { WorkspaceTerminal } from "../../shared/workspace";
 import type { ReviewState } from "../../shared/review";
 import type { Handoff } from "../../shared/handoff";
 import type { McpConnection } from "../../shared/workspace";
@@ -12,6 +13,8 @@ export interface BoardRow {
   id: string;
   managed?: boolean;
   home?: boolean;
+  machine?: boolean;
+  placement?: WorkspaceTerminal["placement"];
   /** Runs in the Foom config folder and nests under the Foom config row. */
   config?: boolean;
   probe?: boolean;
@@ -29,6 +32,7 @@ export interface BoardRow {
   conversationId?: string | undefined;
   /** No host screen exists for a restored or failed-to-relaunch session. */
   dormant?: boolean;
+  unavailable?: boolean;
   /** Changes when an exited terminal is relaunched under the same ID. */
   launchVersion?: number;
   worktreeRemoved?: boolean;

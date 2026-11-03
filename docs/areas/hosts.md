@@ -18,8 +18,8 @@ short names. The default is the SSH hostname's first component, without the
 account or domain; IPv4 addresses retain all components. The full SSH selector
 remains visible and copyable on the card.
 
-`hostDisplayName` projects the label for Settings and sidebar checkout rows;
-board launch options expose registered host labels for machine rows. Labels never
+`hostDisplayName` projects the label for Settings, machine rows, remote checkout
+chips and tile title bars; board launch options also expose registered host labels. Labels never
 replace registration keys or enter remote requests, SSH, environment, argv or
 agent projections. Rename only updates the local profile and performs no remote
 inspection. Folder changes and canonical expansion preserve nicknames.
@@ -36,7 +36,8 @@ The local `progress` read bypasses the action queue and returns only the current
 preflight's inspect/origin/checkout phase, repository paths and completed typed
 observations. It runs no SSH or Git commands. Settings reads it only while its
 preflight is pending, at most one read at a time, and stops on completion or
-unmount. No remote management protocol or host polling is added.
+unmount. Progress reads publish no workspace changes or background inventory
+refreshes. No remote management protocol or host polling is added.
 Inspection retries once when provider revision or enabled agents change, then
 reports configuration changed. Repository mutations are never replayed.
 Each refused management request logs one fixed reason and step in main, without hostnames,
@@ -413,6 +414,36 @@ projection supplies checkout paths rather than origin display strings and does
 not report local dirty state; Local says Checked out. No management protocol
 change is needed. Failed clone reasons remain visible until the next user check;
 unreachable replies reconcile through a read-only location/preflight check.
+
+## Human machine sessions (#1024)
+
+The sidebar projects registration order, bounded agent facts and checked repository
+locations. Location reads share a one-minute on-demand cache, invalidated by
+explicit checks, registration changes and clone mutations; there is no timer. Agent availability never comes from the
+hub's installation when launching remotely. Host display labels are presentation
+only and do not replace registration keys.
+
+Human machine launches reuse profile-owned SSH terminal transport. A closed
+`machine` open request names the approved code folder and optionally a bundled
+agent ID with validated user defaults. The host rechecks the folder, resolves the
+agent with its own login PATH, and starts an argument-array PTY. It adds no bypass
+arguments, hook files or orchestration grant. A repository launch
+additionally names the origin-derived clone directory, validated through the
+existing read-only repository operation; worktree launches reuse profile provenance
+and checkout identity checks. Hub environment values and credentials stay local.
+Background inventory replies cannot replace a newer explicit host observation or
+renew its freshness timestamp. Shared in-flight readers receive the current
+observation, including missing-agent and unavailable results.
+Completed Settings host checks invalidate the board inventory immediately,
+including unreachable results. Machine sessions persist as human-owned session metadata; remote recovery only
+reattaches the existing PTY. Local agent rows without a conversation ID remain
+exited after restart, following ordinary session restoration eligibility.
+
+Hello advertises `humanMachines: 1` for ordinary machine launches.
+New machine launches refuse a compatible older
+active daemon lacking this capability before sending open; they never fall back
+to an ordinary home shell. Existing PTYs still reattach. Machine launches use
+the existing host-preparation budget, in addition to bootstrap.
 
 ## Host card readiness and repository fixes (#1026)
 

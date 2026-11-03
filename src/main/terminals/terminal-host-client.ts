@@ -273,7 +273,7 @@ export class TerminalHostClient {
         command.type === "shutdown"
           ? 15000
           : this.remote && command.type === "create"
-            ? 125000 + (this.remote.agent ? HOST_PREPARATION_TIMEOUT_MS : 0)
+            ? 125000 + (this.remote.agent || this.remote.machine ? HOST_PREPARATION_TIMEOUT_MS : 0)
             : 10000,
       );
       this.pending.set(request, { id: command.id, resolve, reject, timer });

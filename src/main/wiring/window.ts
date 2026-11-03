@@ -271,6 +271,9 @@ export async function buildWindow(
     confirmations.refresh();
   };
   const setup = new Setup({
+    hostsChanged: () => {
+      wiring.workspace.refresh();
+    },
     launchHostRecipe: async (target) => {
       const id = await wiring.workspace.startHostRecipe(target);
       wiring.revealSession(id);

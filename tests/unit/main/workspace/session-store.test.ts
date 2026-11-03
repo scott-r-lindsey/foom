@@ -389,3 +389,26 @@ test("persists closed reviewer handoffs and continuation settings with owned che
       readSessions([{ ...record, orchestrator: { ...role, worktrees: [{ ...tree, ...extra }] } }]),
     ).toThrow();
 });
+
+test("machine-owned home agent records survive storage without child or repository authority", async () => {
+  const { store } = await setup();
+  const machine = {
+    ...record,
+    repository: root,
+    worktree: root,
+    branch: null,
+    home: true,
+    machine: true,
+  };
+  const entries = readSessions([machine]);
+  expect(entries[0]).toMatchObject({ machine: true, home: true, kind: "agent" });
+  await store.save(entries);
+  expect(await store.load()).toEqual(entries);
+  for (const forged of [
+    { ...machine, machine: false },
+    { ...machine, home: false },
+    { ...machine, parentId: "parent" },
+    { ...machine, orchestrator: {} },
+  ])
+    expect(() => readSessions([forged])).toThrow();
+});

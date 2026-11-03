@@ -111,8 +111,11 @@ export class Workspace {
     repository: string,
     branch: string,
     location?: "root" | "adjacent",
+    host?: string,
   ): Promise<Worktree & { outcome: CreateOutcome }> {
-    return this.owner.createWorktree(repository, branch, location);
+    return host === undefined
+      ? this.owner.createWorktree(repository, branch, location)
+      : this.owner.createWorktree(repository, branch, location, host);
   }
   async scanAgents(refresh: boolean): Promise<AgentReport> {
     return this.owner.scanAgents(refresh);

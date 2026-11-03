@@ -172,3 +172,30 @@ test("reattachment rechecks registration even without a conversation ID or optio
   ).rejects.toThrow("connection unavailable");
   expect(create).not.toHaveBeenCalled();
 });
+
+test("daemon-discovered loose agents stay human-owned under their machine after a hub restart", async () => {
+  const sessions = vi.fn<Hosts["sessions"]>().mockResolvedValue([
+    {
+      host: "worker",
+      session: {
+        id: "loose",
+        context: {
+          repository: homeDirectory,
+          worktree: homeDirectory,
+          branch: null,
+          agent: "claude",
+          machine: true,
+        },
+      },
+    },
+  ]);
+  const rows = await discoverRemoteSessions({ registered: hosts.registered, sessions });
+  expect(rows[0]).toMatchObject({
+    agent: "claude",
+    kind: "agent",
+    machine: true,
+    home: true,
+    placement: { kind: "remote", host: "worker" },
+  });
+  expect(rows[0]?.orchestration).toBeUndefined();
+});

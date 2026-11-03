@@ -336,3 +336,81 @@ test("host facts capability is optional and closed", () => {
     remoteResponse({ type: "hello", build: "a".repeat(64), compatible: 2, hostFacts: "raw" }),
   ).toBe(false);
 });
+
+test("human machine opens accept bounded identifiers and defaults but never recipe or unchecked repository targets", () => {
+  const base = {
+    type: "open",
+    id: "one",
+    request: 1,
+    cols: 80,
+    rows: 24,
+    reattach: false,
+    human: true,
+    profile: "a".repeat(32),
+  };
+  expect(remoteRequest({ ...base, machine: { codeFolder: "~/code" } })).toBe(true);
+  expect(remoteResponse({ type: "hello", build: "a".repeat(64), humanMachines: 1 })).toBe(true);
+  expect(
+    remoteRequest({
+      ...base,
+      machine: { codeFolder: "/code" },
+      trustOrigin: "git@fixture.test:repo.git",
+    }),
+  ).toBe(false);
+  expect(
+    remoteResponse({ type: "hello", build: "a".repeat(64), humanMachines: 1, originTrust: 1 }),
+  ).toBe(true);
+  expect(
+    remoteRequest({
+      ...base,
+      machine: { codeFolder: "/code", agent: "claude", defaults: ["--model", "fixture"] },
+    }),
+  ).toBe(true);
+  expect(
+    remoteRequest({
+      ...base,
+      context: {
+        repository: "/home",
+        worktree: "/home",
+        branch: null,
+        agent: "claude",
+        machine: true,
+      },
+      machine: { codeFolder: "/code" },
+    }),
+  ).toBe(true);
+  for (const machine of [
+    null,
+    {},
+    { codeFolder: 1 },
+    { codeFolder: "~\n/code" },
+    { codeFolder: "/code", agent: "-command" },
+    { codeFolder: "/code", defaults: [null] },
+    { codeFolder: "/code", defaults: ["x\0y"] },
+    { codeFolder: "/code", defaults: ["x".repeat(4097)] },
+    { codeFolder: "/code", defaults: Array.from({ length: 129 }, () => "x") },
+    { codeFolder: "/code", command: "id" },
+    {
+      codeFolder: "/code",
+      repository: { directory: "../repo", origin: "git@fixture.test:repo.git" },
+    },
+    {
+      codeFolder: "/code",
+      repository: { directory: `repository-${"a".repeat(24)}`, origin: "file:///private" },
+    },
+  ])
+    expect(remoteRequest({ ...base, machine })).toBe(false);
+  expect(remoteRequest({ ...base, machine: { codeFolder: "/code" }, human: false })).toBe(false);
+  expect(
+    remoteRequest({
+      ...base,
+      machine: {
+        codeFolder: "/code",
+        repository: {
+          directory: `repository-${"a".repeat(24)}`,
+          origin: "git@fixture.test:repo.git",
+        },
+      },
+    }),
+  ).toBe(true);
+});

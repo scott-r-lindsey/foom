@@ -110,7 +110,7 @@ export class SessionOwner {
         entry.config
           ? entry.worktree !== this.deps.configRoot || entry.repository !== entry.worktree
           : entry.home
-            ? entry.kind !== "shell" ||
+            ? (entry.kind !== "shell" && !entry.machine) ||
               entry.worktree !== homeDirectory ||
               entry.repository !== homeDirectory
             : false

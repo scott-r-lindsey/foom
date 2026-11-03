@@ -1983,3 +1983,37 @@ button.failure-mark {
   outline: 2px solid var(--highlight);
   outline-offset: 2px;
 }
+
+.machine-list {
+  border-block: 1px solid var(--line);
+  margin-block: 8px;
+  padding-block: 5px;
+}
+.machine-row {
+  padding-left: 24px;
+}
+.machine-row[data-unavailable="true"] {
+  color: var(--muted);
+}
+.machine-status {
+  font: 11px var(--font-mono);
+}
+.machine-sessions .board-row {
+  margin-left: 18px;
+}
+.sidebar-shell[data-compact="true"] .machine-sessions .board-row {
+  margin-left: 0;
+}
+
+.host-chip {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 0;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 1px 4px;
+  white-space: nowrap;
+  font-size: 10px;
+}

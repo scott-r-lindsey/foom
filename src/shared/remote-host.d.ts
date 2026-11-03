@@ -11,6 +11,7 @@ import type { HookSignal } from "./hooks";
 import type { HostRequest, HostResponse } from "./terminal-host";
 /** Main/daemon metadata only; never supplied to the PTY or remote launch files. */
 export interface RemoteSessionContext {
+  machine?: true;
   repository: string;
   worktree: string;
   branch: string | null;
@@ -39,7 +40,14 @@ export interface RemoteInventoryResult {
   own: RemoteSessionInfo[];
   foreign: ForeignRemoteSession[];
 }
+export interface MachineLaunch {
+  codeFolder: string;
+  agent?: string;
+  defaults?: string[];
+  repository?: { directory: string; origin: string };
+}
 export type RemoteTarget = {
+  machine?: MachineLaunch;
   trustOrigin?: string;
   recipe?: HostRecipeLaunch;
   host: string;
@@ -61,6 +69,7 @@ export type RemoteRequest =
   | { type: "hello"; build: string }
   | {
       type: "open";
+      machine?: MachineLaunch;
       trustOrigin?: string;
       recipe?: HostRecipeLaunch;
       request: number;
@@ -112,6 +121,7 @@ export type RemoteResponse =
       compatible?: 2;
       hostFacts?: 1;
       hostPreflight?: 1;
+      humanMachines?: 1;
       originTrust?: 1;
     }
   | HostResponse

@@ -4,6 +4,7 @@ export interface PanelTarget {
   pinned: boolean;
   /** A panel showing its inline branch or conversation field. */
   field?: boolean;
+  host?: string;
 }
 /** One intent machine per sidebar; all delayed work is cancelled on disposal. */
 export class PanelIntent {
@@ -47,10 +48,16 @@ export class PanelIntent {
   hold() {
     this.cancel();
   }
-  pin(id: string, anchor: HTMLElement, field = false) {
+  pin(id: string, anchor: HTMLElement, field = false, host?: string) {
     if (this.dragging || (this.current?.pinned && this.current.id !== id)) return;
     this.cancel();
-    this.publish({ id, anchor, pinned: true, ...(field ? { field } : {}) });
+    this.publish({
+      id,
+      anchor,
+      pinned: true,
+      ...(field ? { field } : {}),
+      ...(host ? { host } : {}),
+    });
   }
   close = () => {
     this.cancel();

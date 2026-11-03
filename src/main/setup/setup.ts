@@ -23,6 +23,7 @@ import type { WorktreeService } from "../workspace/worktrees";
 
 export interface SetupDependencies {
   hosts?: Hosts;
+  hostsChanged?: () => void;
   launchHostRecipe?: (target: RemoteTarget) => Promise<void>;
   copyText?: (value: string) => void | Promise<void>;
   confirmRemoteSessions?: (content: DialogContent) => Promise<boolean>;
@@ -75,7 +76,10 @@ export class Setup {
     return this.deps.hosts
       .action(input, this.deps.confirmRemoteSessions, this.deps.launchHostRecipe)
       .then((state) => {
-        if (hostsAction(input) && input.action === "rename") this.refresh();
+        if (hostsAction(input)) {
+          if (input.action === "rename") this.refresh();
+          if (input.action !== "progress") this.deps.hostsChanged?.();
+        }
         return state;
       });
   }

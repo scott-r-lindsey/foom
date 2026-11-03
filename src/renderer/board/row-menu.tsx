@@ -411,6 +411,7 @@ export function RowMenu({
                   }
                   if (action.expanded !== undefined) {
                     setSub(undefined);
+                    nested?.back();
                     void action.run();
                     return;
                   }
@@ -445,6 +446,7 @@ export function RowMenu({
         <RowMenu
           anchor={sub.anchor}
           actions={submenu}
+          confirmations={confirmations}
           close={close}
           label={actions[sub.index]?.label ?? label}
           {...(onAction ? { onAction } : {})}

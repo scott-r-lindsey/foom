@@ -184,3 +184,30 @@ name. ⌘⇧B on macOS or Ctrl+Shift+Space, then B elsewhere focuses the sidebar
 ⌘⇧N or Ctrl+Shift+N reveals and opens the session that has waited longest for you, clearing
 its filter and expanding its ancestors. Other terminal keys, including Escape, remain input.
 Zoom, master volume and the Foom config gear stay at the bottom of the sidebar. Launch actions live in repository and checkout menus. An empty sidebar labels its starting action **Add repository**; a populated sidebar shows **+ Add repo** with the same accessible name. General’s optional relative-path preference shows nested repository names beneath the code folder; outside repositories keep their names.
+
+## Machines and remote worktrees (#1024)
+
+With registered hosts, a pair of thin rules separates machine rows from the home
+shells above and repositories below. Localhost comes first, then registered hosts
+in Settings order. Machine rows and host chips use the registered nickname,
+falling back to the short hostname through the shared display-name helper.
+Each machine menu offers New shell and New followed by each
+installed, enabled agent's name. These human-owned sessions use the local home
+folder or the remote approved code folder and nest under their machine. They use
+the user's CLI defaults and have no orchestration child grant. Single-machine
+profiles keep the existing home-shell layout.
+
+Unavailable machines stay listed with an explicit Unavailable label and disabled
+launch controls. Remote worktrees remain beneath their repository. A muted host
+chip replaces the host suffix on their branch names and appears in their tile
+bars too. An unavailable chip has a broken-link mark and says Unavailable;
+sessions are dormant, never labelled Worktree removed because a host is offline.
+Repository New worktree and New agent menus offer a machine choice when that
+repository has a checked-out location on a registered host. Localhost remains an
+option; unavailable locations cannot launch. New agent uses the chosen machine's
+main checkout. Creating a worktree launches nothing.
+
+Remote main-checkout agent launches, including new conversations,
+use the shared-checkout confirmation while holding the checkout launch lock.
+Cancelling leaves the current sessions unchanged. Shells from these checkout
+panels restart on the same host and repository clone.

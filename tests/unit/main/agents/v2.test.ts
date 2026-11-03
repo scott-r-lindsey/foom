@@ -310,6 +310,7 @@ it("prepares ordered argv, UUID, display and prompt; resume adds no greeting or 
   expect(() => minimal.provider.resume("saved")).toThrow("cannot resume");
   await expect(launch(m, { conversationId: "saved" })).rejects.toThrow("cannot resume");
 });
+
 it.each(["--system-prompt", "--model", "--effort"])(
   "preserves literal tool option values owned by %s when attaching Claude MCP",
   async (flag) => {

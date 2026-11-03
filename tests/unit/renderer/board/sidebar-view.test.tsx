@@ -151,16 +151,28 @@ test("the sidebar uses display preferences without changing repository command p
   expect(source.getSidebar()[0]?.path).toBe("/code/work/foom");
 });
 
-test.each([false, true])(
-  "a broken checkout has a single Clean up command and a visible state (pending removal: %s)",
-  async (removalFailed) => {
+test.each([
+  { removalFailed: false, host: undefined },
+  { removalFailed: true, host: undefined },
+  { removalFailed: false, host: "worker" },
+  { removalFailed: true, host: "worker" },
+])(
+  "a broken checkout keeps its Clean up command and state (pending removal: $removalFailed, host: $host)",
+  async ({ removalFailed, host }) => {
     const { source, command, base, ...view } = setup();
     const repositories = source.getSidebar?.() ?? [];
     source.getSidebar = () =>
       repositories.map((repo) => ({
         ...repo,
         worktrees: repo.worktrees.map((tree) =>
-          tree.path === "/tree" ? { ...tree, prunable: true, removalFailed } : tree,
+          tree.path === "/tree"
+            ? {
+                ...tree,
+                prunable: true,
+                removalFailed,
+                ...(host ? { host } : {}),
+              }
+            : tree,
         ),
       }));
     // A source notification refreshes the inventory without launching anything.
@@ -173,6 +185,8 @@ test.each([false, true])(
       view.getAllByText(removalFailed ? "Removal failed — Clean up to retry" : "Broken checkout")
         .length,
     ).toBeGreaterThan(0);
+    const checkout = within(view.getByRole("treeitem", { name: "feature" }));
+    expect(checkout.queryByLabelText("Host: worker") !== null).toBe(Boolean(host));
     expect(view.getAllByRole("menuitem")).toHaveLength(1);
     // The existing fixture has a live session: cleanup must require closing it.
     expect(view.getByRole("menuitem", { name: "Clean up" }).hasAttribute("disabled")).toBe(true);
@@ -210,9 +224,11 @@ test("remote checkout labels use profile nicknames and short-name fallback witho
   await act(async () => {
     await Promise.resolve();
   });
-  expect(view.getByText("feature · Build box")).toBeTruthy();
+  expect(view.getByText("feature")).toBeTruthy();
+  expect(view.getAllByLabelText("Host: Build box")).toHaveLength(2);
   cleanup();
   render(<Board source={{ ...base, getSidebar: () => [remote] }} />);
-  expect(view.queryByText("feature · Build box")).toBeNull();
-  expect(document.body.textContent).toContain("feature · dozer");
+  expect(view.queryByLabelText("Host: worker")).toBeNull();
+  expect(document.querySelectorAll('[aria-label="Host: dozer"]')).toHaveLength(2);
+  expect(document.body.textContent).not.toContain("feature ·");
 });

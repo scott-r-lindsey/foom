@@ -270,6 +270,43 @@ test("fleet inventory uses registered hosts, shares in-flight probes, and refuse
   });
 });
 
+test.each([true, false])(
+  "late background inventory cannot replace a newer explicit host check (%s)",
+  async (ok) => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(1000);
+    try {
+      settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+      repositories = [];
+      const older = Promise.withResolvers<HostResult>();
+      const latest: HostResult = ok
+        ? { ok: true, facts: { ...facts, agents: [{ id: "claude", state: "missing" }] } }
+        : { ok: false, reason: "unreachable" };
+      run.mockReturnValueOnce(older.promise).mockResolvedValue(latest);
+      const pending = hosts.inventory("worker");
+      await vi.waitFor(() => {
+        expect(run).toHaveBeenCalledTimes(1);
+      });
+      now.mockReturnValue(2000);
+      await hosts.action({ action: "preflight", host: "worker", codeFolder: facts.codeFolder });
+      const checked = (await hosts.fleet(false))[0]?.result;
+      expect(checked).toMatchObject({ ok });
+      if (checked?.ok)
+        expect(checked.facts.agents).toContainEqual(
+          expect.objectContaining({ id: "claude", state: "missing" }),
+        );
+      now.mockReturnValue(70_000);
+      older.resolve({ ok: true, facts: { ...facts, agents: [{ id: "claude", state: "ready" }] } });
+      await expect(pending).resolves.toEqual(checked);
+      await expect(hosts.requireAgent("worker", "claude")).rejects.toMatchObject({
+        reason: ok ? "remote_agent_unavailable" : "remote_host_unreachable",
+      });
+      expect(run).toHaveBeenCalledTimes(3);
+    } finally {
+      now.mockRestore();
+    }
+  },
+);
+
 test("stale, missing, failed and changed-enabled inventories are probed rather than guessed", async () => {
   settings = { ...settings, registeredHosts: [{ host: "worker", codeFolder: facts.codeFolder }] };
   const now = vi.spyOn(Date, "now").mockReturnValue(1000);
@@ -1193,6 +1230,51 @@ test("refresh recovers an incomplete host with profile session inventory before 
   expect(mock.inventory.mock.lastCall?.[2]).toEqual({ type: "inventory", profile: "f".repeat(32) });
   expect(settings.registeredHosts).toEqual([{ host: "worker", codeFolder: facts.codeFolder }]);
   service.dispose();
+});
+
+test("sidebar location reads share a freshness cache and host mutations invalidate it", async () => {
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  const first = hosts.locationsForSidebar();
+  expect(hosts.locationsForSidebar()).toBe(first);
+  await first;
+  await hosts.action({ action: "progress" });
+  expect(hosts.locationsForSidebar()).toBe(first);
+  const before = run.mock.calls.length;
+  await hosts.locationsForSidebar();
+  expect(run.mock.calls).toHaveLength(before);
+  await hosts.action({ action: "remove", host: "worker" });
+  expect(hosts.locationsForSidebar()).not.toBe(first);
+  await hosts.locationsForSidebar();
+});
+
+test("repository human launch targets require an approved registration and checked clone", async () => {
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  hosts = new Hosts(store, () => repositories, "0.1.0", run, "a".repeat(32));
+  run.mockImplementation((_host, request) =>
+    Promise.resolve({
+      ok: true,
+      facts,
+      ...(request.operation === "repository"
+        ? {
+            checkout: { path: `${facts.codeFolder}/${request.directory}`, state: "clean" as const },
+          }
+        : {}),
+    }),
+  );
+  const target = await hosts.repositoryTarget("worker", "/local/repo");
+  expect(target).toMatchObject({
+    host: "worker",
+    human: true,
+    profile: "a".repeat(32),
+    machine: { codeFolder: facts.codeFolder, repository: { origin: "git@forge.test:me/repo.git" } },
+  });
+  expect(target.machine?.repository?.directory).toMatch(/^repository-[a-f0-9]{24}$/);
+  await expect(hosts.repositoryTarget("unregistered", "/local/repo")).rejects.toThrow();
+  await expect(hosts.repositoryTarget("worker", "/foreign")).rejects.toThrow();
+  run.mockResolvedValue({ ok: false, reason: "unreachable" });
+  await expect(hosts.repositoryTarget("worker", "/local/repo")).rejects.toThrow();
+  run.mockResolvedValue({ ok: true, facts });
+  await expect(hosts.repositoryTarget("worker", "/local/repo")).rejects.toThrow();
 });
 
 test("rename is profile-only, rejects collisions and preserves labels across folder updates", async () => {

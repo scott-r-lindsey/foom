@@ -62,6 +62,19 @@ function sidebarCommand(value: unknown): SidebarCommand {
     if (Object.keys(value).length !== 1) throw new Error("Invalid home shell request");
     return { kind };
   }
+  if (kind === "machine-launch" || kind === "repository-launch") {
+    if (
+      Object.keys(value).length !== (kind === "machine-launch" ? 3 : 4) ||
+      !(value["host"] === null || text(value["host"], 256)) ||
+      !(value["run"] === "shell" || agent(value["run"]))
+    )
+      throw new Error("Invalid machine launch");
+    if (kind !== "machine-launch") {
+      if (!text(value["repository"])) throw new Error("Invalid repository launch");
+      return { kind, repository: value["repository"], host: value["host"], run: value["run"] };
+    }
+    return { kind, host: value["host"], run: value["run"] };
+  }
   if (kind === "open-handoff-link") {
     const { id, seq, index } = value;
     if (
@@ -523,15 +536,18 @@ export function attachWorkspace(
     [
       "workspace:create-worktree",
       (...args) => {
-        const [repository, branch, location] = args;
+        const [repository, branch, location, host] = args;
         if (
-          args.length > 3 ||
+          args.length > 4 ||
+          (host !== undefined && !text(host, 256)) ||
           !text(repository) ||
           !text(branch, 255) ||
           (location !== undefined && location !== "root" && location !== "adjacent")
         )
           throw new Error("Invalid worktree request");
-        return workspace.createWorktree(repository, branch, location);
+        return host === undefined
+          ? workspace.createWorktree(repository, branch, location)
+          : workspace.createWorktree(repository, branch, location, host);
       },
     ],
     [

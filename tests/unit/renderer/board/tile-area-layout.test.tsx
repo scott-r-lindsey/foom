@@ -391,3 +391,30 @@ test("keyboard nested-space collapse returns focus to the surviving terminal", a
     "false",
   );
 });
+
+test("remote tiles share the sidebar host chip and unavailable sessions expose a dormant status", async () => {
+  const { boardRows } = await import("../../../fixtures/board");
+  const original = boardRows(0)[0];
+  if (!original) throw new Error("Missing row");
+  let rows: BoardRow[] = [
+    { ...original, kind: "agent", managed: true, placement: { kind: "remote", host: "worker" } },
+  ];
+  let machines = [{ host: "worker", name: "worker", available: true, agents: [] }];
+  const { screen, click, source } = setup(
+    {},
+    { getSnapshot: () => rows, getMachines: () => machines },
+  );
+  click(0);
+  await act(async () => {});
+  expect(screen.container.querySelector(".tile-title .host-chip")?.textContent).toBe("worker");
+  machines = [{ host: "worker", name: "worker", available: false, agents: [] }];
+  rows = rows.map((row) => ({ ...row, dormant: true, unavailable: true }));
+  screen.rerender(<Board source={source} />);
+  await act(async () => {});
+  expect(screen.container.querySelector(".tile-title .host-chip")?.textContent).toBe(
+    "⊘ Unavailable",
+  );
+  expect(screen.container.querySelector(".tile-restoring")?.getAttribute("aria-label")).toContain(
+    "Unavailable",
+  );
+});

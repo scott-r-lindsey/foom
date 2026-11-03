@@ -8,6 +8,7 @@ export interface Worktree {
   /** Persisted incomplete deletion; only the cleanup action may retry. */
   readonly removalFailed?: boolean;
   readonly host?: string;
+  readonly unavailable?: boolean;
   readonly pullRequest?: BoardPullRequest;
   readonly path: string;
   readonly head: string | null;

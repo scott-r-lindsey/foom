@@ -63,6 +63,9 @@ test("persistent sidebar keeps Escape in the PTY and routes keyboard navigation"
   const page = await boardPage(app);
   await page.locator(".xterm-helper-textarea").focus();
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+  const shell = (await page.evaluate(() => window.desktop.workspace())).terminals[0];
+  assert.ok(shell);
+  await expectShellReady(page, shell.id, page.locator(".xterm-helper-textarea"));
   await page.keyboard.type(
     `${process.platform === "win32" ? "& " : ""}"${process.execPath}" "${path.join(__dirname, "input-probe.js")}" "${marker}"`,
   );

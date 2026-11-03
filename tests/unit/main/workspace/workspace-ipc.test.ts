@@ -144,7 +144,7 @@ test("validates worktree and scan arguments before calling the workspace", async
   await invoke("workspace:create-worktree", ["/repos/app", "feature/y"]);
   expect(workspace.createWorktree).toHaveBeenLastCalledWith("/repos/app", "feature/y", undefined);
   for (const args of [
-    ["/repos/app", "b", "root", "extra"],
+    ["/repos/app", "b", "root", "worker", "extra"],
     ["/repos/app", "b", "elsewhere"],
     ["/repos/app", "", "root"],
     ["/repos/app", "x".repeat(256), "root"],
@@ -928,4 +928,38 @@ test("board IPC is sender checked and accepts only method plus payload", () => {
   expect(workspace.messageBoard).toHaveBeenCalledWith("threads", {});
   for (const args of [[], ["threads"], [3, {}], ["read", {}, "extra"]])
     expect(() => invoke("workspace:message-board", args)).toThrow();
+});
+
+test("machine launch IPC accepts only a host selector and known agent, with a repository only for repository placement", async () => {
+  const command = vi.fn(() => Promise.resolve({ terminalId: "t1" }));
+  Object.assign(workspace, { sidebarCommand: command });
+  for (const value of [
+    { kind: "machine-launch", host: null, run: "shell" },
+    { kind: "machine-launch", host: "worker", run: "claude" },
+    { kind: "repository-launch", repository: "/repo", host: "worker", run: "codex" },
+  ]) {
+    await invoke("workspace:sidebar-command", [value]);
+    expect(command).toHaveBeenLastCalledWith(value, expect.any(Function));
+  }
+  for (const value of [
+    { kind: "machine-launch", host: null },
+    { kind: "machine-launch", host: "", run: "shell" },
+    { kind: "machine-launch", host: false, run: "shell" },
+    { kind: "machine-launch", host: "worker", run: "evil" },
+    { kind: "machine-launch", host: "worker", run: "shell", cwd: "/arbitrary" },
+    { kind: "repository-launch", host: null, run: "shell" },
+    { kind: "repository-launch", host: null, repository: "", run: "shell" },
+    { kind: "repository-launch", host: null, repository: "/repo", run: "shell", args: [] },
+  ])
+    expect(() => invoke("workspace:sidebar-command", [value])).toThrow();
+  await invoke("workspace:create-worktree", ["/repo", "new-branch", undefined, "worker"]);
+  expect(workspace.createWorktree).toHaveBeenLastCalledWith(
+    "/repo",
+    "new-branch",
+    undefined,
+    "worker",
+  );
+  expect(() =>
+    invoke("workspace:create-worktree", ["/repo", "new-branch", undefined, false]),
+  ).toThrow();
 });

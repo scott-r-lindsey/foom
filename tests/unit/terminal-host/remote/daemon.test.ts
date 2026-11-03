@@ -21,6 +21,7 @@ import type { RemoteRequest } from "../../../../src/shared/remote-host";
 let telemetry: TerminalTelemetry = {};
 const mock = vi.hoisted(() => ({
   manage: vi.fn(),
+  folder: vi.fn(),
   owner: vi.fn(),
   legacy: vi.fn(),
   endLegacy: vi.fn(),
@@ -43,7 +44,10 @@ vi.mock("../../../../src/terminal-host/remote/legacy", () => ({
   legacyDaemon: mock.legacy,
   endLegacyDaemon: mock.endLegacy,
 }));
-vi.mock("../../../../src/terminal-host/remote/management", () => ({ manageHost: mock.manage }));
+vi.mock("../../../../src/terminal-host/remote/management", () => ({
+  manageHost: mock.manage,
+  approvedCodeFolder: mock.folder,
+}));
 vi.mock("../../../../src/terminal-host/terminal-manager", () => ({
   TerminalManager: class {
     create = mock.create;
@@ -89,6 +93,7 @@ const clients: Socket[] = [];
 const build = "a".repeat(64);
 beforeEach(async () => {
   vi.clearAllMocks();
+  mock.folder.mockReset().mockResolvedValue("/code");
   mock.owner.mockReset().mockResolvedValue(undefined);
   mock.legacy.mockResolvedValue(undefined);
   mock.endLegacy.mockResolvedValue(undefined);
@@ -361,6 +366,7 @@ test.skipIf(process.platform === "win32").each(["close", "takeover"])(
         hostFacts: 1,
         hostPreflight: 1,
         originTrust: 1,
+        humanMachines: 1,
       });
     });
     if (operation === "close") {
@@ -1411,6 +1417,7 @@ test.skipIf(process.platform === "win32")(
       hostFacts: 1,
       hostPreflight: 1,
       originTrust: 1,
+      humanMachines: 1,
     });
     expect(mock.stop).not.toHaveBeenCalled();
     await disconnect(newer);
@@ -1786,6 +1793,7 @@ test.skipIf(process.platform === "win32")(
         hostFacts: 1,
         hostPreflight: 1,
         originTrust: 1,
+        humanMachines: 1,
       });
       expect(host.server.listening).toBe(true);
     } finally {
@@ -2547,6 +2555,205 @@ test.skipIf(process.platform === "win32").each(
   expect(replacement.messages[1]).toMatchObject({ type: "open-result", state: "live" });
   expect(mock.create).toHaveBeenCalledTimes(2);
 });
+
+test.skipIf(process.platform === "win32")(
+  "machine launches resolve only bundled installed agents and approved folders without child control",
+  async () => {
+    await start();
+    const c = await client();
+    c.send({ type: "hello", build });
+    await c.wait(1);
+    c.send({
+      type: "open",
+      id: "machine",
+      request: 1,
+      cols: 80,
+      rows: 24,
+      reattach: false,
+      human: true,
+      profile: "a".repeat(32),
+      machine: {
+        codeFolder: "/code",
+        agent: "claude",
+        defaults: ["--model", "fixture"],
+      },
+    });
+    await c.wait(2);
+    expect(mock.folder).toHaveBeenCalledWith("/code", root);
+    expect(hostDiscovery).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "claude" }),
+      expect.any(String),
+      root,
+      expect.any(AbortSignal),
+    );
+    expect(mock.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: "/fixture/claude",
+        args: ["--model", "fixture"],
+        cwd: "/code",
+        env: { PATH: "/fixture" },
+        replaceEnvironment: true,
+      }),
+      "machine",
+    );
+    expect(mock.owner).not.toHaveBeenCalled();
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "machine shells keep the approved folder and refuse an unapproved folder or unknown agent",
+  async () => {
+    await start();
+    const c = await client();
+    c.send({ type: "hello", build });
+    await c.wait(1);
+    c.send({
+      type: "open",
+      id: "shell-machine",
+      request: 1,
+      cols: 80,
+      rows: 24,
+      reattach: false,
+      human: true,
+      profile: "a".repeat(32),
+      machine: { codeFolder: "/code" },
+    });
+    await c.wait(2);
+    expect(mock.create).toHaveBeenCalledWith(
+      expect.objectContaining({ cwd: "/code", args: ["-i", "-l"] }),
+      "shell-machine",
+    );
+    mock.create.mockClear();
+    for (const agent of ["unknown-agent", undefined]) {
+      if (!agent) mock.folder.mockRejectedValueOnce(new Error("unsafe-folder"));
+      const failed = await client();
+      failed.send({ type: "hello", build });
+      await failed.wait(1);
+      const closed = once(failed.socket, "close");
+      failed.send({
+        type: "open",
+        id: "refused",
+        request: 1,
+        cols: 80,
+        rows: 24,
+        reattach: false,
+        human: true,
+        profile: "a".repeat(32),
+        machine: { codeFolder: "/code", ...(agent ? { agent } : {}) },
+      });
+      await closed;
+      expect(mock.create).not.toHaveBeenCalled();
+    }
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "human repository launches inspect the approved clone and refuse absent or failed checkouts",
+  async () => {
+    await start();
+    const repository = {
+      directory: `repository-${"a".repeat(24)}`,
+      origin: "git@fixture.test:team/repo.git",
+    };
+    for (const state of ["clean", "absent", "unreachable"]) {
+      mock.create.mockClear();
+      mock.manage.mockResolvedValue(
+        state === "unreachable"
+          ? { ok: false, reason: "unreachable" }
+          : { ok: true, facts: {}, checkout: { path: `/code/${repository.directory}`, state } },
+      );
+      const c = await client();
+      c.send({ type: "hello", build });
+      await c.wait(1);
+      const closed = once(c.socket, "close");
+      c.send({
+        type: "open",
+        id: `clone-${state}`,
+        request: 1,
+        cols: 80,
+        rows: 24,
+        reattach: false,
+        human: true,
+        profile: "a".repeat(32),
+        machine: { codeFolder: "/code", repository, agent: "claude" },
+      });
+      if (state === "clean") {
+        await c.wait(2);
+        expect(mock.manage).toHaveBeenCalledWith(
+          { type: "manage", operation: "repository", codeFolder: "/code", ...repository },
+          expect.any(Number),
+          expect.any(String),
+          expect.any(String),
+          root,
+          expect.any(AbortSignal),
+        );
+        expect(mock.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            cwd: `/code/${repository.directory}`,
+            command: "/fixture/claude",
+            args: [],
+          }),
+          "clone-clean",
+        );
+        c.socket.destroy();
+        await closed;
+      } else {
+        await closed;
+        expect(mock.create).not.toHaveBeenCalled();
+      }
+    }
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "machine agents refuse a folder changed during discovery and a checkout outside that folder",
+  async () => {
+    await start();
+    mock.folder.mockResolvedValueOnce("/code").mockRejectedValueOnce(new Error("unsafe-folder"));
+    let c = await client();
+    c.send({ type: "hello", build });
+    await c.wait(1);
+    let closed = once(c.socket, "close");
+    c.send({
+      type: "open",
+      id: "changed-folder",
+      request: 1,
+      cols: 80,
+      rows: 24,
+      reattach: false,
+      human: true,
+      profile: "a".repeat(32),
+      machine: { codeFolder: "/code", agent: "claude" },
+    });
+    await closed;
+    expect(mock.create).not.toHaveBeenCalled();
+    mock.folder.mockResolvedValue("/code");
+    const checkout = {
+      repository: "/else/repository",
+      path: "/else/.foom-worktree-owned",
+      identity: (await import("node:crypto")).createHash("sha256").update("identity").digest("hex"),
+    };
+    mock.owner.mockResolvedValue({ profile: "a".repeat(32), repository: checkout.repository });
+    c = await client();
+    c.send({ type: "hello", build });
+    await c.wait(1);
+    closed = once(c.socket, "close");
+    c.send({
+      type: "open",
+      id: "outside",
+      request: 1,
+      cols: 80,
+      rows: 24,
+      reattach: false,
+      human: true,
+      profile: "a".repeat(32),
+      checkout,
+      machine: { codeFolder: "/code", agent: "claude" },
+    });
+    await closed;
+    expect(mock.create).not.toHaveBeenCalled();
+  },
+);
 
 test.skipIf(process.platform === "win32")(
   "origin trust opens a human PTY with only the fixed helper",

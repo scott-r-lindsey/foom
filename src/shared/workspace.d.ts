@@ -70,6 +70,7 @@ export interface WorkspaceTerminal {
   /** Known bypass argument present at launch; does not infer global agent policy. */
   bypass?: boolean;
   home?: boolean;
+  machine?: boolean;
   /** Runs in the Foom config folder; `repository` and `worktree` are that folder. */
   config?: boolean;
   /** Transient probe; excluded from saved sessions. */
@@ -178,6 +179,7 @@ export interface WorkspaceApi {
     repository: string,
     branch: string,
     location?: "root" | "adjacent",
+    host?: string,
   ): Promise<Worktree & { outcome: CreateOutcome }>;
   scanAgents(refresh: boolean): Promise<AgentReport>;
   changeAgentSetup(id: string, action: string): Promise<AgentReport>;
@@ -192,7 +194,16 @@ export interface WorkspaceApi {
   onState(callback: (state: TerminalState) => void): () => void;
 }
 
+export interface SidebarMachine {
+  host: string | null;
+  name: string;
+  available: boolean;
+  agents: readonly { id: AgentId; name: string }[];
+  repositories?: readonly string[];
+}
+
 export interface SidebarInventory {
+  machines?: readonly SidebarMachine[];
   previewActions?: readonly PreviewOpenAction[];
   previews?: readonly PreviewSummary[];
   repositories: readonly (Repository & {
@@ -211,6 +222,8 @@ export type SidebarCommand =
   | { kind: "copy-error-text"; error: CopyableErrorId }
   | { kind: "open-handoff-link"; id: string; seq: number; index: number }
   | { kind: "home-shell" }
+  | { kind: "repository-launch"; repository: string; host: string | null; run: AgentId }
+  | { kind: "machine-launch"; host: string | null; run: AgentId }
   | { kind: "copy-home-path" }
   | { kind: "config-launch"; run: AgentId }
   | { kind: "copy-config-path" }

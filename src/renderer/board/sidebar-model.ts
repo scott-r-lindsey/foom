@@ -1,4 +1,4 @@
-import type { PreviewSummary } from "../../shared/workspace";
+import type { SidebarMachine, PreviewSummary } from "../../shared/workspace";
 import type { BoardRow, BoardState } from "./board.d";
 import type { SidebarPreferences, SidebarRepository, SidebarTree } from "./sidebar.d";
 
@@ -110,6 +110,7 @@ export function sidebarRepositories(
           ...repo.worktrees,
           {
             path: rowWorktree(row),
+            ...(row.placement?.kind === "remote" ? { host: row.placement.host } : {}),
             branch: row.branch,
             head: null,
             bare: false,
@@ -221,4 +222,15 @@ export function buildSidebar(
       ? rows.filter((row) => row.state === "needs_input" && !visible.has(row.id)).length
       : 0,
   };
+}
+
+/** Only checked-out registered locations add a placement choice. Local stays first. */
+export function repositoryMachines(
+  machines: readonly SidebarMachine[],
+  repository: string,
+): readonly SidebarMachine[] {
+  const remote = machines.filter(
+    (machine) => machine.host !== null && machine.repositories?.includes(repository),
+  );
+  return remote.length ? [...machines.filter((machine) => machine.host === null), ...remote] : [];
 }

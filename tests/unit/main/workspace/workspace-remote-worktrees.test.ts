@@ -1,3 +1,4 @@
+import type { RemoteTarget } from "../../../../src/shared/remote-host";
 import { expect, test, vi } from "vitest";
 import {
   createWorkspace,
@@ -30,6 +31,7 @@ test("human recovery launches without grants, survives last-row close, and requi
     });
   });
   const hosts = {
+    shellTarget: (): RemoteTarget => ({ host: "worker", profile: "a".repeat(32), human: true }),
     fleet: vi.fn(() => Promise.resolve([])),
     registered: vi.fn(() => ({ host: "worker", codeFolder: "/code" })),
     requireAgent: vi.fn(() => Promise.resolve()),
@@ -37,22 +39,15 @@ test("human recovery launches without grants, survives last-row close, and requi
     worktrees: vi.fn(() => Promise.resolve(present ? [tree] : [])),
     worktree,
   };
+  vi.spyOn(deps.terminals, "create").mockResolvedValue("human");
   const workspace = createWorkspace({ ...deps, hosts });
   expect(await workspace.worktrees(repo.path)).toContainEqual(tree);
   expect(workspace.snapshot().terminals).toEqual([]);
-  launch.mockImplementation(() =>
-    Promise.resolve({
-      id: "human",
-      attention: "evaluator",
-      remote: true,
-      placement: { kind: "remote", host: "worker" },
-    }),
-  );
   await workspace.sidebarCommand(
     { kind: "launch", repository: repo.path, worktree: path, run: "claude" },
     confirm,
   );
-  expect(launch.mock.calls[0]?.[0].control).toBeUndefined();
+  expect(launch).not.toHaveBeenCalled();
   expect(workspace.snapshot().terminals[0]?.orchestration).toBeUndefined();
   await workspace.exited("human", 0);
   await workspace.sidebarCommand({ kind: "close", id: "human" }, confirm);
