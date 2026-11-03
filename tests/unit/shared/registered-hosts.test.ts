@@ -474,3 +474,27 @@ test("host nicknames validate literal bounded names, unique labels and legacy de
     false,
   );
 });
+
+test("clearing nicknames checks the effective default against other nicknames, preserving legacy default duplicates", async () => {
+  const { hostNicknameError } = await import("../../../src/shared/registered-hosts");
+  const entries = [
+    { host: "me@one.local", codeFolder: "~/code", nickname: "Build box" },
+    { host: "two.local", codeFolder: "~/code", nickname: "ONE" },
+  ];
+  expect(registeredHosts(entries)).toBe(true);
+  expect(hostNicknameError(entries, "me@one.local", "")).toBe("Name already used");
+  expect(hostNicknameError(entries, "two.local", "")).toBeUndefined();
+  const legacy = [
+    { host: "a@one.local", codeFolder: "~/code" },
+    { host: "b@one.local", codeFolder: "~/code" },
+  ];
+  expect(registeredHosts(legacy)).toBe(true);
+  expect(hostNicknameError(legacy, "a@one.local", "")).toBeUndefined();
+  expect(
+    hostNicknameError(
+      [{ host: "other", codeFolder: "~/code", nickname: "127.0.0.1" }],
+      "me@127.0.0.1",
+      "",
+    ),
+  ).toBe("Name already used");
+});

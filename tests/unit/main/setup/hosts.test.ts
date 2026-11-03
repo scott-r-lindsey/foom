@@ -1,3 +1,7 @@
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { registeredHosts } from "../../../../src/shared/registered-hosts";
 import type { RemoteInventoryResult, RemoteSessionInfo } from "../../../../src/shared/remote-host";
 import type * as remoteTransport from "../../../../src/main/terminals/remote-transport";
 
@@ -7,7 +11,7 @@ import {
 } from "../../../../src/main/agents/providers/registry";
 import type * as childProcess from "node:child_process";
 import { beforeEach, expect, test, vi } from "vitest";
-import { DEFAULT_SETTINGS } from "../../../../src/main/setup/settings";
+import { DEFAULT_SETTINGS, SettingsStore } from "../../../../src/main/setup/settings";
 import type { Settings } from "../../../../src/shared/setup";
 import type { HostManagement, HostResult } from "../../../../src/shared/registered-hosts.d";
 const mock = vi.hoisted(() => ({
@@ -1225,4 +1229,37 @@ test("enrollment cannot introduce a default label that collides with an existing
     hosts.action({ action: "add", host: "me@dozer.local", codeFolder: "~/code" }),
   ).rejects.toThrow("Name already used");
   expect(run).not.toHaveBeenCalled();
+});
+
+test("a colliding nickname reset leaves the profile valid and survives reopening", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "host-nickname-reset-"));
+  const persisted = await SettingsStore.open(directory);
+  const service = new Hosts(persisted, () => [], "0.1.0", run);
+  try {
+    await persisted.update({ setupComplete: true, hooks: false });
+    for (const host of ["one.local", "two.local"])
+      await service.action({ action: "add", host, codeFolder: "~/code" });
+    await service.action({ action: "rename", host: "one.local", nickname: "Build box" });
+    await service.action({ action: "rename", host: "two.local", nickname: "ONE" });
+    expect(registeredHosts(persisted.get().registeredHosts)).toBe(true);
+    const before = await readFile(join(directory, "settings.json"), "utf8");
+    await expect(
+      service.action({ action: "rename", host: "one.local", nickname: "" }),
+    ).rejects.toThrow("Name already used");
+    expect(await readFile(join(directory, "settings.json"), "utf8")).toBe(before);
+    const reopened = await SettingsStore.open(directory);
+    expect(reopened.get()).toEqual(persisted.get());
+    expect(reopened.get()).toMatchObject({
+      setupComplete: true,
+      hooks: false,
+      registeredHosts: [
+        { host: "one.local", nickname: "Build box" },
+        { host: "two.local", nickname: "ONE" },
+      ],
+    });
+    expect(registeredHosts(reopened.get().registeredHosts)).toBe(true);
+  } finally {
+    service.dispose();
+    await rm(directory, { recursive: true, force: true });
+  }
 });

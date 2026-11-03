@@ -9,7 +9,8 @@ confer no later fleet authority. Host-aware orchestration (#756) uses the same r
 
 Each registration may have a profile-only nickname (#1027). Click its title in
 Settings → Hosts to edit; Save name or Enter commits, Cancel or Escape discards,
-and an empty name restores the default. Nicknames use 1–40 Unicode letters,
+and an empty name restores the default unless another host has claimed it as a
+nickname. A refused reset preserves the saved name and profile. Nicknames use 1–40 Unicode letters,
 numbers, spaces, dots, hyphens or underscores, without surrounding whitespace.
 A nickname must differ from every other registered host's display name ignoring
 case. Legacy registrations without nicknames remain valid, including duplicate

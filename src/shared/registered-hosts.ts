@@ -56,13 +56,15 @@ export function hostNicknameError(
   host: string,
   nickname: string,
 ): string | undefined {
-  if (nickname === "") return undefined;
-  if (!hostNickname(nickname))
+  if (nickname !== "" && !hostNickname(nickname))
     return "Use 1–40 letters, numbers, spaces, dots, hyphens or underscores";
+  const name = nickname || hostDisplayName({ host });
   if (
     hosts.some(
       (entry) =>
-        entry.host !== host && hostDisplayName(entry).toLowerCase() === nickname.toLowerCase(),
+        entry.host !== host &&
+        (nickname !== "" || entry.nickname !== undefined) &&
+        hostDisplayName(entry).toLowerCase() === name.toLowerCase(),
     )
   )
     return "Name already used";
