@@ -423,6 +423,11 @@ test("partial preflight requests, observations and explicit folder actions have 
   expect(remoteResponse({ type: "hello", build: "a".repeat(64), hostPreflight: 2 })).toBe(false);
 });
 
+test("local progress action accepts no host or arbitrary payload", () => {
+  expect(hostsAction({ action: "progress" })).toBe(true);
+  expect(hostsAction({ action: "progress", host: "worker" })).toBe(false);
+});
+
 test("origin trust selects only SSH targets and preserves explicit ports without a command", () => {
   expect(originSshArgs("git@forge.test:team/repo.git")?.slice(-2)).toEqual([
     "--",

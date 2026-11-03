@@ -129,7 +129,9 @@ process.stdin.on('data', bytes => {
   if(host==='invalid-cloud') result={ok:true,facts:{}};
   const failures={'provider-cloud':'provider-invalid','configuration-cloud':'configuration-changed','cancelled-cloud':'cancelled'};
   if(failures[host]) result={ok:false,reason:failures[host]};
-  if((settings.hold && message.operation==='inspect') || (settings.holdClone && message.operation==='clone')) { appendFileSync(${JSON.stringify(calls)},JSON.stringify({host,message,phase:'held'})+'\\n'); const timer=setInterval(()=>{ if(!JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8')).hold && !JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8')).holdClone) {clearInterval(timer);send({type:'managed',result});}},20); } else send({type:'managed',result});
+  const held = settings.hold && message.operation===(settings.hold===true?'inspect':settings.hold);
+  const heldClone = settings.holdClone && message.operation==='clone';
+  if(held || heldClone) { appendFileSync(${JSON.stringify(calls)},JSON.stringify({host,message,phase:'held'})+'\\n'); const timer=setInterval(()=>{ const next=JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8')); if((!held || next.hold!==settings.hold) && (!heldClone || !next.holdClone)) {clearInterval(timer);send({type:'managed',result});}},20); } else send({type:'managed',result});
  }
 });
 `,
@@ -166,7 +168,9 @@ process.stdin.on('data', bytes => {
         .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
         .toBe(mode === "dark");
       if (["partial-facts", "repositories-per-host"].includes(name)) await assertAccessible(page);
-      await page.screenshot({ path: evidencePath(`1026/${name}-${mode}.png`) });
+      await page.screenshot({
+        path: evidencePath(`${name.startsWith("progress-") ? "1023" : "1026"}/${name}-${mode}.png`),
+      });
     }
   };
   const updateScenario = async (value) => {
@@ -186,6 +190,7 @@ process.stdin.on('data', bytes => {
   await page.getByLabel("SSH host", { exact: true }).fill("fixture-cloud");
   await page.getByRole("button", { name: "Add host", exact: true }).click();
   const card = page.getByRole("region", { name: "fixture-cloud", exact: true });
+  const progressStatus = card.locator(".host-check-progress[role=status]");
   await expect(card.getByRole("button", { name: "Check again", exact: true })).toBeEnabled();
   await expect(card.getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
   await expect(card.getByText("Not found", { exact: true })).toHaveCount(2);
@@ -196,9 +201,57 @@ process.stdin.on('data', bytes => {
   await updateScenario({ hold: true });
   await card.getByRole("button", { name: "Check again", exact: true }).click();
   await expect(card.getByText("Checking…", { exact: true }).first()).toBeVisible();
-  await capture("checking");
+  await expect(progressStatus).toHaveText("Checking host…");
+  await expect(card.locator(".host-throbber")).toBeVisible();
+  await capture("progress-inspect");
   await updateScenario({});
   await expect(card.getByRole("button", { name: "Check again", exact: true })).toBeEnabled();
+  const checkingOrigin = {
+    hold: "origin",
+    facts: { tools: [{ id: "git", state: "ready", signIn: "unknown" }] },
+  };
+  await updateScenario(checkingOrigin);
+  await card.getByRole("button", { name: "Check again", exact: true }).click();
+  await expect(progressStatus).toHaveText("Checking Git access · shell-fixture (1 of 1)");
+  await expect(card.locator(".host-throbber")).toBeVisible();
+  const originRow = card.locator(".host-check-row").filter({ hasText: "Git access to origin" });
+  const checkoutRow = card.locator(".host-check-row").filter({ hasText: "Repository checkout" });
+  await expect(originRow).toContainText("Checking…");
+  await expect(checkoutRow).toContainText("Checking…");
+  await expect(card.locator(".host-throbber")).toHaveCSS("animation-name", "host-check-spin");
+  await capture("progress-origin");
+  await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .setContentSize(960, 960),
+  );
+  const progressBounds = await card.locator(".hosts-heading").evaluate((heading) => ({
+    width: heading.clientWidth,
+    scroll: heading.scrollWidth,
+  }));
+  assert.ok(progressBounds.scroll <= progressBounds.width + 1);
+  await capture("progress-origin-narrow");
+  await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .setContentSize(1280, 1200),
+  );
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(card.locator(".host-throbber")).toHaveCSS("animation-name", "none");
+  await capture("progress-origin-reduced");
+  // Release origin, then hold checkout: the step text still advances without animation.
+  await updateScenario({ ...checkingOrigin, hold: "repository" });
+  await expect(progressStatus).toHaveText("Checking checkout · shell-fixture (1 of 1)");
+  await expect(originRow).toContainText("Pass · Reachable");
+  await expect(checkoutRow).toContainText("Checking…");
+  await capture("progress-checkout-reduced");
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await capture("progress-checkout");
+  await updateScenario({ ...checkingOrigin, hold: false });
+  await expect(card.getByRole("button", { name: "Check again", exact: true })).toBeEnabled();
+  await expect(card.locator(".host-throbber")).toHaveCount(0);
+  await expect(checkoutRow).toContainText("Not checked out");
+  await capture("progress-result");
   await updateScenario({
     facts: {
       tools: [

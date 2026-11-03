@@ -1786,3 +1786,36 @@ test("machine inventory and session markers are validated and projected without 
     api.sidebarCommand({ kind: "machine-launch", host: "worker", run: "claude" }),
   ).rejects.toThrow();
 });
+
+test("host progress is projected and rejects malformed steps and observations", async () => {
+  const api = await bridge();
+  const progress = {
+    host: "worker",
+    phase: "origin",
+    repository: "/repo",
+    result: { ok: false, reason: "folder-missing" },
+    repositories: [
+      {
+        repository: "/repo",
+        origin: { state: "pass" },
+        checkout: { ok: false, reason: "checkout-refused" },
+      },
+      { repository: "/next" },
+    ],
+  };
+  const value = { hosts: [], locations: [], progress };
+  mock.invoke.mockResolvedValue(withUndeclaredFields(value));
+  await expect(api.hosts({ action: "progress" })).resolves.toEqual(value);
+  for (const bad of [
+    { ...progress, phase: "raw" },
+    { ...progress, host: "-oProxyCommand" },
+    {
+      ...progress,
+      repositories: [{ repository: "/repo", origin: { state: "fail", reason: "raw" } }],
+    },
+    { ...progress, result: { ok: false, reason: "raw" } },
+  ]) {
+    mock.invoke.mockResolvedValue({ ...value, progress: bad });
+    await expect(api.hosts({ action: "progress" })).rejects.toThrow();
+  }
+});
