@@ -328,11 +328,13 @@ it("host filters and metadata keep identical remote paths distinct and attach fl
     sessions: [{ id: "remote", host: "worker" }],
     hosts: [{ host: "worker" }],
   });
+  expect(hosts).toHaveBeenLastCalledWith(true);
   expect(await call("session_state", { id: "local" })).toMatchObject({
     host: null,
     placement: { kind: "local" },
     hosts: [{ host: "worker" }],
   });
+  expect(hosts).toHaveBeenLastCalledWith(false);
   await expect(call("session_state", { id: "remote", host: "other" })).rejects.toThrow("not_found");
   await expect(call("sessions", { host: "-evil" })).rejects.toThrow("invalid_request");
   hosts.mockClear();

@@ -336,11 +336,13 @@ export class Hosts {
     if (result.facts.agents.find((entry) => entry.id === agent)?.state !== "ready")
       throw new LaunchFailure("remote_agent_unavailable");
   }
-  async fleet(): Promise<readonly { host: string; result: HostResult }[]> {
+  async fleet(refresh = true): Promise<readonly { host: string; result: HostResult }[]> {
     return Promise.all(
       (this.store.get().registeredHosts ?? []).map(async ({ host }) => ({
         host,
-        result: await this.inventory(host),
+        result: refresh
+          ? await this.inventory(host)
+          : (this.results.get(host) ?? { ok: false, reason: "facts-unavailable" }),
       })),
     );
   }

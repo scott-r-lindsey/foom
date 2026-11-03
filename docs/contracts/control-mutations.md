@@ -213,6 +213,8 @@ Orchestrator calls also return `hosts`: observations with `host`, `resources`
 (id and ready/missing/unable state). Null resources plus a fixed `reason` indicate
 an unavailable host observation. Local uses null for its host. These observations
 inform placement; there is no Foom validation lock or busy classification.
+`session_state` uses cached host observations so reading a session never waits for
+SSH inventory; `sessions` retains on-demand inventory refresh (#1025).
 
 ### Review continuation and explicit binding (#972)
 
