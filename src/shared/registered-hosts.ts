@@ -378,7 +378,12 @@ export function hostResult(value: unknown): value is HostResult {
 }
 export function hostsAction(value: unknown): value is HostsAction {
   if (!record(value)) return false;
-  if (value["action"] === "list" || value["action"] === "locations") return keys(value, ["action"]);
+  if (
+    value["action"] === "list" ||
+    value["action"] === "locations" ||
+    value["action"] === "progress"
+  )
+    return keys(value, ["action"]);
   if (!hostAlias(value["host"])) return false;
   if (value["action"] === "recipe")
     return (

@@ -8,13 +8,18 @@ the host expands it; canonical absolute observations are required before checkou
 confer no later fleet authority. Host-aware orchestration (#756) uses the same registration and management service.
 
 `setup:hosts` accepts one closed action from the registered board main frame:
-list, test, add, preflight, create-folder, change-folder, refresh, remove, locations, clone, trust-origin, end or recipe. Main selects enabled agent
+list, progress, test, add, preflight, create-folder, change-folder, refresh, remove, locations, clone, trust-origin, end or recipe. Main selects enabled agent
 executables from its validated manifest catalog. Renderer inputs cannot choose
 remote commands, probe arguments, origins or checkout destinations. Replies are
 validated in preload and rebuilt from declared fields. All failures are fixed
 states/reasons, with no raw SSH, Git or agent output. Artifact absence, version/handshake
 mismatch, provider validation, changed agent configuration, invalid replies and
 cancellation have distinct reasons; only connection failures report unreachable.
+The local `progress` read bypasses the action queue and returns only the current
+preflight's inspect/origin/checkout phase, repository paths and completed typed
+observations. It runs no SSH or Git commands. Settings reads it only while its
+preflight is pending, at most one read at a time, and stops on completion or
+unmount. No remote management protocol or host polling is added.
 Inspection retries once when provider revision or enabled agents change, then
 reports configuration changed. Repository mutations are never replayed.
 Each refused management request logs one fixed reason and step in main, without hostnames,

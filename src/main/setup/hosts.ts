@@ -18,6 +18,7 @@ import { hostsAction, gitOrigin, hostResult, originSshArgs } from "../../shared/
 import type {
   HostFailure,
   HostCheck,
+  HostCheckProgress,
   HostPreflight,
   HostManagement,
   HostFacts,
@@ -492,6 +493,7 @@ export class Hosts {
     throw new Error("Invalid host copy");
   }
   private readonly results = new Map<string, HostResult>();
+  private progress: HostCheckProgress | undefined;
   private locations: RepositoryLocation[] = [];
   private pending: Promise<unknown> = Promise.resolve();
   constructor(
@@ -572,6 +574,7 @@ export class Hosts {
           this.repositories().some((repo) => repo.path === location.repository),
       ),
       ...(result ? { result } : {}),
+      ...(this.progress ? { progress: this.progress } : {}),
     };
   }
   action(
@@ -580,6 +583,7 @@ export class Hosts {
     launchRecipe?: (target: RemoteTarget) => Promise<void>,
   ): Promise<HostsState> {
     if (!hostsAction(input)) return Promise.reject(new Error("Invalid host action"));
+    if (input.action === "progress") return Promise.resolve(this.state());
     const work = this.pending
       .catch(() => undefined)
       .then(async () => {
@@ -680,12 +684,22 @@ export class Hosts {
           const registration = hosts.find((entry) => entry.host === input.host);
           if (registration && registration.codeFolder !== input.codeFolder)
             throw new Error("Folder changed");
-          const preflight = await this.preflight(input.host, input.codeFolder);
-          if (registration) {
-            this.results.set(input.host, preflight.result);
-            await this.expandRegistration(input.host);
+          this.progress = {
+            host: input.host,
+            phase: "inspect",
+            repositories: this.repositories().map((repo) => ({ repository: repo.path })),
+          };
+          try {
+            const preflight = await this.preflight(input.host, input.codeFolder);
+            if (registration) {
+              this.results.set(input.host, preflight.result);
+              await this.expandRegistration(input.host);
+            }
+            this.progress = undefined;
+            return { ...this.state(), preflight };
+          } finally {
+            this.progress = undefined;
           }
-          return { ...this.state(), preflight };
         }
         if (input.action === "create-folder" || input.action === "change-folder") {
           const registration = this.registered(input.host);
@@ -919,45 +933,7 @@ export class Hosts {
             ? fail("libc-unsupported")
             : pass
         : unknown;
-    const repositories: HostPreflight["repositories"][number][] = [];
-    for (const repo of this.repositories()) {
-      let origin: HostCheck;
-      const git = result.ok ? result.facts.tools?.find((tool) => tool.id === "git") : undefined;
-      try {
-        if (git && git.state !== "ready") {
-          repositories.push({
-            repository: repo.path,
-            origin: unknown,
-            checkout: await this.repository(
-              host,
-              result.ok ? result.facts.codeFolder : codeFolder,
-              repo.path,
-              false,
-            ),
-          });
-          continue;
-        }
-        const url = await this.origin(repo.path);
-        const access = await this.run(host, {
-          type: "manage",
-          operation: "origin",
-          codeFolder,
-          origin: url,
-          directory: `repository-${createHash("sha256").update(url).digest("hex").slice(0, 24)}`,
-        });
-        origin = access.ok ? pass : fail(access.reason);
-      } catch {
-        origin = fail("origin-unavailable");
-      }
-      const checkout = await this.repository(
-        host,
-        result.ok ? result.facts.codeFolder : codeFolder,
-        repo.path,
-        false,
-      );
-      repositories.push({ repository: repo.path, origin, checkout });
-    }
-    return {
+    const connection = {
       ssh:
         result.connection?.ssh ??
         (result.ok || platformFailure || reason === "facts-unavailable"
@@ -969,9 +945,64 @@ export class Hosts {
       artifact:
         result.connection?.artifact ??
         (result.ok ? pass : reason === "artifact-unavailable" ? fail(reason) : unknown),
-      result,
-      repositories,
     };
+    const repositories: HostPreflight["repositories"][number][] = [];
+    const planned = this.progress?.repositories ?? [];
+    const update = (phase: "origin" | "checkout", repository: string, origin?: HostCheck) => {
+      this.progress = {
+        host,
+        phase,
+        repository,
+        result: { ...result, connection },
+        repositories: planned.map((repo) => {
+          const completed = repositories.find((item) => item.repository === repo.repository);
+          return (
+            completed ?? (repo.repository === repository && origin ? { ...repo, origin } : repo)
+          );
+        }),
+      };
+    };
+    for (const repo of planned) {
+      update("origin", repo.repository);
+      let origin: HostCheck;
+      const git = result.ok ? result.facts.tools?.find((tool) => tool.id === "git") : undefined;
+      try {
+        if (git && git.state !== "ready") {
+          update("checkout", repo.repository, unknown);
+          repositories.push({
+            repository: repo.repository,
+            origin: unknown,
+            checkout: await this.repository(
+              host,
+              result.ok ? result.facts.codeFolder : codeFolder,
+              repo.repository,
+              false,
+            ),
+          });
+          continue;
+        }
+        const url = await this.origin(repo.repository);
+        const access = await this.run(host, {
+          type: "manage",
+          operation: "origin",
+          codeFolder,
+          origin: url,
+          directory: `repository-${createHash("sha256").update(url).digest("hex").slice(0, 24)}`,
+        });
+        origin = access.ok ? pass : fail(access.reason);
+      } catch {
+        origin = fail("origin-unavailable");
+      }
+      update("checkout", repo.repository, origin);
+      const checkout = await this.repository(
+        host,
+        result.ok ? result.facts.codeFolder : codeFolder,
+        repo.repository,
+        false,
+      );
+      repositories.push({ repository: repo.repository, origin, checkout });
+    }
+    return { ...connection, result, repositories };
   }
   private async origin(repository: string): Promise<string> {
     try {

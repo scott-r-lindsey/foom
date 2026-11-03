@@ -1,8 +1,9 @@
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import type { ReactNode, RefObject } from "react";
 import { CopyValue } from "../ui/copy-value";
 import type {
   HostCheck,
+  HostCheckProgress,
   HostFailure,
   HostPreflight,
   HostResult,
@@ -86,6 +87,13 @@ function checkoutPresentation(result: HostResult | undefined): { tone: Tone; tex
     text: result.checkout.state === "clean" ? "Clean" : "Changes",
   };
 }
+export function hostProgressText(progress: HostCheckProgress | undefined): string {
+  if (!progress || progress.phase === "inspect") return "Checking host…";
+  const index = progress.repositories.findIndex((repo) => repo.repository === progress.repository);
+  const name = progress.repository?.split(/[\\/]/u).at(-1) ?? "";
+  const step = progress.phase === "origin" ? "Checking Git access" : "Checking checkout";
+  return `${step} · ${name} (${String(index + 1)} of ${String(progress.repositories.length)})`;
+}
 function hostSummary(preflight: HostPreflight | undefined) {
   if (!preflight) return "Not checked";
   const result = preflight.result;
@@ -133,6 +141,7 @@ function Checklist({
   entry,
   preflight,
   checking,
+  progress,
   cloning,
   disabled,
   act,
@@ -141,15 +150,18 @@ function Checklist({
   entry: HostRow;
   preflight: HostPreflight | undefined;
   checking: boolean;
+  progress: HostCheckProgress | undefined;
   cloning: string | undefined;
   disabled: boolean;
   act: (action: HostsAction) => void;
   changeFolder: () => void;
 }) {
-  const result = preflight?.result ?? entry.result;
+  const result = progress?.result ?? preflight?.result ?? entry.result;
   const facts = result?.ok ? result.facts : undefined;
   const mac = facts?.requirements?.mac;
-  const connection = preflight ?? result?.connection;
+  const connection = progress?.result
+    ? progress.result.connection
+    : (preflight ?? result?.connection);
   const folder = facts?.folder;
   const folderStatus = checkPresentation(folder, "Valid");
   if (mac?.protectedFolder) {
@@ -233,6 +245,7 @@ function Checklist({
         </Fragment>
       );
     });
+  const repositories = progress?.repositories ?? preflight?.repositories ?? [];
   return (
     <div className="host-checks" aria-busy={checking}>
       <Group>Host</Group>
@@ -286,16 +299,16 @@ function Checklist({
       )}
       <Group>Agents</Group>
       {facts ? tools(facts.agents) : <Row name="Agents" tone="neutral" text="Not checked" />}
-      {preflight?.repositories.map((repo) => (
+      {repositories.map((repo) => (
         <Fragment key={repo.repository}>
           <Group>Repository · {repo.repository.split(/[\\/]/u).at(-1)}</Group>
           <Row
             name="Git access to origin"
-            {...(checking
-              ? { tone: "work" as const, text: "Re-checking…" }
+            {...(checking && !repo.origin
+              ? { tone: "work" as const, text: "Checking…" }
               : checkPresentation(repo.origin, "Reachable"))}
             action={
-              repo.origin.state === "fail" && repo.origin.reason === "origin-host-key" ? (
+              repo.origin?.state === "fail" && repo.origin.reason === "origin-host-key" ? (
                 <button
                   type="button"
                   disabled={disabled}
@@ -308,7 +321,7 @@ function Checklist({
               ) : undefined
             }
           />
-          {repo.origin.state === "fail" && repo.origin.reason === "origin-auth" && (
+          {repo.origin?.state === "fail" && repo.origin.reason === "origin-auth" && (
             <div className="host-origin-fixes" aria-label="Git access fixes">
               <span
                 title={
@@ -327,7 +340,9 @@ function Checklist({
             name="Repository checkout"
             {...(cloning === repo.repository
               ? { tone: "work" as const, text: "Cloning…" }
-              : checkoutPresentation(repo.checkout))}
+              : checking && !repo.checkout
+                ? { tone: "work" as const, text: "Checking…" }
+                : checkoutPresentation(repo.checkout))}
             action={
               canClone(repo.checkout) ? (
                 <button
@@ -377,6 +392,43 @@ export function HostsSettings({
   const [cloning, setCloning] = useState<{ host: string; repository: string }>();
   const [error, setError] = useState("");
   const api = source.hosts;
+  const [checkingHost, setCheckingHost] = useState<string>();
+  const [progress, setProgress] = useState<HostCheckProgress>();
+  useEffect(() => {
+    if (!checkingHost || !api) return;
+    let active = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      try {
+        const next = await api({ action: "progress" });
+        if (active && next.progress?.host === checkingHost) setProgress(next.progress);
+      } catch {
+        // The authoritative preflight request owns error reporting.
+      }
+      if (active)
+        timer = setTimeout(() => {
+          void poll();
+        }, 250);
+    };
+    void poll();
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [api, checkingHost]);
+  const runCheck = useCallback(
+    async (host: string, codeFolder: string) => {
+      setProgress(undefined);
+      setCheckingHost(host);
+      try {
+        return await api?.({ action: "preflight", host, codeFolder });
+      } finally {
+        setCheckingHost(undefined);
+        setProgress(undefined);
+      }
+    },
+    [api],
+  );
   useEffect(() => {
     let active = true;
     const current = () => active;
@@ -387,11 +439,7 @@ export function HostsSettings({
         setState(initial);
         for (const entry of initial.hosts) {
           setBusy(entry.host);
-          const next = await api?.({
-            action: "preflight",
-            host: entry.host,
-            codeFolder: entry.codeFolder,
-          });
+          const next = await runCheck(entry.host, entry.codeFolder);
           if (!current()) return;
           if (next) {
             setState(next);
@@ -408,13 +456,16 @@ export function HostsSettings({
     return () => {
       active = false;
     };
-  }, [api]);
+  }, [api, runCheck]);
   const act = async (action: HostsAction) => {
     setBusy("host" in action ? action.host : "");
     if (action.action === "clone") setCloning(action);
     setError("");
     try {
-      let next = await api?.(action);
+      let next =
+        action.action === "preflight"
+          ? await runCheck(action.host, action.codeFolder)
+          : await api?.(action);
       if (!next) return;
       setState(next);
       if (action.action === "preflight" && next.preflight) {
@@ -448,11 +499,7 @@ export function HostsSettings({
       ) {
         const entry = next.hosts.find((entry) => entry.host === action.host);
         if (entry) {
-          next = await api?.({
-            action: "preflight",
-            host: entry.host,
-            codeFolder: entry.codeFolder,
-          });
+          next = await runCheck(entry.host, entry.codeFolder);
           if (next) {
             setState(next);
             const observed = next.preflight;
@@ -566,8 +613,17 @@ export function HostsSettings({
                 }
               />
             </h3>
-            <span className="host-count">
-              {busy === entry.host ? "Checking…" : hostSummary(checks.get(entry.host))}
+            <span
+              className={busy === entry.host ? "host-count host-progress-summary" : "host-count"}
+            >
+              {busy === entry.host ? (
+                <span className="host-check-progress host-work" role="status">
+                  <span className="host-throbber" aria-hidden="true" />
+                  {hostProgressText(checkingHost === entry.host ? progress : undefined)}
+                </span>
+              ) : (
+                hostSummary(checks.get(entry.host))
+              )}
             </span>
             <button
               type="button"
@@ -601,7 +657,8 @@ export function HostsSettings({
           <Checklist
             entry={entry}
             preflight={checks.get(entry.host)}
-            checking={busy === entry.host && !cloning}
+            progress={checkingHost === entry.host ? progress : undefined}
+            checking={checkingHost === entry.host}
             cloning={cloning?.host === entry.host ? cloning.repository : undefined}
             disabled={busy !== undefined}
             act={(action) => {
