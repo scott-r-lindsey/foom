@@ -355,7 +355,13 @@ concurrent-filesystem-mutation limitations; identity checks are not a sandbox.
 Attempts are bounded to one per entry per explicit Clean up row action, approved
 Delete merged worktrees run, or startup reconciliation. There is no timer or
 background retry loop. Startup loads registered repositories first, then revalidates
-each persisted pending record before its single attempt. Failure keeps a text
+each persisted pending record before its single attempt. Reconciliation starts only
+after saved windows and session restoration are ready; it never blocks either
+service opening or quit. With no pending records it performs no work. One startup
+pass shares a five-second Git-inspection budget, starts no further attempts after
+that budget or a quit request, and checks again before recursive deletion. An
+already-started filesystem deletion may finish; quit does not wait for the pass.
+Unattempted records remain available for manual retry. Failure keeps a text
 Removal failed state and a manual Clean up action; success removes the row and
 record, then prunes only recorded empty parent directories. Group retry requires
 no sessions in the directory and uses the repository operation reservation.

@@ -54,6 +54,7 @@ test(
     await service.cleanupBrokenWorktree(repo, path);
     await expect(lstat(path)).rejects.toThrow();
     const restored = await WorktreeService.open(profile, root);
+    await restored.reconcileRemovals();
     expect(await restored.listWorktrees(repo)).not.toContainEqual(
       expect.objectContaining({ path }),
     );
@@ -65,12 +66,57 @@ test(
   fixture.usingFixture(async () => {
     const { repo, path, profile, root } = await pendingFixture();
     const restored = await WorktreeService.open(profile, root);
+    expect(await readFile(join(path, "retained"), "utf8")).toBe("retained data");
+    await restored.reconcileRemovals();
     await expect(lstat(path)).rejects.toThrow();
     expect(await restored.listWorktrees(repo)).not.toContainEqual(
       expect.objectContaining({ path }),
     );
   }),
 );
+
+test("startup without pending removals performs no Git inspection", async () => {
+  const inspect = vi.spyOn(operations, "git");
+  await new WorktreeService().reconcileRemovals();
+  expect(inspect).not.toHaveBeenCalled();
+});
+
+for (const stage of ["before", "membership", "deletion", "budget"] as const) {
+  test(
+    `startup stops at ${stage} without deleting and leaves manual retry available`,
+    fixture.usingFixture(async () => {
+      const { service, repo, path, profile, root } = await pendingFixture();
+      if (stage === "membership") await service.addRepository((await fixture.create()).repo);
+      const restored = await WorktreeService.open(profile, root);
+      let cancelled = stage === "before";
+      const clock = vi.spyOn(Date, "now").mockReturnValue(1000);
+      const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const inspect = vi.spyOn(operations, "git").mockImplementation(async (cwd, args, timeout) => {
+        expect(timeout).toBeGreaterThan(0);
+        expect(timeout).toBeLessThanOrEqual(5000);
+        const result = (await git(args, { cwd })).stdout;
+        if (stage === "budget") clock.mockReturnValue(6000);
+        else cancelled = true;
+        return result;
+      });
+      await restored.reconcileRemovals(() => cancelled);
+      const calls = inspect.mock.calls.length;
+      await restored.reconcileRemovals();
+      expect(inspect).toHaveBeenCalledTimes(calls);
+      expect(calls).toBe(stage === "before" ? 0 : 1);
+      if (stage !== "before")
+        expect(log).toHaveBeenCalledWith(
+          "Worktree removal retry refused: startup-interrupted",
+          path,
+        );
+      expect(await readFile(join(path, "retained"), "utf8")).toBe("retained data");
+      clock.mockRestore();
+      inspect.mockRestore();
+      await restored.cleanupBrokenWorktree(repo, path);
+      await expect(lstat(path)).rejects.toThrow();
+    }),
+  );
+}
 
 for (const refusal of [
   "symlink",
@@ -106,6 +152,7 @@ for (const refusal of [
         await mkdir(configuredRoot);
       }
       const restored = await WorktreeService.open(profile, configuredRoot);
+      await restored.reconcileRemovals();
       expect(await restored.listWorktrees(repo)).toContainEqual(
         expect.objectContaining({ path, removalFailed: true }),
       );
@@ -129,7 +176,7 @@ test(
     await rm(path, { recursive: true });
     await git(["worktree", "add", "-b", "registered", path], { cwd: other.repo });
     const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    await WorktreeService.open(profile, root);
+    await (await WorktreeService.open(profile, root)).reconcileRemovals();
     expect(log).toHaveBeenCalledWith("Worktree removal retry refused: re-registered", path);
     expect(await lstat(join(path, ".git"))).toBeDefined();
     const state: unknown = JSON.parse(await readFile(join(profile, "worktrees.json"), "utf8"));
@@ -224,6 +271,7 @@ test(
     );
     expect(attempts).toBe(1);
     const restored = await WorktreeService.open(profile, root);
+    await restored.reconcileRemovals();
     expect(attempts).toBe(2);
     expect(await restored.listWorktrees(repo)).toContainEqual(
       expect.objectContaining({ path, removalFailed: true }),
@@ -281,7 +329,7 @@ test(
       pendingRemovals: [{ path: outside, repository: repo, root, directoryIdentity }],
     }));
     const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    await WorktreeService.open(profile, root);
+    await (await WorktreeService.open(profile, root)).reconcileRemovals();
     expect(log).toHaveBeenCalledWith("Worktree removal retry refused: outside-root", outside);
     expect(await readFile(join(outside, "retained"), "utf8")).toBe("outside data");
   }),

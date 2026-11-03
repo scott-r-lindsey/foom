@@ -213,9 +213,19 @@ export class WorktreeService {
       this.pendingRemovals.set(entry.path, entry);
     }
     await this.save();
-    // Exactly one attempt per saved record during startup reconciliation.
+  }
+
+  private reconciledRemovals = false;
+
+  /** Run once after windows and saved sessions are ready, independently of quit. */
+  async reconcileRemovals(cancelled: () => boolean = () => false): Promise<void> {
+    if (this.reconciledRemovals || this.pendingRemovals.size === 0) return;
+    this.reconciledRemovals = true;
+    const deadline = Date.now() + 5000;
+    const remaining = () => (cancelled() ? 0 : deadline - Date.now());
     for (const entry of [...this.pendingRemovals.values()]) {
-      await this.retryRemoval(entry.repository, entry.path).catch(() => undefined);
+      if (remaining() <= 0) break;
+      await this.retryRemoval(entry.repository, entry.path, remaining).catch(() => undefined);
     }
   }
 
@@ -335,9 +345,12 @@ export class WorktreeService {
     return inventoryWatchPaths(await realpath(common));
   }
 
-  private async registeredWorktrees(repositoryPath: string): Promise<readonly Worktree[]> {
+  private async registeredWorktrees(
+    repositoryPath: string,
+    timeout = 30_000,
+  ): Promise<readonly Worktree[]> {
     const repository = this.repository(repositoryPath);
-    const output = await git(repository.path, ["worktree", "list", "--porcelain", "-z"]);
+    const output = await git(repository.path, ["worktree", "list", "--porcelain", "-z"], timeout);
     const trees: Worktree[] = await Promise.all(
       output
         .split("\0\0")
@@ -1032,7 +1045,11 @@ export class WorktreeService {
     throw new IncompleteRemovalError(resolved);
   }
   /** One attempt per explicit row action or startup reconcile; never a timer loop. */
-  async retryRemoval(repository: string, path: string): Promise<void> {
+  async retryRemoval(
+    repository: string,
+    path: string,
+    remaining: () => number = () => 30_000,
+  ): Promise<void> {
     this.repository(repository);
     const entry = this.pendingRemovals.get(path);
     if (!entry || entry.repository !== repository) {
@@ -1048,7 +1065,9 @@ export class WorktreeService {
       const state = await checkRemovalRetry(entry, this.root, async () => {
         const paths: string[] = [];
         for (const repository of this.repositories.keys()) {
-          const output = await git(repository, ["worktree", "list", "--porcelain", "-z"]);
+          const timeout = remaining();
+          if (timeout <= 0) throw new RetryRefusal("startup-interrupted");
+          const output = await git(repository, ["worktree", "list", "--porcelain", "-z"], timeout);
           if (!output) throw new Error("Missing Git worktree inventory");
           for (const record of output.split("\0\0").filter(Boolean)) {
             const path = record
@@ -1061,10 +1080,12 @@ export class WorktreeService {
         }
         return paths;
       });
+      if (remaining() <= 0) throw new RetryRefusal("startup-interrupted");
       if (state === "present") await rm(path, { recursive: true });
       this.pendingRemovals.delete(path);
       this.managed.delete(path);
-      await this.pruneCreatedParents(repository, path);
+      const timeout = remaining();
+      if (timeout > 0) await this.pruneCreatedParents(repository, path, timeout);
       await this.save();
     } catch (error) {
       const reason = error instanceof RetryRefusal ? error.reason : "inspection-or-delete-failed";
@@ -1079,10 +1100,14 @@ export class WorktreeService {
     }
   }
 
-  private async pruneCreatedParents(repository: string, path: string): Promise<void> {
+  private async pruneCreatedParents(
+    repository: string,
+    path: string,
+    timeout = 30_000,
+  ): Promise<void> {
     const root = await realpath(this.root).catch(() => undefined);
     if (!root || !within(root, path)) return;
-    const trees = await this.registeredWorktrees(repository);
+    const trees = await this.registeredWorktrees(repository, timeout);
     for (
       let parent = dirname(path);
       parent !== root && within(root, parent);
