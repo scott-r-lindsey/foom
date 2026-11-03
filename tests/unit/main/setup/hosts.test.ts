@@ -1190,3 +1190,46 @@ test("refresh recovers an incomplete host with profile session inventory before 
   expect(settings.registeredHosts).toEqual([{ host: "worker", codeFolder: facts.codeFolder }]);
   service.dispose();
 });
+
+test("sidebar location reads share a freshness cache and host mutations invalidate it", async () => {
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  const first = hosts.locationsForSidebar();
+  expect(hosts.locationsForSidebar()).toBe(first);
+  await first;
+  const before = run.mock.calls.length;
+  await hosts.locationsForSidebar();
+  expect(run.mock.calls).toHaveLength(before);
+  await hosts.action({ action: "remove", host: "worker" });
+  expect(hosts.locationsForSidebar()).not.toBe(first);
+  await hosts.locationsForSidebar();
+});
+
+test("repository human launch targets require an approved registration and checked clone", async () => {
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  hosts = new Hosts(store, () => repositories, "0.1.0", run, "a".repeat(32));
+  run.mockImplementation((_host, request) =>
+    Promise.resolve({
+      ok: true,
+      facts,
+      ...(request.operation === "repository"
+        ? {
+            checkout: { path: `${facts.codeFolder}/${request.directory}`, state: "clean" as const },
+          }
+        : {}),
+    }),
+  );
+  const target = await hosts.repositoryTarget("worker", "/local/repo");
+  expect(target).toMatchObject({
+    host: "worker",
+    human: true,
+    profile: "a".repeat(32),
+    machine: { codeFolder: facts.codeFolder, repository: { origin: "git@forge.test:me/repo.git" } },
+  });
+  expect(target.machine?.repository?.directory).toMatch(/^repository-[a-f0-9]{24}$/);
+  await expect(hosts.repositoryTarget("unregistered", "/local/repo")).rejects.toThrow();
+  await expect(hosts.repositoryTarget("worker", "/foreign")).rejects.toThrow();
+  run.mockResolvedValue({ ok: false, reason: "unreachable" });
+  await expect(hosts.repositoryTarget("worker", "/local/repo")).rejects.toThrow();
+  run.mockResolvedValue({ ok: true, facts });
+  await expect(hosts.repositoryTarget("worker", "/local/repo")).rejects.toThrow();
+});

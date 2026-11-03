@@ -1,3 +1,4 @@
+import { HostChip } from "./sidebar-machine-row";
 import { reviewLabel } from "../../shared/review-state";
 import { ActionError, captureErrorFocus, useBackgroundErrors } from "./error-presentation";
 import { errorMessage } from "../../shared/application-errors";
@@ -89,7 +90,11 @@ function TerminalView({
         </div>
       )}
       {row && (row.dormant || status.attaching) && (
-        <div className="tile-restoring" aria-label={`Restoring ${name}`} role="status">
+        <div
+          className="tile-restoring"
+          aria-label={row.unavailable ? `${name} · Unavailable` : `Restoring ${name}`}
+          role="status"
+        >
           <div className="tile-restoring-identity">
             <AgentBadge mark={row.kind === "shell" ? ">_" : agentBadges.get(row.agent)} />
             <span>{name}</span>
@@ -360,6 +365,15 @@ export function Tile({
                   ? `Probe · ${driver ? sessionName(driver, preferences) : "Config session"}`
                   : `${row.repository} › ${row.branch}`}
               </span>
+              {row.placement?.kind === "remote" &&
+                source
+                  .getMachines?.()
+                  .filter(
+                    (machine) =>
+                      machine.host ===
+                      (row.placement?.kind === "remote" ? row.placement.host : undefined),
+                  )
+                  .map((machine) => <HostChip key={machine.host} machine={machine} />)}
               <span className="tile-name" title={sessionIdentity(row, source.shellName?.())}>
                 {sessionName(row.probe ? { ...row, probe: false } : row, preferences)}
               </span>

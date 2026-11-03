@@ -227,7 +227,16 @@ export class AgentService {
     );
     if (request.conversationId !== undefined) provider.resume(request.conversationId);
     const config = request.configCli;
-    if (config === undefined && !request.remoteCheckout) {
+    if (
+      request.humanHome &&
+      (request.repository !== homedir() ||
+        request.worktree !== homedir() ||
+        request.control ||
+        request.remoteCheckout ||
+        config !== undefined)
+    )
+      throw new Error("Invalid human home launch");
+    if (config === undefined && !request.remoteCheckout && !request.humanHome) {
       const trees = await this.worktrees.listWorktrees(request.repository);
       if (
         !trees.some(
@@ -237,7 +246,7 @@ export class AgentService {
         throw new Error("Worktree is missing, bare, locked, or prunable");
     }
     const checkoutIdentity =
-      config === undefined && !request.remoteCheckout
+      config === undefined && !request.remoteCheckout && !request.humanHome
         ? (request.checkoutIdentity ??
           (await this.worktrees.launchIdentity(request.repository, request.worktree)))
         : undefined;
@@ -329,7 +338,7 @@ export class AgentService {
     try {
       // Config sessions get no repository-scoped control grant.
       control =
-        config === undefined
+        config === undefined && !request.humanHome
           ? await this.prepareControl?.(
               request.repository,
               request.worktree,
@@ -350,6 +359,7 @@ export class AgentService {
       this.ensureOpen();
       if (
         config === undefined &&
+        !request.humanHome &&
         (await this.worktrees.launchIdentity(request.repository, request.worktree)) !==
           checkoutIdentity
       )
@@ -444,6 +454,7 @@ export class AgentService {
       await provider.validate?.();
       if (
         config === undefined &&
+        !request.humanHome &&
         (await this.worktrees.launchIdentity(request.repository, request.worktree)) !==
           checkoutIdentity
       )

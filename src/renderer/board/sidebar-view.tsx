@@ -2,7 +2,15 @@ import { ActionError, BackgroundErrorMark } from "./error-presentation";
 import { AgentBadge } from "./agent-badge";
 import { AppMenu } from "./app-menu";
 import { PanelMark } from "./panel-glyphs";
-import { repositoryKey, rowRepository, rowWorktree, worktreeKey } from "./sidebar-model";
+import {
+  repositoryMachines,
+  repositoryKey,
+  rowRepository,
+  rowWorktree,
+  sessionName,
+  worktreeKey,
+} from "./sidebar-model";
+import { SidebarMachineRow } from "./sidebar-machine-row";
 import { SidebarPanel } from "./sidebar-panel";
 import { renameSession } from "./sidebar-preferences";
 import { SidebarRepositorySection } from "./sidebar-repository-section";
@@ -255,6 +263,41 @@ export function Sidebar(props: SidebarProps) {
           )}
           {compact && matchingPreviews.map(previewRow)}
 
+          {(source.getMachines?.() ?? []).length > 0 && (
+            <div className="machine-list" role="group" aria-label="Machines">
+              {(source.getMachines?.() ?? []).map((machine) => (
+                <SidebarMachineRow
+                  key={JSON.stringify(machine.host)}
+                  machine={machine}
+                  compact={compact}
+                  command={command}
+                >
+                  {rows
+                    .filter(
+                      (row) =>
+                        row.machine &&
+                        (row.placement?.kind === "remote" ? row.placement.host : null) ===
+                          machine.host &&
+                        (compact ||
+                          `${sessionName(row, preferences)} ${row.reason}`
+                            .toLocaleLowerCase()
+                            .includes(filter.trim().toLocaleLowerCase())),
+                    )
+                    .map((row) => session(row))}
+                </SidebarMachineRow>
+              ))}
+            </div>
+          )}
+          {rows
+            .filter(
+              (row) =>
+                row.machine &&
+                !(source.getMachines?.() ?? []).some(
+                  (machine) =>
+                    machine.host === (row.placement?.kind === "remote" ? row.placement.host : null),
+                ),
+            )
+            .map((row) => session(row))}
           {!compact && filter.trim() && tree.length === 0 && visibleHomeRows.length === 0 && (
             <p className="tree-empty">No matches</p>
           )}
@@ -269,6 +312,10 @@ export function Sidebar(props: SidebarProps) {
               ))
             : tree.map((repo, index) => {
                 const rid = repositoryKey(repo.repository.path);
+                const machines = repositoryMachines(
+                  source.getMachines?.() ?? [],
+                  repo.repository.path,
+                );
                 const cleanup = repo.repository.cleanup;
                 const deleting = cleanup && cleanup.phase !== "finished";
                 return (
@@ -295,11 +342,52 @@ export function Sidebar(props: SidebarProps) {
                         ? [
                             {
                               label: "New worktree",
+                              ...(machines.length > 0 && !menu?.field
+                                ? {
+                                    submenu: machines.map((machine) => ({
+                                      label: machine.name,
+                                      disabled: !machine.available,
+                                      expanded: Boolean(menu?.field && menu.host === machine.host),
+                                      run: () => {
+                                        if (menu)
+                                          intent.pin(
+                                            rid,
+                                            menu.anchor,
+                                            true,
+                                            machine.host ?? undefined,
+                                          );
+                                      },
+                                    })),
+                                  }
+                                : {}),
                               glyph: "branch" as const,
                               expanded: Boolean(menu?.field && menu.id === rid),
                               run: () => {
                                 if (menu) intent.pin(rid, menu.anchor, true);
                               },
+                            },
+                          ]
+                        : []),
+                      ...(machines.length > 0
+                        ? [
+                            {
+                              label: "New agent",
+                              run: () => {},
+                              submenu: machines.map((machine) => ({
+                                label: machine.name,
+                                disabled: !machine.available,
+                                run: () => {},
+                                submenu: machine.agents.map((agent) => ({
+                                  label: agent.name,
+                                  run: () =>
+                                    command({
+                                      kind: "repository-launch",
+                                      repository: repo.repository.path,
+                                      host: machine.host,
+                                      run: agent.id,
+                                    }),
+                                })),
+                              })),
                             },
                           ]
                         : []),
@@ -388,6 +476,13 @@ export function Sidebar(props: SidebarProps) {
                             <SidebarWorktreeSection
                               key={wid}
                               worktree={worktree}
+                              machine={
+                                worktree.host
+                                  ? source
+                                      .getMachines?.()
+                                      .find((machine) => machine.host === worktree.host)
+                                  : undefined
+                              }
                               name={name}
                               branch={branch}
                               main={main}

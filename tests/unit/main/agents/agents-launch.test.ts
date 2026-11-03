@@ -362,3 +362,35 @@ describe("per-child selections", () => {
     ]);
   });
 });
+
+describe("human home launches", () => {
+  it("uses ordinary launch preparation and hooks without Git membership or a repository grant", async () => {
+    const home = (await import("node:os")).homedir();
+    await agentFixture.service.launch({
+      ...request,
+      repository: home,
+      worktree: home,
+      humanHome: true,
+      localOnly: true,
+    });
+    expect(listWorktrees).not.toHaveBeenCalled();
+    expect(launchIdentity).not.toHaveBeenCalled();
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ cwd: home }));
+  });
+  it("refuses a human home capability for other folders or orchestration authority", async () => {
+    await expect(agentFixture.service.launch({ ...request, humanHome: true })).rejects.toThrow(
+      "Invalid human home",
+    );
+    const home = (await import("node:os")).homedir();
+    await expect(
+      agentFixture.service.launch({
+        ...request,
+        repository: home,
+        worktree: home,
+        humanHome: true,
+        control: { role: "orchestrator" },
+      }),
+    ).rejects.toThrow("Invalid human home");
+    expect(create).not.toHaveBeenCalled();
+  });
+});

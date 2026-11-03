@@ -1,3 +1,4 @@
+import { locationId } from "../control/metadata";
 import { LaunchFailure } from "../../shared/launch-failure";
 import { copyableErrorText, ApplicationError } from "../../shared/application-errors";
 import { gitOrigin } from "../../shared/registered-hosts";
@@ -17,6 +18,7 @@ import type {
   RepositoryOperationsContext,
   SidebarCommandsContext,
 } from "./workspace-capabilities";
+import { agentProviders } from "../agents/providers/registry";
 import { homeDirectory, homeShellFacts } from "./home-shell";
 
 /** Validate clipboard metadata independently of SSH enrollment. */
@@ -44,7 +46,56 @@ function copyableUrl(value: string, web: boolean): boolean {
 }
 
 export async function sidebarInventory(this: SidebarCommandsContext): Promise<SidebarInventory> {
+  const hosts = this.deps.hosts;
+  const fleet = (await hosts?.fleet()) ?? [];
+  const locations = fleet.length ? await hosts?.locationsForSidebar?.() : undefined;
+  const scan = fleet.length ? await this.scanAgents(false) : undefined;
+  const machines = fleet.length
+    ? [
+        {
+          host: null,
+          name: "localhost",
+          available: true,
+          agents: (scan?.agents ?? [])
+            .filter((agent) => agent.path && this.enabled[agent.id] !== false)
+            .map((agent) => ({
+              id: agent.id,
+              name:
+                agent.name ??
+                agentProviders().find((provider) => provider.id === agent.id)?.name ??
+                agent.id,
+            })),
+        },
+        ...fleet.map(({ host, result }) => ({
+          host,
+          name: machineHostName(host),
+          available: result.ok,
+          repositories:
+            (locations ?? hosts?.state?.())?.locations
+              .filter(
+                (location) =>
+                  location.host === host &&
+                  location.result.ok &&
+                  location.result.checkout &&
+                  location.result.checkout.state !== "absent",
+              )
+              .map((location) => location.repository) ?? [],
+          agents: result.ok
+            ? agentProviders()
+                .filter(
+                  (provider) =>
+                    this.enabled[provider.id] !== false &&
+                    result.facts.agents.some(
+                      (agent) => agent.id === provider.id && agent.state === "ready",
+                    ),
+                )
+                .map((provider) => ({ id: provider.id, name: provider.name }))
+            : [],
+        })),
+      ]
+    : [];
   return {
+    machines,
     previews: [],
     home: await (this.homeFacts ??= homeShellFacts()),
     repositories: await Promise.all(
@@ -94,8 +145,18 @@ export async function sidebarInventory(this: SidebarCommandsContext): Promise<Si
           ...repository,
           worktrees: [
             ...worktrees.map((tree) => {
+              const host =
+                tree.host ?? this.deps.hosts?.placement?.(tree.path, repository.path)?.host;
+              const unavailable =
+                host !== undefined &&
+                fleet.some((machine) => machine.host === host && !machine.result.ok);
+              const projected = {
+                ...tree,
+                ...(host ? { host } : {}),
+                ...(unavailable ? { unavailable: true } : {}),
+              };
               const pullRequest = this.deps.forge?.readBoard(repository.path, tree.path);
-              return pullRequest ? { ...tree, pullRequest } : tree;
+              return pullRequest ? { ...projected, pullRequest } : projected;
             }),
             ...removedWorktrees,
           ],
@@ -131,6 +192,26 @@ export async function sidebarCommand(
     await this.resumeId(command, confirm);
     return;
   }
+  if (command.kind === "repository-launch") {
+    if (command.host === null) {
+      const id = await this.startExisting(
+        command.repository,
+        command.repository,
+        command.run,
+        confirm,
+      );
+      return id ? { terminalId: id } : undefined;
+    }
+    return {
+      terminalId: await this.startMachine(command.host, command.run, undefined, {
+        repository: command.repository,
+        worktree: command.repository,
+        branch: null,
+      }),
+    };
+  }
+  if (command.kind === "machine-launch")
+    return { terminalId: await this.startMachine(command.host, command.run) };
   if (command.kind === "home-shell") return { terminalId: await this.startHomeShell() };
   if (command.kind === "config-launch") {
     await this.startConfig(command.run);
@@ -293,6 +374,26 @@ export async function sidebarCommand(
           : {}),
       };
       const remoteRole = entry.remote ? this.orchestration.view(entry.id) : undefined;
+      if (entry.machine) {
+        await this.startMachine(
+          entry.placement?.kind === "remote" ? entry.placement.host : null,
+          entry.agent,
+          entry.id,
+          undefined,
+          replacement.conversationId,
+        );
+        return;
+      }
+      if (entry.remote && !remoteRole && entry.placement?.kind === "remote") {
+        await this.startMachine(entry.placement.host, entry.agent, entry.id, {
+          repository: entry.repository,
+          worktree: this.deps.hosts?.placement?.(entry.worktree, entry.repository)
+            ? entry.worktree
+            : entry.repository,
+          branch: entry.branch,
+        });
+        return;
+      }
       if (entry.remote && (remoteRole?.role !== "child" || remoteRole.takenOver))
         throw new Error("Remote phase 2 requires a local-orchestrator-owned child");
       if (entry.config) await this.startConfig(entry.agent, replacement);
@@ -339,7 +440,12 @@ export async function sidebarCommand(
       );
     if (command.kind === "restart") {
       if (!entry || entry.kind !== "shell") throw new Error("Only shells can restart");
-      if (entry.config) await this.startConfig("shell");
+      if (entry.machine)
+        await this.startMachine(
+          entry.placement?.kind === "remote" ? entry.placement.host : null,
+          "shell",
+        );
+      else if (entry.config) await this.startConfig("shell");
       else if (entry.home && entry.remote) {
         const target =
           entry.placement?.kind === "remote"
@@ -432,6 +538,24 @@ export async function sidebarCommand(
     return;
   }
   if (command.kind === "launch") {
+    const human = [...this.launched.values()].find(
+      (row) =>
+        row.repository === command.repository &&
+        row.worktree === command.worktree &&
+        row.placement?.kind === "remote" &&
+        !this.orchestration.view(row.id),
+    );
+    if (
+      human?.placement?.kind === "remote" &&
+      !this.deps.hosts?.placement?.(command.worktree, command.repository)
+    ) {
+      await this.startMachine(human.placement.host, command.run, undefined, {
+        repository: command.repository,
+        worktree: command.repository,
+        branch: null,
+      });
+      return;
+    }
     await this.startExisting(command.repository, command.worktree, command.run, confirm);
     return;
   }
@@ -669,12 +793,41 @@ export async function createWorktree(
   repository: string,
   branch: string,
   location: "root" | "adjacent" = this.location,
+  host?: string,
 ): Promise<Worktree & { outcome: CreateOutcome }> {
   return this.withRepository(repository, async () => {
     const key = `${repository}\0${branch}`;
     if (this.busyWorktrees.has(key)) throw new Error("This worktree is busy");
     this.busyWorktrees.add(key);
     try {
+      if (host !== undefined) {
+        await this.deps.worktrees.validateBranch(repository, branch);
+        const hosts = this.deps.hosts;
+        if (!hosts) throw new LaunchFailure("remote_host_unreachable");
+        const created = await hosts.worktree(host, repository, {
+          operation: "create-worktree",
+          branch,
+        });
+        const path = `/foom-remote/${locationId(JSON.stringify([host, created.path]))}`;
+        hosts.rememberPlacement?.(repository, path, host, {
+          repository: created.repository,
+          path: created.path,
+          branch: created.branch,
+          identity: created.identity,
+        });
+        this.refresh();
+        return {
+          host,
+          path,
+          branch: created.branch,
+          head: null,
+          bare: false,
+          locked: false,
+          prunable: false,
+          managed: false,
+          outcome: "new",
+        };
+      }
       const created = await this.addWorktree(repository, branch, location);
       this.refresh();
       return created;
@@ -708,4 +861,11 @@ export async function removeWorktree(
   const entry = this.launched.get(id);
   if (!entry) throw new Error("Unknown worktree terminal");
   return this.cleanup.removeIdleTree(entry.repository, entry.worktree, entry.branch, confirm);
+}
+
+/** Display only; replace with the nickname projection when #1027 lands. */
+export function machineHostName(host: string): string {
+  const account = host.slice(host.lastIndexOf("@") + 1);
+  const dot = account.indexOf(".");
+  return dot < 0 ? account : account.slice(0, dot);
 }

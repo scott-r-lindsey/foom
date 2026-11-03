@@ -57,6 +57,8 @@ export interface LaunchSelection {
 }
 
 export interface AgentLaunch {
+  /** Main-only human home launch; grants no repository or orchestration authority. */
+  readonly humanHome?: true;
   /** Main-only registered-host capability. Never accepted from IPC. */
   readonly remoteCheckout?: {
     target: { host: string; unavailable?: (code: number) => void };

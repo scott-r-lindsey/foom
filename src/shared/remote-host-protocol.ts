@@ -1,6 +1,6 @@
 import { recipeLaunch } from "./registered-host-recipes";
 import { imagePut, imagePutResult, imageNonce } from "./image-paste";
-import { hostAlias, hostManagement, hostResult } from "./registered-hosts";
+import { gitOrigin, hostAlias, hostManagement, hostResult } from "./registered-hosts";
 import { isLaunchReason } from "./launch-failure";
 import {
   remotePath,
@@ -32,6 +32,7 @@ function hello(value: object): boolean {
     value.type === "hello" &&
     (!("hostPreflight" in value) || value.hostPreflight === 1) &&
     (!("hostFacts" in value) || value.hostFacts === 1) &&
+    (!("humanMachines" in value) || value.humanMachines === 1) &&
     "build" in value &&
     typeof value.build === "string" &&
     /^[a-f0-9]{64}$/u.test(value.build)
@@ -56,7 +57,8 @@ export function profileTag(value: unknown): value is string {
 export function sessionContext(value: unknown): boolean {
   return (
     record(value) &&
-    keys(value, ["repository", "worktree", "branch", "agent"]) &&
+    keys(value, ["repository", "worktree", "branch", "agent", "machine"]) &&
+    (value["machine"] === undefined || value["machine"] === true) &&
     remotePath(value["repository"]) &&
     remotePath(value["worktree"]) &&
     (value["branch"] === null ||
@@ -133,6 +135,31 @@ export function remoteRequest(value: unknown): value is RemoteRequest {
           remotePath(value["checkout"]["path"]) &&
           typeof value["checkout"]["identity"] === "string" &&
           /^[a-f0-9]{64}$/u.test(value["checkout"]["identity"]))) &&
+      (value["machine"] === undefined ||
+        (value["human"] === true &&
+          value["recipe"] === undefined &&
+          record(value["machine"]) &&
+          keys(value["machine"], ["codeFolder", "agent", "defaults", "repository"]) &&
+          (value["machine"]["repository"] === undefined ||
+            (value["checkout"] === undefined &&
+              record(value["machine"]["repository"]) &&
+              keys(value["machine"]["repository"], ["directory", "origin"]) &&
+              typeof value["machine"]["repository"]["directory"] === "string" &&
+              /^repository-[a-f0-9]{24}$/u.test(value["machine"]["repository"]["directory"]) &&
+              gitOrigin(value["machine"]["repository"]["origin"]))) &&
+          (remotePath(value["machine"]["codeFolder"]) ||
+            (typeof value["machine"]["codeFolder"] === "string" &&
+              /^~\/[^\p{Cc}]{1,4096}$/u.test(value["machine"]["codeFolder"]))) &&
+          (value["machine"]["agent"] === undefined ||
+            (typeof value["machine"]["agent"] === "string" &&
+              /^[a-z][a-z0-9-]{0,63}$/u.test(value["machine"]["agent"]))) &&
+          (value["machine"]["defaults"] === undefined ||
+            (Array.isArray(value["machine"]["defaults"]) &&
+              value["machine"]["defaults"].length <= 128 &&
+              value["machine"]["defaults"].every(
+                (arg: unknown) =>
+                  typeof arg === "string" && arg.length <= 4096 && !arg.includes("\0"),
+              ))))) &&
       (value["human"] === undefined || typeof value["human"] === "boolean") &&
       "reattach" in value &&
       typeof value["reattach"] === "boolean" &&

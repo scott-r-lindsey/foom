@@ -265,3 +265,13 @@ sent as a digest, never a terminal ID. Registration and live parent ownership ar
 rechecked around preparation and before start. Resume under the same live parent
 uses the same host capability and fresh credentials, never a local fallback.
 Remote inventories and host resource observations are described in [Hosts](hosts.md).
+
+## Human machine launches (#1024)
+
+Machine-row agents are human-owned terminals outside Git repository control.
+Main resolves the installed local CLI or requires the registered host's ready
+agent observation, then uses the user's saved defaults. The remote host resolves
+its own executable and login environment. These launches add no bypass flags, child prompt or control grant. Local
+launches reuse ordinary per-launch hooks and bypass consent; the remote plain CLI
+launch attaches no MCP or hook assets. Evaluation remains local. Repository placement uses the selected machine's checked main checkout;
+existing remote worktree launches retain profile provenance and identity checks.

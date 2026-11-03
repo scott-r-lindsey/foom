@@ -1,3 +1,4 @@
+import type { SidebarMachine } from "../../shared/workspace";
 import type { MessageBoardApi } from "../../shared/message-board";
 import type { SidebarCommandResult } from "../../shared/workspace";
 import type { PreviewOpenAction } from "../../shared/previews";
@@ -34,7 +35,11 @@ export interface WorktreeSource {
   /** Local refs for the branch field. */
   branches(repository: string): Promise<BranchInventory>;
   /** Create only; resolves once the sidebar lists the worktree. */
-  create(repository: string, branch: string): Promise<Worktree & { outcome: CreateOutcome }>;
+  create(
+    repository: string,
+    branch: string,
+    host?: string,
+  ): Promise<Worktree & { outcome: CreateOutcome }>;
   remove(id: string): Promise<boolean>;
 }
 export interface BackgroundErrorReporter {
@@ -69,6 +74,7 @@ export interface BoardSource {
   isSidebarReady?: () => boolean;
   connect?: (errors?: BackgroundErrorReporter) => () => void;
   createView?: () => TerminalViewSource;
+  getMachines?: () => readonly SidebarMachine[];
   getSidebar?: () => SidebarRepository[] | readonly SidebarRepository[];
   sidebarCommand?: (command: SidebarCommand) => Promise<SidebarCommandResult> | Promise<void>;
   panelFacts?: (repository: string, worktree: string) => Promise<GitPanelFacts>;

@@ -330,6 +330,9 @@ export class WorkspaceContext {
           this.refresh();
           return entry.id;
         }
+        if (entry.machine) {
+          return this.startMachine(null, entry.agent, entry.id, undefined, entry.conversationId);
+        }
         if (entry.home) {
           await this.startHomeShell(entry.id);
           return undefined;
@@ -547,7 +550,7 @@ export class WorkspaceContext {
     this.known(repository);
     const local = await this.deps.worktrees.listWorktrees(repository);
     const discovered = await this.deps.hosts?.worktrees?.(repository);
-    const remote = discovered ?? [
+    const retained = [
       ...new Map(
         [...this.launched.values()]
           .filter(
@@ -560,6 +563,7 @@ export class WorkspaceContext {
             row.worktree,
             {
               path: row.worktree,
+              ...(row.placement?.kind === "remote" ? { host: row.placement.host } : {}),
               branch: row.branch,
               head: null,
               bare: false,
@@ -570,7 +574,20 @@ export class WorkspaceContext {
           ]),
       ).values(),
     ];
-    return [...local, ...remote];
+    const remote = new Map<string, Worktree>(
+      retained
+        .filter(
+          (tree) =>
+            discovered === undefined ||
+            tree.branch === "Main checkout" ||
+            this.deps.hosts
+              ?.state?.()
+              .hosts.some((host) => host.host === tree.host && host.result?.ok === false),
+        )
+        .map((tree) => [tree.path, tree]),
+    );
+    for (const tree of discovered ?? []) remote.set(tree.path, tree);
+    return [...local, ...remote.values()];
   }
 
   async branches(repository: string): Promise<BranchInventory> {
@@ -709,6 +726,10 @@ export class WorkspaceContext {
 
   /** Shared shell launch path; callers validate their location before spawning. */
   startShell: WorkspaceMethods["startShell"] = worktreeLaunch.startShell.bind(
+    this.features.worktreeLaunch,
+  );
+
+  startMachine: WorkspaceMethods["startMachine"] = worktreeLaunch.startMachine.bind(
     this.features.worktreeLaunch,
   );
 

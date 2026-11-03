@@ -6,6 +6,7 @@ export interface Repository {
 
 export interface Worktree {
   readonly host?: string;
+  readonly unavailable?: boolean;
   readonly pullRequest?: BoardPullRequest;
   readonly path: string;
   readonly head: string | null;

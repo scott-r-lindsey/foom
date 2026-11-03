@@ -68,6 +68,7 @@ export function readSessions(value: unknown): StoredSession[] {
       branch,
       conversationId: conversation,
       home,
+      machine,
       config,
       running,
       orchestrator,
@@ -90,8 +91,16 @@ export function readSessions(value: unknown): StoredSession[] {
           : providerOrigin !== "config" ||
             !validAgentId(agent) ||
             (builtinAgent(agent) && !formerConfigAgentIds.includes(agent)))) ||
+      (machine !== undefined &&
+        (machine !== true ||
+          home !== true ||
+          parentId !== undefined ||
+          orchestrator !== undefined)) ||
       (home !== undefined &&
-        (home !== true || agent !== "shell" || repository !== worktree || branch !== null)) ||
+        (home !== true ||
+          (agent !== "shell" && machine !== true) ||
+          repository !== worktree ||
+          branch !== null)) ||
       (config !== undefined &&
         (config !== true || home !== undefined || repository !== worktree || branch !== null)) ||
       (running !== undefined && typeof running !== "boolean") ||
@@ -139,6 +148,7 @@ export function readSessions(value: unknown): StoredSession[] {
       ...(role === undefined ? {} : { orchestrator: role }),
       ...(parentId === undefined ? {} : { parentId }),
       ...(home === true ? { home: true } : {}),
+      ...(machine === true ? { machine: true } : {}),
       ...(config === true ? { config: true } : {}),
       agent,
       repository,
@@ -182,6 +192,7 @@ export class SessionStore {
           placement,
           remoteCheckout,
           home,
+          machine,
           config,
           handoffs,
           selection,
@@ -197,6 +208,7 @@ export class SessionStore {
           orchestrator,
           parentId,
           ...(home ? { home: true } : {}),
+          ...(machine ? { machine: true } : {}),
           ...(config ? { config: true } : {}),
           id,
           agent,

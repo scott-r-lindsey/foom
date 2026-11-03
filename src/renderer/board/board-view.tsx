@@ -61,6 +61,8 @@ import { useBoardActivity } from "./use-board-activity";
 const commandFailures: Readonly<Record<SidebarCommand["kind"], string>> = {
   "open-handoff-link": "Unable to open link.",
   "home-shell": "Unable to start shell.",
+  "repository-launch": "Unable to start session.",
+  "machine-launch": "Unable to start session.",
   "copy-home-path": "Unable to copy home path.",
   "config-launch": "Unable to launch Foom config.",
   "copy-config-path": "Unable to copy config path.",
@@ -456,12 +458,14 @@ function BoardContents({
           value.kind === "resume-id" ||
           value.kind === "restart" ||
           value.kind === "home-shell" ||
+          value.kind === "machine-launch" ||
+          value.kind === "repository-launch" ||
           value.kind === "config-launch"
         ) {
           const created = source
             .getSnapshot()
             .find((row) =>
-              value.kind === "home-shell"
+              value.kind === "home-shell" || value.kind === "machine-launch"
                 ? row.id === result?.terminalId
                 : !before.has(row.id) && (value.kind !== "config-launch" || row.config),
             );

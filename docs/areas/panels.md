@@ -44,3 +44,8 @@ on click or keyboard activation, a check lasts one second, and only failures add
 display), PR number/URL and remote URL. Session panels include the Foom session ID,
 conversation ID, parent/child IDs and current handoff summary. Main resolves each
 through its [identifier-only copy commands](ipc.md#visible-fact-copy-controls-960).
+
+Machine home records (#1024) use an additional `machine` discriminator and also
+permit human-owned home agents. They retain the main-owned home identity and
+cannot restore a repository or child grant. Their host-selected launch directory
+is resolved in main/daemon, never from renderer-supplied paths.

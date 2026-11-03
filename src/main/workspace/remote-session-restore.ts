@@ -13,7 +13,10 @@ export async function discoverRemoteSessions(
   return sessions.map(({ host, session }) => {
     const context = session.context;
     const placed = context && hosts.placement?.(context.worktree);
-    const agent = placed && builtinAgent(context.agent) ? context.agent : "shell";
+    const agent =
+      context && (placed || context.machine) && builtinAgent(context.agent)
+        ? context.agent
+        : "shell";
     return {
       id: session.id,
       agent,
@@ -22,6 +25,7 @@ export async function discoverRemoteSessions(
       worktree: context && placed ? context.worktree : homeDirectory,
       branch: placed ? `${placed.branch} · ${host}` : null,
       ...(placed ? {} : { home: true }),
+      ...(context?.machine ? { machine: true } : {}),
       ...(placed
         ? {
             remoteCheckout: {

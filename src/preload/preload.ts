@@ -833,6 +833,7 @@ const validWorkspaceTerminal: Validator<WorkspaceTerminal> = shape({
   launchVersion: either(absent, count),
   bypass: either(absent, boolean),
   home: either(absent, boolean),
+  machine: either(absent, boolean),
   config: either(absent, boolean),
   probe: either(absent, boolean),
   probeOwner: either(absent, text),
@@ -904,6 +905,7 @@ const validBoardPullRequest: Validator<BoardPullRequest> = shape({
 
 const validWorktree: Validator<Worktree> = shape({
   host: either(absent, hostAlias),
+  unavailable: either(absent, boolean),
   pullRequest: either(absent, validBoardPullRequest),
   path: text,
   head: either(nil, text),
@@ -954,6 +956,18 @@ const validHomeShellFacts: Validator<HomeShellFacts> = shape({
 } satisfies Contract<HomeShellFacts>);
 
 const validSidebarInventory: Validator<SidebarInventory> = shape({
+  machines: either(
+    absent,
+    array(
+      shape({
+        host: either(nil, hostAlias),
+        name: text,
+        available: boolean,
+        agents: array(shape({ id: text, name: text })),
+        repositories: either(absent, array(text)),
+      }),
+    ),
+  ),
   previewActions: either(absent, array(validPreviewOpenAction)),
   previews: either(absent, array(validPreviewSummary)),
   repositories: array(
@@ -1843,10 +1857,23 @@ const desktop: DesktopApi = {
   },
   sidebarInventory: () => reply("workspace:sidebar", validSidebarInventory),
   sidebarCommand: async (command) => {
-    if (command.kind === "home-shell") {
+    if (
+      command.kind === "home-shell" ||
+      command.kind === "machine-launch" ||
+      command.kind === "repository-launch"
+    ) {
       return reply(
         "workspace:sidebar-command",
-        shape({ terminalId: (value): value is string => nonempty(value) && value.length <= 200 }),
+        command.kind === "repository-launch"
+          ? either(
+              absent,
+              shape({
+                terminalId: (value): value is string => nonempty(value) && value.length <= 200,
+              }),
+            )
+          : shape({
+              terminalId: (value): value is string => nonempty(value) && value.length <= 200,
+            }),
         command,
       );
     }
@@ -1856,8 +1883,10 @@ const desktop: DesktopApi = {
   addRepository: () => reply("workspace:add-repository", either(nil, validRepository)),
   worktrees: (repository) => reply("workspace:worktrees", array(validWorktree), repository),
   branches: (repository) => reply("workspace:branches", validBranchInventory, repository),
-  createWorktree: (repository, branch, location) =>
-    reply("workspace:create-worktree", createdWorktree, repository, branch, location),
+  createWorktree: (repository, branch, location, host) =>
+    host === undefined
+      ? reply("workspace:create-worktree", createdWorktree, repository, branch, location)
+      : reply("workspace:create-worktree", createdWorktree, repository, branch, location, host),
   changeAgentSetup: (id, action) => reply("agents:setup", validAgentReport, id, action),
   changeAgyPlugin: (action) => reply("agents:agy-plugin", validAgentReport, action),
   scanAgents: (refresh) => reply("agents:scan", validAgentReport, refresh),

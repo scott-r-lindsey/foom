@@ -21,7 +21,9 @@ function repositoryFixture(): RepositoryOperationsContext {
     withRepository: (_repository, work) => work(),
     cleanup: { removeIdleTree: vi.fn() },
     deps: {
+      hosts: undefined,
       worktrees: {
+        validateBranch: vi.fn(),
         createWorktree: vi.fn().mockResolvedValue({ path: tree.path, outcome: "new" }),
         listWorktrees: vi.fn().mockResolvedValue([tree]),
       },

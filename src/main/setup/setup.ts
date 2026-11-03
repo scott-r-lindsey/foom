@@ -22,6 +22,7 @@ import type { WorktreeService } from "../workspace/worktrees";
 
 export interface SetupDependencies {
   hosts?: Hosts;
+  hostsChanged?: () => void;
   launchHostRecipe?: (target: RemoteTarget) => Promise<void>;
   copyText?: (value: string) => void | Promise<void>;
   confirmRemoteSessions?: (content: DialogContent) => Promise<boolean>;
@@ -71,11 +72,12 @@ export class Setup {
   }
   hosts(input: unknown) {
     if (!this.deps.hosts) throw new Error("Hosts unavailable");
-    return this.deps.hosts.action(
-      input,
-      this.deps.confirmRemoteSessions,
-      this.deps.launchHostRecipe,
-    );
+    return this.deps.hosts
+      .action(input, this.deps.confirmRemoteSessions, this.deps.launchHostRecipe)
+      .then((state) => {
+        this.deps.hostsChanged?.();
+        return state;
+      });
   }
 
   readiness() {

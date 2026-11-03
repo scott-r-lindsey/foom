@@ -1,8 +1,9 @@
+import { locationId } from "../control/metadata";
 import type { RemoteTarget } from "../../shared/remote-host";
 import { LaunchFailure } from "../../shared/launch-failure";
 import { remoteAgentTarget, remoteSpikeTarget } from "../terminals/remote-bootstrap";
 import { ControlError } from "../../shared/control-validation";
-import type { AgentId, AgentLaunch } from "../../shared/agents";
+import type { AgentId, AgentLaunch, AgentLaunched } from "../../shared/agents";
 import type { AgyPluginAction } from "../../shared/agy-plugin";
 import type { ConfirmWorkspace, DialogContent } from "../../shared/confirmation";
 import { builtinAgent } from "../../shared/providers/catalog";
@@ -306,6 +307,183 @@ export async function startShell(
   return id;
 }
 
+/** Human-owned sessions outside repository control, with the user's ordinary CLI defaults. */
+export async function startMachine(
+  this: WorktreeLaunchContext,
+  host: string | null,
+  run: AgentId,
+  restoreId?: string,
+  location?: Pick<WorkspaceTerminal, "repository" | "worktree" | "branch">,
+  conversation?: string,
+): Promise<string> {
+  const perform = async (): Promise<string> => {
+    const ensureOpen = () => {
+      if (this.closed) throw new Error("Workspace is closed");
+      if (this.enabled[run] === false) throw new LaunchFailure("agent_disabled");
+    };
+    ensureOpen();
+    const hosts = this.deps.hosts;
+    let remote: RemoteTarget | undefined;
+    let trackedLocation = location;
+    let command = shellPath();
+    const args =
+      run === "shell"
+        ? process.platform === "win32"
+          ? ["-NoLogo"]
+          : ["-l"]
+        : [...(this.defaultArguments[run] ?? [])];
+    if (host !== null) {
+      const registered = hosts?.registered(host);
+      if (!registered || !hosts?.shellTarget) throw new LaunchFailure("remote_host_unreachable");
+      if (run !== "shell") await hosts.requireAgent(host, run);
+      hosts.registered(host, registered.codeFolder);
+      const repositoryTarget =
+        location && location.repository === location.worktree
+          ? await hosts.repositoryTarget?.(host, location.repository)
+          : undefined;
+      const checkout =
+        location && !repositoryTarget
+          ? await this.orchestration.remoteCheckout(location.worktree, run)
+          : undefined;
+      if (location && !checkout && !repositoryTarget)
+        throw new LaunchFailure("remote_worktree_unavailable");
+      remote = {
+        ...(repositoryTarget ?? hosts.shellTarget(host)),
+        ...(checkout
+          ? {
+              checkout: {
+                repository: checkout.repository,
+                path: checkout.worktree,
+                identity: checkout.identity,
+              },
+            }
+          : {}),
+        context: {
+          repository: checkout?.repository ?? registered.codeFolder,
+          worktree: location?.worktree ?? registered.codeFolder,
+          branch: location?.branch ?? null,
+          agent: run,
+          ...(!location ? { machine: true } : {}),
+        },
+        machine: {
+          ...repositoryTarget?.machine,
+          codeFolder: registered.codeFolder,
+          ...(run === "shell" ? {} : { agent: run, defaults: args }),
+        },
+      };
+      if (repositoryTarget?.machine?.repository && location) {
+        const path = `${registered.codeFolder}/${repositoryTarget.machine.repository.directory}`;
+        trackedLocation = {
+          ...location,
+          worktree: `/foom-remote/${locationId(JSON.stringify([host, path]))}`,
+          branch: "Main checkout",
+        };
+        remote.context = {
+          repository: path,
+          worktree: trackedLocation.worktree,
+          branch: trackedLocation.branch,
+          agent: run,
+        };
+      }
+      command = `ssh ${host}`;
+    } else if (run !== "shell") {
+      const scan = await this.scanAgents(false);
+      const installation = scan.agents.find((agent) => agent.id === run);
+      if (!installation?.path) throw new LaunchFailure("agent_unavailable");
+      command = installation.path;
+    }
+    if (location && !remote)
+      await this.deps.worktrees.launchIdentity(location.repository, location.worktree);
+    const environment = remote
+      ? { env: {}, names: [] }
+      : buildLaunchEnvironment({
+          layers: this.deps.environment?.(run) ?? [],
+          base: inheritedEnvironment(),
+        });
+    ensureOpen();
+    if (host !== null) hosts?.registered(host, remote?.machine?.codeFolder);
+    if (restoreId) {
+      await this.queues.get(restoreId);
+      const previous = this.launched.get(restoreId);
+      if (previous && this.executionOwner.view(restoreId).exitCode === undefined)
+        throw new Error("Session is still running");
+      if (previous?.remote && previous.placement?.kind === "remote")
+        await this.deps.terminals.kill(restoreId, previous.placement.host);
+      else if (previous && !previous.dormant) await this.deps.terminals.kill(restoreId);
+      if (previous) previous.dormant = true;
+      this.executionOwner.reset(restoreId);
+      this.deps.verdicts.forget(restoreId);
+    }
+    ensureOpen();
+    if (host !== null) hosts?.registered(host, remote?.machine?.codeFolder);
+    try {
+      let agentResult: AgentLaunched | undefined;
+      if (host === null && run !== "shell" && !location) {
+        agentResult = await this.agents.launch({
+          agent: run,
+          repository: homeDirectory,
+          worktree: homeDirectory,
+          humanHome: true,
+          localOnly: true,
+          sharedCheckout: true,
+          cols: 80,
+          rows: 24,
+          defaultArguments: args,
+          ...(conversation ? { conversationId: conversation } : {}),
+          ...(restoreId ? { terminalId: restoreId } : {}),
+          ...(this.deps.environment ? { environment: this.deps.environment(run) } : {}),
+        });
+      }
+      const id =
+        agentResult?.id ??
+        (await this.deps.terminals.create({
+          ...(restoreId ? { id: restoreId } : {}),
+          command,
+          args,
+          cwd: location?.worktree ?? homeDirectory,
+          cols: 80,
+          rows: 24,
+          env: environment.env,
+          ...(remote ? { remote } : {}),
+          ...(run === "shell" ? { shellIntegration: true } : {}),
+        }));
+      this.launched.set(id, {
+        ...this.replacementVersion(restoreId),
+        id,
+        kind: run === "shell" ? "shell" : "agent",
+        agent: run,
+        repository: homeDirectory,
+        worktree: homeDirectory,
+        branch: null,
+        ...(trackedLocation ?? { home: true, machine: true }),
+        attention: agentResult?.attention ?? "evaluator",
+        ...(agentResult?.conversationId ? { conversationId: agentResult.conversationId } : {}),
+        state: null,
+        placement: remote ? { kind: "remote", host: remote.host } : { kind: "local" },
+        ...(remote ? { remote: true } : {}),
+        launchFlags: args,
+        ...(agentResult?.providerOrigin ? { providerOrigin: agentResult.providerOrigin } : {}),
+        ...((agentResult?.environment ?? environment.names).length
+          ? { environment: agentResult?.environment ?? environment.names }
+          : {}),
+        bypass: agentResult?.bypass ?? (run !== "shell" && hasBypassArgument(run, args)),
+        startedAt: this.now(),
+      });
+      this.executionOwner.launched(id);
+      this.persist();
+      this.refresh();
+      return id;
+    } catch (error) {
+      if (restoreId) {
+        this.executionOwner.markExited(restoreId, -1);
+        this.refresh();
+      }
+      throw error;
+    }
+  };
+  return await (location ? this.withRepository(location.repository, perform) : perform());
+}
+
 export async function startHomeShell(
   this: WorktreeLaunchContext,
   restoreId?: string,
@@ -421,6 +599,13 @@ export async function startExisting(
         throw new Error("Repository identity changed during restore");
       if (run !== "shell" && !restoring && !(await this.confirmAgentLaunch(worktree, confirm)))
         return;
+      if (registeredRemote && !control && run !== "shell") {
+        return await this.startMachine(registeredRemote.target.host, run, replacement?.id, {
+          repository,
+          worktree,
+          branch: tree.branch,
+        });
+      }
       if (run !== "shell") {
         if (!isRemote) await this.scanAgents(false);
         if (replacement) {

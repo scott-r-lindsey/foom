@@ -391,3 +391,29 @@ projection supplies checkout paths rather than origin display strings and does
 not report local dirty state; Local says Checked out. No management protocol
 change is needed. Failed clone reasons remain visible until the next user check;
 unreachable replies reconcile through a read-only location/preflight check.
+
+## Human machine sessions (#1024)
+
+The sidebar projects registration order, bounded agent facts and checked repository
+locations. Location reads share a one-minute on-demand cache, invalidated by
+explicit checks, registration changes and clone mutations; there is no timer. Agent availability never comes from the
+hub's installation when launching remotely. Host display labels are presentation
+only and do not replace registration keys.
+
+Human machine launches reuse profile-owned SSH terminal transport. A closed
+`machine` open request names the approved code folder and optionally a bundled
+agent ID with validated user defaults. The host rechecks the folder, resolves the
+agent with its own login PATH, and starts an argument-array PTY. It adds no bypass
+arguments, task prompt, hook files or orchestration grant. A repository launch
+additionally names the origin-derived clone directory, validated through the
+existing read-only repository operation; worktree launches reuse profile provenance
+and checkout identity checks. Hub environment values and credentials stay local.
+Completed Settings host checks invalidate the board inventory immediately,
+including unreachable results. Machine sessions persist as human-owned session metadata; remote recovery only
+reattaches the existing PTY. Local agent rows without a conversation ID remain
+exited after restart, following ordinary session restoration eligibility.
+
+Hello advertises `humanMachines: 1`. New machine launches refuse a compatible older
+active daemon lacking this capability before sending open; they never fall back
+to an ordinary home shell. Existing PTYs still reattach. Machine preparation uses
+the existing host-preparation budget, in addition to bootstrap.

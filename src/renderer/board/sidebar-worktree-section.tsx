@@ -1,3 +1,5 @@
+import { HostChip } from "./sidebar-machine-row";
+import type { SidebarMachine } from "../../shared/workspace";
 import { worktreeKey } from "./sidebar-model";
 import { BackgroundErrorMark } from "./error-presentation";
 import type { SidebarRowEvents } from "./sidebar-interactions.d";
@@ -10,6 +12,7 @@ import { PullRequestMark } from "./pull-request";
 import { SidebarRollup } from "./sidebar-repository-section";
 export interface SidebarWorktreeSectionProps {
   worktree: SidebarWorktree;
+  machine?: SidebarMachine | undefined;
   name: string;
   branch: string;
   main: boolean;
@@ -32,6 +35,7 @@ export interface SidebarWorktreeSectionProps {
 }
 export function SidebarWorktreeSection({
   worktree,
+  machine,
   name,
   branch,
   main,
@@ -128,14 +132,12 @@ export function SidebarWorktreeSection({
               </span>
             )}
             <span className={main ? "tree-label tree-checkout-branch" : undefined}>
-              <Highlight
-                text={worktree.host ? `${branch} · ${worktree.host}` : branch}
-                filter={filter}
-              />
+              <Highlight text={branch} filter={filter} />
             </span>
           </span>
         </button>
-        {worktree.unavailable && <span className="worktree-removed">Unavailable</span>}
+        {machine && <HostChip machine={machine} />}
+        {!machine && worktree.unavailable && <span className="worktree-removed">Unavailable</span>}
         {worktree.prunable && <span className="worktree-removed">Broken checkout</span>}
         {worktree.pullRequest && (
           <PullRequestMark pr={worktree.pullRequest} open={openPullRequest} />

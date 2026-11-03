@@ -1,3 +1,4 @@
+import type { SidebarMachine } from "../../shared/workspace";
 import type { PreviewOpenAction } from "../../shared/previews";
 import type { SidebarCommandResult } from "../../shared/workspace";
 import type { PreviewSummary } from "../../shared/workspace";
@@ -61,6 +62,7 @@ export function createAppSource(): BoardSource {
     previewActions = inventory.previewActions ?? [];
     shellName = inventory.shell;
     home = inventory.home;
+    machines = inventory.machines ?? [];
   };
   let rows: readonly BoardRow[] = [];
   let repositories: readonly string[] = [];
@@ -69,6 +71,7 @@ export function createAppSource(): BoardSource {
   let previewActions: readonly PreviewOpenAction[] = [];
   let shellName = "Shell";
   let home: HomeShellFacts | undefined;
+  let machines: readonly SidebarMachine[] = [];
   let shellId = pendingShell;
   const listeners = new Set<() => void>();
   const activityListeners = new Set<(batch: readonly TerminalActivity[]) => void>();
@@ -201,7 +204,10 @@ export function createAppSource(): BoardSource {
       waitingSince: state === "needs_input" ? row.waitingSince || Date.now() : 0,
     };
   };
-  const latest = (row: BoardRow): BoardRow => executionRow(latestVerdict(row));
+  const latest = (row: BoardRow): BoardRow => {
+    const current = executionRow(latestVerdict(row));
+    return row.unavailable ? { ...current, reason: "Unavailable" } : current;
+  };
   const latestVerdict = (row: BoardRow): BoardRow => {
     const state = currentState(row.id);
     const code = exits.get(row.id);
@@ -277,9 +283,15 @@ export function createAppSource(): BoardSource {
           ? "Foom config"
           : entry.home
             ? "~"
-            : ((checkout ? checkout.branch : entry.branch) ??
-              `⏣ ${checkout?.head?.slice(0, 7) ?? "Unknown"}`),
+            : ((checkout
+                ? checkout.branch
+                : entry.placement?.kind === "remote" &&
+                    entry.branch?.endsWith(` · ${entry.placement.host}`)
+                  ? entry.branch.slice(0, -` · ${entry.placement.host}`.length)
+                  : entry.branch) ?? `⏣ ${checkout?.head?.slice(0, 7) ?? "Unknown"}`),
         home: entry.home === true,
+        machine: entry.machine === true,
+        placement: entry.placement,
         config: entry.config === true,
         probe: entry.probe === true,
         ...(entry.probeOwner ? { probeOwner: entry.probeOwner } : {}),
@@ -299,11 +311,36 @@ export function createAppSource(): BoardSource {
           !entry.home &&
           !entry.config &&
           !sidebar.find((repo) => repo.path === entry.repository)?.unavailable &&
-          (!checkout || checkout.prunable),
+          (!checkout || checkout.prunable) &&
+          !(
+            entry.placement?.kind === "remote" &&
+            machines.some(
+              (machine) =>
+                machine.host ===
+                  (entry.placement?.kind === "remote" ? entry.placement.host : undefined) &&
+                !machine.available,
+            )
+          ),
         exited: entry.exited ?? exits.has(entry.id),
         bypass: entry.bypass === true,
         conversationId: entry.conversationId,
-        dormant: entry.dormant === true,
+        unavailable:
+          entry.placement?.kind === "remote" &&
+          machines.some(
+            (machine) =>
+              machine.host ===
+                (entry.placement?.kind === "remote" ? entry.placement.host : undefined) &&
+              !machine.available,
+          ),
+        dormant:
+          entry.dormant === true ||
+          (entry.placement?.kind === "remote" &&
+            machines.some(
+              (machine) =>
+                machine.host ===
+                  (entry.placement?.kind === "remote" ? entry.placement.host : undefined) &&
+                !machine.available,
+            )),
         launchVersion: entry.launchVersion ?? 0,
       });
     });
@@ -545,6 +582,7 @@ export function createAppSource(): BoardSource {
     isReady: () => loaded,
     isSidebarReady: () => inventoryLoaded,
     getSidebar: () => sidebar,
+    getMachines: () => machines,
     shellName: () => shellName,
     homeShell: () => home,
     config: {
@@ -628,8 +666,11 @@ export function createAppSource(): BoardSource {
       },
       addRepository: () => window.desktop.addRepository(),
       branches: (repository) => window.desktop.branches(repository),
-      create: async (repository, branch) => {
-        const created = await window.desktop.createWorktree(repository, branch);
+      create: async (repository, branch, host) => {
+        const created =
+          host === undefined
+            ? await window.desktop.createWorktree(repository, branch)
+            : await window.desktop.createWorktree(repository, branch, undefined, host);
         const inventory = await window.desktop.sidebarInventory();
         acceptInventory(inventory);
         snapshot(await window.desktop.workspace());

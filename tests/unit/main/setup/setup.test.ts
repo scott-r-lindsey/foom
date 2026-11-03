@@ -544,3 +544,18 @@ test("host copies require both registered host service and main clipboard capabi
   );
   hostService.dispose();
 });
+
+test("completed host checks refresh board inventory while rejected actions publish nothing", async () => {
+  const { Hosts } = await import("../../../../src/main/setup/hosts");
+  const hosts = new Hosts(deps.store, () => [], "0.1.0");
+  const state = { hosts: [], locations: [] };
+  const action = vi.spyOn(hosts, "action").mockResolvedValue(state);
+  const changed = vi.fn();
+  const setup = new Setup({ ...deps, hosts, hostsChanged: changed });
+  await expect(setup.hosts({ action: "list" })).resolves.toBe(state);
+  expect(changed).toHaveBeenCalledOnce();
+  action.mockRejectedValueOnce(new Error("refused"));
+  await expect(setup.hosts({ action: "refresh", host: "worker" })).rejects.toThrow("refused");
+  expect(changed).toHaveBeenCalledOnce();
+  hosts.dispose();
+});

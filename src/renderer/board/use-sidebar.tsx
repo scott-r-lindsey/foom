@@ -195,7 +195,7 @@ export function useSidebar(props: SidebarProps) {
       options?.showNestedRepositoryNames,
     ),
   }));
-  const homeRows = rows.filter((row) => row.home);
+  const homeRows = rows.filter((row) => row.home && !row.machine);
   const visibleHomeRows = homeRows.filter((row) =>
     `${sessionName(row, preferences)} ${row.reason} ~`
       .toLocaleLowerCase()
@@ -514,7 +514,7 @@ export function useSidebar(props: SidebarProps) {
                   run: () => command({ kind: "take-over", id: row.id }),
                 },
               ]
-            : row.kind === "agent" && !row.config
+            : row.kind === "agent" && !row.config && !row.home
               ? [
                   row.orchestration?.role === "orchestrator" && row.orchestration.active
                     ? {

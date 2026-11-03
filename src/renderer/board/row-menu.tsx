@@ -411,6 +411,7 @@ export function RowMenu({
                   }
                   if (action.expanded !== undefined) {
                     setSub(undefined);
+                    nested?.back();
                     void action.run();
                     return;
                   }

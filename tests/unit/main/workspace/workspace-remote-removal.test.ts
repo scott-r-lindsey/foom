@@ -1,3 +1,4 @@
+import type { RemoteTarget } from "../../../../src/shared/remote-host";
 import { MessageBoard } from "../../../../src/main/control/message-board";
 import { locationId } from "../../../../src/main/control/metadata";
 import { expect, test, vi } from "vitest";
@@ -27,6 +28,7 @@ test.each(["success", "cancel", "uncertain"])(
     };
     let present = true;
     const hosts = {
+      shellTarget: (): RemoteTarget => ({ host: "worker", profile: "a".repeat(32), human: true }),
       fleet: vi.fn(() => Promise.resolve([])),
       registered: vi.fn(() => ({ host: "worker", codeFolder: "/code" })),
       requireAgent: vi.fn(() => Promise.resolve()),
@@ -45,6 +47,7 @@ test.each(["success", "cancel", "uncertain"])(
       }),
     };
     const kill = vi.fn(() => Promise.resolve());
+    vi.spyOn(deps.terminals, "create").mockResolvedValue("human");
     const workspace = createWorkspace({ ...deps, hosts, terminals: { ...deps.terminals, kill } });
     const board = new MessageBoard(
       async () => {},
@@ -58,14 +61,6 @@ test.each(["success", "cancel", "uncertain"])(
       "launch",
       { prompt: "Task" },
       "launch",
-    );
-    launch.mockImplementation(() =>
-      Promise.resolve({
-        id: "human",
-        attention: "evaluator",
-        remote: true,
-        placement: { kind: "remote", host: "worker" },
-      }),
     );
     await workspace.sidebarCommand(
       { kind: "launch", repository: repo.path, worktree: path, run: "claude" },

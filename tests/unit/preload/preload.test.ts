@@ -1724,3 +1724,57 @@ test.each([undefined, "false", "yes"])(
     }
   },
 );
+
+test("machine inventory and session markers are validated and projected without undeclared data", async () => {
+  const api = await bridge();
+  const machine = {
+    host: "worker",
+    name: "worker",
+    available: false,
+    agents: [{ id: "claude", name: "Claude Code" }],
+    repositories: ["/repo"],
+  };
+  mock.invoke.mockResolvedValue({
+    repositories: [],
+    shell: "bash",
+    machines: [{ ...machine, command: "/private" }],
+  });
+  await expect(api.sidebarInventory()).resolves.toEqual({
+    repositories: [],
+    shell: "bash",
+    machines: [machine],
+  });
+  for (const invalid of [
+    { ...machine, host: "-oCommand=private" },
+    { ...machine, available: "private" },
+    { ...machine, agents: [{ id: "claude", name: false }] },
+    { ...machine, repositories: [false] },
+  ]) {
+    mock.invoke.mockResolvedValue({ repositories: [], shell: "bash", machines: [invalid] });
+    await expect(api.sidebarInventory()).rejects.toThrow();
+  }
+  mock.invoke.mockResolvedValue({ terminalId: "machine-one", secret: "private" });
+  await expect(
+    api.sidebarCommand({ kind: "machine-launch", host: "worker", run: "claude" }),
+  ).resolves.toEqual({ terminalId: "machine-one" });
+  await expect(
+    api.sidebarCommand({
+      kind: "repository-launch",
+      host: "worker",
+      repository: "/repo",
+      run: "claude",
+    }),
+  ).resolves.toEqual({ terminalId: "machine-one" });
+  mock.invoke.mockResolvedValue(undefined);
+  await expect(
+    api.sidebarCommand({
+      kind: "repository-launch",
+      host: null,
+      repository: "/repo",
+      run: "claude",
+    }),
+  ).resolves.toBeUndefined();
+  await expect(
+    api.sidebarCommand({ kind: "machine-launch", host: "worker", run: "claude" }),
+  ).rejects.toThrow();
+});

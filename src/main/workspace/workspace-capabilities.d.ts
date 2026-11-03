@@ -16,6 +16,7 @@ import type { Agents, WorkspaceDependencies, WorkspaceMethods } from "./workspac
 
 /** Independent feature contracts. Shared mutable state remains owned by the composer. */
 export interface WorktreeLaunchContext {
+  readonly closed: boolean;
   readonly addWorktree: WorkspaceMethods["addWorktree"];
   readonly agents: Pick<Agents, "launch">;
   readonly busyWorktrees: Set<string>;
@@ -45,9 +46,11 @@ export interface WorktreeLaunchContext {
   readonly shellEnvironment: WorkspaceMethods["shellEnvironment"];
   readonly startExisting: WorkspaceMethods["startExisting"];
   readonly startShell: WorkspaceMethods["startShell"];
+  readonly startMachine: WorkspaceMethods["startMachine"];
   readonly withRepository: <T>(repository: string, work: () => Promise<T>) => Promise<T>;
   readonly worktrees: WorkspaceMethods["worktrees"];
   readonly deps: {
+    readonly hosts: WorkspaceDependencies["hosts"];
     readonly worktrees: Pick<
       WorkspaceDependencies["worktrees"],
       "launchIdentity" | "listWorktrees" | "validateBranch"
@@ -80,6 +83,8 @@ export interface AgentSetupContext {
 }
 
 export interface SidebarCommandsContext {
+  readonly scanAgents: WorkspaceMethods["scanAgents"];
+  readonly enabled: Readonly<Record<AgentId, boolean>>;
   readonly auditHuman: WorkspaceMethods["auditHuman"];
   readonly busySessions: Set<string>;
   readonly busyWorktrees: Set<string>;
@@ -106,6 +111,7 @@ export interface SidebarCommandsContext {
   readonly snapshot: () => WorkspaceSnapshot;
   readonly startConfig: WorkspaceMethods["startConfig"];
   readonly startExisting: WorkspaceMethods["startExisting"];
+  readonly startMachine: WorkspaceMethods["startMachine"];
   readonly startHomeShell: WorkspaceMethods["startHomeShell"];
   readonly withRepository: <T>(repository: string, work: () => Promise<T>) => Promise<T>;
   readonly worktrees: WorkspaceMethods["worktrees"];
@@ -113,7 +119,7 @@ export interface SidebarCommandsContext {
     readonly hosts:
       | Pick<
           NonNullable<WorkspaceDependencies["hosts"]>,
-          "placement" | "registered" | "shellTarget"
+          "placement" | "registered" | "shellTarget" | "fleet" | "state" | "locationsForSidebar"
         >
       | undefined;
     readonly worktrees: Pick<
@@ -184,9 +190,10 @@ export interface RepositoryOperationsContext {
   readonly refresh: () => void;
   readonly withRepository: <T>(repository: string, work: () => Promise<T>) => Promise<T>;
   readonly deps: {
+    readonly hosts: WorkspaceDependencies["hosts"];
     readonly worktrees: Pick<
       WorkspaceDependencies["worktrees"],
-      "createWorktree" | "listWorktrees"
+      "createWorktree" | "listWorktrees" | "validateBranch"
     >;
   };
 }

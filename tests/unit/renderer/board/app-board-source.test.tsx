@@ -596,3 +596,80 @@ test.each([false, true])(
     }
   },
 );
+
+test("remote host failures make sessions dormant without calling their worktrees removed and recover on a fresh inventory", async () => {
+  const remote = {
+    ...agent("remote", verdict("remote")),
+    branch: "topic · worker",
+    placement: { kind: "remote" as const, host: "worker" },
+  };
+  const loose = {
+    ...agent("loose"),
+    repository: "/home/fixture",
+    worktree: "/home/fixture",
+    branch: null,
+    home: true,
+    machine: true,
+  };
+  mock.workspace.mockResolvedValue({
+    repositories: [{ path: "/code/app", name: "app" }],
+    terminals: [remote, loose],
+  });
+  mock.sidebarInventory.mockResolvedValue({
+    repositories: [{ path: "/code/app", name: "app", worktrees: [] }],
+    shell: "bash",
+    machines: [{ host: "worker", name: "worker", available: false, agents: [] }],
+  });
+  const source = createAppSource();
+  const disconnect = source.connect?.();
+  await settle();
+  expect(source.getMachines?.()).toEqual([
+    { host: "worker", name: "worker", available: false, agents: [] },
+  ]);
+  expect(source.getSnapshot().find((row) => row.id === "remote")).toMatchObject({
+    branch: "topic",
+    dormant: true,
+    unavailable: true,
+    state: "needs_input",
+    worktreeRemoved: false,
+  });
+  expect(source.getSnapshot().find((row) => row.id === "loose")).toMatchObject({
+    home: true,
+    machine: true,
+    branch: "~",
+  });
+  mock.state?.(verdict("remote", 200));
+  expect(source.getSnapshot().find((row) => row.id === "remote")?.reason).toBe("Unavailable");
+  mock.sidebarInventory.mockResolvedValue({
+    repositories: [
+      {
+        path: "/code/app",
+        name: "app",
+        worktrees: [
+          {
+            host: "worker",
+            path: remote.worktree,
+            branch: "topic",
+            head: null,
+            bare: false,
+            locked: false,
+            prunable: false,
+            managed: false,
+          },
+        ],
+      },
+    ],
+    shell: "bash",
+    machines: [{ host: "worker", name: "worker", available: true, agents: [] }],
+  });
+  mock.changed?.();
+  await settle();
+  expect(source.getSnapshot().find((row) => row.id === "remote")).toMatchObject({
+    branch: "topic",
+    dormant: false,
+    unavailable: false,
+    state: "needs_input",
+    worktreeRemoved: false,
+  });
+  disconnect?.();
+});

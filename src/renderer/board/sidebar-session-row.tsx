@@ -105,7 +105,7 @@ export function SidebarSessionRow({
         data-state={lightState(row)}
         data-exited={Boolean(row.exited)}
         tabIndex={docked || row.id === selected ? 0 : -1}
-        aria-label={`${compact ? `${row.home ? "~" : row.config ? "Foom config" : row.repository} · ` : ""}${row.branch} · ${name}${name === identity ? "" : ` · ${identity}`} · ${light(row).label}${row.orchestration?.role === "child" ? ` · Child of ${parentName ?? row.orchestration.parentId}` : ""}${row.foregroundProgram ? ` · ${row.foregroundProgram}` : ""}${row.kind === "shell" ? "" : ` · ${row.reason}`}${row.handoff ? ` · Handoff ${row.handoff.status}` : ""}${row.review ? ` · ${reviewLabel(row.review)}` : ""}${row.bypass ? " · Bypass" : ""}${row.worktreeRemoved ? " · Worktree removed" : ""}`}
+        aria-label={`${compact ? `${row.home ? "~" : row.config ? "Foom config" : row.repository} · ` : ""}${row.branch} · ${name}${name === identity ? "" : ` · ${identity}`} · ${light(row).label}${row.orchestration?.role === "child" ? ` · Child of ${parentName ?? row.orchestration.parentId}` : ""}${row.foregroundProgram ? ` · ${row.foregroundProgram}` : ""}${row.kind === "shell" ? "" : ` · ${row.reason}`}${row.handoff ? ` · Handoff ${row.handoff.status}` : ""}${row.review ? ` · ${reviewLabel(row.review)}` : ""}${row.bypass ? " · Bypass" : ""}${row.worktreeRemoved ? " · Worktree removed" : ""}${row.unavailable ? " · Unavailable" : ""}`}
         ref={(element) => {
           register(row.id, element);
         }}
@@ -224,6 +224,7 @@ export function SidebarSessionRow({
               <span className="board-wait">{waitTime(row, now)}</span>
             )}
           </span>
+          {row.unavailable && <span className="worktree-removed">⊘ Unavailable</span>}
           {row.worktreeRemoved && (
             <span className="worktree-removed">
               <span aria-hidden="true">⊘</span> Worktree removed
