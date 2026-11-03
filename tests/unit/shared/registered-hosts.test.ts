@@ -500,6 +500,11 @@ test("clearing nicknames checks the effective default against other nicknames, p
   ).toBe("Name already used");
 });
 
+test("local progress action accepts no host or arbitrary payload", () => {
+  expect(hostsAction({ action: "progress" })).toBe(true);
+  expect(hostsAction({ action: "progress", host: "worker" })).toBe(false);
+});
+
 test("origin trust selects only SSH targets and preserves explicit ports without a command", () => {
   expect(originSshArgs("git@forge.test:team/repo.git")?.slice(-2)).toEqual([
     "--",

@@ -2,9 +2,14 @@
 import { createRef } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { HostsSettings, RepositoryHosts } from "../../../../src/renderer/preflight/hosts-settings";
+import {
+  HostsSettings,
+  RepositoryHosts,
+  hostProgressText,
+} from "../../../../src/renderer/preflight/hosts-settings";
 import type {
   HostFailure,
+  HostCheckProgress,
   HostPreflight,
   HostsAction,
   HostsState,
@@ -344,7 +349,7 @@ test("legacy and missing facts stay unknown; pending checks and rejected promise
       }),
   );
   fireEvent.click(screen.getByRole("button", { name: "Check again" }));
-  expect(screen.getAllByText("Checking…")).toHaveLength(2);
+  expect(screen.getByText("Checking host…")).toBeTruthy();
   view.unmount();
   resolve?.(initial);
 });
@@ -751,6 +756,94 @@ test("inline host names validate, save without preflight, cancel and restore the
   fireEvent.change(screen.getByLabelText("Host nickname"), { target: { value: "" } });
   fireEvent.click(screen.getByRole("button", { name: "Save name" }));
   await screen.findByRole("button", { name: "Rename worker" });
+});
+
+test("progress text follows the observed phase and repository position", () => {
+  const progress: HostCheckProgress = {
+    host: "worker",
+    phase: "inspect",
+    repositories: [{ repository: "/local/first" }, { repository: "C:\\code\\foom" }],
+  };
+  expect(hostProgressText(undefined)).toBe("Checking host…");
+  expect(hostProgressText(progress)).toBe("Checking host…");
+  expect(hostProgressText({ ...progress, phase: "origin", repository: "C:\\code\\foom" })).toBe(
+    "Checking Git access · foom (2 of 2)",
+  );
+  expect(hostProgressText({ ...progress, phase: "checkout", repository: "/local/first" })).toBe(
+    "Checking checkout · first (1 of 2)",
+  );
+});
+test("first check renders pending repository rows and replaces them with observations", async () => {
+  let finish: ((state: HostsState) => void) | undefined;
+  const pending = new Promise<HostsState>((resolve) => {
+    finish = resolve;
+  });
+  let progress: HostCheckProgress = {
+    host: "worker",
+    phase: "origin",
+    repository: "/local/project",
+    result: host.result,
+    repositories: [{ repository: "/local/project" }, { repository: "/local/next" }],
+  };
+  const api = vi.fn((action: HostsAction) =>
+    action.action === "preflight"
+      ? pending
+      : Promise.resolve(action.action === "progress" ? { ...initial, progress } : initial),
+  );
+  const view = render(<HostsSettings source={{ hosts: api }} headingRef={createRef()} />);
+  await screen.findByText("Checking Git access · project (1 of 2)");
+  expect(screen.getAllByText("Checking…", { exact: true })).toHaveLength(5);
+  expect(screen.getByText("Repository · next")).toBeTruthy();
+  expect(view.container.querySelector(".host-throbber")?.getAttribute("aria-hidden")).toBe("true");
+  progress = {
+    ...progress,
+    phase: "checkout",
+    repositories: [
+      { repository: "/local/project", origin: { state: "pass" } },
+      { repository: "/local/next" },
+    ],
+  };
+  await screen.findByText("Checking checkout · project (1 of 2)");
+  expect(screen.getByText("Pass · Reachable")).toBeTruthy();
+  act(() => {
+    finish?.(initial);
+  });
+  await screen.findByText("Not checked out");
+  expect(view.container.querySelector(".host-throbber")).toBeNull();
+  const calls = api.mock.calls.length;
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  expect(api).toHaveBeenCalledTimes(calls);
+});
+test("progress polling failures leave the authoritative check running; unmount ignores late reads", async () => {
+  let resolveProgress: ((state: HostsState) => void) | undefined;
+  const late = new Promise<HostsState>((resolve) => {
+    resolveProgress = resolve;
+  });
+  const api = vi.fn<(action: HostsAction) => Promise<HostsState>>();
+  api.mockImplementation((action) =>
+    action.action === "preflight"
+      ? new Promise(() => {})
+      : action.action === "progress"
+        ? Promise.reject(new Error("unavailable"))
+        : Promise.resolve(initial),
+  );
+  const view = render(<HostsSettings source={{ hosts: api }} headingRef={createRef()} />);
+  await screen.findByText("Checking host…");
+  api.mockImplementation((action) =>
+    action.action === "progress" ? late : Promise.resolve(initial),
+  );
+  await waitFor(() => {
+    expect(
+      api.mock.calls.filter(([action]) => action.action === "progress").length,
+    ).toBeGreaterThan(1);
+  });
+  view.unmount();
+  act(() => {
+    resolveProgress?.({
+      ...initial,
+      progress: { host: "worker", phase: "inspect", repositories: [] },
+    });
+  });
 });
 
 test("usable hosts keep optional missing agents, sign-in and checkouts neutral", async () => {

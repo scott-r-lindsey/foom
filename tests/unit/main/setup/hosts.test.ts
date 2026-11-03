@@ -1264,6 +1264,63 @@ test("a colliding nickname reset leaves the profile valid and survives reopening
   }
 });
 
+test("local progress reads bypass the mutation queue and retain completed repository checks", async () => {
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  repositories = [
+    { path: "/local/repo", name: "repo" },
+    { path: "/local/next", name: "next" },
+  ];
+  const held: { release?: (result: HostResult) => void } = {};
+  run.mockImplementation((_host, request) =>
+    request.operation === "origin"
+      ? new Promise((resolve) => {
+          held.release = resolve;
+        })
+      : Promise.resolve({ ok: true, facts }),
+  );
+  const pending = hosts.action({
+    action: "preflight",
+    host: "worker",
+    codeFolder: facts.codeFolder,
+  });
+  await vi.waitFor(() => {
+    expect(held.release).toBeDefined();
+  });
+  const calls = run.mock.calls.length;
+  const snapshot = await hosts.action({ action: "progress" });
+  expect(run).toHaveBeenCalledTimes(calls);
+  expect(snapshot.progress).toMatchObject({
+    host: "worker",
+    phase: "origin",
+    repository: "/local/repo",
+    repositories: [{ repository: "/local/repo" }, { repository: "/local/next" }],
+  });
+  const finish = (result: HostResult) => {
+    held.release?.(result);
+    delete held.release;
+  };
+  finish({ ok: false, reason: "origin-auth" });
+  await vi.waitFor(() => {
+    expect(held.release).toBeDefined();
+  });
+  expect((await hosts.action({ action: "progress" })).progress).toMatchObject({
+    phase: "origin",
+    repository: "/local/next",
+    repositories: [
+      {
+        repository: "/local/repo",
+        origin: { state: "fail", reason: "origin-auth" },
+        checkout: { ok: false, reason: "checkout-refused" },
+      },
+      { repository: "/local/next" },
+    ],
+  });
+  expect(snapshot.progress?.repositories[0]?.origin).toBeUndefined();
+  finish({ ok: true, facts });
+  await pending;
+  expect((await hosts.action({ action: "progress" })).progress).toBeUndefined();
+});
+
 test("Trust host key re-reads registered origin and launches a human tile with no renderer command", async () => {
   hosts = new Hosts(store, () => repositories, "0.1.0", run, "f".repeat(32));
   await hosts.action({ action: "add", host: "worker", codeFolder: "~/code" });
