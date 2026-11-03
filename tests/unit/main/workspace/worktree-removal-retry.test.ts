@@ -184,6 +184,84 @@ test(
   }),
 );
 
+for (const unavailable of [false, true]) {
+  test(
+    `prunable re-registration preserves new data when its saved repository is ${unavailable ? "unavailable" : "available"}`,
+    fixture.usingFixture(async () => {
+      const { service, repo, path, profile, root } = await pendingFixture();
+      const other = await fixture.create();
+      await service.addRepository(other.repo);
+      const identity = await operations.parentIdentity(path);
+      await rm(join(path, "retained"));
+      await git(["worktree", "add", "-b", "re-registered", path], { cwd: other.repo });
+      expect(await operations.parentIdentity(path)).toBe(identity);
+      await rm(join(path, ".git"));
+      await writeFile(join(path, "retained"), "new data from the other repository");
+      if (unavailable) await rename(other.repo, `${other.repo}-offline`);
+      const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const restored = await WorktreeService.open(profile, root);
+      await restored.reconcileRemovals();
+      expect(await readFile(join(path, "retained"), "utf8")).toBe(
+        "new data from the other repository",
+      );
+      if (unavailable) {
+        expect(log).toHaveBeenCalledWith(
+          "Worktree removal retry refused: membership-unavailable",
+          path,
+        );
+        expect(restored.listRepositories()).not.toContainEqual(
+          expect.objectContaining({ path: other.repo }),
+        );
+        // An unrelated registration save must retain the unavailable identity too.
+        await restored.addRepository(repo);
+        const saved = await new WorktreeStore(join(profile, "worktrees.json")).read();
+        expect(saved?.repositories).toContain(other.repo);
+        expect(saved?.pendingRemovals).toContainEqual(expect.objectContaining({ path }));
+        const again = await WorktreeService.open(profile, root);
+        await again.reconcileRemovals();
+        expect(await readFile(join(path, "retained"), "utf8")).toBe(
+          "new data from the other repository",
+        );
+        await rename(`${other.repo}-offline`, other.repo);
+        await again.addRepository(other.repo);
+        await expect(again.cleanupBrokenWorktree(repo, path)).rejects.toThrow(
+          "worktree-removal-incomplete",
+        );
+        expect(log).toHaveBeenCalledWith("Worktree removal retry refused: re-registered", path);
+        expect(
+          (await new WorktreeStore(join(profile, "worktrees.json")).read())?.pendingRemovals,
+        ).toEqual([]);
+        expect(await readFile(join(path, "retained"), "utf8")).toBe(
+          "new data from the other repository",
+        );
+      }
+    }),
+  );
+}
+
+test(
+  "pending removal survives its owning repository being unavailable across startup",
+  fixture.usingFixture(async () => {
+    const { repo, path, profile, root } = await pendingFixture();
+    await rename(repo, `${repo}-offline`);
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const restored = await WorktreeService.open(profile, root);
+    await restored.reconcileRemovals();
+    expect(log).toHaveBeenCalledWith(
+      "Worktree removal retry refused: membership-unavailable",
+      path,
+    );
+    expect(
+      (await new WorktreeStore(join(profile, "worktrees.json")).read())?.pendingRemovals,
+    ).toContainEqual(expect.objectContaining({ path }));
+    expect(await readFile(join(path, "retained"), "utf8")).toBe("retained data");
+    await rename(`${repo}-offline`, repo);
+    const recovered = await WorktreeService.open(profile, root);
+    await recovered.reconcileRemovals();
+    await expect(lstat(path)).rejects.toThrow();
+  }),
+);
+
 test(
   "a user-created directory never grants retry authority",
   fixture.usingFixture(async () => {

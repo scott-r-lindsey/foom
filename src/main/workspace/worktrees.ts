@@ -43,6 +43,8 @@ import { WorktreeBranchCleanup } from "./worktree-branch-cleanup";
 /** Main-process service. Git membership authorizes management; managed records creation history. */
 export class WorktreeService {
   private readonly repositories = new Map<string, Repository>();
+  // Saved paths that could not be validated still have unknown Git membership.
+  private readonly unavailableRepositories = new Set<string>();
   private readonly managed = new Map<
     string,
     {
@@ -82,7 +84,7 @@ export class WorktreeService {
   private async save(): Promise<void> {
     await this.store?.save(() => ({
       version: 1,
-      repositories: [...this.repositories.keys()],
+      repositories: [...this.repositories.keys(), ...this.unavailableRepositories],
       pendingRemovals: [...this.pendingRemovals.values()],
       parents: [...this.createdParents].map(([path, identity]) => ({ path, identity })),
       managed: [...this.managed].map(([path, ownership]) => ({ path, ...ownership })),
@@ -164,12 +166,13 @@ export class WorktreeService {
     const store = new WorktreeStore(stateFile);
     const state = await store.read();
     if (!state) return;
+    for (const path of state.repositories) this.unavailableRepositories.add(path);
     for (const path of state["repositories"]) {
       try {
         if ((await realpath(path)) !== path) continue;
         await this.addRepository(path);
       } catch {
-        // Removed or invalid repositories are omitted.
+        // Omit unusable registrations, but retain their unknown retry membership.
       }
     }
     for (const entry of state["managed"]) {
@@ -209,7 +212,11 @@ export class WorktreeService {
     }
     this.store = store;
     for (const entry of state.pendingRemovals ?? []) {
-      if (!this.repositories.has(entry.repository)) continue;
+      if (
+        !this.repositories.has(entry.repository) &&
+        !this.unavailableRepositories.has(entry.repository)
+      )
+        continue;
       this.pendingRemovals.set(entry.path, entry);
     }
     await this.save();
@@ -278,8 +285,10 @@ export class WorktreeService {
 
   private async saveRegistration(path: string, repository?: Repository): Promise<void> {
     const commit = () => {
-      if (repository) this.repositories.set(path, repository);
-      else {
+      if (repository) {
+        this.repositories.set(path, repository);
+        this.unavailableRepositories.delete(path);
+      } else {
         for (const [tree, entry] of this.managed) {
           if (entry.repository === path) this.managed.delete(tree);
         }
@@ -305,7 +314,7 @@ export class WorktreeService {
       }
       return {
         version: 1,
-        repositories: [...repositories.keys()],
+        repositories: [...new Set([...repositories.keys(), ...this.unavailableRepositories])],
         pendingRemovals: [...this.pendingRemovals.values()].filter(
           (entry) => repository || entry.repository !== path,
         ),
@@ -1050,7 +1059,6 @@ export class WorktreeService {
     path: string,
     remaining: () => number = () => 30_000,
   ): Promise<void> {
-    this.repository(repository);
     const entry = this.pendingRemovals.get(path);
     if (!entry || entry.repository !== repository) {
       console.error("Worktree removal retry refused: not-created-by-foom", path);
@@ -1062,6 +1070,8 @@ export class WorktreeService {
     }
     this.retrying.add(path);
     try {
+      if (this.unavailableRepositories.size > 0) throw new RetryRefusal("membership-unavailable");
+      this.repository(repository);
       const state = await checkRemovalRetry(entry, this.root, async () => {
         const paths: string[] = [];
         for (const repository of this.repositories.keys()) {
