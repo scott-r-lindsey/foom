@@ -544,7 +544,12 @@ test("terminal font picker updates open shells and config shells and refits thei
     // OS enumeration may legitimately return [] (including after its bounded
     // PowerShell timeout). Exercise font changes with a font bundled on every OS.
     ipcMain.removeHandler("setup:terminal-fonts");
-    ipcMain.handle("setup:terminal-fonts", () => ["Geist Mono"]);
+    // Keep enumeration pending until Terminal has mounted. Typing before this
+    // reply used to leave Geist present but inactive when it arrived later.
+    global.fontList = new Promise((resolve) => {
+      global.releaseFontList = resolve;
+    });
+    ipcMain.handle("setup:terminal-fonts", () => global.fontList);
   });
   await openSettingsScreen(page);
   await page
@@ -553,6 +558,17 @@ test("terminal font picker updates open shells and config shells and refits thei
     .click();
   const picker = page.getByRole("button", { name: /^Terminal font (?!size)/ });
   const family = "Geist Mono";
+  // Section markup precedes the effect that moves focus to its heading, and
+  // families arrive over IPC independently. Both must be ready before typing.
+  await expect(page.getByRole("heading", { name: "Terminal", exact: true })).toBeFocused();
+  const option = page.getByRole("menuitemradio", {
+    name: family,
+    exact: true,
+    includeHidden: true,
+  });
+  await expect(option).toHaveCount(0);
+  await app.evaluate(() => global.releaseFontList(["Geist Mono"]));
+  await expect(option).toHaveCount(1);
   await picker.focus();
   await page.keyboard.type("Geist");
   await expect(page.getByRole("menuitemradio", { name: family, exact: true })).toBeFocused();
@@ -836,6 +852,14 @@ test("first-run rail shares the Theme menu and saves its live selection", async 
   assert.equal(saved.settings.interfaceTheme, "follow");
   assert.equal(await app.evaluate(({ nativeTheme }) => nativeTheme.themeSource), "system");
   await expect(page.locator("html")).toHaveCSS("color-scheme", systemDark ? "dark" : "light");
+  // The main-process save barrier does not drain renderer IPC or React updates.
+  // Observe Default in the picker too before simulating the next native change.
+  await expect(
+    page.getByRole("button", {
+      name: `Theme Default · Eclipse ${systemDark ? "Dark" : "Light"}`,
+      exact: true,
+    }),
+  ).toBeVisible();
   for (const mode of ["light", "dark"]) {
     await app.evaluate(({ nativeTheme }, mode) => {
       nativeTheme.themeSource = mode;
@@ -848,7 +872,9 @@ test("first-run rail shares the Theme menu and saves its live selection", async 
       }),
     ).toBeVisible();
     await page.getByRole("button", { name: /^Theme Default · Eclipse / }).click();
-    assert.deepEqual(await page.getByRole("menuitemradio").allTextContents(), [
+    // Native media changes and the menu's React label commit asynchronously.
+    // Assert the complete live menu with the same readiness policy as its trigger.
+    await expect(page.getByRole("menuitemradio")).toHaveText([
       `✓Default · Eclipse ${mode === "dark" ? "Dark" : "Light"}`,
       "Eclipse Light",
       "Eclipse Dark",
