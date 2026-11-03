@@ -14,7 +14,14 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createHash } from "node:crypto";
 import { devNull } from "node:os";
-import { hostsAction, gitOrigin, hostResult, originSshArgs } from "../../shared/registered-hosts";
+import {
+  hostsAction,
+  gitOrigin,
+  hostResult,
+  hostNicknameError,
+  hostDisplayName,
+  originSshArgs,
+} from "../../shared/registered-hosts";
 import type {
   HostFailure,
   HostCheck,
@@ -285,23 +292,32 @@ export class Hosts {
     ) {
       let pending = this.inventoryReads.get(host);
       if (!pending) {
-        pending = this.run(host, {
-          type: "manage",
-          operation: "inspect",
-          readOnly: true,
-          codeFolder: registration.codeFolder,
+        // Explicit host checks can finish while this background read is in flight.
+        const previous = this.results.get(host);
+        const current = () => this.results.get(host) === previous;
+        pending = this.run(
+          host,
+          {
+            type: "manage",
+            operation: "inspect",
+            readOnly: true,
+            codeFolder: registration.codeFolder,
+          },
+          current,
+        ).then((result) => {
+          this.registered(host, registration.codeFolder);
+          if (current()) this.results.set(host, result);
+          return result;
         });
         this.inventoryReads.set(host, pending);
       }
-      let result: HostResult;
       try {
-        result = await pending;
+        await pending;
       } finally {
         if (this.inventoryReads.get(host) === pending) this.inventoryReads.delete(host);
       }
 
       this.registered(host, registration.codeFolder);
-      this.results.set(host, result);
     }
     return this.results.get(host) ?? { ok: false, reason: "unreachable" };
   }
@@ -628,6 +644,19 @@ export class Hosts {
       .catch(() => undefined)
       .then(async () => {
         const hosts = this.store.get().registeredHosts ?? [];
+        if (input.action === "rename") {
+          this.registered(input.host);
+          const error = hostNicknameError(hosts, input.host, input.nickname);
+          if (error) throw new Error(error);
+          await this.store.update({
+            registeredHosts: hosts.map((entry) => {
+              if (entry.host !== input.host) return entry;
+              const registration = { host: entry.host, codeFolder: entry.codeFolder };
+              return input.nickname ? { ...registration, nickname: input.nickname } : registration;
+            }),
+          });
+          return this.state();
+        }
         if (input.action === "trust-origin") {
           const registration = this.registered(input.host);
           if (!this.repositories().some((repo) => repo.path === input.repository))
@@ -755,7 +784,7 @@ export class Hosts {
             await this.store.update({
               registeredHosts: hosts.map((entry) =>
                 entry.host === input.host
-                  ? { host: entry.host, codeFolder: result.facts.codeFolder }
+                  ? { ...entry, codeFolder: result.facts.codeFolder }
                   : entry,
               ),
             });
@@ -768,6 +797,14 @@ export class Hosts {
         if (input.action === "add" || input.action === "test") {
           if (hosts.length >= 32 || hosts.some((host) => host.host === input.host))
             throw new Error("Host already registered or limit reached");
+          if (
+            hosts.some(
+              (entry) =>
+                entry.nickname?.toLowerCase() ===
+                hostDisplayName({ host: input.host }).toLowerCase(),
+            )
+          )
+            throw new Error("Name already used");
           const result = await this.run(input.host, {
             type: "manage",
             operation: "inspect",
@@ -853,7 +890,11 @@ export class Hosts {
     this.pending = work;
     return work;
   }
-  private async run(host: string, request: HostManagement): Promise<HostResult> {
+  private async run(
+    host: string,
+    request: HostManagement,
+    currentObservation: () => boolean = () => true,
+  ): Promise<HostResult> {
     const failed = (
       reason: HostFailure,
       step: "providers" | "connection" | "reply" | "configuration" | "cancellation",
@@ -916,7 +957,7 @@ export class Hosts {
         if (request.operation === "inspect" && attempt === 0) continue;
         return failed("configuration-changed", "configuration");
       }
-      if (request.operation === "inspect")
+      if (request.operation === "inspect" && currentObservation())
         this.observed.set(host, { at: Date.now(), revision, enabled });
       return {
         ...result,
@@ -943,7 +984,7 @@ export class Hosts {
     if (!registration.codeFolder.startsWith("~/") || !result?.ok) return;
     await this.store.update({
       registeredHosts: (this.store.get().registeredHosts ?? []).map((entry) =>
-        entry.host === host ? { host, codeFolder: result.facts.codeFolder } : entry,
+        entry.host === host ? { ...entry, codeFolder: result.facts.codeFolder } : entry,
       ),
     });
     this.locations = this.locations.filter((entry) => entry.host !== host);

@@ -1,3 +1,4 @@
+import { hostsAction } from "../../shared/registered-hosts";
 import type { RemoteTarget } from "../../shared/remote-host";
 import type { DialogContent } from "../../shared/confirmation";
 import type { Hosts } from "./hosts";
@@ -75,7 +76,10 @@ export class Setup {
     return this.deps.hosts
       .action(input, this.deps.confirmRemoteSessions, this.deps.launchHostRecipe)
       .then((state) => {
-        this.deps.hostsChanged?.();
+        if (hostsAction(input)) {
+          if (input.action === "rename") this.refresh();
+          if (input.action !== "progress") this.deps.hostsChanged?.();
+        }
         return state;
       });
   }

@@ -686,13 +686,76 @@ test("host aliases and agent IDs are literal data even when they name object pro
   );
   render(<HostsSettings source={{ hosts: api }} headingRef={createRef()} />);
   await screen.findByRole("region", { name: "constructor" });
-  expect(screen.getAllByText("constructor")).toHaveLength(2);
+  expect(screen.getAllByText("constructor")).toHaveLength(3);
   await act(async () => {
     finish?.({ ...state, preflight: { ...preflight, result } });
     await pending;
   });
   await screen.findByText("Pass · Host key trusted");
-  expect(screen.getAllByText("constructor")).toHaveLength(2);
+  expect(screen.getAllByText("constructor")).toHaveLength(3);
+});
+
+test("inline host names validate, save without preflight, cancel and restore the default", async () => {
+  let state: HostsState = {
+    ...initial,
+    hosts: [
+      { ...host, host: "me@worker.local" },
+      { ...host, host: "other", nickname: "Other box" },
+    ],
+  };
+  const api = vi.fn<(action: HostsAction) => Promise<HostsState>>().mockImplementation((action) => {
+    if (action.action === "rename")
+      state = {
+        ...state,
+        hosts: state.hosts.map((entry) =>
+          entry.host === action.host
+            ? action.nickname
+              ? { ...entry, nickname: action.nickname }
+              : { host: entry.host, codeFolder: entry.codeFolder }
+            : entry,
+        ),
+      };
+    return Promise.resolve(state);
+  });
+  render(<HostsSettings source={{ hosts: api }} headingRef={createRef()} />);
+  await screen.findByRole("button", { name: "Rename worker" });
+  await waitFor(() => {
+    expect(
+      screen
+        .getAllByRole<HTMLButtonElement>("button", { name: "Check again" })
+        .every((button) => !button.disabled),
+    ).toBe(true);
+  });
+  api.mockClear();
+  fireEvent.click(screen.getByRole("button", { name: "Rename worker" }));
+  const input = screen.getByRole<HTMLInputElement>("textbox", { name: "Host nickname" });
+  expect(input.getAttribute("placeholder")).toBe("worker");
+  fireEvent.change(input, { target: { value: "other BOX" } });
+  expect(screen.getByRole("alert").textContent).toBe("Name already used");
+  expect(screen.getByRole<HTMLButtonElement>("button", { name: "Save name" }).disabled).toBe(true);
+  fireEvent.keyDown(input, { key: "Enter" });
+  if (input.form) fireEvent.submit(input.form);
+  expect(api).not.toHaveBeenCalled();
+  fireEvent.change(input, { target: { value: "Build box" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  if (input.form) fireEvent.submit(input.form);
+  await screen.findByRole("button", { name: "Rename Build box" });
+  expect(api.mock.calls).toEqual([
+    [{ action: "rename", host: "me@worker.local", nickname: "Build box" }],
+  ]);
+  expect(screen.getByText("me@worker.local")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Rename Build box" }));
+  fireEvent.keyDown(screen.getByLabelText("Host nickname"), { key: "Escape" });
+  expect(screen.queryByLabelText("Host nickname")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Rename Build box" }));
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  fireEvent.click(screen.getByRole("button", { name: "Rename Build box" }));
+  api.mockRejectedValueOnce(new Error("disk"));
+  fireEvent.click(screen.getByRole("button", { name: "Save name" }));
+  await screen.findByText("Unable to rename host");
+  fireEvent.change(screen.getByLabelText("Host nickname"), { target: { value: "" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save name" }));
+  await screen.findByRole("button", { name: "Rename worker" });
 });
 
 test("progress text follows the observed phase and repository position", () => {

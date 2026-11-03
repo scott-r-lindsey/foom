@@ -1,3 +1,4 @@
+import { hostDisplayName } from "../../shared/registered-hosts";
 import { HostChip } from "./sidebar-machine-row";
 import type { SidebarMachine } from "../../shared/workspace";
 import { worktreeKey } from "./sidebar-model";
@@ -136,8 +137,20 @@ export function SidebarWorktreeSection({
             </span>
           </span>
         </button>
-        {machine && <HostChip machine={machine} />}
-        {!machine && worktree.unavailable && <span className="worktree-removed">Unavailable</span>}
+        {worktree.host && (
+          <HostChip
+            machine={{
+              name:
+                machine?.name ??
+                worktree.hostDisplayName ??
+                hostDisplayName({ host: worktree.host }),
+              available: machine?.available ?? !worktree.unavailable,
+            }}
+          />
+        )}
+        {!worktree.host && worktree.unavailable && (
+          <span className="worktree-removed">Unavailable</span>
+        )}
         {worktree.prunable && <span className="worktree-removed">Broken checkout</span>}
         {worktree.pullRequest && (
           <PullRequestMark pr={worktree.pullRequest} open={openPullRequest} />

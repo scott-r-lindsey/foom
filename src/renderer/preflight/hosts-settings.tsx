@@ -1,3 +1,4 @@
+import { hostDisplayName, hostNicknameError } from "../../shared/registered-hosts";
 import { Fragment, useCallback, useEffect, useState } from "react";
 import type { ReactNode, RefObject } from "react";
 import { CopyValue } from "../ui/copy-value";
@@ -373,6 +374,99 @@ function Checklist({
     </div>
   );
 }
+function HostName({
+  entry,
+  hosts,
+  save,
+}: {
+  entry: HostRow;
+  hosts: readonly HostRow[];
+  save: (nickname: string) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [failure, setFailure] = useState("");
+  const error = hostNicknameError(hosts, entry.host, name);
+  if (!editing)
+    return (
+      <h3>
+        <button
+          type="button"
+          className="host-name"
+          aria-label={`Rename ${hostDisplayName(entry)}`}
+          onClick={() => {
+            setName(entry.nickname ?? "");
+            setFailure("");
+            setEditing(true);
+          }}
+        >
+          {hostDisplayName(entry)}
+        </button>
+      </h3>
+    );
+  return (
+    <form
+      className="host-name-form"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (error || saving) return;
+        setSaving(true);
+        void save(name)
+          .then(
+            () => {
+              setEditing(false);
+            },
+            () => {
+              setFailure("Unable to rename host");
+            },
+          )
+          .finally(() => {
+            setSaving(false);
+          });
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && !saving) {
+          event.preventDefault();
+          event.stopPropagation();
+          setEditing(false);
+        }
+      }}
+    >
+      <input
+        ref={(element) => {
+          element?.focus();
+        }}
+        aria-label="Host nickname"
+        placeholder={hostDisplayName({ host: entry.host })}
+        value={name}
+        disabled={saving}
+        aria-invalid={!!error || !!failure}
+        onChange={(event) => {
+          setName(event.target.value);
+          setFailure("");
+        }}
+      />
+      <button type="submit" disabled={!!error || saving}>
+        Save name
+      </button>
+      <button
+        type="button"
+        disabled={saving}
+        onClick={() => {
+          setEditing(false);
+        }}
+      >
+        Cancel
+      </button>
+      {(error || failure) && (
+        <span role="alert" className="hosts-failure">
+          {error || failure}
+        </span>
+      )}
+    </form>
+  );
+}
 export function HostsSettings({
   source,
   headingRef,
@@ -603,16 +697,15 @@ export function HostsSettings({
       {state.hosts.map((entry) => (
         <section className="host-card" key={entry.host} aria-label={entry.host}>
           <header className="hosts-heading">
-            <h3>
-              <CopyValue
-                value={entry.host}
-                label="Copy host alias"
-                copy={() =>
-                  source.copyHost?.({ kind: "copy-host-alias", host: entry.host }) ??
-                  Promise.reject(new Error("Copy unavailable"))
-                }
-              />
-            </h3>
+            <HostName
+              entry={entry}
+              hosts={state.hosts}
+              save={async (nickname) => {
+                const next = await api?.({ action: "rename", host: entry.host, nickname });
+                if (!next) throw new Error("Rename unavailable");
+                setState(next);
+              }}
+            />
             <span
               className={busy === entry.host ? "host-count host-progress-summary" : "host-count"}
             >
@@ -636,6 +729,14 @@ export function HostsSettings({
             </button>
           </header>
           <div className="host-meta">
+            <CopyValue
+              value={entry.host}
+              label="Copy host alias"
+              copy={() =>
+                source.copyHost?.({ kind: "copy-host-alias", host: entry.host }) ??
+                Promise.reject(new Error("Copy unavailable"))
+              }
+            />
             <span>
               {entry.result?.ok
                 ? entry.result.facts.requirements?.distro === "darwin"
@@ -860,7 +961,7 @@ export function RepositoryHosts({
           aria-label={host.host ?? "Local"}
         >
           <header className="hosts-heading">
-            <h3>{host.host ?? "Local"}</h3>
+            <h3>{host.host === null ? "Local" : hostDisplayName(host)}</h3>
             <span className="host-tag">
               {repositories.length} {repositories.length === 1 ? "repository" : "repositories"}
             </span>

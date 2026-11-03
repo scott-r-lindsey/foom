@@ -1,3 +1,7 @@
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { registeredHosts } from "../../../../src/shared/registered-hosts";
 import type { RemoteInventoryResult, RemoteSessionInfo } from "../../../../src/shared/remote-host";
 import type * as remoteTransport from "../../../../src/main/terminals/remote-transport";
 
@@ -7,7 +11,7 @@ import {
 } from "../../../../src/main/agents/providers/registry";
 import type * as childProcess from "node:child_process";
 import { beforeEach, expect, test, vi } from "vitest";
-import { DEFAULT_SETTINGS } from "../../../../src/main/setup/settings";
+import { DEFAULT_SETTINGS, SettingsStore } from "../../../../src/main/setup/settings";
 import type { Settings } from "../../../../src/shared/setup";
 import type { HostManagement, HostResult } from "../../../../src/shared/registered-hosts.d";
 const mock = vi.hoisted(() => ({
@@ -265,6 +269,43 @@ test("fleet inventory uses registered hosts, shares in-flight probes, and refuse
     reason: "agent_disabled",
   });
 });
+
+test.each([true, false])(
+  "late background inventory cannot replace a newer explicit host check (%s)",
+  async (ok) => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(1000);
+    try {
+      settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+      repositories = [];
+      const older = Promise.withResolvers<HostResult>();
+      const latest: HostResult = ok
+        ? { ok: true, facts: { ...facts, agents: [{ id: "claude", state: "missing" }] } }
+        : { ok: false, reason: "unreachable" };
+      run.mockReturnValueOnce(older.promise).mockResolvedValue(latest);
+      const pending = hosts.inventory("worker");
+      await vi.waitFor(() => {
+        expect(run).toHaveBeenCalledTimes(1);
+      });
+      now.mockReturnValue(2000);
+      await hosts.action({ action: "preflight", host: "worker", codeFolder: facts.codeFolder });
+      const checked = (await hosts.fleet(false))[0]?.result;
+      expect(checked).toMatchObject({ ok });
+      if (checked?.ok)
+        expect(checked.facts.agents).toContainEqual(
+          expect.objectContaining({ id: "claude", state: "missing" }),
+        );
+      now.mockReturnValue(70_000);
+      older.resolve({ ok: true, facts: { ...facts, agents: [{ id: "claude", state: "ready" }] } });
+      await expect(pending).resolves.toEqual(checked);
+      await expect(hosts.requireAgent("worker", "claude")).rejects.toMatchObject({
+        reason: ok ? "remote_agent_unavailable" : "remote_host_unreachable",
+      });
+      expect(run).toHaveBeenCalledTimes(3);
+    } finally {
+      now.mockRestore();
+    }
+  },
+);
 
 test("stale, missing, failed and changed-enabled inventories are probed rather than guessed", async () => {
   settings = { ...settings, registeredHosts: [{ host: "worker", codeFolder: facts.codeFolder }] };
@@ -1234,6 +1275,75 @@ test("repository human launch targets require an approved registration and check
   await expect(hosts.repositoryTarget("worker", "/local/repo")).rejects.toThrow();
   run.mockResolvedValue({ ok: true, facts });
   await expect(hosts.repositoryTarget("worker", "/local/repo")).rejects.toThrow();
+});
+
+test("rename is profile-only, rejects collisions and preserves labels across folder updates", async () => {
+  settings.registeredHosts = [
+    { host: "worker", codeFolder: "~/code" },
+    { host: "other", codeFolder: "~/code", nickname: "Other box" },
+  ];
+  await expect(
+    hosts.action({ action: "rename", host: "missing", nickname: "Box" }),
+  ).rejects.toThrow();
+  await expect(
+    hosts.action({ action: "rename", host: "worker", nickname: "OTHER BOX" }),
+  ).rejects.toThrow("Name already used");
+  await expect(
+    hosts.action({ action: "rename", host: "worker", nickname: "<x>" }),
+  ).rejects.toThrow();
+  const renamed = await hosts.action({ action: "rename", host: "worker", nickname: "Build box" });
+  expect(renamed.hosts[0]).toMatchObject({ host: "worker", nickname: "Build box" });
+  expect(run).not.toHaveBeenCalled();
+  expect(mock.remote).not.toHaveBeenCalled();
+  expect(mock.execute).not.toHaveBeenCalled();
+  await hosts.action({ action: "preflight", host: "worker", codeFolder: "~/code" });
+  expect(settings.registeredHosts[0]?.nickname).toBe("Build box");
+  await hosts.action({ action: "change-folder", host: "worker", codeFolder: "~/new" });
+  expect(settings.registeredHosts[0]?.nickname).toBe("Build box");
+  expect(JSON.stringify(run.mock.calls)).not.toContain("Build box");
+  await hosts.action({ action: "rename", host: "worker", nickname: "" });
+  expect(settings.registeredHosts[0]).toEqual({ host: "worker", codeFolder: facts.codeFolder });
+});
+
+test("enrollment cannot introduce a default label that collides with an existing nickname", async () => {
+  settings.registeredHosts = [{ host: "worker", codeFolder: "~/code", nickname: "Dozer" }];
+  await expect(
+    hosts.action({ action: "add", host: "me@dozer.local", codeFolder: "~/code" }),
+  ).rejects.toThrow("Name already used");
+  expect(run).not.toHaveBeenCalled();
+});
+
+test("a colliding nickname reset leaves the profile valid and survives reopening", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "host-nickname-reset-"));
+  const persisted = await SettingsStore.open(directory);
+  const service = new Hosts(persisted, () => [], "0.1.0", run);
+  try {
+    await persisted.update({ setupComplete: true, hooks: false });
+    for (const host of ["one.local", "two.local"])
+      await service.action({ action: "add", host, codeFolder: "~/code" });
+    await service.action({ action: "rename", host: "one.local", nickname: "Build box" });
+    await service.action({ action: "rename", host: "two.local", nickname: "ONE" });
+    expect(registeredHosts(persisted.get().registeredHosts)).toBe(true);
+    const before = await readFile(join(directory, "settings.json"), "utf8");
+    await expect(
+      service.action({ action: "rename", host: "one.local", nickname: "" }),
+    ).rejects.toThrow("Name already used");
+    expect(await readFile(join(directory, "settings.json"), "utf8")).toBe(before);
+    const reopened = await SettingsStore.open(directory);
+    expect(reopened.get()).toEqual(persisted.get());
+    expect(reopened.get()).toMatchObject({
+      setupComplete: true,
+      hooks: false,
+      registeredHosts: [
+        { host: "one.local", nickname: "Build box" },
+        { host: "two.local", nickname: "ONE" },
+      ],
+    });
+    expect(registeredHosts(reopened.get().registeredHosts)).toBe(true);
+  } finally {
+    service.dispose();
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("local progress reads bypass the mutation queue and retain completed repository checks", async () => {

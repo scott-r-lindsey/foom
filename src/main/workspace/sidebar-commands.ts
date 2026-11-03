@@ -1,3 +1,5 @@
+import { hostDisplayName } from "../../shared/registered-hosts";
+import type { RegisteredHost } from "../../shared/registered-hosts.d";
 import { locationId } from "../control/metadata";
 import { LaunchFailure } from "../../shared/launch-failure";
 import { copyableErrorText, ApplicationError } from "../../shared/application-errors";
@@ -69,7 +71,7 @@ export async function sidebarInventory(this: SidebarCommandsContext): Promise<Si
         },
         ...fleet.map(({ host, result }) => ({
           host,
-          name: machineHostName(host),
+          name: machineHostName(host, hosts?.registered(host)),
           available: result.ok,
           repositories:
             (locations ?? hosts?.state?.())?.locations
@@ -890,9 +892,10 @@ export async function removeWorktree(
   return this.cleanup.removeIdleTree(entry.repository, entry.worktree, entry.branch, confirm);
 }
 
-/** Display only; replace with the nickname projection when #1027 lands. */
-export function machineHostName(host: string): string {
-  const account = host.slice(host.lastIndexOf("@") + 1);
-  const dot = account.indexOf(".");
-  return dot < 0 ? account : account.slice(0, dot);
+/** Display only; SSH selectors remain the registration and transport keys. */
+export function machineHostName(
+  host: string,
+  registration?: Pick<RegisteredHost, "host" | "nickname">,
+): string {
+  return hostDisplayName(registration ?? { host });
 }

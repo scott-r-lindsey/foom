@@ -189,7 +189,9 @@ Zoom, master volume and the Foom config gear stay at the bottom of the sidebar. 
 
 With registered hosts, a pair of thin rules separates machine rows from the home
 shells above and repositories below. Localhost comes first, then registered hosts
-in Settings order. Each machine menu offers New shell and New followed by each
+in Settings order. Machine rows and host chips use the registered nickname,
+falling back to the short hostname through the shared display-name helper.
+Each machine menu offers New shell and New followed by each
 installed, enabled agent's name. These human-owned sessions use the local home
 folder or the remote approved code folder and nest under their machine. They use
 the user's CLI defaults and have no orchestration child grant. Single-machine

@@ -660,6 +660,7 @@ export function createAppSource(): BoardSource {
           agents: scan.agents,
           enabled: setup.settings.agents,
           hooks: setup.settings.hooks,
+          registeredHosts: setup.settings.registeredHosts ?? [],
           codeFolder: setup.settings.codeFolder,
           showNestedRepositoryNames: setup.settings.showNestedRepositoryNames,
         };

@@ -62,6 +62,13 @@ test("machine rows are absent without hosts and follow settings order after loca
     { host: "offline", name: "offline", available: false, repositories: [], agents: [] },
   ]);
   expect(machineHostName("dozer")).toBe("dozer");
+  expect(machineHostName("me@192.168.1.2")).toBe("192.168.1.2");
+  vi.mocked(deps.hosts.registered).mockImplementation((host) => ({
+    host,
+    codeFolder: "/code",
+    ...(host.includes("dozer") ? { nickname: "Build box" } : {}),
+  }));
+  expect((await new Workspace(deps).sidebarInventory()).machines?.[1]?.name).toBe("Build box");
 });
 
 test("local machine launches use the installed CLI and user defaults without creating an orchestration child", async () => {

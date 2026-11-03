@@ -7,8 +7,25 @@ the host expands it; canonical absolute observations are required before checkou
 `setup:save` cannot write them. Developer spike mappings register nothing and
 confer no later fleet authority. Host-aware orchestration (#756) uses the same registration and management service.
 
+Each registration may have a profile-only nickname (#1027). Click its title in
+Settings → Hosts to edit; Save name or Enter commits, Cancel or Escape discards,
+and an empty name restores the default unless another host has claimed it as a
+nickname. A refused reset preserves the saved name and profile. Nicknames use 1–40 Unicode letters,
+numbers, spaces, dots, hyphens or underscores, without surrounding whitespace.
+A nickname must differ from every other registered host's display name ignoring
+case. Legacy registrations without nicknames remain valid, including duplicate
+short names. The default is the SSH hostname's first component, without the
+account or domain; IPv4 addresses retain all components. The full SSH selector
+remains visible and copyable on the card.
+
+`hostDisplayName` projects the label for Settings, machine rows, remote checkout
+chips and tile title bars; board launch options also expose registered host labels. Labels never
+replace registration keys or enter remote requests, SSH, environment, argv or
+agent projections. Rename only updates the local profile and performs no remote
+inspection. Folder changes and canonical expansion preserve nicknames.
+
 `setup:hosts` accepts one closed action from the registered board main frame:
-list, progress, test, add, preflight, create-folder, change-folder, refresh, remove, locations, clone, trust-origin, end or recipe. Main selects enabled agent
+list, progress, test, add, rename, preflight, create-folder, change-folder, refresh, remove, locations, clone, trust-origin, end or recipe. Main selects enabled agent
 executables from its validated manifest catalog. Renderer inputs cannot choose
 remote commands, probe arguments, origins or checkout destinations. Replies are
 validated in preload and rebuilt from declared fields. All failures are fixed
@@ -19,7 +36,8 @@ The local `progress` read bypasses the action queue and returns only the current
 preflight's inspect/origin/checkout phase, repository paths and completed typed
 observations. It runs no SSH or Git commands. Settings reads it only while its
 preflight is pending, at most one read at a time, and stops on completion or
-unmount. No remote management protocol or host polling is added.
+unmount. Progress reads publish no workspace changes or background inventory
+refreshes. No remote management protocol or host polling is added.
 Inspection retries once when provider revision or enabled agents change, then
 reports configuration changed. Repository mutations are never replayed.
 Each refused management request logs one fixed reason and step in main, without hostnames,
@@ -413,6 +431,9 @@ arguments, hook files or orchestration grant. A repository launch
 additionally names the origin-derived clone directory, validated through the
 existing read-only repository operation; worktree launches reuse profile provenance
 and checkout identity checks. Hub environment values and credentials stay local.
+Background inventory replies cannot replace a newer explicit host observation or
+renew its freshness timestamp. Shared in-flight readers receive the current
+observation, including missing-agent and unavailable results.
 Completed Settings host checks invalidate the board inventory immediately,
 including unreachable results. Machine sessions persist as human-owned session metadata; remote recovery only
 reattaches the existing PTY. Local agent rows without a conversation ID remain

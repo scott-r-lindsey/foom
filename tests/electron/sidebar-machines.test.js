@@ -2,7 +2,7 @@ const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const { createHash } = require("node:crypto");
 const { gzipSync } = require("node:zlib");
-const { mkdir, mkdtemp, readFile, writeFile, rm } = require("node:fs/promises");
+const { mkdir, mkdtemp, readFile, writeFile, rename, rm } = require("node:fs/promises");
 const path = require("node:path");
 const { tmpdir } = require("node:os");
 const { gitSync } = require("../helpers/git.js");
@@ -131,16 +131,22 @@ process.stdin.on('data',bytes=>frames.push(bytes,message=>{
   await page.evaluate(() =>
     window.desktop.hosts({ action: "add", host: "offline-cloud", codeFolder: "/remote/code" }),
   );
+  await page.evaluate(() =>
+    window.desktop.hosts({ action: "rename", host: "fixture-cloud", nickname: "Builder" }),
+  );
+  await expect(
+    page.getByRole("button", { name: "Actions for Builder", exact: true }),
+  ).toBeVisible();
   await expect(page.getByRole("group", { name: "Machines" })).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Actions for offline-cloud", exact: true }),
   ).toBeDisabled();
   assert.deepEqual(
     await page.locator(".machine-section > .machine-row > .tree-name").allTextContents(),
-    ["localhost", "fixture-cloud", "offline-cloud"],
+    ["localhost", "Builder", "offline-cloud"],
   );
   await capture("machines");
-  await page.getByRole("button", { name: "Actions for fixture-cloud", exact: true }).click();
+  await page.getByRole("button", { name: "Actions for Builder", exact: true }).click();
   await expect(page.getByRole("menuitem", { name: "New Claude Code", exact: true })).toBeVisible();
   await expect(page.getByRole("menuitem", { name: "New Codex", exact: true })).toHaveCount(0);
   await capture("machine-menu");
@@ -155,10 +161,8 @@ process.stdin.on('data',bytes=>frames.push(bytes,message=>{
       ),
     )
     .toBe(1);
-  await expect(
-    page.getByRole("menu", { name: "Actions for fixture-cloud", exact: true }),
-  ).toHaveCount(0);
-  await page.getByRole("button", { name: "Actions for fixture-cloud", exact: true }).click();
+  await expect(page.getByRole("menu", { name: "Actions for Builder", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Actions for Builder", exact: true }).click();
   await page.getByRole("menuitem", { name: "New Claude Code", exact: true }).click();
   await expect
     .poll(() =>
@@ -184,16 +188,16 @@ process.stdin.on('data',bytes=>frames.push(bytes,message=>{
   await expect(
     page
       .locator(".machine-section")
-      .filter({ has: page.getByRole("button", { name: "Actions for fixture-cloud", exact: true }) })
+      .filter({ has: page.getByRole("button", { name: "Actions for Builder", exact: true }) })
       .locator(".board-row"),
   ).toHaveCount(2);
   await capture("loose-sessions");
   await page.getByRole("button", { name: "Actions for shell-fixture", exact: true }).click();
   await page.getByRole("menuitem", { name: "New worktree", exact: true }).hover();
   await expect(page.getByRole("menuitem", { name: "localhost", exact: true })).toBeVisible();
-  await expect(page.getByRole("menuitem", { name: "fixture-cloud", exact: true })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Builder", exact: true })).toBeVisible();
   await capture("machine-choice");
-  await page.getByRole("menuitem", { name: "fixture-cloud", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Builder", exact: true }).click();
   const branch = page.getByLabel("Branch for the new worktree");
   await expect(branch).toBeFocused();
   await branch.fill("prepare-host");
@@ -201,7 +205,7 @@ process.stdin.on('data',bytes=>frames.push(bytes,message=>{
   await branch.press("Escape");
   await page.getByRole("menuitem", { name: "New agent", exact: true }).hover();
   await capture("agent-machine-choice");
-  await page.getByRole("menuitem", { name: "fixture-cloud", exact: true }).hover();
+  await page.getByRole("menuitem", { name: "Builder", exact: true }).hover();
   await expect(page.getByRole("menuitem", { name: "Claude Code", exact: true })).toBeVisible();
   await capture("agent-choice");
   await page.getByRole("menuitem", { name: "Claude Code", exact: true }).click();
@@ -217,7 +221,7 @@ process.stdin.on('data',bytes=>frames.push(bytes,message=>{
     .toBe(1);
   await capture("repository-agent");
   const remoteWorktree = page.locator(".worktree-row").filter({ hasText: "remote-work" });
-  await expect(remoteWorktree.getByLabel("Host: fixture-cloud")).toBeVisible();
+  await expect(remoteWorktree.getByLabel("Host: Builder")).toBeVisible();
   await capture("worktree-chip");
   await remoteWorktree.locator(".row-actions").click();
   await page.getByRole("menuitem", { name: "Claude Code", exact: true }).click();
@@ -225,14 +229,14 @@ process.stdin.on('data',bytes=>frames.push(bytes,message=>{
     page
       .locator(".terminal-tile")
       .filter({ has: page.locator(".tile-location").filter({ hasText: "remote-work" }) })
-      .getByLabel("Host: fixture-cloud"),
+      .getByLabel("Host: Builder"),
   ).toBeVisible();
   await capture("worktree-tile-chip");
   // Prepare is available only for pinned, checked-out repositories.
   await page.getByRole("button", { name: "Actions for shell-fixture", exact: true }).click();
   await page.getByRole("menuitem", { name: "Pin to top", exact: true }).click();
   await expect(page.getByLabel("Pinned", { exact: true })).toBeVisible();
-  const hostMenu = page.getByRole("button", { name: "Actions for fixture-cloud", exact: true });
+  const hostMenu = page.getByRole("button", { name: "Actions for Builder", exact: true });
   const prepare = page.getByRole("menuitem", { name: "Prepare for shell-fixture", exact: true });
   await hostMenu.click();
   await page.getByRole("menuitem", { name: "shell-fixture", exact: true }).hover();
@@ -266,7 +270,8 @@ process.stdin.on('data',bytes=>frames.push(bytes,message=>{
   await expect(page.locator(`[data-tile="${await preparedTile()}"]`)).toBeVisible();
   await capture("prepare-tile");
   const refreshAgents = async (choice) => {
-    await writeFile(agentChoice, choice);
+    await writeFile(`${agentChoice}.next`, choice);
+    await rename(`${agentChoice}.next`, agentChoice);
     await page.evaluate(() =>
       window.desktop.hosts({
         action: "preflight",
@@ -279,7 +284,7 @@ process.stdin.on('data',bytes=>frames.push(bytes,message=>{
   await hostMenu.click();
   await expect(page.getByRole("menuitem", { name: "New Codex", exact: true })).toBeVisible();
   const hostLabels = await page
-    .getByRole("menu", { name: "Actions for fixture-cloud", exact: true })
+    .getByRole("menu", { name: "Actions for Builder", exact: true })
     .getByRole("menuitem")
     .allTextContents();
   await page.getByRole("menuitem", { name: "shell-fixture", exact: true }).hover();
@@ -307,7 +312,7 @@ process.stdin.on('data',bytes=>frames.push(bytes,message=>{
       codeFolder: "/remote/code",
     }),
   );
-  await expect(remoteWorktree.getByLabel("fixture-cloud · Unavailable")).toBeVisible();
+  await expect(remoteWorktree.getByLabel("Builder · Unavailable")).toBeVisible();
   await capture("unavailable-chip");
   await assertAccessible(page);
   await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();

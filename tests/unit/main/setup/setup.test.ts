@@ -545,7 +545,7 @@ test("host copies require both registered host service and main clipboard capabi
   hostService.dispose();
 });
 
-test("completed host checks refresh board inventory while rejected actions publish nothing", async () => {
+test("completed host checks refresh inventory while progress reads and rejected actions publish nothing", async () => {
   const { Hosts } = await import("../../../../src/main/setup/hosts");
   const hosts = new Hosts(deps.store, () => [], "0.1.0");
   const state = { hosts: [], locations: [] };
@@ -554,8 +554,33 @@ test("completed host checks refresh board inventory while rejected actions publi
   const setup = new Setup({ ...deps, hosts, hostsChanged: changed });
   await expect(setup.hosts({ action: "list" })).resolves.toBe(state);
   expect(changed).toHaveBeenCalledOnce();
+  await expect(setup.hosts({ action: "progress" })).resolves.toBe(state);
+  expect(changed).toHaveBeenCalledOnce();
   action.mockRejectedValueOnce(new Error("refused"));
   await expect(setup.hosts({ action: "refresh", host: "worker" })).rejects.toThrow("refused");
   expect(changed).toHaveBeenCalledOnce();
   hosts.dispose();
+});
+
+test("successful nickname updates publish current profile settings; reads and failed saves do not", async () => {
+  const { Hosts } = await import("../../../../src/main/setup/hosts");
+  settings.registeredHosts = [{ host: "worker", codeFolder: "~/code" }];
+  deps.hosts = new Hosts(
+    deps.store,
+    () => [],
+    "0.1.0",
+    () => Promise.resolve({ ok: false, reason: "unreachable" }),
+  );
+  const setup = new Setup(deps);
+  apply.mockClear();
+  await setup.hosts({ action: "list" });
+  expect(apply).not.toHaveBeenCalled();
+  await setup.hosts({ action: "rename", host: "worker", nickname: "Build box" });
+  expect(apply).toHaveBeenCalledExactlyOnceWith(settings);
+  apply.mockClear();
+  await expect(
+    setup.hosts({ action: "rename", host: "missing", nickname: "Box" }),
+  ).rejects.toThrow();
+  expect(apply).not.toHaveBeenCalled();
+  deps.hosts.dispose();
 });
