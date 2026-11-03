@@ -375,7 +375,7 @@ export function Sidebar(props: SidebarProps) {
                               run: () => {},
                               submenu: machines.map((machine) => ({
                                 label: machine.name,
-                                disabled: !machine.available,
+                                disabled: !machine.available || machine.agents.length === 0,
                                 run: () => {},
                                 submenu: machine.agents.map((agent) => ({
                                   label: agent.name,

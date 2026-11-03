@@ -144,6 +144,7 @@ test("repository machine choice stays beside the branch field and sends only the
   expect(view.create).toHaveBeenCalledWith("/foom", "remote/new", "worker");
   fireEvent.click(view.getByRole("button", { name: "Actions for Foom" }));
   fireEvent.click(view.getByRole("menuitem", { name: "New agent" }));
+  expect(view.getByRole("menuitem", { name: "localhost" }).hasAttribute("disabled")).toBe(true);
   fireEvent.click(view.getByRole("menuitem", { name: "worker" }));
   fireEvent.click(view.getByRole("menuitem", { name: "Claude Code" }));
   await waitFor(() => {
