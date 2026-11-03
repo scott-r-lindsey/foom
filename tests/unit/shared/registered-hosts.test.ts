@@ -423,6 +423,83 @@ test("partial preflight requests, observations and explicit folder actions have 
   expect(remoteResponse({ type: "hello", build: "a".repeat(64), hostPreflight: 2 })).toBe(false);
 });
 
+test("host nicknames validate literal bounded names, unique labels and legacy defaults", async () => {
+  const { hostDisplayName, hostNickname, hostNicknameError } = await import(
+    "../../../src/shared/registered-hosts"
+  );
+  for (const value of ["Dozer", "Équipe 2._-", "a".repeat(40)])
+    expect(hostNickname(value)).toBe(true);
+  for (const value of [
+    undefined,
+    "",
+    "a".repeat(41),
+    " a",
+    "a ",
+    "a\nb",
+    "a\u202eb",
+    "$(x)",
+    "<b>",
+    "a/b",
+    "😀",
+  ])
+    expect(hostNickname(value)).toBe(false);
+  expect(hostDisplayName({ host: "slindsey@dozer.local" })).toBe("dozer");
+  expect(hostDisplayName({ host: "me@127.0.0.1" })).toBe("127.0.0.1");
+  expect(hostDisplayName({ host: "worker" })).toBe("worker");
+  expect(hostDisplayName({ host: "me@dozer.local", nickname: "Build box" })).toBe("Build box");
+  const entries = [
+    { host: "me@one.local", codeFolder: "~/code", nickname: "Dozer" },
+    { host: "two.local", codeFolder: "~/code" },
+  ];
+  expect(registeredHosts(entries)).toBe(true);
+  expect(hostNicknameError(entries, "two.local", "dozer")).toBe("Name already used");
+  expect(hostNicknameError(entries, "me@one.local", "TWO")).toBe("Name already used");
+  expect(hostNicknameError(entries, "me@one.local", "Dozer")).toBeUndefined();
+  expect(hostNicknameError(entries, "two.local", "")).toBeUndefined();
+  expect(hostNicknameError(entries, "two.local", "<x>")).toMatch(/1–40/);
+  expect(registeredHosts([{ ...entries[0], nickname: "" }])).toBe(false);
+  expect(
+    registeredHosts([...entries, { host: "three", codeFolder: "~/code", nickname: "dozer" }]),
+  ).toBe(false);
+  expect(
+    registeredHosts([
+      { host: "a@one.local", codeFolder: "~/code" },
+      { host: "b@one.local", codeFolder: "~/code" },
+    ]),
+  ).toBe(true);
+  for (const nickname of ["", "Dozer"])
+    expect(hostsAction({ action: "rename", host: "worker", nickname })).toBe(true);
+  for (const nickname of [null, "<x>", "x".repeat(41)])
+    expect(hostsAction({ action: "rename", host: "worker", nickname })).toBe(false);
+  expect(hostsAction({ action: "rename", host: "worker", nickname: "Box", command: "x" })).toBe(
+    false,
+  );
+});
+
+test("clearing nicknames checks the effective default against other nicknames, preserving legacy default duplicates", async () => {
+  const { hostNicknameError } = await import("../../../src/shared/registered-hosts");
+  const entries = [
+    { host: "me@one.local", codeFolder: "~/code", nickname: "Build box" },
+    { host: "two.local", codeFolder: "~/code", nickname: "ONE" },
+  ];
+  expect(registeredHosts(entries)).toBe(true);
+  expect(hostNicknameError(entries, "me@one.local", "")).toBe("Name already used");
+  expect(hostNicknameError(entries, "two.local", "")).toBeUndefined();
+  const legacy = [
+    { host: "a@one.local", codeFolder: "~/code" },
+    { host: "b@one.local", codeFolder: "~/code" },
+  ];
+  expect(registeredHosts(legacy)).toBe(true);
+  expect(hostNicknameError(legacy, "a@one.local", "")).toBeUndefined();
+  expect(
+    hostNicknameError(
+      [{ host: "other", codeFolder: "~/code", nickname: "127.0.0.1" }],
+      "me@127.0.0.1",
+      "",
+    ),
+  ).toBe("Name already used");
+});
+
 test("local progress action accepts no host or arbitrary payload", () => {
   expect(hostsAction({ action: "progress" })).toBe(true);
   expect(hostsAction({ action: "progress", host: "worker" })).toBe(false);

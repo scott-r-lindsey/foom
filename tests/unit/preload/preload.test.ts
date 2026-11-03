@@ -1431,7 +1431,15 @@ test("host bridge validates every nested fact and strips undeclared host data", 
   };
   const result = { ok: true, facts, checkout: { path: "/home/worker/foom/repo", state: "clean" } };
   const value = {
-    hosts: [{ host: "worker", codeFolder: facts.codeFolder, result, foreignWorktrees: 3 }],
+    hosts: [
+      {
+        host: "worker",
+        nickname: "Build box",
+        codeFolder: facts.codeFolder,
+        result,
+        foreignWorktrees: 3,
+      },
+    ],
     locations: [{ host: "worker", repository: "/local/repo", result }],
     result: { ok: false, reason: "clone-failed" },
   };
@@ -1441,6 +1449,7 @@ test("host bridge validates every nested fact and strips undeclared host data", 
   for (const bad of [
     {},
     { ...value, result: { ok: false, reason: "secret" } },
+    { ...value, hosts: [{ host: "worker", codeFolder: facts.codeFolder, nickname: "<invalid>" }] },
     {
       ...value,
       hosts: [

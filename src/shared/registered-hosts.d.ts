@@ -1,6 +1,8 @@
 import type { RemoteReviewSnapshot } from "./remote-agent";
 export interface RegisteredHost {
   host: string;
+  /** Profile-only display label; never a transport target. */
+  nickname?: string;
   codeFolder: string;
 }
 export type HostGitFailureReason =
@@ -145,6 +147,7 @@ export interface HostsState {
   result?: HostResult | undefined;
 }
 export type HostsAction =
+  | { action: "rename"; host: string; nickname: string }
   | { action: "trust-origin"; host: string; repository: string }
   | { action: "recipe"; host: string; tool: string; operation: "install" | "sign-in" }
   | { action: "preflight"; host: string; codeFolder: string }

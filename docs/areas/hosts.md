@@ -7,8 +7,25 @@ the host expands it; canonical absolute observations are required before checkou
 `setup:save` cannot write them. Developer spike mappings register nothing and
 confer no later fleet authority. Host-aware orchestration (#756) uses the same registration and management service.
 
+Each registration may have a profile-only nickname (#1027). Click its title in
+Settings → Hosts to edit; Save name or Enter commits, Cancel or Escape discards,
+and an empty name restores the default unless another host has claimed it as a
+nickname. A refused reset preserves the saved name and profile. Nicknames use 1–40 Unicode letters,
+numbers, spaces, dots, hyphens or underscores, without surrounding whitespace.
+A nickname must differ from every other registered host's display name ignoring
+case. Legacy registrations without nicknames remain valid, including duplicate
+short names. The default is the SSH hostname's first component, without the
+account or domain; IPv4 addresses retain all components. The full SSH selector
+remains visible and copyable on the card.
+
+`hostDisplayName` projects the label for Settings and sidebar checkout rows;
+board launch options expose registered host labels for machine rows. Labels never
+replace registration keys or enter remote requests, SSH, environment, argv or
+agent projections. Rename only updates the local profile and performs no remote
+inspection. Folder changes and canonical expansion preserve nicknames.
+
 `setup:hosts` accepts one closed action from the registered board main frame:
-list, progress, test, add, preflight, create-folder, change-folder, refresh, remove, locations, clone, trust-origin, end or recipe. Main selects enabled agent
+list, progress, test, add, rename, preflight, create-folder, change-folder, refresh, remove, locations, clone, trust-origin, end or recipe. Main selects enabled agent
 executables from its validated manifest catalog. Renderer inputs cannot choose
 remote commands, probe arguments, origins or checkout destinations. Replies are
 validated in preload and rebuilt from declared fields. All failures are fixed
