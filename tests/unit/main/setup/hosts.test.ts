@@ -1,4 +1,5 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { restartedBrewHost } from "./hosts-saved-fixture";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { registeredHosts } from "../../../../src/shared/registered-hosts";
@@ -1567,4 +1568,115 @@ test("a saved ready result cannot authorize an agent launch after restart", asyn
   });
   expect(run).toHaveBeenCalledTimes(1);
   expect((await hosts.action({ action: "list" })).hosts[0]?.result).toEqual(result);
+});
+
+test("saved Brew recipes survive a new owner without remote reads but cannot authorize actions", async () => {
+  const fixture = await restartedBrewHost();
+  try {
+    const listed = await fixture.hosts.action({ action: "list" });
+    expect(listed.hosts[0]?.recipes).toEqual(fixture.checked.hosts[0]?.recipes);
+    for (const recipe of [
+      { tool: "git", install: true, signIn: false },
+      { tool: "gh", install: true, signIn: true },
+      { tool: "codex", install: true, signIn: true },
+    ])
+      expect(listed.hosts[0]?.recipes).toContainEqual(recipe);
+    expect(fixture.run).not.toHaveBeenCalled();
+    expect(mock.inventory).not.toHaveBeenCalled();
+    const launch = vi.fn(() => Promise.resolve());
+    fixture.run.mockResolvedValue({ ok: false, reason: "unreachable" });
+    for (const [tool, operation] of [
+      ["git", "install"],
+      ["gh", "sign-in"],
+      ["codex", "sign-in"],
+    ] as const) {
+      expect(
+        (
+          await fixture.hosts.action(
+            { action: "recipe", host: "mac-fixture", tool, operation },
+            undefined,
+            launch,
+          )
+        ).recipeFailure,
+      ).toBe("recipe-unavailable");
+    }
+    expect(fixture.run).toHaveBeenCalledTimes(3);
+    expect(fixture.run).toHaveBeenLastCalledWith(
+      "mac-fixture",
+      expect.objectContaining({ operation: "inspect", readOnly: true, partial: true }),
+    );
+    expect(launch).not.toHaveBeenCalled();
+    expect((await fixture.hosts.action({ action: "list" })).hosts[0]?.recipes).toEqual(
+      listed.hosts[0]?.recipes,
+    );
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test.each([undefined, { distro: "unknown", libc: "supported", packageManager: "none" }] as const)(
+  "older or unsupported saved requirements %j expose no recipes",
+  async (requirements) => {
+    settings.registeredHosts = [
+      {
+        host: "worker",
+        codeFolder: facts.codeFolder,
+        observation: {
+          checkedAt: 1,
+          preflight: {
+            ssh: { state: "pass" },
+            platform: { state: "pass" },
+            artifact: { state: "pass" },
+            repositories: [],
+            result: { ok: true, facts: { ...facts, ...(requirements ? { requirements } : {}) } },
+          },
+        },
+      },
+    ];
+    const listed = await hosts.action({ action: "list" });
+    expect(listed.hosts[0]?.recipes?.every((recipe) => !recipe.install && !recipe.signIn)).toBe(
+      true,
+    );
+    expect(run).not.toHaveBeenCalled();
+  },
+);
+
+test("malformed saved requirements are rejected on reload without remote reads", async () => {
+  const fixture = await restartedBrewHost();
+  try {
+    const registrations = fixture.store.get().registeredHosts?.map((entry) => ({
+      ...entry,
+      observation: entry.observation && {
+        ...entry.observation,
+        preflight: {
+          ...entry.observation.preflight,
+          result: {
+            ok: true,
+            facts: {
+              ...facts,
+              requirements: {
+                distro: "darwin",
+                libc: "supported",
+                packageManager: "run-this-command",
+              },
+            },
+          },
+        },
+      },
+    }));
+    await writeFile(
+      join(fixture.root, "settings.json"),
+      JSON.stringify({ version: 1, settings: { registeredHosts: registrations } }),
+    );
+    const reopened = await SettingsStore.open(fixture.root);
+    const owner = new Hosts(reopened, () => [], "0.1.0", fixture.run);
+    try {
+      expect((await owner.action({ action: "list" })).hosts).toEqual([]);
+      expect(fixture.run).not.toHaveBeenCalled();
+    } finally {
+      owner.dispose();
+    }
+  } finally {
+    await fixture.dispose();
+  }
 });

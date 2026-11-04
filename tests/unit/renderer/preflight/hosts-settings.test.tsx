@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { restartedBrewHost } from "../../main/setup/hosts-saved-fixture";
 import { createRef } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
@@ -14,6 +15,11 @@ import type {
   HostsAction,
   HostsState,
 } from "../../../../src/shared/registered-hosts.d";
+const remoteReads = vi.hoisted(() => ({ management: vi.fn(), inventory: vi.fn() }));
+vi.mock("../../../../src/main/terminals/remote-transport", () => ({
+  remoteManagement: remoteReads.management,
+  remoteInventory: remoteReads.inventory,
+}));
 const facts = {
   codeFolder: "/home/worker/code",
   version: "0.1.0",
@@ -1100,4 +1106,26 @@ test("Add becomes available after enrollment while its automatic capability chec
   expect(
     screen.getByRole<HTMLInputElement>("textbox", { name: "SSH host" }).matches(":disabled"),
   ).toBe(false);
+});
+
+test("a restarted Hosts owner restores Brew Install and Sign in buttons without a remote read", async () => {
+  const fixture = await restartedBrewHost();
+  try {
+    const api = vi.fn((action: HostsAction) => fixture.hosts.action(action));
+    render(<HostsSettings source={{ hosts: api }} headingRef={createRef()} />);
+    await screen.findByRole("region", { name: "mac-fixture" });
+    expandHosts();
+    for (const name of ["Install git", "Sign in gh", "Sign in codex"]) {
+      expect(screen.getByRole<HTMLButtonElement>("button", { name }).disabled).toBe(false);
+    }
+    expect(screen.getByText("Not found")).toBeTruthy();
+    expect(screen.getAllByText("Signed out")).toHaveLength(2);
+    expect(api).toHaveBeenCalledExactlyOnceWith({ action: "list" });
+    expect(fixture.run).not.toHaveBeenCalled();
+    expect(remoteReads.management).not.toHaveBeenCalled();
+    expect(remoteReads.inventory).not.toHaveBeenCalled();
+  } finally {
+    cleanup();
+    await fixture.dispose();
+  }
 });

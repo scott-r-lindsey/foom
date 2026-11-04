@@ -18,6 +18,7 @@ import {
   hostsAction,
   gitOrigin,
   hostResult,
+  hostRequirements,
   hostNicknameError,
   hostDisplayName,
   originSshArgs,
@@ -569,11 +570,15 @@ export class Hosts {
     if (!this.profile) throw new ControlError("not_found");
     return { host, profile: this.profile, human: true };
   }
-  private recipe(host: string, tool: string, action: "install" | "sign-in") {
+  private recipe(
+    host: string,
+    tool: string,
+    action: "install" | "sign-in",
+    result: HostResult | undefined,
+  ) {
     this.registered(host);
-    const facts = this.results.get(host);
-    const system = facts?.ok ? facts.facts.requirements : undefined;
-    if (!system || system.distro === "unknown") return undefined;
+    const system = result?.ok ? result.facts.requirements : undefined;
+    if (!hostRequirements(system) || system.distro === "unknown") return undefined;
     if (this.store.get().agents[tool] === false) return undefined;
     const model = bundledAgentData
       .map((data) => parseAgentManifest(JSON.stringify(data), "bundled").model)
@@ -582,44 +587,49 @@ export class Hosts {
   }
   state(result?: HostResult, savedOnly = false): HostsState {
     return {
-      hosts: (this.store.get().registeredHosts ?? []).map((host) => ({
-        ...host,
-        ...(host.observation
-          ? {
-              result: host.observation.preflight.result,
-              foreignSessions: host.observation.foreignSessions,
-              foreignWorktrees: host.observation.foreignWorktrees,
-            }
-          : {}),
-        recipes: [
-          "git",
-          "gh",
-          ...agentProviders()
-            .filter((provider) => this.store.get().agents[provider.id] !== false)
-            .map((provider) => provider.id),
-        ].map((tool) => ({
-          tool,
-          install: !!this.recipe(host.host, tool, "install"),
-          signIn: !!this.recipe(host.host, tool, "sign-in"),
-          ...(!this.recipe(host.host, tool, "install")
-            ? { installReason: "recipe-unavailable" as const }
+      hosts: (this.store.get().registeredHosts ?? []).map((host) => {
+        // Saved facts provide presentation only; actions select from a fresh inspection below.
+        const displayResult =
+          (!savedOnly && this.results.get(host.host)) || host.observation?.preflight.result;
+        return {
+          ...host,
+          ...(host.observation
+            ? {
+                result: host.observation.preflight.result,
+                foreignSessions: host.observation.foreignSessions,
+                foreignWorktrees: host.observation.foreignWorktrees,
+              }
             : {}),
-        })),
-        ...(!savedOnly && this.worktreeInventories.has(host.host)
-          ? { foreignWorktrees: this.worktreeInventories.get(host.host)?.other ?? 0 }
-          : {}),
-        ...(!savedOnly && this.sessionInventories.has(host.host)
-          ? {
-              foreignSessions:
-                this.sessionInventories
-                  .get(host.host)
-                  ?.foreign.reduce((sum, entry) => sum + (entry.count ?? 1), 0) ?? 0,
-            }
-          : {}),
-        ...(!savedOnly && this.results.get(host.host)
-          ? { result: this.projectedResult(host.host) }
-          : {}),
-      })),
+          recipes: [
+            "git",
+            "gh",
+            ...agentProviders()
+              .filter((provider) => this.store.get().agents[provider.id] !== false)
+              .map((provider) => provider.id),
+          ].map((tool) => ({
+            tool,
+            install: !!this.recipe(host.host, tool, "install", displayResult),
+            signIn: !!this.recipe(host.host, tool, "sign-in", displayResult),
+            ...(!this.recipe(host.host, tool, "install", displayResult)
+              ? { installReason: "recipe-unavailable" as const }
+              : {}),
+          })),
+          ...(!savedOnly && this.worktreeInventories.has(host.host)
+            ? { foreignWorktrees: this.worktreeInventories.get(host.host)?.other ?? 0 }
+            : {}),
+          ...(!savedOnly && this.sessionInventories.has(host.host)
+            ? {
+                foreignSessions:
+                  this.sessionInventories
+                    .get(host.host)
+                    ?.foreign.reduce((sum, entry) => sum + (entry.count ?? 1), 0) ?? 0,
+              }
+            : {}),
+          ...(!savedOnly && this.results.get(host.host)
+            ? { result: this.projectedResult(host.host) }
+            : {}),
+        };
+      }),
       locations: this.locations.filter(
         (location) =>
           this.store.get().registeredHosts?.some((host) => host.host === location.host) &&
@@ -701,7 +711,12 @@ export class Hosts {
           );
           this.registered(input.host, registration.codeFolder);
           await this.expandRegistration(input.host);
-          const recipe = this.recipe(input.host, input.tool, input.operation);
+          const recipe = this.recipe(
+            input.host,
+            input.tool,
+            input.operation,
+            this.results.get(input.host),
+          );
           if (!recipe || !launchRecipe || !this.profile)
             return { ...this.state(), recipeFailure: "recipe-unavailable" as const };
           await launchRecipe({

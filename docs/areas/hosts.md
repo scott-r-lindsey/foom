@@ -396,7 +396,9 @@ timestamp and the closed observations in its profile registration. Never-checked
 hosts say Not checked. Saved observations contain no secrets, terminal output,
 session identities or worktree authority; removal deletes them. They remain
 visible across restarts even when stale and never populate authorization caches.
-Actions retain their existing fresh validation. Host facts offers a separate
+Saved requirements also restore Install and Sign in availability for display; missing or
+invalid requirements offer no recipes. Clicking an action selects its recipe from a
+fresh inspection, never from saved observations. Host facts offers a separate
 session/worktree inventory refresh.
 
 Each host is a compact name, OS, status and chevron row, opening by default only
