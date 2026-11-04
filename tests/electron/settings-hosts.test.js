@@ -297,6 +297,43 @@ process.stdin.on('data', bytes => {
   const checkoutRow = card.locator(".host-check-row").filter({ hasText: "Repository checkout" });
   await expect(originRow).toContainText("Checking…");
   await expect(checkoutRow).toContainText("Checking…");
+  const workingSymbol = originRow.locator(".host-work .host-symbol");
+  const assertSpinnerCentered = async () => {
+    await expect(workingSymbol).toHaveCSS("translate", "0px -50%");
+    await expect(workingSymbol).toHaveCSS("transform", "none");
+    await expect(workingSymbol).toHaveCSS("animation-name", "host-spin");
+    // Sample the actual CSS animation at quarter turns, without wall-clock waits.
+    const centers = await workingSymbol.evaluate(async (symbol) => {
+      const animation = symbol.getAnimations()[0];
+      animation.pause();
+      const centers = [];
+      try {
+        for (const time of [0, 250, 500, 750]) {
+          animation.currentTime = time;
+          await new Promise(requestAnimationFrame);
+          const bounds = symbol.getBoundingClientRect();
+          const row = symbol.closest(".host-check-row").getBoundingClientRect();
+          centers.push({
+            x: bounds.x + bounds.width / 2 - row.x,
+            y: bounds.y + bounds.height / 2 - row.y - row.height / 2,
+            rotate: getComputedStyle(symbol).rotate,
+          });
+        }
+      } finally {
+        animation.play();
+      }
+      return centers;
+    });
+    assert.equal(new Set(centers.map(({ rotate }) => rotate)).size, 4);
+    for (const center of centers) {
+      assert.ok(Math.abs(center.x - centers[0].x) < 0.1, JSON.stringify(centers));
+      assert.ok(Math.abs(center.y - centers[0].y) < 0.1, JSON.stringify(centers));
+      // The row's bottom border can offset its border-box center by half a pixel.
+      assert.ok(Math.abs(center.y) < 1, JSON.stringify(centers));
+    }
+  };
+  await assertSpinnerCentered();
+  await page.screenshot({ path: evidencePath("1041/check-row-spinner.png") });
   await expect(card.locator(".host-throbber")).toHaveCSS("animation-name", "host-check-spin");
   await capture("progress-origin");
   await app.evaluate(({ BrowserWindow }) =>
@@ -310,6 +347,15 @@ process.stdin.on('data', bytes => {
   }));
   assert.ok(progressBounds.scroll <= progressBounds.width + 1);
   await capture("progress-origin-narrow");
+  await app.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://bundle/index.html",
+    );
+    window.setMinimumSize(600, 640);
+    window.setContentSize(640, 960);
+  });
+  await expect.poll(() => page.evaluate(() => matchMedia("(max-width: 650px)").matches)).toBe(true);
+  await assertSpinnerCentered();
   await app.evaluate(({ BrowserWindow }) =>
     BrowserWindow.getAllWindows()
       .find((window) => window.webContents.getURL() === "app://bundle/index.html")
@@ -317,6 +363,7 @@ process.stdin.on('data', bytes => {
   );
   await page.emulateMedia({ reducedMotion: "reduce" });
   await expect(card.locator(".host-throbber")).toHaveCSS("animation-name", "none");
+  await expect(workingSymbol).toHaveCSS("animation-name", "none");
   await capture("progress-origin-reduced");
   // Release origin, then hold checkout: the step text still advances without animation.
   await updateScenario({ ...checkingOrigin, hold: "repository" });
