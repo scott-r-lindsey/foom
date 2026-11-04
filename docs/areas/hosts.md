@@ -477,7 +477,7 @@ host. The fixed command is ssh -T with StrictHostKeyChecking=ask, forwarding
 disabled, and the origin's account/host and optional port. HTTPS cannot select this
 action. Compatible older daemons must advertise originTrust=1; otherwise the
 launch refuses until the host daemon is updated. The user verifies the fingerprint and answers SSH; Foom never supplies an
-answer or accepts a key. Check again observes the result.
+answer or accepts a key. Check capabilities observes the result.
 
 Codex's hook trust is not exposed by the existing version/help or exit-code sign-in
 probes. Foom does not inspect or modify Codex's hook-trust store. On a new host,

@@ -297,6 +297,18 @@ See the [channel and privacy policy](../product.md#updates-603).
 
 ## Hosts and repository locations (#757 PR 1)
 
+Opening Hosts makes no SSH connections. It shows the last saved results, including
+session and worktree inventory even when stale, with Last checked and a timestamp,
+or Not checked. Check capabilities refreshes the full checklist and remote
+inventory. Saved observations persist across restarts and are display only;
+actions retain their existing validation.
+
+Each host is a compact name, OS, status and chevron row. It opens by default only
+when it needs attention. Expanding exposes its controls and checklist. Repositories
+collapse to a count of ready ones and show only problems until expanded. Add host
+stays enabled during loading and checks and is disabled only while an add runs.
+Checking one host never disables another host's actions.
+
 Add host takes an SSH alias or user@host and a code folder (default `~/foom`),
 then runs one full checklist. An incomplete host stays enrolled. Host, Tools,
 Agents, each repository and macOS Power rows retain their independent results;
@@ -304,7 +316,7 @@ unrun checks say Not checked. While checking, a throbber and current step identi
 host inspection, Git access or checkout with the repository name and position.
 Pending repository checks stay visible as Checking… rows; completed observations
 appear as each step finishes. Reduced motion keeps the throbber still while the
-step text continues to update. Check again retries without creating directories.
+step text continues to update. Check capabilities retries without creating directories.
 Missing folders offer Create, and Change folder selects a replacement. Install
 and Sign in appear only for available recipes and open a visible terminal tile;
 the user answers prompts there. Origin SSH host-key failures offer Trust host key

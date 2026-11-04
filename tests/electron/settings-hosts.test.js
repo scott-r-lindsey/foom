@@ -17,6 +17,40 @@ const {
   assertAccessible,
 } = require("./harness.js");
 
+async function captureHosts(app, page, name) {
+  const area = page.locator(".hosts-page:visible, .repository-hosts:visible").first();
+  if (!(await area.count())) return;
+  const original = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+  const height = await area.evaluate(
+    (element) => Math.ceil(element.getBoundingClientRect().height) + 160,
+  );
+  const resize = async (size) => {
+    await app.evaluate(({ BrowserWindow }, size) => {
+      BrowserWindow.getAllWindows()
+        .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+        .setContentSize(size.width, size.height);
+    }, size);
+    await expect
+      .poll(() => page.evaluate(() => ({ width: innerWidth, height: innerHeight })))
+      .toEqual(size);
+  };
+  try {
+    if (height > original.height) await resize({ ...original, height });
+    for (const mode of ["light", "dark"]) {
+      await page.evaluate(
+        (mode) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${mode}` }),
+        mode,
+      );
+      await expect
+        .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
+        .toBe(mode === "dark");
+      await area.screenshot({ path: evidencePath(`1041/${name}-${mode}.png`) });
+    }
+  } finally {
+    if (height > original.height) await resize(original);
+  }
+}
+
 test("Settings authorizes checked SSH hosts and shows repository locations without exposing remote output", {
   skip: process.platform === "win32",
   timeout: deadline(60000),
@@ -156,22 +190,8 @@ process.stdin.on('data', bytes => {
   );
   gitSync(["remote", "add", "origin", "git@forge.test:team/project.git"], { cwd: repository });
   const capture = async (name) => {
-    for (const mode of ["light", "dark"]) {
-      await page.evaluate(
-        (mode) =>
-          window.desktop.saveSetup({
-            interfaceTheme: mode === "light" ? "eclipse-light" : "eclipse-dark",
-          }),
-        mode,
-      );
-      await expect
-        .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
-        .toBe(mode === "dark");
-      if (["partial-facts", "repositories-per-host"].includes(name)) await assertAccessible(page);
-      const area = page.locator(".hosts-page:visible, .repository-hosts:visible");
-      if (await area.count())
-        await area.first().screenshot({ path: evidencePath(`1041/${name}-${mode}.png`) });
-    }
+    if (["partial-facts", "repositories-per-host"].includes(name)) await assertAccessible(page);
+    await captureHosts(app, page, name);
   };
   const updateScenario = async (value) => {
     await writeFile(`${scenario}.next`, JSON.stringify(value));
@@ -204,20 +224,7 @@ process.stdin.on('data', bytes => {
   await expect(card.getByRole("button", { name: "Install codex", exact: true })).toHaveCount(0);
   await expect(card.getByText("Not checked", { exact: true })).toHaveCount(1);
   await capture("partial-facts");
-  const nicknameCapture = async (name) => {
-    for (const mode of ["light", "dark"]) {
-      await page.evaluate(
-        (mode) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${mode}` }),
-        mode,
-      );
-      await expect
-        .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
-        .toBe(mode === "dark");
-      await page
-        .locator(".hosts-page")
-        .screenshot({ path: evidencePath(`1041/nickname-${name}-${mode}.png`) });
-    }
-  };
+  const nicknameCapture = (name) => captureHosts(app, page, `nickname-${name}`);
   await nicknameCapture("default");
   const beforeRename = (await readFile(calls, "utf8")).split("\n").filter(Boolean).length;
   await card.getByRole("button", { name: "Rename fixture-cloud", exact: true }).click();
@@ -337,7 +344,7 @@ process.stdin.on('data', bytes => {
     }
   };
   await assertSpinnerCentered();
-  await page.screenshot({ path: evidencePath("1041/check-row-spinner.png") });
+  await checkoutRow.screenshot({ path: evidencePath("1041/check-row-spinner.png") });
   await expect(card.locator(".host-throbber")).toHaveCSS("animation-name", "host-check-spin");
   await capture("progress-origin");
   await app.evaluate(({ BrowserWindow }) =>
@@ -345,7 +352,7 @@ process.stdin.on('data', bytes => {
       .find((window) => window.webContents.getURL() === "app://bundle/index.html")
       .setContentSize(960, 960),
   );
-  const progressBounds = await card.locator(".hosts-heading").evaluate((heading) => ({
+  const progressBounds = await card.locator(".host-summary-row").evaluate((heading) => ({
     width: heading.clientWidth,
     scroll: heading.scrollWidth,
   }));
@@ -526,6 +533,8 @@ process.stdin.on('data', bytes => {
   await capture("hosts-clone-failed");
   await updateScenario({ ...optional, cloneSuccess: true, checkout: "clean" });
   await card.getByRole("button", { name: "Clone here", exact: true }).click();
+  await expect(card.getByRole("button", { name: /Repositories · 1 ready/ })).toBeVisible();
+  await card.getByRole("button", { name: /Repositories · 1 ready/ }).click();
   await expect(card.getByText("Clean", { exact: true })).toBeVisible();
   await capture("hosts-clone-clean");
   await updateScenario({ ...optional, origin: "origin-host-key" });
@@ -724,8 +733,8 @@ test("Hosts opens saved checks without SSH and keeps ready repositories compact"
     sessions: 3,
     cores: 8,
     load: [0, 0, 0],
-    memoryTotal: 8000,
-    memoryAvailable: 4000,
+    memoryTotal: 8 * 1024 ** 3,
+    memoryAvailable: 4 * 1024 ** 3,
     folder: { state: "pass" },
     requirements: { distro: "debian", libc: "supported", packageManager: "apt" },
     tools: [{ id: "git", state: "ready", signIn: "unknown" }],
@@ -772,37 +781,25 @@ test("Hosts opens saved checks without SSH and keeps ready repositories compact"
     env: { PATH: bin },
   });
   const page = await boardPage(app);
-  await app.evaluate(({ BrowserWindow }) =>
-    BrowserWindow.getAllWindows()
-      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
-      .setContentSize(1280, 800),
-  );
   await openSettingsScreen(page);
   const navigation = page.getByRole("navigation", { name: "Settings sections" });
   const before = await readFile(calls, "utf8");
   await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
   const card = page.getByRole("region", { name: "saved-fixture", exact: true });
   await expect(card.getByText("Ready · 6 repositories", { exact: true })).toBeVisible();
-  const capture = async (name) => {
-    for (const mode of ["light", "dark"]) {
-      await page.evaluate(
-        (mode) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${mode}` }),
-        mode,
-      );
-      await expect
-        .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
-        .toBe(mode === "dark");
-      await page
-        .locator(".hosts-page")
-        .screenshot({ path: evidencePath(`1041/saved-${name}-${mode}.png`) });
-    }
-  };
+  const capture = (name) => captureHosts(app, page, `saved-${name}`);
   await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeHidden();
   const fits = await page
     .locator(".hosts-page")
     .evaluate((element) => element.getBoundingClientRect().bottom <= window.innerHeight);
   assert.equal(fits, true);
   await capture("collapsed");
+  await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .setContentSize(1280, 800),
+  );
+
   await card.getByRole("button", { name: "Expand saved-fixture", exact: true }).click();
   await expect(card.getByText("Last checked", { exact: false })).toBeVisible();
   await expect(card.getByText("Repository · project-0", { exact: true })).toHaveCount(0);

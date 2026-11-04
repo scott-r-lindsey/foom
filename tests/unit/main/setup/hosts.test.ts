@@ -1494,6 +1494,8 @@ test("saved full checks survive restart as display data, list makes no SSH reads
     const second = new Hosts(reopened, () => repositories, "0.1.0", run, profile);
     const listed = await second.action({ action: "list" });
     expect(listed.hosts[0]?.observation).toEqual(observation);
+    expect(listed.hosts[0]?.result).toEqual(checked.hosts[0]?.result);
+    expect(listed.hosts[0]?.result).toMatchObject({ facts: { sessions: 2 } });
     expect(listed.hosts[0]?.foreignSessions).toBe(1);
     expect(run).not.toHaveBeenCalled();
     expect(mock.inventory).not.toHaveBeenCalled();
@@ -1534,4 +1536,35 @@ test("list bypasses a pending remote check without starting session or worktree 
     ok: false,
     reason: "unreachable",
   });
+});
+
+test("a saved ready result cannot authorize an agent launch after restart", async () => {
+  const result: HostResult = {
+    ok: true,
+    facts: { ...facts, agents: [{ id: "claude", state: "ready" }] },
+  };
+  settings.registeredHosts = [
+    {
+      host: "worker",
+      codeFolder: facts.codeFolder,
+      observation: {
+        checkedAt: Date.now(),
+        preflight: {
+          result,
+          ssh: { state: "pass" },
+          platform: { state: "pass" },
+          artifact: { state: "pass" },
+          repositories: [],
+        },
+      },
+    },
+  ];
+  expect((await hosts.action({ action: "list" })).hosts[0]?.result).toEqual(result);
+  expect(run).not.toHaveBeenCalled();
+  run.mockResolvedValueOnce({ ok: false, reason: "unreachable" });
+  await expect(hosts.requireAgent("worker", "claude")).rejects.toMatchObject({
+    reason: "remote_host_unreachable",
+  });
+  expect(run).toHaveBeenCalledTimes(1);
+  expect((await hosts.action({ action: "list" })).hosts[0]?.result).toEqual(result);
 });

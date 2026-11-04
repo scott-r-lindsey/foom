@@ -1081,3 +1081,23 @@ test("slow list and independent host checks leave Add enabled and preserve a new
   expect(screen.getByRole("region", { name: "second" })).toBeTruthy();
   expect(api.mock.calls.filter(([action]) => action.action === "preflight")).toHaveLength(2);
 });
+
+test("Add becomes available after enrollment while its automatic capability check is still pending", async () => {
+  const api = vi
+    .fn<(action: HostsAction) => Promise<HostsState>>()
+    .mockImplementation((action) =>
+      action.action === "preflight"
+        ? new Promise(() => {})
+        : Promise.resolve(action.action === "list" ? { hosts: [], locations: [] } : initial),
+    );
+  render(<HostsSettings source={{ hosts: api }} headingRef={createRef()} />);
+  fireEvent.click(screen.getByRole("button", { name: "Add host" }));
+  fireEvent.change(screen.getByLabelText("SSH host"), { target: { value: "worker" } });
+  fireEvent.click(screen.getByRole("button", { name: "Add host" }));
+  await screen.findByText("Checking host…");
+  expect(screen.getByRole<HTMLButtonElement>("button", { name: "Add host" }).disabled).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "Add host" }));
+  expect(
+    screen.getByRole<HTMLInputElement>("textbox", { name: "SSH host" }).matches(":disabled"),
+  ).toBe(false);
+});

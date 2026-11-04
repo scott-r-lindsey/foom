@@ -580,7 +580,7 @@ export class Hosts {
       .find((model) => model.id === tool);
     return selectHostRecipe({ tool, action, distro: system.distro }, system, model?.hostSetup);
   }
-  state(result?: HostResult): HostsState {
+  state(result?: HostResult, savedOnly = false): HostsState {
     return {
       hosts: (this.store.get().registeredHosts ?? []).map((host) => ({
         ...host,
@@ -605,10 +605,10 @@ export class Hosts {
             ? { installReason: "recipe-unavailable" as const }
             : {}),
         })),
-        ...(this.worktreeInventories.has(host.host)
+        ...(!savedOnly && this.worktreeInventories.has(host.host)
           ? { foreignWorktrees: this.worktreeInventories.get(host.host)?.other ?? 0 }
           : {}),
-        ...(this.sessionInventories.has(host.host)
+        ...(!savedOnly && this.sessionInventories.has(host.host)
           ? {
               foreignSessions:
                 this.sessionInventories
@@ -616,7 +616,9 @@ export class Hosts {
                   ?.foreign.reduce((sum, entry) => sum + (entry.count ?? 1), 0) ?? 0,
             }
           : {}),
-        ...(this.results.get(host.host) ? { result: this.projectedResult(host.host) } : {}),
+        ...(!savedOnly && this.results.get(host.host)
+          ? { result: this.projectedResult(host.host) }
+          : {}),
       })),
       locations: this.locations.filter(
         (location) =>
@@ -634,7 +636,7 @@ export class Hosts {
   ): Promise<HostsState> {
     if (!hostsAction(input)) return Promise.reject(new Error("Invalid host action"));
     if (input.action === "progress" || input.action === "list")
-      return Promise.resolve(this.state());
+      return Promise.resolve(this.state(undefined, input.action === "list"));
     if (
       [
         "add",
@@ -766,7 +768,7 @@ export class Hosts {
                         ...entry,
                         observation: {
                           checkedAt: Date.now(),
-                          preflight,
+                          preflight: { ...preflight, result: row?.result ?? preflight.result },
                           ...(row?.foreignSessions !== undefined
                             ? { foreignSessions: row.foreignSessions }
                             : {}),
