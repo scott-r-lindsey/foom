@@ -70,13 +70,15 @@ const frames=new RemoteFrames();const send=value=>{for(const frame of remoteResp
 let output='FIXTURE_MACHINE_READY\\r\\n';
 process.stdin.on('data',bytes=>frames.push(bytes,message=>{
  fs.appendFileSync(${JSON.stringify(calls)},JSON.stringify({host,message})+'\\n');
- if(message.type==='hello'){send({type:'hello',build:${JSON.stringify(manifest.sha256)},humanMachines:1});return;}
+ if(message.type==='hello'){send({type:'hello',build:${JSON.stringify(manifest.sha256)},humanMachines:1,machineHome:'/remote/home'});return;}
  if(message.type==='inventory'){send({type:'inventory-result',own:[],foreign:[]});return;}
  if(message.type==='open'){
   assert.equal(message.human,true);assert.equal(message.agent,undefined);
   assert.equal(message.machine.codeFolder,'/remote/code');
   if(message.machine.agent){assert.ok(['claude','codex'].includes(message.machine.agent));assert.deepEqual(message.machine.defaults,[]);}
-  output='FIXTURE_'+(message.machine.agent||'shell')+' /remote/code\\r\\n';
+  const cwd=message.checkout?.path||(message.machine.repository?'/remote/code/'+message.machine.repository.directory:'/remote/home');
+  if(!message.checkout&&!message.machine.repository){assert.equal(message.context.repository,cwd);assert.equal(message.context.worktree,cwd);}
+  output='FIXTURE_'+(message.machine.agent||'shell')+' '+cwd\\r\\n';
   send({type:'open-result',id:message.id,request:message.request,state:'live'});return;
  }
  if('id' in message){
@@ -191,6 +193,8 @@ process.stdin.on('data',bytes=>frames.push(bytes,message=>{
       (row) =>
         row.placement.kind === "remote" &&
         row.placement.host === "fixture-cloud" &&
+        row.repository === "/remote/home" &&
+        row.worktree === "/remote/home" &&
         !row.orchestration,
     ),
   );

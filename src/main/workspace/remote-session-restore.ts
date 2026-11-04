@@ -21,8 +21,9 @@ export async function discoverRemoteSessions(
       id: session.id,
       agent,
       kind: agent === "shell" ? "shell" : "agent",
-      repository: placed?.localRepository ?? homeDirectory,
-      worktree: context && placed ? context.worktree : homeDirectory,
+      repository:
+        placed?.localRepository ?? (context?.machine ? context.repository : homeDirectory),
+      worktree: context && (placed || context.machine) ? context.worktree : homeDirectory,
       branch: placed ? `${placed.branch} · ${host}` : null,
       ...(placed ? {} : { home: true }),
       ...(context?.machine ? { machine: true } : {}),

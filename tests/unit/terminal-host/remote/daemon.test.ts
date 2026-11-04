@@ -367,6 +367,7 @@ test.skipIf(process.platform === "win32").each(["close", "takeover"])(
         hostPreflight: 1,
         originTrust: 1,
         humanMachines: 1,
+        machineHome: root,
       });
     });
     if (operation === "close") {
@@ -1418,6 +1419,7 @@ test.skipIf(process.platform === "win32")(
       hostPreflight: 1,
       originTrust: 1,
       humanMachines: 1,
+      machineHome: root,
     });
     expect(mock.stop).not.toHaveBeenCalled();
     await disconnect(newer);
@@ -1794,6 +1796,7 @@ test.skipIf(process.platform === "win32")(
         hostPreflight: 1,
         originTrust: 1,
         humanMachines: 1,
+        machineHome: root,
       });
       expect(host.server.listening).toBe(true);
     } finally {
@@ -2566,6 +2569,13 @@ test.skipIf(process.platform === "win32")(
     c.send({
       type: "open",
       id: "machine",
+      context: {
+        repository: "/code",
+        worktree: "/code",
+        branch: null,
+        agent: "claude",
+        machine: true,
+      },
       request: 1,
       cols: 80,
       rows: 24,
@@ -2590,18 +2600,27 @@ test.skipIf(process.platform === "win32")(
       expect.objectContaining({
         command: "/fixture/claude",
         args: ["--model", "fixture"],
-        cwd: "/code",
+        cwd: root,
         env: { PATH: "/fixture" },
         replaceEnvironment: true,
       }),
       "machine",
     );
     expect(mock.owner).not.toHaveBeenCalled();
+    const inventory = await client();
+    inventory.send({ type: "hello", build });
+    await inventory.wait(1);
+    inventory.send({ type: "inventory", profile: "a".repeat(32) });
+    await inventory.wait(2);
+    expect(inventory.messages[1]).toMatchObject({
+      type: "inventory-result",
+      own: [{ id: "machine", context: { repository: root, worktree: root, machine: true } }],
+    });
   },
 );
 
 test.skipIf(process.platform === "win32")(
-  "machine shells keep the approved folder and refuse an unapproved folder or unknown agent",
+  "machine shells start in home and refuse an unapproved folder or unknown agent",
   async () => {
     await start();
     const c = await client();
@@ -2620,7 +2639,7 @@ test.skipIf(process.platform === "win32")(
     });
     await c.wait(2);
     expect(mock.create).toHaveBeenCalledWith(
-      expect.objectContaining({ cwd: "/code", args: ["-i", "-l"] }),
+      expect.objectContaining({ cwd: root, args: ["-i", "-l"] }),
       "shell-machine",
     );
     mock.create.mockClear();
