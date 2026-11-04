@@ -59,7 +59,7 @@ test.skipIf(process.platform === "win32")(
     await writeFile(uname, '#!/bin/sh\ncase "$1" in -s) echo Linux;; -m) echo x86_64;; esac\n', {
       mode: 0o700,
     });
-    const bytes = Buffer.from("#!/bin/sh\nprintf 'EXECUTED:'\nhead -c 4\n");
+    const bytes = Buffer.from("#!/bin/sh\nprintf 'MASK:%s\\nEXECUTED:' \"$(umask)\"\nhead -c 4\n");
     const compressed = gzipSync(bytes);
     const hash = createHash("sha256").update(bytes).digest("hex");
     const args = bootstrapArguments(
@@ -74,7 +74,7 @@ test.skipIf(process.platform === "win32")(
     const script = args.at(-1);
     if (!script) throw new Error("missing bootstrap script");
     const run = (input: Buffer) =>
-      spawnSync("/bin/sh", ["-c", `sh -c ${script}`], {
+      spawnSync("/bin/sh", ["-c", `umask 002; sh -c ${script}`], {
         env: { PATH: bin, HOME: home, LANG: "C" },
         input,
         encoding: "utf8",
@@ -84,11 +84,14 @@ test.skipIf(process.platform === "win32")(
     const installed = join(cache, "foom-host");
     const upload = run(Buffer.concat([compressed, Buffer.from("PING")]));
     expect(upload.status, upload.stderr).toBe(0);
-    expect(upload.stdout).toBe("FOOM-UPLOAD\nFOOM-READY\nEXECUTED:PING");
+    expect(upload.stdout).toBe("FOOM-UPLOAD\nFOOM-READY\nMASK:0002\nEXECUTED:PING");
     expect(await readFile(installed)).toEqual(bytes);
+    for (const directory of [join(home, ".foom-host"), join(home, ".foom-host/0.1.0"), cache])
+      expect((await stat(directory)).mode & 0o777).toBe(0o700);
+    expect((await stat(installed)).mode & 0o777).toBe(0o700);
     const cached = run(Buffer.from("PING"));
     expect(cached.status, cached.stderr).toBe(0);
-    expect(cached.stdout).toBe("FOOM-READY\nEXECUTED:PING");
+    expect(cached.stdout).toBe("FOOM-READY\nMASK:0002\nEXECUTED:PING");
     // Cached corruption cannot be executed. Invalid/truncated/wrong-hash gzip must
     // never replace it or leave a temporary upload behind.
     await writeFile(installed, "corrupt cache");
