@@ -121,6 +121,12 @@ process.stdin.on('data',bytes=>frames.push(bytes,message=>{
         path: evidencePath(`1024/${name}-${mode}.png`),
         animations: "disabled",
       });
+      if (name === "remote-worktree-field" && process.env.FOOM_POLISH_SCREENSHOTS === "1") {
+        await page.locator(".panel-header").screenshot({
+          path: evidencePath(`1045/panel-chip-${mode}.png`),
+          animations: "disabled",
+        });
+      }
     }
   };
   await expect(page.getByRole("group", { name: "Machines" })).toHaveCount(0);
@@ -241,6 +247,63 @@ process.stdin.on('data',bytes=>frames.push(bytes,message=>{
       .getByLabel("Host: Builder"),
   ).toBeVisible();
   await capture("worktree-tile-chip");
+  const remoteTile = page.locator(".terminal-tile").filter({
+    has: page.locator(".tile-location").filter({ hasText: "remote-work" }),
+  });
+  const chipStates = async (availability) => {
+    await expect(remoteTile.locator(".host-chip svg")).toHaveCount(1);
+    await expect(remoteWorktree.locator(".host-chip svg")).toHaveCount(0);
+    for (const mode of ["light", "dark"]) {
+      await page.evaluate(
+        (mode) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${mode}` }),
+        mode,
+      );
+      await expect(page.locator("html")).toHaveCSS("color-scheme", mode);
+      for (const focused of [true, false]) {
+        const target = focused
+          ? remoteTile
+          : page
+              .locator('.terminal-tile[data-empty="false"]')
+              .filter({ hasNot: page.locator(".tile-location").filter({ hasText: "remote-work" }) })
+              .first();
+        await target.locator(".tile-number").focus();
+        await expect(remoteTile).toHaveAttribute("data-focused", String(focused));
+        const chip = remoteTile.locator(".host-chip");
+        assert.notEqual(
+          await chip.evaluate((node) => getComputedStyle(node).backgroundColor),
+          "rgba(0, 0, 0, 0)",
+        );
+        if (process.env.FOOM_POLISH_SCREENSHOTS === "1") {
+          await remoteTile.locator(".tile-title").screenshot({
+            path: evidencePath(
+              `1045/tile-${availability}-${focused ? "focused" : "unfocused"}-${mode}.png`,
+            ),
+            animations: "disabled",
+          });
+        }
+      }
+      const width = page.getByRole("separator", { name: "Sidebar width", exact: true });
+      await width.press("Home");
+      await expect(width).toHaveAttribute("aria-valuenow", "220");
+      const chipBox = await remoteWorktree.locator(".host-chip").boundingBox();
+      const rowBox = await remoteWorktree.boundingBox();
+      assert.ok(
+        chipBox &&
+          rowBox &&
+          chipBox.x >= rowBox.x &&
+          chipBox.x + chipBox.width <= rowBox.x + rowBox.width,
+      );
+      if (process.env.FOOM_POLISH_SCREENSHOTS === "1") {
+        await remoteWorktree.screenshot({
+          path: evidencePath(`1045/sidebar-narrow-${availability}-${mode}.png`),
+          animations: "disabled",
+        });
+      }
+      await width.dblclick();
+      await expect(width).toHaveAttribute("aria-valuenow", "300");
+    }
+  };
+  await chipStates("available");
   const hostMenu = page.getByRole("button", { name: "Actions for Builder", exact: true });
   const refreshAgents = async (choice) => {
     // Await the preceding launch command's renderer refresh before changing host facts.
@@ -309,6 +372,7 @@ process.stdin.on('data',bytes=>frames.push(bytes,message=>{
   );
   await expect(remoteWorktree.getByLabel("Builder · Unavailable")).toBeVisible();
   await capture("unavailable-chip");
+  await chipStates("unavailable");
   await assertAccessible(page);
   await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
   await capture("compact-unavailable");

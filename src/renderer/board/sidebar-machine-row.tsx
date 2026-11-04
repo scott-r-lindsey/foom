@@ -91,7 +91,13 @@ export function SidebarMachineRow({
   );
 }
 
-export function HostChip({ machine }: { machine: Pick<SidebarMachine, "name" | "available"> }) {
+export function HostChip({
+  machine,
+  icon = false,
+}: {
+  machine: Pick<SidebarMachine, "name" | "available">;
+  icon?: boolean;
+}) {
   return (
     <span
       className="host-chip"
@@ -99,7 +105,13 @@ export function HostChip({ machine }: { machine: Pick<SidebarMachine, "name" | "
       role="img"
       aria-label={machine.available ? `Host: ${machine.name}` : `${machine.name} · Unavailable`}
     >
-      {machine.available ? machine.name : "⊘ Unavailable"}
+      {icon && (
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <rect x="1.5" y="2" width="13" height="9" rx="1.5" />
+          <path d="M8 11v3M5 14h6" />
+        </svg>
+      )}
+      <span className="host-chip-label">{machine.available ? machine.name : "⊘ Unavailable"}</span>
     </span>
   );
 }

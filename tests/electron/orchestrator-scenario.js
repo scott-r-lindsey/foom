@@ -1032,6 +1032,31 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
       )
       .toBe(true);
 
+    if (phase === "children" && !cliOnly) {
+      const childRow = page.locator(`[data-drag-session="${childId}"]`);
+      const parentRow = page.locator(`[data-drag-session="${parentId}"]`);
+      const mark = childRow.locator(".session-robot-mark");
+      await expect(childRow).toHaveAttribute("data-exited", "true");
+      await page.emulateMedia({ reducedMotion: "no-preference" });
+      for (const mode of ["light", "dark"]) {
+        await page.emulateMedia({ colorScheme: mode });
+        await parentRow.focus();
+        await expect(mark).toHaveAttribute("data-related", "true");
+        await expect(mark).toHaveAttribute("data-animated", "false");
+        await expect(mark.locator(".robot-wave-inner")).toHaveCSS("animation-name", "none");
+        await expect(mark).toHaveCSS(
+          "color",
+          mode === "light" ? "rgb(91, 43, 217)" : "rgb(155, 107, 255)",
+        );
+        if (process.env.FOOM_POLISH_SCREENSHOTS === "1") {
+          await childRow.screenshot({
+            path: evidencePath(`1045/exited-related-child-${mode}.png`),
+            animations: "disabled",
+          });
+        }
+      }
+    }
+
     if (phase === "cleanup") {
       // Exercise the shared main-process policy once through MCP. The CLI case
       // retains its transport and batch-review checks without duplicating this flow.
