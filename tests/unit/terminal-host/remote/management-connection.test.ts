@@ -57,7 +57,7 @@ else if(!args.includes('status')) process.exit(2);
   );
   vi.stubEnv("PATH", bin);
   vi.stubEnv("SHELL", join(bin, "shell"));
-  host = serveHost(build, home);
+  host = serveHost(build, 0o002, home);
   await once(host.server, "listening");
   return { home, started, release };
 }

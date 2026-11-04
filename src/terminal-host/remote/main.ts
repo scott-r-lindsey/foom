@@ -62,8 +62,8 @@ export function runHost(argv: readonly string[] = process.argv): void {
     process.stderr.write("Usage: foom-host --daemon|--connect\n");
     process.exitCode = 2;
   } else if (argv[2] === "--daemon") {
-    process.umask(0o077);
-    const host = serveHost(build);
+    const terminalUmask = process.umask(0o077);
+    const host = serveHost(build, terminalUmask);
     host.server.once("error", () => {
       process.exitCode = 1;
     });

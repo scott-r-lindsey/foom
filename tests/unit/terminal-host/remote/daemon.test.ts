@@ -5,6 +5,8 @@ import type { TerminalTelemetry } from "../../../../src/shared/desktop";
 import { endpointRequest } from "../../../../src/terminal-host/remote/agent-endpoint";
 import { record } from "../../../../src/shared/remote-agent-protocol";
 import { createConnection, type Socket } from "node:net";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { mkdir, rm, stat, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -113,8 +115,11 @@ afterEach(async () => {
   vi.unstubAllEnvs();
   await rm(root, { recursive: true, force: true });
 });
+function terminalArgs(command: string, args: string[]) {
+  return ["-c", 'umask "$1" || exit; shift; exec "$@"', "foom-terminal", "2", command, ...args];
+}
 async function start() {
-  host = serveHost(build, root, { setTimeout, clearTimeout });
+  host = serveHost(build, 0o002, root, { setTimeout, clearTimeout });
   await once(host.server, "listening");
 }
 async function client() {
@@ -155,7 +160,13 @@ test.skipIf(process.platform === "win32")(
     expect((await stat(join(root, ".foom-host/host-v2.sock"))).mode & 0o777).toBe(0o600);
     const c = await open();
     expect(mock.create).toHaveBeenCalledWith(
-      { command: "/bin/sh", args: ["-i", "-l"], cwd: root, cols: 80, rows: 24 },
+      {
+        command: "/bin/sh",
+        args: terminalArgs("/bin/sh", ["-i", "-l"]),
+        cwd: root,
+        cols: 80,
+        rows: 24,
+      },
       "one",
     );
     mock.attach.mockImplementation((_id: string, send: (token: string, data: string) => void) => {
@@ -655,7 +666,13 @@ test.skipIf(process.platform === "win32")(
     const id = "secret-terminal-capability-85ac4f";
     await open(id);
     const spec: unknown = mock.create.mock.calls[0]?.[0];
-    expect(spec).toEqual({ command: "/bin/sh", args: ["-i", "-l"], cwd: root, cols: 80, rows: 24 });
+    expect(spec).toEqual({
+      command: "/bin/sh",
+      args: terminalArgs("/bin/sh", ["-i", "-l"]),
+      cwd: root,
+      cols: 80,
+      rows: 24,
+    });
     expect(JSON.stringify(spec)).not.toContain(id);
     expect(JSON.stringify(process.env)).not.toContain(id);
   },
@@ -880,6 +897,9 @@ test.skipIf(process.platform === "win32")(
     const created: unknown = mock.create.mock.calls[0]?.[0];
     if (!record(created) || !record(created["env"]))
       throw new Error("Missing agent process environment");
+    expect(created["args"]).toEqual(
+      expect.arrayContaining(["foom-terminal", "2", "/fixture/claude"]),
+    );
     expect(JSON.stringify(created)).not.toContain(id);
     const env: NodeJS.ProcessEnv = {};
     for (const [name, value] of Object.entries(created["env"]))
@@ -2094,7 +2114,7 @@ test.skipIf(process.platform === "win32")(
     // A racing --connect can start a second daemon before the first bind is visible.
     // Its failed bind must never sweep files belonging to the daemon that won.
     const diagnostic = vi.spyOn(console, "error").mockImplementation(() => {});
-    const conflict = serveHost(build, root);
+    const conflict = serveHost(build, 0o002, root);
     try {
       await once(conflict.server, "error");
       await conflict.close();
@@ -2444,8 +2464,14 @@ test.skipIf(process.platform === "win32")(
     await c.wait(2);
     expect(mock.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        command: process.execPath,
-        args: ["--recipe", "git", "install", "debian", "a".repeat(64)],
+        command: "/bin/sh",
+        args: terminalArgs(process.execPath, [
+          "--recipe",
+          "git",
+          "install",
+          "debian",
+          "a".repeat(64),
+        ]),
       }),
       "recipe",
     );
@@ -2598,8 +2624,8 @@ test.skipIf(process.platform === "win32")(
     );
     expect(mock.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        command: "/fixture/claude",
-        args: ["--model", "fixture"],
+        command: "/bin/sh",
+        args: terminalArgs("/fixture/claude", ["--model", "fixture"]),
         cwd: root,
         env: { PATH: "/fixture" },
         replaceEnvironment: true,
@@ -2616,6 +2642,51 @@ test.skipIf(process.platform === "win32")(
       type: "inventory-result",
       own: [{ id: "machine", context: { repository: root, worktree: root, machine: true } }],
     });
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "machine launcher preserves the captured umask and home cwd when executing a fixture agent",
+  async () => {
+    await start();
+    vi.mocked(hostDiscovery).mockResolvedValueOnce({
+      command: process.execPath,
+      env: { PATH: "/fixture" },
+      version: "fixture",
+      help: "fixture",
+    });
+    const script =
+      'require("node:fs").writeFileSync("launcher-file", "fixture", { mode: 0o666 }); process.stdout.write(process.cwd() + "\\n" + process.umask().toString(8));';
+    const c = await client();
+    c.send({ type: "hello", build });
+    await c.wait(1);
+    c.send({
+      type: "open",
+      id: "launcher-machine",
+      request: 1,
+      cols: 80,
+      rows: 24,
+      reattach: false,
+      human: true,
+      profile: "a".repeat(32),
+      machine: { codeFolder: "/code", agent: "claude", defaults: ["-e", script] },
+    });
+    await c.wait(2);
+    const launched: unknown = mock.create.mock.calls[0]?.[0];
+    if (
+      !record(launched) ||
+      typeof launched["command"] !== "string" ||
+      typeof launched["cwd"] !== "string" ||
+      !Array.isArray(launched["args"]) ||
+      !launched["args"].every((arg: unknown) => typeof arg === "string")
+    )
+      throw new Error("Missing launcher specification");
+    const result = await promisify(execFile)(launched["command"], launched["args"], {
+      cwd: launched["cwd"],
+      env: { PATH: "/fixture" },
+    });
+    expect(result.stdout).toBe(`${root}\n2`);
+    expect((await stat(join(root, "launcher-file"))).mode & 0o777).toBe(0o664);
   },
 );
 
@@ -2639,7 +2710,7 @@ test.skipIf(process.platform === "win32")(
     });
     await c.wait(2);
     expect(mock.create).toHaveBeenCalledWith(
-      expect.objectContaining({ cwd: root, args: ["-i", "-l"] }),
+      expect.objectContaining({ cwd: root, args: terminalArgs("/bin/sh", ["-i", "-l"]) }),
       "shell-machine",
     );
     mock.create.mockClear();
@@ -2709,8 +2780,8 @@ test.skipIf(process.platform === "win32")(
         expect(mock.create).toHaveBeenCalledWith(
           expect.objectContaining({
             cwd: `/code/${repository.directory}`,
-            command: "/fixture/claude",
-            args: [],
+            command: "/bin/sh",
+            args: terminalArgs("/fixture/claude", []),
           }),
           "clone-clean",
         );
@@ -2795,8 +2866,8 @@ test.skipIf(process.platform === "win32")(
     await c.wait(2);
     expect(mock.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        command: process.execPath,
-        args: ["--trust-origin", "git@forge.test:team/repo.git"],
+        command: "/bin/sh",
+        args: terminalArgs(process.execPath, ["--trust-origin", "git@forge.test:team/repo.git"]),
       }),
       "trust",
     );

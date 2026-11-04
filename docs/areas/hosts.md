@@ -46,7 +46,12 @@ paths or remote output.
 Test and add use the existing exact-build artifact selection, SHA-256 bootstrap
 and SSH stdio protocol. SSH retains BatchMode, disabled agent/X11 forwarding,
 ClearAllForwardings, ConnectTimeout and its environment allowlist. There is no TCP
-listener. A management request has no terminal ID and creates no PTY. Existing
+listener. Bootstrap captures the account's SSH login umask before tightening it
+for its private cache work. The daemon retains that mask before applying 077 to
+its own files. Every new remote shell or agent PTY, on a machine or in a repository,
+starts with the captured mask; login shell startup may then override it. Foom's
+cache, sockets, control files and other private artifacts remain 0700/0600.
+Reattachment retains the existing PTY and its current mask (#1047). A management request has no terminal ID and creates no PTY. Existing
 SSH host-key trust applies; Foom never accepts a key or prompts for credentials.
 Removing a registration only forgets it: it sends no stop, kill or session-close
 operation, including when the last observation reports live sessions.

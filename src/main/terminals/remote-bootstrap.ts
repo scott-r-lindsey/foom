@@ -151,6 +151,7 @@ export function bootstrapArguments(
   // fixed code and narrowly validated version/hash/size literals enter this script.
   // stdin remains the same SSH channel for the artifact and the framed protocol.
   const script = `set -eu
+login_umask=$(umask)
 umask 077
 # Recheck on every connection before touching the cache or accepting an upload.
 test "$(uname -s)" = '${platform === "linux" ? "Linux" : "Darwin"}'
@@ -192,6 +193,7 @@ else
   trap - EXIT HUP INT TERM
   printf 'FOOM-READY\\n'
 fi
+umask "$login_umask"
 exec "$f" --connect`;
   return [...sshArguments(host), "sh", "-c", `'${script.replaceAll("'", "'\\''")}'`];
 }

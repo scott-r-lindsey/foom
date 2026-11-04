@@ -74,7 +74,10 @@ test("host chips name the host and report unavailability with a symbol and words
   const { HostChip } = await import("../../../../src/renderer/board/sidebar-machine-row");
   const view = render(<HostChip machine={{ name: "dozer", available: true }} />);
   expect(view.getByLabelText("Host: dozer").textContent).toBe("dozer");
-  view.rerender(<HostChip machine={{ name: "dozer", available: false }} />);
+  expect(view.container.querySelector("svg")).toBeNull();
+  view.rerender(<HostChip machine={{ name: "dozer", available: true }} icon />);
+  expect(view.container.querySelector('svg[aria-hidden="true"]')).toBeTruthy();
+  view.rerender(<HostChip machine={{ name: "dozer", available: false }} icon />);
   expect(view.getByLabelText("dozer · Unavailable").textContent).toBe("⊘ Unavailable");
 });
 
