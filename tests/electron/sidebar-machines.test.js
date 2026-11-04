@@ -78,7 +78,7 @@ process.stdin.on('data',bytes=>frames.push(bytes,message=>{
   if(message.machine.agent){assert.ok(['claude','codex'].includes(message.machine.agent));assert.deepEqual(message.machine.defaults,[]);}
   const cwd=message.checkout?.path||(message.machine.repository?'/remote/code/'+message.machine.repository.directory:'/remote/home');
   if(!message.checkout&&!message.machine.repository){assert.equal(message.context.repository,cwd);assert.equal(message.context.worktree,cwd);}
-  output='FIXTURE_'+(message.machine.agent||'shell')+' '+cwd\\r\\n';
+  output='FIXTURE_'+(message.machine.agent||'shell')+' '+cwd+'\\r\\n';
   send({type:'open-result',id:message.id,request:message.request,state:'live'});return;
  }
  if('id' in message){
