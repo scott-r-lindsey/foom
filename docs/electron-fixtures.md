@@ -226,3 +226,21 @@ the profile-lock case at 03:35:04 UTC. The uploaded JUnit contains only its open
 envelope and the summary is empty: the runner was interrupted before finalizing
 reports. Orphan termination is subsequent Actions cleanup. No test, worker or CI
 deadline changes are made for these failures.
+
+## Native zoom resize before tile menus (#1040)
+
+The narrow tile-menu case arms a one-shot renderer resize listener before setting
+native WebContents zoom, then waits for that event before opening the menu.
+`innerWidth` can already reflect the new zoom before Chromium dispatches `resize`.
+`RowMenu` intentionally dismisses on resize, so opening it after only a width poll
+can immediately remove the dialog; its locator then waits until the layout poll's
+existing deadline. A local event trace reproduced native resize arriving after the
+dialog was added, followed by its removal, while the viewport remained 500×300
+and native zoom remained 3. Waiting for the event preserves both resize dismissal
+and the original narrow layout assertion without fixed sleeps or a larger deadline.
+
+The failure-only diagnostic retains the final viewport, native zoom, grid columns
+and command/facts bounds. A missing grid distinguishes an absent menu from a
+present menu whose facts do not stack. Neither earlier macOS nor Linux CI artifacts
+recorded those final values; the original bare predicate timeout does not itself
+establish an incorrect grid layout.
