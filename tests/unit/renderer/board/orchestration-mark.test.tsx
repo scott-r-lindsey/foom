@@ -23,3 +23,19 @@ test("reviewer lens matches the approved receiving robot and carries its own acc
   expect(mark.getAttribute("data-related")).toBe("false");
   expect(mark.querySelector("title")).toBeNull();
 });
+
+test.each(["tx", "rx", "review", "orphan"] as const)(
+  "%s keeps related identity separate from running motion",
+  (kind) => {
+    const view = render(<OrchestrationMark kind={kind} related />);
+    const mark = view.container.querySelector("svg");
+    expect(mark?.getAttribute("data-related")).toBe(String(kind !== "orphan"));
+    expect(mark?.getAttribute("data-animated")).toBe(String(kind !== "orphan"));
+    view.rerender(<OrchestrationMark kind={kind} related exited />);
+    expect(mark?.getAttribute("data-related")).toBe(String(kind !== "orphan"));
+    expect(mark?.getAttribute("data-animated")).toBe("false");
+    view.rerender(<OrchestrationMark kind={kind} related={false} />);
+    expect(mark?.getAttribute("data-related")).toBe("false");
+    expect(mark?.getAttribute("data-animated")).toBe("false");
+  },
+);

@@ -66,7 +66,9 @@ export function SidebarSessionRow({
             : "rx"
           : "orphan"
         : undefined;
-  const robot = mark ? <OrchestrationMark kind={mark} related={related} /> : null;
+  const robot = mark ? (
+    <OrchestrationMark kind={mark} related={related} exited={Boolean(row.exited)} />
+  ) : null;
   return (
     <div
       {...events}

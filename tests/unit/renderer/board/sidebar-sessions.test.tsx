@@ -636,6 +636,11 @@ test("marks children in their own checkouts, highlights relationships and retain
   ).toBe("true");
   expect(item.querySelector(".session-robot-mark")?.getAttribute("data-related")).toBe("true");
   expect(parentItem.querySelector('.session-robot-mark[data-kind="tx"]')).toBeTruthy();
+  expect(item.querySelector(".session-robot-mark")?.getAttribute("data-animated")).toBe("true");
+  view.rerender(<Sidebar {...props} rows={[parent, { ...child, exited: true }]} />);
+  expect(item.querySelector(".session-robot-mark")?.getAttribute("data-related")).toBe("true");
+  expect(item.querySelector(".session-robot-mark")?.getAttribute("data-animated")).toBe("false");
+  view.rerender(<Sidebar {...props} />);
   expect(view.container.querySelector(".session-child-mark")).toBeNull();
   expect(item.title).toBe("Child of Claude Code");
   expect(item.closest(".session-entry")?.getAttribute("data-related")).toBe("true");
