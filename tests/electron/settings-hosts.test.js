@@ -24,6 +24,8 @@ async function captureHosts(app, page, name) {
   const height = await area.evaluate(
     (element) => Math.ceil(element.getBoundingClientRect().height) + 160,
   );
+  // Xvfb permits tall review crops; macOS constrains native windows to its display.
+  const resizeForCapture = process.platform === "linux" && height > original.height;
   const resize = async (size) => {
     await app.evaluate(({ BrowserWindow }, size) => {
       BrowserWindow.getAllWindows()
@@ -35,7 +37,7 @@ async function captureHosts(app, page, name) {
       .toEqual(size);
   };
   try {
-    if (height > original.height) await resize({ ...original, height });
+    if (resizeForCapture) await resize({ ...original, height });
     for (const mode of ["light", "dark"]) {
       await page.evaluate(
         (mode) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${mode}` }),
@@ -47,7 +49,7 @@ async function captureHosts(app, page, name) {
       await area.screenshot({ path: evidencePath(`1041/${name}-${mode}.png`) });
     }
   } finally {
-    if (height > original.height) await resize(original);
+    if (resizeForCapture) await resize(original);
   }
 }
 
