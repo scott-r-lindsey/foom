@@ -1093,15 +1093,42 @@ test("directional pads and empty-space menu split, grow, launch and close", {
   await expect.poll(() => page.evaluate(() => window.innerWidth)).toBeLessThanOrEqual(600);
   await page.getByRole("button", { name: "Tile 2 menu", exact: true }).press("Enter");
   const narrow = page.getByRole("dialog", { name: "Tile 2 menu", exact: true });
-  await expect
-    .poll(() =>
-      narrow.evaluate((panel) => {
-        const commands = panel.querySelector(".row-menu-items")?.getBoundingClientRect();
-        const facts = panel.querySelector(".panel-facts")?.getBoundingClientRect();
-        return Boolean(commands && facts && facts.top >= commands.bottom - 1);
+  try {
+    await expect
+      .poll(() =>
+        narrow.evaluate((panel) => {
+          const commands = panel.querySelector(".row-menu-items")?.getBoundingClientRect();
+          const facts = panel.querySelector(".panel-facts")?.getBoundingClientRect();
+          return Boolean(commands && facts && facts.top >= commands.bottom - 1);
+        }),
+      )
+      .toBe(true);
+  } catch (error) {
+    const [layout, zoom] = await Promise.allSettled([
+      page.evaluate(() => {
+        const panel = document.querySelector('[role="dialog"][aria-label="Tile 2 menu"]');
+        const body = panel?.querySelector(".panel-body");
+        return {
+          viewport: { width: innerWidth, height: innerHeight },
+          gridColumns: body ? getComputedStyle(body).gridTemplateColumns : null,
+          commands: panel?.querySelector(".row-menu-items")?.getBoundingClientRect().toJSON(),
+          facts: panel?.querySelector(".panel-facts")?.getBoundingClientRect().toJSON(),
+        };
       }),
-    )
-    .toBe(true);
+      app.evaluate(({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows()
+          .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+          ?.webContents.getZoomFactor(),
+      ),
+    ]);
+    context.diagnostic(
+      `Narrow tile menu layout: ${JSON.stringify({
+        layout: layout.status === "fulfilled" ? layout.value : { error: String(layout.reason) },
+        zoomFactor: zoom.status === "fulfilled" ? zoom.value : { error: String(zoom.reason) },
+      })}`,
+    );
+    throw error;
+  }
   await expect(
     narrow.getByRole("menuitem", { name: "Split terminal right", exact: true }),
   ).toHaveCSS("width", "28px");
