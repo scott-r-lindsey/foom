@@ -1085,11 +1085,26 @@ test("directional pads and empty-space menu split, grow, launch and close", {
   await page.getByRole("button", { name: "Tile 2 menu", exact: true }).click();
   await expect(page.getByRole("menuitem", { name: "Grow left", exact: true })).toBeDisabled();
   await page.keyboard.press("Escape");
+  // Zoom changes innerWidth before delivering resize. Opening the menu in that
+  // interval lets RowMenu's resize dismissal close it before the layout poll.
+  const zoomResize = await page.evaluateHandle(() => {
+    const state = { complete: false };
+    window.addEventListener(
+      "resize",
+      () => {
+        state.complete = true;
+      },
+      { once: true },
+    );
+    return state;
+  });
   await app.evaluate(({ BrowserWindow }) => {
     BrowserWindow.getAllWindows()
       .find((window) => window.webContents.getURL() === "app://bundle/index.html")
       .webContents.setZoomFactor(3);
   });
+  await expect.poll(() => zoomResize.evaluate((state) => state.complete)).toBe(true);
+  await zoomResize.dispose();
   await expect.poll(() => page.evaluate(() => window.innerWidth)).toBeLessThanOrEqual(600);
   await page.getByRole("button", { name: "Tile 2 menu", exact: true }).press("Enter");
   const narrow = page.getByRole("dialog", { name: "Tile 2 menu", exact: true });
