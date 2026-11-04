@@ -584,6 +584,13 @@ export class Hosts {
     return {
       hosts: (this.store.get().registeredHosts ?? []).map((host) => ({
         ...host,
+        ...(host.observation
+          ? {
+              result: host.observation.preflight.result,
+              foreignSessions: host.observation.foreignSessions,
+              foreignWorktrees: host.observation.foreignWorktrees,
+            }
+          : {}),
         recipes: [
           "git",
           "gh",
@@ -626,7 +633,8 @@ export class Hosts {
     launchRecipe?: (target: RemoteTarget) => Promise<void>,
   ): Promise<HostsState> {
     if (!hostsAction(input)) return Promise.reject(new Error("Invalid host action"));
-    if (input.action === "progress") return Promise.resolve(this.state());
+    if (input.action === "progress" || input.action === "list")
+      return Promise.resolve(this.state());
     if (
       [
         "add",
@@ -651,7 +659,11 @@ export class Hosts {
           await this.store.update({
             registeredHosts: hosts.map((entry) => {
               if (entry.host !== input.host) return entry;
-              const registration = { host: entry.host, codeFolder: entry.codeFolder };
+              const registration = {
+                host: entry.host,
+                codeFolder: entry.codeFolder,
+                ...(entry.observation ? { observation: entry.observation } : {}),
+              };
               return input.nickname ? { ...registration, nickname: input.nickname } : registration;
             }),
           });
@@ -728,27 +740,6 @@ export class Hosts {
           this.sessionInventories.set(input.host, result);
           return this.state();
         }
-        if (input.action === "list") {
-          if (this.profile) {
-            await this.sessions();
-            for (const host of hosts) await this.readWorktrees(host.host, true);
-          }
-          for (const host of hosts) {
-            if (!this.results.has(host.host))
-              this.results.set(
-                host.host,
-                await this.run(host.host, {
-                  type: "manage",
-                  operation: "inspect",
-                  readOnly: true,
-                  partial: true,
-                  codeFolder: host.codeFolder,
-                }),
-              );
-            await this.expandRegistration(host.host);
-          }
-          return this.state();
-        }
         if (input.action === "preflight") {
           const registration = hosts.find((entry) => entry.host === input.host);
           if (registration && registration.codeFolder !== input.codeFolder)
@@ -763,6 +754,30 @@ export class Hosts {
             if (registration) {
               this.results.set(input.host, preflight.result);
               await this.expandRegistration(input.host);
+              if (this.profile && preflight.result.ok) {
+                await this.readSessions(input.host).catch(() => undefined);
+                await this.readWorktrees(input.host, true);
+              }
+              const row = this.state().hosts.find((entry) => entry.host === input.host);
+              await this.store.update({
+                registeredHosts: (this.store.get().registeredHosts ?? []).map((entry) =>
+                  entry.host === input.host
+                    ? {
+                        ...entry,
+                        observation: {
+                          checkedAt: Date.now(),
+                          preflight,
+                          ...(row?.foreignSessions !== undefined
+                            ? { foreignSessions: row.foreignSessions }
+                            : {}),
+                          ...(row?.foreignWorktrees !== undefined
+                            ? { foreignWorktrees: row.foreignWorktrees }
+                            : {}),
+                        },
+                      }
+                    : entry,
+                ),
+              });
             }
             this.progress = undefined;
             return { ...this.state(), preflight };

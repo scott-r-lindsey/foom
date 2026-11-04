@@ -55,9 +55,29 @@ const preflight: HostPreflight = {
   ],
 };
 const initial: HostsState = { hosts: [host], locations: [], preflight };
-function mount(state: HostsState = initial) {
+function saved(state: HostsState): HostsState {
+  return {
+    ...state,
+    hosts: state.hosts.map((entry) => ({
+      ...entry,
+      ...(state.preflight
+        ? { observation: { checkedAt: 1700000000000, preflight: state.preflight } }
+        : {}),
+    })),
+  };
+}
+function expandHosts() {
+  for (const button of screen.queryAllByRole("button", { name: /^Expand /u }))
+    fireEvent.click(button);
+  for (const summary of screen.queryAllByText("Host facts")) fireEvent.click(summary);
+}
+async function mount(state: HostsState = initial) {
+  state = saved(state);
   const api = vi.fn<(action: HostsAction) => Promise<HostsState>>().mockResolvedValue(state);
   const view = render(<HostsSettings source={{ hosts: api }} headingRef={createRef()} />);
+  const first = state.hosts[0];
+  if (first) await screen.findByRole("region", { name: first.host });
+  expandHosts();
   return { api, ...view };
 }
 afterEach(cleanup);
@@ -85,7 +105,7 @@ test("Add host enrolls then runs full preflight, without separate connection/fol
   });
 });
 test("all independent checks, resource facts, refresh, folder editing, End and removal remain available", async () => {
-  const { api } = mount();
+  const { api } = await mount();
   await screen.findByText("Pass · Host key trusted");
   for (const text of [
     "Pass · Supported",
@@ -105,11 +125,11 @@ test("all independent checks, resource facts, refresh, folder editing, End and r
     expect(api).toHaveBeenCalledWith({ action: "refresh", host: "worker" });
   });
   await waitFor(() => {
-    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Check again" }).disabled).toBe(
-      false,
-    );
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Check capabilities" }).disabled,
+    ).toBe(false);
   });
-  fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+  fireEvent.click(screen.getByRole("button", { name: "Check capabilities" }));
   await waitFor(() => {
     expect(api).toHaveBeenCalledWith({
       action: "preflight",
@@ -178,7 +198,7 @@ test("partial facts retain passes and expose Create plus available Install and S
     ],
   };
   const result = { ok: true as const, facts: partialFacts };
-  const { api } = mount({
+  const { api } = await mount({
     ...initial,
     hosts: [
       {
@@ -247,7 +267,7 @@ test.each([false, true])(
         },
       },
     };
-    mount({ ...initial, hosts: [{ ...host, result }], preflight: { ...preflight, result } });
+    await mount({ ...initial, hosts: [{ ...host, result }], preflight: { ...preflight, result } });
     await screen.findByText("Command Line Tools");
     expect(
       screen.getByText(ready ? "Pass · Stays awake" : "Warning · Sleeps when idle"),
@@ -289,7 +309,7 @@ test.each(failures)(
   "fixed %s reason is visible beside independent unrun checks",
   async (reason) => {
     const result = { ok: false as const, reason };
-    mount({
+    await mount({
       ...initial,
       hosts: [{ ...host, result }],
       preflight: {
@@ -306,7 +326,7 @@ test.each(failures)(
   },
 );
 test("legacy and missing facts stay unknown; pending checks and rejected promises use fixed messages", async () => {
-  const { api, unmount } = mount({
+  const { api, unmount } = await mount({
     hosts: [
       { host: "unchecked", codeFolder: "/code" },
       {
@@ -331,15 +351,17 @@ test("legacy and missing facts stay unknown; pending checks and rejected promise
   await screen.findAllByText("git / gh");
   await waitFor(() => {
     expect(
-      screen.getAllByRole<HTMLButtonElement>("button", { name: "Check again" })[0]?.disabled,
+      screen.getAllByRole<HTMLButtonElement>("button", { name: "Check capabilities" })[0]?.disabled,
     ).toBe(false);
   });
   api.mockRejectedValue(new Error("RAW SECRET"));
-  fireEvent.click(screen.getAllByRole("button", { name: "Check again" })[0] ?? document.body);
+  fireEvent.click(
+    screen.getAllByRole("button", { name: "Check capabilities" })[0] ?? document.body,
+  );
   await screen.findByText("Unable to update hosts");
   expect(screen.queryByText("RAW SECRET")).toBeNull();
   unmount();
-  const view = mount();
+  const view = await mount();
   await screen.findByText("Pass · Host key trusted");
   let resolve: ((state: HostsState) => void) | undefined;
   view.api.mockImplementation(
@@ -348,7 +370,7 @@ test("legacy and missing facts stay unknown; pending checks and rejected promise
         resolve = done;
       }),
   );
-  fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+  fireEvent.click(screen.getByRole("button", { name: "Check capabilities" }));
   expect(screen.getByText("Checking host…")).toBeTruthy();
   view.unmount();
   resolve?.(initial);
@@ -392,6 +414,9 @@ test("initial load rejection, cancelled add, absent API and unmount during initi
       }),
   );
   const pending = render(<HostsSettings source={{ hosts: api }} headingRef={createRef()} />);
+  await screen.findByRole("region", { name: "worker" });
+  expandHosts();
+  fireEvent.click(screen.getByRole("button", { name: "Check capabilities" }));
   await waitFor(() => {
     expect(api).toHaveBeenCalledWith({
       action: "preflight",
@@ -529,6 +554,8 @@ test.each([true, false])(
       ...(available ? { copyHost } : {}),
     };
     const view = render(<HostsSettings source={source} headingRef={createRef()} />);
+    await screen.findByRole("region", { name: "worker" });
+    expandHosts();
     fireEvent.click(await screen.findByRole("button", { name: "Copy host alias" }));
     fireEvent.click(screen.getByRole("button", { name: "Copy code folder" }));
     if (available)
@@ -556,7 +583,7 @@ test.each([true, false])(
 );
 
 test("complete means every check and checkout passed; changed checkouts remain usable", async () => {
-  mount({
+  await mount({
     ...initial,
     preflight: {
       ...preflight,
@@ -570,6 +597,7 @@ test("complete means every check and checkout passed; changed checkouts remain u
     },
   });
   await screen.findByText("Ready · 1 repository");
+  fireEvent.click(screen.getByText("Repositories · 1 ready"));
   expect(screen.getByText("Changes")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Clone here" })).toBeNull();
 });
@@ -590,11 +618,13 @@ test("unknown distro offers no install recipe and initial preflight failures sta
     .mockResolvedValueOnce({ ...initial, hosts: [{ ...host, result }] })
     .mockRejectedValueOnce(new Error("secret"));
   render(<HostsSettings source={{ hosts: api }} headingRef={createRef()} />);
-  await screen.findByText("Unable to load hosts");
-  expect(screen.getByText("No install recipe")).toBeTruthy();
+  await screen.findByRole("region", { name: "worker" });
+  expandHosts();
+  fireEvent.click(screen.getByRole("button", { name: "Check capabilities" }));
+  await screen.findByText("Unable to update hosts");
 });
 test("failed clone remains visible after independent preflight, until explicit recheck", async () => {
-  const { api } = mount();
+  const { api } = await mount();
   fireEvent.click(await screen.findByRole("button", { name: "Clone here" }));
   // Wait for initial observation before sending the mutation.
   await waitFor(() => {
@@ -617,11 +647,11 @@ test("failed clone remains visible after independent preflight, until explicit r
   fireEvent.click(screen.getByRole("button", { name: "Clone here" }));
   await screen.findByText("Origin authentication failed · origin-auth");
   await waitFor(() => {
-    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Check again" }).disabled).toBe(
-      false,
-    );
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Check capabilities" }).disabled,
+    ).toBe(false);
   });
-  fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+  fireEvent.click(screen.getByRole("button", { name: "Check capabilities" }));
   await screen.findByText("Not checked out");
 });
 
@@ -639,7 +669,7 @@ test("Mac protected-folder warning never hides a missing-folder failure or its C
       },
     },
   };
-  mount({ ...initial, hosts: [{ ...host, result }], preflight: { ...preflight, result } });
+  await mount({ ...initial, hosts: [{ ...host, result }], preflight: { ...preflight, result } });
   await screen.findByText("Code folder does not exist · folder-missing · Protected folder");
   expect(screen.getByRole("button", { name: "Create" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Change folder" })).toBeTruthy();
@@ -647,7 +677,7 @@ test("Mac protected-folder warning never hides a missing-folder failure or its C
 
 test("a failed connection row is not repeated as helper copy, and credential tips only accompany auth failures", async () => {
   const result = { ok: false as const, reason: "artifact-unavailable" as const };
-  const view = mount({
+  const view = await mount({
     ...initial,
     hosts: [{ ...host, result }],
     preflight: {
@@ -667,7 +697,10 @@ test("a failed connection row is not repeated as helper copy, and credential tip
   expect(screen.queryByText("This build has no remote host support", { exact: true })).toBeNull();
   expect(screen.queryByLabelText("Git access fixes")).toBeNull();
   view.unmount();
-  mount({ hosts: [{ ...host, result: { ok: false, reason: "version-mismatch" } }], locations: [] });
+  await mount({
+    hosts: [{ ...host, result: { ok: false, reason: "version-mismatch" } }],
+    locations: [],
+  });
   await screen.findByText("Host version mismatch");
 });
 
@@ -686,13 +719,15 @@ test("host aliases and agent IDs are literal data even when they name object pro
   );
   render(<HostsSettings source={{ hosts: api }} headingRef={createRef()} />);
   await screen.findByRole("region", { name: "constructor" });
-  expect(screen.getAllByText("constructor")).toHaveLength(3);
+  expandHosts();
+  fireEvent.click(screen.getByRole("button", { name: "Check capabilities" }));
+  expect(screen.getAllByText("constructor")).toHaveLength(4);
   await act(async () => {
     finish?.({ ...state, preflight: { ...preflight, result } });
     await pending;
   });
   await screen.findByText("Pass · Host key trusted");
-  expect(screen.getAllByText("constructor")).toHaveLength(3);
+  expect(screen.getAllByText("constructor")).toHaveLength(4);
 });
 
 test("inline host names validate, save without preflight, cancel and restore the default", async () => {
@@ -718,11 +753,13 @@ test("inline host names validate, save without preflight, cancel and restore the
     return Promise.resolve(state);
   });
   render(<HostsSettings source={{ hosts: api }} headingRef={createRef()} />);
+  await screen.findByRole("region", { name: "me@worker.local" });
+  expandHosts();
   await screen.findByRole("button", { name: "Rename worker" });
   await waitFor(() => {
     expect(
       screen
-        .getAllByRole<HTMLButtonElement>("button", { name: "Check again" })
+        .getAllByRole<HTMLButtonElement>("button", { name: "Check capabilities" })
         .every((button) => !button.disabled),
     ).toBe(true);
   });
@@ -791,8 +828,11 @@ test("first check renders pending repository rows and replaces them with observa
       : Promise.resolve(action.action === "progress" ? { ...initial, progress } : initial),
   );
   const view = render(<HostsSettings source={{ hosts: api }} headingRef={createRef()} />);
+  await screen.findByRole("region", { name: "worker" });
+  expandHosts();
+  fireEvent.click(screen.getByRole("button", { name: "Check capabilities" }));
   await screen.findByText("Checking Git access · project (1 of 2)");
-  expect(screen.getAllByText("Checking…", { exact: true })).toHaveLength(5);
+  expect(screen.getAllByText("Checking…", { exact: true })).toHaveLength(4);
   expect(screen.getByText("Repository · next")).toBeTruthy();
   expect(view.container.querySelector(".host-throbber")?.getAttribute("aria-hidden")).toBe("true");
   progress = {
@@ -828,6 +868,9 @@ test("progress polling failures leave the authoritative check running; unmount i
         : Promise.resolve(initial),
   );
   const view = render(<HostsSettings source={{ hosts: api }} headingRef={createRef()} />);
+  await screen.findByRole("region", { name: "worker" });
+  expandHosts();
+  fireEvent.click(screen.getByRole("button", { name: "Check capabilities" }));
   await screen.findByText("Checking host…");
   api.mockImplementation((action) =>
     action.action === "progress" ? late : Promise.resolve(initial),
@@ -862,7 +905,7 @@ test("usable hosts keep optional missing agents, sign-in and checkouts neutral",
       ],
     },
   };
-  mount({
+  await mount({
     ...initial,
     hosts: [{ ...host, result, recipes: [{ tool: "pi", install: true, signIn: false }] }],
     preflight: { ...preflight, result },
@@ -896,7 +939,7 @@ test("host-key fix identifies only the repository", async () => {
       ],
     },
   };
-  const { api } = mount(state);
+  const { api } = await mount(state);
   await waitFor(() => {
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "Trust host key" }).disabled).toBe(
       false,
@@ -924,6 +967,11 @@ test.each(["hosts", "repositories"])(
         <RepositoryHosts source={{ hosts: api }} repositories={repositories} />
       ),
     );
+    if (surface === "hosts") {
+      await screen.findByRole("region", { name: "worker" });
+      expandHosts();
+      fireEvent.click(screen.getByRole("button", { name: "Check capabilities" }));
+    }
     await waitFor(() => {
       expect(screen.getByRole<HTMLButtonElement>("button", { name: "Clone here" }).disabled).toBe(
         false,
@@ -947,3 +995,89 @@ test.each(["hosts", "repositories"])(
     });
   },
 );
+
+test("opening uses saved checks, keeps ready hosts compact and exposes every ready repository", async () => {
+  const state = saved({
+    ...initial,
+    preflight: {
+      ...preflight,
+      repositories: Array.from({ length: 6 }, (_, index) => ({
+        repository: `/local/project-${String(index)}`,
+        origin: { state: "pass" },
+        checkout: {
+          ...host.result,
+          checkout: { path: `/remote/project-${String(index)}`, state: "clean" },
+        },
+      })),
+    },
+  });
+  const api = vi.fn<(action: HostsAction) => Promise<HostsState>>().mockResolvedValue(state);
+  render(<HostsSettings source={{ hosts: api }} headingRef={createRef()} />);
+  await screen.findByText("Ready · 6 repositories");
+  expect(api.mock.calls).toEqual([[{ action: "list" }]]);
+  expect(screen.queryByRole("button", { name: "Check capabilities" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Expand worker" }));
+  expect(screen.getByText(/Last checked/u)).toBeTruthy();
+  expect(screen.queryByText("Repository · project-0")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: /Repositories · 6 ready/u }));
+  expect(screen.getAllByText("Clean")).toHaveLength(6);
+  fireEvent.click(screen.getByRole("button", { name: /Repositories · 6 ready/u }));
+  expect(screen.queryByText("Repository · project-0")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Collapse worker" }));
+  expect(screen.queryByRole("button", { name: "Check capabilities" })).toBeNull();
+});
+
+test("slow list and independent host checks leave Add enabled and preserve a newly added host", async () => {
+  let finishList: ((state: HostsState) => void) | undefined;
+  let finishCheck: ((state: HostsState) => void) | undefined;
+  const state = saved(initial);
+  const added = { ...host, host: "second" };
+  const api = vi.fn<(action: HostsAction) => Promise<HostsState>>().mockImplementation((action) => {
+    if (action.action === "list")
+      return new Promise((resolve) => {
+        finishList = resolve;
+      });
+    if (action.action === "preflight" && action.host === "worker")
+      return new Promise((resolve) => {
+        finishCheck = resolve;
+      });
+    if (action.action === "progress") return Promise.resolve(state);
+    return Promise.resolve({ ...state, hosts: [...state.hosts, added] });
+  });
+  render(<HostsSettings source={{ hosts: api }} headingRef={createRef()} />);
+  expect(screen.getByRole<HTMLButtonElement>("button", { name: "Add host" }).disabled).toBe(false);
+  await act(async () => {
+    finishList?.(state);
+    await Promise.resolve();
+  });
+  expandHosts();
+  fireEvent.click(screen.getByRole("button", { name: "Check capabilities" }));
+  expect(screen.getByRole<HTMLButtonElement>("button", { name: "Remove" }).disabled).toBe(true);
+  expect(
+    screen.getByRole<HTMLButtonElement>("button", { name: "Rename worker" }).matches(":disabled"),
+  ).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Add host" }));
+  fireEvent.change(screen.getByLabelText("SSH host"), { target: { value: "second" } });
+  fireEvent.click(screen.getByRole("button", { name: "Add host" }));
+  await screen.findByRole("region", { name: "second" });
+  await waitFor(() => {
+    expect(api).toHaveBeenCalledWith({
+      action: "preflight",
+      host: "second",
+      codeFolder: host.codeFolder,
+    });
+  });
+  const second = screen.getByRole("region", { name: "second" });
+  await waitFor(() => {
+    expect(within(second).getByRole<HTMLButtonElement>("button", { name: "Remove" }).disabled).toBe(
+      false,
+    );
+  });
+  expect(screen.getByRole<HTMLButtonElement>("button", { name: "Add host" }).disabled).toBe(false);
+  await act(async () => {
+    finishCheck?.(state);
+    await Promise.resolve();
+  });
+  expect(screen.getByRole("region", { name: "second" })).toBeTruthy();
+  expect(api.mock.calls.filter(([action]) => action.action === "preflight")).toHaveLength(2);
+});

@@ -929,3 +929,48 @@
     rotate: 360deg;
   }
 }
+
+.host-compact {
+  padding: 0;
+}
+.host-summary-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 16px;
+}
+.host-expand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+.host-expand > span:nth-child(2) {
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+.host-body {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.host-body > .hosts-heading {
+  padding: 12px 20px;
+}
+.host-body[hidden] {
+  display: none;
+}
+.host-repositories {
+  margin-top: 16px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.host-repositories summary {
+  cursor: pointer;
+}

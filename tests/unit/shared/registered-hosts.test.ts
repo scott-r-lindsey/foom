@@ -558,3 +558,67 @@ test("origin trust selects only SSH targets and preserves explicit ports without
   ])
     expect(remoteRequest({ ...request, ...patch })).toBe(false);
 });
+
+test("saved host observations accept only bounded display facts and closed checks", () => {
+  const result = { ok: true, facts };
+  const preflight = {
+    ssh: { state: "pass" },
+    platform: { state: "not-checked" },
+    artifact: { state: "fail", reason: "unreachable" },
+    result,
+    repositories: [{ repository: "/local/project", origin: { state: "pass" }, checkout: result }],
+  };
+  const observation = {
+    checkedAt: 1700000000000,
+    preflight,
+    foreignSessions: 2,
+    foreignWorktrees: 0,
+  };
+  const host = { host: "worker", codeFolder: "/remote/code", observation };
+  expect(registeredHosts([host])).toBe(true);
+  expect(
+    registeredHosts([
+      {
+        ...host,
+        observation: {
+          checkedAt: 0,
+          preflight: { ...preflight, result: { ok: false, reason: "unreachable" } },
+        },
+      },
+    ]),
+  ).toBe(true);
+  for (const invalid of [
+    null,
+    [],
+    {},
+    { ...observation, secret: "raw" },
+    { ...observation, checkedAt: -1 },
+    { ...observation, checkedAt: 1.5 },
+    { ...observation, checkedAt: 8640000000000001 },
+    { ...observation, foreignSessions: -1 },
+    { ...observation, foreignWorktrees: "0" },
+    { ...observation, preflight: null },
+    { ...observation, preflight: { ...preflight, raw: "secret" } },
+    ...["ssh", "platform", "artifact"].map((key) => ({
+      ...observation,
+      preflight: { ...preflight, [key]: { state: "invalid" } },
+    })),
+    { ...observation, preflight: { ...preflight, result: { ok: false, reason: "raw secret" } } },
+    {
+      ...observation,
+      preflight: { ...preflight, result: { ...result, inventory: { own: [], other: 0 } } },
+    },
+    ...[
+      null,
+      Array(1001).fill(preflight.repositories[0]),
+      [null],
+      [{ ...preflight.repositories[0], raw: "output" }],
+      [{ ...preflight.repositories[0], repository: 1 }],
+      [{ ...preflight.repositories[0], repository: "x".repeat(4097) }],
+      [{ ...preflight.repositories[0], repository: "\n" }],
+      [{ ...preflight.repositories[0], origin: null }],
+      [{ ...preflight.repositories[0], checkout: null }],
+    ].map((repositories) => ({ ...observation, preflight: { ...preflight, repositories } })),
+  ])
+    expect(registeredHosts([{ ...host, observation: invalid }])).toBe(false);
+});

@@ -188,11 +188,11 @@ test("windows share the same serialized registration owner and production transp
   expect(new Hosts(store, () => repositories, "0.1.0").state().hosts).toHaveLength(1);
 });
 
-test("initial registered host reads refresh facts once and reject foreign paths", async () => {
+test("listing saved hosts performs no remote reads and refresh rejects foreign paths", async () => {
   settings = { ...settings, registeredHosts: [{ host: "worker", codeFolder: facts.codeFolder }] };
   await hosts.action({ action: "list" });
   await hosts.action({ action: "list" });
-  expect(run).toHaveBeenCalledTimes(1);
+  expect(run).not.toHaveBeenCalled();
   run.mockResolvedValueOnce({ ok: true, facts: { ...facts, codeFolder: "/foreign" } });
   expect((await hosts.action({ action: "refresh", host: "worker" })).hosts[0]?.result).toEqual({
     ok: false,
@@ -484,7 +484,7 @@ test("profile inventories project only counts to Settings and End confirms exact
   mock.inventory.mockResolvedValue(snapshot);
   expect(await hosts.sessions()).toEqual([{ host: "worker", session: { id: "mine" } }]);
   expect(hosts.state().hosts[0]).toMatchObject({ foreignSessions: 1 });
-  await hosts.action({ action: "list" });
+  await hosts.action({ action: "refresh", host: "worker" });
   expect(hosts.state().hosts[0]?.result).toMatchObject({ ok: true, facts: { sessions: 2 } });
   mock.inventory.mockResolvedValueOnce({
     ...snapshot,
@@ -1176,7 +1176,7 @@ test("preflight preserves independent bootstrap observations and local origin re
   expect(JSON.stringify(state)).not.toContain("raw");
 });
 
-test("opening Hosts after offline enrollment expands its pending folder and preserves other registrations", async () => {
+test("opening Hosts retains pending folders without remote reads", async () => {
   settings = {
     ...settings,
     registeredHosts: [
@@ -1195,9 +1195,10 @@ test("opening Hosts after offline enrollment expands its pending folder and pres
   );
   const state = await hosts.action({ action: "list" });
   expect(state.hosts.map(({ host, codeFolder }) => ({ host, codeFolder }))).toEqual([
-    { host: "worker", codeFolder: facts.codeFolder },
+    { host: "worker", codeFolder: "~/code" },
     { host: "other", codeFolder: "/other/code" },
   ]);
+  expect(run).not.toHaveBeenCalled();
 });
 
 test("preflight refreshes registered facts without running origin Git when Git is missing", async () => {
@@ -1302,7 +1303,11 @@ test("rename is profile-only, rejects collisions and preserves labels across fol
   expect(settings.registeredHosts[0]?.nickname).toBe("Build box");
   expect(JSON.stringify(run.mock.calls)).not.toContain("Build box");
   await hosts.action({ action: "rename", host: "worker", nickname: "" });
-  expect(settings.registeredHosts[0]).toEqual({ host: "worker", codeFolder: facts.codeFolder });
+  expect(settings.registeredHosts[0]).toMatchObject({
+    host: "worker",
+    codeFolder: facts.codeFolder,
+  });
+  expect(settings.registeredHosts[0]?.nickname).toBeUndefined();
 });
 
 test("enrollment cannot introduce a default label that collides with an existing nickname", async () => {
@@ -1458,4 +1463,75 @@ test("session metadata can read cached fleet observations without waiting for st
   expect(run).not.toHaveBeenCalled();
   settings = { ...settings, registeredHosts: [] };
   expect(await hosts.fleet(false)).toEqual([]);
+});
+
+test("saved full checks survive restart as display data, list makes no SSH reads and remove deletes them", async () => {
+  const root = await mkdtemp(join(tmpdir(), "host-observation-"));
+  const profile = "a".repeat(32);
+  try {
+    const persisted = await SettingsStore.open(root);
+    await persisted.update({ registeredHosts: [{ host: "worker", codeFolder: facts.codeFolder }] });
+    mock.inventory.mockResolvedValue({
+      type: "inventory-result",
+      own: [{ id: "private-own-id" }],
+      foreign: [{ id: "private-other-id", generation: "b".repeat(32) }],
+    });
+    const first = new Hosts(persisted, () => repositories, "0.1.0", run, profile);
+    const checked = await first.action({
+      action: "preflight",
+      host: "worker",
+      codeFolder: facts.codeFolder,
+    });
+    const observation = checked.hosts[0]?.observation;
+    expect(observation?.checkedAt).toBeGreaterThan(0);
+    expect(observation?.foreignSessions).toBe(1);
+    expect(mock.inventory).toHaveBeenCalledTimes(1);
+    expect(run.mock.calls.some(([, request]) => request.operation === "list-worktrees")).toBe(true);
+    first.dispose();
+    run.mockClear();
+    mock.inventory.mockClear();
+    const reopened = await SettingsStore.open(root);
+    const second = new Hosts(reopened, () => repositories, "0.1.0", run, profile);
+    const listed = await second.action({ action: "list" });
+    expect(listed.hosts[0]?.observation).toEqual(observation);
+    expect(listed.hosts[0]?.foreignSessions).toBe(1);
+    expect(run).not.toHaveBeenCalled();
+    expect(mock.inventory).not.toHaveBeenCalled();
+    const disk = await readFile(join(root, "settings.json"), "utf8");
+    expect(disk).not.toContain("private-own-id");
+    expect(disk).not.toContain("private-other-id");
+    await second.action({ action: "remove", host: "worker" });
+    expect(await readFile(join(root, "settings.json"), "utf8")).not.toContain("observation");
+    second.dispose();
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("list bypasses a pending remote check without starting session or worktree inventory", async () => {
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  let finish: ((result: HostResult) => void) | undefined;
+  run.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const pending = hosts.action({
+    action: "preflight",
+    host: "worker",
+    codeFolder: facts.codeFolder,
+  });
+  await vi.waitFor(() => {
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+  expect((await hosts.action({ action: "list" })).hosts).toHaveLength(1);
+  expect(run).toHaveBeenCalledTimes(1);
+  expect(mock.inventory).not.toHaveBeenCalled();
+  finish?.({ ok: false, reason: "unreachable" });
+  await pending;
+  expect((await hosts.action({ action: "list" })).hosts[0]?.observation?.preflight.result).toEqual({
+    ok: false,
+    reason: "unreachable",
+  });
 });
