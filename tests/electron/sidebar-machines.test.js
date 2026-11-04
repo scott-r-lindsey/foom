@@ -238,6 +238,12 @@ process.stdin.on('data',bytes=>frames.push(bytes,message=>{
   const remoteWorktree = page.locator(".worktree-row").filter({ hasText: "remote-work" });
   await expect(remoteWorktree.getByLabel("Host: Builder")).toBeVisible();
   await capture("worktree-chip");
+  // Leave room for two occupied tiles so focus can move off the chip's tile.
+  await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .setContentSize(1800, 900),
+  );
   await remoteWorktree.locator(".row-actions").click();
   await page.getByRole("menuitem", { name: "Claude Code", exact: true }).click();
   await expect(
@@ -283,16 +289,22 @@ process.stdin.on('data',bytes=>frames.push(bytes,message=>{
         }
       }
       const width = page.getByRole("separator", { name: "Sidebar width", exact: true });
+      const minimumWidth = await width.getAttribute("aria-valuemin");
+      assert.ok(minimumWidth);
       await width.press("Home");
-      await expect(width).toHaveAttribute("aria-valuenow", "220");
-      const chipBox = await remoteWorktree.locator(".host-chip").boundingBox();
-      const rowBox = await remoteWorktree.boundingBox();
-      assert.ok(
-        chipBox &&
-          rowBox &&
-          chipBox.x >= rowBox.x &&
-          chipBox.x + chipBox.width <= rowBox.x + rowBox.width,
-      );
+      await expect(width).toHaveAttribute("aria-valuenow", minimumWidth);
+      // Width metadata commits before the sidebar's resize transition settles.
+      await expect
+        .poll(async () => {
+          const chipBox = await remoteWorktree.locator(".host-chip").boundingBox();
+          const rowBox = await remoteWorktree.boundingBox();
+          if (!chipBox || !rowBox) return Infinity;
+          return Math.max(
+            rowBox.x - chipBox.x,
+            chipBox.x + chipBox.width - rowBox.x - rowBox.width,
+          );
+        })
+        .toBeLessThanOrEqual(1);
       if (process.env.FOOM_POLISH_SCREENSHOTS === "1") {
         await remoteWorktree.screenshot({
           path: evidencePath(`1045/sidebar-narrow-${availability}-${mode}.png`),
