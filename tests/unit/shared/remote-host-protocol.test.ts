@@ -414,3 +414,10 @@ test("human machine opens accept bounded identifiers and defaults but never reci
     }),
   ).toBe(true);
 });
+
+test("machine home capability requires an absolute bounded remote path", () => {
+  for (const machineHome of ["/home/fixture", "/Users/fixture"])
+    expect(remoteResponse({ type: "hello", build: "a".repeat(64), machineHome })).toBe(true);
+  for (const machineHome of ["~/home", "relative", 2, "/bad\npath", "/" + "x".repeat(4097)])
+    expect(remoteResponse({ type: "hello", build: "a".repeat(64), machineHome })).toBe(false);
+});

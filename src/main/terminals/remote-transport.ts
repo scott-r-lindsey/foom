@@ -365,6 +365,12 @@ export class RemoteTransport extends EventEmitter {
                 !this.target.reattach &&
                 value.build !== artifact.sha256 &&
                 value.humanMachines !== 1) ||
+              (this.target.machine &&
+                !this.target.machine.repository &&
+                !this.target.checkout &&
+                !this.opened &&
+                !this.target.reattach &&
+                value.machineHome === undefined) ||
               (this.target.trustOrigin &&
                 !this.opened &&
                 value.build !== artifact.sha256 &&
@@ -373,6 +379,22 @@ export class RemoteTransport extends EventEmitter {
               this.launchFailure = new LaunchFailure("remote_host_facts_unavailable");
               this.kill();
               return;
+            }
+            if (
+              this.target.machine &&
+              !this.target.machine.repository &&
+              !this.target.checkout &&
+              !this.opened &&
+              !this.target.reattach &&
+              value.machineHome !== undefined
+            ) {
+              if (this.target.context)
+                this.target.context = {
+                  ...this.target.context,
+                  repository: value.machineHome,
+                  worktree: value.machineHome,
+                };
+              this.target.machineHome?.(value.machineHome);
             }
             // Reconnect's deadline covers open, state restoration and the entire
             // replay. Internal requests have no TerminalHostClient request timer.

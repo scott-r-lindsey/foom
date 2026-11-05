@@ -400,6 +400,7 @@ export function serveHost(
           hostFacts: 1,
           hostPreflight: 1,
           humanMachines: 1,
+          machineHome: home,
           originTrust: 1,
         });
         return;
@@ -827,7 +828,7 @@ export function serveHost(
               budget(HOST_PREPARATION_TIMEOUT_MS);
               const preparation = (async () => {
                 const folder = await approvedCodeFolder(machine.codeFolder, home);
-                let cwd = message.checkout?.path ?? folder;
+                let cwd = message.checkout?.path ?? home;
                 if (machine.repository) {
                   const inspected = await manageHost(
                     {
@@ -885,6 +886,8 @@ export function serveHost(
                     throw new LaunchFailure("remote_worktree_unavailable");
                 }
                 cancellation.signal.throwIfAborted();
+                if (!machine.repository && !message.checkout && owned.context)
+                  owned.context = { ...owned.context, repository: home, worktree: home };
                 return {
                   command: found?.command ?? remoteShell(),
                   args: model && found ? [...(machine.defaults ?? [])] : ["-i", "-l"],

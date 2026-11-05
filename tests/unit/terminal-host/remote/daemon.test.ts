@@ -5,6 +5,8 @@ import type { TerminalTelemetry } from "../../../../src/shared/desktop";
 import { endpointRequest } from "../../../../src/terminal-host/remote/agent-endpoint";
 import { record } from "../../../../src/shared/remote-agent-protocol";
 import { createConnection, type Socket } from "node:net";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { mkdir, rm, stat, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -376,6 +378,7 @@ test.skipIf(process.platform === "win32").each(["close", "takeover"])(
         hostPreflight: 1,
         originTrust: 1,
         humanMachines: 1,
+        machineHome: root,
       });
     });
     if (operation === "close") {
@@ -1436,6 +1439,7 @@ test.skipIf(process.platform === "win32")(
       hostPreflight: 1,
       originTrust: 1,
       humanMachines: 1,
+      machineHome: root,
     });
     expect(mock.stop).not.toHaveBeenCalled();
     await disconnect(newer);
@@ -1812,6 +1816,7 @@ test.skipIf(process.platform === "win32")(
         hostPreflight: 1,
         originTrust: 1,
         humanMachines: 1,
+        machineHome: root,
       });
       expect(host.server.listening).toBe(true);
     } finally {
@@ -2590,6 +2595,13 @@ test.skipIf(process.platform === "win32")(
     c.send({
       type: "open",
       id: "machine",
+      context: {
+        repository: "/code",
+        worktree: "/code",
+        branch: null,
+        agent: "claude",
+        machine: true,
+      },
       request: 1,
       cols: 80,
       rows: 24,
@@ -2614,18 +2626,72 @@ test.skipIf(process.platform === "win32")(
       expect.objectContaining({
         command: "/bin/sh",
         args: terminalArgs("/fixture/claude", ["--model", "fixture"]),
-        cwd: "/code",
+        cwd: root,
         env: { PATH: "/fixture" },
         replaceEnvironment: true,
       }),
       "machine",
     );
     expect(mock.owner).not.toHaveBeenCalled();
+    const inventory = await client();
+    inventory.send({ type: "hello", build });
+    await inventory.wait(1);
+    inventory.send({ type: "inventory", profile: "a".repeat(32) });
+    await inventory.wait(2);
+    expect(inventory.messages[1]).toMatchObject({
+      type: "inventory-result",
+      own: [{ id: "machine", context: { repository: root, worktree: root, machine: true } }],
+    });
   },
 );
 
 test.skipIf(process.platform === "win32")(
-  "machine shells keep the approved folder and refuse an unapproved folder or unknown agent",
+  "machine launcher preserves the captured umask and home cwd when executing a fixture agent",
+  async () => {
+    await start();
+    vi.mocked(hostDiscovery).mockResolvedValueOnce({
+      command: process.execPath,
+      env: { PATH: "/fixture" },
+      version: "fixture",
+      help: "fixture",
+    });
+    const script =
+      'require("node:fs").writeFileSync("launcher-file", "fixture", { mode: 0o666 }); process.stdout.write(process.cwd() + "\\n" + process.umask().toString(8));';
+    const c = await client();
+    c.send({ type: "hello", build });
+    await c.wait(1);
+    c.send({
+      type: "open",
+      id: "launcher-machine",
+      request: 1,
+      cols: 80,
+      rows: 24,
+      reattach: false,
+      human: true,
+      profile: "a".repeat(32),
+      machine: { codeFolder: "/code", agent: "claude", defaults: ["-e", script] },
+    });
+    await c.wait(2);
+    const launched: unknown = mock.create.mock.calls[0]?.[0];
+    if (
+      !record(launched) ||
+      typeof launched["command"] !== "string" ||
+      typeof launched["cwd"] !== "string" ||
+      !Array.isArray(launched["args"]) ||
+      !launched["args"].every((arg: unknown) => typeof arg === "string")
+    )
+      throw new Error("Missing launcher specification");
+    const result = await promisify(execFile)(launched["command"], launched["args"], {
+      cwd: launched["cwd"],
+      env: { PATH: "/fixture" },
+    });
+    expect(result.stdout).toBe(`${root}\n2`);
+    expect((await stat(join(root, "launcher-file"))).mode & 0o777).toBe(0o664);
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "machine shells start in home and refuse an unapproved folder or unknown agent",
   async () => {
     await start();
     const c = await client();
@@ -2644,7 +2710,7 @@ test.skipIf(process.platform === "win32")(
     });
     await c.wait(2);
     expect(mock.create).toHaveBeenCalledWith(
-      expect.objectContaining({ cwd: "/code", args: terminalArgs("/bin/sh", ["-i", "-l"]) }),
+      expect.objectContaining({ cwd: root, args: terminalArgs("/bin/sh", ["-i", "-l"]) }),
       "shell-machine",
     );
     mock.create.mockClear();

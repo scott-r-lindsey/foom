@@ -327,6 +327,7 @@ export async function startMachine(
     const hosts = this.deps.hosts;
     let remote: RemoteTarget | undefined;
     let trackedLocation = location;
+    let launchHome = homeDirectory;
     let command = shellPath();
     const args =
       run === "shell"
@@ -362,12 +363,19 @@ export async function startMachine(
             }
           : {}),
         context: {
-          repository: location?.repository ?? registered.codeFolder,
-          worktree: location?.worktree ?? registered.codeFolder,
+          repository: location?.repository ?? homeDirectory,
+          worktree: location?.worktree ?? homeDirectory,
           branch: location?.branch ?? null,
           agent: run,
           ...(!location ? { machine: true } : {}),
         },
+        ...(!location
+          ? {
+              machineHome: (home: string) => {
+                launchHome = home;
+              },
+            }
+          : {}),
         machine: {
           ...repositoryTarget?.machine,
           codeFolder: registered.codeFolder,
@@ -478,8 +486,8 @@ export async function startMachine(
         id,
         kind: run === "shell" ? "shell" : "agent",
         agent: run,
-        repository: homeDirectory,
-        worktree: homeDirectory,
+        repository: launchHome,
+        worktree: launchHome,
         branch: null,
         ...(trackedLocation ?? { home: true, machine: true }),
         attention: agentResult?.attention ?? "evaluator",
