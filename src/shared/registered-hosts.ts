@@ -6,6 +6,7 @@ import type {
   HostsAction,
   HostRequirements,
   HostCheck,
+  HostObservation,
 } from "./registered-hosts.d";
 
 export const HOST_CLONE_TIMEOUT_MS = 5 * 60 * 1000;
@@ -77,7 +78,8 @@ export function registeredHosts(value: unknown): value is RegisteredHost[] {
     value.every(
       (entry: unknown) =>
         record(entry) &&
-        keys(entry, ["host", "codeFolder", "nickname"]) &&
+        keys(entry, ["host", "codeFolder", "nickname", "observation"]) &&
+        (entry["observation"] === undefined || hostObservation(entry["observation"])) &&
         (entry["nickname"] === undefined || hostNickname(entry["nickname"])) &&
         hostAlias(entry["host"]) &&
         codeFolder(entry["codeFolder"]),
@@ -85,6 +87,44 @@ export function registeredHosts(value: unknown): value is RegisteredHost[] {
     new Set(value.map((entry: RegisteredHost) => entry.host)).size === value.length &&
     value.every(
       (entry: RegisteredHost) => !hostNicknameError(value, entry.host, entry.nickname ?? ""),
+    )
+  );
+}
+/** Persist only closed, bounded observations, never session identities or terminal output. */
+export function hostObservation(value: unknown): value is HostObservation {
+  if (
+    !record(value) ||
+    !keys(value, ["checkedAt", "preflight", "foreignSessions", "foreignWorktrees"])
+  )
+    return false;
+  const preflight = value["preflight"];
+  const displayResult = (result: unknown) =>
+    hostResult(result) &&
+    (!result.ok || (result.inventory === undefined && result.worktree === undefined));
+  return (
+    Number.isSafeInteger(value["checkedAt"]) &&
+    Number(value["checkedAt"]) >= 0 &&
+    Number(value["checkedAt"]) <= 8640000000000000 &&
+    [value["foreignSessions"], value["foreignWorktrees"]].every(
+      (count) => count === undefined || (Number.isSafeInteger(count) && Number(count) >= 0),
+    ) &&
+    record(preflight) &&
+    keys(preflight, ["ssh", "platform", "artifact", "result", "repositories"]) &&
+    hostCheck(preflight["ssh"]) &&
+    hostCheck(preflight["platform"]) &&
+    hostCheck(preflight["artifact"]) &&
+    displayResult(preflight["result"]) &&
+    Array.isArray(preflight["repositories"]) &&
+    preflight["repositories"].length <= 1000 &&
+    preflight["repositories"].every(
+      (repo: unknown) =>
+        record(repo) &&
+        keys(repo, ["repository", "origin", "checkout"]) &&
+        typeof repo["repository"] === "string" &&
+        repo["repository"].length <= 4096 &&
+        !/\p{Cc}/u.test(repo["repository"]) &&
+        hostCheck(repo["origin"]) &&
+        displayResult(repo["checkout"]),
     )
   );
 }

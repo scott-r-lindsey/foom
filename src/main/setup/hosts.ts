@@ -18,6 +18,7 @@ import {
   hostsAction,
   gitOrigin,
   hostResult,
+  hostRequirements,
   hostNicknameError,
   hostDisplayName,
   originSshArgs,
@@ -569,48 +570,66 @@ export class Hosts {
     if (!this.profile) throw new ControlError("not_found");
     return { host, profile: this.profile, human: true };
   }
-  private recipe(host: string, tool: string, action: "install" | "sign-in") {
+  private recipe(
+    host: string,
+    tool: string,
+    action: "install" | "sign-in",
+    result: HostResult | undefined,
+  ) {
     this.registered(host);
-    const facts = this.results.get(host);
-    const system = facts?.ok ? facts.facts.requirements : undefined;
-    if (!system || system.distro === "unknown") return undefined;
+    const system = result?.ok ? result.facts.requirements : undefined;
+    if (!hostRequirements(system) || system.distro === "unknown") return undefined;
     if (this.store.get().agents[tool] === false) return undefined;
     const model = bundledAgentData
       .map((data) => parseAgentManifest(JSON.stringify(data), "bundled").model)
       .find((model) => model.id === tool);
     return selectHostRecipe({ tool, action, distro: system.distro }, system, model?.hostSetup);
   }
-  state(result?: HostResult): HostsState {
+  state(result?: HostResult, savedOnly = false): HostsState {
     return {
-      hosts: (this.store.get().registeredHosts ?? []).map((host) => ({
-        ...host,
-        recipes: [
-          "git",
-          "gh",
-          ...agentProviders()
-            .filter((provider) => this.store.get().agents[provider.id] !== false)
-            .map((provider) => provider.id),
-        ].map((tool) => ({
-          tool,
-          install: !!this.recipe(host.host, tool, "install"),
-          signIn: !!this.recipe(host.host, tool, "sign-in"),
-          ...(!this.recipe(host.host, tool, "install")
-            ? { installReason: "recipe-unavailable" as const }
+      hosts: (this.store.get().registeredHosts ?? []).map((host) => {
+        // Saved facts provide presentation only; actions select from a fresh inspection below.
+        const displayResult =
+          (!savedOnly && this.results.get(host.host)) || host.observation?.preflight.result;
+        return {
+          ...host,
+          ...(host.observation
+            ? {
+                result: host.observation.preflight.result,
+                foreignSessions: host.observation.foreignSessions,
+                foreignWorktrees: host.observation.foreignWorktrees,
+              }
             : {}),
-        })),
-        ...(this.worktreeInventories.has(host.host)
-          ? { foreignWorktrees: this.worktreeInventories.get(host.host)?.other ?? 0 }
-          : {}),
-        ...(this.sessionInventories.has(host.host)
-          ? {
-              foreignSessions:
-                this.sessionInventories
-                  .get(host.host)
-                  ?.foreign.reduce((sum, entry) => sum + (entry.count ?? 1), 0) ?? 0,
-            }
-          : {}),
-        ...(this.results.get(host.host) ? { result: this.projectedResult(host.host) } : {}),
-      })),
+          recipes: [
+            "git",
+            "gh",
+            ...agentProviders()
+              .filter((provider) => this.store.get().agents[provider.id] !== false)
+              .map((provider) => provider.id),
+          ].map((tool) => ({
+            tool,
+            install: !!this.recipe(host.host, tool, "install", displayResult),
+            signIn: !!this.recipe(host.host, tool, "sign-in", displayResult),
+            ...(!this.recipe(host.host, tool, "install", displayResult)
+              ? { installReason: "recipe-unavailable" as const }
+              : {}),
+          })),
+          ...(!savedOnly && this.worktreeInventories.has(host.host)
+            ? { foreignWorktrees: this.worktreeInventories.get(host.host)?.other ?? 0 }
+            : {}),
+          ...(!savedOnly && this.sessionInventories.has(host.host)
+            ? {
+                foreignSessions:
+                  this.sessionInventories
+                    .get(host.host)
+                    ?.foreign.reduce((sum, entry) => sum + (entry.count ?? 1), 0) ?? 0,
+              }
+            : {}),
+          ...(!savedOnly && this.results.get(host.host)
+            ? { result: this.projectedResult(host.host) }
+            : {}),
+        };
+      }),
       locations: this.locations.filter(
         (location) =>
           this.store.get().registeredHosts?.some((host) => host.host === location.host) &&
@@ -626,7 +645,8 @@ export class Hosts {
     launchRecipe?: (target: RemoteTarget) => Promise<void>,
   ): Promise<HostsState> {
     if (!hostsAction(input)) return Promise.reject(new Error("Invalid host action"));
-    if (input.action === "progress") return Promise.resolve(this.state());
+    if (input.action === "progress" || input.action === "list")
+      return Promise.resolve(this.state(undefined, input.action === "list"));
     if (
       [
         "add",
@@ -651,7 +671,11 @@ export class Hosts {
           await this.store.update({
             registeredHosts: hosts.map((entry) => {
               if (entry.host !== input.host) return entry;
-              const registration = { host: entry.host, codeFolder: entry.codeFolder };
+              const registration = {
+                host: entry.host,
+                codeFolder: entry.codeFolder,
+                ...(entry.observation ? { observation: entry.observation } : {}),
+              };
               return input.nickname ? { ...registration, nickname: input.nickname } : registration;
             }),
           });
@@ -687,7 +711,12 @@ export class Hosts {
           );
           this.registered(input.host, registration.codeFolder);
           await this.expandRegistration(input.host);
-          const recipe = this.recipe(input.host, input.tool, input.operation);
+          const recipe = this.recipe(
+            input.host,
+            input.tool,
+            input.operation,
+            this.results.get(input.host),
+          );
           if (!recipe || !launchRecipe || !this.profile)
             return { ...this.state(), recipeFailure: "recipe-unavailable" as const };
           await launchRecipe({
@@ -728,27 +757,6 @@ export class Hosts {
           this.sessionInventories.set(input.host, result);
           return this.state();
         }
-        if (input.action === "list") {
-          if (this.profile) {
-            await this.sessions();
-            for (const host of hosts) await this.readWorktrees(host.host, true);
-          }
-          for (const host of hosts) {
-            if (!this.results.has(host.host))
-              this.results.set(
-                host.host,
-                await this.run(host.host, {
-                  type: "manage",
-                  operation: "inspect",
-                  readOnly: true,
-                  partial: true,
-                  codeFolder: host.codeFolder,
-                }),
-              );
-            await this.expandRegistration(host.host);
-          }
-          return this.state();
-        }
         if (input.action === "preflight") {
           const registration = hosts.find((entry) => entry.host === input.host);
           if (registration && registration.codeFolder !== input.codeFolder)
@@ -763,6 +771,30 @@ export class Hosts {
             if (registration) {
               this.results.set(input.host, preflight.result);
               await this.expandRegistration(input.host);
+              if (this.profile && preflight.result.ok) {
+                await this.readSessions(input.host).catch(() => undefined);
+                await this.readWorktrees(input.host, true);
+              }
+              const row = this.state().hosts.find((entry) => entry.host === input.host);
+              await this.store.update({
+                registeredHosts: (this.store.get().registeredHosts ?? []).map((entry) =>
+                  entry.host === input.host
+                    ? {
+                        ...entry,
+                        observation: {
+                          checkedAt: Date.now(),
+                          preflight: { ...preflight, result: row?.result ?? preflight.result },
+                          ...(row?.foreignSessions !== undefined
+                            ? { foreignSessions: row.foreignSessions }
+                            : {}),
+                          ...(row?.foreignWorktrees !== undefined
+                            ? { foreignWorktrees: row.foreignWorktrees }
+                            : {}),
+                        },
+                      }
+                    : entry,
+                ),
+              });
             }
             this.progress = undefined;
             return { ...this.state(), preflight };

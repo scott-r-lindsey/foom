@@ -221,6 +221,8 @@ child.on('close', code => { appendFileSync(${JSON.stringify(sshLog)}, 'fixture s
     .getByRole("region", { name: "Settings" })
     .getByRole("button", { name: "Hosts", exact: true })
     .click();
+  await page.getByRole("button", { name: "Expand fixture-cloud", exact: true }).click();
+  await page.getByRole("button", { name: "Check capabilities", exact: true }).click();
   await expect(page.getByText("Code folder does not exist")).toBeVisible();
   await page.screenshot({ path: evidencePath("1005-incomplete-host.png") });
   await page.getByRole("button", { name: "Create", exact: true }).click();
@@ -400,6 +402,10 @@ child.on('close', code => { appendFileSync(${JSON.stringify(sshLog)}, 'fixture s
     .getByRole("navigation", { name: "Settings sections" })
     .getByRole("button", { name: "Hosts", exact: true })
     .click();
+  await restored.getByRole("button", { name: "Check capabilities", exact: true }).click();
+  await expect(
+    restored.getByRole("button", { name: "Check capabilities", exact: true }),
+  ).toBeEnabled();
   await restored.locator(".host-details > summary").click();
   await expect(restored.getByText("Other profiles or untagged: 1", { exact: true })).toBeVisible();
   await restored.getByRole("button", { name: "Copy host alias", exact: true }).click();

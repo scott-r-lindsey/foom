@@ -17,6 +17,50 @@ const {
   assertAccessible,
 } = require("./harness.js");
 
+async function captureHosts(app, page, name) {
+  const area = page.locator(".hosts-page:visible, .repository-hosts:visible").first();
+  if (!(await area.count())) return;
+  const original = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+  const height = await area.evaluate(
+    (element) => Math.ceil(element.getBoundingClientRect().height) + 160,
+  );
+  // Xvfb permits tall review crops; macOS constrains native windows to its display.
+  const resizeForCapture = process.platform === "linux" && height > original.height;
+  const resize = async (size) => {
+    await app.evaluate(({ BrowserWindow }, size) => {
+      BrowserWindow.getAllWindows()
+        .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+        .setContentSize(size.width, size.height);
+    }, size);
+    await expect
+      .poll(() => page.evaluate(() => ({ width: innerWidth, height: innerHeight })))
+      .toEqual(size);
+  };
+  try {
+    if (resizeForCapture) await resize({ ...original, height });
+    for (const mode of ["light", "dark"]) {
+      await page.evaluate(
+        (mode) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${mode}` }),
+        mode,
+      );
+      await expect
+        .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
+        .toBe(mode === "dark");
+      await area.screenshot({ path: evidencePath(`1041/${name}-${mode}.png`) });
+    }
+  } finally {
+    if (resizeForCapture) await resize(original);
+  }
+}
+
+async function assertHostColumns(card) {
+  const starts = await card
+    .locator(".host-check-row:visible > .host-status > span:last-child")
+    .evaluateAll((statuses) => statuses.map((status) => status.getBoundingClientRect().left));
+  assert.ok(starts.length >= 4, "Host checks include the code folder row");
+  assert.ok(Math.max(...starts) - Math.min(...starts) < 1, JSON.stringify(starts));
+}
+
 test("Settings authorizes checked SSH hosts and shows repository locations without exposing remote output", {
   skip: process.platform === "win32",
   timeout: deadline(60000),
@@ -156,22 +200,8 @@ process.stdin.on('data', bytes => {
   );
   gitSync(["remote", "add", "origin", "git@forge.test:team/project.git"], { cwd: repository });
   const capture = async (name) => {
-    for (const mode of ["light", "dark"]) {
-      await page.evaluate(
-        (mode) =>
-          window.desktop.saveSetup({
-            interfaceTheme: mode === "light" ? "eclipse-light" : "eclipse-dark",
-          }),
-        mode,
-      );
-      await expect
-        .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
-        .toBe(mode === "dark");
-      if (["partial-facts", "repositories-per-host"].includes(name)) await assertAccessible(page);
-      await page.screenshot({
-        path: evidencePath(`${name.startsWith("progress-") ? "1023" : "1026"}/${name}-${mode}.png`),
-      });
-    }
+    if (["partial-facts", "repositories-per-host"].includes(name)) await assertAccessible(page);
+    await captureHosts(app, page, name);
   };
   const updateScenario = async (value) => {
     await writeFile(`${scenario}.next`, JSON.stringify(value));
@@ -198,24 +228,13 @@ process.stdin.on('data', bytes => {
   await page.getByRole("button", { name: "Add host", exact: true }).click();
   const card = page.getByRole("region", { name: "fixture-cloud", exact: true });
   const progressStatus = card.locator(".host-check-progress[role=status]");
-  await expect(card.getByRole("button", { name: "Check again", exact: true })).toBeEnabled();
+  await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
   await expect(card.getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
   await expect(card.getByText("Not found", { exact: true })).toHaveCount(2);
   await expect(card.getByRole("button", { name: "Install codex", exact: true })).toHaveCount(0);
   await expect(card.getByText("Not checked", { exact: true })).toHaveCount(1);
   await capture("partial-facts");
-  const nicknameCapture = async (name) => {
-    for (const mode of ["light", "dark"]) {
-      await page.evaluate(
-        (mode) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${mode}` }),
-        mode,
-      );
-      await expect
-        .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
-        .toBe(mode === "dark");
-      await page.screenshot({ path: evidencePath(`1027/${name}-${mode}.png`) });
-    }
-  };
+  const nicknameCapture = (name) => captureHosts(app, page, `nickname-${name}`);
   await nicknameCapture("default");
   const beforeRename = (await readFile(calls, "utf8")).split("\n").filter(Boolean).length;
   await card.getByRole("button", { name: "Rename fixture-cloud", exact: true }).click();
@@ -231,7 +250,9 @@ process.stdin.on('data', bytes => {
   await page.getByLabel("SSH host", { exact: true }).fill("other-cloud");
   await page.getByRole("button", { name: "Add host", exact: true }).click();
   const otherCard = page.getByRole("region", { name: "other-cloud", exact: true });
-  await expect(otherCard.getByRole("button", { name: "Check again", exact: true })).toBeEnabled();
+  await expect(
+    otherCard.getByRole("button", { name: "Check capabilities", exact: true }),
+  ).toBeEnabled();
   await otherCard.getByRole("button", { name: "Rename other-cloud", exact: true }).click();
   await otherCard.getByLabel("Host nickname", { exact: true }).fill("fixture-cloud");
   await otherCard.getByRole("button", { name: "Save name", exact: true }).click();
@@ -266,7 +287,7 @@ process.stdin.on('data', bytes => {
   await expect(page.getByRole("heading", { name: "Build box", exact: true })).toBeVisible();
   await nicknameCapture("repositories");
   await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
-  await expect(card.getByRole("button", { name: "Check again", exact: true })).toBeEnabled();
+  await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
   await expect(card.getByRole("button", { name: "Rename Build box", exact: true })).toBeVisible();
   await card.getByRole("button", { name: "Rename Build box", exact: true }).click();
   await card.getByLabel("Host nickname", { exact: true }).fill("");
@@ -278,19 +299,19 @@ process.stdin.on('data', bytes => {
 
   await assertAccessible(page);
   await updateScenario({ hold: true });
-  await card.getByRole("button", { name: "Check again", exact: true }).click();
-  await expect(card.getByText("Checking…", { exact: true }).first()).toBeVisible();
+  await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Add host", exact: true })).toBeEnabled();
   await expect(progressStatus).toHaveText("Checking host…");
   await expect(card.locator(".host-throbber")).toBeVisible();
   await capture("progress-inspect");
   await updateScenario({});
-  await expect(card.getByRole("button", { name: "Check again", exact: true })).toBeEnabled();
+  await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
   const checkingOrigin = {
     hold: "origin",
     facts: { tools: [{ id: "git", state: "ready", signIn: "unknown" }] },
   };
   await updateScenario(checkingOrigin);
-  await card.getByRole("button", { name: "Check again", exact: true }).click();
+  await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
   await expect(progressStatus).toHaveText("Checking Git access · shell-fixture (1 of 1)");
   await expect(card.locator(".host-throbber")).toBeVisible();
   const originRow = card.locator(".host-check-row").filter({ hasText: "Git access to origin" });
@@ -333,7 +354,7 @@ process.stdin.on('data', bytes => {
     }
   };
   await assertSpinnerCentered();
-  await page.screenshot({ path: evidencePath("1041/check-row-spinner.png") });
+  await checkoutRow.screenshot({ path: evidencePath("1041/check-row-spinner.png") });
   await expect(card.locator(".host-throbber")).toHaveCSS("animation-name", "host-check-spin");
   await capture("progress-origin");
   await app.evaluate(({ BrowserWindow }) =>
@@ -341,7 +362,7 @@ process.stdin.on('data', bytes => {
       .find((window) => window.webContents.getURL() === "app://bundle/index.html")
       .setContentSize(960, 960),
   );
-  const progressBounds = await card.locator(".hosts-heading").evaluate((heading) => ({
+  const progressBounds = await card.locator(".host-summary-row").evaluate((heading) => ({
     width: heading.clientWidth,
     scroll: heading.scrollWidth,
   }));
@@ -374,7 +395,7 @@ process.stdin.on('data', bytes => {
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await capture("progress-checkout");
   await updateScenario({ ...checkingOrigin, hold: false });
-  await expect(card.getByRole("button", { name: "Check again", exact: true })).toBeEnabled();
+  await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
   await expect(card.locator(".host-throbber")).toHaveCount(0);
   await expect(checkoutRow).toContainText("Not checked out");
   await capture("progress-result");
@@ -387,7 +408,7 @@ process.stdin.on('data', bytes => {
     },
     origin: "origin-auth",
   });
-  await card.getByRole("button", { name: "Check again", exact: true }).click();
+  await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
   await expect(
     card.getByText("Origin authentication failed · origin-auth", { exact: true }),
   ).toBeVisible();
@@ -396,7 +417,7 @@ process.stdin.on('data', bytes => {
   await card.getByRole("button", { name: "Change folder", exact: true }).click();
   await card.getByLabel("Code folder", { exact: true }).fill("~/new-code");
   await card.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(card.getByRole("button", { name: "Check again", exact: true })).toBeEnabled();
+  await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
   await expect(card.getByText("/remote/account/new-code", { exact: true })).toBeVisible();
   // Each fixed no-prompt Git failure is rendered in the host checklist.
   for (const reason of [
@@ -410,7 +431,7 @@ process.stdin.on('data', bytes => {
       facts: { tools: [{ id: "git", state: "ready", signIn: "unknown" }] },
       origin: reason,
     });
-    await card.getByRole("button", { name: "Check again", exact: true }).click();
+    await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
     await expect(
       card.locator(".host-check-row").filter({ hasText: "Git access to origin" }),
     ).toContainText(reason);
@@ -430,7 +451,7 @@ process.stdin.on('data', bytes => {
       ],
     },
   });
-  await card.getByRole("button", { name: "Check again", exact: true }).click();
+  await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
   await expect(card.getByText("Warning · Protected folder", { exact: true })).toBeVisible();
   await expect(card.getByText("Do this on the Mac", { exact: true })).toBeVisible();
   await expect(card.getByRole("button", { name: "Install git", exact: true })).toHaveCount(0);
@@ -438,13 +459,13 @@ process.stdin.on('data', bytes => {
   await updateScenario({
     facts: { requirements: { distro: "unknown", libc: "supported", packageManager: "none" } },
   });
-  await card.getByRole("button", { name: "Check again", exact: true }).click();
-  await expect(card.getByRole("button", { name: "Check again", exact: true })).toBeEnabled();
+  await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
+  await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
   await expect(card.getByRole("button", { name: /^Install/u })).toHaveCount(0);
   await capture("no-recipe");
   if (platform === "linux") {
     await updateScenario({ musl: true });
-    await card.getByRole("button", { name: "Check again", exact: true }).click();
+    await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
     await expect(
       card.getByText("Unsupported · musl libc · libc-unsupported", { exact: true }),
     ).toBeVisible();
@@ -469,7 +490,7 @@ process.stdin.on('data', bytes => {
     checkout: "clean",
   };
   await updateScenario(ready);
-  await card.getByRole("button", { name: "Check again", exact: true }).click();
+  await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
   await expect(card.getByText("Ready · 1 repository", { exact: true })).toBeVisible();
   await capture("ready");
   await page.evaluate(() =>
@@ -491,7 +512,7 @@ process.stdin.on('data', bytes => {
     },
   };
   await updateScenario(optional);
-  await card.getByRole("button", { name: "Check again", exact: true }).click();
+  await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
   await expect(card.getByText("Ready · 0 repositories", { exact: true })).toBeVisible();
   assert.equal(
     await card
@@ -522,10 +543,12 @@ process.stdin.on('data', bytes => {
   await capture("hosts-clone-failed");
   await updateScenario({ ...optional, cloneSuccess: true, checkout: "clean" });
   await card.getByRole("button", { name: "Clone here", exact: true }).click();
+  await expect(card.getByRole("button", { name: /Repositories · 1 ready/ })).toBeVisible();
+  await card.getByRole("button", { name: /Repositories · 1 ready/ }).click();
   await expect(card.getByText("Clean", { exact: true })).toBeVisible();
   await capture("hosts-clone-clean");
   await updateScenario({ ...optional, origin: "origin-host-key" });
-  await card.getByRole("button", { name: "Check again", exact: true }).click();
+  await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
   await expect(card.getByRole("button", { name: "Trust host key", exact: true })).toBeEnabled();
   await capture("origin-host-key");
   await card.getByRole("button", { name: "Trust host key", exact: true }).click();
@@ -544,9 +567,9 @@ process.stdin.on('data', bytes => {
     .getByRole("navigation", { name: "Settings sections" })
     .getByRole("button", { name: "Hosts", exact: true })
     .click();
-  await expect(card.getByRole("button", { name: "Check again", exact: true })).toBeEnabled();
+  await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
   await updateScenario(ready);
-  await card.getByRole("button", { name: "Check again", exact: true }).click();
+  await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
   await expect(card.getByText("Ready · 1 repository", { exact: true })).toBeVisible();
   await app.evaluate(({ BrowserWindow }) =>
     BrowserWindow.getAllWindows()
@@ -566,7 +589,7 @@ process.stdin.on('data', bytes => {
       .setContentSize(1280, 1200),
   );
   await updateScenario({ facts: { folder: { state: "fail", reason: "folder-missing" } } });
-  await card.getByRole("button", { name: "Check again", exact: true }).click();
+  await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
   await expect(card.getByRole("button", { name: "Create", exact: true })).toBeEnabled();
   await capture("missing-folder");
   await updateScenario({});
@@ -595,7 +618,7 @@ process.stdin.on('data', bytes => {
   }
   const artifactPath = path.join(catalog, "foom-host.gz");
   await rm(artifactPath);
-  await card.getByRole("button", { name: "Check again", exact: true }).click();
+  await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
   await expect(
     card
       .locator(".host-check-row")
@@ -635,6 +658,7 @@ process.stdin.on('data', bytes => {
   await capture("repositories-per-host");
   await assertAccessible(page);
   await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
+  await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
   await expect(card.getByRole("button", { name: "Install git", exact: true })).toBeEnabled();
   await card.getByRole("button", { name: "Install git", exact: true }).click();
   await expect
@@ -696,4 +720,135 @@ process.stdin.on('data', bytes => {
     ),
   );
   assert.ok(recorded.some(({ message }) => message.operation === "clone"));
+});
+
+test("Hosts opens saved checks without SSH and keeps ready repositories compact", {
+  skip: process.platform === "win32",
+  timeout: deadline(30000),
+}, async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "hosts-saved-"));
+  removeAfterApps(context, root);
+  const bin = path.join(root, "bin");
+  await mkdir(bin);
+  const calls = path.join(root, "ssh-calls");
+  await writeFile(calls, "");
+  await writeFile(
+    path.join(bin, "ssh"),
+    `#!${process.execPath}\nrequire('node:fs').appendFileSync(${JSON.stringify(calls)}, 'ssh\\n'); process.exit(1);\n`,
+    { mode: 0o700 },
+  );
+  const facts = {
+    codeFolder: "/remote/code",
+    version: "0.1.0",
+    sessions: 3,
+    cores: 8,
+    load: [0, 0, 0],
+    memoryTotal: 8 * 1024 ** 3,
+    memoryAvailable: 4 * 1024 ** 3,
+    folder: { state: "pass" },
+    requirements: { distro: "debian", libc: "supported", packageManager: "apt" },
+    tools: [{ id: "git", state: "ready", signIn: "unknown" }],
+    agents: [{ id: "claude", state: "ready", signIn: "signed-in" }],
+  };
+  const result = { ok: true, facts };
+  const preflight = {
+    ssh: { state: "pass" },
+    platform: { state: "pass" },
+    artifact: { state: "pass" },
+    result,
+    repositories: Array.from({ length: 6 }, (_, index) => ({
+      repository: `/local/project-${index}`,
+      origin: { state: "pass" },
+      checkout: { ...result, checkout: { path: `/remote/project-${index}`, state: "clean" } },
+    })),
+  };
+  await writeFile(
+    path.join(root, "settings.json"),
+    JSON.stringify({
+      version: 1,
+      settings: {
+        setupComplete: true,
+        checkForUpdates: false,
+        restoreSessions: false,
+        registeredHosts: [
+          {
+            host: "saved-fixture",
+            codeFolder: facts.codeFolder,
+            observation: {
+              checkedAt: 1700000000000,
+              preflight,
+              foreignSessions: 2,
+              foreignWorktrees: 4,
+            },
+          },
+        ],
+      },
+    }),
+  );
+  const app = await launchApp(context, {
+    fixture: "empty-board",
+    args: [`--user-data-dir=${root}`],
+    env: { PATH: bin },
+  });
+  const page = await boardPage(app);
+  await openSettingsScreen(page);
+  const navigation = page.getByRole("navigation", { name: "Settings sections" });
+  const before = await readFile(calls, "utf8");
+  await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
+  const card = page.getByRole("region", { name: "saved-fixture", exact: true });
+  await expect(card.getByText("Ready · 6 repositories", { exact: true })).toBeVisible();
+  const capture = (name) => captureHosts(app, page, `saved-${name}`);
+  await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeHidden();
+  const fits = await page
+    .locator(".hosts-page")
+    .evaluate((element) => element.getBoundingClientRect().bottom <= window.innerHeight);
+  assert.equal(fits, true);
+  await capture("collapsed");
+  await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .setContentSize(1280, 800),
+  );
+
+  await card.getByRole("button", { name: "Expand saved-fixture", exact: true }).click();
+  await expect(card.getByText("Last checked", { exact: false })).toBeVisible();
+  await expect(card.getByText("Repository · project-0", { exact: true })).toHaveCount(0);
+  await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
+  await assertHostColumns(card);
+  await capture("expanded");
+  await card.getByRole("button", { name: /Repositories · 6 ready/ }).click();
+  await expect(card.getByText("Clean", { exact: true })).toHaveCount(6);
+  await assertHostColumns(card);
+  await capture("repositories");
+  for (const width of [900, 640]) {
+    await app.evaluate(({ BrowserWindow }, width) => {
+      const window = BrowserWindow.getAllWindows().find(
+        (window) => window.webContents.getURL() === "app://bundle/index.html",
+      );
+      window.setMinimumSize(600, 640);
+      window.setContentSize(width, 1000);
+    }, width);
+    await expect.poll(() => page.evaluate(() => innerWidth)).toBe(width);
+    await assertHostColumns(card);
+    await capture(`repositories-${width}`);
+    await card.getByRole("button", { name: /Repositories · 6 ready/ }).click();
+    await assertHostColumns(card);
+    await capture(`expanded-${width}`);
+    await card.getByRole("button", { name: /Repositories · 6 ready/ }).click();
+  }
+  await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .setContentSize(1280, 800),
+  );
+  await card.getByRole("button", { name: /Repositories · 6 ready/ }).click();
+  await card.getByText("Host facts", { exact: true }).click();
+  await expect(card.getByText("Other profiles or untagged: 2", { exact: true })).toBeVisible();
+  await capture("inventory");
+  await assertAccessible(page);
+  assert.equal(await readFile(calls, "utf8"), before);
+  await navigation.getByRole("button", { name: "General", exact: true }).click();
+  await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
+  await expect(card.getByText("Ready · 6 repositories", { exact: true })).toBeVisible();
+  assert.equal(await readFile(calls, "utf8"), before);
 });

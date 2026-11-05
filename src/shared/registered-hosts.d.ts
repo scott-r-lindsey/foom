@@ -4,6 +4,8 @@ export interface RegisteredHost {
   /** Profile-only display label; never a transport target. */
   nickname?: string;
   codeFolder: string;
+  /** Display-only last check; never used to authorize remote operations. */
+  observation?: HostObservation;
 }
 export type HostGitFailureReason =
   | "origin-auth"
@@ -50,6 +52,12 @@ export interface HostConnectionChecks {
 export interface HostPreflight extends HostConnectionChecks {
   result: HostResult;
   repositories: readonly { repository: string; origin: HostCheck; checkout: HostResult }[];
+}
+export interface HostObservation {
+  checkedAt: number;
+  preflight: HostPreflight;
+  foreignSessions?: number;
+  foreignWorktrees?: number;
 }
 export interface HostFacts {
   /** Present on partial inspection; failed folder checks never authorize a checkout. */

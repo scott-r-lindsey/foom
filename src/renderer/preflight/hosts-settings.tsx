@@ -1,5 +1,5 @@
 import { hostDisplayName, hostNicknameError } from "../../shared/registered-hosts";
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode, RefObject } from "react";
 import { CopyValue } from "../ui/copy-value";
 import type {
@@ -247,6 +247,14 @@ function Checklist({
       );
     });
   const repositories = progress?.repositories ?? preflight?.repositories ?? [];
+  const readyRepositories = repositories.filter(
+    (repo) =>
+      repo.origin?.state === "pass" &&
+      repo.checkout?.ok &&
+      repo.checkout.checkout &&
+      repo.checkout.checkout.state !== "absent",
+  );
+  const [showReady, setShowReady] = useState(false);
   return (
     <div className="host-checks" aria-busy={checking}>
       <Group>Host</Group>
@@ -300,66 +308,85 @@ function Checklist({
       )}
       <Group>Agents</Group>
       {facts ? tools(facts.agents) : <Row name="Agents" tone="neutral" text="Not checked" />}
-      {repositories.map((repo) => (
-        <Fragment key={repo.repository}>
-          <Group>Repository · {repo.repository.split(/[\\/]/u).at(-1)}</Group>
-          <Row
-            name="Git access to origin"
-            {...(checking && !repo.origin
-              ? { tone: "work" as const, text: "Checking…" }
-              : checkPresentation(repo.origin, "Reachable"))}
-            action={
-              repo.origin?.state === "fail" && repo.origin.reason === "origin-host-key" ? (
-                <button
-                  type="button"
-                  disabled={disabled}
-                  onClick={() => {
-                    act({ action: "trust-origin", host: entry.host, repository: repo.repository });
-                  }}
-                >
-                  Trust host key
-                </button>
-              ) : undefined
-            }
-          />
-          {repo.origin?.state === "fail" && repo.origin.reason === "origin-auth" && (
-            <div className="host-origin-fixes" aria-label="Git access fixes">
-              <span
-                title={
-                  'Run gh auth setup-git, then git config --global url."https://github.com/".insteadOf git@github.com: on this host'
-                }
-              >
-                Use HTTPS through gh
-              </span>
-              <span title="Add a passphrase-less deploy key on this host">deploy key</span>
-              <span title="Load the key in a persistent ssh-agent visible to the host login environment">
-                ssh-agent
-              </span>
-            </div>
-          )}
-          <Row
-            name="Repository checkout"
-            {...(cloning === repo.repository
-              ? { tone: "work" as const, text: "Cloning…" }
-              : checking && !repo.checkout
+      {repositories.length > 0 && (
+        <button
+          type="button"
+          className="host-repositories"
+          aria-expanded={showReady}
+          onClick={() => {
+            setShowReady(!showReady);
+          }}
+        >
+          <span aria-hidden="true">{showReady ? "⌄" : "›"}</span> Repositories ·{" "}
+          {readyRepositories.length} ready
+        </button>
+      )}
+      {repositories
+        .filter((repo) => showReady || !readyRepositories.includes(repo))
+        .map((repo) => (
+          <Fragment key={repo.repository}>
+            <Group>Repository · {repo.repository.split(/[\\/]/u).at(-1)}</Group>
+            <Row
+              name="Git access to origin"
+              {...(checking && !repo.origin
                 ? { tone: "work" as const, text: "Checking…" }
-                : checkoutPresentation(repo.checkout))}
-            action={
-              canClone(repo.checkout) ? (
-                <button
-                  type="button"
-                  disabled={disabled}
-                  onClick={() => {
-                    act({ action: "clone", host: entry.host, repository: repo.repository });
-                  }}
+                : checkPresentation(repo.origin, "Reachable"))}
+              action={
+                repo.origin?.state === "fail" && repo.origin.reason === "origin-host-key" ? (
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => {
+                      act({
+                        action: "trust-origin",
+                        host: entry.host,
+                        repository: repo.repository,
+                      });
+                    }}
+                  >
+                    Trust host key
+                  </button>
+                ) : undefined
+              }
+            />
+            {repo.origin?.state === "fail" && repo.origin.reason === "origin-auth" && (
+              <div className="host-origin-fixes" aria-label="Git access fixes">
+                <span
+                  title={
+                    'Run gh auth setup-git, then git config --global url."https://github.com/".insteadOf git@github.com: on this host'
+                  }
                 >
-                  Clone here
-                </button>
-              ) : undefined
-            }
-          />
-        </Fragment>
-      ))}
+                  Use HTTPS through gh
+                </span>
+                <span title="Add a passphrase-less deploy key on this host">deploy key</span>
+                <span title="Load the key in a persistent ssh-agent visible to the host login environment">
+                  ssh-agent
+                </span>
+              </div>
+            )}
+            <Row
+              name="Repository checkout"
+              {...(cloning === repo.repository
+                ? { tone: "work" as const, text: "Cloning…" }
+                : checking && !repo.checkout
+                  ? { tone: "work" as const, text: "Checking…" }
+                  : checkoutPresentation(repo.checkout))}
+              action={
+                canClone(repo.checkout) ? (
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => {
+                      act({ action: "clone", host: entry.host, repository: repo.repository });
+                    }}
+                  >
+                    Clone here
+                  </button>
+                ) : undefined
+              }
+            />
+          </Fragment>
+        ))}
       {mac && (
         <>
           <Group>Power</Group>
@@ -376,10 +403,12 @@ function Checklist({
 }
 function HostName({
   entry,
+  disabled,
   hosts,
   save,
 }: {
   entry: HostRow;
+  disabled: boolean;
   hosts: readonly HostRow[];
   save: (nickname: string) => Promise<void>;
 }) {
@@ -393,6 +422,7 @@ function HostName({
       <h3>
         <button
           type="button"
+          disabled={disabled}
           className="host-name"
           aria-label={`Rename ${hostDisplayName(entry)}`}
           onClick={() => {
@@ -440,19 +470,19 @@ function HostName({
         aria-label="Host nickname"
         placeholder={hostDisplayName({ host: entry.host })}
         value={name}
-        disabled={saving}
+        disabled={disabled || saving}
         aria-invalid={!!error || !!failure}
         onChange={(event) => {
           setName(event.target.value);
           setFailure("");
         }}
       />
-      <button type="submit" disabled={!!error || saving}>
+      <button type="submit" disabled={disabled || !!error || saving}>
         Save name
       </button>
       <button
         type="button"
-        disabled={saving}
+        disabled={disabled || saving}
         onClick={() => {
           setEditing(false);
         }}
@@ -482,20 +512,39 @@ export function HostsSettings({
   const [host, setHost] = useState("");
   const [folder, setFolder] = useState("~/foom");
   const [changing, setChanging] = useState<{ host: string; folder: string }>();
-  const [busy, setBusy] = useState<string | undefined>("");
-  const [cloning, setCloning] = useState<{ host: string; repository: string }>();
+  const [busy, setBusy] = useState<ReadonlySet<string>>(() => new Set());
+  const [addBusy, setAddBusy] = useState(false);
+  const [cloning, setCloning] = useState<ReadonlyMap<string, string>>(() => new Map());
   const [error, setError] = useState("");
   const api = source.hosts;
-  const [checkingHost, setCheckingHost] = useState<string>();
+  const [checkingHosts, setCheckingHosts] = useState<ReadonlySet<string>>(() => new Set());
   const [progress, setProgress] = useState<HostCheckProgress>();
+  const changedRef = useRef(false);
+  const [expanded, setExpanded] = useState<ReadonlyMap<string, boolean>>(() => new Map());
+  const applyState = (next: HostsState, host: string) => {
+    setState((previous) => ({
+      ...next,
+      hosts: [
+        ...previous.hosts.filter((entry) => entry.host !== host),
+        ...next.hosts.filter((entry) => entry.host === host),
+      ].sort((a, b) => {
+        const order = [...previous.hosts.map((entry) => entry.host), host];
+        return order.indexOf(a.host) - order.indexOf(b.host);
+      }),
+      locations: [
+        ...previous.locations.filter((entry) => entry.host !== host),
+        ...next.locations.filter((entry) => entry.host === host),
+      ],
+    }));
+  };
   useEffect(() => {
-    if (!checkingHost || !api) return;
+    if (!checkingHosts.size || !api) return;
     let active = true;
     let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
       try {
         const next = await api({ action: "progress" });
-        if (active && next.progress?.host === checkingHost) setProgress(next.progress);
+        if (active) setProgress(next.progress);
       } catch {
         // The authoritative preflight request owns error reporting.
       }
@@ -509,16 +558,19 @@ export function HostsSettings({
       active = false;
       clearTimeout(timer);
     };
-  }, [api, checkingHost]);
+  }, [api, checkingHosts]);
   const runCheck = useCallback(
     async (host: string, codeFolder: string) => {
-      setProgress(undefined);
-      setCheckingHost(host);
+      setCheckingHosts((previous) => new Set(previous).add(host));
       try {
         return await api?.({ action: "preflight", host, codeFolder });
       } finally {
-        setCheckingHost(undefined);
-        setProgress(undefined);
+        setCheckingHosts((previous) => {
+          const next = new Set(previous);
+          next.delete(host);
+          return next;
+        });
+        setProgress((previous) => (previous?.host === host ? undefined : previous));
       }
     },
     [api],
@@ -530,38 +582,48 @@ export function HostsSettings({
       try {
         const initial = await api?.({ action: "list" });
         if (!current() || !initial) return;
-        setState(initial);
-        for (const entry of initial.hosts) {
-          setBusy(entry.host);
-          const next = await runCheck(entry.host, entry.codeFolder);
-          if (!current()) return;
-          if (next) {
-            setState(next);
-            const preflight = next.preflight;
-            if (preflight) setChecks((previous) => new Map(previous).set(entry.host, preflight));
-          }
-        }
+        setState((previous) =>
+          changedRef.current
+            ? {
+                ...previous,
+                hosts: [
+                  ...previous.hosts,
+                  ...initial.hosts.filter(
+                    (entry) => !previous.hosts.some((saved) => saved.host === entry.host),
+                  ),
+                ],
+              }
+            : initial,
+        );
       } catch {
         if (current()) setError("Unable to load hosts");
-      } finally {
-        if (current()) setBusy(undefined);
       }
     })();
     return () => {
       active = false;
     };
-  }, [api, runCheck]);
+  }, [api]);
   const act = async (action: HostsAction) => {
-    setBusy("host" in action ? action.host : "");
-    if (action.action === "clone") setCloning(action);
+    changedRef.current = true;
+    if ("host" in action) setExpanded((previous) => new Map(previous).set(action.host, true));
+    const target = "host" in action ? action.host : "";
+    setBusy((previous) => new Set(previous).add(target));
+    let enrolling = action.action === "add";
+    if (enrolling) setAddBusy(true);
+    if (action.action === "clone")
+      setCloning((previous) => new Map(previous).set(action.host, action.repository));
     setError("");
     try {
       let next =
         action.action === "preflight"
           ? await runCheck(action.host, action.codeFolder)
           : await api?.(action);
+      if (enrolling) {
+        setAddBusy(false);
+        enrolling = false;
+      }
       if (!next) return;
-      setState(next);
+      applyState(next, target);
       if (action.action === "preflight" && next.preflight) {
         const preflight = next.preflight;
         setChecks((previous) => new Map(previous).set(action.host, preflight));
@@ -595,7 +657,7 @@ export function HostsSettings({
         if (entry) {
           next = await runCheck(entry.host, entry.codeFolder);
           if (next) {
-            setState(next);
+            applyState(next, target);
             const observed = next.preflight;
             const preflight =
               observed &&
@@ -619,8 +681,17 @@ export function HostsSettings({
     } catch {
       setError("Unable to update hosts");
     } finally {
-      setCloning(undefined);
-      setBusy(undefined);
+      setCloning((previous) => {
+        const next = new Map(previous);
+        next.delete(target);
+        return next;
+      });
+      setBusy((previous) => {
+        const next = new Set(previous);
+        next.delete(target);
+        return next;
+      });
+      if (enrolling) setAddBusy(false);
     }
   };
   return (
@@ -632,7 +703,7 @@ export function HostsSettings({
         {!adding && (
           <button
             type="button"
-            disabled={busy !== undefined}
+            disabled={addBusy}
             onClick={() => {
               setAdding(true);
             }}
@@ -655,7 +726,7 @@ export function HostsSettings({
           }}
         >
           <h3>Add host</h3>
-          <fieldset disabled={busy !== undefined} className="host-add-fields">
+          <fieldset disabled={addBusy} className="host-add-fields">
             <label>
               SSH host
               <input
@@ -683,198 +754,234 @@ export function HostsSettings({
           <button
             className="host-cancel"
             type="button"
-            disabled={busy !== undefined}
+            disabled={addBusy}
             onClick={() => {
               setAdding(false);
             }}
           >
             Cancel
           </button>
-          {busy !== undefined && <p role="status">Checking…</p>}
+          {addBusy && <p role="status">Checking…</p>}
         </form>
       )}
       {!state.hosts.length && !adding && <p>No hosts</p>}
-      {state.hosts.map((entry) => (
-        <section className="host-card" key={entry.host} aria-label={entry.host}>
-          <header className="hosts-heading">
-            <HostName
-              entry={entry}
-              hosts={state.hosts}
-              save={async (nickname) => {
-                const next = await api?.({ action: "rename", host: entry.host, nickname });
-                if (!next) throw new Error("Rename unavailable");
-                setState(next);
-              }}
-            />
-            <span
-              className={busy === entry.host ? "host-count host-progress-summary" : "host-count"}
-            >
-              {busy === entry.host ? (
-                <span className="host-check-progress host-work" role="status">
-                  <span className="host-throbber" aria-hidden="true" />
-                  {hostProgressText(checkingHost === entry.host ? progress : undefined)}
-                </span>
-              ) : (
-                hostSummary(checks.get(entry.host))
-              )}
-            </span>
-            <button
-              type="button"
-              disabled={busy !== undefined}
-              onClick={() => {
-                void act({ action: "remove", host: entry.host });
-              }}
-            >
-              Remove
-            </button>
-          </header>
-          <div className="host-meta">
-            <CopyValue
-              value={entry.host}
-              label="Copy host alias"
-              copy={() =>
-                source.copyHost?.({ kind: "copy-host-alias", host: entry.host }) ??
-                Promise.reject(new Error("Copy unavailable"))
-              }
-            />
-            <span>
-              {entry.result?.ok
-                ? entry.result.facts.requirements?.distro === "darwin"
-                  ? "macOS"
-                  : entry.result.facts.requirements?.distro
-                : ""}
-            </span>
-            <code>
-              <CopyValue
-                value={entry.codeFolder}
-                label="Copy code folder"
-                copy={() =>
-                  source.copyHost?.({ kind: "copy-host-code-folder", host: entry.host }) ??
-                  Promise.reject(new Error("Copy unavailable"))
-                }
-              />
-            </code>
-          </div>
-          <Checklist
-            entry={entry}
-            preflight={checks.get(entry.host)}
-            progress={checkingHost === entry.host ? progress : undefined}
-            checking={checkingHost === entry.host}
-            cloning={cloning?.host === entry.host ? cloning.repository : undefined}
-            disabled={busy !== undefined}
-            act={(action) => {
-              void act(action);
-            }}
-            changeFolder={() => {
-              setChanging({ host: entry.host, folder: entry.codeFolder });
-            }}
-          />
-          {changing?.host === entry.host && (
-            <form
-              className="host-folder-form"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void act({
-                  action: "change-folder",
-                  host: entry.host,
-                  codeFolder: changing.folder,
-                });
-              }}
-            >
-              <label>
-                Code folder
-                <input
-                  value={changing.folder}
-                  onChange={(event) => {
-                    setChanging({ host: entry.host, folder: event.target.value });
-                  }}
-                />
-              </label>
-              <button type="submit" disabled={busy !== undefined || !changing.folder.trim()}>
-                Save
-              </button>
+      {state.hosts.map((entry) => {
+        const preflight = checks.get(entry.host) ?? entry.observation?.preflight;
+        const summary = hostSummary(preflight);
+        const distro = entry.result?.ok ? entry.result.facts.requirements?.distro : undefined;
+        const os = distro === "darwin" ? "macOS" : distro;
+        const open =
+          expanded.get(entry.host) ??
+          (summary === "Needs you" ||
+            preflight?.repositories.some(
+              (repo) => repo.origin.state === "fail" || !repo.checkout.ok,
+            ) === true);
+        return (
+          <section className="host-card host-compact" key={entry.host} aria-label={entry.host}>
+            <div className="host-summary-row">
               <button
                 type="button"
+                className="host-expand"
+                aria-expanded={open}
+                aria-label={`${open ? "Collapse" : "Expand"} ${hostDisplayName(entry)}`}
                 onClick={() => {
-                  setChanging(undefined);
+                  setExpanded((previous) => new Map(previous).set(entry.host, !open));
                 }}
               >
-                Cancel
+                <span aria-hidden="true">{open ? "⌄" : "›"}</span>
+                {!open && (
+                  <>
+                    <span>{hostDisplayName(entry)}</span>
+                    <span className="host-count">{os}</span>
+                  </>
+                )}
               </button>
-            </form>
-          )}
-          <footer className="host-footer">
-            <span className="host-count">
-              {busy === entry.host
-                ? "Checking…"
-                : entry.result?.ok && entry.result.facts.requirements?.packageManager === "none"
-                  ? "No install recipe"
-                  : checks.get(entry.host)
-                    ? "Check complete"
-                    : "Not checked"}
-            </span>
-            <button
-              type="button"
-              disabled={busy !== undefined}
-              onClick={() => {
-                void act({ action: "preflight", host: entry.host, codeFolder: entry.codeFolder });
-              }}
-            >
-              Check again
-            </button>
-          </footer>
-          <details className="host-details">
-            <summary>Host facts</summary>
-            <button
-              type="button"
-              disabled={busy !== undefined}
-              onClick={() => {
-                void act({ action: "refresh", host: entry.host });
-              }}
-            >
-              Refresh facts
-            </button>
-            {entry.foreignWorktrees !== undefined && (
-              <p>{entry.foreignWorktrees} other worktrees</p>
-            )}
-            {entry.foreignSessions !== undefined && (
-              <p>
-                <span>Other profiles or untagged: {entry.foreignSessions}</span>{" "}
-                {entry.foreignSessions > 0 && (
+              {open && (
+                <div className="host-title">
+                  <HostName
+                    entry={entry}
+                    disabled={busy.has(entry.host)}
+                    hosts={state.hosts}
+                    save={async (nickname) => {
+                      const next = await api?.({ action: "rename", host: entry.host, nickname });
+                      if (!next) throw new Error("Rename unavailable");
+                      applyState(next, entry.host);
+                    }}
+                  />
+                  <span className="host-count">{os}</span>
+                </div>
+              )}
+              <span className={`host-count ${summary === "Needs you" ? "host-need" : ""}`}>
+                {busy.has(entry.host) ? (
+                  <span className="host-check-progress host-work" role="status">
+                    <span className="host-throbber" aria-hidden="true" />
+                    {hostProgressText(progress?.host === entry.host ? progress : undefined)}
+                  </span>
+                ) : (
+                  summary
+                )}
+              </span>
+            </div>
+            <fieldset className="host-body" hidden={!open} disabled={busy.has(entry.host)}>
+              <div className="host-meta">
+                <CopyValue
+                  value={entry.host}
+                  label="Copy host alias"
+                  copy={() =>
+                    source.copyHost?.({ kind: "copy-host-alias", host: entry.host }) ??
+                    Promise.reject(new Error("Copy unavailable"))
+                  }
+                />
+                <code>
+                  <CopyValue
+                    value={entry.codeFolder}
+                    label="Copy code folder"
+                    copy={() =>
+                      source.copyHost?.({ kind: "copy-host-code-folder", host: entry.host }) ??
+                      Promise.reject(new Error("Copy unavailable"))
+                    }
+                  />
+                </code>
+                <button
+                  type="button"
+                  className="host-remove"
+                  disabled={busy.has(entry.host)}
+                  onClick={() => {
+                    void act({ action: "remove", host: entry.host });
+                  }}
+                >
+                  Remove
+                </button>
+              </div>
+              <Checklist
+                entry={entry}
+                preflight={preflight}
+                progress={progress?.host === entry.host ? progress : undefined}
+                checking={checkingHosts.has(entry.host)}
+                cloning={cloning.get(entry.host)}
+                disabled={busy.has(entry.host)}
+                act={(action) => {
+                  void act(action);
+                }}
+                changeFolder={() => {
+                  setChanging({ host: entry.host, folder: entry.codeFolder });
+                }}
+              />
+              {changing?.host === entry.host && (
+                <form
+                  className="host-folder-form"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void act({
+                      action: "change-folder",
+                      host: entry.host,
+                      codeFolder: changing.folder,
+                    });
+                  }}
+                >
+                  <label>
+                    Code folder
+                    <input
+                      value={changing.folder}
+                      onChange={(event) => {
+                        setChanging({ host: entry.host, folder: event.target.value });
+                      }}
+                    />
+                  </label>
+                  <button type="submit" disabled={busy.has(entry.host) || !changing.folder.trim()}>
+                    Save
+                  </button>
                   <button
                     type="button"
-                    disabled={busy !== undefined}
                     onClick={() => {
-                      void act({ action: "end", host: entry.host });
+                      setChanging(undefined);
                     }}
                   >
-                    End…
+                    Cancel
                   </button>
+                </form>
+              )}
+              <footer className="host-footer">
+                <span className="host-count">
+                  {entry.observation ? (
+                    <>
+                      Last checked{" "}
+                      <time dateTime={new Date(entry.observation.checkedAt).toISOString()}>
+                        {new Date(entry.observation.checkedAt).toLocaleString()}
+                      </time>
+                    </>
+                  ) : (
+                    "Not checked"
+                  )}
+                </span>
+                <button
+                  type="button"
+                  disabled={busy.has(entry.host)}
+                  onClick={() => {
+                    void act({
+                      action: "preflight",
+                      host: entry.host,
+                      codeFolder: entry.codeFolder,
+                    });
+                  }}
+                >
+                  Check capabilities
+                </button>
+              </footer>
+              <details className="host-details">
+                <summary>Host facts</summary>
+                <button
+                  type="button"
+                  disabled={busy.has(entry.host)}
+                  onClick={() => {
+                    void act({ action: "refresh", host: entry.host });
+                  }}
+                >
+                  Refresh facts
+                </button>
+                {entry.foreignWorktrees !== undefined && (
+                  <p>{entry.foreignWorktrees} other worktrees</p>
                 )}
-              </p>
-            )}
-            {entry.result?.ok && (
-              <dl className="host-facts">
-                {Object.entries({
-                  Daemon: entry.result.facts.version,
-                  "Live sessions": entry.result.facts.sessions,
-                  "CPU cores": entry.result.facts.cores,
-                  "Load average": entry.result.facts.load
-                    .map((value) => value.toFixed(2))
-                    .join(" · "),
-                  "Memory total": `${(entry.result.facts.memoryTotal / 1024 ** 3).toFixed(1)} GiB`,
-                  "Memory available": `${(entry.result.facts.memoryAvailable / 1024 ** 3).toFixed(1)} GiB`,
-                }).map(([name, value]) => (
-                  <div key={name}>
-                    <dt>{name}</dt>
-                    <dd>{value}</dd>
-                  </div>
-                ))}
-              </dl>
-            )}
-          </details>
-        </section>
-      ))}
+                {entry.foreignSessions !== undefined && (
+                  <p>
+                    <span>Other profiles or untagged: {entry.foreignSessions}</span>{" "}
+                    {entry.foreignSessions > 0 && (
+                      <button
+                        type="button"
+                        disabled={busy.has(entry.host)}
+                        onClick={() => {
+                          void act({ action: "end", host: entry.host });
+                        }}
+                      >
+                        End…
+                      </button>
+                    )}
+                  </p>
+                )}
+                {entry.result?.ok && (
+                  <dl className="host-facts">
+                    {Object.entries({
+                      Daemon: entry.result.facts.version,
+                      "Live sessions": entry.result.facts.sessions,
+                      "CPU cores": entry.result.facts.cores,
+                      "Load average": entry.result.facts.load
+                        .map((value) => value.toFixed(2))
+                        .join(" · "),
+                      "Memory total": `${(entry.result.facts.memoryTotal / 1024 ** 3).toFixed(1)} GiB`,
+                      "Memory available": `${(entry.result.facts.memoryAvailable / 1024 ** 3).toFixed(1)} GiB`,
+                    }).map(([name, value]) => (
+                      <div key={name}>
+                        <dt>{name}</dt>
+                        <dd>{value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                )}
+              </details>
+            </fieldset>
+          </section>
+        );
+      })}
     </div>
   );
 }

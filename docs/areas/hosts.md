@@ -275,7 +275,7 @@ profile metadata, not isolation from another process running as the account.
 
 On-demand inventory reads never create folders or replay mutations. Pending reads
 are shared, observations have a 60-second freshness budget, and create/remove
-results invalidate them. Settings list/Refresh and lost create replies force a
+results invalidate them. Explicit Settings checks/Refresh and lost create replies force a
 fresh read. No inventory timer runs. These reads return
 only this profile's worktrees after checking the approved folder, original
 directory identities, canonical clone/origin and live Git membership. These
@@ -394,8 +394,25 @@ sandboxed preload validates and rebuilds all nested onboarding observations.
 ## Remote host onboarding UI (#963)
 
 Add host takes the SSH selector and code folder in one form, enrolls the host,
-and runs the full preflight. Opening Hosts and Check again also run preflight;
-Host facts offers a separate session/worktree inventory refresh. The grouped checklist keeps
+and runs the full preflight. Opening Hosts reads saved state only, without SSH,
+including session and worktree inventory. Each host's Check capabilities runs the
+full preflight, repositories and session/worktree inventory, saving a Last checked
+timestamp and the closed observations in its profile registration. Never-checked
+hosts say Not checked. Saved observations contain no secrets, terminal output,
+session identities or worktree authority; removal deletes them. They remain
+visible across restarts even when stale and never populate authorization caches.
+Saved requirements also restore Install and Sign in availability for display; missing or
+invalid requirements offer no recipes. Clicking an action selects its recipe from a
+fresh inspection, never from saved observations. Host facts offers a separate
+session/worktree inventory refresh.
+
+Each host is a compact name, OS, status and chevron row, opening by default only
+when it needs attention. Expanding exposes all controls and observations. Ready
+repositories collapse to a count; problem rows remain visible and expanding the
+repository group exposes the ready ones. Busy state belongs to each host; checking
+one never disables another. Add host is enabled during loading and checks and is
+disabled only while an add is running. An added host and its own check cannot be
+replaced by an older check reply. The grouped checklist keeps
 Host, Tools, Agents, each repository and macOS Power observations independent.
 Unrun checks say Not checked, failed checks retain their fixed reason, and
 unknown sign-in probes say Sign-in unknown. The UI never infers Remote Login or
@@ -475,7 +492,7 @@ host. The fixed command is ssh -T with StrictHostKeyChecking=ask, forwarding
 disabled, and the origin's account/host and optional port. HTTPS cannot select this
 action. Compatible older daemons must advertise originTrust=1; otherwise the
 launch refuses until the host daemon is updated. The user verifies the fingerprint and answers SSH; Foom never supplies an
-answer or accepts a key. Check again observes the result.
+answer or accepts a key. Check capabilities observes the result.
 
 Codex's hook trust is not exposed by the existing version/help or exit-code sign-in
 probes. Foom does not inspect or modify Codex's hook-trust store. On a new host,

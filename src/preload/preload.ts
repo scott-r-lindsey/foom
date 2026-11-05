@@ -403,11 +403,6 @@ const hostNickname: Validator<string> = (value): value is string =>
   value.length <= 40 &&
   value === value.trim() &&
   /^[\p{L}\p{N} ._-]+$/u.test(value);
-const validRegisteredHost: Validator<RegisteredHost> = shape({
-  host: hostAlias,
-  nickname: either(absent, hostNickname),
-  codeFolder: hostRequestedFolder,
-} satisfies Contract<RegisteredHost>);
 const validHostFailure = literal(
   "unreachable",
   "version-mismatch",
@@ -504,6 +499,27 @@ const validHostResult: Validator<HostResult> = either(
     ),
   }),
 );
+const validHostPreflight = shape({
+  ssh: validHostCheck,
+  platform: validHostCheck,
+  artifact: validHostCheck,
+  result: validHostResult,
+  repositories: array(
+    shape({ repository: text, origin: validHostCheck, checkout: validHostResult }),
+  ),
+});
+const validHostObservation = shape({
+  checkedAt: range(0, 8640000000000000, true),
+  preflight: validHostPreflight,
+  foreignSessions: either(absent, count),
+  foreignWorktrees: either(absent, count),
+});
+const validRegisteredHost: Validator<RegisteredHost> = shape({
+  host: hostAlias,
+  nickname: either(absent, hostNickname),
+  codeFolder: hostRequestedFolder,
+  observation: either(absent, validHostObservation),
+} satisfies Contract<RegisteredHost>);
 const validHostsState: Validator<HostsState> = shape({
   progress: either(
     absent,
@@ -521,24 +537,14 @@ const validHostsState: Validator<HostsState> = shape({
       ),
     }),
   ),
-  preflight: either(
-    absent,
-    shape({
-      ssh: validHostCheck,
-      platform: validHostCheck,
-      artifact: validHostCheck,
-      result: validHostResult,
-      repositories: array(
-        shape({ repository: text, origin: validHostCheck, checkout: validHostResult }),
-      ),
-    }),
-  ),
+  preflight: either(absent, validHostPreflight),
   recipeFailure: either(absent, literal("recipe-unavailable")),
   hosts: array(
     shape({
       host: hostAlias,
       nickname: either(absent, hostNickname),
       codeFolder: hostRequestedFolder,
+      observation: either(absent, validHostObservation),
       result: either(absent, validHostResult),
       recipes: either(
         absent,

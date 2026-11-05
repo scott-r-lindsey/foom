@@ -545,7 +545,7 @@ test("host copies require both registered host service and main clipboard capabi
   hostService.dispose();
 });
 
-test("completed host checks refresh inventory while progress reads and rejected actions publish nothing", async () => {
+test("completed host checks refresh inventory while saved list/progress reads and rejected actions publish nothing", async () => {
   const { Hosts } = await import("../../../../src/main/setup/hosts");
   const hosts = new Hosts(deps.store, () => [], "0.1.0");
   const state = { hosts: [], locations: [] };
@@ -553,8 +553,10 @@ test("completed host checks refresh inventory while progress reads and rejected 
   const changed = vi.fn();
   const setup = new Setup({ ...deps, hosts, hostsChanged: changed });
   await expect(setup.hosts({ action: "list" })).resolves.toBe(state);
-  expect(changed).toHaveBeenCalledOnce();
+  expect(changed).not.toHaveBeenCalled();
   await expect(setup.hosts({ action: "progress" })).resolves.toBe(state);
+  expect(changed).not.toHaveBeenCalled();
+  await expect(setup.hosts({ action: "refresh", host: "worker" })).resolves.toBe(state);
   expect(changed).toHaveBeenCalledOnce();
   action.mockRejectedValueOnce(new Error("refused"));
   await expect(setup.hosts({ action: "refresh", host: "worker" })).rejects.toThrow("refused");

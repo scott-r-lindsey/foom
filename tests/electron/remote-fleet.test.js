@@ -984,7 +984,15 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
   assert.equal(recovered.host, "fleet-worker");
   assert.ok(!restoredTrees.some((tree) => /other-profile|untagged/.test(tree.branch || "")));
   restartTiming("checkout inventory recovered");
-  const hostState = await restored.evaluate(() => window.desktop.hosts({ action: "list" }));
+  const savedHosts = await restored.evaluate(() => window.desktop.hosts({ action: "list" }));
+  assert.equal(
+    savedHosts.hosts.find((host) => host.host === "fleet-worker").foreignWorktrees,
+    undefined,
+  );
+  const hostState = await restored.evaluate(
+    (codeFolder) => window.desktop.hosts({ action: "preflight", host: "fleet-worker", codeFolder }),
+    folder,
+  );
   restartTiming("host inventory refreshed");
   assert.equal(hostState.hosts.find((host) => host.host === "fleet-worker").foreignWorktrees, 2);
   assert.ok(
@@ -1144,6 +1152,11 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
     .getByRole("navigation", { name: "Settings sections" })
     .getByRole("button", { name: "Hosts", exact: true })
     .click();
+  await restored.getByRole("button", { name: "Expand fleet-worker", exact: true }).click();
+  await restored.getByRole("button", { name: "Check capabilities", exact: true }).click();
+  await expect(
+    restored.getByRole("button", { name: "Check capabilities", exact: true }),
+  ).toBeEnabled();
   await restored.locator(".host-details > summary").click();
   await expect(restored.getByText("2 other worktrees", { exact: true })).toBeVisible();
   for (const theme of ["eclipse-light", "eclipse-dark"]) {
