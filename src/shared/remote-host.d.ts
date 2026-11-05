@@ -48,6 +48,8 @@ export interface MachineLaunch {
 }
 export type RemoteTarget = {
   machine?: MachineLaunch;
+  /** Main-only observation of the daemon-selected home for a new machine session. */
+  machineHome?: (home: string) => void;
   trustOrigin?: string;
   recipe?: HostRecipeLaunch;
   host: string;
@@ -122,6 +124,8 @@ export type RemoteResponse =
       hostFacts?: 1;
       hostPreflight?: 1;
       humanMachines?: 1;
+      /** Home cwd semantics for new machine launches; absent on older daemons. */
+      machineHome?: string;
       originTrust?: 1;
     }
   | HostResponse

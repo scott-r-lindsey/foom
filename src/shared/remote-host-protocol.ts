@@ -39,6 +39,7 @@ function hello(value: object): boolean {
     (!("originTrust" in value) || value.originTrust === 1) &&
     (!("hostPreflight" in value) || value.hostPreflight === 1) &&
     (!("hostFacts" in value) || value.hostFacts === 1) &&
+    (!("machineHome" in value) || remotePath(value.machineHome)) &&
     (!("humanMachines" in value) || value.humanMachines === 1) &&
     "build" in value &&
     typeof value.build === "string" &&

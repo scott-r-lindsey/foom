@@ -112,10 +112,14 @@ child.on('close', code => { appendFileSync(${JSON.stringify(sshLog)}, 'fixture s
   );
   await chmod(ssh, 0o700);
   const started = performance.now();
-  const daemon = spawn(artifact, ["--daemon"], {
-    env: { HOME: remoteHome, PATH: bin, SHELL: shell, LANG: "C" },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  const daemon = spawn(
+    "/bin/sh",
+    ["-c", 'umask 002; exec "$@"', "fixture-daemon", artifact, "--daemon"],
+    {
+      env: { HOME: remoteHome, PATH: bin, SHELL: shell, LANG: "C" },
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
   cleanup.audit.add(daemon.pid);
   let stderr = "";
   daemon.stderr.on("data", (bytes) => {
@@ -253,6 +257,14 @@ child.on('close', code => { appendFileSync(${JSON.stringify(sshLog)}, 'fixture s
   await page.keyboard.press("Enter");
   await expect.poll(tail).toContain("REMOTE_READY:STILL_ALIVE:");
   await expect.poll(async () => (await tail()).replaceAll("\n", "")).toContain(remoteHome);
+  await page.keyboard.type(
+    "printf 'INITIAL_MASK:'; umask; : > terminal-file; mkdir terminal-dir; umask 027; printf 'MASK_FILES_READY\\n'",
+  );
+  await page.keyboard.press("Enter");
+  await expect.poll(tail).toMatch(/INITIAL_MASK:0*2(?:\n|\r|$)/);
+  await expect.poll(tail).toMatch(/(?:^|\n)MASK_FILES_READY(?:\n|$)/);
+  assert.equal((await stat(path.join(remoteHome, "terminal-file"))).mode & 0o777, 0o664);
+  assert.equal((await stat(path.join(remoteHome, "terminal-dir"))).mode & 0o777, 0o775);
   const before = await tail();
   const pid = before.match(/REMOTE_READY:STILL_ALIVE:(\d+)/)?.[1];
   assert.ok(pid);
@@ -277,6 +289,7 @@ child.on('close', code => { appendFileSync(${JSON.stringify(sshLog)}, 'fixture s
       .digest("hex"),
     manifest.sha256,
   );
+  assert.equal((await stat(installed)).mode & 0o777, 0o700);
   const priorTokens = await page.evaluate(() => window.remoteReplayTokens.size);
   assert.ok(priorTokens > 0);
   const sshPids = (await readFile(pidFile, "utf8")).trim().split("\n");
@@ -293,6 +306,9 @@ child.on('close', code => { appendFileSync(${JSON.stringify(sshLog)}, 'fixture s
   await page.keyboard.type('printf \'RECONNECTED:%s:%s\\n\' "$persist" "$$"');
   await page.keyboard.press("Enter");
   await expect.poll(tail).toContain(`RECONNECTED:STILL_ALIVE:${pid}`);
+  await page.keyboard.type("printf 'REATTACHED_MASK:'; umask");
+  await page.keyboard.press("Enter");
+  await expect.poll(tail).toMatch(/REATTACHED_MASK:0*27(?:\n|\r|$)/);
   assert.equal(daemon.exitCode, null);
   await mkdir("test-results", { recursive: true });
   await writeFile(

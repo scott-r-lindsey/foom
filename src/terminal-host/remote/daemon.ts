@@ -87,9 +87,28 @@ type Session = {
 /** One per-user daemon. Connections have authority over one shell, never hub control. */
 export function serveHost(
   build: string,
+  terminalUmask: number,
   home = homedir(),
   timers: Pick<typeof globalThis, "setTimeout" | "clearTimeout"> = globalThis,
 ) {
+  // Change only the forked PTY's mask. Temporarily relaxing the daemon's mask
+  // could expose files created by concurrent filesystem work in libuv threads.
+  const createTerminal = (spec: TerminalSpec, id: string) =>
+    manager.create(
+      {
+        ...spec,
+        command: "/bin/sh",
+        args: [
+          "-c",
+          'umask "$1" || exit; shift; exec "$@"',
+          "foom-terminal",
+          terminalUmask.toString(8),
+          spec.command,
+          ...spec.args,
+        ],
+      },
+      id,
+    );
   const path = hostSocket(home);
   let startImages: (() => void) | undefined;
   let failImages: ((error: unknown) => void) | undefined;
@@ -381,6 +400,7 @@ export function serveHost(
           hostFacts: 1,
           hostPreflight: 1,
           humanMachines: 1,
+          machineHome: home,
           originTrust: 1,
         });
         return;
@@ -623,7 +643,7 @@ export function serveHost(
         await agent.validate();
         if (disconnected() || prepared !== pending || isShuttingDown())
           throw new Error("Launch cancelled");
-        manager.create({ ...agent.spec, cols: pending.open.cols, rows: pending.open.rows }, id);
+        createTerminal({ ...agent.spec, cols: pending.open.cols, rows: pending.open.rows }, id);
         clearTimeout(pending.timer);
         prepared = undefined;
         sessions.set(id, pending.session);
@@ -808,7 +828,7 @@ export function serveHost(
               budget(HOST_PREPARATION_TIMEOUT_MS);
               const preparation = (async () => {
                 const folder = await approvedCodeFolder(machine.codeFolder, home);
-                let cwd = message.checkout?.path ?? folder;
+                let cwd = message.checkout?.path ?? home;
                 if (machine.repository) {
                   const inspected = await manageHost(
                     {
@@ -866,6 +886,8 @@ export function serveHost(
                     throw new LaunchFailure("remote_worktree_unavailable");
                 }
                 cancellation.signal.throwIfAborted();
+                if (!machine.repository && !message.checkout && owned.context)
+                  owned.context = { ...owned.context, repository: home, worktree: home };
                 return {
                   command: found?.command ?? remoteShell(),
                   args: model && found ? [...(machine.defaults ?? [])] : ["-i", "-l"],
@@ -890,7 +912,7 @@ export function serveHost(
               }
               if (disconnected() || isShuttingDown()) throw new Error("Launch cancelled");
             }
-            manager.create(
+            createTerminal(
               machineSpec
                 ? { ...machineSpec, cols: message.cols, rows: message.rows }
                 : owned.agent

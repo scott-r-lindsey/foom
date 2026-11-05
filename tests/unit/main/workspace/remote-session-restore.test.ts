@@ -199,3 +199,45 @@ test("daemon-discovered loose agents stay human-owned under their machine after 
   });
   expect(rows[0]?.orchestration).toBeUndefined();
 });
+
+test.each(["/home/remote-user", "/home/remote-user/foom"])(
+  "discovered machine sessions retain their daemon directory %s",
+  async (directory) => {
+    const rows = await discoverRemoteSessions({
+      registered: hosts.registered,
+      sessions: () =>
+        Promise.resolve([
+          {
+            host: "worker",
+            session: {
+              id: "machine",
+              context: {
+                machine: true,
+                agent: "claude",
+                repository: directory,
+                worktree: directory,
+                branch: null,
+              },
+            },
+          },
+        ]),
+    });
+    expect(rows[0]).toMatchObject({
+      machine: true,
+      home: true,
+      agent: "claude",
+      repository: directory,
+      worktree: directory,
+    });
+    const create = vi.fn<(spec: TerminalSpec) => Promise<string>>().mockResolvedValue("machine");
+    const saved = rows[0];
+    if (!saved) throw new Error("Missing recovered machine");
+    await reattachRemoteSession(saved, hosts, { create }, vi.fn());
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cwd: directory,
+        remote: expect.objectContaining({ reattach: true }) as unknown,
+      }),
+    );
+  },
+);

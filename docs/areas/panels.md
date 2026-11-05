@@ -49,3 +49,9 @@ Machine home records (#1024) use an additional `machine` discriminator and also
 permit human-owned home agents. They retain the main-owned home identity and
 cannot restore a repository or child grant. Their host-selected launch directory
 is resolved in main/daemon, never from renderer-supplied paths.
+
+Remote machine shells and agents without a repository start in the remote account's
+validated home directory (#1043). Main receives that home from daemon negotiation
+and retains it in tile/sidebar/session facts. Local machine launches already use
+the main-owned local home. Reattachment preserves existing PTYs and their recorded
+paths, including machine sessions previously started in the code folder.

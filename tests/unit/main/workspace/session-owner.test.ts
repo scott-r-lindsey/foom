@@ -407,3 +407,30 @@ it("recovers daemon-live rows saved as exited as human sessions without inheriti
   expect(f.deps.launch).toHaveBeenCalledWith(recovered, undefined, undefined);
   expect(f.orchestration.restoreChild).not.toHaveBeenCalled();
 });
+
+it.each(["/home/fixture", "/home/fixture/foom"])(
+  "remote machine restoration preserves the recorded directory %s",
+  async (directory) => {
+    const machine = row("machine", {
+      home: true,
+      machine: true,
+      remote: true,
+      placement: { kind: "remote", host: "fixture" },
+      repository: directory,
+      worktree: directory,
+      branch: null,
+    });
+    const local = { ...machine, id: "local" };
+    delete local.remote;
+    const f = fixture([
+      machine,
+      local,
+      { ...machine, id: "local-placement", placement: { kind: "local" } },
+      { ...machine, id: "ordinary-home", machine: false },
+    ]);
+    await f.owner.restore();
+    expect([...f.rows.keys()]).toEqual(["machine"]);
+    await f.owner.restartSaved();
+    expect(f.deps.launch).toHaveBeenCalledWith(machine);
+  },
+);

@@ -118,7 +118,7 @@ test("invalid argv never starts a daemon or relay", () => {
 });
 test("daemon errors and signal cleanup have fixed exit status", async () => {
   runHost(["node", "host", "--daemon"]);
-  expect(mock.serve).toHaveBeenCalled();
+  expect(mock.serve).toHaveBeenCalledWith(expect.any(String), 0o22);
   server.emit("error", new Error("busy"));
   expect(process.exitCode).toBe(1);
   const term = process.listeners("SIGTERM").at(-1);

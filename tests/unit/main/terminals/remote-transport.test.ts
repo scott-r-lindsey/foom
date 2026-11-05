@@ -1327,16 +1327,25 @@ test.each([false, true])(
   },
 );
 
-test.each([false, true])(
-  "human machine launch capability gates older compatible daemons (%s)",
-  async (supported) => {
+test.each([false, true].flatMap((supported) => ["a", "b"].map((build) => ({ supported, build }))))(
+  "human machine home capability gates same and older builds ($supported, $build)",
+  async ({ supported, build }) => {
     transport.kill();
     child = new Child();
     mock.spawn.mockReturnValue(child);
+    const machineHome = vi.fn();
     transport = new RemoteTransport(
       {
         host: "fixture",
         human: true,
+        machineHome,
+        context: {
+          machine: true,
+          repository: "/placeholder",
+          worktree: "/placeholder",
+          branch: null,
+          agent: "claude",
+        },
         machine: { codeFolder: "/remote/code", agent: "claude", defaults: [] },
       },
       "0.1.0",
@@ -1346,19 +1355,25 @@ test.each([false, true])(
     child.header();
     child.message({
       type: "hello",
-      build: "b".repeat(64),
+      build: build.repeat(64),
       compatible: 2,
-      ...(supported ? { humanMachines: 1 as const } : {}),
+      humanMachines: 1,
+      ...(supported ? { machineHome: "/home/remote-user" } : {}),
     });
-    if (supported)
+    if (supported) {
+      expect(machineHome).toHaveBeenCalledWith("/home/remote-user");
       expect(child.messages).toContainEqual(
         expect.objectContaining({
           type: "open",
           human: true,
           machine: { codeFolder: "/remote/code", agent: "claude", defaults: [] },
+          context: expect.objectContaining({
+            repository: "/home/remote-user",
+            worktree: "/home/remote-user",
+          }) as unknown,
         }),
       );
-    else
+    } else
       expect(
         child.messages.some(
           (message) =>
@@ -1410,5 +1425,44 @@ test.each([true, false])(
       expect(transport.launchFailure?.reason).toBe("remote_host_facts_unavailable");
       expect(child.messages).not.toContainEqual(expect.objectContaining({ type: "open" }));
     }
+  },
+);
+
+test.each(["repository", "checkout", "reattach"] as const)(
+  "older daemon retains machine %s support without home capability",
+  async (kind) => {
+    transport.kill();
+    const machineHome = vi.fn();
+    transport = new RemoteTransport(
+      {
+        host: "fixture",
+        human: true,
+        machineHome,
+        machine: {
+          codeFolder: "/code",
+          ...(kind === "repository"
+            ? {
+                repository: {
+                  directory: `repository-${"a".repeat(24)}`,
+                  origin: "https://fixture.test/repo.git",
+                },
+              }
+            : {}),
+        },
+        ...(kind === "checkout"
+          ? { checkout: { repository: "/code/repo", path: "/code/tree", identity: "a".repeat(64) } }
+          : {}),
+        ...(kind === "reattach" ? { reattach: true } : {}),
+      },
+      "0.1.0",
+    );
+    transport.postMessage(create);
+    await Promise.resolve();
+    child.header();
+    child.message({ type: "hello", build: "b".repeat(64), compatible: 2, humanMachines: 1 });
+    expect(child.messages).toContainEqual(
+      expect.objectContaining({ type: "open", reattach: kind === "reattach" }),
+    );
+    expect(machineHome).not.toHaveBeenCalled();
   },
 );

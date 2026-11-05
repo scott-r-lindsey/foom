@@ -198,9 +198,10 @@ the user's CLI defaults and have no orchestration child grant. Single-machine
 profiles keep the existing home-shell layout.
 
 Unavailable machines stay listed with an explicit Unavailable label and disabled
-launch controls. Remote worktrees remain beneath their repository. A muted host
-chip replaces the host suffix on their branch names and appears in their tile
-bars too. An unavailable chip has a broken-link mark and says Unavailable;
+launch controls. Remote worktrees remain beneath their repository. A neutral filled
+host chip replaces the host suffix on their branch names and appears in their tile
+bars too, with a machine icon in tile bars only to keep sidebar rows compact.
+An unavailable chip has a broken-link mark and says Unavailable;
 sessions are dormant, never labelled Worktree removed because a host is offline.
 Repository New worktree and New agent menus offer a machine choice when that
 repository has a checked-out location on a registered host. Localhost remains an
@@ -211,3 +212,6 @@ Remote main-checkout agent launches, including new conversations,
 use the shared-checkout confirmation while holding the checkout launch lock.
 Cancelling leaves the current sessions unchanged. Shells from these checkout
 panels restart on the same host and repository clone.
+
+Related orchestration robot marks retain the accent on exited sessions, but their
+waves animate only while the marked session is running (and motion is enabled).

@@ -1,3 +1,4 @@
+import { homeDirectory } from "../../../../src/main/workspace/home-shell";
 import { locationId } from "../../../../src/main/control/metadata";
 import { Hosts } from "../../../../src/main/setup/hosts";
 import { DEFAULT_SETTINGS } from "../../../../src/main/setup/settings";
@@ -85,6 +86,8 @@ test("local machine launches use the installed CLI and user defaults without cre
   expect(created).toEqual({ terminalId: "t1" });
   expect(agents.launch).toHaveBeenCalledWith(
     expect.objectContaining({
+      repository: homeDirectory,
+      worktree: homeDirectory,
       humanHome: true,
       localOnly: true,
       agent: "claude",
@@ -107,45 +110,57 @@ test("local machine launches use the installed CLI and user defaults without cre
   ).rejects.toThrow();
 });
 
-test("remote machine launch validates registration and installed agents and sends no hub environment", async () => {
-  deps.hosts = {
-    fleet: vi.fn(),
-    registered: vi.fn(() => ({ host: "dozer", codeFolder: "/home/fixture/code" })),
-    requireAgent: vi.fn(),
-    worktree: vi.fn(),
-    shellTarget: vi.fn(
-      (): RemoteTarget => ({ host: "dozer", profile: "a".repeat(32), human: true }),
-    ),
-  };
-  const workspace = new Workspace(deps);
-  await workspace.sidebarCommand({ kind: "machine-launch", host: "dozer", run: "claude" }, () =>
-    Promise.resolve(true),
-  );
-  expect(deps.hosts.requireAgent).toHaveBeenCalledWith("dozer", "claude");
-  expect(vi.spyOn(deps.terminals, "create")).toHaveBeenCalledWith(
-    expect.objectContaining({
-      env: {},
-    }),
-  );
-  expect(vi.spyOn(deps.terminals, "create").mock.calls[0]?.[0].remote).toMatchObject({
-    host: "dozer",
-    profile: "a".repeat(32),
-    human: true as const,
-    machine: { codeFolder: "/home/fixture/code", agent: "claude", defaults: [] },
-    context: {
-      repository: "/home/fixture/code",
-      worktree: "/home/fixture/code",
-      branch: null,
-      agent: "claude",
+test.each(["shell", "claude"] as const)(
+  "remote machine %s launch records the daemon home and sends no hub environment",
+  async (run) => {
+    deps.hosts = {
+      fleet: vi.fn(),
+      registered: vi.fn(() => ({ host: "dozer", codeFolder: "/home/fixture/code" })),
+      requireAgent: vi.fn(),
+      worktree: vi.fn(),
+      shellTarget: vi.fn(
+        (): RemoteTarget => ({ host: "dozer", profile: "a".repeat(32), human: true }),
+      ),
+    };
+    vi.spyOn(deps.terminals, "create").mockImplementationOnce((spec) => {
+      spec.remote?.machineHome?.("/home/remote-user");
+      return Promise.resolve("t1");
+    });
+    const workspace = new Workspace(deps);
+    await workspace.sidebarCommand({ kind: "machine-launch", host: "dozer", run }, () =>
+      Promise.resolve(true),
+    );
+    if (run !== "shell") expect(deps.hosts.requireAgent).toHaveBeenCalledWith("dozer", run);
+    expect(vi.spyOn(deps.terminals, "create")).toHaveBeenCalledWith(
+      expect.objectContaining({
+        env: {},
+      }),
+    );
+    expect(vi.spyOn(deps.terminals, "create").mock.calls[0]?.[0].remote).toMatchObject({
+      host: "dozer",
+      profile: "a".repeat(32),
+      human: true as const,
+      machine: {
+        codeFolder: "/home/fixture/code",
+        ...(run === "shell" ? {} : { agent: run, defaults: [] }),
+      },
+      context: {
+        repository: homeDirectory,
+        worktree: homeDirectory,
+        branch: null,
+        agent: run,
+        machine: true,
+      },
+    });
+    expect(workspace.snapshot().terminals[0]).toMatchObject({
       machine: true,
-    },
-  });
-  expect(workspace.snapshot().terminals[0]).toMatchObject({
-    machine: true,
-    agent: "claude",
-    placement: { kind: "remote", host: "dozer" },
-  });
-});
+      agent: run,
+      repository: "/home/remote-user",
+      worktree: "/home/remote-user",
+      placement: { kind: "remote", host: "dozer" },
+    });
+  },
+);
 
 test("machine shells restart on their selected machine and local agents resume through the ordinary human launcher", async () => {
   const workspace = new Workspace(deps);
@@ -153,7 +168,7 @@ test("machine shells restart on their selected machine and local agents resume t
     Promise.resolve(true),
   );
   expect(vi.spyOn(deps.terminals, "create")).toHaveBeenCalledWith(
-    expect.objectContaining({ shellIntegration: true }),
+    expect.objectContaining({ shellIntegration: true, cwd: homeDirectory }),
   );
   await workspace.exited("t1", 0);
   await workspace.sidebarCommand({ kind: "restart", id: "t1" }, () => Promise.resolve(true));

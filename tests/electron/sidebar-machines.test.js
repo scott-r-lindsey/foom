@@ -70,13 +70,15 @@ const frames=new RemoteFrames();const send=value=>{for(const frame of remoteResp
 let output='FIXTURE_MACHINE_READY\\r\\n';
 process.stdin.on('data',bytes=>frames.push(bytes,message=>{
  fs.appendFileSync(${JSON.stringify(calls)},JSON.stringify({host,message})+'\\n');
- if(message.type==='hello'){send({type:'hello',build:${JSON.stringify(manifest.sha256)},humanMachines:1});return;}
+ if(message.type==='hello'){send({type:'hello',build:${JSON.stringify(manifest.sha256)},humanMachines:1,machineHome:'/remote/home'});return;}
  if(message.type==='inventory'){send({type:'inventory-result',own:[],foreign:[]});return;}
  if(message.type==='open'){
   assert.equal(message.human,true);assert.equal(message.agent,undefined);
   assert.equal(message.machine.codeFolder,'/remote/code');
   if(message.machine.agent){assert.ok(['claude','codex'].includes(message.machine.agent));assert.deepEqual(message.machine.defaults,[]);}
-  output='FIXTURE_'+(message.machine.agent||'shell')+' /remote/code\\r\\n';
+  const cwd=message.checkout?.path||(message.machine.repository?'/remote/code/'+message.machine.repository.directory:'/remote/home');
+  if(!message.checkout&&!message.machine.repository){assert.equal(message.context.repository,cwd);assert.equal(message.context.worktree,cwd);}
+  output='FIXTURE_'+(message.machine.agent||'shell')+' '+cwd+'\\r\\n';
   send({type:'open-result',id:message.id,request:message.request,state:'live'});return;
  }
  if('id' in message){
@@ -121,6 +123,12 @@ process.stdin.on('data',bytes=>frames.push(bytes,message=>{
         path: evidencePath(`1024/${name}-${mode}.png`),
         animations: "disabled",
       });
+      if (name === "remote-worktree-field" && process.env.FOOM_POLISH_SCREENSHOTS === "1") {
+        await page.locator(".panel-header").screenshot({
+          path: evidencePath(`1045/panel-chip-${mode}.png`),
+          animations: "disabled",
+        });
+      }
     }
   };
   await expect(page.getByRole("group", { name: "Machines" })).toHaveCount(0);
@@ -191,6 +199,8 @@ process.stdin.on('data',bytes=>frames.push(bytes,message=>{
       (row) =>
         row.placement.kind === "remote" &&
         row.placement.host === "fixture-cloud" &&
+        row.repository === "/remote/home" &&
+        row.worktree === "/remote/home" &&
         !row.orchestration,
     ),
   );
@@ -232,6 +242,12 @@ process.stdin.on('data',bytes=>frames.push(bytes,message=>{
   const remoteWorktree = page.locator(".worktree-row").filter({ hasText: "remote-work" });
   await expect(remoteWorktree.getByLabel("Host: Builder")).toBeVisible();
   await capture("worktree-chip");
+  // Leave room for two occupied tiles so focus can move off the chip's tile.
+  await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .setContentSize(1800, 900),
+  );
   await remoteWorktree.locator(".row-actions").click();
   await page.getByRole("menuitem", { name: "Claude Code", exact: true }).click();
   await expect(
@@ -241,6 +257,69 @@ process.stdin.on('data',bytes=>frames.push(bytes,message=>{
       .getByLabel("Host: Builder"),
   ).toBeVisible();
   await capture("worktree-tile-chip");
+  const remoteTile = page.locator(".terminal-tile").filter({
+    has: page.locator(".tile-location").filter({ hasText: "remote-work" }),
+  });
+  const chipStates = async (availability) => {
+    await expect(remoteTile.locator(".host-chip svg")).toHaveCount(1);
+    await expect(remoteWorktree.locator(".host-chip svg")).toHaveCount(0);
+    for (const mode of ["light", "dark"]) {
+      await page.evaluate(
+        (mode) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${mode}` }),
+        mode,
+      );
+      await expect(page.locator("html")).toHaveCSS("color-scheme", mode);
+      for (const focused of [true, false]) {
+        const target = focused
+          ? remoteTile
+          : page
+              .locator('.terminal-tile[data-empty="false"]')
+              .filter({ hasNot: page.locator(".tile-location").filter({ hasText: "remote-work" }) })
+              .first();
+        await target.locator(".tile-number").focus();
+        await expect(remoteTile).toHaveAttribute("data-focused", String(focused));
+        const chip = remoteTile.locator(".host-chip");
+        assert.notEqual(
+          await chip.evaluate((node) => getComputedStyle(node).backgroundColor),
+          "rgba(0, 0, 0, 0)",
+        );
+        if (process.env.FOOM_POLISH_SCREENSHOTS === "1") {
+          await remoteTile.locator(".tile-title").screenshot({
+            path: evidencePath(
+              `1045/tile-${availability}-${focused ? "focused" : "unfocused"}-${mode}.png`,
+            ),
+            animations: "disabled",
+          });
+        }
+      }
+      const width = page.getByRole("separator", { name: "Sidebar width", exact: true });
+      const minimumWidth = await width.getAttribute("aria-valuemin");
+      assert.ok(minimumWidth);
+      await width.press("Home");
+      await expect(width).toHaveAttribute("aria-valuenow", minimumWidth);
+      // Width metadata commits before the sidebar's resize transition settles.
+      await expect
+        .poll(async () => {
+          const chipBox = await remoteWorktree.locator(".host-chip").boundingBox();
+          const rowBox = await remoteWorktree.boundingBox();
+          if (!chipBox || !rowBox) return Infinity;
+          return Math.max(
+            rowBox.x - chipBox.x,
+            chipBox.x + chipBox.width - rowBox.x - rowBox.width,
+          );
+        })
+        .toBeLessThanOrEqual(1);
+      if (process.env.FOOM_POLISH_SCREENSHOTS === "1") {
+        await remoteWorktree.screenshot({
+          path: evidencePath(`1045/sidebar-narrow-${availability}-${mode}.png`),
+          animations: "disabled",
+        });
+      }
+      await width.dblclick();
+      await expect(width).toHaveAttribute("aria-valuenow", "300");
+    }
+  };
+  await chipStates("available");
   const hostMenu = page.getByRole("button", { name: "Actions for Builder", exact: true });
   const refreshAgents = async (choice) => {
     // Await the preceding launch command's renderer refresh before changing host facts.
@@ -309,6 +388,7 @@ process.stdin.on('data',bytes=>frames.push(bytes,message=>{
   );
   await expect(remoteWorktree.getByLabel("Builder · Unavailable")).toBeVisible();
   await capture("unavailable-chip");
+  await chipStates("unavailable");
   await assertAccessible(page);
   await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
   await capture("compact-unavailable");

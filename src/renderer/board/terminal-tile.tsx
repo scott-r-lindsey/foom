@@ -373,7 +373,7 @@ export function Tile({
                       machine.host ===
                       (row.placement?.kind === "remote" ? row.placement.host : undefined),
                   )
-                  .map((machine) => <HostChip key={machine.host} machine={machine} />)}
+                  .map((machine) => <HostChip key={machine.host} machine={machine} icon />)}
               <span className="tile-name" title={sessionIdentity(row, source.shellName?.())}>
                 {sessionName(row.probe ? { ...row, probe: false } : row, preferences)}
               </span>

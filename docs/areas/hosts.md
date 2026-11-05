@@ -46,7 +46,12 @@ paths or remote output.
 Test and add use the existing exact-build artifact selection, SHA-256 bootstrap
 and SSH stdio protocol. SSH retains BatchMode, disabled agent/X11 forwarding,
 ClearAllForwardings, ConnectTimeout and its environment allowlist. There is no TCP
-listener. A management request has no terminal ID and creates no PTY. Existing
+listener. Bootstrap captures the account's SSH login umask before tightening it
+for its private cache work. The daemon retains that mask before applying 077 to
+its own files. Every new remote shell or agent PTY, on a machine or in a repository,
+starts with the captured mask; login shell startup may then override it. Foom's
+cache, sockets, control files and other private artifacts remain 0700/0600.
+Reattachment retains the existing PTY and its current mask (#1047). A management request has no terminal ID and creates no PTY. Existing
 SSH host-key trust applies; Foom never accepts a key or prompts for credentials.
 Removing a registration only forgets it: it sends no stop, kill or session-close
 operation, including when the last observation reports live sessions.
@@ -442,7 +447,9 @@ only and do not replace registration keys.
 
 Human machine launches reuse profile-owned SSH terminal transport. A closed
 `machine` open request names the approved code folder and optionally a bundled
-agent ID with validated user defaults. The host rechecks the folder, resolves the
+agent ID with validated user defaults. Without a repository or checkout, shells
+and agents start in the remote account's validated home directory; the approved
+code folder still authorizes repository operations. The host rechecks the folder, resolves the
 agent with its own login PATH, and starts an argument-array PTY. It adds no bypass
 arguments, hook files or orchestration grant. A repository launch
 additionally names the origin-derived clone directory, validated through the
@@ -456,10 +463,16 @@ including unreachable results. Machine sessions persist as human-owned session m
 reattaches the existing PTY. Local agent rows without a conversation ID remain
 exited after restart, following ordinary session restoration eligibility.
 
-Hello advertises `humanMachines: 1` for ordinary machine launches.
+Hello advertises `humanMachines: 1` for ordinary machine launches and
+`machineHome` with the validated absolute home path for home-directory semantics.
+Main uses that path for tile, sidebar and session facts; the daemon independently
+selects its home as cwd and records it in session inventory. New home launches
+require `machineHome`, including on same-build peers; older active daemons with
+only `humanMachines: 1` refuse them. Repository/worktree launches retain their
+existing capability and containment checks.
 New machine launches refuse a compatible older
 active daemon lacking this capability before sending open; they never fall back
-to an ordinary home shell. Existing PTYs still reattach. Machine launches use
+to a code-folder shell. Existing PTYs still reattach. Machine launches use
 the existing host-preparation budget, in addition to bootstrap.
 
 ## Host card readiness and repository fixes (#1026)

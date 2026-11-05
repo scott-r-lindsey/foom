@@ -1,11 +1,13 @@
 export function OrchestrationMark({
   kind,
   related,
+  exited = false,
   label,
   title,
 }: {
   kind: "tx" | "rx" | "review" | "orphan";
   related: boolean;
+  exited?: boolean;
   label?: string;
   title?: string;
 }) {
@@ -16,6 +18,7 @@ export function OrchestrationMark({
       className="session-robot-mark"
       data-kind={kind}
       data-related={related && kind !== "orphan"}
+      data-animated={related && !exited && kind !== "orphan"}
       viewBox="0 0 18 16"
       aria-hidden={accessibleLabel ? undefined : true}
       role={accessibleLabel ? "img" : undefined}
