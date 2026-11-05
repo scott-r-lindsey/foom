@@ -403,10 +403,12 @@ function Checklist({
 }
 function HostName({
   entry,
+  disabled,
   hosts,
   save,
 }: {
   entry: HostRow;
+  disabled: boolean;
   hosts: readonly HostRow[];
   save: (nickname: string) => Promise<void>;
 }) {
@@ -420,6 +422,7 @@ function HostName({
       <h3>
         <button
           type="button"
+          disabled={disabled}
           className="host-name"
           aria-label={`Rename ${hostDisplayName(entry)}`}
           onClick={() => {
@@ -467,19 +470,19 @@ function HostName({
         aria-label="Host nickname"
         placeholder={hostDisplayName({ host: entry.host })}
         value={name}
-        disabled={saving}
+        disabled={disabled || saving}
         aria-invalid={!!error || !!failure}
         onChange={(event) => {
           setName(event.target.value);
           setFailure("");
         }}
       />
-      <button type="submit" disabled={!!error || saving}>
+      <button type="submit" disabled={disabled || !!error || saving}>
         Save name
       </button>
       <button
         type="button"
-        disabled={saving}
+        disabled={disabled || saving}
         onClick={() => {
           setEditing(false);
         }}
@@ -765,6 +768,8 @@ export function HostsSettings({
       {state.hosts.map((entry) => {
         const preflight = checks.get(entry.host) ?? entry.observation?.preflight;
         const summary = hostSummary(preflight);
+        const distro = entry.result?.ok ? entry.result.facts.requirements?.distro : undefined;
+        const os = distro === "darwin" ? "macOS" : distro;
         const open =
           expanded.get(entry.host) ??
           (summary === "Needs you" ||
@@ -784,15 +789,28 @@ export function HostsSettings({
                 }}
               >
                 <span aria-hidden="true">{open ? "⌄" : "›"}</span>
-                <span>{hostDisplayName(entry)}</span>
-                <span className="host-count">
-                  {entry.result?.ok
-                    ? entry.result.facts.requirements?.distro === "darwin"
-                      ? "macOS"
-                      : entry.result.facts.requirements?.distro
-                    : ""}
-                </span>
+                {!open && (
+                  <>
+                    <span>{hostDisplayName(entry)}</span>
+                    <span className="host-count">{os}</span>
+                  </>
+                )}
               </button>
+              {open && (
+                <div className="host-title">
+                  <HostName
+                    entry={entry}
+                    disabled={busy.has(entry.host)}
+                    hosts={state.hosts}
+                    save={async (nickname) => {
+                      const next = await api?.({ action: "rename", host: entry.host, nickname });
+                      if (!next) throw new Error("Rename unavailable");
+                      applyState(next, entry.host);
+                    }}
+                  />
+                  <span className="host-count">{os}</span>
+                </div>
+              )}
               <span className={`host-count ${summary === "Needs you" ? "host-need" : ""}`}>
                 {busy.has(entry.host) ? (
                   <span className="host-check-progress host-work" role="status">
@@ -805,26 +823,6 @@ export function HostsSettings({
               </span>
             </div>
             <fieldset className="host-body" hidden={!open} disabled={busy.has(entry.host)}>
-              <header className="hosts-heading">
-                <HostName
-                  entry={entry}
-                  hosts={state.hosts}
-                  save={async (nickname) => {
-                    const next = await api?.({ action: "rename", host: entry.host, nickname });
-                    if (!next) throw new Error("Rename unavailable");
-                    applyState(next, entry.host);
-                  }}
-                />
-                <button
-                  type="button"
-                  disabled={busy.has(entry.host)}
-                  onClick={() => {
-                    void act({ action: "remove", host: entry.host });
-                  }}
-                >
-                  Remove
-                </button>
-              </header>
               <div className="host-meta">
                 <CopyValue
                   value={entry.host}
@@ -834,13 +832,6 @@ export function HostsSettings({
                     Promise.reject(new Error("Copy unavailable"))
                   }
                 />
-                <span>
-                  {entry.result?.ok
-                    ? entry.result.facts.requirements?.distro === "darwin"
-                      ? "macOS"
-                      : entry.result.facts.requirements?.distro
-                    : ""}
-                </span>
                 <code>
                   <CopyValue
                     value={entry.codeFolder}
@@ -851,6 +842,16 @@ export function HostsSettings({
                     }
                   />
                 </code>
+                <button
+                  type="button"
+                  className="host-remove"
+                  disabled={busy.has(entry.host)}
+                  onClick={() => {
+                    void act({ action: "remove", host: entry.host });
+                  }}
+                >
+                  Remove
+                </button>
               </div>
               <Checklist
                 entry={entry}

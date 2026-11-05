@@ -53,6 +53,14 @@ async function captureHosts(app, page, name) {
   }
 }
 
+async function assertHostColumns(card) {
+  const starts = await card
+    .locator(".host-check-row:visible > .host-status > span:last-child")
+    .evaluateAll((statuses) => statuses.map((status) => status.getBoundingClientRect().left));
+  assert.ok(starts.length >= 4, "Host checks include the code folder row");
+  assert.ok(Math.max(...starts) - Math.min(...starts) < 1, JSON.stringify(starts));
+}
+
 test("Settings authorizes checked SSH hosts and shows repository locations without exposing remote output", {
   skip: process.platform === "win32",
   timeout: deadline(60000),
@@ -806,10 +814,33 @@ test("Hosts opens saved checks without SSH and keeps ready repositories compact"
   await expect(card.getByText("Last checked", { exact: false })).toBeVisible();
   await expect(card.getByText("Repository · project-0", { exact: true })).toHaveCount(0);
   await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
+  await assertHostColumns(card);
   await capture("expanded");
   await card.getByRole("button", { name: /Repositories · 6 ready/ }).click();
   await expect(card.getByText("Clean", { exact: true })).toHaveCount(6);
+  await assertHostColumns(card);
   await capture("repositories");
+  for (const width of [900, 640]) {
+    await app.evaluate(({ BrowserWindow }, width) => {
+      const window = BrowserWindow.getAllWindows().find(
+        (window) => window.webContents.getURL() === "app://bundle/index.html",
+      );
+      window.setMinimumSize(600, 640);
+      window.setContentSize(width, 1000);
+    }, width);
+    await expect.poll(() => page.evaluate(() => innerWidth)).toBe(width);
+    await assertHostColumns(card);
+    await capture(`repositories-${width}`);
+    await card.getByRole("button", { name: /Repositories · 6 ready/ }).click();
+    await assertHostColumns(card);
+    await capture(`expanded-${width}`);
+    await card.getByRole("button", { name: /Repositories · 6 ready/ }).click();
+  }
+  await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .setContentSize(1280, 800),
+  );
   await card.getByRole("button", { name: /Repositories · 6 ready/ }).click();
   await card.getByText("Host facts", { exact: true }).click();
   await expect(card.getByText("Other profiles or untagged: 2", { exact: true })).toBeVisible();

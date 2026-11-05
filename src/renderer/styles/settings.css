@@ -619,6 +619,7 @@
 }
 .host-meta {
   display: flex;
+  align-items: center;
   flex-wrap: wrap;
   justify-content: space-between;
   gap: 10px;
@@ -626,8 +627,18 @@
   color: var(--muted);
   font: 11px var(--font-mono);
 }
+.host-meta .host-remove {
+  font: 12px var(--font-interface);
+  color: var(--ink);
+}
 .host-checks {
+  display: grid;
+  grid-template-columns: minmax(130px, 1fr) minmax(150px, 1.3fr) minmax(100px, auto);
+  column-gap: 9px;
   padding: 0 20px;
+}
+.host-checks > * {
+  grid-column: 1 / -1;
 }
 .host-check-group {
   font: 10px var(--font-mono);
@@ -642,7 +653,7 @@
 .host-check-row {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(130px, 1fr) minmax(150px, 1.3fr) minmax(100px, auto);
+  grid-template-columns: subgrid;
   gap: 9px;
   align-items: center;
   min-height: 39px;
@@ -816,8 +827,7 @@
   overflow-wrap: anywhere;
 }
 @media (max-width: 900px) {
-  .host-check-row {
-    position: relative;
+  .host-checks {
     grid-template-columns: minmax(110px, 1fr) minmax(130px, 1.3fr) minmax(80px, auto);
   }
   .host-repository-row {
@@ -828,9 +838,10 @@
   }
 }
 @media (max-width: 650px) {
-  .host-check-row {
-    position: relative;
+  .host-checks {
     grid-template-columns: 1fr auto;
+  }
+  .host-check-row {
     padding: 8px 0;
   }
   .host-check-row > .host-status {
@@ -953,6 +964,22 @@
   overflow-wrap: anywhere;
   font-weight: 600;
 }
+.host-expand[aria-expanded="true"] {
+  flex: none;
+}
+.host-title {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 12px;
+  min-width: 0;
+}
+.host-title h3 {
+  font-size: 12px;
+  margin: 0;
+  min-width: 0;
+}
 .host-body {
   border: 0;
   border-top: 1px solid var(--line);
@@ -960,13 +987,14 @@
   padding: 0;
   min-width: 0;
 }
-.host-body > .hosts-heading {
-  padding: 12px 20px;
+.host-body > .host-meta {
+  padding-top: 16px;
 }
 .host-body[hidden] {
   display: none;
 }
 .host-repositories {
+  justify-self: start;
   margin-top: 16px;
   font-size: 12px;
   color: var(--muted);

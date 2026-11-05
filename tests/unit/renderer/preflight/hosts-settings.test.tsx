@@ -727,13 +727,13 @@ test("host aliases and agent IDs are literal data even when they name object pro
   await screen.findByRole("region", { name: "constructor" });
   expandHosts();
   fireEvent.click(screen.getByRole("button", { name: "Check capabilities" }));
-  expect(screen.getAllByText("constructor")).toHaveLength(4);
+  expect(screen.getAllByText("constructor")).toHaveLength(3);
   await act(async () => {
     finish?.({ ...state, preflight: { ...preflight, result } });
     await pending;
   });
   await screen.findByText("Pass · Host key trusted");
-  expect(screen.getAllByText("constructor")).toHaveLength(4);
+  expect(screen.getAllByText("constructor")).toHaveLength(3);
 });
 
 test("inline host names validate, save without preflight, cancel and restore the default", async () => {
@@ -1128,4 +1128,34 @@ test("a restarted Hosts owner restores Brew Install and Sign in buttons without 
     cleanup();
     await fixture.dispose();
   }
+});
+
+test("the name and OS appear once in both compact and expanded host headers", async () => {
+  const result = {
+    ok: true as const,
+    facts: {
+      ...facts,
+      requirements: {
+        distro: "darwin" as const,
+        libc: "supported" as const,
+        packageManager: "brew" as const,
+      },
+    },
+  };
+  const state = saved({
+    hosts: [{ ...host, nickname: "Build box", result }],
+    locations: [],
+    preflight: { ...preflight, result },
+  });
+  const api = vi.fn<(action: HostsAction) => Promise<HostsState>>().mockResolvedValue(state);
+  render(<HostsSettings source={{ hosts: api }} headingRef={createRef()} />);
+  await screen.findByRole("button", { name: "Expand Build box" });
+  for (const action of ["Expand", "Collapse", "Expand"]) {
+    expect(screen.getAllByText("Build box")).toHaveLength(1);
+    expect(screen.getAllByText("macOS")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: `${action} Build box` }));
+  }
+  expect(screen.getByRole("button", { name: "Rename Build box" })).toBeTruthy();
+  expect(screen.getAllByText("Build box")).toHaveLength(1);
+  expect(screen.getAllByText("macOS")).toHaveLength(1);
 });
