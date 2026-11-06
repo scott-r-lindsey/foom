@@ -61,10 +61,7 @@ async function assertHostColumns(card) {
   assert.ok(Math.max(...starts) - Math.min(...starts) < 1, JSON.stringify(starts));
 }
 
-test("Settings authorizes checked SSH hosts and shows repository locations without exposing remote output", {
-  skip: process.platform === "win32",
-  timeout: deadline(60000),
-}, async (context) => {
+async function hostsFixture(context, captureEnrollment = false) {
   const root = await mkdtemp(path.join(tmpdir(), "hosts-settings-"));
   removeAfterApps(context, root);
   const bin = path.join(root, "bin");
@@ -223,7 +220,7 @@ process.stdin.on('data', bytes => {
   await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
   await expect(page.getByText("No hosts", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Add host", exact: true }).click();
-  await capture("add-host");
+  if (captureEnrollment) await capture("add-host");
   await page.getByLabel("SSH host", { exact: true }).fill("fixture-cloud");
   await page.getByRole("button", { name: "Add host", exact: true }).click();
   const card = page.getByRole("region", { name: "fixture-cloud", exact: true });
@@ -233,7 +230,30 @@ process.stdin.on('data', bytes => {
   await expect(card.getByText("Not found", { exact: true })).toHaveCount(2);
   await expect(card.getByRole("button", { name: "Install codex", exact: true })).toHaveCount(0);
   await expect(card.getByText("Not checked", { exact: true })).toHaveCount(1);
-  await capture("partial-facts");
+  if (captureEnrollment) await capture("partial-facts");
+  return {
+    app,
+    page,
+    card,
+    navigation,
+    progressStatus,
+    capture,
+    updateScenario,
+    heldCloneCount,
+    platform,
+    catalog,
+    compressed,
+    calls,
+    cloneReason,
+    recipeCalls,
+  };
+}
+
+test("Hosts authorizes SSH hosts and validates nicknames without remote calls", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, navigation, calls } = await hostsFixture(context, true);
   const nicknameCapture = (name) => captureHosts(app, page, `nickname-${name}`);
   await nicknameCapture("default");
   const beforeRename = (await readFile(calls, "utf8")).split("\n").filter(Boolean).length;
@@ -296,7 +316,13 @@ process.stdin.on('data', bytes => {
     card.getByRole("button", { name: "Rename fixture-cloud", exact: true }),
   ).toBeVisible();
   await nicknameCapture("reset");
+});
 
+test("Hosts shows independent inspection and repository check progress", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, progressStatus, capture, updateScenario } = await hostsFixture(context);
   await assertAccessible(page);
   await updateScenario({ hold: true });
   await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
@@ -399,6 +425,13 @@ process.stdin.on('data', bytes => {
   await expect(card.locator(".host-throbber")).toHaveCount(0);
   await expect(checkoutRow).toContainText("Not checked out");
   await capture("progress-result");
+});
+
+test("Hosts renders Git failures and platform capability diagnostics", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { card, platform, capture, updateScenario } = await hostsFixture(context);
   await updateScenario({
     facts: {
       tools: [
@@ -471,6 +504,18 @@ process.stdin.on('data', bytes => {
     ).toBeVisible();
     await capture("unsupported-platform");
   }
+});
+
+test("Hosts shows readiness and clones checkouts with explicit origin trust", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, capture, updateScenario, heldCloneCount, calls } =
+    await hostsFixture(context);
+  await card.getByRole("button", { name: "Change folder", exact: true }).click();
+  await card.getByLabel("Code folder", { exact: true }).fill("~/new-code");
+  await card.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
   const ready = {
     facts: {
       tools: [
@@ -588,6 +633,27 @@ process.stdin.on('data', bytes => {
       .find((window) => window.webContents.getURL() === "app://bundle/index.html")
       .setContentSize(1280, 1200),
   );
+  const recorded = (await readFile(calls, "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  assert.ok(
+    recorded.some(
+      ({ message }) =>
+        message.operation === "origin" && message.origin === "git@forge.test:team/project.git",
+    ),
+  );
+});
+
+test("Hosts creates missing folders and reports enrollment and artifact failures", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { page, card, catalog, compressed, capture, updateScenario } = await hostsFixture(context);
+  await card.getByRole("button", { name: "Change folder", exact: true }).click();
+  await card.getByLabel("Code folder", { exact: true }).fill("~/new-code");
+  await card.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
   await updateScenario({ facts: { folder: { state: "fail", reason: "folder-missing" } } });
   await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
   await expect(card.getByRole("button", { name: "Create", exact: true })).toBeEnabled();
@@ -629,6 +695,27 @@ process.stdin.on('data', bytes => {
   await capture("missing-build-support");
   await writeFile(artifactPath, compressed);
   await updateScenario({});
+});
+
+test("Repositories clones per host and opens fixed repair recipes without exposing remote output", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const {
+    page,
+    card,
+    navigation,
+    calls,
+    cloneReason,
+    recipeCalls,
+    capture,
+    updateScenario,
+    heldCloneCount,
+  } = await hostsFixture(context);
+  await card.getByRole("button", { name: "Change folder", exact: true }).click();
+  await card.getByLabel("Code folder", { exact: true }).fill("~/new-code");
+  await card.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
   await navigation.getByRole("button", { name: "Repositories", exact: true }).click();
   await expect(page.getByRole("region", { name: "Local", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Clone here", exact: true })).toHaveCount(1);
@@ -713,12 +800,6 @@ process.stdin.on('data', bytes => {
     .trim()
     .split("\n")
     .map((line) => JSON.parse(line));
-  assert.ok(
-    recorded.some(
-      ({ message }) =>
-        message.operation === "origin" && message.origin === "git@forge.test:team/project.git",
-    ),
-  );
   assert.ok(recorded.some(({ message }) => message.operation === "clone"));
 });
 

@@ -38,9 +38,6 @@
         "General update opt-out persists; update notices and restart counts remain quiet": [
           2.943, 7.849, 4.476
         ],
-        "Settings authorizes checked SSH hosts and shows repository locations without exposing remote output": [
-          18.02, 0, 23.736
-        ],
         "a child hands off results through the CLI without terminal input and the parent pulls them": [
           6.285, 0, 10.645
         ],
@@ -1096,9 +1093,6 @@
         "Markdown previews render hostile documents safely, follow native theme and navigate to a sibling": [
           2.372, 9.143, 5.121
         ],
-        "Settings authorizes checked SSH hosts and shows repository locations without exposing remote output": [
-          18.02, 0, 23.736
-        ],
         "a compositor-ready board still fails when animation callbacks are withheld": [
           11.276, 37.589, 13.274
         ],
@@ -1579,9 +1573,6 @@
         ],
         "General close finished agents defaults on and saves immediately": [2.538, 9.928, 4.266],
         "Linux launch forces X11 despite inherited Wayland settings": [1.242, 0, 0],
-        "Settings authorizes checked SSH hosts and shows repository locations without exposing remote output": [
-          18.02, 0, 23.736
-        ],
         "Settings persists literal agent defaults and discloses bypass once per agent": [
           4.647, 11.461, 9.663
         ],
