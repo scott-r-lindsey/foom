@@ -520,7 +520,7 @@ export function HostsSettings({
   const [folder, setFolder] = useState("~/foom");
   const [nickname, setNickname] = useState("");
   const nicknameError = hostNicknameError(state.hosts, host.trim(), nickname);
-  const renamedRef = useRef(new Map<string, string>());
+  const renamedRef = useRef(new Map<string, { nickname: string }>());
   const [changing, setChanging] = useState<{ host: string; folder: string }>();
   const [busy, setBusy] = useState<ReadonlySet<string>>(() => new Set());
   const [addBusy, setAddBusy] = useState(false);
@@ -531,7 +531,7 @@ export function HostsSettings({
   const [progress, setProgress] = useState<HostCheckProgress>();
   const changedRef = useRef(false);
   const [expanded, setExpanded] = useState<ReadonlyMap<string, boolean>>(() => new Map());
-  const applyState = (next: HostsState, host: string, startedName?: string) => {
+  const applyState = (next: HostsState, host: string, startedRename?: { nickname: string }) => {
     setState((previous) => ({
       ...next,
       hosts: [
@@ -539,11 +539,11 @@ export function HostsSettings({
         ...next.hosts
           .filter((entry) => entry.host === host)
           .map((entry) => {
-            const name = renamedRef.current.get(entry.host);
-            if (name === undefined || name === startedName) return entry;
+            const rename = renamedRef.current.get(entry.host);
+            if (rename === undefined || rename === startedRename) return entry;
             const registration = { ...entry };
             delete registration.nickname;
-            return name ? { ...registration, nickname: name } : registration;
+            return rename.nickname ? { ...registration, nickname: rename.nickname } : registration;
           }),
       ].sort((a, b) => {
         const order = [...previous.hosts.map((entry) => entry.host), host];
@@ -625,7 +625,7 @@ export function HostsSettings({
     changedRef.current = true;
     if ("host" in action) setExpanded((previous) => new Map(previous).set(action.host, true));
     const target = "host" in action ? action.host : "";
-    const startedName = renamedRef.current.get(target);
+    const startedRename = renamedRef.current.get(target);
     setBusy((previous) => new Set(previous).add(target));
     let enrolling = action.action === "add";
     if (enrolling) setAddBusy(true);
@@ -642,7 +642,7 @@ export function HostsSettings({
         enrolling = false;
       }
       if (!next) return;
-      applyState(next, target, startedName);
+      applyState(next, target, startedRename);
       if (action.action === "preflight" && next.preflight) {
         const preflight = next.preflight;
         setChecks((previous) => new Map(previous).set(action.host, preflight));
@@ -677,7 +677,7 @@ export function HostsSettings({
         if (entry) {
           next = await runCheck(entry.host, entry.codeFolder);
           if (next) {
-            applyState(next, target, startedName);
+            applyState(next, target, startedRename);
             const observed = next.preflight;
             const preflight =
               observed &&
@@ -845,8 +845,9 @@ export function HostsSettings({
                     save={async (nickname) => {
                       const next = await api?.({ action: "rename", host: entry.host, nickname });
                       if (!next) throw new Error("Rename unavailable");
-                      renamedRef.current.set(entry.host, nickname);
-                      applyState(next, entry.host, nickname);
+                      const rename = { nickname };
+                      renamedRef.current.set(entry.host, rename);
+                      applyState(next, entry.host, rename);
                     }}
                   />
                   <span className="host-count">{os}</span>

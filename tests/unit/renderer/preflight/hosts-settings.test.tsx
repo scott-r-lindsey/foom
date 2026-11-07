@@ -1215,3 +1215,41 @@ test("rename stays editable during checks and a stale check reply preserves the 
   });
   expect(screen.getByRole("button", { name: "Rename During check" })).toBeTruthy();
 });
+
+test.each(["Build box", ""])(
+  "late check replies preserve repeated renames ending with %j",
+  async (finalName) => {
+    const { api } = await mount();
+    let finish: ((state: HostsState) => void) | undefined;
+    api.mockImplementation((action) => {
+      if (action.action === "preflight")
+        return new Promise((resolve) => {
+          finish = resolve;
+        });
+      if (action.action === "rename")
+        return Promise.resolve({
+          ...initial,
+          hosts: [action.nickname ? { ...host, nickname: action.nickname } : host],
+        });
+      return Promise.resolve(initial);
+    });
+    const rename = async (from: string, to: string) => {
+      fireEvent.click(screen.getByRole("button", { name: `Rename ${from}` }));
+      fireEvent.change(screen.getByLabelText("Host nickname"), { target: { value: to } });
+      fireEvent.click(screen.getByRole("button", { name: "Save name" }));
+      await screen.findByRole("button", { name: `Rename ${to || "worker"}` });
+    };
+    await rename("worker", "Build box");
+    fireEvent.click(screen.getByRole("button", { name: "Check capabilities" }));
+    await waitFor(() => {
+      expect(finish).toBeDefined();
+    });
+    await rename("Build box", "Interim");
+    await rename("Interim", finalName);
+    await act(async () => {
+      finish?.({ ...initial, hosts: [{ ...host, nickname: "Interim" }] });
+      await Promise.resolve();
+    });
+    expect(screen.getByRole("button", { name: `Rename ${finalName || "worker"}` })).toBeTruthy();
+  },
+);
