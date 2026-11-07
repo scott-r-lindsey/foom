@@ -967,7 +967,10 @@ test("machine launch IPC accepts only a host selector and known agent, with a re
 test("the trusted grant discloses automatic Resume recovery and how to cancel it", () => {
   const text = JSON.stringify(orchestratorDisclosure("claude", undefined, true).sections);
   expect(text).toContain(
-    "Before Foom restarts, Resume in this tile can restore its role and children without asking again. Revoke cancels this.",
+    "Until Foom restarts, Resume in this exited tile can restore its role and children without asking again. Revoke cancels this.",
+  );
+  expect(text).toContain(
+    "A role running at quit is restored on launch without asking when “Restore sessions on launch” is on (the default).",
   );
   expect(text).toContain("Revoke orchestrator ends its access and cancels automatic recovery.");
 });
@@ -975,7 +978,7 @@ test("the trusted grant discloses automatic Resume recovery and how to cancel it
 test("Resume consent names the tile and app lifetime, rather than conversation identity", () => {
   const text = JSON.stringify(orchestratorDisclosure("claude", undefined, true).sections);
   expect(text).not.toContain("Resuming this conversation");
-  expect(text).toContain("Resume in this tile");
+  expect(text).toContain("Resume in this exited tile");
 });
 
 test("unsupported providers receive no automatic Resume promise", () => {
@@ -985,5 +988,15 @@ test("unsupported providers receive no automatic Resume promise", () => {
 test("re-grant recovery copy explicitly ends at app restart", () => {
   expect(JSON.stringify(orchestratorDisclosure("claude").sections)).toContain(
     "before Foom restarts",
+  );
+});
+
+test("the disclosure distinguishes launch restoration from exited-tile Resume recovery", () => {
+  const text = JSON.stringify(orchestratorDisclosure("claude", undefined, true).sections);
+  expect(text).toContain(
+    "A role running at quit is restored on launch without asking when “Restore sessions on launch” is on (the default).",
+  );
+  expect(text).toContain(
+    "Until Foom restarts, Resume in this exited tile can restore its role and children without asking again. Revoke cancels this.",
   );
 });

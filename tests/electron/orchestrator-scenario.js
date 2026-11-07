@@ -238,12 +238,17 @@ process.stdout.write("FOOM_AGENT_READY`,
   ).toBeVisible();
   await expect(confirmation.getByText(/model provider/)).toBeVisible();
   const resumeDisclosure = confirmation.getByText(
-    "Before Foom restarts, Resume in this tile can restore its role and children without asking again. Revoke cancels this.",
+    "Until Foom restarts, Resume in this exited tile can restore its role and children without asking again. Revoke cancels this.",
+  );
+  const restartDisclosure = confirmation.getByText(
+    "A role running at quit is restored on launch without asking when “Restore sessions on launch” is on (the default).",
   );
   if (cliOnly) {
+    await expect(restartDisclosure).toHaveCount(0);
     await expect(resumeDisclosure).toHaveCount(0);
     await expect(confirmation.getByText("Revoke orchestrator ends its access.")).toBeVisible();
   } else {
+    await expect(restartDisclosure).toBeVisible();
     await expect(resumeDisclosure).toBeVisible();
     await expect(
       confirmation.getByText("Revoke orchestrator ends its access and cancels automatic recovery."),

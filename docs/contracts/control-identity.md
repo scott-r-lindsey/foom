@@ -27,9 +27,10 @@ invalidates that provenance, including a revoke after exit. Main rechecks recove
 after spawn; a revoke that wins during spawn leaves the process live with an
 ordinary grant. The recorded conversation ID selects the provider conversation;
 it supplies no independent authority provenance. Conversation text or a pasted ID
-alone grants nothing. For supported providers the trusted grant discloses that
-Resume in this tile can recover authority without another confirmation before
-Foom restarts; the exited tile offers Revoke to cancel it. Unsupported providers
+alone grants nothing. For supported providers the trusted grant discloses both
+launch restoration of a role running at quit when **Restore sessions on launch**
+is on (the default), without asking, and the separate exited-tile Resume recovery
+that ends at Foom restart. The exited tile offers Revoke to cancel that recovery. Unsupported providers
 receive no such promise or exited Revoke item. Resume consent is transient,
 main-owned state, not inferred from disk-restored roles (including legacy grants);
 these sessions later Resume ordinarily until explicitly re-granted. Parent exits

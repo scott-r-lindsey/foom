@@ -98,9 +98,11 @@ the slot even when the terminal ID still has a retired parent record. Parent exi
 are observed only within that tile’s specific Resume invocation and discarded when
 it finishes; an unrelated retired parent’s exit cannot poison a later grant.
 
-For a supported provider, the trusted Make orchestrator disclosure says that before
-Foom restarts, Resume in this tile can restore its role and children without asking
-again, and Revoke cancels this. Unsupported providers receive no Resume promise.
+For a supported provider, the trusted Make orchestrator disclosure distinguishes
+two cases: a role running at quit is restored on launch without asking when
+**Restore sessions on launch** is on (the default); an exited tile’s Resume can
+recover its role and children without asking again only until Foom restarts,
+and Revoke cancels that recovery. Unsupported providers receive no Resume promise.
 Consent is main-owned, transient state set only by this trusted grant; neither a
 saved role nor a renderer projection creates it. A role restored at restart may
 continue under the established restart contract, but its later manual Resume is

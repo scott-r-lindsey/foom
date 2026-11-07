@@ -214,7 +214,8 @@ export function orchestratorDisclosure(
           "Stop them, and ask you to remove worktrees it created.",
           ...(restoreOnResume
             ? [
-                "Before Foom restarts, Resume in this tile can restore its role and children without asking again. Revoke cancels this.",
+                "A role running at quit is restored on launch without asking when “Restore sessions on launch” is on (the default).",
+                "Until Foom restarts, Resume in this exited tile can restore its role and children without asking again. Revoke cancels this.",
               ]
             : []),
           "Re-granting this tile before Foom restarts recovers its previous children, handoffs and worktrees in this repository, except children you took over. Another tile inherits none.",
