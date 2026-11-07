@@ -864,7 +864,7 @@ test("an unanswered request times out while a real fixture terminal still answer
     { node: process.execPath, probe: path.join(__dirname, "host-probe.js") },
   );
   context.diagnostic(
-    `Host watchdog measurement: pause=${result.pauseMs} ms; silent retirement=${result.retirementMs} ms`,
+    `Host watchdog measurement: pause=${result.pauseMs} ms; silent retirement=${result.retirementMs} ms; local timeouts=${result.timeouts.map((record) => record.elapsedMs).join(",")} ms`,
   );
   assert.equal(result.alive, 1);
   assert.equal(result.held, 1);
@@ -874,7 +874,9 @@ test("an unanswered request times out while a real fixture terminal still answer
   assert.equal(result.exitCodeRecorded, true);
   assert.equal(result.timeouts.length, 2);
   assert.equal(result.timeouts[0].command, "tail");
-  assert.ok(result.timeouts[0].elapsedMs >= 10000);
+  // Node timers have millisecond precision and can fire just under 10 seconds;
+  // diagnostics round the actual monotonic duration, which can therefore be 9999.
+  assert.ok(result.timeouts[0].elapsedMs >= 9999);
   assert.deepEqual(Object.keys(result.timeouts[0]).sort(), ["command", "elapsedMs", "time"]);
 });
 
