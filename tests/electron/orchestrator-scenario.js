@@ -40,7 +40,18 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
   );
   await writeFile(
     path.join(bin, "claude"),
-    ["waiting", "unread"].includes(phase) ? waitingFixture : FAKE_ORCHESTRATED_CLAUDE,
+    ["waiting", "unread"].includes(phase)
+      ? waitingFixture
+      : ["resume", "resume-revoked"].includes(phase)
+        ? FAKE_ORCHESTRATED_CLAUDE.replace(
+            'process.stdout.write("FOOM_AGENT_READY',
+            `
+const settings = JSON.parse(args[args.indexOf("--settings") + 1]);
+const hook = require("node:child_process").spawn("sh", ["-c", settings.hooks.UserPromptSubmit[0].hooks[0].command], { stdio: ["pipe", "ignore", "inherit"] });
+hook.stdin.end(JSON.stringify({ session_id: "saved-1081", hook_event_name: "UserPromptSubmit" }));
+process.stdout.write("FOOM_AGENT_READY`,
+          )
+        : FAKE_ORCHESTRATED_CLAUDE,
   );
   if (cliOnly) {
     await writeFile(
@@ -226,6 +237,26 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
     }),
   ).toBeVisible();
   await expect(confirmation.getByText(/model provider/)).toBeVisible();
+  const resumeDisclosure = confirmation.getByText(
+    "Until Foom restarts, Resume in this exited tile can restore its role and children without asking again. Revoke cancels this.",
+  );
+  const restartDisclosure = confirmation.getByText(
+    "A role running at quit is restored on launch without asking when “Restore sessions on launch” is on (the default).",
+  );
+  if (cliOnly) {
+    await expect(restartDisclosure).toHaveCount(0);
+    await expect(resumeDisclosure).toHaveCount(0);
+    await expect(confirmation.getByText("Revoke orchestrator ends its access.")).toBeVisible();
+  } else {
+    await expect(restartDisclosure).toBeVisible();
+    await expect(resumeDisclosure).toBeVisible();
+    await expect(
+      confirmation.getByText("Revoke orchestrator ends its access and cancels automatic recovery."),
+    ).toBeVisible();
+  }
+  await expect(confirmation.getByText(/Re-granting this tile before Foom restarts/)).toBeVisible();
+  if (phase === "resume-revoked")
+    await confirmation.screenshot({ path: evidencePath("1081-resume-disclosure.png") });
   await confirmation.getByRole("button", { name: "Make orchestrator" }).click();
   await expect
     .poll(async () => (await call(parent.controlToken, "whoami")).body.result?.role)
@@ -530,6 +561,83 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
       });
     }
     const childId = launched.body.result.resultId;
+    if (phase === "resume-unsupported") {
+      await page.evaluate((id) => window.desktop.input(id, "q"), parentId);
+      await expect
+        .poll(
+          async () =>
+            (await page.evaluate(() => window.desktop.workspace())).terminals.find(
+              (row) => row.id === parentId,
+            )?.exited,
+        )
+        .toBe(true);
+      await parentRow
+        .locator(":scope > .board-row")
+        .getByRole("button", { name: /^Actions for/ })
+        .click();
+      await expect(page.getByRole("menuitem", { name: "Close", exact: true })).toBeVisible();
+      await expect(page.getByRole("menuitem", { name: "Revoke orchestrator" })).toHaveCount(0);
+      return;
+    }
+    if (["resume", "resume-revoked"].includes(phase)) {
+      await expect
+        .poll(
+          async () =>
+            (await page.evaluate(() => window.desktop.workspace())).terminals.find(
+              (row) => row.id === parentId,
+            )?.conversationId,
+        )
+        .toBe("saved-1081");
+      const oldToken = parent.controlToken;
+      await page.evaluate((id) => window.desktop.input(id, "q"), parentId);
+      await expect
+        .poll(
+          async () =>
+            (await page.evaluate(() => window.desktop.workspace())).terminals.find(
+              (row) => row.id === parentId,
+            )?.exited,
+        )
+        .toBe(true);
+      const openParentMenu = () =>
+        parentRow
+          .locator(":scope > .board-row")
+          .getByRole("button", { name: /^Actions for/ })
+          .click();
+      if (phase === "resume-revoked") {
+        await openParentMenu();
+        await expect(page.getByRole("menuitem", { name: "Revoke orchestrator" })).toBeVisible();
+        await page.screenshot({
+          path: evidencePath("1081-exited-revoke.png"),
+          animations: "disabled",
+        });
+        await page.getByRole("menuitem", { name: "Revoke orchestrator" }).click();
+        await expect
+          .poll(
+            async () =>
+              (await page.evaluate(() => window.desktop.workspace())).terminals.find(
+                (row) => row.id === parentId,
+              )?.orchestration?.restoreOnResume,
+          )
+          .toBeUndefined();
+      }
+      await openParentMenu();
+      if (phase === "resume-revoked")
+        await expect(page.getByRole("menuitem", { name: "Revoke orchestrator" })).toHaveCount(0);
+      await page.getByRole("menuitem", { name: /^Resume conversation/ }).click();
+      await expect.poll(async () => (await read("app")).controlToken).not.toBe(oldToken);
+      Object.assign(parent, await read("app"));
+      assert.equal(
+        (await directCall(parent.controlToken, "whoami")).body.result.role,
+        phase === "resume" ? "orchestrator" : "agent",
+      );
+      assert.equal((await directCall(oldToken, "whoami")).status, 401);
+      assert.equal(
+        (await directCall(parent.controlToken, "tail", { id: childId })).status,
+        phase === "resume" ? 200 : 403,
+      );
+      return;
+    }
+
     if (phase === "unread") {
       const parentBoard = parentRow.locator(":scope > .board-row");
       // Launch replies before the renderer handles the background placement.
@@ -1420,6 +1528,41 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
         }),
       );
       assert.equal(logged.total, 1);
+      // Re-grant visibly recovers this same running tile's previous live child.
+      const regrant = page.evaluate(
+        (id) => window.desktop.sidebarCommand({ kind: "make-orchestrator", id }),
+        parentId,
+      );
+      const recovery = await confirmationPage(app);
+      await expect(recovery.getByText(/Re-granting this tile before Foom restarts/)).toBeVisible();
+      await recovery.getByRole("button", { name: "Make orchestrator" }).click();
+      await regrant;
+      assert.equal((await directCall(parent.controlToken, "tail", { id: liveId })).status, 200);
+      assert.equal(
+        (
+          await directCall(parent.controlToken, "prompt", {
+            id: liveId,
+            text: "Continue",
+            idempotencyKey: "regrant-prompt",
+          })
+        ).body.result.status,
+        "succeeded",
+      );
+      assert.equal(
+        (
+          await directCall(parent.controlToken, "send_keys", {
+            id: liveId,
+            keys: ["enter"],
+            idempotencyKey: "regrant-keys",
+          })
+        ).body.result.status,
+        "succeeded",
+      );
+      await page.evaluate(
+        (id) => window.desktop.sidebarCommand({ kind: "revoke-orchestrator", id }),
+        parentId,
+      );
+
       await page.evaluate(() => window.desktop.clearActionLog());
       assert.equal(
         (

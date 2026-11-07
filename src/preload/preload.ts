@@ -10,6 +10,7 @@ import type {
   HostsState,
   HostResult,
   HostFacts,
+  HostCheckTarget,
   RegisteredHost,
 } from "../shared/registered-hosts.d";
 import type {
@@ -520,6 +521,11 @@ const validRegisteredHost: Validator<RegisteredHost> = shape({
   codeFolder: hostRequestedFolder,
   observation: either(absent, validHostObservation),
 } satisfies Contract<RegisteredHost>);
+const validHostCheckTarget: Validator<HostCheckTarget> = either(
+  shape({ kind: literal("ssh", "platform", "artifact", "folder", "command-line-tools", "power") }),
+  shape({ kind: literal("tool", "sign-in"), tool: hostAgentId }),
+  shape({ kind: literal("origin", "checkout"), repository: text }),
+);
 const validHostsState: Validator<HostsState> = shape({
   progress: either(
     absent,
@@ -545,6 +551,15 @@ const validHostsState: Validator<HostsState> = shape({
       nickname: either(absent, hostNickname),
       codeFolder: hostRequestedFolder,
       observation: either(absent, validHostObservation),
+      rowFailures: either(
+        absent,
+        array(
+          shape({
+            target: validHostCheckTarget,
+            reason: literal("save-failed", "check-failed"),
+          }),
+        ),
+      ),
       result: either(absent, validHostResult),
       recipes: either(
         absent,
@@ -753,6 +768,7 @@ const validOrchestrationView: Validator<OrchestrationView> = either(
   shape({
     role: literal("orchestrator"),
     active: boolean,
+    restoreOnResume: either(absent, literal(true)),
     children: count,
     history: array(validOrchestrationEntry),
   }),
@@ -1471,6 +1487,7 @@ const createdWorktree = both(
 );
 const desktop: DesktopApi = {
   previews: {
+    describe: (id) => reply("preview:describe", validPreviewSummary, id),
     onPlace(callback) {
       placePreview = callback;
       for (const [request, pending] of pendingPlacements) {
@@ -1792,7 +1809,7 @@ const desktop: DesktopApi = {
     await ipcRenderer.invoke("terminal:kill", id);
   },
   copyTerminalSelection: (id, text) => invokeVoid("terminal:copy-selection", id, text),
-  openTerminalLink: (id, url, text) => invokeVoid("terminal:open-link", id, url, text),
+  openTerminalLink: (id, url) => invokeVoid("terminal:open-link", id, url),
   copyTerminalLink: (id, url) => invokeVoid("terminal:copy-link", id, url),
   pasteTerminal: async (id) => {
     const value: unknown = await ipcRenderer.invoke("terminal:paste", id);

@@ -611,7 +611,7 @@ test.each([false, true])(
 );
 
 test.each(["wrapped", "gap"])(
-  "budget cannot turn a confirming OSC label into an exact partial match (%s)",
+  "budget drops every run of an over-budget OSC ID (%s)",
   async (kind) => {
     const { linksOnRow } = await import("../../../src/renderer/terminal/link-lookup");
     const { withSnapshotLinks } = await import("../../../src/terminal-host/snapshot-links");
@@ -626,17 +626,17 @@ test.each(["wrapped", "gap"])(
     const end = "\x1b]8;;\x1b\\";
     try {
       await write(host, begin + url + (kind === "gap" ? end + " " + begin : "") + "tail" + end);
-      expect(linksOnRow(host, 0)[0]?.text).not.toBe(url);
+      expect(linksOnRow(host, 0)[0]?.url).toBe(url);
       const id = terminalOscId(host.buffer.active.getLine(0)?.getCell(0));
       const opening = `\x1b]8;id=foom-${String(id)};${url}\x1b\\`;
       const data = withSnapshotLinks(
         host,
         addon,
         (pen) => addon.serialize() + pen,
-        opening.length + end.length,
+        opening.length + end.length - (kind === "wrapped" ? 1 : 0),
       );
       await write(view, data);
-      expect(linksOnRow(view, 0)[0]?.text).not.toBe(url);
+      expect(linksOnRow(view, 0)).toEqual([]);
     } finally {
       host.dispose();
       view.dispose();

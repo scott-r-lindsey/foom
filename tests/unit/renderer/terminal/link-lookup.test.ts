@@ -17,25 +17,23 @@ afterEach(() => {
   for (const terminal of terminals.splice(0)) terminal.dispose();
 });
 
-test("pinned xterm OSC targets are complete on every soft-wrapped row and label comparison is exact", async () => {
+test("pinned xterm OSC targets are complete on every soft-wrapped row", async () => {
   const url = "https://login.example/oauth?state=" + "X".repeat(2100);
   const terminal = await fixture(osc(url, url), 80, 40);
   const first = linksOnRow(terminal, 0)[0];
   expect(first?.url).toBe(url);
-  expect(first?.text).toBe(url);
   expect(first?.rows.length).toBeGreaterThan(20);
   for (const row of first?.rows ?? []) expect(linksOnRow(terminal, row.y)).toEqual([first]);
   const labeled = await fixture(osc(url, "Sign in"));
-  expect(linksOnRow(labeled, 0)[0]).toMatchObject({ url, text: "Sign in" });
+  expect(linksOnRow(labeled, 0)[0]).toMatchObject({ url });
 });
 
-test("OSC labels with hard newlines retain them and all rows keep the complete target", async () => {
+test("OSC labels with hard newlines keep the complete target on every row", async () => {
   const url = "https://example.com/one/two/three";
   const terminal = await fixture(osc(url, "https://example.com/\r\none/two/three"));
   const first = linksOnRow(terminal, 0)[0];
   expect(first).toMatchObject({
     url,
-    text: undefined,
     rows: [
       { y: 0, start: 0, end: 20 },
       { y: 1, start: 0, end: 13 },
@@ -49,7 +47,6 @@ test("plain URLs join soft wraps, preserve UTF-16/cell coordinates and trim surr
   const terminal = await fixture(`中e\u0301 (${url}).`, 40);
   const first = linksOnRow(terminal, 0)[0];
   expect(first?.url).toBe(url);
-  expect(first?.text).toBe(url);
   expect(first?.rows[0]?.start).toBe(5);
   for (const row of first?.rows ?? []) expect(linksOnRow(terminal, row.y)).toEqual([first]);
   const punctuation = await fixture("https://example.com/a(b) https://other.test/path!?", 80);
@@ -87,87 +84,10 @@ test("refused OSC links never fall back to their displayed plain URL", async () 
   expect(linksOnRow(terminal, 240)).toEqual([]);
 });
 
-test("incomplete or disjoint OSC labels require confirmation, never a partial match", async () => {
-  const long = await fixture(
-    osc("https://example.com/", "a".repeat(TERMINAL_LINK_LIMIT + 500)),
-    80,
-    250,
-  );
-  expect(linksOnRow(long, 0)[0]?.text).toBeUndefined();
-  expect(linksOnRow(long, 220)[0]?.text).toBeUndefined();
-  const reused = await fixture(
-    "\x1b]8;id=same;https://example.com/\x1b\\https://\x1b]8;;\x1b\\ \x1b]8;id=same;https://example.com/\x1b\\example.com/\x1b]8;;\x1b\\",
-  );
-  expect(linksOnRow(reused, 0)[0]?.text).toBeUndefined();
-});
-
 test("an unavailable OSC service refuses its target without plain fallback", async () => {
   const terminal = await fixture(osc("https://example.com/", "https://example.com/"));
   // Only the public buffer is supplied: OSC IDs remain, but target authority is absent.
   expect(linksOnRow({ buffer: terminal.buffer, cols: terminal.cols }, 0)).toEqual([]);
-});
-
-test("concealed OSC and plain targets never qualify as fully displayed matching text", async () => {
-  const url = "https://concealed.example/path";
-  for (const output of [osc(url, `\x1b[8m${url}\x1b[0m`), `\x1b[8m${url}\x1b[0m`]) {
-    const terminal = await fixture(output);
-    expect.soft(linksOnRow(terminal, 0)[0]).toMatchObject({ url, text: undefined });
-  }
-});
-
-test("unlinked cells across a soft wrap break the OSC exact-label match", async () => {
-  const url = "https://evil.test/x";
-  const begin = `\x1b]8;id=a;${url}\x1b\\`;
-  const end = "\x1b]8;;\x1b\\";
-  const terminal = await fixture(
-    begin +
-      "https://" +
-      end +
-      "good.example/account" +
-      " ".repeat(12) +
-      " ".repeat(30) +
-      begin +
-      "evil.test/x" +
-      end,
-    40,
-  );
-  expect(terminal.buffer.active.getLine(0)?.translateToString(true).trimEnd()).toBe(
-    "https://good.example/account",
-  );
-  const link = linksOnRow(terminal, 0)[0];
-  expect(link?.url).toBe(url);
-  expect(link?.rows).toEqual([
-    { y: 0, start: 0, end: 8 },
-    { y: 1, start: 30, end: 40 },
-    { y: 2, start: 0, end: 1 },
-  ]);
-  expect(link?.text).toBeUndefined();
-});
-
-test("matching RGB or palette colors cannot make hidden OSC or plain text an exact match", async () => {
-  const url = "https://good.example@evil.test/";
-  for (const sgr of ["38;2;0;0;0;48;2;0;0;0", "30;40"])
-    for (const output of [
-      osc(url, `https://good.example\x1b[${sgr}m@evil.test/\x1b[0m`),
-      `https://good.example\x1b[${sgr}m@evil.test/\x1b[0m`,
-    ]) {
-      const terminal = await fixture(output);
-      expect.soft(linksOnRow(terminal, 0)[0]).toMatchObject({ url, text: undefined });
-    }
-});
-
-test("unknown or equal default theme colors, faint/inverse and explicit colors require confirmation", async () => {
-  const url = "https://visibility.example/path";
-  const terminal = await fixture(url);
-  for (const theme of [
-    { foreground: "#000000", background: "#000000" },
-    { foreground: "rgb(0,0,0)", background: "#000000" },
-  ]) {
-    terminal.options.theme = theme;
-    expect(linksOnRow(terminal, 0)[0]?.text).toBeUndefined();
-  }
-  for (const sgr of ["2", "7", "31", "41"])
-    expect(linksOnRow(await fixture(`\x1b[${sgr}m${url}`), 0)[0]?.text).toBeUndefined();
 });
 
 test("canonical ASCII OAuth URL preserves percent escapes and ampersands across soft wraps", async () => {
@@ -176,84 +96,6 @@ test("canonical ASCII OAuth URL preserves percent escapes and ampersands across 
     "x".repeat(2100);
   for (const output of [url, osc(url, url)]) {
     const terminal = await fixture(output, 80, 40);
-    for (let row = 0; row < 20; row++)
-      expect(linksOnRow(terminal, row)[0]).toMatchObject({ url, text: url });
+    for (let row = 0; row < 20; row++) expect(linksOnRow(terminal, row)[0]).toMatchObject({ url });
   }
-});
-
-test.each(["#000001", "#0a0a0a"])(
-  "low contrast defaults from OSC 10/11 cannot qualify as displayed (%s)",
-  async (foreground) => {
-    const { TerminalColors } = await import("../../../../src/shared/terminal-colors");
-    const terminal = await fixture("");
-    const colors = new TerminalColors(
-      terminal.parser,
-      true,
-      () => {},
-      () => {
-        terminal.options.theme = colors.theme();
-      },
-    );
-    terminal.options.theme = colors.theme();
-    const url = "https://good.example/";
-    await new Promise<void>((resolve) => {
-      terminal.write(
-        `\x1b]10;${foreground}\x1b\\\x1b]11;#000000\x1b\\${osc(url, url)}\r\n${url}`,
-        resolve,
-      );
-    });
-    expect(terminal.options.theme.foreground).toBe(foreground);
-    for (const row of [0, 1])
-      expect.soft(linksOnRow(terminal, row)[0]).toMatchObject({ url, text: undefined });
-  },
-);
-
-test.each([
-  ["#777777", false],
-  ["#767676", true],
-])(
-  "WCAG AA normal-text 4.5:1 threshold determines default-color visibility (%s)",
-  async (foreground, visible) => {
-    const url = "https://contrast.test/";
-    const terminal = await fixture(url);
-    terminal.options.theme = { foreground, background: "#ffffff" };
-    expect(linksOnRow(terminal, 0)[0]?.text).toBe(visible ? url : undefined);
-  },
-);
-
-test.each([false, true])(
-  "cursor colors must leave a linked cell visible (OSC=%s)",
-  async (linked) => {
-    const { TerminalColors } = await import("../../../../src/shared/terminal-colors");
-    const url = "https://cursor.test/path";
-    const terminal = await fixture("");
-    const colors = new TerminalColors(
-      terminal.parser,
-      true,
-      () => {},
-      () => {
-        terminal.options.theme = { ...colors.theme(), cursorAccent: "#000000" };
-      },
-    );
-    terminal.options.theme = { ...colors.theme(), cursorAccent: "#000000" };
-    await new Promise<void>((resolve) => {
-      terminal.write((linked ? osc(url, url) : url) + "\x1b[1;4H\x1b]12;#000000\x1b\\", resolve);
-    });
-    expect(linksOnRow(terminal, 0)[0]?.text).toBeUndefined();
-    await new Promise<void>((resolve) => {
-      terminal.write("\x1b]12;#ffffff\x1b\\", resolve);
-    });
-    expect(linksOnRow(terminal, 0)[0]?.text).toBe(url);
-  },
-);
-
-test("cursor defaults are independent of a light theme background", async () => {
-  const url = "https://cursor.test/path";
-  const terminal = await fixture(url + "\x1b[1;4H");
-  terminal.options.theme = { foreground: "#000000", background: "#ffffff", cursor: "#000000" };
-  expect(linksOnRow(terminal, 0)[0]?.text).toBeUndefined();
-  terminal.options.theme = { foreground: "#000000", background: "#ffffff" };
-  expect(linksOnRow(terminal, 0)[0]?.text).toBe(url);
-  terminal.options.theme = { cursor: "invalid", cursorAccent: "invalid" };
-  expect(linksOnRow(terminal, 0)[0]?.text).toBeUndefined();
 });

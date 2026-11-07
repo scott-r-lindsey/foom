@@ -15,7 +15,12 @@ export function terminalLink(value: unknown): URL | undefined {
   }
   try {
     const url = new URL(value);
-    return (url.protocol === "http:" || url.protocol === "https:") && url.hostname.length <= 255
+    return (url.protocol === "http:" || url.protocol === "https:") &&
+      url.hostname.length <= 255 &&
+      /^[\x21-\x7e]+$/u.test(value) &&
+      url.href === value &&
+      url.username === "" &&
+      url.password === ""
       ? url
       : undefined;
   } catch {

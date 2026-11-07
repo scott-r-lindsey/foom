@@ -16,8 +16,8 @@ Every channel checks the sender (a registered app window, its main frame, `app:/
 | `terminal:kill` | renderer → main (invoke) | `id` |
 | `terminal:input` | renderer → main | `id`, `data` (≤ 64 KB; chunked on code-point boundaries) |
 | `terminal:copy-selection` | renderer → main (invoke) | owned attached `id`, nonempty text ≤65,536 UTF-16 units; writes clipboard only on macOS/Windows while Copy on select is enabled; no read capability |
-| `terminal:copy-link` | renderer → main (invoke) | owned attached `id`, exact HTTP(S) target ≤16,384 UTF-16 units; main parses and validates it before a write-only clipboard operation |
-| `terminal:open-link` | renderer → main (invoke) | owned attached `id`, HTTP(S) target and optional complete label (each ≤16,384 UTF-16 units); only complete visible case-sensitive equality with a printable ASCII target exactly equal to parsed `URL.href` without userinfo skips review, otherwise the owning board's trusted confirmation shows the actual host and full URL; attachment is rechecked after approval |
+| `terminal:copy-link` | renderer → main (invoke) | owned attached `id`, exact canonical printable-ASCII HTTP(S) target without userinfo, ≤16,384 UTF-16 units; main parses and validates it before a write-only clipboard operation |
+| `terminal:open-link` | renderer → main (invoke) | owned attached `id`, canonical printable-ASCII HTTP(S) target without userinfo (≤16,384 UTF-16 units); every activation requires the owning board's trusted confirmation showing the actual host and full URL; attachment is rechecked after approval |
 | `terminal:paste` | renderer → main (invoke) | owned attached live `id` → one validated `text` insertion or fixed `unsupported` / `empty` / `failed` / `cancelled` result; main captures clipboard on the gesture, binds work to the attachment generation and serializes a bounded FIFO; image bytes never reach renderer |
 | `terminal:resize` | renderer → main | `id`, `cols`, `rows` |
 | `terminal:ack` | renderer → main | `id`, attachment token, `count` (attached terminals only) |
@@ -69,6 +69,11 @@ Invoke replies are recursively rebuilt from validated fields, including nested
 arrays, unions and explicitly declared dictionaries; undeclared object properties
 are not exposed. Byte replies are copied. Void capabilities discard internal
 main-process return values.
+
+`preview:describe` takes exactly one 128-bit hex preview ID from the owning board
+main frame. It returns only that window's existing registry record as validated
+preview display facts, with an empty repository association until sidebar inventory
+resolves it. Closed and foreign IDs refuse; no filesystem or host read runs.
 
 `preview:place` validates its UUID request, 128-bit hex preview ID and positive
 safe-integer expiry before buffering or dispatch. Expired requests are discarded;

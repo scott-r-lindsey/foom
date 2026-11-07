@@ -239,14 +239,12 @@ selected text; **Copy** still copies only the selection. Mouse-tracking programs
 keep their right-click; hold Shift to open Foom's menu. Middle-click never opens a
 link.
 
-A link opens directly only when its contiguous, fully visible text matches the
-complete destination, all its cells are in the viewport, and that destination is
-printable ASCII in the browser's canonical URL form with no userinfo. Long sign-in URLs with percent escapes and ampersands can
-qualify. Gaps, concealed or explicitly colored text, uncertain visibility,
-low-contrast default colors (below WCAG AA 4.5:1), Unicode look-alikes and
-noncanonical destinations ask **Open this link?** in Foom's trusted window, with the actual host and
-complete destination shown. Copy link needs no confirmation. Other URL schemes
-are unavailable. OSC 8 hyperlinks keep their full target across rows. Plain URLs
+Every activation asks **Open this link?** in Foom's separate trusted window,
+showing the actual host and full wrapped, scrollable destination. This includes
+matching link text and long sign-in URLs. Cancel is focused initially; Enter
+cancels until you deliberately focus **Open in browser**. Copy link needs no
+confirmation. Only canonical printable-ASCII HTTP(S) targets without userinfo are
+available; control and bidi characters are refused. OSC 8 hyperlinks keep their full target across rows. Plain URLs
 join soft wraps only; application-authored newlines remain separate. If excessive
 OSC metadata is omitted during replay, the text stays visible and selectable, but
 affected links are unavailable in that replay.

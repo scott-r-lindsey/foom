@@ -1063,6 +1063,7 @@ const invokeReply: Record<string, (api: DesktopApi) => Promise<unknown>> = {
   "windows:sync": async (api) => api.windows?.sync(["one"]),
   "windows:select": async (api) => api.windows?.select("one"),
   "preview:pick": async (api) => api.previews?.pick("/worktrees/feature"),
+  "preview:describe": async (api) => api.previews?.describe?.("a".repeat(32)),
 };
 
 test.each(Object.entries(invokeReply))(
@@ -1845,13 +1846,38 @@ test("terminal link bridge exposes only ID-scoped void open and copy capabilitie
     "one",
     "https://example.com/Case",
   );
-  await expect(
-    api.openTerminalLink("one", "https://example.com/", "Login"),
-  ).resolves.toBeUndefined();
-  expect(mock.invoke).toHaveBeenLastCalledWith(
-    "terminal:open-link",
-    "one",
-    "https://example.com/",
-    "Login",
-  );
+  await expect(api.openTerminalLink("one", "https://example.com/")).resolves.toBeUndefined();
+  expect(mock.invoke).toHaveBeenLastCalledWith("terminal:open-link", "one", "https://example.com/");
+});
+
+test("host row failures are validated and projected without raw errors", async () => {
+  const api = await bridge();
+  const value = {
+    hosts: [
+      {
+        host: "worker",
+        codeFolder: "~/code",
+        rowFailures: [
+          { target: { kind: "tool", tool: "gh" }, reason: "save-failed" },
+          { target: { kind: "sign-in", tool: "gh" }, reason: "check-failed" },
+          { target: { kind: "folder" }, reason: "save-failed" },
+          { target: { kind: "checkout", repository: "/repo" }, reason: "save-failed" },
+        ],
+      },
+    ],
+    locations: [],
+  };
+  mock.invoke.mockResolvedValue(withUndeclaredFields(value));
+  await expect(api.hosts({ action: "list" })).resolves.toEqual(value);
+  for (const row of [
+    { target: { kind: "arbitrary" }, reason: "save-failed" },
+    { target: { kind: "tool", tool: "bad id" }, reason: "save-failed" },
+    { target: { kind: "folder" }, reason: "raw EACCES detail" },
+  ]) {
+    mock.invoke.mockResolvedValue({
+      hosts: [{ host: "worker", codeFolder: "~/code", rowFailures: [row] }],
+      locations: [],
+    });
+    await expect(api.hosts({ action: "list" })).rejects.toThrow();
+  }
 });

@@ -1500,3 +1500,97 @@ test
     ]);
   },
 );
+
+test.each(["git", "gh", "codex"])(
+  "scoped tool inspection probes only %s and no other CLI",
+  async (tool) => {
+    await manageHost(
+      {
+        type: "manage",
+        operation: "inspect",
+        codeFolder: "~/code",
+        readOnly: true,
+        partial: true,
+        target: { kind: "tool", tool },
+        agents: [
+          { id: "codex", executables: ["codex"] },
+          { id: "claude", executables: ["claude"] },
+        ],
+      },
+      0,
+      "/fixture",
+      "0.1.0",
+      home,
+    );
+    expect(mock.discovery).toHaveBeenCalledTimes(1);
+    expect(mock.discovery.mock.calls[0]?.[0]).toMatchObject({ executables: [tool] });
+    expect(mock.probe).not.toHaveBeenCalled();
+  },
+);
+test.each(["ssh", "artifact", "folder", "platform", "power", "command-line-tools"] as const)(
+  "scoped %s inspection never discovers tools or agents",
+  async (kind) => {
+    await manageHost(
+      {
+        type: "manage",
+        operation: "inspect",
+        codeFolder: "~/code",
+        readOnly: true,
+        partial: true,
+        target: { kind },
+      },
+      0,
+      "/fixture",
+      "0.1.0",
+      home,
+    );
+    expect(mock.discovery).not.toHaveBeenCalled();
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "folder inspection observes Mac path protection without tool or power probes",
+  async () => {
+    const descriptor = Object.getOwnPropertyDescriptor(process, "platform");
+    if (!descriptor) throw new Error("Missing platform descriptor");
+    Object.defineProperty(process, "platform", { ...descriptor, value: "darwin" });
+    try {
+      mock.requirements.mockResolvedValue({
+        distro: "darwin",
+        libc: "supported",
+        packageManager: "none",
+        mac: { commandLineTools: false, staysAwake: false, protectedFolder: true },
+      });
+      const result = await manageHost(
+        {
+          type: "manage",
+          operation: "inspect",
+          codeFolder: "~/code",
+          readOnly: true,
+          partial: true,
+          target: { kind: "folder" },
+        },
+        0,
+        "/fixture",
+        "0.1.0",
+        home,
+      );
+      expect(result).toMatchObject({
+        ok: true,
+        facts: { requirements: { mac: { protectedFolder: true } } },
+      });
+      expect(mock.requirements).toHaveBeenCalledExactlyOnceWith(
+        "darwin",
+        join(home, "code"),
+        home,
+        {},
+        undefined,
+        "folder",
+      );
+      expect(mock.login).not.toHaveBeenCalled();
+      expect(mock.discovery).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(process, "platform", descriptor);
+    }
+  },
+);

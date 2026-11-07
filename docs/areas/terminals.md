@@ -159,7 +159,7 @@ registered target through xterm 6's OSC service, with runtime shape checks.
 The active extended-attributes flag is checked before reading its OSC ID; reused
 xterm cells retain stale extended values even when that flag is off. It
 never substitutes label text for an unavailable or refused OSC target. Lookup
-is bounded; an incomplete label always requires confirmation. Native xterm OSC
+is bounded. Native xterm OSC
 activation is inert; Foom independently checks the gesture and pointer coordinates.
 Keyboard links precede xterm's input in Tab order and share the same lookup,
 highlighting and activation path. Shift+F10 or the Menu key opens the focused
@@ -173,7 +173,7 @@ soft wraps do not split a run. The target-bearing opening/closing reservations
 are bounded to 4,194,304 UTF-16 units, including an open live pen. Every occurrence
 of an OSC ID is retained or degraded together. IDs touching visible rows in
 both buffers receive budget first, followed by history from newest to oldest.
-Losing a continuation must never turn a formerly differing label into an apparent exact match. Excess IDs use
+Excess IDs use
 fixed inert OSC markers; cells, SGR, widths, cursor accounting and wrapping stay
 intact. Fixed inert markers are outside the target reservation; the host retains
 its original metadata. Normal/alternate splitting uses the same serialized
@@ -199,49 +199,28 @@ replay never grants a stale inactive target link authority.
 
 Main revalidates the registered board main frame, owned attached terminal ID,
 URL type, length (at most 16,384 UTF-16 units), URL parse, HTTP(S) scheme and
-hostname length (at most 255 characters, keeping the host disclosure bounded). Control,
+hostname length (at most 255 characters, keeping the host disclosure bounded). Targets
+must be printable ASCII, exactly equal to parsed `URL.href`, and contain no
+username or password (userinfo). Noncanonical forms, Unicode look-alikes and
+default-ignorable/format characters refuse. Control,
 whitespace and bidi presentation characters refuse. Copy uses main's clipboard
 write path and preserves the exact target. Open uses Electron's browser opener,
 never a shell command. Both capabilities are local; neither is exposed to the
 remote host or agent control tools. The window-open, navigation and CSP policies
 remain unchanged.
 
-**User decision (#1065): no confirmation dialog when the link text the user
-actually saw and activated matches the link; otherwise confirm.** Keep this skip
-for genuine matching links, including long OAuth URLs. A parsed but unpainted
-label is not evidence of what the user saw.
+**User decision (#1065): every link activation shows Foom's trusted confirmation
+with the full target URL. Nothing skips it.** This replaces the user's earlier
+matching-text skip rule. Plain URLs, matching or differing OSC 8 labels and long
+OAuth URLs all confirm, whether activated by primary click, Enter or Open link.
 
-Establishing that match is conservative: main requires a printable ASCII target
-exactly equal to its parsed `URL.href`, no username or password (userinfo),
-and a full, case-sensitive label/target match. Canonical long OAuth URLs containing percent escapes and ampersands still
-qualify. Unicode look-alikes, backslashes and other noncanonical forms always
-confirm; default-ignorable/format characters never qualify, and all Unicode
-`Bidi_Control` characters, including U+061C, refuse entirely.
-
-The matching cells must be contiguous, with no unlinked cells between them even
-across a soft wrap. Continuation rows must start at column zero after a full
-linked previous row. Hard newlines, SGR 8, incomplete labels and uncertain color
-visibility cannot count as a match. Rather than replicate xterm's color pipeline,
-any explicit cell foreground/background, faint/inverse attribute or default
-colors not resolvable as opaque six-digit RGB values requires confirmation.
-Resolved default colors must meet the WCAG 2.2 AA normal-text minimum contrast
-ratio of 4.5:1, using the shared sRGB relative-luminance measure. Low contrast
-(including near-black OSC 10 foregrounds on an OSC 11 black background) confirms.
-A cell under the cursor must also meet the same 4.5:1 contrast threshold between
-resolved cursor and cursor-text colors; unresolved cursor colors confirm.
-Activation rechecks current cell visibility, including cached keyboard links and
-menus. Mouse press records the label and its cell ranges; a change before release
-requires confirmation even if the new label equals the target. Parser, scroll or
-resize invalidations remain uncertain until xterm's next rendered frame; a link
-never rendered or looked up while dirty cannot qualify by settling before release.
-Activation also requires the label and cell ranges to agree with the last
-rendered link snapshot. Theme changes refresh that evidence on the next rendered
-frame, even without new terminal output. A settled matching link still opens without a dialog. For every activation, every cell of the label must be within the current viewport. Scrolling a
-matching label partly out of view requires confirmation. All other opens use the owning board's trusted Foom confirmation,
-showing the parsed host separately and the full wrapped, scrollable URL. Cancel
-is focused by default. Only one open request per board can be pending. Detachment,
-view replacement or renderer loss cancels a pending request; main rechecks the
-attachment lease after approval before opening.
+The owning board's separate trusted window shows the parsed host and full wrapped,
+scrollable target. Cancel is focused by default, so Enter initially cancels;
+opening requires approval with Open in browser. The existing trusted-window
+presentation, input and approval guards remain in force. Only one open request
+per board can be pending. Detachment, view replacement or renderer loss cancels a
+pending request; main rechecks the attachment lease after approval before opening.
+Copy link writes the exact validated target without a confirmation.
 
 ## Image paste (#937)
 

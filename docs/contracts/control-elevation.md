@@ -12,7 +12,9 @@ Children that the human has not taken over cannot be elevated. **Revoke
 orchestrator** swaps the principal back and retires the parent exactly as exit does:
 in-flight operations end as `revoked` or `indeterminate`, confirmations close, and
 the panel keeps the history. Elevating the same session again continues that
-history. Automatic restore re-grants an orchestrator that was active at quit under
+history and, as disclosed in the grant, its prior children, handoffs and worktrees
+in the same repository before Foom restarts, excluding taken-over children (#1081). Transfer to another
+session still grants none of the previous parent’s children. Automatic restore re-grants an orchestrator that was active at quit under
 the [restore rules](control-identity.md#identity-and-capability-model), without a launch prompt.
 
 MCP protocol sessions are keyed by grant generation, so they survive the swap, and

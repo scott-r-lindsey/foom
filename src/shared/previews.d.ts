@@ -1,3 +1,5 @@
+import type { PreviewSummary } from "./workspace";
+
 export interface PreviewRecord {
   id: string;
   worktree: string;
@@ -22,6 +24,7 @@ export interface PreviewSnapshot {
   version: number;
 }
 export interface PreviewApi {
+  describe?(id: string): Promise<PreviewSummary>;
   onPlace?(callback: (id: string, expiresAt: number) => Promise<PreviewPlacement>): () => void;
   copyPath?(id: string): Promise<void>;
   pick(worktree: string): Promise<string | null>;

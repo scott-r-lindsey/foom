@@ -64,8 +64,8 @@ function afterId(
 }
 
 /** Two synchronous read-only passes at the parser barrier: count complete OSC
- * IDs first, then replay each ID wholly retained or wholly inert. A partial
- * retained label must never become an apparent exact match after degradation.
+ * IDs first, then replay each ID wholly retained or wholly inert, preserving
+ * consistent target availability across all of its rows.
  */
 export function withSnapshotLinks(
   screen: Terminal,

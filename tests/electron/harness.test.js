@@ -6,6 +6,7 @@ const { tmpdir } = require("node:os");
 const {
   FAKE_ORCHESTRATED_CLAUDE,
   installQuitAcknowledgement,
+  quitAndWait,
   launchApp,
   boardPage,
   removeAfterApps,
@@ -91,8 +92,12 @@ test("final Electron quit unwinds the debugger evaluation before resuming", asyn
   app.prependListener("will-quit", veto);
   app.quit();
   assert.equal(globalThis.readyToQuit, false, "A veto must not acknowledge cleanup");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(globalThis.readyToQuit, false, "A veto must not schedule acknowledgement");
   app.removeListener("will-quit", veto);
   app.quit();
+  assert.equal(globalThis.readyToQuit, false, "Native will-quit must unwind before readiness");
+  await new Promise((resolve) => setImmediate(resolve));
   assert.equal(globalThis.readyToQuit, true);
   assert.equal(exited, false);
   app.quit(); // Playwright's synchronous inspector evaluation.
@@ -102,6 +107,35 @@ test("final Electron quit unwinds the debugger evaluation before resuming", asyn
   assert.equal(app.listenerCount("before-quit"), 0);
   assert.equal(app.listenerCount("will-quit"), 0);
   delete globalThis.readyToQuit;
+});
+
+test("quit acknowledgement waits for the cancelled native quit to unwind", async (context) => {
+  const app = await launchApp(context, { fixture: "empty-board" });
+  let observed;
+  app.on("console", (message) => {
+    const prefix = "Native quit handoff: ";
+    if (message.text().startsWith(prefix))
+      observed = JSON.parse(message.text().slice(prefix.length));
+  });
+  await quitAndWait(app, () =>
+    app.evaluate(({ app }) => {
+      let beforeQuit = 0;
+      app.on("before-quit", () => beforeQuit++);
+      // This observer runs after the harness's acknowledgement observer.
+      app.once("will-quit", () => {
+        const ready = globalThis.readyToQuit;
+        const before = beforeQuit;
+        // Electron ignores this reentrant request while native quit is still
+        // active. Readiness must not authorize Playwright's final call here.
+        if (ready) app.quit();
+        console.info(
+          "Native quit handoff: " + JSON.stringify({ ready, nativeEntered: beforeQuit !== before }),
+        );
+      });
+      app.quit();
+    }),
+  );
+  assert.deepEqual(observed, { ready: false, nativeEntered: false });
 });
 
 test("agent discovery uses the fixture login shell and controlled PATH", async (context) => {

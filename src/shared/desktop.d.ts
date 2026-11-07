@@ -53,7 +53,7 @@ export interface DesktopApi extends WorkspaceApi, SetupApi, ConfigApi, Environme
   detach(id: string): Promise<void>;
   kill(id: string): Promise<void>;
   copyTerminalSelection(id: string, text: string): Promise<void>;
-  openTerminalLink(id: string, url: string, text?: string): Promise<void>;
+  openTerminalLink(id: string, url: string): Promise<void>;
   copyTerminalLink(id: string, url: string): Promise<void>;
   pasteTerminal(id: string): Promise<TerminalPaste>;
   input(id: string, data: string, origin?: "wheel"): void;

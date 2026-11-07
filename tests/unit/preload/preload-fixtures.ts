@@ -176,6 +176,7 @@ export const workspace: WorkspaceSnapshot = {
       orchestration: {
         role: "orchestrator",
         active: true,
+        restoreOnResume: true,
         children: 1,
         history: [
           { id: "operation", action: "launch", label: "Launch", status: "succeeded", at: 1 },
@@ -441,4 +442,13 @@ export const replies: Record<string, unknown> = {
   "windows:sync": ["one"],
   "windows:select": true,
   "preview:pick": "preview",
+  "preview:describe": {
+    id: "a".repeat(32),
+    repository: "",
+    worktree: "/repo",
+    relativePath: "plan.md",
+    kind: "markdown",
+    network: false,
+    openedBy: { terminalId: "one", agent: "claude" },
+  },
 };

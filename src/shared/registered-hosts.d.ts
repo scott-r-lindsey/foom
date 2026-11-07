@@ -73,12 +73,19 @@ export interface HostFacts {
   memoryAvailable: number;
   agents: readonly { id: string; state: HostAgentState; signIn?: HostSignIn }[];
 }
+export type HostCheckTarget =
+  | { kind: "ssh" | "platform" | "artifact" | "folder" | "command-line-tools" | "power" }
+  | { kind: "tool" | "sign-in"; tool: string }
+  | { kind: "origin" | "checkout"; repository: string };
+export type HostInspectionTarget =
+  | Exclude<HostCheckTarget, { repository: string }>
+  | { kind: "facts" };
 export type HostManagement = {
   type: "manage";
   codeFolder: string;
   agents?: readonly { id: string; executables: readonly string[] }[];
 } & (
-  | { operation: "inspect"; readOnly?: true; partial?: true }
+  | { operation: "inspect"; readOnly?: true; partial?: true; target?: HostInspectionTarget }
   | { operation: "create-folder" }
   | { operation: "list-worktrees"; profile: string }
   | { operation: "repository" | "clone" | "origin"; directory: string; origin: string }
@@ -119,6 +126,7 @@ export type HostResult = { connection?: HostConnectionChecks } & (
     }
 );
 export interface HostRow extends RegisteredHost {
+  rowFailures?: readonly { target: HostCheckTarget; reason: "save-failed" | "check-failed" }[];
   recipes?: readonly {
     tool: string;
     install: boolean;
@@ -155,6 +163,7 @@ export interface HostsState {
   result?: HostResult | undefined;
 }
 export type HostsAction =
+  | { action: "reload"; host: string; target: HostCheckTarget }
   | { action: "rename"; host: string; nickname: string }
   | { action: "trust-origin"; host: string; repository: string }
   | { action: "recipe"; host: string; tool: string; operation: "install" | "sign-in" }

@@ -10,7 +10,6 @@ export function terminalLinks(
     | "buffer"
     | "cols"
     | "rows"
-    | "options"
     | "onRender"
     | "onScroll"
     | "onResize"
@@ -26,8 +25,7 @@ export function terminalLinks(
   let hover: TerminalLink | undefined;
   let pressed:
     | {
-        link: TerminalLink;
-        uncertain: boolean;
+        url: string;
         x: number;
         y: number;
         id: string;
@@ -35,46 +33,9 @@ export function terminalLinks(
       }
     | undefined;
   let rendered: TerminalLink[] = [];
-  let paintedTheme: string | undefined;
-  const painted = (link: TerminalLink) => {
-    const key = JSON.stringify(link);
-    return !dirty && rendered.some((saved) => JSON.stringify(saved) === key);
-  };
-  const open = (link: TerminalLink, uncertain = false) => {
+  const open = (link: TerminalLink) => {
     const id = target();
-    const row = link.rows[0];
-    const current =
-      row &&
-      linksOnRow(terminal, row.y).find(
-        (candidate) =>
-          candidate.url === link.url &&
-          candidate.rows.some(
-            (range) => range.y === row.y && range.start <= row.start && range.end > row.start,
-          ),
-      );
-    // Keyboard overlays/menu closures may predate a theme or output change.
-    if (id && current) {
-      const top = terminal.buffer.active.viewportY;
-      const visible = current.rows.every(
-        (range) =>
-          range.y >= top &&
-          range.y < top + terminal.rows &&
-          range.start >= 0 &&
-          range.end <= terminal.cols,
-      );
-      void desktop
-        .openTerminalLink(
-          id,
-          current.url,
-          visible &&
-            !uncertain &&
-            painted(current) &&
-            JSON.stringify(link) === JSON.stringify(current)
-            ? current.text
-            : undefined,
-        )
-        .catch(() => {});
-    }
+    if (id) void desktop.openTerminalLink(id, link.url).catch(() => {});
   };
   const lookup = (event: MouseEvent): TerminalLink | undefined => {
     const element = container.querySelector<HTMLElement>(".xterm-screen");
@@ -103,9 +64,7 @@ export function terminalLinks(
   };
   const render = () => {
     screen = container.querySelector<HTMLElement>(".xterm-screen");
-    const theme = JSON.stringify(terminal.options.theme);
-    if (!screen || (!dirty && paintedTheme === theme)) return;
-    paintedTheme = theme;
+    if (!screen || !dirty) return;
     dirty = false;
     // Keep focused links and their keyboard focus across ordinary cursor repaints.
     const next: TerminalLink[] = [];
@@ -198,8 +157,7 @@ export function terminalLinks(
     const id = target();
     if (link && id)
       pressed = {
-        link,
-        uncertain: !painted(link),
+        url: link.url,
         x: event.clientX,
         y: event.clientY,
         id,
@@ -227,8 +185,7 @@ export function terminalLinks(
     )
       return;
     const link = lookup(event);
-    if (link?.url === previous.link.url)
-      open(link, previous.uncertain || JSON.stringify(link) !== JSON.stringify(previous.link));
+    if (link?.url === previous.url) open(link);
   };
   const offRender = terminal.onRender(render);
   // Scroll fires for each parsed line, inside the parser. Only invalidate here;
@@ -251,14 +208,13 @@ export function terminalLinks(
       const link = lookup(event);
       const id = target();
       if (!link || !id) return undefined;
-      const uncertain = !painted(link);
       return {
         url: link.url,
         copy: () => {
           return target() === id ? desktop.copyTerminalLink(id, link.url) : Promise.resolve();
         },
         open: () => {
-          if (target() === id) open(link, uncertain);
+          if (target() === id) open(link);
         },
       };
     },

@@ -1,3 +1,4 @@
+import type { ParentIdentity } from "../control/orchestration.d";
 import type { AgentInstallation, AgentLaunch } from "../../shared/agents";
 import type { WorkspaceTerminal } from "../../shared/workspace";
 import type { Orchestration } from "../control/orchestration";
@@ -13,6 +14,7 @@ export interface SessionOwnerDependencies {
   configRoot?: string;
   orchestration: Pick<
     Orchestration,
+    | "identity"
     | "handoffs"
     | "view"
     | "ownedWorktrees"
@@ -34,7 +36,7 @@ export interface SessionOwnerDependencies {
   launch: (
     entry: StoredSession,
     control?: AgentLaunch["control"],
-    identity?: string,
+    identity?: ParentIdentity,
   ) => Promise<string | undefined>;
   onChange?: () => void;
 }
@@ -44,7 +46,6 @@ export class SessionOwner {
   private restoreEnabled = true;
   private readonly saved = new Map<string, StoredSession>();
   private readonly remotePlacements = new Map<string, RemoteSavedPlacement>();
-  private readonly repositoryIdentities = new Map<string, string>();
   private readonly restoring = new Set<string>();
   private readonly unrestoredRoles = new Set<string>();
   private restoreWork: Promise<void> | undefined;
@@ -61,9 +62,6 @@ export class SessionOwner {
   }
   roleNotRestored(id: string): boolean {
     return !this.restoring.has(id) && this.unrestoredRoles.has(id);
-  }
-  rememberIdentity(repository: string, identity: string): void {
-    this.repositoryIdentities.set(repository, identity);
   }
   rememberRemote(id: string, value: RemoteSavedPlacement): void {
     const placement = {
@@ -145,7 +143,7 @@ export class SessionOwner {
       .map((entry) => {
         const remoteCheckout = entry.remote ? this.remotePlacements.get(entry.id) : undefined;
         const role = this.deps.orchestration.view(entry.id);
-        const identity = this.repositoryIdentities.get(entry.repository);
+        const identity = this.deps.orchestration.identity(entry.id);
         const saved = this.restoring.has(entry.id) ? this.saved.get(entry.id) : undefined;
         return {
           ...entry,
@@ -157,7 +155,8 @@ export class SessionOwner {
           ...(role?.role === "orchestrator" && role.active && identity !== undefined
             ? {
                 orchestrator: {
-                  identity,
+                  identity: identity.repository,
+                  worktreeIdentity: identity.worktree,
                   history: role.history,
                   worktrees: this.deps.orchestration.ownedWorktrees(entry.id),
                   uncertain: this.deps.orchestration.uncertainWorktrees(entry.id),
@@ -244,7 +243,7 @@ export class SessionOwner {
       return;
     }
     let control: AgentLaunch["control"];
-    let authorityIdentity: string | undefined;
+    let authorityIdentity: ParentIdentity | undefined;
     let slot: ReturnType<Orchestration["reserve"]> | undefined;
     if (entry.orchestrator) {
       this.unrestoredRoles.add(entry.id);
@@ -258,11 +257,16 @@ export class SessionOwner {
           this.restoreEnabled,
         )
       ) {
-        slot = this.deps.orchestration.reserve(entry.repository);
-        if (!("existing" in slot)) {
-          control = { role: "orchestrator" };
-          authorityIdentity = identity;
-          if (identity !== undefined) this.repositoryIdentities.set(entry.repository, identity);
+        const worktree =
+          entry.orchestrator.worktreeIdentity ??
+          (entry.worktree === entry.repository ? entry.orchestrator.identity : undefined);
+        if (identity !== undefined && worktree !== undefined) {
+          const proof = { repository: identity, worktree };
+          slot = this.deps.orchestration.reserve(entry.repository, undefined, false, proof);
+          if (!("existing" in slot)) {
+            control = { role: "orchestrator" };
+            authorityIdentity = proof;
+          }
         }
       }
     } else if (

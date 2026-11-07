@@ -1681,7 +1681,7 @@ test("queued paste preserves each gesture's text snapshot and bounds the FIFO", 
   );
 });
 
-test("terminal link capabilities revalidate sender, attachment, URL and label; copy is exact", async () => {
+test("terminal link capabilities revalidate sender, attachment, URL; copy is exact", async () => {
   const id = await create();
   for (const operation of ["open-link", "copy-link"]) {
     await expect(invoke(operation, [id, "https://example.com"])).rejects.toThrow("unattached");
@@ -1703,21 +1703,17 @@ test("terminal link capabilities revalidate sender, attachment, URL and label; c
       "https://x.test/" + "a".repeat(16384),
     ])
       await expect(invoke(operation, [id, value])).rejects.toThrow("Invalid terminal link");
-    await expect(invoke(operation, [id, "https://example.com", 42])).rejects.toThrow("text");
-    await expect(invoke(operation, [id, "https://example.com", "x".repeat(16385)])).rejects.toThrow(
-      "text",
-    );
   }
   const url = "https://example.com/?case=Case%2f" + "x".repeat(2100);
   await invoke("copy-link", [id, url]);
   expect(mock.clipboard.writeText).toHaveBeenCalledExactlyOnceWith(url);
   await invoke("open-link", [id, url]);
   expect(mock.shell.openExternal).not.toHaveBeenCalled();
-  await invoke("open-link", [id, url, url]);
-  expect(mock.shell.openExternal).toHaveBeenCalledExactlyOnceWith(url);
+  await invoke("open-link", [id, url]);
+  expect(mock.shell.openExternal).not.toHaveBeenCalled();
 });
 
-test("mismatched terminal links confirm on their owning board and recheck the attachment lease", async () => {
+test("all terminal links confirm on their owning board and recheck the attachment lease", async () => {
   const id = await create();
   await invoke("attach", [id]);
   const confirm = vi
@@ -1727,8 +1723,8 @@ test("mismatched terminal links confirm on their owning board and recheck the at
     terminalControl.setLinkConfirmation({} as WebContents, confirm);
   }).toThrow("Unknown terminal window");
   terminalControl.setLinkConfirmation(contents as unknown as WebContents, confirm);
-  const url = "https://trusted.test@actual.test/" + "x".repeat(2100);
-  await invoke("open-link", [id, url, "Login"]);
+  const url = "https://actual.test/" + "x".repeat(2100);
+  await invoke("open-link", [id, url]);
   expect(confirm.mock.calls[0]?.[0]).toMatchObject({
     subject: "actual.test",
     facts: [
@@ -1738,13 +1734,13 @@ test("mismatched terminal links confirm on their owning board and recheck the at
   });
   expect(mock.shell.openExternal).not.toHaveBeenCalled();
   confirm.mockResolvedValue(true);
-  await invoke("open-link", [id, url, "Login"]);
+  await invoke("open-link", [id, url]);
   expect(mock.shell.openExternal).toHaveBeenCalledExactlyOnceWith(url);
   mock.shell.openExternal.mockClear();
   const pending = Promise.withResolvers<boolean>();
   confirm.mockReturnValue(pending.promise);
-  const opening = invoke("open-link", [id, url, "Login"]);
-  await invoke("open-link", [id, url, url]);
+  const opening = invoke("open-link", [id, url]);
+  await invoke("open-link", [id, url]);
   expect(mock.shell.openExternal).not.toHaveBeenCalled();
   const signal = confirm.mock.calls.at(-1)?.[1];
   await invoke("detach", [id]);
@@ -1761,8 +1757,12 @@ test("normal exit keeps link gestures available on the attached output while pas
   await vi.waitFor(() => {
     expect(contents.send).toHaveBeenCalledWith("terminal:exit", id, 0);
   });
+  terminalControl.setLinkConfirmation(
+    contents as unknown as WebContents,
+    vi.fn().mockResolvedValue(true),
+  );
   const url = "https://example.test/exited";
-  await invoke("open-link", [id, url, url]);
+  await invoke("open-link", [id, url]);
   expect(mock.shell.openExternal).toHaveBeenCalledExactlyOnceWith(url);
   expect(await invoke("paste", [id])).toEqual({ kind: "cancelled" });
 });
@@ -1770,19 +1770,21 @@ test("normal exit keeps link gestures available on the attached output while pas
 test("browser failures report fixed text and release the pending link without exposing the target", async () => {
   const id = await create();
   await invoke("attach", [id]);
+  terminalControl.setLinkConfirmation(
+    contents as unknown as WebContents,
+    vi.fn().mockResolvedValue(true),
+  );
   const url = "https://example.test/?private=fixture";
   mock.shell.openExternal.mockRejectedValueOnce(new Error(url));
-  await expect(invoke("open-link", [id, url, url])).rejects.toThrow("Unable to open terminal link");
-  await invoke("open-link", [id, url, url]);
+  await expect(invoke("open-link", [id, url])).rejects.toThrow("Unable to open terminal link");
+  await invoke("open-link", [id, url]);
   expect(mock.shell.openExternal).toHaveBeenCalledTimes(2);
 });
 
-test("exact raw labels with noncanonical, look-alike or invisible target characters still confirm", async () => {
+test("noncanonical, userinfo, look-alike and invisible targets refuse before confirmation", async () => {
   const id = await create();
   await invoke("attach", [id]);
-  const confirm = vi
-    .fn<(content: DialogContent, signal: AbortSignal) => Promise<boolean>>()
-    .mockResolvedValue(false);
+  const confirm = vi.fn().mockResolvedValue(true);
   terminalControl.setLinkConfirmation(contents as unknown as WebContents, confirm);
   for (const url of [
     "https://good.example\u2215login.evil.test/",
@@ -1791,15 +1793,20 @@ test("exact raw labels with noncanonical, look-alike or invisible target charact
     "https://good.example/\u00adpath",
     "https://good.example/\u034fpath",
     "HTTPS://Example.com/",
+    "https://good.example@evil.test/",
+    "https://good.example%2Flogin@evil.test/",
+    "https://user:password@evil.test/",
+    "https://:password@evil.test/",
   ]) {
-    confirm.mockClear();
-    await invoke("open-link", [id, url, url]);
-    expect.soft(confirm).toHaveBeenCalledOnce();
-    expect.soft(mock.shell.openExternal).not.toHaveBeenCalled();
+    for (const operation of ["open-link", "copy-link"])
+      await expect(invoke(operation, [id, url])).rejects.toThrow("Invalid terminal link");
   }
+  expect(confirm).not.toHaveBeenCalled();
+  expect(mock.shell.openExternal).not.toHaveBeenCalled();
+  expect(mock.clipboard.writeText).not.toHaveBeenCalled();
 });
 
-test("a long canonical ASCII OAuth URL with percent escapes and ampersands skips confirmation", async () => {
+test("a long canonical ASCII OAuth target always confirms with the complete target", async () => {
   const id = await create();
   await invoke("attach", [id]);
   const confirm = vi
@@ -1809,25 +1816,8 @@ test("a long canonical ASCII OAuth URL with percent escapes and ampersands skips
   const url =
     "https://login.example/oauth?redirect_uri=https%3A%2F%2Fapp.example%2Fcallback&scope=openid%20profile&state=" +
     "x".repeat(2100);
-  expect(new URL(url).href).toBe(url);
-  await invoke("open-link", [id, url, url]);
-  expect(confirm).not.toHaveBeenCalled();
-  expect(mock.shell.openExternal).toHaveBeenCalledExactlyOnceWith(url);
-});
-
-test.each([
-  "https://good.example@evil.test/",
-  "https://good.example%2Flogin@evil.test/",
-  "https://user:password@evil.test/",
-])("canonical userinfo confirms despite identical visible text: %s", async (url) => {
-  const id = await create();
-  await invoke("attach", [id]);
-  const confirm = vi
-    .fn<(content: DialogContent, signal: AbortSignal) => Promise<boolean>>()
-    .mockResolvedValue(false);
-  terminalControl.setLinkConfirmation(contents as unknown as WebContents, confirm);
-  expect(new URL(url).href).toBe(url);
-  await invoke("open-link", [id, url, url]);
+  await invoke("open-link", [id, url]);
   expect(confirm).toHaveBeenCalledOnce();
+  expect(confirm.mock.calls[0]?.[0].facts).toContainEqual({ label: "URL", value: url, mono: true });
   expect(mock.shell.openExternal).not.toHaveBeenCalled();
 });

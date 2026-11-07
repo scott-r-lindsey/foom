@@ -1,5 +1,4 @@
-import { contrast } from "../../shared/theme-colors";
-import type { IBuffer, IBufferCell, Terminal } from "@xterm/xterm";
+import type { IBuffer, Terminal } from "@xterm/xterm";
 import {
   terminalLink,
   TERMINAL_LINK_LIMIT,
@@ -14,54 +13,16 @@ export interface LinkRow {
 }
 export interface TerminalLink {
   url: string;
-  /** Undefined means the complete visible label could not be established. */
-  text: string | undefined;
   rows: LinkRow[];
 }
 
-// WCAG 2.2 AA minimum contrast for normal-size text.
-const MIN_LINK_CONTRAST_RATIO = 4.5;
-
-type LinkTerminal = Pick<Terminal, "buffer" | "cols"> & Partial<Pick<Terminal, "options">>;
-
-// Explicit cell colors, faint/inverse attributes and unresolvable theme colors
-// take the safe path. We do not try to reproduce xterm's renderer/color pipeline.
-function displayed(cell: IBufferCell | undefined, defaultsVisible: boolean): boolean {
-  return (
-    !!cell &&
-    defaultsVisible &&
-    !cell.isInvisible() &&
-    !cell.isDim() &&
-    !cell.isInverse() &&
-    cell.isFgDefault() &&
-    cell.isBgDefault()
-  );
-}
+type LinkTerminal = Pick<Terminal, "buffer" | "cols">;
 
 /** Coordinates are zero-based buffer cells, independently of xterm's hover state. */
 export function linksOnRow(terminal: LinkTerminal, y: number): TerminalLink[] {
   const buffer = terminal.buffer.active;
   const line = buffer.getLine(y);
   if (!line) return [];
-  const theme = terminal.options?.theme;
-  const foreground = theme?.foreground ?? "#ffffff";
-  const background = theme?.background ?? "#000000";
-  const defaultsVisible =
-    /^#[a-f\d]{6}$/iu.test(foreground) &&
-    /^#[a-f\d]{6}$/iu.test(background) &&
-    contrast(foreground, background) >= MIN_LINK_CONTRAST_RATIO;
-  // xterm 6 ThemeService defaults these independently of foreground/background.
-  const cursor = theme?.cursor ?? "#ffffff";
-  const cursorAccent = theme?.cursorAccent ?? "#000000";
-  const cursorVisible =
-    /^#[a-f\d]{6}$/iu.test(cursor) &&
-    /^#[a-f\d]{6}$/iu.test(cursorAccent) &&
-    contrast(cursor, cursorAccent) >= MIN_LINK_CONTRAST_RATIO;
-  const visible = (cell: IBufferCell | undefined, row: number, col: number) =>
-    displayed(cell, defaultsVisible) &&
-    (row !== buffer.baseY + buffer.cursorY ||
-      col !== Math.min(buffer.cursorX, terminal.cols - 1) ||
-      cursorVisible);
   const result: TerminalLink[] = [];
   const seen = new Set<number>();
   for (let x = 0; x < terminal.cols; x++) {
@@ -71,48 +32,25 @@ export function linksOnRow(terminal: LinkTerminal, y: number): TerminalLink[] {
     const url = terminalOscTarget(terminal, id);
     if (typeof url !== "string" || !terminalLink(url)) continue;
     const rows: LinkRow[] = [];
-    let text = "";
-    let complete = true;
-    // A linked run may have application-authored newlines as well as soft wraps.
-    // Retain newlines in its label: they must never become an exact URL match.
+    // OSC targets are complete independently of label layout.
     const maxRows = Math.ceil(TERMINAL_LINK_LIMIT / terminal.cols) + 2;
     let first = y;
     while (first > 0 && y - first < maxRows && hasId(buffer, first - 1, id, terminal.cols)) first--;
-    if (first > 0 && hasId(buffer, first - 1, id, terminal.cols)) complete = false;
     for (let row = first; row < buffer.length && row - first < maxRows; row++) {
       const current = buffer.getLine(row);
       if (!current || !hasId(buffer, row, id, terminal.cols)) break;
-      if (rows.length && !current.isWrapped) text += "\n";
       let start = -1;
       for (let col = 0; col <= terminal.cols; col++) {
         const cell = current.getCell(col);
         if (col < terminal.cols && terminalOscId(cell) === id) {
           if (start < 0) start = col;
-          // Concealed text must never qualify as a fully displayed destination.
-          if (!visible(cell, row, col)) complete = false;
-          text += cell?.getChars() ?? "";
         } else if (start >= 0) {
-          const previous = rows.at(-1);
-          if (
-            previous &&
-            (previous.y !== row - 1 ||
-              !current.isWrapped ||
-              previous.end !== terminal.cols ||
-              start !== 0)
-          )
-            complete = false;
           rows.push({ y: row, start, end: col });
           start = -1;
         }
       }
-      if (row - first === maxRows - 1 && hasId(buffer, row + 1, id, terminal.cols))
-        complete = false;
     }
-    result.push({
-      url,
-      text: complete && text.length <= TERMINAL_LINK_LIMIT ? text : undefined,
-      rows,
-    });
+    result.push({ url, rows });
   }
 
   // Only xterm's soft-wrap metadata joins plain text. Never infer hard-newline continuations.
@@ -125,7 +63,6 @@ export function linksOnRow(terminal: LinkTerminal, y: number): TerminalLink[] {
     x: number;
     y: number;
     width: number;
-    hidden: boolean;
     osc: number | undefined;
   }[] = [];
   let end = first;
@@ -142,7 +79,6 @@ export function linksOnRow(terminal: LinkTerminal, y: number): TerminalLink[] {
           x,
           y: end,
           width: cell?.getWidth() || 1,
-          hidden: !visible(cell, end, x),
           osc: terminalOscId(cell),
         });
     }
@@ -163,8 +99,7 @@ export function linksOnRow(terminal: LinkTerminal, y: number): TerminalLink[] {
       if (last?.y === cell.y) last.end = cell.x + cell.width;
       else rows.push({ y: cell.y, start: cell.x, end: cell.x + cell.width });
     }
-    if (rows.some((row) => row.y === y))
-      result.push({ url, text: cells.some((cell) => cell.hidden) ? undefined : url, rows });
+    if (rows.some((row) => row.y === y)) result.push({ url, rows });
   }
   return result;
 }

@@ -24,15 +24,27 @@ test("terminal URLs permit bounded HTTP(S) targets and reject unsafe schemes and
   ])
     expect(terminalLink(value)).toBeUndefined();
   for (const value of [
-    "http://localhost:3000",
+    "http://localhost:3000/",
     "https://example.com/?a=b#c",
-    "HTTPS://Example.com/Case",
-    "https://bücher.example/",
     "https://example.com/" + "a".repeat(2000),
     "https://example.com/" + "x".repeat(TERMINAL_LINK_LIMIT - 20),
   ])
     expect(terminalLink(value)).toBeInstanceOf(URL);
-  expect(terminalLink("https://trusted.test@actual.test/path")?.host).toBe("actual.test");
+  for (const value of [
+    "http://localhost:3000",
+    "HTTPS://Example.com/Case",
+    "https://bücher.example/",
+    "https://good.example@evil.test/",
+    "https://good.example%2Flogin@evil.test/",
+    "https://user:password@evil.test/",
+    "https://:password@evil.test/",
+    "https://good.example\u2215login.evil.test/",
+    "https://evil.test\\.good.example/",
+    "https://good.example/\u200bpath",
+    "https://good.example/\u00adpath",
+    "https://good.example/\u034fpath",
+  ])
+    expect(terminalLink(value)).toBeUndefined();
 });
 
 test("OSC adapter refuses missing or incompatible xterm state and leaves target validation to the URL boundary", async () => {

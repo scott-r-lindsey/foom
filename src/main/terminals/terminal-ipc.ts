@@ -1,4 +1,4 @@
-import { terminalLink, TERMINAL_LINK_LIMIT } from "../../shared/terminal-link";
+import { terminalLink } from "../../shared/terminal-link";
 import type { DialogContent } from "../../shared/confirmation";
 import { randomUUID } from "node:crypto";
 import { readPaste } from "./image-clipboard";
@@ -272,14 +272,12 @@ export function attachTerminal(
     if (process.platform !== "linux" && copyOnSelect()) await clipboard.writeText(text);
   });
   for (const operation of ["open", "copy"] as const) {
-    handlers.set(`terminal:${operation}-link`, async (event, id, target, text) => {
+    handlers.set(`terminal:${operation}-link`, async (event, id, target) => {
       if (!trusted(event)) throw new Error("Untrusted IPC sender");
       if (!validId(id) || attached.get(id) !== event.sender)
         throw new Error("Unknown or unattached terminal ID");
       const parsed = terminalLink(target);
       if (!parsed || typeof target !== "string") throw new Error("Invalid terminal link");
-      if (text !== undefined && (typeof text !== "string" || text.length > TERMINAL_LINK_LIMIT))
-        throw new Error("Invalid terminal link text");
       if (operation === "copy") {
         await clipboard.writeText(target);
         return;
@@ -295,34 +293,26 @@ export function attachTerminal(
         !event.sender.isCrashed();
       pendingLinks.add(event.sender);
       try {
+        const confirm = linkConfirmations.get(event.sender);
         if (
-          text !== target ||
-          !/^[\x21-\x7e]+$/u.test(target) ||
-          parsed.href !== target ||
-          parsed.username !== "" ||
-          parsed.password !== ""
-        ) {
-          const confirm = linkConfirmations.get(event.sender);
-          if (
-            !confirm ||
-            !(await confirm(
-              {
-                title: "Open this link?",
-                accept: "Open in browser",
-                glyph: "link",
-                subject: parsed.host,
-                detail:
-                  "Check the destination before opening it. The terminal text may hide or disguise part of this URL.",
-                facts: [
-                  { label: "Host", value: parsed.host, mono: true },
-                  { label: "URL", value: target, mono: true },
-                ],
-              },
-              lease.signal,
-            ))
-          )
-            return;
-        }
+          !confirm ||
+          !(await confirm(
+            {
+              title: "Open this link?",
+              accept: "Open in browser",
+              glyph: "link",
+              subject: parsed.host,
+              detail:
+                "Check the destination before opening it. The terminal text may hide or disguise part of this URL.",
+              facts: [
+                { label: "Host", value: parsed.host, mono: true },
+                { label: "URL", value: target, mono: true },
+              ],
+            },
+            lease.signal,
+          ))
+        )
+          return;
         if (live()) {
           try {
             await shell.openExternal(target);
