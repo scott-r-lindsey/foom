@@ -5,6 +5,16 @@ process.stdin.resume();
 if (mode === "echo") {
   process.stdout.write("READY\r\n");
   process.stdin.on("data", (data) => process.stdout.write(data));
+} else if (mode === "startup") {
+  // Fixture CLI startup output, followed by an interactive lifetime.
+  void (async () => {
+    for (let index = 0; index < 1200; index++) {
+      if (!process.stdout.write(`STARTUP_${index}:${"x".repeat(440)}\r\n`))
+        await new Promise((resolve) => process.stdout.once("drain", resolve));
+    }
+    process.stdout.write("STARTUP_READY\r\n");
+    process.stdin.on("data", (data) => process.stdout.write(data));
+  })();
 } else {
   process.stdout.write("READY\r\n");
   process.stdin.once("data", async () => {

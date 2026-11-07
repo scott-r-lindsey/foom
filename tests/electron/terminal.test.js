@@ -746,6 +746,60 @@ test("utility host survives output floods without losing rows or delaying anothe
   assert.ok(sorted[29] < 1000, "echo remains responsive during a flood (CI ceiling: 1s)");
 });
 
+test("eight fixture CLI launches with startup output keep every terminal alive", {
+  timeout: deadline(45_000),
+}, async (context) => {
+  const app = await launchApp(context, { fixture: "empty-board" });
+  await boardPage(app);
+  const result = await app.evaluate(
+    async ({ app }, { node, probe }) => {
+      const load = process
+        .getBuiltinModule("node:module")
+        .createRequire(app.getAppPath() + "/package.json");
+      const { TerminalHostClient } = load("./build/main/terminals/terminal-host-client.js");
+      const exits = [];
+      const host = new TerminalHostClient((id, code) => exits.push({ id, code }));
+      try {
+        const ids = await Promise.all(
+          Array.from({ length: 8 }, async () => {
+            const id = await host.create({
+              command: node,
+              args: [probe, "startup"],
+              cwd: app.getPath("temp"),
+              cols: 500,
+              rows: 24,
+            });
+            await host.attach(id, (token, data) => host.acknowledge(id, token, data.length));
+            return id;
+          }),
+        );
+        const limit = Date.now() + 15000;
+        while (true) {
+          const tails = await Promise.all(ids.map((id) => host.tail(id, 5)));
+          if (tails.every((lines) => lines.includes("STARTUP_READY"))) break;
+          if (Date.now() > limit) throw new Error("Fixture startup did not finish");
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        await Promise.all(ids.map((id) => host.reply(id, "BURST_ECHO_OK\r")));
+        const echoLimit = Date.now() + 15000;
+        while (true) {
+          const tails = await Promise.all(ids.map((id) => host.tail(id, 5)));
+          if (tails.every((lines) => lines.some((line) => line.includes("BURST_ECHO_OK")))) break;
+          if (Date.now() > echoLimit) throw new Error("Fixture CLI did not answer input");
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        return { running: host.runningCount, exits: [...exits] };
+      } finally {
+        await host.shutdown();
+        await host.dispose();
+      }
+    },
+    { node: process.execPath, probe: path.join(__dirname, "host-probe.js") },
+  );
+  assert.equal(result.running, 8);
+  assert.deepEqual(result.exits, []);
+});
+
 test("utility host survives concurrent terminal exits and drains multi-terminal shutdown", {
   timeout: deadline(45_000),
 }, async (context) => {
@@ -844,6 +898,26 @@ test("a crashed utility host reports failure and the renderer can restart", {
   });
   await expect(page.getByRole("status").filter({ hasText: "Terminal host failed" })).toBeVisible();
   await expect(page.getByRole("status", { name: /^Restoring / })).toHaveCount(0);
+  const diagnosticPath = await app.evaluate(({ app }) =>
+    process
+      .getBuiltinModule("node:path")
+      .join(app.getPath("userData"), "terminal-host-diagnostics", "exits.json"),
+  );
+  await expect
+    .poll(async () => {
+      try {
+        const records = JSON.parse(await readFile(diagnosticPath, "utf8"));
+        return records
+          .map((line) => JSON.parse(line))
+          .some(
+            (record) =>
+              record.pid === hostPid && typeof record.exitCode === "number" && record.reason,
+          );
+      } catch {
+        return false;
+      }
+    })
+    .toBeTruthy();
   await restartShellFromSidebar(page);
   await page.waitForFunction(
     () => !/Starting|failed|Unable/.test(document.querySelector(".tile-status").textContent),

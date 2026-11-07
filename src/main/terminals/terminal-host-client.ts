@@ -1,3 +1,4 @@
+import { recordHostExit, flushHostExits } from "./terminal-host-log";
 import { HOST_PREPARATION_TIMEOUT_MS } from "../../shared/registered-hosts";
 import { ApplicationError } from "../../shared/application-errors";
 import { RemoteTransport } from "./remote-transport";
@@ -31,6 +32,7 @@ type Pending = {
   timer: ReturnType<typeof setTimeout>;
 };
 type HostDiagnostics = {
+  reason?: string;
   serviceName: string;
   pid?: number | undefined;
   exitCode?: number;
@@ -52,6 +54,7 @@ export class TerminalHostClient {
   private readonly remotes = new Map<string, TerminalHostClient>();
   private readonly sessions = new Map<string, Session>();
   private readonly pending = new Map<number, Pending>();
+  private probe: { request: number; timer: ReturnType<typeof setTimeout> } | undefined;
   private sequence = 0;
   private disposed = false;
   private shuttingDown = false;
@@ -145,7 +148,7 @@ export class TerminalHostClient {
       diagnostics.stderr = stderr.toString("utf8");
       if (abnormalExit && this.diagnostics === diagnostics && this.failure) {
         this.failure.message = this.failureMessage(diagnostics);
-        console.error("Terminal host diagnostic:", JSON.stringify(diagnostics));
+        this.recordDiagnostic(diagnostics);
       }
     });
     child.once("spawn", () => {
@@ -164,7 +167,7 @@ export class TerminalHostClient {
       // late crash details in the same error and log them separately for CI.
       if (this.diagnostics === diagnostics && this.failure)
         this.failure.message = this.failureMessage(diagnostics);
-      if (abnormalExit) console.error("Terminal host diagnostic:", JSON.stringify(diagnostics));
+      if (abnormalExit) this.recordDiagnostic(diagnostics);
     };
     app.on("child-process-gone", gone);
     this.releaseDiagnostics = () => {
@@ -177,7 +180,7 @@ export class TerminalHostClient {
       diagnostics.exitCode = code;
       // A zero exit while serving requests is still an unexpected host failure.
       abnormalExit ||= code !== 0 || !this.disposed || this.pending.size > 0;
-      if (abnormalExit) console.error("Terminal host diagnostic:", JSON.stringify(diagnostics));
+      if (abnormalExit) this.recordDiagnostic(diagnostics);
       this.fail(child);
     });
     return child;
@@ -188,6 +191,13 @@ export class TerminalHostClient {
     if (message.type === "activity") {
       const entries = message.entries.filter((entry) => this.sessions.get(entry.id)?.alive);
       if (entries.length) this.events.onActivity?.(entries);
+      return;
+    }
+    if (message.type === "pong") {
+      if (message.id === "host" && this.probe?.request === message.request) {
+        clearTimeout(this.probe.timer);
+        this.probe = undefined;
+      }
       return;
     }
     const session = this.sessions.get(message.id);
@@ -224,6 +234,30 @@ export class TerminalHostClient {
     }
   }
 
+  private recordDiagnostic(diagnostics: HostDiagnostics): void {
+    console.error("Terminal host diagnostic:", JSON.stringify(diagnostics));
+    recordHostExit(app.getPath("userData"), {
+      ...diagnostics,
+      reason: diagnostics.reason ?? diagnostics.gone?.reason ?? "unexpected-exit",
+    });
+  }
+
+  private checkLiveness(child: UtilityProcess | RemoteTransport): void {
+    if (this.child !== child || this.probe) return;
+    const request = ++this.sequence;
+    const timer = setTimeout(() => {
+      if (this.diagnostics) this.diagnostics.reason = "liveness-timeout";
+      this.fail(child);
+    }, 5000);
+    this.probe = { request, timer };
+    try {
+      child.postMessage({ type: "ping", id: "host", request });
+    } catch {
+      if (this.diagnostics) this.diagnostics.reason = "send-failure";
+      this.fail(child);
+    }
+  }
+
   private failureMessage(diagnostics: HostDiagnostics): string {
     return `Terminal host stopped: ${JSON.stringify(diagnostics)}`;
   }
@@ -231,8 +265,14 @@ export class TerminalHostClient {
   private fail(child: UtilityProcess | RemoteTransport, failure?: Error): void {
     if (this.child !== child) return;
     this.child = undefined;
+    if (this.probe) clearTimeout(this.probe.timer);
+    this.probe = undefined;
     child.kill();
     const diagnostics = this.diagnostics;
+    if (diagnostics && diagnostics.exitCode === undefined) {
+      diagnostics.reason ??= this.disposed ? "disposal-timeout" : "transport-failure";
+      this.recordDiagnostic(diagnostics);
+    }
     const error =
       failure ??
       new Error(diagnostics ? this.failureMessage(diagnostics) : "Terminal host stopped", {
@@ -268,7 +308,13 @@ export class TerminalHostClient {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(
         () => {
-          this.fail(child);
+          if (this.remote) {
+            this.fail(child);
+            return;
+          }
+          this.pending.delete(request);
+          reject(new Error("Terminal host request timed out"));
+          this.checkLiveness(child);
         },
         command.type === "shutdown"
           ? 15000
@@ -317,6 +363,9 @@ export class TerminalHostClient {
         theme: resolveTerminalTheme(this.themeChoice, nativeTheme.shouldUseDarkColors),
       });
     } catch (error) {
+      // Creation may have completed after main gave up waiting. Remove that
+      // app-owned ID rather than leaving an unreachable native process behind.
+      this.notify({ type: "kill", id });
       this.sessions.delete(id);
       throw error;
     }
@@ -328,8 +377,17 @@ export class TerminalHostClient {
     const session = this.sessions.get(id);
     if (!session?.available || !this.child) throw new Error("Terminal host unavailable");
     session.send = send;
-    session.view = randomUUID();
-    await this.request({ type: "attach", id, view: session.view });
+    const view = randomUUID();
+    session.view = view;
+    try {
+      await this.request({ type: "attach", id, view });
+    } catch (error) {
+      if (session.view === view) {
+        delete session.view;
+        this.detach(id);
+      }
+      throw error;
+    }
   }
 
   private notify(command: Command): void {
@@ -494,7 +552,7 @@ export class TerminalHostClient {
         resolve();
       }
     });
-    this.closing = Promise.all([remoteClosing, localClosing]).then(() => {});
+    this.closing = Promise.all([remoteClosing, localClosing]).then(() => flushHostExits());
     void this.closing.then(() => {
       this.releaseDiagnostics?.();
       this.releaseDiagnostics = undefined;

@@ -3,10 +3,12 @@ import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { HostRequest } from "../../../../src/shared/terminal-host";
 const mock = vi.hoisted(() => ({
+  recordExit: vi.fn(),
   fork: vi.fn<(path: string, args: string[], options: ForkOptions) => Child>(),
   remote: vi.fn<() => Child>(),
   app: {
     getVersion: () => "0.1.0",
+    getPath: () => "/fixture/profile",
     on: vi.fn<(event: string, callback: (event: Event, details: Details) => void) => void>(),
     removeListener:
       vi.fn<(event: string, callback: (event: Event, details: Details) => void) => void>(),
@@ -21,6 +23,10 @@ vi.mock("../../../../src/main/terminals/remote-transport", () => ({
   RemoteTransport: function () {
     return mock.remote();
   },
+}));
+vi.mock("../../../../src/main/terminals/terminal-host-log", () => ({
+  recordHostExit: mock.recordExit,
+  flushHostExits: () => Promise.resolve(),
 }));
 vi.mock("electron", () => ({ app: mock.app, utilityProcess: mock, nativeTheme: mock.theme }));
 import { TerminalHostClient } from "../../../../src/main/terminals/terminal-host-client";
@@ -178,11 +184,34 @@ test("host loss fails live sessions and pending operations, permits restart, and
   expect(child.postMessage).toHaveBeenCalledOnce();
   expect(exited).toHaveBeenCalledTimes(2);
 });
-test("times out a hung host and rejects creation without leaking requests", async () => {
-  const creating = client.create(spec);
-  const rejected = expect(creating).rejects.toThrow("stopped");
+test("one unanswered attachment does not kill healthy terminals at its deadline", async () => {
+  const slow = await create();
+  const other = await create();
+  const attaching = client.attach(slow, vi.fn());
+  const rejected = expect(attaching).rejects.toThrow();
   await vi.advanceTimersByTimeAsync(10000);
   await rejected;
+  const ping = child.postMessage.mock.calls
+    .map(([message]) => message)
+    .find((message) => message !== "shutdown" && message.type === "ping");
+  child.reply(); // The failed attachment is detached even if its barrier completes late.
+  if (!ping || ping === "shutdown") throw new Error("Missing ping");
+  child.emit("message", { type: "pong", id: "host", request: ping.request });
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(child.kill).not.toHaveBeenCalled();
+  expect(exited).not.toHaveBeenCalled();
+  expect(client.runningCount).toBe(2);
+  const tail = client.tail(other, 1);
+  child.reply(undefined, { lines: ["still running"] });
+  expect(await tail).toEqual(["still running"]);
+});
+test("times out a hung host and rejects creation without leaking requests", async () => {
+  const creating = client.create(spec);
+  const rejected = expect(creating).rejects.toThrow("timed out");
+  await vi.advanceTimersByTimeAsync(10000);
+  await rejected;
+  expect(child.kill).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(5000);
   expect(child.kill).toHaveBeenCalledOnce();
   expect(vi.getTimerCount()).toBe(0);
 });
@@ -701,4 +730,81 @@ test("image staging distinguishes a live local session from a missing/expired ta
   await expect(client.imagePath(id, new Uint8Array(), signal)).resolves.toBeUndefined();
   child.emit("message", { type: "exit", id, code: 0 });
   await expect(client.imagePath(id, new Uint8Array(), signal)).rejects.toThrow("unavailable");
+});
+
+test("coalesces liveness checks and ignores errors, ordinary results and foreign/stale pongs", async () => {
+  const id = await create();
+  const other = await create();
+  const first = client.tail(id, 1);
+  const second = client.tail(other, 1);
+  const rejected = Promise.all([
+    expect(first).rejects.toThrow("timed out"),
+    expect(second).rejects.toThrow("timed out"),
+  ]);
+  await vi.advanceTimersByTimeAsync(10000);
+  await rejected;
+  const pings = child.postMessage.mock.calls
+    .map(([message]) => message)
+    .filter((message) => message !== "shutdown" && message.type === "ping");
+  expect(pings).toHaveLength(1);
+  const ping = pings[0];
+  if (!ping || ping === "shutdown") throw new Error("Missing ping");
+  child.emit("message", { type: "pong", id: "foreign", request: ping.request });
+  child.emit("message", { type: "pong", id: "host", request: ping.request + 1 });
+  child.emit("message", { type: "pong", id: "host", request: 0 });
+  child.reply(undefined, { type: "error" });
+  child.reply();
+  const waiting = client.tail(other, 1);
+  const failed = expect(waiting).rejects.toThrow("stopped");
+  await vi.advanceTimersByTimeAsync(4999);
+  expect(client.runningCount).toBe(2);
+  await vi.advanceTimersByTimeAsync(1);
+  await failed;
+  expect(child.kill).toHaveBeenCalledOnce();
+  expect(exited.mock.calls).toEqual([
+    [id, -1],
+    [other, -1],
+  ]);
+  expect(mock.recordExit).toHaveBeenCalledWith(
+    "/fixture/profile",
+    expect.objectContaining({ reason: "liveness-timeout" }),
+  );
+});
+
+test("a later timeout starts a fresh probe; a ping send failure retires the transport", async () => {
+  const id = await create();
+  for (const broken of [false, true]) {
+    const pending = client.tail(id, 1);
+    const rejected = expect(pending).rejects.toThrow("timed out");
+    if (broken)
+      child.postMessage.mockImplementationOnce(() => {
+        throw new Error("broken pipe");
+      });
+    await vi.advanceTimersByTimeAsync(10000);
+    await rejected;
+    if (!broken) {
+      const ping = child.postMessage.mock.calls.at(-1)?.[0];
+      if (!ping || ping === "shutdown") throw new Error("Missing ping");
+      child.emit("message", { type: "pong", id: "host", request: ping.request });
+      expect(vi.getTimerCount()).toBe(0);
+    }
+  }
+  expect(child.kill).toHaveBeenCalledOnce();
+  expect(exited).toHaveBeenCalledWith(id, -1);
+});
+
+test("late attachment responses and output cannot revive a timed-out view", async () => {
+  const id = await create();
+  const send = vi.fn();
+  const attaching = client.attach(id, send);
+  const index = child.postMessage.mock.calls.length - 1;
+  const rejected = expect(attaching).rejects.toThrow("timed out");
+  await vi.advanceTimersByTimeAsync(10000);
+  await rejected;
+  child.data(id, "private late output");
+  child.reply(index);
+  expect(send).not.toHaveBeenCalled();
+  child.reply(); // detach
+  child.emit("exit", 1);
+  expect(vi.getTimerCount()).toBe(0);
 });

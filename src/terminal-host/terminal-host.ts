@@ -47,6 +47,11 @@ port.on("message", (event: { data: unknown }) => {
   }
   if (!hostRequest(message)) return;
   const { id, request } = message;
+  // Liveness never waits on a terminal's parser, PTY or shutdown barrier.
+  if (message.type === "ping") {
+    send({ type: "pong", id, request });
+    return;
+  }
   void (async () => {
     let lines: string[] = [];
     let title: string | undefined;

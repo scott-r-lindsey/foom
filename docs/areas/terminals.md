@@ -40,7 +40,26 @@ signaled a running process; an already exited PTY returns false. Main-owned
 review automation uses this acknowledgement to distinguish expected stop exits
 from natural failures.
 
-Host requests and responses are validated at runtime and carry terminal IDs; request/reply pairs also carry a monotonic request number. Each attach has a main-generated view generation so late output from a previous view is ignored. Creation IDs are allocated in main. Unknown and duplicate IDs are rejected by the host. Renderer payloads cannot choose executables or working directories. A host exit or 10-second request timeout rejects pending operations, marks live terminals failed (`terminal:exit` code -1), and removes views. Exited terminals are not reclassified. A later create starts a fresh host; old IDs cannot address new sessions. The board displays terminal failures and offers Restart shell for its local shell. Confirmed quit requests native PTY shutdown in the host and reports failures without closing the window, allowing a retry. Shutdown RPC has a 15-second deadline to accommodate the native exit barriers. Final disposal waits for the utility process to exit, with a 12-second fallback for an unresponsive host. Main records abnormal utility exits with exit code and PID plus Electron’s `child-process-gone` reason and native exit code, correlated by a unique service name per host. Electron's utility exit event does not expose a signal. Host failures include the last 8 KiB of the utility process’s own stderr; PTY output, snapshots and tails are never included. Abnormal exit records also appear in Electron test diagnostics/JUnit, including crash details delivered after the utility exit event. An unexpected zero exit still rejects pending operations and is logged; successful final disposal logs neither an exit record nor buffered stderr. App event listeners are released on host replacement or final disposal.
+Host requests and responses are validated at runtime and carry terminal IDs; request/reply pairs also carry a monotonic request number. Each attach has a main-generated view generation so late output from a previous view is ignored. Creation IDs are allocated in main. Unknown and duplicate IDs are rejected by the host. Renderer payloads cannot choose executables or working directories. A local request exceeding its 10-second deadline rejects only that operation. Main
+then sends one coalesced `ping {id: "host", request}` liveness probe, answered by a
+runtime-validated matching `pong` directly on the host event loop, independently
+of terminal parser and shutdown barriers. Ordinary replies, activity and stale or
+foreign pongs cannot satisfy it. Only a probe still unanswered after five seconds
+retires the host; request timeouts do not extend that deadline. Failed attachments
+detach their view and invalidate pending replay; failed creation removes its ID to
+avoid an unreachable PTY. Remote transport deadlines and reconnection are unchanged.
+A host exit, broken transport or unanswered liveness probe rejects pending operations,
+marks live terminals failed (`terminal:exit` code -1), and removes views. Exited terminals are not reclassified. A later create starts a fresh host; old IDs cannot address new sessions. The board displays terminal failures and offers Restart shell for its local shell. Confirmed quit requests native PTY shutdown in the host and reports failures without closing the window, allowing a retry. Shutdown RPC has a 15-second deadline to accommodate the native exit barriers. Final disposal waits for the utility process to exit, with a 12-second fallback for an unresponsive host. Main records abnormal utility exits with exit code and PID plus Electron’s `child-process-gone` reason and native exit code, correlated by a unique service name per host. Electron's utility exit event does not expose a signal. Host failures include the last 8 KiB of the utility process’s own stderr; PTY output, snapshots and tails are never included. Abnormal exit records also appear in Electron test diagnostics/JUnit, including crash details delivered after the utility exit event. An unexpected zero exit still rejects pending operations and is logged; successful final disposal logs neither an exit record nor buffered stderr. App event listeners are released on host replacement or final disposal.
+Abnormal records also survive restart in the profile's private
+`terminal-host-diagnostics/exits.json`: an atomic, synced array of up to 32
+JSON-encoded diagnostic records, with timestamps, fixed failure reasons, service
+identity, PID, exit code (null until reported), bounded stderr and native crash
+details. Late stderr/native details append updated records. The directory is
+owner-only (0700) and files are private (0600, private ACLs on Windows); redirected
+or insecure paths are refused. Successful disposal writes nothing. Final disposal
+flushes pending diagnostic writes; storage failure reports a fixed console error
+and does not prevent terminal recovery. Terminal input, output, snapshots, tails,
+request arguments and environment never enter this log.
 
 The current main-only launch contract is `TerminalSpec` in [shared/terminal-host.d.ts](../../src/shared/terminal-host.d.ts); renderer callers cannot select executables, cwd or environment. Main authorizes checkout identity before creating the host session.
 

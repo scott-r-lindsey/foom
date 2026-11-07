@@ -9,7 +9,7 @@ export type HostRequest = RequestBase &
     | { type: "create"; spec: TerminalSpec; dark?: boolean; theme?: TerminalTheme }
     | { type: "theme"; dark: boolean; theme?: TerminalTheme }
     | { type: "attach"; view: string }
-    | { type: "detach" | "kill" | "stop" | "shutdown" | "screen" }
+    | { type: "detach" | "kill" | "stop" | "shutdown" | "screen" | "ping" }
     | { type: "write"; data: string }
     | { type: "child-input"; input: ChildInput }
     | { type: "resize"; cols: number; rows: number }
@@ -17,6 +17,7 @@ export type HostRequest = RequestBase &
     | { type: "tail"; lines: number }
   );
 export type HostResponse =
+  | { type: "pong"; request: number; id: string }
   | { type: "foreground"; id: string; name: string }
   | { type: "evidence"; id: string; evidence: AgentEvidence }
   | { type: "shell-state"; id: string; state: ShellState }
