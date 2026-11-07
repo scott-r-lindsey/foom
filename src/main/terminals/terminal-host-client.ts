@@ -1,8 +1,10 @@
+import type { HostSnapshot, HostExitDiagnostic } from "./terminal-host-diagnostics";
 import { watchHostLiveness } from "./terminal-host-liveness";
-import { performance } from "node:perf_hooks";
+import { performance, monitorEventLoopDelay } from "node:perf_hooks";
 import {
   recordHostExit,
   recordHostTimeout,
+  recordHostNearMiss,
   initializeHostLog,
   flushHostExits,
 } from "./terminal-host-log";
@@ -38,7 +40,7 @@ type Pending = {
   reject: (error: Error) => void;
   timer: ReturnType<typeof setTimeout>;
 };
-type HostDiagnostics = {
+type HostDiagnostics = Partial<Pick<HostExitDiagnostic, "cause" | "snapshot">> & {
   reason?: string;
   serviceName: string;
   pid?: number | undefined;
@@ -59,7 +61,15 @@ export class TerminalHostClient {
   private readonly remotes = new Map<string, TerminalHostClient>();
   private readonly sessions = new Map<string, Session>();
   private readonly pending = new Map<number, Pending>();
-  private probe: { request: number; cancel: () => void } | undefined;
+  private probe:
+    | {
+        request: number;
+        cancel: () => void;
+        started: number;
+        lateCycles: number;
+        mainLagMs: number;
+      }
+    | undefined;
   private sequence = 0;
   private disposed = false;
   private shuttingDown = false;
@@ -68,6 +78,10 @@ export class TerminalHostClient {
   private diagnostics: HostDiagnostics | undefined;
   private releaseDiagnostics: (() => void) | undefined;
   private failure: Error | undefined;
+  private lastMessageAt = 0;
+  private captureSnapshot: (() => HostSnapshot) | undefined;
+  private observeMessage: (() => number) | undefined;
+  private stopObservation: (() => void) | undefined;
 
   async imagePath(id: string, png: Uint8Array, signal: AbortSignal): Promise<string | undefined> {
     const remote = this.remotes.get(id);
@@ -138,6 +152,33 @@ export class TerminalHostClient {
     });
     this.child = child;
     this.diagnostics = diagnostics;
+    this.lastMessageAt = performance.now();
+    const lag = monitorEventLoopDelay({ resolution: 20 });
+    lag.enable();
+    this.observeMessage = () => {
+      const delay = Math.max(0, lag.max / 1e6 - 20);
+      lag.reset();
+      return Math.round(delay);
+    };
+    this.stopObservation = () => lag.disable();
+    this.captureSnapshot = () => {
+      let hostMemoryKB: number | null = null;
+      // Electron may already have removed a crashed process from its metrics.
+      try {
+        hostMemoryKB =
+          app.getAppMetrics().find((metric) => metric.pid === child.pid)?.memory.workingSetSize ??
+          null;
+      } catch {
+        /* Diagnostics must never obstruct terminal recovery. */
+      }
+      const now = performance.now();
+      return {
+        liveTerminals: [...this.sessions.values()].filter((session) => session.alive).length,
+        hostMemoryKB,
+        lastMessageAgeMs: Math.max(0, Math.round(now - this.lastMessageAt)),
+        mainLagMs: Math.round(Math.max(0, lag.max / 1e6 - 20, this.probe?.mainLagMs ?? 0)),
+      };
+    };
     let abnormalExit = false;
     // xterm parser diagnostics can contain terminal data. Never collect host stderr.
     child.once("spawn", () => {
@@ -160,6 +201,7 @@ export class TerminalHostClient {
     };
     app.on("child-process-gone", gone);
     this.releaseDiagnostics = () => {
+      lag.disable();
       app.removeListener("child-process-gone", gone);
     };
     child.on("message", (message: unknown) => {
@@ -167,6 +209,7 @@ export class TerminalHostClient {
     });
     child.once("exit", (code) => {
       diagnostics.exitCode = code;
+      diagnostics.cause ??= "host-exit";
       // A zero exit while serving requests is still an unexpected host failure.
       abnormalExit ||= code !== 0 || !this.disposed || this.pending.size > 0;
       if (abnormalExit) this.recordDiagnostic(diagnostics);
@@ -177,6 +220,8 @@ export class TerminalHostClient {
 
   private receive(child: UtilityProcess | RemoteTransport, message: unknown): void {
     if (this.child !== child || !hostResponse(message)) return;
+    const observedLagMs = this.observeMessage?.() ?? 0;
+    this.lastMessageAt = performance.now();
     if (message.type === "activity") {
       const entries = message.entries.filter((entry) => this.sessions.get(entry.id)?.alive);
       if (entries.length) this.events.onActivity?.(entries);
@@ -184,6 +229,16 @@ export class TerminalHostClient {
     }
     if (message.type === "pong") {
       if (message.id === "host" && this.probe?.request === message.request) {
+        const probe = this.probe;
+        const elapsedMs = Math.max(0, Math.round(performance.now() - probe.started));
+        if (!this.remote && elapsedMs >= 1000)
+          recordHostNearMiss(app.getPath("userData"), {
+            kind: "late-reply",
+            replyLatencyMs: elapsedMs,
+            probeElapsedMs: elapsedMs,
+            lateCycles: probe.lateCycles,
+            mainLagMs: Math.max(observedLagMs, probe.mainLagMs),
+          });
         this.probe.cancel();
         this.probe = undefined;
       }
@@ -224,6 +279,9 @@ export class TerminalHostClient {
   }
 
   private recordDiagnostic(diagnostics: HostDiagnostics): void {
+    if (this.diagnostics === diagnostics && this.captureSnapshot)
+      diagnostics.snapshot ??= this.captureSnapshot();
+    diagnostics.cause ??= "host-exit";
     console.error("Terminal host diagnostic:", JSON.stringify(diagnostics));
     recordHostExit(app.getPath("userData"), {
       ...diagnostics,
@@ -234,11 +292,24 @@ export class TerminalHostClient {
   private checkLiveness(child: UtilityProcess | RemoteTransport): void {
     if (this.child !== child || this.probe) return;
     const request = ++this.sequence;
-    const cancel = watchHostLiveness(() => {
-      if (this.diagnostics) this.diagnostics.reason = "liveness-timeout";
-      this.fail(child);
-    });
-    this.probe = { request, cancel };
+    const started = performance.now();
+    const cancel = watchHostLiveness(
+      () => {
+        if (this.diagnostics) {
+          this.diagnostics.reason = "liveness-timeout";
+          this.diagnostics.cause = "watchdog-kill";
+        }
+        this.fail(child);
+      },
+      (record) => {
+        if (this.probe) {
+          this.probe.lateCycles = record.lateCycles;
+          this.probe.mainLagMs = Math.max(this.probe.mainLagMs, record.mainLagMs);
+        }
+        if (!this.remote) recordHostNearMiss(app.getPath("userData"), record);
+      },
+    );
+    this.probe = { request, cancel, started, lateCycles: 0, mainLagMs: 0 };
     try {
       child.postMessage({ type: "ping", id: "host", request });
     } catch {
@@ -253,6 +324,12 @@ export class TerminalHostClient {
 
   private fail(child: UtilityProcess | RemoteTransport, failure?: Error): void {
     if (this.child !== child) return;
+    if (this.diagnostics) {
+      if (this.captureSnapshot) this.diagnostics.snapshot ??= this.captureSnapshot();
+      this.diagnostics.cause ??=
+        this.diagnostics.exitCode === undefined ? "foom-kill" : "host-exit";
+    }
+    this.stopObservation?.();
     this.child = undefined;
     if (this.probe) this.probe.cancel();
     this.probe = undefined;

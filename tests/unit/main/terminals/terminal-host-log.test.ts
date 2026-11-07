@@ -5,6 +5,7 @@ import { expect, test, vi } from "vitest";
 import {
   recordHostExit,
   recordHostTimeout,
+  recordHostNearMiss,
   initializeHostLog,
   flushHostExits,
 } from "../../../../src/main/terminals/terminal-host-log";
@@ -126,7 +127,7 @@ test("timeout storms have a separate bounded reserve and cannot erase exits or p
   const raw = await readFile(join(profile, "terminal-host-diagnostics", "exits.json"), "utf8");
   const value: unknown = JSON.parse(raw);
   expect(value).toMatchObject({
-    version: 2,
+    version: 3,
     exits: [expect.stringContaining('"reason":"crashed"')],
   });
   expect(raw.match(/elapsedMs/g)).toHaveLength(16);
@@ -157,7 +158,7 @@ test("startup sanitizes old stderr records without adding an exit or timeout", a
   expect(raw).not.toContain("TERMINAL_MARKER");
   expect(raw).not.toContain("stderr");
   expect(JSON.parse(raw)).toMatchObject({
-    version: 2,
+    version: 3,
     exits: [expect.stringContaining('"exitCode":9')],
     timeouts: [],
   });
@@ -175,4 +176,61 @@ test("invalid fixed timeout metadata is ignored and missing startup history stay
   await expect(
     readFile(join(profile, "terminal-host-diagnostics", "exits.json")),
   ).rejects.toThrow();
+});
+
+test("near-miss reserve is bounded independently, sanitized and retained on restart", async () => {
+  const profile = await mkdtemp(join(tmpdir(), "foom-near-miss-log-"));
+  const path = join(profile, "terminal-host-diagnostics", "exits.json");
+  recordHostExit(profile, {
+    ...diagnostic,
+    cause: "watchdog-kill",
+    snapshot: {
+      liveTerminals: 2,
+      hostMemoryKB: null,
+      lastMessageAgeMs: 15000,
+      mainLagMs: 120,
+    },
+  });
+  for (let i = 0; i < 50; i++)
+    recordHostNearMiss(profile, {
+      kind: "late-drain",
+      replyLatencyMs: null,
+      probeElapsedMs: 5000 + i,
+      lateCycles: i,
+      mainLagMs: 100,
+      ...{ terminal: "PRIVATE_CONTENT" },
+    });
+  await flushHostExits();
+  vi.resetModules();
+  const restarted = await import("../../../../src/main/terminals/terminal-host-log");
+  restarted.initializeHostLog(profile);
+  await restarted.flushHostExits();
+  const raw = await readFile(path, "utf8");
+  const history: unknown = JSON.parse(raw);
+  if (
+    typeof history !== "object" ||
+    history === null ||
+    !("nearMisses" in history) ||
+    !("exits" in history) ||
+    !Array.isArray(history.nearMisses) ||
+    !Array.isArray(history.exits)
+  )
+    throw new Error("Missing history");
+  expect(history.nearMisses).toHaveLength(16);
+  expect(history.exits).toHaveLength(1);
+  const exit: unknown = history.exits[0];
+  if (typeof exit !== "string") throw new Error("Missing exit");
+  expect(JSON.parse(exit)).toMatchObject({
+    cause: "watchdog-kill",
+    snapshot: {
+      liveTerminals: 2,
+      hostMemoryKB: null,
+      lastMessageAgeMs: 15000,
+      mainLagMs: 120,
+    },
+  });
+  const nearMiss: unknown = history.nearMisses[15];
+  if (typeof nearMiss !== "string") throw new Error("Missing near miss");
+  expect(JSON.parse(nearMiss)).toMatchObject({ probeElapsedMs: 5049 });
+  expect(raw).not.toContain("PRIVATE_CONTENT");
 });

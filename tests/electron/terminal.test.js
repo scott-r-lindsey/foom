@@ -850,6 +850,10 @@ test("an unanswered request times out while a real fixture terminal still answer
           paused,
           markerLeaked: raw.includes("10821082"),
           exits: log.exits.length,
+          watchdog: log.exits
+            .map((line) => JSON.parse(line))
+            .find((record) => record.cause === "watchdog-kill"),
+          nearMisses: log.nearMisses.map((line) => JSON.parse(line)),
           exitCodeRecorded: log.exits
             .map((line) => JSON.parse(line))
             .some((record) => typeof record.exitCode === "number"),
@@ -872,6 +876,17 @@ test("an unanswered request times out while a real fixture terminal still answer
   assert.equal(result.markerLeaked, false);
   assert.ok(result.exits > 0);
   assert.equal(result.exitCodeRecorded, true);
+  assert.equal(result.watchdog.snapshot.liveTerminals, 1);
+  assert.equal(typeof result.watchdog.snapshot.lastMessageAgeMs, "number");
+  assert.equal(typeof result.watchdog.snapshot.mainLagMs, "number");
+  assert.ok(
+    result.watchdog.snapshot.hostMemoryKB === null || result.watchdog.snapshot.hostMemoryKB >= 0,
+  );
+  assert.ok(
+    result.nearMisses.some(
+      (record) => record.kind === "late-reply" && record.replyLatencyMs >= 1000,
+    ),
+  );
   assert.equal(result.timeouts.length, 2);
   assert.equal(result.timeouts[0].command, "tail");
   // Node timers have millisecond precision and can fire just under 10 seconds;
@@ -1045,7 +1060,14 @@ test("a crashed utility host reports failure and the renderer can restart", {
           .map((line) => JSON.parse(line))
           .some(
             (record) =>
-              record.pid === hostPid && typeof record.exitCode === "number" && record.reason,
+              record.pid === hostPid &&
+              typeof record.exitCode === "number" &&
+              record.reason &&
+              record.cause === "host-exit" &&
+              record.snapshot?.liveTerminals === 1 &&
+              typeof record.snapshot.lastMessageAgeMs === "number" &&
+              typeof record.snapshot.mainLagMs === "number" &&
+              (record.snapshot.hostMemoryKB === null || record.snapshot.hostMemoryKB >= 0),
           );
       } catch {
         return false;

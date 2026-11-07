@@ -1,10 +1,10 @@
-import type { HostExitDiagnostic } from "./terminal-host-diagnostics";
+import type { HostExitDiagnostic, HostNearMiss } from "./terminal-host-diagnostics";
 import { lstat } from "node:fs/promises";
 import { join } from "node:path";
 import { privateDirectory, atomicPrivate } from "../../node-common/private-files";
 import { readOwnedFile } from "../../node-common/owned-files";
 
-type History = { exits: string[]; timeouts: string[] };
+type History = { exits: string[]; timeouts: string[]; nearMisses: string[] };
 const commands = new Set<string>([
   "create",
   "theme",
@@ -42,6 +42,10 @@ function safeExit(line: string): string {
     throw new Error("Invalid host diagnostics");
   const gone = value["gone"];
   return JSON.stringify({
+    cause: ["watchdog-kill", "foom-kill", "host-exit"].includes(String(value["cause"]))
+      ? value["cause"]
+      : undefined,
+    snapshot: safeSnapshot(value["snapshot"]),
     time: value["time"],
     reason: value["reason"],
     serviceName: value["serviceName"],
@@ -52,9 +56,34 @@ function safeExit(line: string): string {
       : undefined,
   });
 }
+function number(value: unknown): number | null {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+function safeSnapshot(value: unknown): unknown {
+  if (!object(value)) return undefined;
+  return {
+    liveTerminals: number(value["liveTerminals"]),
+    hostMemoryKB: number(value["hostMemoryKB"]),
+    lastMessageAgeMs: number(value["lastMessageAgeMs"]),
+    mainLagMs: number(value["mainLagMs"]),
+  };
+}
+function safeNearMiss(line: string): string {
+  const value: unknown = JSON.parse(line);
+  if (!object(value) || !["late-reply", "late-drain", "late-turn"].includes(String(value["kind"])))
+    throw new Error("Invalid host diagnostics");
+  return JSON.stringify({
+    time: value["time"],
+    kind: value["kind"],
+    replyLatencyMs: number(value["replyLatencyMs"]),
+    probeElapsedMs: number(value["probeElapsedMs"]),
+    lateCycles: number(value["lateCycles"]),
+    mainLagMs: number(value["mainLagMs"]),
+  });
+}
 async function persist(profile: string, batch: History): Promise<void> {
   try {
-    if (!batch.exits.length && !batch.timeouts.length) {
+    if (!batch.exits.length && !batch.timeouts.length && !batch.nearMisses.length) {
       try {
         await lstat(join(profile, "terminal-host-diagnostics"));
       } catch (error) {
@@ -63,7 +92,7 @@ async function persist(profile: string, batch: History): Promise<void> {
       }
     }
     const directory = await privateDirectory(profile, "terminal-host-diagnostics");
-    let history: History = { exits: [], timeouts: [] };
+    let history: History = { exits: [], timeouts: [], nearMisses: [] };
     try {
       const previous: unknown = JSON.parse(
         await readOwnedFile(join(directory, "exits.json"), 2 * 1024 * 1024),
@@ -71,27 +100,32 @@ async function persist(profile: string, batch: History): Promise<void> {
       if (strings(previous)) history.exits = previous;
       else if (
         object(previous) &&
-        previous["version"] === 2 &&
+        (previous["version"] === 2 || previous["version"] === 3) &&
         strings(previous["exits"]) &&
         strings(previous["timeouts"])
       )
-        history = { exits: previous["exits"], timeouts: previous["timeouts"] };
+        history = {
+          exits: previous["exits"],
+          timeouts: previous["timeouts"],
+          nearMisses: strings(previous["nearMisses"]) ? previous["nearMisses"] : [],
+        };
       else throw new Error("Invalid host diagnostics");
     } catch (error) {
       if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
-      if (!batch.exits.length && !batch.timeouts.length) return;
+      if (!batch.exits.length && !batch.timeouts.length && !batch.nearMisses.length) return;
     }
     await atomicPrivate(directory, "exits.json", {
-      version: 2,
+      version: 3,
       exits: [...history.exits, ...batch.exits].slice(-32).map(safeExit),
       timeouts: [...history.timeouts, ...batch.timeouts].slice(-16),
+      nearMisses: [...history.nearMisses, ...batch.nearMisses].slice(-16).map(safeNearMiss),
     });
   } catch {
     console.error("Unable to persist terminal host diagnostics");
   }
 }
 function enqueue(profile: string, kind?: keyof History, line?: string): void {
-  const batch = pending.get(profile) ?? { exits: [], timeouts: [] };
+  const batch = pending.get(profile) ?? { exits: [], timeouts: [], nearMisses: [] };
   if (kind && line) batch[kind] = [...batch[kind], line].slice(kind === "exits" ? -32 : -16);
   pending.set(profile, batch);
   if (draining) return;
@@ -130,6 +164,13 @@ export function recordHostTimeout(profile: string, command: unknown, elapsedMs: 
     profile,
     "timeouts",
     JSON.stringify({ time: new Date().toISOString(), command, elapsedMs }),
+  );
+}
+export function recordHostNearMiss(profile: string, record: HostNearMiss): void {
+  enqueue(
+    profile,
+    "nearMisses",
+    safeNearMiss(JSON.stringify({ time: new Date().toISOString(), ...record })),
   );
 }
 export function flushHostExits(): Promise<void> {

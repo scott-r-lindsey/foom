@@ -7,9 +7,11 @@ import type { HostRequest } from "../../../../src/shared/terminal-host";
 const mock = vi.hoisted(() => ({
   recordExit: vi.fn(),
   recordTimeout: vi.fn(),
+  recordNearMiss: vi.fn(),
   fork: vi.fn<(path: string, args: string[], options: ForkOptions) => Child>(),
   remote: vi.fn<() => Child>(),
   app: {
+    getAppMetrics: vi.fn(() => [{ pid: 123, memory: { workingSetSize: 4096 } }]),
     getVersion: () => "0.1.0",
     getPath: () => "/fixture/profile",
     on: vi.fn<(event: string, callback: (event: Event, details: Details) => void) => void>(),
@@ -26,6 +28,7 @@ vi.mock("node:perf_hooks", async (original) => ({
   ...(await original<typeof PerfHooks>()),
   monitorEventLoopDelay: () => ({
     count: 0,
+    max: 0,
     mean: 0,
     enable: () => {},
     reset: () => {},
@@ -40,6 +43,7 @@ vi.mock("../../../../src/main/terminals/remote-transport", () => ({
 vi.mock("../../../../src/main/terminals/terminal-host-log", () => ({
   recordHostExit: mock.recordExit,
   recordHostTimeout: mock.recordTimeout,
+  recordHostNearMiss: mock.recordNearMiss,
   initializeHostLog: vi.fn(),
   flushHostExits: () => Promise.resolve(),
 }));
@@ -903,4 +907,58 @@ test("a pong queued during the 5008-to-16008 drain pause preserves both sessions
   const responsive = client.tail(b, 1);
   child.reply();
   await expect(responsive).resolves.toEqual([]);
+});
+
+test("late answered probes record numeric near misses while prompt replies remain silent", async () => {
+  const id = await create();
+  for (const latency of [50, 1200]) {
+    const pending = client.tail(id, 1).catch(() => {});
+    await vi.advanceTimersByTimeAsync(10000);
+    await pending;
+    const ping = child.postMessage.mock.calls.at(-1)?.[0];
+    if (!ping || ping === "shutdown" || ping.type !== "ping") throw new Error("Missing ping");
+    await vi.advanceTimersByTimeAsync(latency);
+    child.emit("message", { type: "pong", id: "host", request: ping.request });
+  }
+  expect(mock.recordNearMiss).toHaveBeenCalledExactlyOnceWith("/fixture/profile", {
+    kind: "late-reply",
+    replyLatencyMs: 1200,
+    probeElapsedMs: 1200,
+    lateCycles: 0,
+    mainLagMs: 0,
+  });
+  expect(child.kill).not.toHaveBeenCalled();
+});
+
+test("watchdog snapshot precedes terminal failure and remains fixed through native exit updates", async () => {
+  await create();
+  child.emit("spawn");
+  // Use the live terminal ID from the create command.
+  const command = child.postMessage.mock.calls[0]?.[0];
+  if (!command || command === "shutdown") throw new Error("Missing create");
+  const timed = client.tail(command.id, 1).catch(() => {});
+  await vi.advanceTimersByTimeAsync(15004);
+  await timed;
+  const expected: unknown = expect.objectContaining({
+    cause: "watchdog-kill",
+    snapshot: { liveTerminals: 1, hostMemoryKB: 4096, lastMessageAgeMs: 15002, mainLagMs: 0 },
+  });
+  expect(mock.recordExit).toHaveBeenCalledWith("/fixture/profile", expected);
+  child.emit("exit", 9);
+  expect(mock.recordExit).toHaveBeenLastCalledWith("/fixture/profile", expected);
+});
+
+test("self exit snapshots and unavailable memory are contained", async () => {
+  await create();
+  mock.app.getAppMetrics.mockImplementationOnce(() => {
+    throw new Error("unavailable");
+  });
+  child.emit("exit", 9);
+  expect(mock.recordExit).toHaveBeenLastCalledWith(
+    "/fixture/profile",
+    expect.objectContaining({
+      cause: "host-exit",
+      snapshot: { liveTerminals: 1, hostMemoryKB: null, lastMessageAgeMs: 0, mainLagMs: 0 },
+    }),
+  );
 });
