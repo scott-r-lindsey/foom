@@ -56,6 +56,7 @@ const ReloadContext = createContext<
       reload: (target: HostCheckTarget) => void;
       pending: ReadonlySet<string>;
       failed: ReadonlySet<string>;
+      needsFullCheck: boolean;
     }
   | undefined
 >(undefined);
@@ -94,7 +95,13 @@ function Row({
     <div className="host-check-row" aria-busy={pending}>
       <span className="host-check-name">{name}</span>
       <Status tone={pending ? "work" : failed ? "fail" : tone}>
-        {pending ? "Checking…" : failed ? "Unable to check" : text}
+        {pending
+          ? "Checking…"
+          : failed
+            ? reload?.needsFullCheck
+              ? "Check capabilities required"
+              : "Unable to check"
+            : text}
       </Status>
       <span className="host-check-action">
         {typeof action === "string" ? <span>{action}</span> : action}
@@ -806,7 +813,6 @@ export function HostsSettings({
         }
       }
     } catch {
-      setError("Unable to reload host row");
       setRowFailed((previous) => new Set(previous).add(key));
     } finally {
       setRowPending((previous) => {
@@ -1002,6 +1008,7 @@ export function HostsSettings({
                   reload: (target) => {
                     void reload(entry.host, target);
                   },
+                  needsFullCheck: (preflight?.result ?? entry.result)?.ok !== true,
                   failed: new Set(
                     [...rowFailed]
                       .filter((key) => key.startsWith(`${entry.host}:`))

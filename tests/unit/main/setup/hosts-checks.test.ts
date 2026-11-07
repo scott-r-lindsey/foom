@@ -301,8 +301,10 @@ test("reload validates enabled tools and registered repositories before remote c
 });
 test("scoped inspection without saved facts does not invent a full-check timestamp", async () => {
   settings = { ...settings, registeredHosts: [{ host: "fixture", codeFolder: facts.codeFolder }] };
-  const state = await hosts.action({ action: "reload", host: "fixture", target: { kind: "ssh" } });
-  expect(state.hosts[0]?.observation).toBeUndefined();
+  await expect(
+    hosts.action({ action: "reload", host: "fixture", target: { kind: "ssh" } }),
+  ).rejects.toThrow("Unable to display host row without a full check");
+  expect(settings.registeredHosts?.[0]?.observation).toBeUndefined();
 });
 test("folder actions refresh from their reply, invalidate repositories and preserve other facts", async () => {
   const original = checkedHost();
@@ -508,6 +510,7 @@ test("row reload updates an enrolled live inventory without inventing a saved fu
   await hosts.action({ action: "add", host: "fixture", codeFolder: facts.codeFolder });
   const original = await hosts.inventory("fixture");
   if (!original.ok) throw new Error("Expected live inventory");
+  await hosts.action({ action: "refresh", host: "fixture" });
   execute.mockClear();
   execute.mockResolvedValue({
     ok: true,
@@ -528,9 +531,105 @@ test("row reload updates an enrolled live inventory without inventing a saved fu
       ),
     },
   });
-  expect(state.hosts[0]?.result).toEqual(cached);
-  expect(state.preflight).toBeUndefined();
+  expect(state.hosts[0]?.result).toEqual(original);
+  expect(state.preflight?.result).toEqual(cached);
   expect(settings.registeredHosts?.[0]?.observation).toBeUndefined();
   expect(execute).toHaveBeenCalledTimes(1);
   expect(execute.mock.lastCall?.[1]).toMatchObject({ target: { kind: "tool", tool: "codex" } });
 });
+
+test("a failed replacement folder preserves the saved and live registered folder observation", async () => {
+  const original = checkedHost();
+  execute.mockResolvedValue(original);
+  const live = await hosts.inventory("fixture");
+  const saved = settings.registeredHosts?.[0];
+  execute.mockResolvedValue({ ok: false, reason: "facts-unavailable" });
+  const reply = await hosts.action({
+    action: "change-folder",
+    host: "fixture",
+    codeFolder: "/remote/other",
+  });
+  expect(reply.result).toEqual({ ok: false, reason: "facts-unavailable" });
+  expect(settings.registeredHosts?.[0]).toEqual(saved);
+  expect(await hosts.inventory("fixture")).toEqual(live);
+});
+
+test.each(["failed-check", "no-observation"])(
+  "folder reload reports an explicit failure when its result cannot be displayed after %s",
+  async (scenario) => {
+    checkedHost();
+    settings = {
+      ...settings,
+      registeredHosts: [
+        {
+          host: "fixture",
+          codeFolder: facts.codeFolder,
+          ...(scenario === "failed-check"
+            ? {
+                observation: {
+                  checkedAt: 1234,
+                  preflight: {
+                    ssh: { state: "fail" as const, reason: "unreachable" as const },
+                    platform: { state: "not-checked" as const },
+                    artifact: { state: "not-checked" as const },
+                    repositories: [],
+                    result: { ok: false as const, reason: "unreachable" as const },
+                  },
+                },
+              }
+            : {}),
+        },
+      ],
+    };
+    const saved = settings.registeredHosts;
+    await expect(
+      hosts.action({ action: "reload", host: "fixture", target: { kind: "folder" } }),
+    ).rejects.toThrow();
+    expect(settings.registeredHosts).toEqual(saved);
+    expect((await hosts.fleet(false))[0]?.result).toEqual({
+      ok: false,
+      reason: "facts-unavailable",
+    });
+  },
+);
+
+test.each(["missing-tool", "missing-mac"])(
+  "reload fails explicitly when the selected row is absent from saved facts: %s",
+  async (scenario) => {
+    const original = checkedHost();
+    execute.mockResolvedValue(original);
+    if (scenario === "missing-mac") {
+      const host = settings.registeredHosts?.[0];
+      if (!host?.observation) throw new Error("Expected saved host");
+      settings = {
+        ...settings,
+        registeredHosts: [
+          {
+            ...host,
+            observation: {
+              ...host.observation,
+              preflight: {
+                ...host.observation.preflight,
+                result: {
+                  ok: true,
+                  facts: {
+                    ...original.facts,
+                    requirements: { distro: "debian", libc: "supported", packageManager: "apt" },
+                  },
+                },
+              },
+            },
+          },
+        ],
+      };
+    }
+    await expect(
+      hosts.action({
+        action: "reload",
+        host: "fixture",
+        target: scenario === "missing-tool" ? { kind: "tool", tool: "claude" } : { kind: "power" },
+      }),
+    ).rejects.toThrow();
+    expect(settings.registeredHosts?.[0]?.observation?.checkedAt).toBe(1234);
+  },
+);

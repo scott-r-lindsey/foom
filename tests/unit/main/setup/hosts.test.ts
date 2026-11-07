@@ -1852,6 +1852,13 @@ test.each(["preflight", "refresh", "change-folder", "create-folder", "reload"] a
   "rename saves while %s is pending and survives its reply",
   async (action) => {
     settings.registeredHosts = [{ host: "worker", codeFolder: "~/code" }];
+    if (action === "reload") {
+      run.mockResolvedValueOnce({
+        ok: true,
+        facts: { ...facts, tools: [{ id: "git", state: "ready", signIn: "unknown" }] },
+      });
+      await hosts.action({ action: "preflight", host: "worker", codeFolder: "~/code" });
+    }
     let finish: ((result: HostResult) => void) | undefined;
     run.mockImplementationOnce(
       () =>
@@ -1926,3 +1933,105 @@ test("enrollment revalidates a nickname claimed during inspection and preserves 
     { host: "worker", codeFolder: "~/code", nickname: "Claimed" },
   ]);
 });
+
+test("stale queued tool rows do not fail list or discard another host's queued rows", async () => {
+  const fixture = await restartedBrewHost();
+  try {
+    await fixture.store.update({
+      registeredHosts: [
+        ...(fixture.store.get().registeredHosts ?? []),
+        { host: "other", codeFolder: "/Users/fixture/foom" },
+      ],
+    });
+    const launch = vi.fn(() => Promise.resolve());
+    for (const [host, tool] of [
+      ["mac-fixture", "codex"],
+      ["other", "gh"],
+    ])
+      await fixture.hosts.action(
+        { action: "recipe", host, tool, operation: "install" },
+        undefined,
+        launch,
+      );
+    expect(launch).toHaveBeenCalledTimes(2);
+    await fixture.store.update({ agents: { ...fixture.store.get().agents, codex: false } });
+    fixture.run.mockClear();
+    const listed = await fixture.hosts.action({ action: "list" });
+    expect(listed.hosts).toHaveLength(2);
+    expect(
+      fixture.run.mock.calls.map(([host, request]) => ({
+        host,
+        target: request.operation === "inspect" ? request.target : undefined,
+      })),
+    ).toEqual([
+      { host: "other", target: { kind: "tool", tool: "gh" } },
+      { host: "other", target: { kind: "sign-in", tool: "gh" } },
+    ]);
+    fixture.run.mockClear();
+    await fixture.hosts.action({ action: "list" });
+    expect(fixture.run).not.toHaveBeenCalled();
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("removed repositories drop queued trust rows without failing list", async () => {
+  hosts = new Hosts(store, () => repositories, "0.1.0", run, "a".repeat(32));
+  await hosts.action({ action: "add", host: "worker", codeFolder: facts.codeFolder });
+  const launch = vi.fn(() => Promise.resolve());
+  await hosts.action(
+    { action: "trust-origin", host: "worker", repository: "/local/repo" },
+    undefined,
+    launch,
+  );
+  expect(launch).toHaveBeenCalledTimes(1);
+  repositories = [];
+  run.mockClear();
+  const listed = await hosts.action({ action: "list" });
+  expect(listed.hosts).toHaveLength(1);
+  expect(run).not.toHaveBeenCalled();
+});
+
+test.each(["preflight", "change-folder", "create-folder", "clone"] as const)(
+  "%s cannot prime a partial sidebar cache that hides another host's checkout",
+  async (action) => {
+    run.mockImplementation((host, request) =>
+      Promise.resolve({
+        ok: true,
+        facts: { ...facts, codeFolder: `/home/${host}/code` },
+        ...(request.operation === "repository" || request.operation === "clone"
+          ? {
+              checkout: {
+                path: `/home/${host}/code/${request.directory}`,
+                state: "clean" as const,
+              },
+            }
+          : {}),
+      }),
+    );
+    for (const host of ["worker", "other"])
+      await hosts.action({ action: "add", host, codeFolder: `/home/${host}/code` });
+    await hosts.action({
+      action,
+      host: "worker",
+      ...(action === "preflight" || action === "change-folder"
+        ? { codeFolder: "/home/worker/code" }
+        : {}),
+      ...(action === "clone" ? { repository: "/local/repo" } : {}),
+    });
+    run.mockClear();
+    const sidebar = await hosts.locationsForSidebar();
+    const other = sidebar.locations.find(
+      (entry) => entry.host === "other" && entry.repository === "/local/repo",
+    );
+    expect(other?.result.ok).toBe(true);
+    if (!other?.result.ok) throw new Error("Expected the other host's checkout");
+    expect(other.result.checkout?.path).toMatch(/^\/home\/other\/code\/repository-/u);
+    expect(other.result.checkout?.state).toBe("clean");
+    expect(
+      run.mock.calls.some(
+        ([host, request]) => host === "other" && request.operation === "repository",
+      ),
+    ).toBe(true);
+  },
+);

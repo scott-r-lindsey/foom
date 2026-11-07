@@ -356,11 +356,14 @@ for the profile and cleanup rules.
 
 **Check capabilities** checks the whole host; Add performs its first check.
 Other Hosts actions never start a full check. Rename is local. Folder actions
-refresh the folder from their reply and mark affected repositories **Not checked**.
+refresh the folder from their successful reply and mark affected repositories **Not checked**.
+A failed replacement reports the attempted change and preserves the registered folder's result.
 Clone/Trust origin update that repository; returning from Install/Sign in refreshes
 only the affected tool and sign-in rows. **Last checked** records full checks only.
 Each checklist row has a reload icon on hover and keyboard focus, with a name
 that identifies the row. Reload shows a spinner only on that row, preserves other
-results and leaves other rows usable. Use it to inspect changes made outside Foom;
+results and leaves other rows usable. A row that cannot display its result without
+a full check shows Check capabilities required in that row, with no helper copy. Stale queued
+recipe rows are dropped independently when Hosts reopens. Use reload to inspect changes made outside Foom;
 use Check capabilities to check everything. Sign-in and origin reloads may use
 the host's own network access.

@@ -516,23 +516,30 @@ build a repository is left to an agent the user runs on that host
 A full check runs only for **Check capabilities** and the first check on Add
 (including a first-check retry after accepting a key). Only a full check changes
 **Last checked**. Rename contacts nothing remote. Create/Change folder use their
-own folder reply and invalidate affected repository rows to **Not checked**;
+own successful folder reply and invalidate affected repository rows to **Not checked**;
 there is no hidden repository check. Clone and Trust origin update only that
 repository. Install and Sign in refresh only their tool/sign-in rows when Hosts
-is reopened after the foreground recipe. Action validation and launch inspection
+is reopened after the foreground recipe. Queued rows that become stale (disabled tools
+or removed repositories) are dropped independently; they never prevent the page or
+other queued rows from loading. A refused replacement folder leaves the registered
+folder's saved and live observations intact and reports only the attempted change.
+Action validation and launch inspection
 still use the fresh inspections required above.
 
 Every checklist row has an accessibly named reload icon, revealed on hover or
 keyboard focus. Reload checks only that row, shows its own spinner and keeps
-other results and controls available. Tool discovery does not run sign-in probes;
+other results and controls available. If the existing observations cannot display
+the selected row without a full check, that row shows Check capabilities required, without
+helper copy or a synthetic full-check timestamp. Tool discovery does not run sign-in probes;
 sign-in and origin checks can contact the network. Read-only partial inspection
 accepts a closed `target` selector. Hello advertises `hostRowCheck: 1`; compatible
 older daemons without it refuse scoped inspection and folder creation with `facts-unavailable`,
 without falling back to a full check. Scoped results update saved presentation
 without granting launch authority or advancing the full-check timestamp.
 Scoped reload replies do not publish a broad board inventory refresh. Folder and
-clone replies seed the sidebar's location view from the action's own observations,
-so displaying that view does not immediately trigger repository checks. Scoped
+clone replies may seed the sidebar's location view from the action's own observations
+only when every other registered host's repository rows are already represented.
+A partial seed never stands in for the other hosts' location inventory. Scoped
 observations may update only the corresponding fields of an existing live
 inventory, without renewing its freshness; saved observations never populate it.
 Resource refresh replies remain separate from the launch inventory when no live

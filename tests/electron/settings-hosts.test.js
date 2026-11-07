@@ -170,6 +170,7 @@ process.stdin.on('data', bytes => {
   }
   if(result.ok) { if(settings.facts) Object.assign(result.facts,settings.facts); if(message.operation==='origin' && settings.origin) result={ok:false,reason:settings.origin}; if(message.operation==='repository' && settings.checkout && result.ok) { result.checkout.state=settings.checkout; } }
   if(message.operation==='inspect' && message.target?.kind==='facts' && settings.factsFailure) result={ok:false,reason:settings.factsFailure};
+  if(message.operation==='inspect' && !message.target && settings.inspectFailure) result={ok:false,reason:settings.inspectFailure};
   if(host==='invalid-cloud') result={ok:true,facts:{}};
   const failures={'provider-cloud':'provider-invalid','configuration-cloud':'configuration-changed','cancelled-cloud':'cancelled'};
   if(failures[host]) result={ok:false,reason:failures[host]};
@@ -1165,5 +1166,39 @@ test("Hosts reloads individual rows and actions never trigger full capability ch
   assert.equal(await checkedAt(), timestamp);
   await expect(card.getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
   await captureHosts(app, page, "1061/resource-refresh-failed");
+  await assertAccessible(page);
+});
+
+test("Hosts preserves a rejected replacement folder and reports unrepresentable row reloads inline", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, updateScenario } = await hostsFixture(context);
+  const registration = () =>
+    page.evaluate(async () => (await window.desktop.setupState()).settings.registeredHosts[0]);
+  const original = await registration();
+  await card.getByRole("button", { name: "Change folder", exact: true }).click();
+  await card.getByLabel("Code folder", { exact: true }).fill("~/refused");
+  await card.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByText("Code folder unavailable", { exact: true })).toBeVisible();
+  assert.deepEqual(await registration(), original);
+  const folderRow = card.locator(".host-check-row").filter({
+    has: page.getByRole("button", { name: "Reload Code folder", exact: true }),
+  });
+  await expect(folderRow).toContainText("Pass · Valid");
+  await captureHosts(app, page, "1061/rejected-folder-change");
+  await updateScenario({ inspectFailure: "unreachable" });
+  await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
+  await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
+  await expect(card.getByText("Host unreachable", { exact: true }).first()).toBeVisible();
+  const failed = await registration();
+  assert.equal(failed.observation.preflight.result.ok, false);
+  await updateScenario({});
+  await card.getByRole("button", { name: "Reload Code folder", exact: true }).click();
+  await expect(folderRow).toContainText("Check capabilities required");
+  await expect(page.getByText("Unable to reload host row", { exact: true })).toHaveCount(0);
+  assert.deepEqual(await registration(), failed);
+  await expect(card.getByRole("button", { name: "Reload SSH", exact: true })).toBeEnabled();
+  await captureHosts(app, page, "1061/unrepresentable-row-reload");
   await assertAccessible(page);
 });

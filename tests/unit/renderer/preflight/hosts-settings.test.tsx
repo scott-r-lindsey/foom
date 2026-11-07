@@ -1190,11 +1190,14 @@ test("row reload keeps other rows usable and does not run a full preflight", asy
   expect(api.mock.calls.some(([action]) => action.action === "preflight")).toBe(false);
   api.mockRejectedValue(new Error("offline"));
   fireEvent.click(button);
-  await screen.findByText("Unable to reload host row");
+  await waitFor(() => {
+    expect(button.closest(".host-check-row")?.textContent).toContain("Unable to check");
+  });
+  expect(screen.queryByText("Unable to reload host row")).toBeNull();
   api.mockResolvedValue(saved(initial));
   fireEvent.click(button);
   await waitFor(() => {
-    expect(screen.queryByText("Unable to reload host row")).toBeNull();
+    expect(button.closest(".host-check-row")?.textContent).not.toContain("Unable to check");
   });
 });
 
@@ -1302,3 +1305,23 @@ test.each(["Build box", ""])(
     expect(screen.getByRole("button", { name: `Rename ${finalName || "worker"}` })).toBeTruthy();
   },
 );
+
+test("an unrepresentable row failure names Check capabilities only in that row", async () => {
+  const failed: HostPreflight = { ...preflight, result: { ok: false, reason: "unreachable" } };
+  const { api } = await mount({
+    ...initial,
+    preflight: failed,
+    hosts: [{ ...host, result: failed.result }],
+  });
+  api.mockRejectedValue(new Error("Unable to display host row without a full check"));
+  const button = screen.getByRole("button", { name: "Reload Code folder" });
+  fireEvent.click(button);
+  await waitFor(() => {
+    expect(button.closest(".host-check-row")?.textContent).toContain("Check capabilities required");
+  });
+  expect(screen.queryByText("Unable to reload host row")).toBeNull();
+  expect(screen.getByRole<HTMLButtonElement>("button", { name: "Reload SSH" }).disabled).toBe(
+    false,
+  );
+  expect(screen.getByText(/Last checked/u).textContent).toContain("Last checked");
+});
