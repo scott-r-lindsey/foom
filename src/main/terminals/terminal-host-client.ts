@@ -1,4 +1,11 @@
-import { recordHostExit, flushHostExits } from "./terminal-host-log";
+import { watchHostLiveness } from "./terminal-host-liveness";
+import { performance } from "node:perf_hooks";
+import {
+  recordHostExit,
+  recordHostTimeout,
+  initializeHostLog,
+  flushHostExits,
+} from "./terminal-host-log";
 import { HOST_PREPARATION_TIMEOUT_MS } from "../../shared/registered-hosts";
 import { ApplicationError } from "../../shared/application-errors";
 import { RemoteTransport } from "./remote-transport";
@@ -37,9 +44,7 @@ type HostDiagnostics = {
   pid?: number | undefined;
   exitCode?: number;
   gone?: Pick<Details, "type" | "reason" | "exitCode">;
-  stderr: string;
 };
-const HOST_STDERR_LIMIT = 8192;
 
 type Session = {
   alive: boolean;
@@ -54,7 +59,7 @@ export class TerminalHostClient {
   private readonly remotes = new Map<string, TerminalHostClient>();
   private readonly sessions = new Map<string, Session>();
   private readonly pending = new Map<number, Pending>();
-  private probe: { request: number; timer: ReturnType<typeof setTimeout> } | undefined;
+  private probe: { request: number; cancel: () => void } | undefined;
   private sequence = 0;
   private disposed = false;
   private shuttingDown = false;
@@ -125,32 +130,16 @@ export class TerminalHostClient {
     this.diagnostics = undefined;
     const diagnostics: HostDiagnostics = {
       serviceName: `Foom terminal host ${randomUUID()}`,
-      stderr: "",
     };
+    initializeHostLog(app.getPath("userData"));
     const child = utilityProcess.fork(join(__dirname, "../../terminal-host/terminal-host.js"), [], {
       serviceName: diagnostics.serviceName,
-      stdio: ["ignore", "ignore", "pipe"],
+      stdio: ["ignore", "ignore", "ignore"],
     });
     this.child = child;
     this.diagnostics = diagnostics;
-    let stderr = Buffer.alloc(0);
     let abnormalExit = false;
-    // Only the utility process's own stderr is piped. PTY output stays on the
-    // validated message channel and must never be copied into diagnostics.
-    child.stderr?.on("data", (chunk: unknown) => {
-      const bytes = Buffer.isBuffer(chunk)
-        ? chunk.subarray(-HOST_STDERR_LIMIT)
-        : typeof chunk === "string"
-          ? Buffer.from(chunk.slice(-HOST_STDERR_LIMIT)).subarray(-HOST_STDERR_LIMIT)
-          : undefined;
-      if (!bytes) return;
-      stderr = Buffer.concat([stderr, bytes]).subarray(-HOST_STDERR_LIMIT);
-      diagnostics.stderr = stderr.toString("utf8");
-      if (abnormalExit && this.diagnostics === diagnostics && this.failure) {
-        this.failure.message = this.failureMessage(diagnostics);
-        this.recordDiagnostic(diagnostics);
-      }
-    });
+    // xterm parser diagnostics can contain terminal data. Never collect host stderr.
     child.once("spawn", () => {
       diagnostics.pid = child.pid;
     });
@@ -195,7 +184,7 @@ export class TerminalHostClient {
     }
     if (message.type === "pong") {
       if (message.id === "host" && this.probe?.request === message.request) {
-        clearTimeout(this.probe.timer);
+        this.probe.cancel();
         this.probe = undefined;
       }
       return;
@@ -245,11 +234,11 @@ export class TerminalHostClient {
   private checkLiveness(child: UtilityProcess | RemoteTransport): void {
     if (this.child !== child || this.probe) return;
     const request = ++this.sequence;
-    const timer = setTimeout(() => {
+    const cancel = watchHostLiveness(() => {
       if (this.diagnostics) this.diagnostics.reason = "liveness-timeout";
       this.fail(child);
-    }, 5000);
-    this.probe = { request, timer };
+    });
+    this.probe = { request, cancel };
     try {
       child.postMessage({ type: "ping", id: "host", request });
     } catch {
@@ -265,7 +254,7 @@ export class TerminalHostClient {
   private fail(child: UtilityProcess | RemoteTransport, failure?: Error): void {
     if (this.child !== child) return;
     this.child = undefined;
-    if (this.probe) clearTimeout(this.probe.timer);
+    if (this.probe) this.probe.cancel();
     this.probe = undefined;
     child.kill();
     const diagnostics = this.diagnostics;
@@ -305,6 +294,7 @@ export class TerminalHostClient {
     const message = { ...command, request };
     if (!hostRequest(message)) throw new Error("Invalid terminal host request");
     const child = this.start();
+    const started = performance.now();
     return new Promise((resolve, reject) => {
       const timer = setTimeout(
         () => {
@@ -313,6 +303,11 @@ export class TerminalHostClient {
             return;
           }
           this.pending.delete(request);
+          recordHostTimeout(
+            app.getPath("userData"),
+            command.type,
+            Math.max(0, Math.round(performance.now() - started)),
+          );
           reject(new Error("Terminal host request timed out"));
           this.checkLiveness(child);
         },

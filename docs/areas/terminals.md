@@ -44,22 +44,41 @@ Host requests and responses are validated at runtime and carry terminal IDs; req
 then sends one coalesced `ping {id: "host", request}` liveness probe, answered by a
 runtime-validated matching `pong` directly on the host event loop, independently
 of terminal parser and shutdown barriers. Ordinary replies, activity and stale or
-foreign pongs cannot satisfy it. Only a probe still unanswered after five seconds
-retires the host; request timeouts do not extend that deadline. Failed attachments
+foreign pongs cannot satisfy it. Liveness samples a monotonic receive budget every 100 ms, discounting main-thread
+CPU time and native event-loop overruns (10 ms resolution). Node's idle-utilization
+clock is unavailable in Electron main. Overlapping CPU and lag are conservatively
+discounted twice, so main's work does not shorten the host's five-second window. A missed sampling turn (over 200 ms) restarts the full
+window, including after suspension. A final check-phase turn drains queued host
+messages before retirement; a main delay before that turn also restarts the window.
+A host that stays blocked past this receive window is still killed and its live
+terminals report exit. Other request timeouts do not renew an existing probe. Failed attachments
 detach their view and invalidate pending replay; failed creation removes its ID to
 avoid an unreachable PTY. Remote transport deadlines and reconnection are unchanged.
 A host exit, broken transport or unanswered liveness probe rejects pending operations,
-marks live terminals failed (`terminal:exit` code -1), and removes views. Exited terminals are not reclassified. A later create starts a fresh host; old IDs cannot address new sessions. The board displays terminal failures and offers Restart shell for its local shell. Confirmed quit requests native PTY shutdown in the host and reports failures without closing the window, allowing a retry. Shutdown RPC has a 15-second deadline to accommodate the native exit barriers. Final disposal waits for the utility process to exit, with a 12-second fallback for an unresponsive host. Main records abnormal utility exits with exit code and PID plus Electron’s `child-process-gone` reason and native exit code, correlated by a unique service name per host. Electron's utility exit event does not expose a signal. Host failures include the last 8 KiB of the utility process’s own stderr; PTY output, snapshots and tails are never included. Abnormal exit records also appear in Electron test diagnostics/JUnit, including crash details delivered after the utility exit event. An unexpected zero exit still rejects pending operations and is logged; successful final disposal logs neither an exit record nor buffered stderr. App event listeners are released on host replacement or final disposal.
-Abnormal records also survive restart in the profile's private
-`terminal-host-diagnostics/exits.json`: an atomic, synced array of up to 32
-JSON-encoded diagnostic records, with timestamps, fixed failure reasons, service
-identity, PID, exit code (null until reported), bounded stderr and native crash
-details. Late stderr/native details append updated records. The directory is
-owner-only (0700) and files are private (0600, private ACLs on Windows); redirected
-or insecure paths are refused. Successful disposal writes nothing. Final disposal
-flushes pending diagnostic writes; storage failure reports a fixed console error
-and does not prevent terminal recovery. Terminal input, output, snapshots, tails,
-request arguments and environment never enter this log.
+marks live terminals failed (`terminal:exit` code -1), and removes views. Exited terminals are not reclassified. A later create starts a fresh host; old IDs cannot address new sessions. The board displays terminal failures and offers Restart shell for its local shell. Confirmed quit requests native PTY shutdown in the host and reports failures without closing the window, allowing a retry. Shutdown RPC has a 15-second deadline to accommodate the native exit barriers. Final disposal waits for the utility process to exit, with a 12-second fallback for an unresponsive host. Main records abnormal utility exits with exit code and PID plus Electron’s `child-process-gone` reason and native exit code, correlated by a unique service name per host. Electron's utility exit event does not expose a signal. Host stderr is discarded: xterm parser errors can include terminal-supplied values,
+so even bounded raw stderr is unsafe. Failures retain only fixed reason, code, PID
+and native crash metadata; no raw stderr enters errors, console diagnostics or disk. Abnormal exit records also appear in Electron test diagnostics/JUnit, including crash details delivered after the utility exit event. An unexpected zero exit still rejects pending operations and is logged; successful final disposal adds no exit record. App event listeners are released on host replacement or final disposal.
+Abnormal records and local request timeouts survive restart in the profile's private
+`terminal-host-diagnostics/exits.json`: an atomic, synced version-2 object with
+separate arrays of JSON-encoded metadata records. The exit reserve retains up to
+32 records (timestamp, fixed reason, service identity, PID, code or null until
+reported, native crash details). The timeout reserve retains up to 16 records,
+containing only timestamp, fixed command type and monotonic elapsed milliseconds.
+It includes every local operation deadline, including shutdown; it never records
+terminal/request/view IDs, arguments, input, output, snapshots or tails. Timeout
+storms cannot evict exits. Pending writes coalesce into the same bounded reserves.
+Startup strips legacy stderr and extra fields before rewriting earlier exit history;
+it adds no event for a normal launch. Late native details append safe exit updates.
+The directory is owner-only (0700), files are private (0600, private ACLs on Windows),
+and redirected or insecure paths are refused. Final disposal flushes pending writes;
+storage failure reports a fixed console error without preventing terminal recovery.
+
+The eight-CLI startup-output Electron case verifies burst/backpressure behavior;
+it does not establish timeout isolation. A separate real-deadline case holds one
+request unanswered while its fixture CLI remains alive and answers new input,
+checks the timeout metadata, and verifies a real parser-error marker never reaches
+the durable log. The original incidents' stalled operation remains unknown; the
+new timeout records provide command type and elapsed time without terminal content.
 
 The current main-only launch contract is `TerminalSpec` in [shared/terminal-host.d.ts](../../src/shared/terminal-host.d.ts); renderer callers cannot select executables, cwd or environment. Main authorizes checkout identity before creating the host session.
 

@@ -2,7 +2,12 @@ import { mkdtemp, readFile, stat, writeFile, mkdir, symlink } from "node:fs/prom
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test, vi } from "vitest";
-import { recordHostExit, flushHostExits } from "../../../../src/main/terminals/terminal-host-log";
+import {
+  recordHostExit,
+  recordHostTimeout,
+  initializeHostLog,
+  flushHostExits,
+} from "../../../../src/main/terminals/terminal-host-log";
 vi.mock("../../../../src/node-common/private-file-permissions", () => ({
   windowsAcl: vi.fn().mockResolvedValue(undefined),
 }));
@@ -17,7 +22,12 @@ const diagnostic = {
 test("private diagnostic history survives a new module instance, flushes and bounds retention", async () => {
   const profile = await mkdtemp(join(tmpdir(), "foom-host-log-"));
   const path = join(profile, "terminal-host-diagnostics", "exits.json");
-  const read = async (): Promise<unknown> => JSON.parse(await readFile(path, "utf8"));
+  const read = async (): Promise<unknown> => {
+    const value: unknown = JSON.parse(await readFile(path, "utf8"));
+    if (typeof value !== "object" || value === null || !("exits" in value))
+      throw new Error("Invalid history");
+    return value.exits;
+  };
   recordHostExit(profile, {
     ...diagnostic,
     gone: { type: "Utility", reason: "crashed", exitCode: 9 },
@@ -77,4 +87,92 @@ test("missing exit codes are explicit and unrelated fields cannot enter the dura
   const text = await readFile(join(profile, "terminal-host-diagnostics", "exits.json"), "utf8");
   expect(text).toContain('\\"exitCode\\":null');
   expect(text).not.toContain(input.terminal);
+});
+
+test("a real xterm parser error cannot put terminal-supplied parameters in the durable log", async () => {
+  const { Terminal } = await import("@xterm/headless");
+  const { format } = await import("node:util");
+  const profile = await mkdtemp(join(tmpdir(), "foom-parser-log-"));
+  const marker = "10821082";
+  let stderr = "";
+  const error = vi.spyOn(console, "error").mockImplementation((...values: unknown[]) => {
+    stderr += format(...values);
+  });
+  const terminal = new Terminal({ allowProposedApi: true });
+  try {
+    await new Promise<void>((resolve) => {
+      terminal.write(`\x1b[${marker}\u00a0`, resolve);
+    });
+  } finally {
+    terminal.dispose();
+    error.mockRestore();
+  }
+  expect(stderr).toContain("Parsing error");
+  expect(stderr).toContain(marker);
+  const input = { ...diagnostic, stderr };
+  recordHostExit(profile, input);
+  await flushHostExits();
+  expect(
+    await readFile(join(profile, "terminal-host-diagnostics", "exits.json"), "utf8"),
+  ).not.toContain(marker);
+});
+
+test("timeout storms have a separate bounded reserve and cannot erase exits or payload privacy", async () => {
+  const profile = await mkdtemp(join(tmpdir(), "foom-timeout-log-"));
+  recordHostExit(profile, diagnostic);
+  for (let elapsed = 10000; elapsed < 10050; elapsed++)
+    recordHostTimeout(profile, "attach", elapsed);
+  await flushHostExits();
+  const raw = await readFile(join(profile, "terminal-host-diagnostics", "exits.json"), "utf8");
+  const value: unknown = JSON.parse(raw);
+  expect(value).toMatchObject({
+    version: 2,
+    exits: [expect.stringContaining('"reason":"crashed"')],
+  });
+  expect(raw.match(/elapsedMs/g)).toHaveLength(16);
+  expect(raw).toContain("10049");
+  expect(raw).not.toContain("stderr");
+  expect(raw).not.toContain('"id"');
+});
+
+test("startup sanitizes old stderr records without adding an exit or timeout", async () => {
+  const profile = await mkdtemp(join(tmpdir(), "foom-legacy-log-"));
+  const directory = join(profile, "terminal-host-diagnostics");
+  await mkdir(directory, { mode: 0o700 });
+  const path = join(directory, "exits.json");
+  await writeFile(
+    path,
+    JSON.stringify([
+      JSON.stringify({
+        ...diagnostic,
+        stderr: "TERMINAL_MARKER",
+        gone: { type: "Utility", reason: "crashed", exitCode: 9, payload: "TERMINAL_MARKER" },
+      }),
+    ]),
+    { mode: 0o600 },
+  );
+  initializeHostLog(profile);
+  await flushHostExits();
+  const raw = await readFile(path, "utf8");
+  expect(raw).not.toContain("TERMINAL_MARKER");
+  expect(raw).not.toContain("stderr");
+  expect(JSON.parse(raw)).toMatchObject({
+    version: 2,
+    exits: [expect.stringContaining('"exitCode":9')],
+    timeouts: [],
+  });
+});
+
+test("invalid fixed timeout metadata is ignored and missing startup history stays absent", async () => {
+  const profile = await mkdtemp(join(tmpdir(), "foom-empty-log-"));
+  initializeHostLog(profile);
+  recordHostTimeout(profile, "UNTRUSTED_CONTENT", 10000);
+  recordHostTimeout(profile, null, 10000);
+  recordHostTimeout(profile, "tail", -1);
+  recordHostTimeout(profile, "tail", 1.5);
+  recordHostTimeout(profile, "tail", Infinity);
+  await flushHostExits();
+  await expect(
+    readFile(join(profile, "terminal-host-diagnostics", "exits.json")),
+  ).rejects.toThrow();
 });

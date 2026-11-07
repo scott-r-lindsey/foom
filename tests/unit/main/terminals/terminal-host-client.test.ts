@@ -1,9 +1,12 @@
+import type * as PerfHooks from "node:perf_hooks";
 import type { Details, Event, ForkOptions } from "electron";
+import { performance } from "node:perf_hooks";
 import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { HostRequest } from "../../../../src/shared/terminal-host";
 const mock = vi.hoisted(() => ({
   recordExit: vi.fn(),
+  recordTimeout: vi.fn(),
   fork: vi.fn<(path: string, args: string[], options: ForkOptions) => Child>(),
   remote: vi.fn<() => Child>(),
   app: {
@@ -19,6 +22,16 @@ const mock = vi.hoisted(() => ({
     removeListener: vi.fn(),
   },
 }));
+vi.mock("node:perf_hooks", async (original) => ({
+  ...(await original<typeof PerfHooks>()),
+  monitorEventLoopDelay: () => ({
+    count: 0,
+    mean: 0,
+    enable: () => {},
+    reset: () => {},
+    disable: () => {},
+  }),
+}));
 vi.mock("../../../../src/main/terminals/remote-transport", () => ({
   RemoteTransport: function () {
     return mock.remote();
@@ -26,6 +39,8 @@ vi.mock("../../../../src/main/terminals/remote-transport", () => ({
 }));
 vi.mock("../../../../src/main/terminals/terminal-host-log", () => ({
   recordHostExit: mock.recordExit,
+  recordHostTimeout: mock.recordTimeout,
+  initializeHostLog: vi.fn(),
   flushHostExits: () => Promise.resolve(),
 }));
 vi.mock("electron", () => ({ app: mock.app, utilityProcess: mock, nativeTheme: mock.theme }));
@@ -62,6 +77,8 @@ const exited = vi.fn();
 beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
+  vi.spyOn(performance, "now").mockImplementation(() => Date.now());
+  vi.spyOn(process, "threadCpuUsage").mockReturnValue({ user: 0, system: 0 });
   appEvents.removeAllListeners();
   mock.app.on.mockImplementation((event, callback) => appEvents.on(event, callback));
   mock.app.removeListener.mockImplementation((event, callback) =>
@@ -89,7 +106,7 @@ test("brokers capabilities, snapshots, tails and exits over a validated transpor
     expect.stringContaining("terminal-host.js"),
     [],
     expect.objectContaining({
-      stdio: ["ignore", "ignore", "pipe"],
+      stdio: ["ignore", "ignore", "ignore"],
     }),
   );
   const send = vi.fn();
@@ -211,7 +228,7 @@ test("times out a hung host and rejects creation without leaking requests", asyn
   await vi.advanceTimersByTimeAsync(10000);
   await rejected;
   expect(child.kill).not.toHaveBeenCalled();
-  await vi.advanceTimersByTimeAsync(5000);
+  await vi.advanceTimersByTimeAsync(5001);
   expect(child.kill).toHaveBeenCalledOnce();
   expect(vi.getTimerCount()).toBe(0);
 });
@@ -463,9 +480,10 @@ test.each([true, false])(
     if (!(error instanceof Error)) throw new Error("Missing host failure");
     expect(error.message).toContain('"exitCode":3221225477');
     expect(error.message).toContain('"reason":"crashed"');
-    expect(error.cause).toMatchObject({ pid: 123, stderr: "native failure" });
+    expect(error.cause).toMatchObject({ pid: 123 });
+    expect(error.message).not.toContain("native failure");
     child.stderr.emit("data", Buffer.from(" late stderr"));
-    expect(error.message).toContain("native failure late stderr");
+    expect(error.message).not.toContain("late stderr");
     expect(exited).toHaveBeenCalledWith(id, -1);
     expect(console.error).toHaveBeenCalledWith(
       "Terminal host diagnostic:",
@@ -474,7 +492,7 @@ test.each([true, false])(
   },
 );
 
-test("bounds host stderr, excludes terminal messages and isolates replacement hosts", async () => {
+test("discards host stderr and terminal messages and isolates replacement hosts", async () => {
   const id = await create();
   child.stderr.emit("data", "x".repeat(20000));
   child.stderr.emit("data", Buffer.from("native tail"));
@@ -486,7 +504,13 @@ test("bounds host stderr, excludes terminal messages and isolates replacement ho
   const error = await rejected;
   expect(error).toBeInstanceOf(Error);
   if (!(error instanceof Error)) throw new Error("Missing host failure");
-  expect(error.cause).toMatchObject({ stderr: "x".repeat(8192 - 11) + "native tail" });
+  expect(error.message).not.toContain("native tail");
+  expect(
+    mock.recordExit.mock.calls
+      .flat()
+      .map((value) => JSON.stringify(value))
+      .join(),
+  ).not.toContain("native tail");
   expect(error.message).not.toContain("private terminal output");
   const oldName = mock.fork.mock.calls.at(-1)?.[2]?.serviceName;
   child = new Child();
@@ -533,7 +557,7 @@ test("an unexpected zero exit still rejects shutdown and records diagnostics", a
   );
 });
 
-test.each(["exit", "gone"])("abnormal final disposal logs host stderr (%s)", async (source) => {
+test.each(["exit", "gone"])("abnormal final disposal omits host stderr (%s)", async (source) => {
   await create();
   child.stderr.emit("data", "native failure during disposal");
   const closing = client.dispose();
@@ -543,7 +567,7 @@ test.each(["exit", "gone"])("abnormal final disposal logs host stderr (%s)", asy
   await closing;
   expect(console.error).toHaveBeenLastCalledWith(
     "Terminal host diagnostic:",
-    expect.stringContaining("native failure during disposal late stderr"),
+    expect.not.stringContaining("native failure during disposal"),
   );
 });
 
@@ -758,7 +782,7 @@ test("coalesces liveness checks and ignores errors, ordinary results and foreign
   const failed = expect(waiting).rejects.toThrow("stopped");
   await vi.advanceTimersByTimeAsync(4999);
   expect(client.runningCount).toBe(2);
-  await vi.advanceTimersByTimeAsync(1);
+  await vi.advanceTimersByTimeAsync(2);
   await failed;
   expect(child.kill).toHaveBeenCalledOnce();
   expect(exited.mock.calls).toEqual([
@@ -807,4 +831,33 @@ test("late attachment responses and output cannot revive a timed-out view", asyn
   child.reply(); // detach
   child.emit("exit", 1);
   expect(vi.getTimerCount()).toBe(0);
+});
+
+test("replays the 10010/10060/16010 trace without blaming a delayed main", async () => {
+  vi.setSystemTime(0);
+  const id = await create();
+  const timers = vi.spyOn(globalThis, "setTimeout");
+  const pending = client.tail(id, 1);
+  const rejected = expect(pending).rejects.toThrow("timed out");
+  const timeout = timers.mock.calls.at(-1)?.[0];
+  if (typeof timeout !== "function") throw new Error("Missing request deadline");
+  vi.clearAllTimers();
+  vi.setSystemTime(10010);
+  timeout();
+  await rejected;
+  const ping = child.postMessage.mock.calls.at(-1)?.[0];
+  if (!ping || ping === "shutdown") throw new Error("Missing ping");
+  // Host sent this at 10060; main could not dispatch it until 16011.
+  const queuedPong = { type: "pong", id: "host", request: ping.request };
+  const callback = timers.mock.calls.at(-1)?.[0];
+  if (typeof callback !== "function") throw new Error("Missing probe timer");
+  vi.clearAllTimers();
+  vi.setSystemTime(16010);
+  callback(); // The overdue timer dispatches first.
+  expect(child.kill).not.toHaveBeenCalled();
+  vi.setSystemTime(16011);
+  child.emit("message", queuedPong);
+  expect(client.runningCount).toBe(1);
+  expect(vi.getTimerCount()).toBe(0);
+  expect(mock.recordTimeout).toHaveBeenCalledWith("/fixture/profile", "tail", 10010);
 });

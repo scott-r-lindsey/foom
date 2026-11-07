@@ -2,7 +2,10 @@
 const mode = process.argv[2];
 process.stdin.setRawMode(true);
 process.stdin.resume();
-if (mode === "echo") {
+if (mode === "parser") {
+  process.stdout.write("\x1b[10821082\u00a0\r\nPARSER_READY\r\n");
+  process.stdin.on("data", (data) => process.stdout.write(data));
+} else if (mode === "echo") {
   process.stdout.write("READY\r\n");
   process.stdin.on("data", (data) => process.stdout.write(data));
 } else if (mode === "startup") {

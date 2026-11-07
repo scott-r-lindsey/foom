@@ -746,6 +746,132 @@ test("utility host survives output floods without losing rows or delaying anothe
   assert.ok(sorted[29] < 1000, "echo remains responsive during a flood (CI ceiling: 1s)");
 });
 
+test("an unanswered request times out while a real fixture terminal still answers input", {
+  timeout: deadline(45_000),
+}, async (context) => {
+  const app = await launchApp(context, { fixture: "empty-board" });
+  await boardPage(app);
+  const result = await app.evaluate(
+    async ({ app }, { node, probe }) => {
+      const load = process
+        .getBuiltinModule("node:module")
+        .createRequire(app.getAppPath() + "/package.json");
+      const { TerminalHostClient } = load("./build/main/terminals/terminal-host-client.js");
+      const host = new TerminalHostClient(() => {});
+      const receiveClock = process
+        .getBuiltinModule("node:perf_hooks")
+        .monitorEventLoopDelay({ resolution: 10 });
+      receiveClock.enable();
+      let restore = () => {};
+      try {
+        const id = await host.create({
+          command: node,
+          args: [probe, "parser"],
+          cwd: app.getPath("temp"),
+          cols: 80,
+          rows: 24,
+        });
+        let output = "";
+        await host.attach(id, (token, data) => {
+          output += data;
+          host.acknowledge(id, token, data.length);
+        });
+        const wait = async (condition) => {
+          const limit = Date.now() + 15000;
+          while (!(await condition())) {
+            if (Date.now() > limit) throw new Error("Fixture terminal did not respond");
+            await new Promise((resolve) => setTimeout(resolve, 10));
+          }
+        };
+        await wait(async () => (await host.tail(id, 5)).includes("PARSER_READY"));
+        const transport = host.child;
+        const postMessage = transport.postMessage.bind(transport);
+        let held = 0;
+        let paused = false;
+        transport.postMessage = (message) => {
+          if (message !== "shutdown" && message.type === "tail" && held === 0) {
+            held++;
+            return;
+          }
+          postMessage(message);
+          if (message !== "shutdown" && message.type === "ping" && !paused) {
+            paused = true;
+            // Pause main without generating CPU/I/O load. The real host replies
+            // while main cannot dispatch messages, reproducing the review trace.
+            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 6000);
+          }
+        };
+        restore = () => {
+          transport.postMessage = postMessage;
+        };
+        // Hold exactly one request past the real production deadline. Ping and
+        // all other traffic still reach the real host; no fixture CLI is stopped.
+        const timedOut = await host.tail(id, 1).then(
+          () => false,
+          () => true,
+        );
+        if (!timedOut || host.runningCount !== 1)
+          throw new Error("Request timeout killed the fixture terminal");
+        await host.reply(id, "AFTER_TIMEOUT_ECHO\r");
+        await wait(() => output.includes("AFTER_TIMEOUT_ECHO"));
+        const alive = host.runningCount;
+        // Now model a host that cannot answer its liveness channel. Verify the
+        // real main-loop clock still retires it within a bounded receive window.
+        transport.postMessage = (message) => {
+          if (message !== "shutdown" && (message.type === "tail" || message.type === "ping"))
+            return;
+          postMessage(message);
+        };
+        const exited = new Promise((resolve) => transport.once("exit", resolve));
+        const failed = await host.tail(id, 1).then(
+          () => false,
+          () => true,
+        );
+        if (!failed) throw new Error("Expected unanswered second request");
+        await wait(() => host.runningCount === 0);
+        await exited;
+        restore();
+        await host.dispose();
+        const fs = process.getBuiltinModule("node:fs/promises");
+        const path = process
+          .getBuiltinModule("node:path")
+          .join(app.getPath("userData"), "terminal-host-diagnostics", "exits.json");
+        const raw = await fs.readFile(path, "utf8");
+        const log = JSON.parse(raw);
+        return {
+          alive,
+          receiveSamples: receiveClock.count,
+          held,
+          paused,
+          markerLeaked: raw.includes("10821082"),
+          exits: log.exits.length,
+          exitCodeRecorded: log.exits
+            .map((line) => JSON.parse(line))
+            .some((record) => typeof record.exitCode === "number"),
+          timeouts: log.timeouts.map((line) => JSON.parse(line)),
+        };
+      } finally {
+        receiveClock.disable();
+        restore();
+        if (host.runningCount) await host.shutdown();
+        await host.dispose();
+      }
+    },
+    { node: process.execPath, probe: path.join(__dirname, "host-probe.js") },
+  );
+  assert.equal(result.alive, 1);
+  assert.ok(result.receiveSamples > 0, "native loop-lag clock runs in Electron main");
+  assert.equal(result.held, 1);
+  assert.equal(result.paused, true);
+  assert.equal(result.markerLeaked, false);
+  assert.ok(result.exits > 0);
+  assert.equal(result.exitCodeRecorded, true);
+  assert.equal(result.timeouts.length, 2);
+  assert.equal(result.timeouts[0].command, "tail");
+  assert.ok(result.timeouts[0].elapsedMs >= 10000);
+  assert.deepEqual(Object.keys(result.timeouts[0]).sort(), ["command", "elapsedMs", "time"]);
+});
+
 test("eight fixture CLI launches with startup output keep every terminal alive", {
   timeout: deadline(45_000),
 }, async (context) => {
@@ -907,7 +1033,7 @@ test("a crashed utility host reports failure and the renderer can restart", {
     .poll(async () => {
       try {
         const records = JSON.parse(await readFile(diagnosticPath, "utf8"));
-        return records
+        return records.exits
           .map((line) => JSON.parse(line))
           .some(
             (record) =>
