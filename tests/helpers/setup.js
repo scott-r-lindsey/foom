@@ -1,7 +1,12 @@
-// Preload in every test runner, before tests or their imports can launch Git.
+// Preload before test imports can launch Git, observers or application fixtures.
+const { runnerEnvironment } = require("./environment.js");
 const { gitEnvironment } = require("./git.js");
+const environment = runnerEnvironment();
 for (const key of Object.keys(process.env)) {
-  if (key.toUpperCase().startsWith("GIT_")) delete process.env[key];
+  if (/^(GIT_|FOOM_)/i.test(key)) {
+    // Retain only explicit runner controls, before tests add their own overrides.
+    if (key.toUpperCase().startsWith("GIT_") || !(key in environment)) delete process.env[key];
+  }
 }
 Object.assign(process.env, gitEnvironment());
 

@@ -387,7 +387,7 @@ test("an agent fixture opens full-board previews in columns, retains focus and r
     .poll(async () => (await previewViewState(app, reopened.previewId)).attached)
     .toBe(true);
   await page.locator('[data-tile="terminal"] .xterm-helper-textarea').focus();
-  // At minimum width, use terminal replacement fallback and protect the focused shell.
+  // Narrow boards keep adding columns below the former 60-cell threshold, preserving focus.
   await app.evaluate(({ BrowserWindow }) => {
     BrowserWindow.getAllWindows()
       .find((window) => window.webContents.getURL() === "app://bundle/index.html")
@@ -395,8 +395,8 @@ test("an agent fixture opens full-board previews in columns, retains focus and r
   });
   await expect.poll(() => page.evaluate(() => innerWidth)).toBe(900);
   const narrow = await requestPreview("narrow", "narrow.md");
-  assert.equal(narrow.placement, "replace");
-  await expect(page.locator('.terminal-tile[data-kind="preview"]')).toHaveCount(2);
+  assert.equal(narrow.placement, "column");
+  await expect(page.locator('.terminal-tile[data-kind="preview"]')).toHaveCount(3);
   await expect
     .poll(async () => (await previewViewState(app, narrow.previewId)).attached)
     .toBe(true);
@@ -409,6 +409,8 @@ test("an agent fixture opens full-board previews in columns, retains focus and r
     .getByRole("button", { name: "Close", exact: true })
     .click();
   await assertAccessible(page);
+  // Restore room for the popout controls after checking narrow column growth.
+  await sizeTileBoard(app, page, 2400, 900);
   // Agent ownership follows the preview across windows, including list and close.
   await movePreviewTile(app, page, reopened.previewId, async (target) => {
     await expect(
@@ -926,5 +928,139 @@ test("an older human inventory cannot remove an agent preview in a new worktree"
     assert.equal(reused.placement, "existing");
   } finally {
     await app.evaluate(() => globalThis.previewInventoryOrder.restore());
+  }
+});
+
+test("a human-picked preview survives inventory reads started before and after its reply", {
+  skip: process.platform === "win32" && "The fake agent is a POSIX script",
+}, async (context) => {
+  const { app, page, repo } = await agentPreviewFixture(context);
+  await sizeTileBoard(app, page, 2400);
+  await app.evaluate(
+    ({ ipcMain, dialog, BrowserWindow }, file) => {
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] });
+      const names = ["preview:pick", "workspace:sidebar", "workspace:snapshot"];
+      const original = new Map(names.map((name) => [name, ipcMain._invokeHandlers.get(name)]));
+      const reads = [];
+      let releasePicker;
+      const pickerReply = new Promise((resolve) => {
+        releasePicker = resolve;
+      });
+      let restored = false;
+      const state = (globalThis.previewPickerOrder = {
+        previewId: null,
+        snapshots: 0,
+        completed: 0,
+        count: () => reads.length,
+        releasePicker: () => releasePicker(),
+        release: (count) => {
+          for (const release of reads.slice(0, count)) release();
+        },
+        changed: () => {
+          for (const window of BrowserWindow.getAllWindows())
+            if (window.webContents.getURL() === "app://bundle/index.html")
+              window.webContents.send("workspace:changed");
+        },
+        restore: () => {
+          if (restored) return;
+          restored = true;
+          releasePicker();
+          for (const release of reads) release();
+          for (const name of names) {
+            ipcMain.removeHandler(name);
+            ipcMain.handle(name, original.get(name));
+          }
+        },
+      });
+      for (const name of names) ipcMain.removeHandler(name);
+      ipcMain.handle("preview:pick", async (...args) => {
+        state.previewId = await original.get("preview:pick")(...args);
+        await pickerReply;
+        return state.previewId;
+      });
+      ipcMain.handle("workspace:sidebar", async (...args) => {
+        await new Promise((release) => {
+          reads.push(release);
+        });
+        const inventory = await original.get("workspace:sidebar")(...args);
+        state.completed++;
+        return inventory;
+      });
+      ipcMain.handle("workspace:snapshot", (...args) => {
+        state.snapshots++;
+        return original.get("workspace:snapshot")(...args);
+      });
+    },
+    path.join(repo, "notes.md"),
+  );
+  try {
+    await page
+      .getByRole("treeitem", { name: "app", exact: true })
+      .getByRole("button", { name: "Actions for Main checkout", exact: true })
+      .click();
+    await page.getByRole("menuitem", { name: "Preview file…", exact: true }).click();
+    // Host.open starts a background read before the picker RPC returns. Hold
+    // that reply until its read is observable, then identify the picker's read.
+    await expect
+      .poll(() => app.evaluate(() => globalThis.previewPickerOrder.previewId))
+      .toBeTruthy();
+    await expect
+      .poll(() => app.evaluate(() => globalThis.previewPickerOrder.count()))
+      .toBeGreaterThan(0);
+    const beforeReply = await app.evaluate(() => globalThis.previewPickerOrder.count());
+    await app.evaluate(() => globalThis.previewPickerOrder.releasePicker());
+    await expect
+      .poll(() => app.evaluate(() => globalThis.previewPickerOrder.count()))
+      .toBeGreaterThan(beforeReply);
+    const pickerReads = await app.evaluate(() => globalThis.previewPickerOrder.count());
+    await app.evaluate(() => globalThis.previewPickerOrder.changed());
+    await expect
+      .poll(() => app.evaluate(() => globalThis.previewPickerOrder.count()))
+      .toBeGreaterThan(pickerReads);
+    const newerReads = await app.evaluate(() => globalThis.previewPickerOrder.count());
+    const id = await app.evaluate(() => globalThis.previewPickerOrder.previewId);
+    const tile = page.locator('.terminal-tile[data-preview-id="' + id + '"]');
+    await app.evaluate(
+      (_electron, count) => globalThis.previewPickerOrder.release(count),
+      pickerReads,
+    );
+    await expect
+      .poll(() => app.evaluate(() => globalThis.previewPickerOrder.completed))
+      .toBeGreaterThanOrEqual(pickerReads);
+    await page.evaluate(
+      () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+    );
+    context.diagnostic("After the picker reply: previewTiles=" + (await tile.count()));
+    const snapshots = await app.evaluate(() => globalThis.previewPickerOrder.snapshots);
+    await app.evaluate(() => globalThis.previewPickerOrder.changed());
+    await expect
+      .poll(() => app.evaluate(() => globalThis.previewPickerOrder.count()))
+      .toBeGreaterThan(newerReads);
+    await expect
+      .poll(() => app.evaluate(() => globalThis.previewPickerOrder.snapshots))
+      .toBeGreaterThan(snapshots);
+    await page.evaluate(
+      () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+    );
+    context.diagnostic("After the later row update: previewTiles=" + (await tile.count()));
+    await app.evaluate(() => globalThis.previewPickerOrder.restore());
+    await expect(page.locator('.preview-row[data-drag-preview="' + id + '"]')).toBeVisible();
+    const inventory = await page.evaluate(() => window.desktop.sidebarInventory());
+    assert.ok(inventory.previews.some((preview) => preview.id === id));
+    context.diagnostic(
+      "After all reads: previewTiles=" + (await tile.count()) + ", recordOpen=true",
+    );
+    await expect(tile).toBeVisible();
+    await expect
+      .poll(() =>
+        previewContents(app, id, "document.querySelector('h1')?.textContent", {
+          requireAttached: true,
+        }),
+      )
+      .toBe("Agent notes");
+    await expect.poll(async () => (await previewViewState(app, id)).visible).toBe(true);
+    await expect(page.getByRole("alertdialog")).not.toBeVisible();
+  } finally {
+    await app.evaluate(() => globalThis.previewPickerOrder.restore());
   }
 });

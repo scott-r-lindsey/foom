@@ -447,7 +447,7 @@ test("minimum width uses LRU, protects focus and attention, and falls back to fo
   for (const session of ["a", "b", "c", "d"]) layout = place(layout, session);
   const ids = leaves(layout.tree).map((tile) => tile.id);
   const focusedAt = new Map(ids.map((id, index) => [id, [3, 1, 2, 4][index] ?? 0]));
-  const options = { columns: 100, focusedAt, needsYou: new Set(["b"]) };
+  const options = { columns: 20, focusedAt, needsYou: new Set(["b"]) };
   const next = placeSession(layout, "new", false, options);
   expect(next && leaves(next.tree).map((tile) => sessionId(tile) ?? null)).toEqual([
     "a",
@@ -801,7 +801,7 @@ test("agent previews use terminal overflow geometry and narrow fallback without 
   const arranged = arrangedLayout(initialLayout(), "grid");
   let full = arranged;
   for (const id of ["a", "b", "c", "d"]) full = placeAgentPreview(full, id).layout;
-  for (const columns of [600, 80]) {
+  for (const columns of [600, 16]) {
     const options = { columns, preserveFocus: true };
     const expected = placeContent(full, { kind: "preview", preview: "new" }, false, options);
     const placed = placeAgentPreview(full, "new", options);
@@ -923,7 +923,7 @@ test.each(["terminal", "child", "preview", "manual", "sidebar"] as const)(
     const grown = placeKind(full, 1000);
     expect(leaves(grown.tree)).toHaveLength(5);
     expect(contentId(leaves(grown.tree).at(-1)?.content)).toBe("arrival");
-    const replaced = placeKind(full, 80);
+    const replaced = placeKind(full, 16);
     expect(leaves(replaced.tree)).toHaveLength(4);
     expect(contentId(leaves(replaced.tree)[0]?.content)).toBe("arrival");
     expect(leaves(replaced.tree).at(-1)?.content).toEqual(leaves(full.tree).at(-1)?.content);

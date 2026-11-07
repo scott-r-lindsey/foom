@@ -1,3 +1,4 @@
+const { fixtureEnvironment } = require("../helpers/environment.js");
 const { gitSync } = require("../helpers/git.js");
 const { assertBundledTerminalFonts } = require("./font-checks.js");
 const { installManualAgent, assertManualAgent } = require("./manual-agent.js");
@@ -28,7 +29,7 @@ const { getCurrentFuseWire, FuseV1Options } = require("@electron/fuses");
 test("packaged utility host runs native PTYs with RunAsNode disabled", {
   timeout: deadline(45000),
 }, async (context) => {
-  const display = electronLaunch({ env: process.env, args: [] });
+  const display = electronLaunch({ env: fixtureEnvironment(), args: [] });
   checkpoint("test started", { test: context.name });
   context.after(() => checkpoint("test hooks reached", { test: context.name }));
   const root =

@@ -16,6 +16,7 @@ import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import gitHelper from "../tests/helpers/git.js";
+import { fixtureEnvironment } from "../tests/helpers/environment.js";
 
 const wrapper = fileURLToPath(new URL("./test-temp.mjs", import.meta.url));
 function fixture(context, beforeRemove) {
@@ -293,3 +294,64 @@ test("temporary fixtures cannot discover an enclosing worktree", (context) => {
   assert.equal(child.status, 0, child.stderr);
   assert.deepEqual(readdirSync(temporary), []);
 });
+
+for (const mode of ["wrapper", "setup"]) {
+  test(`${mode} isolates inherited Foom session state before fixture imports`, (context) => {
+    const { script, env } = fixture(context);
+    const setup = fileURLToPath(new URL("../tests/helpers/setup.js", import.meta.url));
+    writeFileSync(
+      script,
+      `
+const assert = require('node:assert/strict');
+const { spawnSync } = require('node:child_process');
+const leaked = Object.keys(process.env).filter(key => /^foom_/i.test(key) &&
+  !['FOOM_ELECTRON_SHARD', 'FOOM_TEST_DISK_ROOT', 'FOOM_TEST_SHARED_MEMORY_ROOT',
+    'FOOM_REQUIRE_REMOTE_HOSTS', 'FOOM_REMOTE_HOST_ARTIFACTS', 'FOOM_PACKAGED_ROOT',
+    'FOOM_COMPARE_PRODUCT_SHOTS', 'FOOM_PREVIEW_PROFILE_WITH_PREVIEW'].includes(key));
+assert.deepEqual(leaked, []);
+assert.equal(process.env.FOOM_ELECTRON_SHARD, '2/4');
+assert.equal(process.env.FOOM_REQUIRE_REMOTE_HOSTS, '1');
+assert.equal(process.env.FOOM_PACKAGED_ROOT, 'fixture-package');
+assert.equal(process.env.FOOM_REMOTE_HOST_ARTIFACTS, 'fixture-catalog');
+assert.equal(process.env.TEST_NON_FOOM, 'preserved');
+assert.equal(process.env.FOOM_COMPARE_PRODUCT_SHOTS, '1');
+assert.equal(process.env.FOOM_PREVIEW_PROFILE_WITH_PREVIEW, '1');
+// Intentional test configuration happens after setup, and reaches subprocesses.
+process.env.FOOM_REMOTE_HELPER = 'fixture-helper';
+process.env.FOOM_REMOTE_SOCKET = 'fixture-socket';
+const child = spawnSync(process.execPath, ['-e',
+  "require('node:assert/strict').equal(process.env.FOOM_REMOTE_HELPER, 'fixture-helper');" +
+  "require('node:assert/strict').equal(process.env.FOOM_REMOTE_SOCKET, 'fixture-socket');"
+], { encoding: 'utf8' });
+assert.equal(child.status, 0, child.stderr);
+`,
+    );
+    const child = spawnSync(
+      process.execPath,
+      mode === "wrapper" ? [wrapper, script] : ["--require", setup, script],
+      {
+        env: {
+          ...fixtureEnvironment(env),
+          FOOM_REMOTE_HELPER: "inherited-helper",
+          FOOM_REMOTE_SOCKET: "inherited-socket",
+          FOOM_SESSION: "inherited-session",
+          FOOM_TOKEN: "inherited-token",
+          FOOM_CONTROL_URL: "inherited-control",
+          FOOM_CONTROL_TOKEN: "inherited-control-token",
+          FOOM_FUTURE_SESSION_VARIABLE: "also-removed",
+          foom_mixed_case: "also-removed",
+          FOOM_ELECTRON_SHARD: "2/4",
+          FOOM_REQUIRE_REMOTE_HOSTS: "1",
+          FOOM_PACKAGED_ROOT: "fixture-package",
+          FOOM_REMOTE_HOST_ARTIFACTS: "fixture-catalog",
+          TEST_NON_FOOM: "preserved",
+          FOOM_COMPARE_PRODUCT_SHOTS: "1",
+          FOOM_PREVIEW_PROFILE_WITH_PREVIEW: "1",
+        },
+        encoding: "utf8",
+      },
+    );
+    assert.ifError(child.error);
+    assert.equal(child.status, 0, child.stderr);
+  });
+}

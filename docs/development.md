@@ -286,3 +286,16 @@ config beside the real config so ignores and plugin paths remain identical.
 This optional local command does not run in CI. Local and CI measurements are
 recorded in the #981 PR body; OS caches are not flushed, and
 shared-machine/runner variation limits comparisons.
+
+## Test session environment isolation (#1079)
+
+The per-run wrapper and test setup remove inherited `FOOM_*` variables before
+loading tests, including remote helper/socket paths, hook credentials and local
+control credentials. `tests/helpers/environment.js` owns the explicit exceptions
+for runner controls: Electron sharding, packaged-root selection, required/available
+remote-host artifacts, the wrapper's owned temporary roots, and existing opt-in
+evidence/profiling switches (including screenshot comparisons). All other inherited `FOOM_*` variables are cleared.
+
+Electron app fixtures also filter their inherited environment at launch. Tests
+can deliberately supply `FOOM_*` through fixture `options.env`, or set them after
+test setup; those explicit overrides remain available to the code under test.

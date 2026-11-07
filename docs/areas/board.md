@@ -19,7 +19,9 @@ chrome or DOM focus. Split preserves terminal focus and records the newest space
 ID as the landing spot; terminal-only tree order supplies numbers and navigation.
 Split offers left, up, right and down, moving the occupied tile toward the arrow
 and opening new space on the opposite side (space first for right/down),
-with the existing depth and leaf limits. Two pointed 28px D-pads labelled Split
+with the existing depth and leaf limits. Splits use measured repair geometry; an
+impossible split reports “Too narrow to split” or “Too short to split”.
+Keyboard splits show the same reason in the neutral board status message and leave the layout unchanged. Two pointed 28px D-pads labelled Split
 and Grow replace the four command rows. Their centers are noninteractive glyphs;
 arrow keys move within each pad without adding global shortcuts. Split accessible
 names and refusal reasons describe the terminal’s movement. Refused arrows
@@ -33,7 +35,7 @@ Right-clicking an empty space opens a pointer-positioned menu with two buttons:
 Split horizontal (side-by-side panes, vertical divider) and
 Split vertical (stacked panes, horizontal divider), followed by New shell here and
 Close space. Each button shows its divider above a centered two-line label, broken
-between Split and the axis. The same depth/leaf limits apply; refused buttons remain
+between Split and the axis. The same measured size and depth/leaf limits apply; refused buttons remain
 focusable, dimmed with dashed outlines and a reason on hover/focus.
 New shell here uses the validated home-shell
 command (main chooses the directory), then places the returned request-specific
@@ -48,7 +50,7 @@ these Split/Grow pads after its clipboard and scrollback commands. Actions targe
 the clicked tile and preserve the existing direction semantics and focus rules.
 Gutters clamp occupied sides to 15–85%; empty sides can reach zero and collapse
 on pointer release or keyboard commit past 8%/92%. Measured layout repair also
-prunes nested spaces below 60 terminal-cell widths or three rows plus chrome,
+prunes nested spaces below 12 terminal-cell widths or three rows plus chrome,
 clamps surviving ratios where feasible, and preserves every occupied leaf when
 the board cannot fit the minimums. Startup pixel repair waits for a font setting
 from the current settings source, so fallback font metrics cannot destroy saved
@@ -66,7 +68,7 @@ its session, including exited agents with saved conversations; other exited sess
 existing validated sidebar command and retains the view if that command fails.
 Placement fills space, then grows a rightmost column with proportional existing
 column widths, or selects the least recently focused non-attention tile when
-columns would fall below 60 terminal cells. The board measures the available area
+columns would fall below 12 terminal cells. The board measures the available area
 at the current terminal font size and tracks focus recency outside persisted data.
 All-attention boards may grow below that minimum. All content uses this shared
 placement, including previews, the manual and orchestrator children. Blank single-leaf windows start with 1–3 equal columns of
@@ -76,9 +78,14 @@ are never interpreted. Drop-time inventory and tree lookups reject stale origins
 and targets. Main publishes opaque tokens for drags from another registered Foom
 board; the destination never reads DataTransfer contents. Cross-window placement
 stages the same tile geometry before main transfers ownership (see [windows](windows.md#cross-window-moves-950)). Preview sidebar rows are local drag origins too.
-Edge drops obey the same depth and leaf limits as ordinary splits;
-refusal leaves the original tree intact. Whole-leaf swaps and moves preserve the
-keyed controllers and their terminal attachments.
+Edge drops obey the same measured floor, depth and leaf limits as ordinary splits.
+They repair the complete occupied candidate before checking its floor, so neighboring
+tiles may lend room. A pre-existing below-floor tile blocks only if the drop makes
+that dimension smaller; new below-floor tiles still refuse. Visible sidebar origins
+are emptied before repair, giving the same feasibility as title-bar moves; dropping onto the origin is a no-op without a
+refusal, split preview or split announcement, and uses the no-drop effect. The drop
+preview displays a refusal reason and leaves the original tree intact. Whole-leaf
+swaps and moves preserve the keyed controllers and their terminal attachments.
 
 `terminal-view-source.ts` creates passive controllers (no process launch) through
 the board source. Workspace subscriptions belong to `BoardSource.connect`, not an
@@ -110,11 +117,15 @@ pending or failed initial inventory reads retain saved repository/worktree choic
 Unavailable repository membership also retains worktree choices until recovery. Preview
 assignments wait for their own first successful inventory, including while
 terminal reservations change, so independent asynchronous loads cannot erase
-valid assignments. All sidebar inventory callers share a request revision: starting
-any newer read supersedes older replies, including reads from human commands and
-worktree creation. Superseded successes and failures cannot overwrite current
-inventory or prune a newly placed preview while the newer read is pending.
-File-picker replies publish preview inventory before returning
+valid assignments. All sidebar inventory callers share read revisions. A successful
+reply applies unless a newer successful reply has already applied; a pending,
+failed or hung read cannot discard an older success. Every applied success clears
+the sidebar-refresh error. Preview IDs published locally by placement or picking
+survive inventory reads begun before that publication, while those reads still
+refresh other sidebar facts. A successful read begun after publication reconciles
+those IDs normally, including removing closed records.
+File-picker replies publish preview inventory, using owned display facts if their
+inventory read was superseded, before returning
 an ID for placement. This data grants no process capabilities. Maximize
 is not persisted. All terminal IPC remains ID-scoped and main-validated.
 

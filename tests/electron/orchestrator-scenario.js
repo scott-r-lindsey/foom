@@ -550,6 +550,9 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
           async () => (await page.evaluate(() => window.desktop.windows.audio.state())).focusedId,
         )
         .toBe(parentId);
+      // Placement now adds narrow columns; arrange a hidden child explicitly.
+      await childTile.getByRole("button", { name: "Hide", exact: true }).click();
+      await page.evaluate(() => window.desktop.appMenu.execute("tidy-tiles"));
       await expect(childTile).toHaveCount(0);
       await openSettingsScreen(page);
       await page.getByRole("button", { name: "General", exact: true }).click();
