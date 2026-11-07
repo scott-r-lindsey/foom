@@ -64,7 +64,10 @@ test("agent recipes are opt-in per distro; sign-in does not require a package ma
     selectHostRecipe(request, facts, {
       install: { debian: ["/usr/bin/sudo", "/usr/bin/apt-get", "install", "-y", "custom"] },
     })?.steps,
-  ).toHaveLength(1);
+  ).toEqual([
+    ["/usr/bin/sudo", "/usr/bin/apt-get", "update"],
+    ["/usr/bin/sudo", "/usr/bin/apt-get", "install", "-y", "custom"],
+  ]);
   expect(selectHostRecipe({ ...request, action: "sign-in" }, facts)).toBeUndefined();
   expect(
     selectHostRecipe({ ...request, action: "sign-in" }, facts, {
@@ -133,4 +136,41 @@ test("RHEL gh repository preparation uses a fixed HTTPS URL and ignores curl con
     ],
     ["/usr/bin/sudo", "/usr/bin/dnf", "install", "-y", "gh"],
   ]);
+});
+
+test("Debian refreshes apt lists before git and before gh repository preparation", () => {
+  const update = ["/usr/bin/sudo", "/usr/bin/apt-get", "update"];
+  expect(
+    selectHostRecipe({ tool: "git", action: "install", distro: "debian" }, facts)?.steps,
+  ).toEqual([update, ["/usr/bin/sudo", "/usr/bin/apt-get", "install", "-y", "git"]]);
+  expect(
+    selectHostRecipe({ tool: "gh", action: "install", distro: "debian" }, facts)?.steps,
+  ).toEqual([
+    update,
+    ["/usr/bin/sudo", "/usr/bin/apt-get", "install", "-y", "extrepo"],
+    ["/usr/bin/sudo", "/usr/bin/extrepo", "enable", "github-cli"],
+    update,
+    ["/usr/bin/sudo", "/usr/bin/apt-get", "install", "-y", "gh"],
+  ]);
+});
+
+test("manifest package installs refresh only Debian and preserve Arch argv", () => {
+  for (const distro of ["debian", "arch"] as const) {
+    const argv =
+      distro === "debian"
+        ? ["/usr/bin/sudo", "/usr/bin/apt-get", "install", "-y", "custom"]
+        : ["/usr/bin/sudo", "/usr/bin/pacman", "-S", "--noconfirm", "custom"];
+    const original = [...argv];
+    const recipe = selectHostRecipe(
+      { tool: "custom", action: "install", distro },
+      { distro, libc: "supported", packageManager: distro === "debian" ? "apt" : "pacman" },
+      { install: { [distro]: argv } },
+    );
+    expect(recipe?.steps).toEqual(
+      distro === "debian"
+        ? [["/usr/bin/sudo", "/usr/bin/apt-get", "update"], original]
+        : [["/usr/bin/sudo", "/usr/bin/pacman", "-S", "--noconfirm", "custom"]],
+    );
+    expect(argv).toEqual(original);
+  }
 });

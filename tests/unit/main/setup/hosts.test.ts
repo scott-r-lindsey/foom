@@ -981,79 +981,85 @@ test.each([
   },
 );
 
-test("recipe clicks select main-owned data, recheck registrations, and return fixed unavailability", async () => {
-  hosts = new Hosts(store, () => repositories, "0.1.0", run, "f".repeat(32));
-  const enriched = {
-    ...facts,
-    requirements: {
-      distro: "debian" as const,
-      libc: "supported" as const,
-      packageManager: "apt" as const,
-    },
-  };
-  run.mockResolvedValue({ ok: true, facts: enriched });
-  await hosts.action({ action: "add", host: "worker", codeFolder: "~/code" });
-  const launch = vi.fn(() => Promise.resolve());
-  const state = await hosts.action(
-    { action: "recipe", host: "worker", tool: "git", operation: "install" },
-    undefined,
-    launch,
-  );
-  expect(state.hosts[0]?.recipes).toContainEqual({ tool: "git", install: true, signIn: false });
-  expect(launch).toHaveBeenCalledExactlyOnceWith({
-    host: "worker",
-    profile: "f".repeat(32),
-    human: true,
-    recipe: {
-      tool: "git",
-      distro: "debian",
-      action: "install",
-      digest: "ade67c0afec628cd6fba950e3f32b1160240445f9d486751b938e694fee2d3c2",
-    },
-  });
-  expect(run).toHaveBeenLastCalledWith("worker", expect.objectContaining({ readOnly: true }));
-  expect(
-    (
-      await hosts.action(
-        { action: "recipe", host: "worker", tool: "codex", operation: "install" },
-        undefined,
-        launch,
-      )
-    ).recipeFailure,
-  ).toBe("recipe-unavailable");
-  expect(
-    (await hosts.action({ action: "recipe", host: "worker", tool: "gh", operation: "sign-in" }))
-      .recipeFailure,
-  ).toBe("recipe-unavailable");
-  settings.agents = { ...settings.agents, codex: false };
-  expect(
-    (
-      await hosts.action(
-        { action: "recipe", host: "worker", tool: "codex", operation: "sign-in" },
-        undefined,
-        launch,
-      )
-    ).recipeFailure,
-  ).toBe("recipe-unavailable");
-  await expect(
-    hosts.action(
-      { action: "recipe", host: "worker", tool: "git", operation: "install", argv: ["id"] },
+test.each([
+  ["debian", "apt", "7e3bc2e59909c5227052034b2fc31f21ebc7f18456b44955a725f02f72f72a8e"],
+  ["arch", "pacman", "4dd9fb838dadc95e6373ef1798490c89a1c877c1febfe2b2e3f79679f553cbf6"],
+] as const)(
+  "%s recipe clicks select pinned main-owned data and recheck registrations",
+  async (distro, packageManager, digest) => {
+    hosts = new Hosts(store, () => repositories, "0.1.0", run, "f".repeat(32));
+    const enriched = {
+      ...facts,
+      requirements: {
+        distro,
+        libc: "supported" as const,
+        packageManager,
+      },
+    };
+    run.mockResolvedValue({ ok: true, facts: enriched });
+    await hosts.action({ action: "add", host: "worker", codeFolder: "~/code" });
+    const launch = vi.fn(() => Promise.resolve());
+    const state = await hosts.action(
+      { action: "recipe", host: "worker", tool: "git", operation: "install" },
       undefined,
       launch,
-    ),
-  ).rejects.toThrow("Invalid");
-  run.mockResolvedValue({ ok: false, reason: "unreachable" });
-  expect(
-    (
-      await hosts.action(
-        { action: "recipe", host: "worker", tool: "git", operation: "install" },
+    );
+    expect(state.hosts[0]?.recipes).toContainEqual({ tool: "git", install: true, signIn: false });
+    expect(launch).toHaveBeenCalledExactlyOnceWith({
+      host: "worker",
+      profile: "f".repeat(32),
+      human: true,
+      recipe: {
+        tool: "git",
+        distro,
+        action: "install",
+        digest,
+      },
+    });
+    expect(run).toHaveBeenLastCalledWith("worker", expect.objectContaining({ readOnly: true }));
+    expect(
+      (
+        await hosts.action(
+          { action: "recipe", host: "worker", tool: "codex", operation: "install" },
+          undefined,
+          launch,
+        )
+      ).recipeFailure,
+    ).toBe("recipe-unavailable");
+    expect(
+      (await hosts.action({ action: "recipe", host: "worker", tool: "gh", operation: "sign-in" }))
+        .recipeFailure,
+    ).toBe("recipe-unavailable");
+    settings.agents = { ...settings.agents, codex: false };
+    expect(
+      (
+        await hosts.action(
+          { action: "recipe", host: "worker", tool: "codex", operation: "sign-in" },
+          undefined,
+          launch,
+        )
+      ).recipeFailure,
+    ).toBe("recipe-unavailable");
+    await expect(
+      hosts.action(
+        { action: "recipe", host: "worker", tool: "git", operation: "install", argv: ["id"] },
         undefined,
         launch,
-      )
-    ).recipeFailure,
-  ).toBe("recipe-unavailable");
-  expect(launch).toHaveBeenCalledTimes(1);
-});
+      ),
+    ).rejects.toThrow("Invalid");
+    run.mockResolvedValue({ ok: false, reason: "unreachable" });
+    expect(
+      (
+        await hosts.action(
+          { action: "recipe", host: "worker", tool: "git", operation: "install" },
+          undefined,
+          launch,
+        )
+      ).recipeFailure,
+    ).toBe("recipe-unavailable");
+    expect(launch).toHaveBeenCalledTimes(1);
+  },
+);
 
 test.each([
   ["facts-unavailable", "remote_host_facts_unavailable"],
@@ -1247,6 +1253,57 @@ test("sidebar location reads share a freshness cache and host mutations invalida
   await hosts.action({ action: "remove", host: "worker" });
   expect(hosts.locationsForSidebar()).not.toBe(first);
   await hosts.locationsForSidebar();
+});
+
+test("sidebar locations refresh after repository additions and removals within the cache lifetime", async () => {
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  const now = vi.spyOn(Date, "now").mockReturnValue(1000);
+  run.mockImplementation((_host, request) =>
+    Promise.resolve({
+      ok: true,
+      facts,
+      ...(request.operation === "repository"
+        ? {
+            checkout: { path: `${facts.codeFolder}/${request.directory}`, state: "clean" as const },
+          }
+        : {}),
+    }),
+  );
+  try {
+    const first = hosts.locationsForSidebar();
+    expect((await first).locations.map((location) => location.repository)).toEqual(["/local/repo"]);
+    expect(hosts.locationsForSidebar()).toBe(first);
+
+    repositories.push({ path: "/local/added", name: "added" });
+    const added = hosts.locationsForSidebar();
+    expect(added).not.toBe(first);
+    expect(hosts.locationsForSidebar()).toBe(added);
+    expect((await added).locations.map((location) => location.repository)).toEqual([
+      "/local/repo",
+      "/local/added",
+    ]);
+    const probes = run.mock.calls.length;
+    repositories = [...repositories].reverse().map((repo) => ({ ...repo, name: "renamed" }));
+    expect(hosts.locationsForSidebar()).toBe(added);
+    expect(run.mock.calls).toHaveLength(probes);
+
+    repositories = repositories.filter((repo) => repo.path !== "/local/repo");
+    const removed = hosts.locationsForSidebar();
+    expect(removed).not.toBe(added);
+    expect((await removed).locations.map((location) => location.repository)).toEqual([
+      "/local/added",
+    ]);
+    expect(run.mock.calls).toHaveLength(probes + 1);
+    expect(hosts.locationsForSidebar()).toBe(removed);
+
+    now.mockReturnValue(61_001);
+    const expired = hosts.locationsForSidebar();
+    expect(expired).not.toBe(removed);
+    await expired;
+    expect(run.mock.calls).toHaveLength(probes + 2);
+  } finally {
+    now.mockRestore();
+  }
 });
 
 test("repository human launch targets require an approved registration and checked clone", async () => {
@@ -1679,4 +1736,82 @@ test("malformed saved requirements are rejected on reload without remote reads",
   } finally {
     await fixture.dispose();
   }
+});
+
+test.each(["preflight", "refresh", "change-folder", "create-folder"] as const)(
+  "rename saves while %s is pending and survives its reply",
+  async (action) => {
+    settings.registeredHosts = [{ host: "worker", codeFolder: "~/code" }];
+    let finish: ((result: HostResult) => void) | undefined;
+    run.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const check = hosts.action({
+      action,
+      host: "worker",
+      ...(action === "preflight" || action === "change-folder" ? { codeFolder: "~/code" } : {}),
+    });
+    await vi.waitFor(() => {
+      expect(finish).toBeDefined();
+    });
+    await hosts.action({ action: "rename", host: "worker", nickname: "During check" });
+    expect(settings.registeredHosts[0]?.nickname).toBe("During check");
+    finish?.({ ok: true, facts });
+    const reply = await check;
+    expect(reply.hosts[0]?.nickname).toBe("During check");
+    expect(settings.registeredHosts[0]?.nickname).toBe("During check");
+  },
+);
+
+test("enrollment validates optional nicknames and saves them only with enrollment", async () => {
+  await hosts.action({ action: "add", host: "worker", codeFolder: "~/code", nickname: "" });
+  expect(settings.registeredHosts?.[0]?.nickname).toBeUndefined();
+  await hosts.action({
+    action: "add",
+    host: "second",
+    codeFolder: "~/code",
+    nickname: "Build box",
+  });
+  expect(settings.registeredHosts?.[1]?.nickname).toBe("Build box");
+  const calls = run.mock.calls.length;
+  await expect(
+    hosts.action({ action: "add", host: "third", codeFolder: "~/code", nickname: "BUILD BOX" }),
+  ).rejects.toThrow("Name already used");
+  await expect(
+    hosts.action({ action: "add", host: "third", codeFolder: "~/code", nickname: " bad " }),
+  ).rejects.toThrow("Invalid host action");
+  expect(run).toHaveBeenCalledTimes(calls);
+  run.mockResolvedValueOnce({ ok: false, reason: "invalid-reply" });
+  await hosts.action({ action: "add", host: "third", codeFolder: "~/code", nickname: "Third" });
+  expect(settings.registeredHosts).toHaveLength(2);
+});
+
+test("enrollment revalidates a nickname claimed during inspection and preserves concurrent renames", async () => {
+  settings.registeredHosts = [{ host: "worker", codeFolder: "~/code" }];
+  let finish: ((result: HostResult) => void) | undefined;
+  run.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const add = hosts.action({
+    action: "add",
+    host: "second",
+    codeFolder: "~/code",
+    nickname: "Claimed",
+  });
+  const rejected = expect(add).rejects.toThrow("Name already used");
+  await vi.waitFor(() => {
+    expect(finish).toBeDefined();
+  });
+  await hosts.action({ action: "rename", host: "worker", nickname: "Claimed" });
+  finish?.({ ok: true, facts });
+  await rejected;
+  expect(settings.registeredHosts).toEqual([
+    { host: "worker", codeFolder: "~/code", nickname: "Claimed" },
+  ]);
 });

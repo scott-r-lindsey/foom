@@ -41,9 +41,20 @@ export function createAppSource(): BoardSource {
   let workspaceSnapshot: WorkspaceSnapshot | undefined;
   let errors: BackgroundErrorReporter | undefined;
   const inventoryFailures = new Set<string>();
-  const acceptInventory = (
-    inventory: Awaited<ReturnType<typeof window.desktop.sidebarInventory>>,
-  ) => {
+  let inventoryRevision = 0;
+  const refreshInventory = async (active: () => boolean = () => true): Promise<boolean> => {
+    // Every caller participates, including human commands and worktree creation.
+    // Starting a newer read supersedes old replies even while it is pending.
+    const revision = ++inventoryRevision;
+    const current = () => revision === inventoryRevision && active();
+    let inventory: Awaited<ReturnType<typeof window.desktop.sidebarInventory>>;
+    try {
+      inventory = await window.desktop.sidebarInventory();
+    } catch (error) {
+      if (!current()) return false;
+      throw error;
+    }
+    if (!current()) return false;
     inventoryLoaded = true;
     const previous = new Map(sidebar.map((repo) => [repo.path, repo]));
     const failed = new Set<string>();
@@ -63,6 +74,7 @@ export function createAppSource(): BoardSource {
     shellName = inventory.shell;
     home = inventory.home;
     machines = inventory.machines ?? [];
+    return true;
   };
   let rows: readonly BoardRow[] = [];
   let repositories: readonly string[] = [];
@@ -422,10 +434,8 @@ export function createAppSource(): BoardSource {
         })(),
         (async () => {
           try {
-            const inventory = await window.desktop.sidebarInventory();
-            if (!active()) return;
+            if (!(await refreshInventory(active))) return;
             errors?.clear("sidebar-refresh");
-            acceptInventory(inventory);
             if (workspaceSnapshot) snapshot(workspaceSnapshot);
             else {
               rows = [...rows];
@@ -538,7 +548,7 @@ export function createAppSource(): BoardSource {
       pick: async (worktree) => {
         const id = (await window.desktop.previews?.pick(worktree)) ?? null;
         if (id) {
-          acceptInventory(await window.desktop.sidebarInventory());
+          await refreshInventory();
           if (workspaceSnapshot) snapshot(workspaceSnapshot);
           else {
             rows = [...rows];
@@ -568,7 +578,7 @@ export function createAppSource(): BoardSource {
                     { ...preview, repository },
                   ];
                 } else {
-                  acceptInventory(await window.desktop.sidebarInventory());
+                  await refreshInventory();
                 }
                 rows = [...rows];
                 publish();
@@ -656,8 +666,7 @@ export function createAppSource(): BoardSource {
         rows = rows.filter((row) => row.id !== command.id);
         if (command.id === shellId) shellId = pendingShell;
       }
-      const inventory = await window.desktop.sidebarInventory();
-      acceptInventory(inventory);
+      await refreshInventory();
       snapshot(await window.desktop.workspace());
       return result;
     },
@@ -687,8 +696,7 @@ export function createAppSource(): BoardSource {
           host === undefined
             ? await window.desktop.createWorktree(repository, branch)
             : await window.desktop.createWorktree(repository, branch, undefined, host);
-        const inventory = await window.desktop.sidebarInventory();
-        acceptInventory(inventory);
+        await refreshInventory();
         snapshot(await window.desktop.workspace());
         return created;
       },

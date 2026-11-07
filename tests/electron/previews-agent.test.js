@@ -748,3 +748,182 @@ test("agent previews stay visible after window moves while sidebar inventory is 
     }
   });
 });
+
+test("an older human inventory cannot remove an agent preview in a new worktree", {
+  skip: process.platform === "win32" && "The fake agent is a POSIX script",
+}, async (context) => {
+  const { app, page, repo, shell, credentials } = await agentPreviewFixture(context);
+  isolatedGit(["add", "."], { cwd: repo });
+  isolatedGit(
+    [
+      "-c",
+      "user.name=Fixture",
+      "-c",
+      "user.email=fixture@example.invalid",
+      "commit",
+      "-qm",
+      "fixture",
+    ],
+    { cwd: repo },
+  );
+  await sizeTileBoard(app, page, 2400);
+  await page.evaluate((id) => {
+    localStorage.setItem(
+      `foom.tiles.v1.${window.desktop.windows.id}`,
+      JSON.stringify({
+        version: 2,
+        focused: "shell",
+        maximized: null,
+        tree: {
+          kind: "split",
+          id: "pair",
+          direction: "horizontal",
+          ratio: 0.5,
+          first: { kind: "tile", id: "shell", content: { kind: "terminal", session: id } },
+          second: { kind: "tile", id: "inventory-space", content: null },
+        },
+      }),
+    );
+  }, shell.id);
+  await page.reload();
+  await expect(page.locator('[data-tile="shell"] .xterm-helper-textarea')).toBeVisible();
+  await app.evaluate((_electron, modulePath) => {
+    const load = process.getBuiltinModule("node:module").createRequire(modulePath);
+    const { Workspace } = load(modulePath);
+    const original = Workspace.prototype.sidebarInventory;
+    const snapshot = Workspace.prototype.snapshot;
+    const command = Workspace.prototype.sidebarCommand;
+    let armed = false;
+    let first = true;
+    let releaseOld, releaseCurrent;
+    const oldGate = new Promise((resolve) => {
+      releaseOld = resolve;
+    });
+    const currentGate = new Promise((resolve) => {
+      releaseCurrent = resolve;
+    });
+    const state = (globalThis.previewInventoryOrder = {
+      oldReady: false,
+      oldReturned: false,
+      snapshotAfterOld: false,
+      currentReads: 0,
+      releaseOld: () => releaseOld(),
+      releaseCurrent: () => releaseCurrent(),
+      restore: () => {
+        releaseOld();
+        releaseCurrent();
+        Workspace.prototype.sidebarInventory = original;
+        Workspace.prototype.snapshot = snapshot;
+        Workspace.prototype.sidebarCommand = command;
+      },
+    });
+    Workspace.prototype.sidebarCommand = async function (...args) {
+      const result = await command.apply(this, args);
+      if (args[0].kind === "copy-foom-session-id") armed = true;
+      return result;
+    };
+    Workspace.prototype.snapshot = function (...args) {
+      if (state.oldReturned) state.snapshotAfterOld = true;
+      return snapshot.apply(this, args);
+    };
+    Workspace.prototype.sidebarInventory = async function () {
+      if (!armed) return original.call(this);
+      if (first) {
+        first = false;
+        const inventory = structuredClone(await original.call(this));
+        state.oldReady = true;
+        await oldGate;
+        state.oldReturned = true;
+        return inventory;
+      }
+      state.currentReads++;
+      await currentGate;
+      return original.call(this);
+    };
+  }, path.resolve("build/main/workspace/workspace.js"));
+  try {
+    // This human command has its own inventory read, independent of connect's
+    // background-refresh revision. Its next workspace request follows acceptance.
+    await page
+      .locator('.board-row[data-kind="shell"]')
+      .getByRole("button", { name: /^Actions for/ })
+      .click();
+    const copy = page.getByRole("button", { name: "Copy Foom session ID", exact: true });
+    await copy.click();
+    await expect
+      .poll(() => app.evaluate(() => globalThis.previewInventoryOrder.oldReady))
+      .toBe(true);
+    const worktree = path.join(path.dirname(repo), "inventory-preview");
+    isolatedGit(["worktree", "add", "-b", "inventory-preview", worktree, "HEAD"], { cwd: repo });
+    await page.evaluate(
+      ({ repo, worktree }) =>
+        window.desktop.sidebarCommand({
+          kind: "launch",
+          repository: repo,
+          worktree,
+          run: "claude",
+        }),
+      { repo, worktree },
+    );
+    const credentialFile = `${credentials}.${path.basename(worktree)}`;
+    await expect.poll(() => require("node:fs").existsSync(credentialFile)).toBe(true);
+    await expect
+      .poll(() => app.evaluate(() => globalThis.previewInventoryOrder.currentReads))
+      .toBeGreaterThan(0);
+    const actor = JSON.parse(await readFile(credentialFile, "utf8"));
+    const call = async (method, params) => {
+      const response = await fetch(actor.controlUrl, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${actor.controlToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ version: 1, instanceId: actor.instanceId, method, params }),
+      });
+      assert.equal(response.status, 200);
+      return (await response.json()).result;
+    };
+    const opened = await call("open_preview", { path: "notes.md" });
+    assert.equal(opened.placement, "empty");
+    const tile = page.locator(`[data-preview-id="${opened.previewId}"]`);
+    await expect(tile).toBeVisible();
+    await expect
+      .poll(async () => (await call("list_previews", {})).previews[0]?.visible)
+      .toBe(true);
+    await app.evaluate(() => globalThis.previewInventoryOrder.releaseOld());
+    await expect
+      .poll(() => app.evaluate(() => globalThis.previewInventoryOrder.snapshotAfterOld))
+      .toBe(true);
+    await page.evaluate(
+      () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+    );
+    const afterOld = {
+      tile: (await tile.count()) === 1,
+      visible: (await call("list_previews", {})).previews[0]?.visible,
+    };
+    context.diagnostic(`After stale R1: ${JSON.stringify(afterOld)}`);
+    assert.deepEqual(afterOld, { tile: true, visible: true });
+    await app.evaluate(() => globalThis.previewInventoryOrder.releaseCurrent());
+    await page.keyboard.press("Escape");
+    await expect(
+      page.getByRole("button", { name: "inventory-preview", exact: true }),
+    ).toBeVisible();
+    await expect(tile).toBeVisible();
+    await expect
+      .poll(() =>
+        previewContents(app, opened.previewId, "document.querySelector('h1')?.textContent", {
+          requireAttached: true,
+        }),
+      )
+      .toBe("Agent notes");
+    await expect
+      .poll(async () => (await previewViewState(app, opened.previewId)).visible)
+      .toBe(true);
+    assert.equal((await call("list_previews", {})).previews[0].visible, true);
+    const reused = await call("open_preview", { path: "notes.md" });
+    assert.equal(reused.previewId, opened.previewId);
+    assert.equal(reused.placement, "existing");
+  } finally {
+    await app.evaluate(() => globalThis.previewInventoryOrder.restore());
+  }
+});

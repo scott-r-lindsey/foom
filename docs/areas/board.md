@@ -110,7 +110,11 @@ pending or failed initial inventory reads retain saved repository/worktree choic
 Unavailable repository membership also retains worktree choices until recovery. Preview
 assignments wait for their own first successful inventory, including while
 terminal reservations change, so independent asynchronous loads cannot erase
-valid assignments. File-picker replies publish preview inventory before returning
+valid assignments. All sidebar inventory callers share a request revision: starting
+any newer read supersedes older replies, including reads from human commands and
+worktree creation. Superseded successes and failures cannot overwrite current
+inventory or prune a newly placed preview while the newer read is pending.
+File-picker replies publish preview inventory before returning
 an ID for placement. This data grants no process capabilities. Maximize
 is not persisted. All terminal IPC remains ID-scoped and main-validated.
 
