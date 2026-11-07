@@ -991,3 +991,27 @@ test("window expansion restores only boolean entries with bounded identities", (
   for (const value of [null, [], "bad"])
     expect(restoreLayout(raw(value)).sidebarExpanded).toEqual({});
 });
+
+test("reloading a pending launch restores the saved space without an extra empty column", () => {
+  let saved = "";
+  const storage = {
+    setItem: (_key: string, value: string) => {
+      saved = value;
+    },
+  };
+  const blank = initialLayout();
+  saveLayout(storage, blank);
+  const before = saved;
+  const pending = placeSession(blank, "launch_pending", false, { columns: 220 });
+  if (!pending) throw new Error("Missing reservation");
+  expect(leaves(pending.tree)).toHaveLength(2);
+  saveLayout(storage, pending);
+  expect(saved).toBe(before);
+  const restored = pruneContent(restoreLayout(saved), { sessions: new Set(), previews: new Set() });
+  expect(leaves(restored.tree)).toHaveLength(1);
+  expect(leaves(restored.tree)[0]?.content).toBeNull();
+  saveLayout(storage, place(blank, "finished-terminal", false));
+  expect(
+    leaves(restoreLayout(saved).tree).some((tile) => sessionId(tile) === "finished-terminal"),
+  ).toBe(true);
+});

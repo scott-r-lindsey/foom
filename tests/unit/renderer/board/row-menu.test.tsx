@@ -303,3 +303,30 @@ test("nested menu actions retain the shared-agent confirmation until accepted", 
   view.unmount();
   anchor.remove();
 });
+
+test("an unarmed launch dismisses before dispatch and does not wait for startup", () => {
+  const anchor = document.createElement("button");
+  document.body.append(anchor);
+  const order: string[] = [];
+  const view = render(
+    <RowMenu
+      anchor={anchor}
+      actions={[
+        {
+          label: "Shell",
+          dismissBeforeRun: true,
+          run: () => {
+            order.push("launch");
+            return Promise.resolve();
+          },
+        },
+      ]}
+      close={() => {
+        order.push("close");
+      }}
+    />,
+  );
+  fireEvent.click(view.getByRole("menuitem", { name: "Shell" }));
+  expect(order).toEqual(["close", "launch"]);
+  anchor.remove();
+});

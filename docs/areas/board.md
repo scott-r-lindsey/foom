@@ -118,7 +118,9 @@ Unavailable repository membership also retains worktree choices until recovery. 
 assignments wait for their own first successful inventory, including while
 terminal reservations change, so independent asynchronous loads cannot erase
 valid assignments. File-picker replies publish preview inventory before returning
-an ID for placement. This data grants no process capabilities. Maximize
+an ID for placement. Renderer-only `launch_` reservations suspend layout saves until they settle;
+reload retains the last saved tree rather than pruning a temporary assignment
+into extra empty space. This data grants no process capabilities. Maximize
 is not persisted. All terminal IPC remains ID-scoped and main-validated.
 
 The first board opens the bundled manual after setup, with no terminal running. Shells and agents launch from checkout panels; home shells use the home row; **New worktree** is a repository action. `pnpm run start:samples` explicitly builds the development sample board. Normal builds omit its data, and Forge rebuilds without the sample flag before packaging, including when invoked directly. New worktree is a branch field inside the repository panel (`branch-field.ts` holds its pure completion, status and ref-rule logic; `branch-field-view.tsx` the field). It reads `workspace:branches` and creates through `workspace:create-worktree` without a location, so main applies the configured one; it never launches. Whether a panel shows the field is part of the panel intent target, so it closes with its panel. Repository paths come from main’s registry or native directory picker; main chooses worktree destinations and executables.

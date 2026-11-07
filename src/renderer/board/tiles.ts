@@ -15,7 +15,9 @@ import type {
 } from "./tiles.d";
 /** Tile removal preserves sessions whose conversations can be resumed. */
 export function tileRemovalAction(row: BoardRow | undefined, preview = false): "hide" | "close" {
-  return preview || (row?.exited && !(row.kind === "agent" && conversationId(row.conversationId)))
+  return preview ||
+    row?.startup ||
+    (row?.exited && !(row.kind === "agent" && conversationId(row.conversationId)))
     ? "close"
     : "hide";
 }
@@ -723,6 +725,9 @@ export function saveLayout(
   layout: TileLayout,
   key = TILE_STORAGE,
 ): void {
+  // Renderer-only launch reservations must not replace the last settled geometry.
+  // A real terminal ID commits the layout once startup creation completes.
+  if (leaves(layout.tree).some((tile) => sessionId(tile)?.startsWith("launch_"))) return;
   storage.setItem(
     key,
     JSON.stringify({

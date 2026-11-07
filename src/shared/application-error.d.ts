@@ -2,6 +2,7 @@ import type { copyableErrorText } from "./application-errors";
 /** Closed vocabulary for errors crossing a desktop capability boundary. */
 export type ApplicationErrorCode =
   | "remote-host-unavailable"
+  | "launch-cancel-incomplete"
   | "operation-failed"
   | "session-has-children"
   | "session-busy"

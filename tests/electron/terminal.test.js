@@ -485,6 +485,8 @@ test("terminal runs an interactive shell behind an isolated bridge", {
           "panelFacts",
           "onFocusWorktree",
           "sidebarInventory",
+          "cancelSidebarLaunch",
+          "onSidebarLaunchStarted",
           "sidebarCommand",
           "workspace",
           "addRepository",

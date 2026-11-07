@@ -301,6 +301,7 @@ export function useSidebar(props: SidebarProps) {
     return actions.map((action) => ({
       ...action,
       ...(host ? { disabled: !machine?.available } : {}),
+      dismissBeforeRun: action.run === "shell",
       run: () => {
         return command({
           kind: "launch",

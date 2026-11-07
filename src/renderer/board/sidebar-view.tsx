@@ -244,7 +244,12 @@ export function Sidebar(props: SidebarProps) {
                   {source.shellName?.() ?? "Shell"} ~
                 </button>
                 {actions("home", "Home shell", [
-                  { label: "New shell", badge: ">_", run: () => command({ kind: "home-shell" }) },
+                  {
+                    label: "New shell",
+                    badge: ">_",
+                    dismissBeforeRun: true,
+                    run: () => command({ kind: "home-shell" }),
+                  },
                 ])}
               </div>
               {preferences.expanded["home"] !== false && (

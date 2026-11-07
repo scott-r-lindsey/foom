@@ -88,6 +88,7 @@ test("rejects untrusted senders on every channel", () => {
     "workspace:remove",
     "workspace:panel-facts",
     "workspace:sidebar",
+    "workspace:cancel-launch",
     "workspace:sidebar-command",
     "workspace:message-board",
     "workspace:action-log",
@@ -962,4 +963,103 @@ test("machine launch IPC accepts only a host selector and known agent, with a re
   expect(() =>
     invoke("workspace:create-worktree", ["/repo", "new-branch", undefined, false]),
   ).toThrow();
+});
+
+test("launch operation cancellation is window-scoped and cleans a terminal created after cancellation", async () => {
+  let finish: (result: { terminalId: string }) => void = () => {};
+  let startup: Parameters<Workspace["sidebarCommand"]>[2];
+  const sidebar = vi.fn<Workspace["sidebarCommand"]>((_command, _confirm, pending) => {
+    if (!pending) return Promise.resolve(undefined);
+    startup = pending;
+    pending.started();
+    return new Promise((resolve) => {
+      finish = resolve;
+    });
+  });
+  attached.dispose();
+  mock.handle.mockClear();
+  const cancelStartup = vi.fn(() => Promise.resolve());
+  attached = attachWorkspace(
+    window,
+    { ...workspace, sidebarCommand: sidebar, cancelStartup } as unknown as Workspace,
+    owns,
+    requestDialog,
+  );
+  const command = { kind: "machine-launch", host: "worker", run: "shell" };
+  const running = invoke("workspace:sidebar-command", [command, "launch_one"]);
+  expect(contents.send).toHaveBeenCalledWith("workspace:launch-started", "launch_one");
+  expect(() => invoke("workspace:sidebar-command", [command, "launch_one"])).toThrow();
+  await invoke("workspace:cancel-launch", ["unknown"]);
+  await invoke("confirmation:cancel");
+  expect(startup?.signal.aborted).toBe(false);
+  await invoke("workspace:cancel-launch", ["launch_one"]);
+  expect(startup?.signal.aborted).toBe(true);
+  finish({ terminalId: "created" });
+  await running;
+  expect(cancelStartup).toHaveBeenCalledWith("created");
+  for (const args of [[], [""], [1], ["x".repeat(201)], ["one", "two"]])
+    expect(() => invoke("workspace:cancel-launch", args)).toThrow();
+  for (const args of [
+    [command, "bad id"],
+    [command, 1],
+    [{ kind: "stop", id: "t1" }, "one"],
+    [command, "one", "two"],
+  ])
+    expect(() => invoke("workspace:sidebar-command", args)).toThrow();
+});
+
+test("cancelling an armed startup releases its own confirmation immediately", async () => {
+  vi.useFakeTimers();
+  try {
+    const sidebar = vi.fn<Workspace["sidebarCommand"]>(async (_command, confirm) => {
+      await confirm({ kind: "shared-agent" });
+      return undefined;
+    });
+    attached.dispose();
+    mock.handle.mockClear();
+    attached = attachWorkspace(
+      window,
+      { ...workspace, sidebarCommand: sidebar } as unknown as Workspace,
+      owns,
+      requestDialog,
+    );
+    const pending = invoke("workspace:sidebar-command", [
+      { kind: "repository-launch", repository: "/repo", host: null, run: "claude" },
+      "armed_startup",
+    ]);
+    await invoke("workspace:cancel-launch", ["armed_startup"]);
+    await pending;
+    expect(contents.send).toHaveBeenLastCalledWith("confirmation:armed", null, false);
+  } finally {
+    attached.dispose();
+    vi.useRealTimers();
+  }
+});
+
+test("a failed late startup cleanup returns a fixed warning code, never host diagnostics", async () => {
+  const response = Promise.withResolvers<{ terminalId: string }>();
+  const sidebar = vi.fn<Workspace["sidebarCommand"]>((_command, _confirm, startup) => {
+    startup?.started();
+    return response.promise;
+  });
+  const cancelStartup = vi.fn(() =>
+    Promise.reject(new Error("host unreachable during cleanup /private/host")),
+  );
+  attached.dispose();
+  mock.handle.mockClear();
+  attached = attachWorkspace(
+    window,
+    { ...workspace, sidebarCommand: sidebar, cancelStartup } as unknown as Workspace,
+    owns,
+    requestDialog,
+  );
+  const pending = invoke("workspace:sidebar-command", [
+    { kind: "machine-launch", host: "worker", run: "shell" },
+    "late_cleanup",
+  ]);
+  const rejected = expect(pending).rejects.toThrow("foom-error:launch-cancel-incomplete");
+  await invoke("workspace:cancel-launch", ["late_cleanup"]);
+  response.resolve({ terminalId: "created" });
+  await rejected;
+  expect(cancelStartup).toHaveBeenCalledWith("created");
 });
