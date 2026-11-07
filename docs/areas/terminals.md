@@ -336,7 +336,10 @@ reattach, preserving application-set colors. The hub does not replace an unchang
 changes made before the initial reattach handshake or while disconnected, or sent
 without an acknowledgement before SSH loss, are replayed after the live open
 reply and before attachment until acknowledged; later reconnects retain
-application colors again. Only view-reported dimensions are restored: a saved
+application colors again. Restoration does not duplicate a palette replacement
+already sent on the current connection, even before its acknowledgement arrives;
+an unacknowledged update still replays on the next connection.
+Only view-reported dimensions are restored: a saved
 session's initial 80x24 creation grid must not resize its live remote PTY. An open
 with no state to restore completes immediately and clears its reconnect deadline. See the [remote palette protocol](../contracts/remote-palette.md).
 Its typed `open-result`

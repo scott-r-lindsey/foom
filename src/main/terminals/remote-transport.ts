@@ -46,6 +46,7 @@ type Connection = {
   closed: boolean;
   deadline: ReturnType<typeof setTimeout> | undefined;
   grace: ReturnType<typeof setTimeout> | undefined;
+  sentThemeKey: string | undefined;
 };
 
 const imageHosts = new Set<string>();
@@ -186,9 +187,10 @@ export class RemoteTransport extends EventEmitter {
   private restoreState(restoreView: boolean): void {
     // Only replay a changed palette or a replacement whose reply was lost.
     // Reapplying an acknowledged theme erases application colors.
+    const themeKey = this.themeKey();
     const missedTheme =
-      this.themeKey() !== this.confirmedThemeKey ||
-      this.themeSequence > this.confirmedThemeSequence;
+      themeKey !== this.connection?.sentThemeKey &&
+      (themeKey !== this.confirmedThemeKey || this.themeSequence > this.confirmedThemeSequence);
     for (const command of [
       missedTheme ? this.theme : undefined,
       restoreView ? this.dimensions : undefined,
@@ -205,11 +207,13 @@ export class RemoteTransport extends EventEmitter {
     try {
       if (!remoteRequest(message) || !connection?.child.stdin?.writable)
         throw new Error("Remote unavailable");
-      if (message.type === "theme")
+      if (message.type === "theme") {
+        connection.sentThemeKey = JSON.stringify(message.theme ?? message.dark);
         this.themeRequests.set(message.request, {
-          key: JSON.stringify(message.theme ?? message.dark),
+          key: connection.sentThemeKey,
           sequence: ++this.themeSequence,
         });
+      }
       connection.child.stdin.write(remoteFrame(message));
     } catch {
       if (connection) this.retireConnection(connection, "failure");
@@ -296,6 +300,7 @@ export class RemoteTransport extends EventEmitter {
       closed: false,
       deadline: undefined,
       grace: undefined,
+      sentThemeKey: undefined,
     };
     this.connection = connection;
     let header = Buffer.alloc(0);

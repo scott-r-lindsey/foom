@@ -1578,7 +1578,19 @@ test("initial reattach delivers a theme changed before hello and preserves it af
   await Promise.resolve();
   child.greet();
   expect(child.messages).not.toContainEqual(expect.objectContaining({ type: "theme" }));
+  const atCreateResult: unknown[][] = [];
+  transport.on("message", (message: { type: string; request?: number }) => {
+    if (message.type === "result" && message.request === 1)
+      atCreateResult.push([...child.messages]);
+  });
   child.message({ type: "open-result", id: "one", request: 1, state: "live" });
+  expect(atCreateResult).toEqual([
+    [
+      expect.objectContaining({ type: "hello" }),
+      expect.objectContaining({ type: "open", reattach: true }),
+      expect.objectContaining({ type: "theme", dark: true, theme: terminalThemes["foom-dark"] }),
+    ],
+  ]);
   expect(child.messages).toContainEqual(
     expect.objectContaining({ type: "theme", dark: true, theme: terminalThemes["foom-dark"] }),
   );
@@ -1589,6 +1601,44 @@ test("initial reattach delivers a theme changed before hello and preserves it af
   await vi.advanceTimersByTimeAsync(120_001);
   expect(child.kill).not.toHaveBeenCalled();
   expect(vi.getTimerCount()).toBe(0);
+});
+
+test("initial reattach does not repeat an in-flight theme on the same connection", async () => {
+  transport.kill();
+  transport = new RemoteTransport(
+    { host: "fixture", artifact: "/artifact", reattach: true },
+    "0.1.0",
+  );
+  transport.postMessage({ ...create, dark: false, theme: terminalThemes["foom-light"] });
+  await Promise.resolve();
+  child.greet();
+  transport.postMessage({
+    type: "theme",
+    id: "one",
+    request: 2,
+    dark: true,
+    theme: terminalThemes["foom-dark"],
+  });
+  const sent = [
+    expect.objectContaining({ type: "hello" }),
+    expect.objectContaining({ type: "open", reattach: true }),
+    expect.objectContaining({ type: "theme", dark: true, theme: terminalThemes["foom-dark"] }),
+  ];
+  expect(child.messages).toEqual(sent);
+  const atCreateResult: unknown[][] = [];
+  transport.on("message", (message: { type: string; request?: number }) => {
+    if (message.type === "result" && message.request === 1)
+      atCreateResult.push([...child.messages]);
+  });
+  child.message({ type: "open-result", id: "one", request: 1, state: "live" });
+  expect(atCreateResult).toEqual([sent]);
+  expect(child.messages).toEqual(sent);
+  // Losing the acknowledgement still requires a replacement on the next stream.
+  await reconnectLive();
+  expect(child.messages).toEqual(sent);
+  child.message({ type: "result", id: "one", request: requestOf(child, "theme"), lines: [] });
+  await reconnectLive();
+  expect(child.messages).toEqual(sent.slice(0, 2));
 });
 
 test.each(["offline", "in-flight"])(

@@ -22,6 +22,11 @@ a matching acknowledgement before SSH loss, is replayed after the live open repl
 and before attachment, and remains pending until acknowledged. An
 older acknowledgement cannot confirm a newer replacement. Reconnecting again
 after confirmation sends no replacement, preserving application colors.
+Restoration does not repeat a palette already sent as a theme replacement on the
+current connection, even while its acknowledgement is pending. Startup fields
+on a reattach open do not count as a replacement. Connection-local send tracking
+is discarded on disconnect, so an unacknowledged replacement still replays on
+the next connection.
 
 Reconnect restores dimensions only after a view has reported a size. A restored
 session's creation grid (80x24) is not a resize observation. If there are no missed
