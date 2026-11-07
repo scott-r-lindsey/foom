@@ -259,6 +259,9 @@ test("terminal links open and copy complete targets with trusted confirmation, w
       }),
     id,
   );
+  // Exit is a parser event; wait for its hidden cursor to be painted before
+  // asserting the matching-link skip on the settled exited screen.
+  await expect(page.locator(".xterm-cursor")).toHaveCount(0);
   const exitedCount = (await opened()).length;
   await click(plain);
   await expect.poll(async () => (await opened()).length).toBe(exitedCount + 1);
@@ -412,7 +415,7 @@ test("terminal link security confirms gaps, hidden colors and noncanonical targe
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   await expect(page.locator(".xterm-rows")).toContainText("BUDGET_READY");
   await expect(page.getByRole("link", { name: budgetTargets[0], exact: true })).toHaveCount(1);
-  await expect(page.getByRole("link", { name: budgetTargets.at(-1), exact: true })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: budgetTargets.at(-1), exact: true })).toHaveCount(1);
   await page.evaluate((id) => window.desktop.input(id, "a"), id);
   await expect(page.locator(".xterm-rows")).toContainText("ALT_BUDGET_READY");
   await openSettingsScreen(page);
@@ -424,3 +427,136 @@ test("terminal link security confirms gaps, hidden colors and noncanonical targe
   await expect(page.locator(".xterm-rows")).toContainText("NORMAL_BUDGET_READY");
   await page.evaluate((id) => window.desktop.input(id, "q"), id);
 });
+
+for (const scenario of ["press", "paint"])
+  test(`terminal links confirm press-time and unpainted gestures: ${scenario}`, {
+    timeout: deadline(60000),
+  }, async (context) => {
+    const root = await mkdtemp(path.join(tmpdir(), "foom-link-frame-"));
+    removeAfterApps(context, root);
+    const program = path.join(root, "frame.cjs");
+    const evil = "https://evil.test/path";
+    const unseen = "https://unseen.test/path";
+    const oauth =
+      "https://login.test/oauth?state=" +
+      "x".repeat(400) +
+      "&redirect_uri=https%3A%2F%2Fapp.test%2F";
+    await writeFile(
+      program,
+      `
+    process.stdin.setRawMode(true); process.stdin.resume();
+    const osc = (url, label) => "\\x1b]8;;" + url + "\\x1b\\\\" + label + "\\x1b]8;;\\x1b\\\\";
+    const show = (url, label, marker) => process.stdout.write("\\x1bc" + osc(url, label) + "\\r\\n" + marker);
+    show(${JSON.stringify(evil)}, "https://good.example/path", "PRESS_READY");
+    process.stdout.write("\\x1b[?1000h\\x1b[?1006h");
+    process.stdin.on("data", data => {
+      const value = data.toString();
+      if (/\\x1b\\[<0;\\d+;\\d+M/.test(value)) show(${JSON.stringify(evil)}, ${JSON.stringify(evil)}, "REWRITTEN");
+      if (value === "u") show(${JSON.stringify(unseen)}, ${JSON.stringify(unseen)}, "UNSEEN_PARSED");
+      if (value === "o") show(${JSON.stringify(oauth)}, ${JSON.stringify(oauth)}, "OAUTH_SETTLED");
+      if (value === "q") process.exit(0);
+    });
+  `,
+    );
+    const app = await launchApp(context, { fixture: "running-shell" });
+    const page = await boardPage(app);
+    await app.evaluate(({ shell, ipcMain }) => {
+      globalThis.frameLinksOpened = [];
+      globalThis.frameLinksAcks = {};
+      shell.openExternal = async (url) => {
+        globalThis.frameLinksOpened.push(url);
+      };
+      ipcMain.on("terminal:ack", (_event, id, token, count) => {
+        const tokens = (globalThis.frameLinksAcks[id] ??= {});
+        tokens[token] = (tokens[token] ?? 0) + count;
+      });
+    });
+    await page.evaluate(() => {
+      window.frameLinksData = {};
+      window.frameLinksText = "";
+      window.desktop.onData((_id, token, data) => {
+        window.frameLinksData[token] = (window.frameLinksData[token] ?? 0) + data.length;
+        window.frameLinksText += data;
+      });
+    });
+    await page.keyboard.type(
+      `${process.platform === "win32" ? "& " : ""}"${process.execPath}" "${program}"`,
+    );
+    await page.keyboard.press("Enter");
+    await expect(page.locator(".xterm-rows")).toContainText("PRESS_READY");
+    const id = (await page.evaluate(() => window.desktop.workspace())).terminals[0].id;
+    const dialog = await confirmationPage(app);
+    const heading = dialog.getByRole("heading", { name: "Open this link?" });
+    const opened = () => app.evaluate(() => globalThis.frameLinksOpened);
+    const bounds = await page
+      .getByRole("link", { name: evil, exact: true })
+      .locator(":scope > span")
+      .first()
+      .boundingBox();
+    assert.ok(bounds);
+    const point = { x: bounds.x + 10, y: bounds.y + bounds.height / 2 };
+    if (scenario === "press") {
+      await page.mouse.move(point.x, point.y);
+      await page.mouse.down();
+      await expect(page.locator(".xterm-rows")).toContainText("REWRITTEN");
+      await page.mouse.up();
+      await expect(heading).toBeVisible();
+      assert.deepEqual(await opened(), []);
+      await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+    }
+    if (scenario === "paint") {
+      // Hold real xterm rendering, not parsing. ACKs establish the parser barrier.
+      await page.evaluate(() => {
+        window.savedFrameRequest = window.requestAnimationFrame;
+        window.savedFrameCancel = window.cancelAnimationFrame;
+        window.heldFrames = new Map();
+        let next = 1000000;
+        window.requestAnimationFrame = (callback) => {
+          const id = ++next;
+          window.heldFrames.set(id, callback);
+          return id;
+        };
+        window.cancelAnimationFrame = (id) => {
+          window.heldFrames.delete(id);
+        };
+      });
+      try {
+        await page.evaluate((id) => window.desktop.input(id, "u"), id);
+        await expect
+          .poll(() => page.evaluate(() => window.frameLinksText.includes("UNSEEN_PARSED")))
+          .toBe(true);
+        await expect
+          .poll(async () => {
+            const delivered = await page.evaluate(() => window.frameLinksData);
+            const parsed = await app.evaluate((_electron, id) => globalThis.frameLinksAcks[id], id);
+            return Object.entries(delivered).every(([token, count]) => parsed?.[token] >= count);
+          })
+          .toBe(true);
+        await expect(page.locator(".xterm-rows")).not.toContainText(unseen);
+        await page.mouse.click(point.x, point.y);
+        await expect(heading).toBeVisible();
+        await expect(dialog.locator(".facts")).toContainText(unseen);
+        assert.deepEqual(await opened(), []);
+        await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+      } finally {
+        await page.evaluate(() => {
+          window.requestAnimationFrame = window.savedFrameRequest;
+          window.cancelAnimationFrame = window.savedFrameCancel;
+          for (const callback of window.heldFrames.values()) window.requestAnimationFrame(callback);
+          window.heldFrames.clear();
+        });
+      }
+    }
+    await page.evaluate((id) => window.desktop.input(id, "o"), id);
+    await expect(page.locator(".xterm-rows")).toContainText("OAUTH_SETTLED");
+    const settled = await page
+      .getByRole("link", { name: oauth, exact: true })
+      .locator(":scope > span")
+      .first()
+      .boundingBox();
+    assert.ok(settled);
+    await page.mouse.click(settled.x + 10, settled.y + settled.height / 2);
+    await expect.poll(opened).toEqual([oauth]);
+    await expect(heading).toHaveCount(0);
+    await page.evaluate((id) => window.desktop.input(id, "q"), id);
+  });

@@ -75,6 +75,7 @@ async function fixture(cols = 40, rows = 5) {
     | "onResize"
     | "onWriteParsed"
   >;
+  Object.defineProperty(view, "_core", { get: (): unknown => Reflect.get(terminal, "_core") });
   let id: string | undefined = "one";
   const desktop = {
     openTerminalLink: vi.fn().mockResolvedValue(undefined),
@@ -187,6 +188,7 @@ test("only trusted primary clicks activate; stale right/middle releases, drags, 
 
 test("menu lookup needs no hover, copies exact targets and drops actions from a replaced attachment", async () => {
   const f = await fixture();
+  f.render[0]?.();
   const event = new MouseEvent("contextmenu", { clientX: 25, clientY: 50, button: 2 });
   const menu = f.links.menu(event);
   expect(menu?.url).toBe(f.url);
@@ -318,6 +320,7 @@ test("activation confirms when scrolling clips any row of the complete label", a
   menu?.open();
   expect(f.desktop.openTerminalLink).toHaveBeenCalledExactlyOnceWith("one", url, undefined);
   f.terminal.scrollToBottom();
+  f.render[0]?.();
   f.links.menu(new MouseEvent("contextmenu", { clientX: 20, clientY: 105 }))?.open();
   expect(f.desktop.openTerminalLink).toHaveBeenLastCalledWith("one", url, url);
 });
@@ -357,5 +360,38 @@ test.each([
     expect(sweeps.mock.calls.length).toBe(rows);
     // Diagnostic only: regression correctness is the operation count, not timing.
     console.info(JSON.stringify({ cols, rows, bytes: data.length, baselineMs, linkedMs }));
+  },
+);
+
+test("press-time label cannot be replaced by a matching label before release", async () => {
+  const f = await fixture();
+  const url = "https://evil.test/path";
+  const show = (label: string) =>
+    new Promise<void>((resolve) => {
+      f.terminal.write(`\x1bc\x1b]8;;${url}\x1b\\${label}\x1b]8;;\x1b\\`, resolve);
+    });
+  await show("https://good.example/path");
+  f.render[0]?.();
+  f.mouse("mousedown");
+  await show(url);
+  f.render[0]?.();
+  f.mouse("mouseup");
+  expect(f.desktop.openTerminalLink).toHaveBeenCalledExactlyOnceWith("one", url, undefined);
+});
+
+test.each(["unrendered", "parsed", "scrolled"])(
+  "unpainted %s link confirms until the next frame",
+  async (kind) => {
+    const f = await fixture();
+    if (kind !== "unrendered") f.render[0]?.();
+    if (kind === "parsed") f.render[1]?.();
+    if (kind === "scrolled") f.render[2]?.();
+    f.mouse("mousedown");
+    f.mouse("mouseup");
+    expect(f.desktop.openTerminalLink).toHaveBeenLastCalledWith("one", f.url, undefined);
+    f.render[0]?.();
+    f.mouse("mousedown");
+    f.mouse("mouseup");
+    expect(f.desktop.openTerminalLink).toHaveBeenLastCalledWith("one", f.url, f.url);
   },
 );

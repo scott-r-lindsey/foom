@@ -622,3 +622,26 @@ test("saved host observations accept only bounded display facts and closed check
   ])
     expect(registeredHosts([{ ...host, observation: invalid }])).toBe(false);
 });
+
+test("add accepts only optional valid nicknames on its closed payload", () => {
+  for (const nickname of [undefined, "", "Build box"])
+    expect(hostsAction({ action: "add", host: "worker", codeFolder: "~/code", nickname })).toBe(
+      true,
+    );
+  for (const nickname of [null, 5, "<invalid>", " padded ", "x".repeat(41)])
+    expect(hostsAction({ action: "add", host: "worker", codeFolder: "~/code", nickname })).toBe(
+      false,
+    );
+  expect(
+    hostsAction({ action: "test", host: "worker", codeFolder: "~/code", nickname: "Box" }),
+  ).toBe(false);
+  expect(
+    hostsAction({
+      action: "add",
+      host: "worker",
+      codeFolder: "~/code",
+      nickname: "Box",
+      command: "x",
+    }),
+  ).toBe(false);
+});

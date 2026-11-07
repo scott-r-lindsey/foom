@@ -50,6 +50,18 @@ export function linksOnRow(terminal: LinkTerminal, y: number): TerminalLink[] {
     /^#[a-f\d]{6}$/iu.test(foreground) &&
     /^#[a-f\d]{6}$/iu.test(background) &&
     contrast(foreground, background) >= MIN_LINK_CONTRAST_RATIO;
+  // xterm 6 ThemeService defaults these independently of foreground/background.
+  const cursor = theme?.cursor ?? "#ffffff";
+  const cursorAccent = theme?.cursorAccent ?? "#000000";
+  const cursorVisible =
+    /^#[a-f\d]{6}$/iu.test(cursor) &&
+    /^#[a-f\d]{6}$/iu.test(cursorAccent) &&
+    contrast(cursor, cursorAccent) >= MIN_LINK_CONTRAST_RATIO;
+  const visible = (cell: IBufferCell | undefined, row: number, col: number) =>
+    displayed(cell, defaultsVisible) &&
+    (row !== buffer.baseY + buffer.cursorY ||
+      col !== Math.min(buffer.cursorX, terminal.cols - 1) ||
+      cursorVisible);
   const result: TerminalLink[] = [];
   const seen = new Set<number>();
   for (let x = 0; x < terminal.cols; x++) {
@@ -77,7 +89,7 @@ export function linksOnRow(terminal: LinkTerminal, y: number): TerminalLink[] {
         if (col < terminal.cols && terminalOscId(cell) === id) {
           if (start < 0) start = col;
           // Concealed text must never qualify as a fully displayed destination.
-          if (!displayed(cell, defaultsVisible)) complete = false;
+          if (!visible(cell, row, col)) complete = false;
           text += cell?.getChars() ?? "";
         } else if (start >= 0) {
           const previous = rows.at(-1);
@@ -130,7 +142,7 @@ export function linksOnRow(terminal: LinkTerminal, y: number): TerminalLink[] {
           x,
           y: end,
           width: cell?.getWidth() || 1,
-          hidden: !displayed(cell, defaultsVisible),
+          hidden: !visible(cell, end, x),
           osc: terminalOscId(cell),
         });
     }

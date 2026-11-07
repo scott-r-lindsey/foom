@@ -88,7 +88,12 @@ export function selectHostRecipe(
         : argv
           ? [argv]
           : undefined;
-  return steps ? { ...request, steps } : undefined;
+  if (!steps) return undefined;
+  // Refresh empty apt lists before any install, including manifest-provided recipes.
+  return {
+    ...request,
+    steps: distro === "debian" ? [sudo("/usr/bin/apt-get", "update"), ...steps] : steps,
+  };
 }
 
 /** Bind a main-selected command sequence across compatible daemon builds. */

@@ -23,9 +23,11 @@ export function terminalLinks(
   let screen: HTMLElement | null = null;
   let overlay: HTMLElement | undefined;
   let hover: TerminalLink | undefined;
-  let pressed: { url: string; x: number; y: number; id: string; selection: string } | undefined;
+  let pressed:
+    | { link: TerminalLink; dirty: boolean; x: number; y: number; id: string; selection: string }
+    | undefined;
   let rendered: TerminalLink[] = [];
-  const open = (link: TerminalLink) => {
+  const open = (link: TerminalLink, uncertain = false) => {
     const id = target();
     const row = link.rows[0];
     const current =
@@ -48,7 +50,13 @@ export function terminalLinks(
           range.end <= terminal.cols,
       );
       void desktop
-        .openTerminalLink(id, current.url, visible ? current.text : undefined)
+        .openTerminalLink(
+          id,
+          current.url,
+          visible && !dirty && !uncertain && JSON.stringify(link) === JSON.stringify(current)
+            ? current.text
+            : undefined,
+        )
         .catch(() => {});
     }
   };
@@ -172,7 +180,8 @@ export function terminalLinks(
     const id = target();
     if (link && id)
       pressed = {
-        url: link.url,
+        link,
+        dirty,
         x: event.clientX,
         y: event.clientY,
         id,
@@ -200,7 +209,8 @@ export function terminalLinks(
     )
       return;
     const link = lookup(event);
-    if (link?.url === previous.url) open(link);
+    if (link?.url === previous.link.url)
+      open(link, previous.dirty || JSON.stringify(link) !== JSON.stringify(previous.link));
   };
   const offRender = terminal.onRender(render);
   // Scroll fires for each parsed line, inside the parser. Only invalidate here;
@@ -222,6 +232,7 @@ export function terminalLinks(
     menu: (event: MouseEvent) => {
       const link = lookup(event);
       const id = target();
+      const uncertain = dirty;
       if (!link || !id) return undefined;
       return {
         url: link.url,
@@ -229,7 +240,7 @@ export function terminalLinks(
           return target() === id ? desktop.copyTerminalLink(id, link.url) : Promise.resolve();
         },
         open: () => {
-          if (target() === id) open(link);
+          if (target() === id) open(link, uncertain);
         },
       };
     },

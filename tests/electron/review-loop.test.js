@@ -339,6 +339,9 @@ for (const scenario of [
         await expect(childTile).toBeVisible();
         // Keep the parent visible while another tile owns focus across restart.
         await parentRow.locator(":scope > .board-row").click();
+        // Placement now adds narrow columns; arrange a hidden child explicitly.
+        await childTile.getByRole("button", { name: "Hide", exact: true }).click();
+        await page.evaluate(() => window.desktop.appMenu.execute("tidy-tiles"));
         await expect(childTile).toHaveCount(0);
         await sizeTileBoard(app, page);
         await page.evaluate(() => window.desktop.appMenu.execute("split-right"));

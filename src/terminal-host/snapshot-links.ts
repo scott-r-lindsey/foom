@@ -76,7 +76,7 @@ export function withSnapshotLinks(
   const pen = snapshotLinkPen(screen);
   // Opaque only while replaying. Live output must inherit the real host pen.
   if (budget === 0) return refused + serialize(pen);
-  const runs = new Map<number, number>();
+  const runs = new Map<number, { count: number; visible: boolean; newest: number }>();
   const openings = new Map<number, string>();
   let planning = true;
   const count = (buffer: IBuffer, first: number, last: number) => {
@@ -87,8 +87,13 @@ export function withSnapshotLinks(
         const cell = line?.getCell(col, reusable);
         if (!cell || cell.getWidth() === 0) continue;
         const id = cellId(cell);
-        if (id && beforeId(buffer, row, col, first, screen.cols) !== id)
-          runs.set(id, (runs.get(id) ?? 0) + 1);
+        if (id) {
+          const run = runs.get(id) ?? { count: 0, visible: false, newest: row - buffer.baseY };
+          run.visible ||= row >= buffer.baseY && row < buffer.baseY + screen.rows;
+          run.newest = Math.max(run.newest, row - buffer.baseY);
+          if (beforeId(buffer, row, col, first, screen.cols) !== id) run.count++;
+          runs.set(id, run);
+        }
       }
     }
   };
@@ -157,7 +162,12 @@ export function withSnapshotLinks(
     const plain = serialize(pen);
     if (runs.size === 0) return plain;
     let remaining = Math.max(0, budget - (pen === close ? 0 : pen.length));
-    for (const [id, count] of runs) {
+    // Reserve both visible buffers before history; spend history newest first.
+    const ordered = [...runs].sort(
+      ([, left], [, right]) =>
+        Number(right.visible) - Number(left.visible) || right.newest - left.newest,
+    );
+    for (const [id, { count }] of ordered) {
       const value = open(screen, id);
       const cost = count * (value.length + close.length);
       if (cost <= remaining) {

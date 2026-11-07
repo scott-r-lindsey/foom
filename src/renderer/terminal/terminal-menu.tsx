@@ -1,16 +1,18 @@
 import { DirectionPad } from "../board/direction-pad";
 import { RowMenu } from "../board/row-menu";
-import type { TileAction, TileLayout } from "../board/tiles.d";
+import type { TileMetrics, TileAction, TileLayout } from "../board/tiles.d";
 import type { TerminalContextMenu } from "./terminal-view-source.d";
 
 export function TerminalMenu({
   menu,
   layout,
+  metrics,
   close,
   action,
 }: {
   menu: TerminalContextMenu;
   layout: TileLayout;
+  metrics?: TileMetrics | undefined;
   close: () => void;
   action: (value: TileAction) => void;
 }) {
@@ -69,7 +71,7 @@ export function TerminalMenu({
           })}
           <hr />
           <div className="tile-pads">
-            <DirectionPad kind="Split" layout={layout} run={run} />
+            <DirectionPad kind="Split" layout={layout} metrics={metrics} run={run} />
             <DirectionPad kind="Grow" layout={layout} run={run} />
           </div>
         </>

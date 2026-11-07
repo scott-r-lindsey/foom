@@ -481,8 +481,8 @@ test.each([260, 300])(
       });
       if (count === 260) expect(replayed).toEqual(targets);
       else {
-        expect(replayed[0]).toBe(targets[0]);
-        expect(replayed.at(-1)).toBe("foom-refused:");
+        expect(replayed.slice(0, 80)).toContain("foom-refused:");
+        expect(replayed.at(-1)).toBe(targets.at(-1));
         expect(snapshot.length).toBeLessThan(4 * 1024 * 1024 + 20000);
       }
       expect(addon.serialize()).not.toContain("\x1b]8;");
@@ -733,3 +733,106 @@ test.each([5, 8])(
     }
   },
 );
+
+test("visible links in both buffers reserve budget before an expensive historical ID", async () => {
+  const { terminalOscId, terminalOscTarget } = await import("../../../src/shared/terminal-link");
+  const host = new Terminal({ cols: 80, rows: 24, allowProposedApi: true });
+  const view = new Terminal({ cols: 80, rows: 24, allowProposedApi: true });
+  const addon = new SerializeAddon();
+  host.loadAddon(addon);
+  const history = "https://history.test/".padEnd(16361, "x");
+  const link = (url: string, label: string, id = "") =>
+    `\x1b]8;${id};${url}\x1b\\${label}\x1b]8;;\x1b\\`;
+  try {
+    await write(host, (link(history, "x", "id=history") + " \r\n").repeat(256));
+    await write(host, "\r\n".repeat(24) + link("https://normal.test/login", "login"));
+    await write(host, "\x1b[?1049h\x1b[H" + link("https://alternate.test/login", "login"));
+    await write(view, terminalSnapshot(host, addon));
+    for (const buffer of [view.buffer.normal, view.buffer.alternate]) {
+      const row = buffer.type === "normal" ? buffer.baseY + 23 : 0;
+      const id = terminalOscId(buffer.getLine(row)?.getCell(0));
+      expect(id && terminalOscTarget(view, id)).toBe(`https://${buffer.type}.test/login`);
+    }
+  } finally {
+    host.dispose();
+    view.dispose();
+  }
+});
+
+test.each(["restore", "alternate"])(
+  "documented dormant OSC pen limit after %s fails closed until explicit OSC open",
+  async (kind) => {
+    const { terminalOscId, terminalOscTarget } = await import("../../../src/shared/terminal-link");
+    const host = new Terminal({ cols: 80, rows: 24, allowProposedApi: true });
+    const view = new Terminal({ cols: 80, rows: 24, allowProposedApi: true });
+    const addon = new SerializeAddon();
+    host.loadAddon(addon);
+    try {
+      const begin = "\x1b]8;id=same;https://dormant.test/\x1b\\";
+      if (kind === "alternate") await write(host, begin + "x\x1b]8;;\x1b\\");
+      await write(
+        host,
+        (kind === "restore" ? "\x1b7" : "\x1b[?1049h") +
+          begin +
+          "x" +
+          (kind === "restore" ? "\x1b8" : "\x1b[?1049l"),
+      );
+      await write(view, terminalSnapshot(host, addon));
+      await write(host, "\x1b[4mW");
+      await write(view, "\x1b[4mW");
+      const target = (t: Terminal) => {
+        const id = terminalOscId(t.buffer.active.getLine(0)?.getCell(t.buffer.active.cursorX - 1));
+        return id ? terminalOscTarget(t, id) : undefined;
+      };
+      expect(target(host)).toBe("https://dormant.test/");
+      // Restoring inactive extended metadata would also need saved-cursor state.
+      // Do not turn a stale target into active link authority during replay.
+      expect(target(view)).toBeUndefined();
+      await write(view, "\x1b]8;;https://dormant.test/\x1b\\Z");
+      expect(target(view)).toBe("https://dormant.test/");
+    } finally {
+      host.dispose();
+      view.dispose();
+    }
+  },
+);
+
+test("after visible reservations history spends its budget newest first", async () => {
+  const { withSnapshotLinks } = await import("../../../src/terminal-host/snapshot-links");
+  const { terminalOscId, terminalOscTarget } = await import("../../../src/shared/terminal-link");
+  const host = new Terminal({ cols: 80, rows: 3, allowProposedApi: true });
+  const view = new Terminal({ cols: 80, rows: 3, allowProposedApi: true });
+  const addon = new SerializeAddon();
+  host.loadAddon(addon);
+  const link = (url: string) => `\x1b]8;;${url}\x1b\\x\x1b]8;;\x1b\\`;
+  try {
+    await write(
+      host,
+      link("https://old.test/") +
+        "\r\n" +
+        link("https://new.test/") +
+        "\r\n\r\n\r\n" +
+        link("https://visible.test/"),
+    );
+    const cost = (row: number, url: string) =>
+      `\x1b]8;id=foom-${String(terminalOscId(host.buffer.normal.getLine(row)?.getCell(0)))};${url}\x1b\\\x1b]8;;\x1b\\`
+        .length;
+    const data = withSnapshotLinks(
+      host,
+      addon,
+      (pen) => addon.serialize() + pen,
+      cost(1, "https://new.test/") + cost(4, "https://visible.test/"),
+    );
+    await write(view, data);
+    const target = (row: number) => {
+      const id = terminalOscId(view.buffer.normal.getLine(row)?.getCell(0));
+      return id && terminalOscTarget(view, id);
+    };
+    expect(target(0)).toBe("foom-refused:");
+    expect(target(1)).toBe("https://new.test/");
+    expect(target(4)).toBe("https://visible.test/");
+  } finally {
+    host.dispose();
+    view.dispose();
+  }
+});

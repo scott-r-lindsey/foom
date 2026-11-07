@@ -385,7 +385,7 @@ test("an agent fixture opens full-board previews in columns, retains focus and r
     .poll(async () => (await previewViewState(app, reopened.previewId)).attached)
     .toBe(true);
   await page.locator('[data-tile="terminal"] .xterm-helper-textarea').focus();
-  // At minimum width, use terminal replacement fallback and protect the focused shell.
+  // Narrow boards keep adding columns below the former 60-cell threshold, preserving focus.
   await app.evaluate(({ BrowserWindow }) => {
     BrowserWindow.getAllWindows()
       .find((window) => window.webContents.getURL() === "app://bundle/index.html")
@@ -393,8 +393,8 @@ test("an agent fixture opens full-board previews in columns, retains focus and r
   });
   await expect.poll(() => page.evaluate(() => innerWidth)).toBe(900);
   const narrow = await requestPreview("narrow", "narrow.md");
-  assert.equal(narrow.placement, "replace");
-  await expect(page.locator('.terminal-tile[data-kind="preview"]')).toHaveCount(2);
+  assert.equal(narrow.placement, "column");
+  await expect(page.locator('.terminal-tile[data-kind="preview"]')).toHaveCount(3);
   await expect
     .poll(async () => (await previewViewState(app, narrow.previewId)).attached)
     .toBe(true);
@@ -407,6 +407,8 @@ test("an agent fixture opens full-board previews in columns, retains focus and r
     .getByRole("button", { name: "Close", exact: true })
     .click();
   await assertAccessible(page);
+  // Restore room for the popout controls after checking narrow column growth.
+  await sizeTileBoard(app, page, 2400, 900);
   // Agent ownership follows the preview across windows, including list and close.
   await movePreviewTile(app, page, reopened.previewId, async (target) => {
     await expect(

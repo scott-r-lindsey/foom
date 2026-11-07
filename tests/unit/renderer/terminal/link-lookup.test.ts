@@ -220,3 +220,40 @@ test.each([
     expect(linksOnRow(terminal, 0)[0]?.text).toBe(visible ? url : undefined);
   },
 );
+
+test.each([false, true])(
+  "cursor colors must leave a linked cell visible (OSC=%s)",
+  async (linked) => {
+    const { TerminalColors } = await import("../../../../src/shared/terminal-colors");
+    const url = "https://cursor.test/path";
+    const terminal = await fixture("");
+    const colors = new TerminalColors(
+      terminal.parser,
+      true,
+      () => {},
+      () => {
+        terminal.options.theme = { ...colors.theme(), cursorAccent: "#000000" };
+      },
+    );
+    terminal.options.theme = { ...colors.theme(), cursorAccent: "#000000" };
+    await new Promise<void>((resolve) => {
+      terminal.write((linked ? osc(url, url) : url) + "\x1b[1;4H\x1b]12;#000000\x1b\\", resolve);
+    });
+    expect(linksOnRow(terminal, 0)[0]?.text).toBeUndefined();
+    await new Promise<void>((resolve) => {
+      terminal.write("\x1b]12;#ffffff\x1b\\", resolve);
+    });
+    expect(linksOnRow(terminal, 0)[0]?.text).toBe(url);
+  },
+);
+
+test("cursor defaults are independent of a light theme background", async () => {
+  const url = "https://cursor.test/path";
+  const terminal = await fixture(url + "\x1b[1;4H");
+  terminal.options.theme = { foreground: "#000000", background: "#ffffff", cursor: "#000000" };
+  expect(linksOnRow(terminal, 0)[0]?.text).toBeUndefined();
+  terminal.options.theme = { foreground: "#000000", background: "#ffffff" };
+  expect(linksOnRow(terminal, 0)[0]?.text).toBe(url);
+  terminal.options.theme = { cursor: "invalid", cursorAccent: "invalid" };
+  expect(linksOnRow(terminal, 0)[0]?.text).toBeUndefined();
+});
