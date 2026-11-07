@@ -205,6 +205,7 @@ function BoardContents({
     setFocusRequest,
     changeLayout,
     placementOptions,
+    completeStartup,
     tileAction: regularTileAction,
   } = useBoardTiles({
     source,
@@ -597,9 +598,7 @@ function BoardContents({
             return;
           }
           startupOperationsRef.current.set(created.id, { operation: id, terminalId: created.id });
-          const next = placeSession({ ...current, focused: tile.id }, created.id, true);
-          if (next)
-            changeLayout({ ...next, focused: current.focused, maximized: current.maximized });
+          completeStartup(id, created.id);
           if (current.focused === tile.id) {
             setSelection(created.id);
             setFocusRequest((value) => value + 1);

@@ -2,7 +2,7 @@ import { readPreferences } from "./sidebar-preferences";
 import { errorMessage } from "../../shared/application-errors";
 import { prepareMove, finishMove } from "./move-placement";
 import { useBackgroundErrors } from "./error-presentation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { TERMINAL_FONT_FALLBACK, terminalFontStack } from "../../shared/terminal-fonts";
 import type { PreviewSummary } from "../../shared/workspace";
 import type { SetupSource } from "../preflight/setup-source.d";
@@ -17,6 +17,7 @@ import {
   leaves,
   loadLayout,
   placeAgentPreview,
+  placeSession,
   pruneContent,
   restoreLayout,
   saveLayout,
@@ -97,6 +98,10 @@ export function useBoardTiles({
     };
   }, [soundSetup]);
   const layoutRef = useRef(layout);
+  const startupIdsRef = useRef<ReadonlySet<string>>(new Set());
+  useLayoutEffect(() => {
+    startupIdsRef.current = new Set(rows.filter((row) => row.startup).map((row) => row.id));
+  }, [rows]);
   const movePendingRef = useRef<{ request: string; next: TileLayout } | undefined>(undefined);
   const previewIds = useCallback(
     (current: TileLayout) =>
@@ -184,6 +189,24 @@ export function useBoardTiles({
     },
     [storageKey, source, clear, report, measureTiles],
   );
+  // A transfer reserves geometry, but a startup may gain its terminal ID meanwhile.
+  const completeStartup = useCallback(
+    (before: string, after: string) => {
+      const bind = (current: TileLayout): TileLayout => {
+        const tile = leaves(current.tree).find((leaf) => sessionId(leaf) === before);
+        if (!tile) return current;
+        const next = placeSession({ ...current, focused: tile.id }, after, true);
+        return next ? { ...next, focused: current.focused, maximized: current.maximized } : current;
+      };
+      const pending = movePendingRef.current;
+      if (pending) {
+        pending.next = bind(pending.next);
+        layoutRef.current = bind(layoutRef.current);
+        setLayout(layoutRef.current);
+      } else changeLayout(bind(layoutRef.current));
+    },
+    [changeLayout],
+  );
   const placementOptions = useCallback(() => {
     return {
       ...measureTiles(),
@@ -247,6 +270,7 @@ export function useBoardTiles({
                 .filter((row) => !(row.dormant && row.exited))
                 .map((row) => row.id),
         );
+        for (const id of startupIdsRef.current) sessions.add(id);
         const knownPreviews = previewIds(next);
         if (content.kind === "terminal") sessions.add(content.id);
         else knownPreviews.add(content.id);
@@ -485,6 +509,7 @@ export function useBoardTiles({
     setFocusRequest,
     changeLayout,
     placementOptions,
+    completeStartup,
     tileAction,
   };
 }
