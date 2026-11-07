@@ -866,3 +866,41 @@ test("replays the 10011/10012/10061/16012 trace without blaming a delayed main",
   expect(vi.getTimerCount()).toBe(0);
   expect(mock.recordTimeout).toHaveBeenCalledWith("/fixture/profile", "tail", 10011);
 });
+
+test("a pong queued during the 5008-to-16008 drain pause preserves both sessions", async () => {
+  vi.setSystemTime(0);
+  const a = await create();
+  const b = await create();
+  const timers = vi.spyOn(globalThis, "setTimeout");
+  const pending = client.tail(a, 1);
+  const rejected = expect(pending).rejects.toThrow("timed out");
+  const timeout = timers.mock.calls.at(-1)?.[0];
+  if (typeof timeout !== "function") throw new Error("Missing request deadline");
+  vi.clearAllTimers();
+  vi.setSystemTime(0);
+  timeout(); // Start the independent probe at trace time zero.
+  await rejected;
+  const ping = child.postMessage.mock.calls.at(-1)?.[0];
+  if (!ping || ping === "shutdown") throw new Error("Missing ping");
+  const immediate = vi.spyOn(globalThis, "setImmediate");
+  await vi.advanceTimersByTimeAsync(5001);
+  const final = immediate.mock.calls.at(-1)?.[0];
+  if (typeof final !== "function") throw new Error("Missing final drain");
+  vi.clearAllTimers();
+  // An earlier check callback blocks at 5008. The host posts at 5124, but main
+  // cannot dispatch that pong until after the already queued final callback.
+  vi.setSystemTime(5008);
+  const queuedPong = { type: "pong", id: "host", request: ping.request };
+  vi.setSystemTime(16009.089);
+  final();
+  expect(child.kill).not.toHaveBeenCalled();
+  vi.setSystemTime(16009.461);
+  child.emit("message", queuedPong);
+  await vi.advanceTimersByTimeAsync(10000);
+  expect(child.kill).not.toHaveBeenCalled();
+  expect(exited).not.toHaveBeenCalled();
+  expect(client.runningCount).toBe(2);
+  const responsive = client.tail(b, 1);
+  child.reply();
+  await expect(responsive).resolves.toEqual([]);
+});

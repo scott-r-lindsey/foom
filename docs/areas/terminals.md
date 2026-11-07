@@ -44,20 +44,28 @@ Host requests and responses are validated at runtime and carry terminal IDs; req
 then sends one coalesced `ping {id: "host", request}` liveness probe, answered by a
 runtime-validated matching `pong` directly on the host event loop, independently
 of terminal parser and shutdown barriers. Ordinary replies, activity and stale or
-foreign pongs cannot satisfy it. Liveness has a five-second monotonic reply deadline and an absolute
-15-second limit from the first unanswered probe. Before deciding, main crosses a
-timer and poll/check turn to drain queued pongs. A deadline turn delayed by more
-than 100 ms grants a fresh five-second window, clamped to that absolute limit.
-There are no CPU or event-loop-lag discounts, so overlapping measurements cannot
-count lost time twice. Repeated missed turns never renew the absolute limit.
-The 15-second cap covers the measured six-second main pause plus a fresh
+foreign pongs cannot satisfy it. Liveness has a five-second monotonic reply deadline and a
+15-second probe limit measured from the first unanswered probe. Before deciding,
+main crosses a timer and poll/check turn. The whole drain cycle, from starting
+that timer to its final `setImmediate`, must take under 100 ms: earlier check-phase
+work can block main after poll while a valid pong queues. A late cycle retries the
+whole cycle without renewing the probe limit. Past that limit,
+`MAX_LATE_DRAIN_RETRIES` permits at most three extra cycles; a prompt cycle can
+retire a silent host immediately, and exhaustion retires it even if every cycle
+was late. This bounds the number of additional receive attempts when main stalls
+on every cycle. Main cannot execute while blocked; on resumption, a delayed final
+callback gets a fresh drain opportunity within that fixed retry budget.
+A deadline turn delayed by more than 100 ms can still grant a fresh five-second
+reply window, clamped to the 15-second limit. There are no CPU or event-loop-lag
+discounts, so overlapping measurements cannot count lost time twice, and neither
+missed turns nor late drains renew the probe limit.
+The 15-second limit covers the measured six-second main pause plus a fresh
 five-second reply window (about 11 seconds total), with four seconds of margin;
-the focused real Electron case measured silent-host retirement at 5,004 ms. If main is
-itself blocked across the cap, it cannot execute a kill then: on resumption it
-drains queued messages before retiring a still-silent host, without another grace
-window. This preserves the 10011/10012/10061/16012 ms delayed-main trace. A host
-that stays blocked past its reply window is still killed and its live terminals
-report exit. Other request timeouts do not renew an existing probe. Failed attachments
+the focused real Electron case measured silent-host retirement at 5,004 ms.
+Tests preserve both the 10011/10012/10061/16012 ms delayed-main trace and the
+5008/5124/16008 ms pause inside the drain cycle, with both sessions surviving.
+A host that stays blocked past its reply window is still killed and its live
+terminals report exit. Other request timeouts do not renew an existing probe. Failed attachments
 detach their view and invalidate pending replay; failed creation removes its ID to
 avoid an unreachable PTY. Remote transport deadlines and reconnection are unchanged.
 A host exit, broken transport or unanswered liveness probe rejects pending operations,

@@ -1,6 +1,6 @@
 import type * as PerfHooks from "node:perf_hooks";
 import { performance } from "node:perf_hooks";
-import { afterEach, beforeEach, expect, type MockInstance, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { watchHostLiveness } from "../../../../src/main/terminals/terminal-host-liveness";
 const delay = vi.hoisted(() => ({
   count: 0,
@@ -89,23 +89,21 @@ test("native lag measurements cannot renew the response window", async () => {
   expect(fail).toHaveBeenCalledOnce();
 });
 
-async function fireMissedTurn(timers: MockInstance<typeof setTimeout>, now: number): Promise<void> {
-  const callback = timers.mock.calls.at(-1)?.[0];
-  if (typeof callback !== "function") throw new Error("Missing watchdog timer");
-  vi.clearAllTimers();
-  vi.setSystemTime(now);
-  callback();
-  await vi.advanceTimersByTimeAsync(2);
+// Leave the timer pending just before its due time, then pause main. Vitest
+// shifts pending timers with the clock jump; only timers actually due can run.
+async function missDeadline(deadline: number, resumeAt: number): Promise<void> {
+  await vi.advanceTimersByTimeAsync(deadline - Date.now() - 1);
+  vi.setSystemTime(resumeAt - 1);
+  await vi.advanceTimersByTimeAsync(3);
 }
 
 test("repeated missed turns cannot renew the probe beyond fifteen seconds", async () => {
-  const timers = vi.spyOn(globalThis, "setTimeout");
   const failed = vi.fn();
   cancel = watchHostLiveness(failed);
-  await fireMissedTurn(timers, 6000);
-  await fireMissedTurn(timers, 12000);
+  await missDeadline(5000, 6000);
+  await missDeadline(11001, 12000);
   expect(failed).not.toHaveBeenCalled();
-  await fireMissedTurn(timers, 15000);
+  await vi.advanceTimersByTimeAsync(3000);
   expect(failed).toHaveBeenCalledOnce();
   expect(Date.now()).toBe(15002);
 });
@@ -127,7 +125,6 @@ test("overlapping CPU and lag cannot inflate the original response window", asyn
 });
 
 test("the absolute limit holds with both overlap and repeated missed turns", async () => {
-  const timers = vi.spyOn(globalThis, "setTimeout");
   vi.spyOn(process, "threadCpuUsage").mockImplementation(() => ({
     user: Date.now() * 900,
     system: 0,
@@ -139,9 +136,9 @@ test("the absolute limit holds with both overlap and repeated missed turns", asy
     delay.mean = 100e6;
     await vi.advanceTimersByTimeAsync(100);
   }
-  await fireMissedTurn(timers, 6000);
-  await fireMissedTurn(timers, 12000);
-  await fireMissedTurn(timers, 15000);
+  await missDeadline(5000, 6000);
+  await missDeadline(11001, 12000);
+  await vi.advanceTimersByTimeAsync(3000);
   expect(failed).toHaveBeenCalledOnce();
 });
 
@@ -167,7 +164,31 @@ test("a silent host is retired on the first drain after main resumes beyond the 
   const timers = vi.spyOn(globalThis, "setTimeout");
   const failed = vi.fn();
   cancel = watchHostLiveness(failed);
-  await fireMissedTurn(timers, 20000);
+  const callback = timers.mock.calls.at(-1)?.[0];
+  if (typeof callback !== "function") throw new Error("Missing deadline");
+  vi.clearAllTimers();
+  vi.setSystemTime(20000);
+  callback();
+  await vi.advanceTimersByTimeAsync(2);
   expect(failed).toHaveBeenCalledOnce();
   expect(Date.now()).toBe(20002);
+});
+
+test("a silent host dies after three extra late drain cycles past the cap", async () => {
+  const immediate = vi.spyOn(globalThis, "setImmediate");
+  const failed = vi.fn();
+  cancel = watchHostLiveness(failed);
+  await vi.advanceTimersByTimeAsync(5000);
+  for (let cycle = 0; cycle < 4; cycle++) {
+    // Run the receive timer, then model earlier check-phase work blocking main.
+    await vi.advanceTimersToNextTimerAsync();
+    const callback = immediate.mock.calls.at(-1)?.[0];
+    if (typeof callback !== "function") throw new Error("Missing final drain");
+    vi.clearAllTimers();
+    vi.setSystemTime(16009 + cycle * 100);
+    callback();
+    if (cycle < 3) expect(failed).not.toHaveBeenCalled();
+  }
+  expect(failed).toHaveBeenCalledOnce();
+  expect(vi.getTimerCount()).toBe(0);
 });
