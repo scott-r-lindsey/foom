@@ -1594,3 +1594,33 @@ test.skipIf(process.platform === "win32")(
     }
   },
 );
+
+test("explicit agent details return bounded display facts and remain absent on ordinary inspection", async () => {
+  mock.discovery.mockResolvedValue({
+    command: "/bin/codex",
+    env: {},
+    version: "codex-cli 0.161.0\n",
+    help: " --no-alt-screen -c --config --mcp ",
+  });
+  const request = {
+    type: "manage",
+    operation: "inspect",
+    codeFolder: join(home, "code"),
+    readOnly: true,
+    partial: true,
+    agents: [{ id: "codex", executables: ["codex"] }],
+  } as const;
+  const ordinary = await manageHost(request, 0, "/fixture", "0.1.0", home);
+  expect(ordinary.ok && ordinary.facts.agents[0]?.details).toBeUndefined();
+  const detailed = await manageHost(
+    { ...request, agentDetails: true },
+    0,
+    "/fixture",
+    "0.1.0",
+    home,
+  );
+  expect(detailed.ok && detailed.facts.agents[0]?.details).toMatchObject({
+    path: "/bin/codex",
+    version: "codex-cli 0.161.0 ",
+  });
+});

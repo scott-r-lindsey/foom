@@ -647,7 +647,7 @@ export class Hosts {
   private recipe(
     host: string,
     tool: string,
-    action: "install" | "sign-in",
+    action: "install" | "sign-in" | "install-plugin",
     result: HostResult | undefined,
   ) {
     this.registered(host);
@@ -691,6 +691,9 @@ export class Hosts {
             tool,
             install: !!this.recipe(host.host, tool, "install", displayResult),
             signIn: !!this.recipe(host.host, tool, "sign-in", displayResult),
+            ...(tool === "agy"
+              ? { pluginInstall: !!this.recipe(host.host, tool, "install-plugin", displayResult) }
+              : {}),
             ...(!this.recipe(host.host, tool, "install", displayResult)
               ? { installReason: "recipe-unavailable" as const }
               : {}),
@@ -810,6 +813,9 @@ export class Hosts {
         readOnly: true,
         partial: true,
         codeFolder: registration.codeFolder,
+        ...(target.kind === "tool" && !["git", "gh"].includes(target.tool)
+          ? { agentDetails: true as const }
+          : {}),
         target,
       });
     }
@@ -880,7 +886,11 @@ export class Hosts {
             const found = observations.find((entry) => entry.id === target.tool);
             return target.kind === "sign-in"
               ? { ...item, signIn: found?.signIn ?? "unknown" }
-              : { ...item, state: found?.state ?? "unable" };
+              : {
+                  ...item,
+                  state: found?.state ?? "unable",
+                  ...(found?.details ? { details: found.details } : {}),
+                };
           });
         next = {
           ...facts,
@@ -1020,6 +1030,18 @@ export class Hosts {
           return this.state();
         }
         if (input.action === "recipe") {
+          this.registered(input.host);
+          if (
+            input.operation === "install-plugin" &&
+            !(await confirm?.({
+              title: "Install Foom plugin on host?",
+              accept: "Install plugin",
+              subject: input.host,
+              detail:
+                "Stages Foom’s bundled Antigravity lifecycle plugin with foom-host --stage-plugin agy, then runs agy plugin install with the printed directory. The agy CLI changes its global plugin installation. Foom launches supply private lifecycle credentials; ordinary agy launches remain inert. This host uses screen rules without the plugin. Remove it with agy plugin uninstall foom.",
+            }))
+          )
+            return this.state();
           const registration = this.registered(input.host);
           this.results.set(
             input.host,
@@ -1053,7 +1075,9 @@ export class Hosts {
             },
           });
           this.queueRows(input.host, [
-            ...(input.operation === "install" ? [{ kind: "tool" as const, tool: input.tool }] : []),
+            ...(["install", "install-plugin"].includes(input.operation)
+              ? [{ kind: "tool" as const, tool: input.tool }]
+              : []),
             ...(input.tool !== "git" ? [{ kind: "sign-in" as const, tool: input.tool }] : []),
           ]);
           return this.state();
@@ -1109,6 +1133,16 @@ export class Hosts {
                     ? {
                         ...entry,
                         observation: {
+                          ...(!preflight.result.ok && entry.observation
+                            ? {
+                                lastAgents: entry.observation.preflight.result.ok
+                                  ? {
+                                      checkedAt: entry.observation.checkedAt,
+                                      result: entry.observation.preflight.result,
+                                    }
+                                  : entry.observation.lastAgents,
+                              }
+                            : {}),
                           checkedAt: Date.now(),
                           preflight: { ...preflight, result: row?.result ?? preflight.result },
                           ...(row?.foreignSessions !== undefined
@@ -1390,7 +1424,10 @@ export class Hosts {
       }));
       let result: unknown;
       try {
-        result = await this.execute(host, { ...request, agents: probes });
+        result = await this.execute(host, {
+          ...request,
+          agents: probes,
+        });
       } catch {
         return cancelled()
           ? failed("cancelled", "cancellation")
@@ -1419,17 +1456,22 @@ export class Hosts {
         ...result,
         facts: {
           ...result.facts,
-          agents: probes.map<HostFacts["agents"][number]>((probe) => ({
-            id: probe.id,
-            signIn:
-              providers.find((provider) => provider.id === probe.id)?.origin === "bundled"
-                ? (result.facts.agents.find((agent) => agent.id === probe.id)?.signIn ?? "unknown")
-                : "unknown",
-            state:
-              providers.find((provider) => provider.id === probe.id)?.origin === "bundled"
-                ? (result.facts.agents.find((agent) => agent.id === probe.id)?.state ?? "unable")
-                : "unable",
-          })),
+          agents: probes.map<HostFacts["agents"][number]>((probe) => {
+            const found = result.facts.agents.find((agent) => agent.id === probe.id);
+            return {
+              id: probe.id,
+              ...(found?.details ? { details: found.details } : {}),
+              signIn:
+                providers.find((provider) => provider.id === probe.id)?.origin === "bundled"
+                  ? (result.facts.agents.find((agent) => agent.id === probe.id)?.signIn ??
+                    "unknown")
+                  : "unknown",
+              state:
+                providers.find((provider) => provider.id === probe.id)?.origin === "bundled"
+                  ? (result.facts.agents.find((agent) => agent.id === probe.id)?.state ?? "unable")
+                  : "unable",
+            };
+          }),
         },
       };
     }
@@ -1449,6 +1491,7 @@ export class Hosts {
     const result = await this.run(host, {
       type: "manage",
       operation: "inspect",
+      agentDetails: true,
       codeFolder,
       readOnly: true,
       partial: true,

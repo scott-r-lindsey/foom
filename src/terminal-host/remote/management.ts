@@ -1,3 +1,4 @@
+import { remotePluginState } from "./plugin-status";
 import { requirements, signInStatus } from "./host-facts";
 import { networkGit } from "./network-git";
 import { HostGitFailure } from "./git-failure";
@@ -8,7 +9,7 @@ import {
   writeWorktreeProvenance,
   worktreeProvenancePath,
 } from "./worktree-provenance";
-import { discoveryFacts, selected } from "../../shared/agent-launch-values";
+import { discoveryFacts, hookCapability, selected } from "../../shared/agent-launch-values";
 import { createHash, randomUUID } from "node:crypto";
 import { remoteCheckout } from "./agent-discovery";
 import { cpus, loadavg, totalmem, homedir } from "node:os";
@@ -183,6 +184,29 @@ export async function manageHost(
             : undefined);
         agents.push({
           id: model.id,
+          ...(request.operation === "inspect" && request.agentDetails
+            ? {
+                details: {
+                  path: found.command,
+                  ...(model.id === "agy"
+                    ? { plugin: await remotePluginState(found.command, home, found.env, signal) }
+                    : {}),
+                  version: found.version.replace(/[\p{Cc}\p{Cf}]/gu, " ").slice(0, 128),
+                  capabilities: [
+                    bundled && hookCapability(bundled, found.version, found.help) ? "Hooks" : "",
+                    bundled?.launch.mcp &&
+                    facts &&
+                    selected(bundled.launch.mcp.when, { ...facts, pluginMcp: false })
+                      ? "MCP"
+                      : "",
+                    bundled?.launch.resume ? "Resume" : "",
+                    bundled?.launch.display && facts && selected(bundled.launch.display.when, facts)
+                      ? "Inline"
+                      : "",
+                  ].filter(Boolean),
+                },
+              }
+            : {}),
           signIn:
             (!target || target.kind === "sign-in") &&
             bundled?.hostSetup?.status &&

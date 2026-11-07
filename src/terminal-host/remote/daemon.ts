@@ -405,6 +405,7 @@ export function serveHost(
           hostFacts: 1,
           hostPreflight: 1,
           hostRowCheck: 1,
+          agentSettings: 1,
           humanMachines: 1,
           machineHome: home,
           originTrust: 1,

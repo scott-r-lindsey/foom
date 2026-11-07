@@ -154,6 +154,15 @@ test("validates worktree and scan arguments before calling the workspace", async
 
   await invoke("agents:scan", [true]);
   expect(workspace.scanAgents).toHaveBeenCalledWith(true);
+  await invoke("agents:scan", [true, "claude"]);
+  expect(workspace.scanAgents).toHaveBeenCalledWith(true, "claude");
+  for (const args of [
+    [false, "claude"],
+    [true, "unknown"],
+    [true, "claude", 1],
+    [true, {}],
+  ])
+    expect(() => invoke("agents:scan", args)).toThrow("foom-error:operation-failed");
   expect(() => invoke("agents:scan", ["yes"])).toThrow("foom-error:operation-failed");
 });
 

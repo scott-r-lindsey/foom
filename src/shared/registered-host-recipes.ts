@@ -5,7 +5,7 @@ import type {
   HostRecipeLaunch,
 } from "./registered-hosts.d";
 
-/** Checked-in data only. No shell source, downloads of executable code or interpolation. */
+/** Checked-in argv only. No shell source or executable downloads; staged plugin paths are host-owned. */
 const sudo = (...argv: string[]) => ["/usr/bin/sudo", ...argv];
 const git = {
   debian: [sudo("/usr/bin/apt-get", "install", "-y", "git")],
@@ -49,7 +49,9 @@ export function recipeRequest(value: unknown): value is HostRecipeRequest {
     "distro" in value &&
     typeof value.tool === "string" &&
     /^[a-z][a-z0-9-]{0,63}$/u.test(value.tool) &&
-    (value.action === "install" || value.action === "sign-in") &&
+    (value.action === "install" ||
+      value.action === "sign-in" ||
+      (value.action === "install-plugin" && value.tool === "agy")) &&
     typeof value.distro === "string" &&
     ["debian", "rhel", "arch", "darwin"].includes(value.distro)
   );
@@ -69,6 +71,16 @@ export function selectHostRecipe(
   if (facts.libc !== "supported" || facts.distro === "unknown" || request.distro !== facts.distro)
     return undefined;
   const distro = request.distro;
+  if (request.action === "install-plugin")
+    return request.tool === "agy"
+      ? {
+          ...request,
+          steps: [
+            ["foom-host", "--stage-plugin", "agy"],
+            ["agy", "plugin", "install", "{stagedPlugin}"],
+          ],
+        }
+      : undefined;
   if (request.action === "sign-in") {
     const argv =
       request.tool === "gh"

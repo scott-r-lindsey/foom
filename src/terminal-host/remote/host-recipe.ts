@@ -1,3 +1,5 @@
+import { remotePluginState } from "./plugin-status";
+import { stageRemotePlugin } from "./agent-launch";
 import { originSshArgs } from "../../shared/registered-hosts";
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
@@ -23,7 +25,19 @@ export async function runHostRecipe(argv: readonly string[], home = homedir()): 
   const recipe = selectHostRecipe(request, facts, model?.hostSetup);
   if (!recipe || createHash("sha256").update(JSON.stringify(recipe.steps)).digest("hex") !== digest)
     return 2;
-  for (const argv of recipe.steps) {
+  if (request.action === "install-plugin") {
+    const found = await hostDiscovery({ executables: ["agy"] }, remoteShell(), home);
+    if ((await remotePluginState(found.command, home, env)) !== "not-installed") return 2;
+  }
+  let staged: string | undefined;
+  for (const step of recipe.steps) {
+    if (request.action === "install-plugin" && step[0] === "foom-host") {
+      process.stdout.write("foom-host --stage-plugin agy\n");
+      staged = await stageRemotePlugin("agy", home);
+      process.stdout.write(`${staged}\n`);
+      continue;
+    }
+    const argv = step.map((value) => (value === "{stagedPlugin}" && staged ? staged : value));
     let command = argv[0];
     if (!command) return 2;
     if (command === "brew") {

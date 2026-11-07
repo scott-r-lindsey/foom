@@ -2304,3 +2304,55 @@ test.skipIf(process.platform === "win32")(
     }
   },
 );
+
+test("a failed explicit check preserves the last successful agent facts for display only", async () => {
+  await hosts.action({ action: "add", host: "worker", codeFolder: "~/code" });
+  await hosts.action({ action: "preflight", host: "worker", codeFolder: facts.codeFolder });
+  const previous = settings.registeredHosts?.[0]?.observation;
+  run.mockResolvedValue({ ok: false, reason: "unreachable" });
+  await hosts.action({ action: "preflight", host: "worker", codeFolder: facts.codeFolder });
+  expect(settings.registeredHosts?.[0]?.observation?.lastAgents).toEqual({
+    checkedAt: previous?.checkedAt,
+    result: previous?.preflight.result,
+  });
+  await hosts.action({ action: "preflight", host: "worker", codeFolder: facts.codeFolder });
+  expect(settings.registeredHosts?.[0]?.observation?.lastAgents?.checkedAt).toBe(
+    previous?.checkedAt,
+  );
+  run.mockResolvedValue({ ok: true, facts });
+  await hosts.action({ action: "preflight", host: "worker", codeFolder: facts.codeFolder });
+  expect(settings.registeredHosts?.[0]?.observation?.lastAgents).toBeUndefined();
+});
+
+test("remote plugin mutation requires its own trusted confirmation and never installs silently", async () => {
+  await hosts.action({ action: "add", host: "worker", codeFolder: "~/code" });
+  const launch = vi.fn();
+  const confirm = vi.fn(() => Promise.resolve(false));
+  const action = {
+    action: "recipe",
+    host: "worker",
+    tool: "agy",
+    operation: "install-plugin",
+  } as const;
+  const owner = new Hosts(store, () => repositories, "0.1.0", run, "profile");
+  await owner.action(action, confirm, launch);
+  expect(launch).not.toHaveBeenCalled();
+  expect(confirm).toHaveBeenCalledWith(
+    expect.objectContaining({ title: "Install Foom plugin on host?", subject: "worker" }),
+  );
+  confirm.mockResolvedValue(true);
+  run.mockResolvedValue({
+    ok: true,
+    facts: {
+      ...facts,
+      requirements: { distro: "debian", libc: "supported", packageManager: "apt" },
+    },
+  });
+  const installed = await owner.action(action, confirm, launch);
+  expect(installed.hosts[0]?.recipes?.find((recipe) => recipe.tool === "agy")?.pluginInstall).toBe(
+    true,
+  );
+  expect(launch.mock.calls).toMatchObject([
+    [{ host: "worker", recipe: { tool: "agy", action: "install-plugin" } }],
+  ]);
+});

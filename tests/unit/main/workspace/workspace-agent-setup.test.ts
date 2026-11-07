@@ -25,6 +25,8 @@ test("caches agent scans until a refresh and retries after a failed scan", async
   await expect(workspace.scanAgents(true)).rejects.toThrow("probe");
   await workspace.scanAgents(false);
   expect(agents.scan).toHaveBeenCalledTimes(4);
+  await workspace.scanAgents(true, "claude");
+  expect(agents.scan).toHaveBeenLastCalledWith(expect.anything(), "claude");
 });
 
 test("preflight settings control hooks and which agents may launch", async () => {

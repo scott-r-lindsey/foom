@@ -337,6 +337,7 @@ for (const firstRun of [false, true]) {
     else {
       await openSettingsScreen(page);
       await page.getByRole("button", { name: "Agents", exact: true }).click();
+      await page.getByRole("tab", { name: "This computer", exact: true }).click();
       await expect(page.getByText("Plugin available", { exact: true })).toBeVisible();
     }
     const agyRow = page
@@ -384,7 +385,7 @@ for (const firstRun of [false, true]) {
       await capture("installed-reinstall");
       const metadataFile = path.join(home, ".gemini/config/plugins/foom/plugin.json");
       const scan = async () =>
-        page.getByRole("button", { name: "Scan again", exact: true }).click();
+        page.getByRole("button", { name: "Re-check This computer", exact: true }).click();
       await writeFile(metadataFile, JSON.stringify({ name: "foom", foomObserverVersion: 1 }));
       await scan();
       await expect(agyRow.getByText("Plugin · outdated", { exact: true })).toBeVisible();
@@ -607,6 +608,7 @@ test("Antigravity plugin MCP inherits an owned child's read-only role", {
   };
   await openSettingsScreen(page);
   await page.getByRole("button", { name: "Agents", exact: true }).click();
+  await page.getByRole("tab", { name: "This computer", exact: true }).click();
   const agyRow = page
     .locator(".agent-card")
     .filter({ has: page.getByText("Antigravity", { exact: true }) });
@@ -684,6 +686,7 @@ for (const mode of ["light", "dark"]) {
     const page = await boardPage(app);
     await openSettingsScreen(page);
     await page.getByRole("button", { name: "Agents", exact: true }).click();
+    await page.getByRole("tab", { name: "This computer", exact: true }).click();
     const row = page
       .locator(".agent-card")
       .filter({ has: page.getByText("Antigravity", { exact: true }) });
@@ -744,7 +747,7 @@ for (const mode of ["light", "dark"]) {
     await dialog.getByRole("button", { name: "Done", exact: true }).click();
     await expect(row.getByRole("status")).toContainText("Uninstalled the old version");
     await expect(row.getByRole("button", { name: "Install", exact: true })).toBeEnabled();
-    await page.getByRole("button", { name: "Scan again", exact: true }).click();
+    await page.getByRole("button", { name: "Re-check This computer", exact: true }).click();
     await expect(row.getByRole("status")).toHaveCount(0);
   });
 }

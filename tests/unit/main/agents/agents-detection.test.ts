@@ -244,3 +244,18 @@ it("disabled agents retain card identity but run no discovery or setup probes, a
     (await agentFixture.service.scan({ claude: true, codex: false, agy: false })).agents[0]?.path,
   ).not.toBeNull();
 });
+
+it("a selected refresh probes only that CLI and retains other observations, including before a full scan", async () => {
+  const first = await agentFixture.service.scan({}, "claude");
+  expect(first.checkedAt).toBeUndefined();
+  const baseline = await agentFixture.service.scan();
+  vi.mocked(execFile).mockClear();
+  const next = await agentFixture.service.scan({}, "claude");
+  expect(next.checkedAt).toBeTypeOf("number");
+  expect(next.agents.find((agent) => agent.id === "codex")).toEqual(
+    baseline.agents.find((agent) => agent.id === "codex"),
+  );
+  expect(vi.mocked(execFile).mock.calls.filter((call) => call[0].endsWith("codex"))).toHaveLength(
+    0,
+  );
+});

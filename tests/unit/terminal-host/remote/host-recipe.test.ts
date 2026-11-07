@@ -5,11 +5,19 @@ import codex from "../../../../src/shared/bundled-agents/codex.json";
 import { EventEmitter } from "node:events";
 import { beforeEach, expect, test, vi } from "vitest";
 const mock = vi.hoisted(() => ({
+  stage: vi.fn(),
+  plugin: vi.fn(),
   spawn: vi.fn(),
   requirements: vi.fn(),
   executable: vi.fn(),
   discovery: vi.fn(),
   login: vi.fn(),
+}));
+vi.mock("../../../../src/terminal-host/remote/agent-launch", () => ({
+  stageRemotePlugin: mock.stage,
+}));
+vi.mock("../../../../src/terminal-host/remote/plugin-status", () => ({
+  remotePluginState: mock.plugin,
 }));
 vi.mock("node:child_process", () => ({ spawn: mock.spawn }));
 vi.mock("../../../../src/terminal-host/remote/daemon", () => ({
@@ -31,7 +39,7 @@ async function runHostRecipe(args: readonly string[], home: string) {
   const [tool, action, distro] = args;
   const recipe =
     tool &&
-    (action === "install" || action === "sign-in") &&
+    (action === "install" || action === "sign-in" || action === "install-plugin") &&
     (distro === "debian" || distro === "rhel" || distro === "arch" || distro === "darwin")
       ? selectHostRecipe(
           { tool, action, distro },
@@ -52,6 +60,8 @@ async function runHostRecipe(args: readonly string[], home: string) {
   );
 }
 beforeEach(() => {
+  mock.stage.mockReset();
+  mock.plugin.mockReset();
   mock.requirements
     .mockReset()
     .mockResolvedValue({ distro: "debian", libc: "supported", packageManager: "apt" });
@@ -204,4 +214,35 @@ test("origin trust runs only interactive ssh argv with fingerprint confirmation 
     return child;
   });
   expect(await runOriginTrust(["git@forge.test:repo"], "/fixture/home")).toBe(1);
+});
+
+test("plugin installation stages only bundled bytes after an absent inventory and binds the printed path as one argv", async () => {
+  mock.discovery.mockResolvedValue({ command: "/fixture/agy" });
+  mock.plugin.mockResolvedValue("not-installed");
+  mock.stage.mockResolvedValue("/fixture/plugin with spaces");
+  expect(await runHostRecipe(["agy", "install-plugin", "debian"], "/fixture/home")).toBe(0);
+  expect(mock.stage).toHaveBeenCalledWith("agy", "/fixture/home");
+  expect(mock.spawn).toHaveBeenCalledExactlyOnceWith(
+    "/fixture/agy",
+    ["plugin", "install", "/fixture/plugin with spaces"],
+    expect.objectContaining({ shell: false, stdio: "inherit" }),
+  );
+  mock.spawn.mockClear();
+  mock.stage.mockClear();
+  for (const state of ["present", "unavailable"]) {
+    mock.plugin.mockResolvedValue(state);
+    expect(await runHostRecipe(["agy", "install-plugin", "debian"], "/fixture/home")).toBe(2);
+  }
+  expect(mock.stage).not.toHaveBeenCalled();
+  expect(mock.spawn).not.toHaveBeenCalled();
+});
+
+test("failed plugin staging never reaches the install command", async () => {
+  mock.discovery.mockResolvedValue({ command: "/fixture/agy" });
+  mock.plugin.mockResolvedValue("not-installed");
+  mock.stage.mockRejectedValue(new Error("fixture staging failed"));
+  await expect(runHostRecipe(["agy", "install-plugin", "debian"], "/fixture/home")).rejects.toThrow(
+    "fixture staging failed",
+  );
+  expect(mock.spawn).not.toHaveBeenCalled();
 });

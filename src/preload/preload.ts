@@ -450,6 +450,16 @@ const hostFactsShape = shape({
     shape({
       id: hostAgentId,
       state: literal("ready", "missing", "unable"),
+      details: either(
+        absent,
+        shape({
+          path: hostFolder,
+          version: (value): value is string =>
+            typeof value === "string" && value.length <= 128 && !/[\p{Cc}\p{Cf}]/u.test(value),
+          capabilities: array(literal("Hooks", "MCP", "Resume", "Inline")),
+          plugin: either(absent, literal("present", "not-installed", "unavailable")),
+        }),
+      ),
       signIn: either(absent, literal("signed-in", "signed-out", "unknown")),
     }),
   ),
@@ -481,7 +491,8 @@ const validHostFacts: Validator<HostFacts> = copying(
     hostFactsShape(value) &&
     value.load.length === 3 &&
     value.memoryAvailable <= value.memoryTotal &&
-    value.agents.length <= 100,
+    value.agents.length <= 100 &&
+    value.agents.every((agent) => !agent.details || agent.details.capabilities.length <= 4),
   (value) => project(hostFactsShape, value),
 );
 const validHostResult: Validator<HostResult> = either(
@@ -510,6 +521,10 @@ const validHostPreflight = shape({
   ),
 });
 const validHostObservation = shape({
+  lastAgents: either(
+    absent,
+    shape({ checkedAt: range(0, 8640000000000000, true), result: validHostResult }),
+  ),
   checkedAt: range(0, 8640000000000000, true),
   preflight: validHostPreflight,
   foreignSessions: either(absent, count),
@@ -568,6 +583,7 @@ const validHostsState: Validator<HostsState> = shape({
             tool: hostAgentId,
             install: boolean,
             signIn: boolean,
+            pluginInstall: either(absent, boolean),
             installReason: either(absent, literal("recipe-unavailable")),
           }),
         ),
@@ -1101,6 +1117,7 @@ const validAgentInstallation: Validator<AgentInstallation> = shape({
 } satisfies Contract<AgentInstallation>);
 
 const validAgentReport: Validator<AgentReport> = shape({
+  checkedAt: either(absent, range(0, 8640000000000000, true)),
   warning: either(nil, text),
   agents: array(validAgentInstallation),
 } satisfies Contract<AgentReport>);
@@ -1937,7 +1954,10 @@ const desktop: DesktopApi = {
       : reply("workspace:create-worktree", createdWorktree, repository, branch, location, host),
   changeAgentSetup: (id, action) => reply("agents:setup", validAgentReport, id, action),
   changeAgyPlugin: (action) => reply("agents:agy-plugin", validAgentReport, action),
-  scanAgents: (refresh) => reply("agents:scan", validAgentReport, refresh),
+  scanAgents: (refresh, agent) =>
+    agent === undefined
+      ? reply("agents:scan", validAgentReport, refresh)
+      : reply("agents:scan", validAgentReport, refresh, agent),
   launchAgent: (request) => reply("agents:launch", either(nil, validAgentLaunched), request),
   configStatus: () => reply("config:status", validConfigStatus),
   decideConfig: (decision, id) => reply("config:decide", validConfigStatus, decision, id),

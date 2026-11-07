@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agents Scopes Mockup</title>
+<style>
+:root {
+  --bg:#f3f0fa; --surface:#e9e4f5; --line:#ddd6ee; --ink:#14101f; --muted:#625a7a;
+  --accent:#5b2bd9; --attention:#d98200; --attention-ink:#8c5000; --done-ink:#0e6b3c;
+  --badge-label:#4a4263; --badge-label-ink:#f4efff; --badge-fill:#d6cfe9; --badge-ink:#14101f;
+  --on-accent:#fff; --term:#14101f; --term-ink:#f4efff; --term-muted:#b5abd1;
+  --ui:"Geist",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"Geist Mono",ui-monospace,"DejaVu Sans Mono",Menlo,monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg:#05040a; --surface:#0d0a17; --line:#251d3f; --ink:#f4efff; --muted:#9d93bd;
+  --accent:#9b6bff; --attention:#ffb23e; --attention-ink:#ffb23e; --done-ink:#6fe0a3;
+  --badge-label:#3a3060; --badge-label-ink:#f4efff; --badge-fill:#1c1632; --badge-ink:#f4efff;
+  --on-accent:#05040a; --term:#05040a; --term-ink:#f4efff; --term-muted:#9d93bd; color-scheme:dark;
+} }
+:root[data-theme="dark"] {
+  --bg:#05040a; --surface:#0d0a17; --line:#251d3f; --ink:#f4efff; --muted:#9d93bd;
+  --accent:#9b6bff; --attention:#ffb23e; --attention-ink:#ffb23e; --done-ink:#6fe0a3;
+  --badge-label:#3a3060; --badge-label-ink:#f4efff; --badge-fill:#1c1632; --badge-ink:#f4efff;
+  --on-accent:#05040a; --term:#05040a; --term-ink:#f4efff; --term-muted:#9d93bd; color-scheme:dark;
+}
+:root[data-theme="light"] { color-scheme:light; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.45 var(--ui); padding:12px 16px; }
+button { font:inherit; color:var(--ink); background:transparent; border:1px solid var(--line); border-radius:6px; padding:4px 11px; cursor:pointer; white-space:nowrap; }
+button:hover { border-color:var(--accent); }
+button:focus-visible, input:focus-visible, textarea:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+code { font-family:var(--mono); }
+
+.controls { display:flex; gap:10px; align-items:center; flex-wrap:wrap; border:1px dashed var(--muted); border-radius:8px; padding:6px 10px; margin-bottom:12px; }
+.controls-label { font:600 11px/1 var(--mono); letter-spacing:.08em; text-transform:uppercase; color:var(--muted); }
+.controls button { font-size:12px; padding:2px 8px; }
+
+.app { display:grid; grid-template-columns:150px minmax(0,1fr); gap:20px; max-width:1020px; margin:0 auto; }
+nav { display:grid; gap:1px; align-content:start; }
+nav .nav-title { font:600 11px/1 var(--mono); letter-spacing:.08em; text-transform:uppercase; color:var(--muted); padding:6px 10px 8px; }
+nav button { border:0; text-align:left; padding:5px 10px; color:var(--muted); }
+nav button.on { background:var(--surface); color:var(--ink); font-weight:600; }
+nav button[disabled] { cursor:default; }
+main { display:grid; gap:12px; min-width:0; align-content:start; }
+.head { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+.head h2 { margin:0; font-size:20px; }
+.head .spacer { flex:1; }
+.toggle { display:inline-flex; gap:7px; align-items:center; cursor:pointer; }
+
+.scopes { display:flex; flex-wrap:wrap; gap:0; border-bottom:1px solid var(--line); }
+.scopes button { border:0; border-bottom:2px solid transparent; border-radius:0; padding:7px 12px; margin-bottom:-1px; color:var(--muted); display:inline-flex; align-items:center; gap:7px; }
+.scopes button:hover { color:var(--ink); }
+.scopes button[aria-selected="true"] { color:var(--ink); font-weight:600; border-bottom-color:var(--accent); }
+.scopes .sep { width:1px; background:var(--line); margin:7px 6px; }
+.machine-reload { border:0; padding:0; color:var(--muted); display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px; border-radius:6px; }
+.machine-reload:hover { color:var(--accent); background:var(--bg); }
+.col-head { display:inline-flex; align-items:center; gap:2px; }
+.matrix thead th button.machine-reload { padding:0; color:var(--muted); }
+.matrix thead th button.machine-reload:hover { color:var(--accent); }
+.conn { width:8px; height:8px; border-radius:50%; flex:none; }
+.conn.up { background:var(--done-ink); }
+.conn.down { border:1.5px solid var(--muted); }
+
+.scope-bar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; min-height:30px; color:var(--muted); font-size:13px; }
+.scope-bar code { font-size:12px; }
+.scope-bar .spacer { flex:1; }
+
+.matrix-wrap { overflow-x:auto; background:var(--surface); border:1px solid var(--line); border-radius:10px; }
+table.matrix { border-collapse:collapse; width:100%; min-width:560px; }
+.matrix th, .matrix td { padding:8px 12px; border-top:1px solid var(--line); text-align:center; font-weight:400; }
+.matrix thead th { border-top:0; font:600 11px/1.2 var(--mono); color:var(--muted); }
+.matrix thead th button { border:0; padding:2px 4px; font:inherit; color:inherit; }
+.matrix thead th button:hover { color:var(--accent); }
+.matrix .agent-cell { text-align:left; }
+.matrix tr.off .agent-name, .matrix tr.off .badge { opacity:.55; }
+.cell { border:0; padding:2px 8px; min-width:40px; font-size:15px; line-height:1.2; }
+.cell:hover { background:var(--bg); }
+.legend { display:flex; gap:14px; flex-wrap:wrap; font-size:12px; color:var(--muted); }
+.legend span { display:inline-flex; gap:5px; align-items:center; }
+
+.agent-name-wrap { display:flex; align-items:center; gap:9px; }
+.badge { font:600 10px/1 var(--mono); background:var(--badge-label); color:var(--badge-label-ink); padding:4px 5px; border-radius:4px; }
+.glyph { display:inline-flex; width:14px; height:14px; align-items:center; justify-content:center; flex:none; }
+.g-pass { color:var(--done-ink); }
+.ring { width:10px; height:10px; border:1.5px solid var(--muted); border-radius:50%; display:inline-block; }
+.half { width:10px; height:10px; border:1.5px solid var(--muted); border-radius:50%; display:inline-block; background:linear-gradient(90deg, var(--muted) 50%, transparent 50%); }
+.dash { color:var(--muted); }
+.spin { width:12px; height:12px; border:2px solid color-mix(in srgb, var(--accent) 25%, transparent); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; display:inline-block; }
+@keyframes spin { to { transform:rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spin { animation:none; border-color:var(--accent); } }
+.halo { width:10px; height:10px; background:var(--attention); border-radius:50%; box-shadow:0 0 0 3px color-mix(in srgb, var(--attention) 30%, transparent); display:inline-block; }
+
+.section-title { font:600 11px/1 var(--mono); letter-spacing:.08em; text-transform:uppercase; color:var(--muted); margin:8px 0 0; }
+.args { display:grid; gap:6px; }
+.args-row { display:grid; grid-template-columns:150px minmax(0,1fr); gap:10px; align-items:center; }
+.args-row input { font:12px var(--mono); color:var(--ink); background:var(--surface); border:1px solid var(--line); border-radius:6px; padding:5px 8px; width:100%; min-width:0; }
+
+.cards { display:grid; gap:10px; }
+.card { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:11px 14px; display:grid; gap:6px; min-width:0; }
+.card.stale { opacity:.72; }
+.card-head { display:flex; gap:9px; align-items:center; flex-wrap:wrap; }
+.card-head h3 { margin:0; font-size:14px; }
+.version { font:11px var(--mono); color:var(--muted); }
+.card-head .spacer { flex:1; }
+.reload { border:0; padding:0 6px; font-size:15px; color:var(--muted); opacity:0; }
+.card:hover .reload, .reload:focus-visible, .row:hover .reload { opacity:1; }
+@media (hover:none) { .reload { opacity:1; } }
+.path { font:11px var(--mono); color:var(--muted); overflow-wrap:anywhere; }
+.row { display:grid; grid-template-columns:110px minmax(0,1fr) auto; gap:10px; align-items:center; min-height:30px; border-top:1px solid var(--line); padding-top:5px; }
+.label { color:var(--muted); font-size:12px; }
+.status { display:flex; gap:7px; align-items:center; min-width:0; }
+.pass { color:var(--done-ink); } .neutral { color:var(--muted); } .need { color:var(--attention-ink); font-weight:600; } .work { color:var(--accent); }
+.actions { display:flex; gap:5px; align-items:center; }
+.chips { display:flex; gap:4px; flex-wrap:wrap; }
+.chip { font:10px/1 var(--mono); background:var(--badge-fill); color:var(--badge-ink); padding:3px 5px; border-radius:4px; }
+.term { background:var(--term); color:var(--term-ink); font:12px/1.5 var(--mono); padding:8px 10px; border-radius:6px; overflow-x:auto; white-space:pre; margin:0; border:1px solid var(--line); }
+.term .dim { color:var(--term-muted); }
+.off-line { font-size:12px; color:var(--muted); }
+.off-line button { border:0; padding:0 3px; color:var(--accent); font-size:12px; }
+
+.note { font-size:13px; color:var(--muted); max-width:70ch; }
+.note b { color:var(--ink); font-weight:600; }
+@media (max-width:640px) {
+  .app { grid-template-columns:minmax(0,1fr); }
+  nav { grid-auto-flow:column; grid-auto-columns:max-content; overflow-x:auto; }
+  nav .nav-title { display:none; }
+  .row { grid-template-columns:minmax(0,1fr) auto; }
+  .row .label { grid-column:1 / -1; }
+  .args-row { grid-template-columns:minmax(0,1fr); }
+}
+</style>
+</head>
+<body>
+<div class="controls" aria-label="Mockup controls">
+  <span class="controls-label">Mockup only</span>
+  <button id="theme">Light / dark</button>
+</div>
+<div class="app">
+  <nav aria-label="Settings">
+    <div class="nav-title">Settings</div>
+    <button disabled>General</button>
+    <button data-nav="agents" class="on">Agents</button>
+    <button disabled>Environment</button>
+    <button data-nav="hosts">Hosts</button>
+    <button disabled>Repositories</button>
+    <button disabled>Appearance</button>
+    <button disabled>Terminal</button>
+    <button disabled>Sound</button>
+  </nav>
+  <main id="main"></main>
+</div>
+
+<script>
+const AGENTS = [
+  { id:"claude", badge:"CC", name:"Claude Code", caps:["Hooks","MCP","Resume"] },
+  { id:"codex", badge:"CX", name:"Codex", caps:["Hooks","MCP","Resume"] },
+  { id:"agy", badge:"AG", name:"Antigravity", caps:["Plugin","Resume"], plugin:true },
+  { id:"copilot", badge:"CP", name:"Copilot", caps:["Hooks"] },
+  { id:"opencode", badge:"OC", name:"OpenCode", caps:["Hooks"] },
+  { id:"pi", badge:"PI", name:"Pi", caps:["Extension"] },
+];
+const MACHINES = [
+  { id:"local", label:"This computer", short:"This computer", kind:"local" },
+  { id:"dozer", label:"dozer", short:"dozer", kind:"host", where:"slindsey@dozer", up:true, checked:"Checked 4 min ago" },
+  { id:"cloud-build", label:"cloud-build", short:"cloud-build", kind:"host", where:"admin@ec2", up:true, checked:"Checked 12 min ago" },
+  { id:"old-box", label:"old-box", short:"old-box", kind:"host", where:"ops@old-box", up:false, checked:"Offline · checked Nov 3" },
+];
+// state: found, signedIn, version, plugin ("installed"|"missing"|undefined)
+const data = {
+  local: {
+    claude:{found:true,signed:true,version:"2.3.1",path:"~/.local/bin/claude"},
+    codex:{found:true,signed:true,version:"0.61.0",path:"~/.nvm/versions/node/v24/bin/codex"},
+    agy:{found:true,signed:true,version:"1.4.12",path:"/usr/bin/agy",plugin:"installed"},
+    copilot:{found:false}, opencode:{found:false}, pi:{found:false},
+  },
+  dozer: {
+    claude:{found:true,signed:true,version:"2.3.1",path:"~/.local/bin/claude"},
+    codex:{found:true,signed:false,version:"0.61.0",path:"~/.local/bin/codex"},
+    agy:{found:true,signed:true,version:"1.4.12",path:"/usr/bin/agy",plugin:"missing"},
+    copilot:{found:false}, opencode:{found:false}, pi:{found:false},
+  },
+  "cloud-build": {
+    claude:{found:false}, codex:{found:false}, agy:{found:false},
+    copilot:{found:false}, opencode:{found:false}, pi:{found:false},
+  },
+  "old-box": {
+    claude:{found:true,signed:true,version:"2.1.0",path:"~/.local/bin/claude"},
+    codex:{found:false}, agy:{found:false}, copilot:{found:false}, opencode:{found:false}, pi:{found:false},
+  },
+};
+const enabled = { claude:true, codex:true, agy:true, copilot:true, opencode:true, pi:false };
+const args = { claude:"", codex:"--sandbox workspace-write", agy:"", copilot:"", opencode:"", pi:"" };
+let nav = "agents", scope = "global", hooks = true;
+const busy = new Map(); // "machine:agent:kind" -> html of terminal
+const reloading = new Set();
+
+const g = {
+  pass:'<span class="glyph g-pass">✓</span>',
+  half:'<span class="glyph"><span class="half"></span></span>',
+  ring:'<span class="glyph"><span class="ring"></span></span>',
+  dash:'<span class="glyph dash">—</span>',
+  work:'<span class="glyph"><span class="spin"></span></span>',
+  need:'<span class="glyph"><span class="halo"></span></span>',
+};
+const ready = (s) => s.found && s.signed;
+const cellOf = (m, a) => {
+  const s = data[m][a.id];
+  if (!enabled[a.id]) return [g.dash, "Off"];
+  if (ready(s)) return [g.pass, "Ready"];
+  if (s.found) return [g.half, "Signed out"];
+  return [g.ring, "Not found"];
+};
+const machine = (id) => MACHINES.find((m) => m.id === id);
+
+function scopesHtml() {
+  const tab = (id, label, dot) => `<button role="tab" data-scope="${id}" aria-selected="${scope === id}">${dot ?? ""}${label}</button>`;
+  return `<div class="scopes" role="tablist" aria-label="Agents scope">${tab("global", "Global")}<span class="sep" aria-hidden="true"></span>${MACHINES.map((m) =>
+    tab(m.id, m.label, m.kind === "host" ? `<span class="conn ${m.up ? "up" : "down"}" title="${m.up ? "Connected" : "Offline"}"></span>` : "")).join("")}</div>`;
+}
+const RELOAD_ICON = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 3v5h-5"/></svg>';
+function reloadButton(m) {
+  return reloading.has(m.id)
+    ? `<span class="machine-reload" role="status" aria-label="Checking ${m.label}">${g.work}</span>`
+    : `<button class="machine-reload" data-reload="${m.id}" title="Re-check ${m.label}" aria-label="Re-check ${m.label}">${RELOAD_ICON}</button>`;
+}
+function globalHtml() {
+  const rows = AGENTS.map((a) => `<tr class="${enabled[a.id] ? "" : "off"}">
+    <td class="agent-cell"><div class="agent-name-wrap"><input type="checkbox" data-enable="${a.id}" ${enabled[a.id] ? "checked" : ""} aria-label="Enable ${a.name}"><span class="badge">${a.badge}</span><span class="agent-name">${a.name}</span></div></td>
+    ${MACHINES.map((m) => { const [gl, t] = cellOf(m.id, a); return `<td><button class="cell" data-jump="${m.id}" title="${a.name} on ${m.label}: ${t}" aria-label="${a.name} on ${m.label}: ${t}">${gl}</button></td>`; }).join("")}
+  </tr>`).join("");
+  const argRows = AGENTS.filter((a) => enabled[a.id]).map((a) => `<div class="args-row"><label for="a-${a.id}">${a.name}</label><input id="a-${a.id}" value="${args[a.id]}" spellcheck="false"></div>`).join("");
+  return `<div class="matrix-wrap"><table class="matrix"><thead><tr><th class="agent-cell">Agent</th>${MACHINES.map((m) => `<th><span class="col-head"><button data-jump="${m.id}">${m.short}</button>${reloadButton(m)}</span></th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div>
+  <div class="legend"><span>${g.pass}Ready</span><span>${g.half}Signed out</span><span>${g.ring}Not found</span><span>${g.dash}Off</span></div>
+  <p class="section-title">Default arguments</p><div class="args">${argRows}</div>`;
+}
+function rowHtml(m, a, s, kind, label, statusHtml, action) {
+  const key = `${m.id}:${a.id}:${kind}`;
+  const b = busy.get(key);
+  if (b) return `<div class="row"><span class="label">${label}</span><div class="status work" role="status">${g.work}${b.label}</div><div class="actions"></div></div><pre class="term">${b.term}</pre>`;
+  return `<div class="row"><span class="label">${label}</span>${statusHtml}<div class="actions">${action ?? ""}</div></div>`;
+}
+function cardHtml(m, a) {
+  const s = data[m.id][a.id];
+  const disabled = m.up === false ? "disabled" : "";
+  const act = (kind, text) => `<button data-act="${kind}" data-agent="${a.id}" ${disabled}>${text}</button>`;
+  const stale = m.up === false ? " stale" : "";
+  let rows = "";
+  if (!s.found) {
+    rows += rowHtml(m, a, s, "install", "Installed", `<div class="status neutral">${g.ring}Not found</div>`, act("install", "Install"));
+  } else {
+    rows += rowHtml(m, a, s, "signin", "Sign-in", s.signed
+      ? `<div class="status pass">${g.pass}Signed in</div>`
+      : `<div class="status neutral">${g.half}Signed out</div>`, s.signed ? "" : act("signin", "Sign in"));
+    if (a.plugin) rows += rowHtml(m, a, s, "plugin", "Foom plugin", s.plugin === "installed"
+      ? `<div class="status pass">${g.pass}Installed · v4</div>`
+      : `<div class="status neutral">${g.ring}Not installed · screen rules</div>`, s.plugin === "installed" ? "" : act("plugin", "Install plugin"));
+    rows += `<div class="row"><span class="label">Capabilities</span><div class="chips">${a.caps.map((c) => `<span class="chip">${c}</span>`).join("")}</div><div class="actions"></div></div>`;
+  }
+  return `<article class="card${stale}" aria-label="${a.name}">
+    <div class="card-head"><span class="badge">${a.badge}</span><h3>${a.name}</h3>${s.version ? `<span class="version">${s.version}</span>` : ""}<span class="spacer"></span><button class="reload" data-act="reload" data-agent="${a.id}" title="Re-check ${a.name}" aria-label="Re-check ${a.name}" ${disabled}>↻</button></div>
+    ${s.path ? `<code class="path">${s.path}</code>` : ""}${rows}</article>`;
+}
+function machineHtml() {
+  const m = machine(scope);
+  const off = AGENTS.filter((a) => !enabled[a.id]);
+  const bar = m.kind === "host"
+    ? `<div class="scope-bar"><code>${m.where}</code><span>· ${m.checked}</span>${reloadButton(m)}</div>`
+    : `<div class="scope-bar"><span>${m.checked ?? "Checked 2 min ago"}</span>${reloadButton(m)}</div>`;
+  return `${bar}<div class="cards">${AGENTS.filter((a) => enabled[a.id]).map((a) => cardHtml(m, a)).join("")}</div>
+    ${off.length ? `<div class="off-line">Off: ${off.map((a) => a.name).join(", ")} <button data-scope="global">Global</button></div>` : ""}`;
+}
+function hostsHtml() {
+  const count = (id) => { const list = AGENTS.filter((a) => enabled[a.id]); return `${list.filter((a) => ready(data[id][a.id])).length} of ${list.length} ready`; };
+  const card = (id, where, rows) => `<article class="card"><div class="card-head"><h3>${id}</h3><code class="version">${where}</code></div>
+    ${rows}
+    <div class="row"><span class="label">Agents</span><div class="status neutral">${count(id)}</div><div class="actions"><button data-open-agents="${id}">Open</button></div></div></article>`;
+  const r = (l, t) => `<div class="row"><span class="label">${l}</span><div class="status pass">${g.pass}${t}</div><div class="actions"></div></div>`;
+  return `<div class="head"><h2>Hosts</h2></div><div class="cards">
+    ${card("dozer","slindsey@dozer", r("Connection","Pass") + r("Code folder","~/code") + r("Git","Pass · Installed") + r("GitHub CLI","Pass · Signed in"))}
+    ${card("cloud-build","admin@ec2 · Debian 13", r("Connection","Pass") + r("Code folder","~/code") + r("Git","Pass · Installed") + r("GitHub CLI","Pass · Signed in"))}
+  </div>`;
+}
+function render() {
+  const main = document.getElementById("main");
+  document.querySelectorAll("nav [data-nav]").forEach((b) => b.classList.toggle("on", b.dataset.nav === nav));
+  if (nav === "hosts") { main.innerHTML = hostsHtml(); return; }
+  main.innerHTML = `<div class="head"><h2>Agents</h2><span class="spacer"></span>
+      <label class="toggle"><input type="checkbox" id="hooks" ${hooks ? "checked" : ""}>Attach hooks</label></div>
+    ${scopesHtml()}${scope === "global" ? globalHtml() : machineHtml()}`;
+}
+function runJob(agentId, kind) {
+  const m = scope, key = `${m}:${agentId}:${kind}`;
+  const a = AGENTS.find((x) => x.id === agentId);
+  const job = {
+    install:{ label:"Installing", term:`<span class="dim">$ install ${a.name}</span>\nInstalling...\n` , done:() => { Object.assign(data[m][agentId], { found:true, signed:false, version:"latest", path:`~/.local/bin/${agentId}`, plugin:a.plugin ? "missing" : undefined }); } },
+    signin:{ label:"Signing in", term:`<span class="dim">$ ${agentId} login</span>\nWaiting for approval...\n`, done:() => { data[m][agentId].signed = true; } },
+    plugin:{ label:"Installing plugin", term:`<span class="dim">$ foom-host --stage-plugin agy</span>\n<span class="dim">$ agy plugin install &lt;staged directory&gt;</span>\n`, done:() => { data[m][agentId].plugin = "installed"; } },
+  }[kind];
+  busy.set(key, job); render();
+  setTimeout(() => { busy.delete(key); job.done(); render(); }, 1500);
+}
+document.getElementById("main").addEventListener("click", (e) => {
+  const t = e.target.closest("button");
+  if (!t) return;
+  if (t.dataset.reload) {
+    const m = machine(t.dataset.reload);
+    reloading.add(m.id); render();
+    setTimeout(() => { reloading.delete(m.id); if (m.up) m.checked = "Checked just now"; render(); }, 1300);
+  }
+  else if (t.dataset.scope) { scope = t.dataset.scope; render(); }
+  else if (t.dataset.jump) { scope = t.dataset.jump; render(); }
+  else if (t.dataset.openAgents) { nav = "agents"; scope = t.dataset.openAgents; render(); }
+  else if (t.dataset.act && t.dataset.act !== "reload") runJob(t.dataset.agent, t.dataset.act);
+});
+document.getElementById("main").addEventListener("change", (e) => {
+  if (e.target.dataset.enable) { enabled[e.target.dataset.enable] = e.target.checked; render(); }
+  if (e.target.id === "hooks") hooks = e.target.checked;
+});
+document.querySelector("nav").addEventListener("click", (e) => {
+  const t = e.target.closest("[data-nav]");
+  if (t) { nav = t.dataset.nav; render(); }
+});
+document.getElementById("theme").addEventListener("click", () => {
+  const root = document.documentElement;
+  const dark = root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  root.dataset.theme = dark ? "light" : "dark";
+});
+render();
+</script>
+</body>
+</html>

@@ -137,6 +137,7 @@ export interface WorkspaceSnapshot {
 
 /** Scan results without the resolved PATH, which the renderer doesn't need. */
 export interface AgentReport {
+  checkedAt?: number;
   warning: string | null;
   agents: readonly AgentInstallation[];
 }
@@ -182,7 +183,7 @@ export interface WorkspaceApi {
     location?: "root" | "adjacent",
     host?: string,
   ): Promise<Worktree & { outcome: CreateOutcome }>;
-  scanAgents(refresh: boolean): Promise<AgentReport>;
+  scanAgents(refresh: boolean, agent?: string): Promise<AgentReport>;
   changeAgentSetup(id: string, action: string): Promise<AgentReport>;
   changeAgyPlugin(action: AgyPluginAction): Promise<AgentReport>;
   /** Null means the user cancelled the shared-agent confirmation. */

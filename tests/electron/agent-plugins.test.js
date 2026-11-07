@@ -77,6 +77,7 @@ process.stdin.resume();`,
     .getByRole("navigation", { name: "Settings sections" })
     .getByRole("button", { name: "Agents", exact: true })
     .click();
+  await page.getByRole("tab", { name: "This computer", exact: true }).click();
   const file = path.join(home, ".foom/config/agents/foom-test-agent.json");
   const v2 = JSON.parse(
     await readFile(path.join(__dirname, "../fixtures/agent-plugin-v2.json"), "utf8"),
@@ -190,7 +191,9 @@ process.stdin.resume();`,
       ),
     )
     .toBe(true);
-  await expect(card.getByLabel("Fixture agent default arguments")).toBeVisible();
+  await page.getByRole("tab", { name: "Global", exact: true }).click();
+  await expect(page.getByLabel("Fixture agent default arguments")).toBeVisible();
+  await page.getByRole("tab", { name: "This computer", exact: true }).click();
   await expect(card.getByLabel("New Fixture agent variable name")).toBeVisible();
   await expect(card.getByText("Hooks", { exact: true })).toBeVisible();
   await assertAccessible(page);
@@ -360,6 +363,7 @@ else process.exit(2);
     .getByRole("navigation", { name: "Settings sections" })
     .getByRole("button", { name: "Agents", exact: true })
     .click();
+  await page.getByRole("tab", { name: "This computer", exact: true }).click();
   const base = JSON.parse(
     await readFile(path.join(__dirname, "../fixtures/agent-plugin-v2.json"), "utf8"),
   );
@@ -401,7 +405,7 @@ else process.exit(2);
       report.agents.find((agent) => agent.id === "foom-test-agent")?.setup?.state,
       state,
     );
-    await page.getByRole("button", { name: "Scan again", exact: true }).click();
+    await page.getByRole("button", { name: "Re-check This computer", exact: true }).click();
     await expect(
       card.getByText(`Plugin · ${state === "unavailable" ? "Status unavailable" : state}`, {
         exact: true,
@@ -496,7 +500,7 @@ else process.exit(2);
   assert.equal((await readFile(commands, "utf8")).trim().split("\n").length, 4);
 });
 
-test("missing agent cards recover on Settings entry and manifest reload without toggling", {
+test("missing agent cards recover on explicit reload and manifest reload without toggling", {
   timeout: deadline(60_000),
 }, async (context) => {
   const { chmod, copyFile } = require("node:fs/promises");
@@ -588,6 +592,7 @@ if (fs.existsSync(gate)) {
       .getByRole("navigation", { name: "Settings sections" })
       .getByRole("button", { name: "Agents", exact: true })
       .click();
+    await page.getByRole("tab", { name: "This computer", exact: true }).click();
   };
   await openAgents();
   const file = path.join(home, ".foom/config/agents/late-agent.json");
@@ -605,8 +610,7 @@ if (fs.existsSync(gate)) {
   await writeFile(file, JSON.stringify(manifest));
   const card = page.locator("#agent-card-late-agent");
   await expect(card.getByText("Not found", { exact: true })).toBeVisible();
-  await expect(card.getByRole("switch")).not.toBeChecked();
-  await expect(card.getByRole("switch")).toBeDisabled();
+  await expect(card.getByRole("switch")).toHaveCount(0);
   const executable = path.join(bin, process.platform === "win32" ? "late-agent.exe" : "late-agent");
   const install = async () => {
     await copyFile(process.execPath, executable);
@@ -615,8 +619,9 @@ if (fs.existsSync(gate)) {
   await page.keyboard.press("Escape");
   await install();
   await openAgents();
-  await expect(card.getByRole("switch")).toBeEnabled();
-  await expect(card.getByRole("switch")).toBeChecked();
+  await expect(card.getByText("Not found", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Re-check Late agent", exact: true }).click();
+  await expect(card.locator(".agent-path")).toHaveText(executable);
   assert.equal(
     (await page.evaluate(() => window.desktop.setupState())).settings.agents["late-agent"],
     undefined,
@@ -629,11 +634,10 @@ if (fs.existsSync(gate)) {
   await rm(executable);
   await writeFile(file, JSON.stringify({ ...manifest, name: "Late agent missing" }));
   await expect(card.getByText("Not found", { exact: true })).toBeVisible();
-  await expect(card.getByRole("switch")).toBeDisabled();
+  await expect(card.getByRole("switch")).toHaveCount(0);
   await install();
   await writeFile(file, JSON.stringify({ ...manifest, name: "Late agent restored" }));
-  await expect(card.getByRole("switch")).toBeEnabled();
-  await expect(card.getByRole("switch")).toBeChecked();
+  await expect(card.locator(".agent-path")).toHaveText(executable);
   // Prove the barrier with an enabled card and a held reader after the real unlink.
   await writeFile(gate, "hold help reader");
   await page.evaluate(() => {
@@ -649,7 +653,7 @@ if (fs.existsSync(gate)) {
     .toMatch(/^\d+$/);
   const awaitedPid = await readFile(started, "utf8");
   const holding = await discovery();
-  await expect(card.getByRole("switch")).toBeEnabled();
+  await expect(card.locator(".agent-path")).toHaveText(executable);
   assert.ok(holding.scans > 0);
   assert.ok(holding.readers.some((read) => read.args[0] === "--help"));
   assert.ok(holding.readers.some((read) => String(read.pid) === awaitedPid));
@@ -678,7 +682,8 @@ if (fs.existsSync(gate)) {
       2,
     ),
   );
-  await card.getByRole("switch").uncheck();
+  await page.getByRole("tab", { name: "Global", exact: true }).click();
+  await page.getByRole("checkbox", { name: "Enable Late agent restored", exact: true }).uncheck();
   await expect
     .poll(
       async () =>
@@ -687,6 +692,9 @@ if (fs.existsSync(gate)) {
     .toBe(false);
   await page.keyboard.press("Escape");
   await openAgents();
-  await expect(card.getByRole("switch")).toBeEnabled();
-  await expect(card.getByRole("switch")).not.toBeChecked();
+  await expect(card).toHaveCount(0);
+  await page.getByRole("tab", { name: "Global", exact: true }).click();
+  await expect(
+    page.getByRole("checkbox", { name: "Enable Late agent restored", exact: true }),
+  ).not.toBeChecked();
 });

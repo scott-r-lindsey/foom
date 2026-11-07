@@ -1868,3 +1868,65 @@ test("host row failures are validated and projected without raw errors", async (
     await expect(api.hosts({ action: "list" })).rejects.toThrow();
   }
 });
+
+test("agent display details are bounded, copied and never expose undeclared metadata", async () => {
+  const api = await bridge();
+  const details = {
+    path: "/usr/bin/agy",
+    version: "1.4.12",
+    capabilities: ["Resume"],
+    plugin: "not-installed",
+  };
+  const facts = {
+    codeFolder: "/code",
+    version: "0.1.0",
+    sessions: 0,
+    cores: 4,
+    load: [0, 0, 0],
+    memoryTotal: 1000,
+    memoryAvailable: 500,
+    agents: [{ id: "agy", state: "ready", details }],
+  };
+  const result = { ok: true, facts };
+  const value = {
+    hosts: [
+      {
+        host: "worker",
+        codeFolder: "/code",
+        recipes: [{ tool: "agy", install: false, signIn: false, pluginInstall: true }],
+      },
+    ],
+    locations: [],
+    result,
+  };
+  mock.invoke.mockResolvedValue(withUndeclaredFields(value));
+  await expect(api.hosts({ action: "list" })).resolves.toEqual(value);
+  for (const invalid of [
+    { ...details, path: "relative" },
+    { ...details, version: "x\n" },
+    { ...details, version: "x".repeat(129) },
+    { ...details, plugin: "other" },
+    { ...details, capabilities: ["Execute"] },
+    { ...details, capabilities: Array.from({ length: 5 }, () => "Hooks") },
+  ]) {
+    mock.invoke.mockResolvedValue({
+      ...value,
+      result: {
+        ok: true,
+        facts: { ...facts, agents: [{ id: "agy", state: "ready", details: invalid }] },
+      },
+    });
+    await expect(api.hosts({ action: "list" })).rejects.toThrow();
+  }
+  mock.invoke.mockResolvedValue({
+    ...value,
+    hosts: [
+      {
+        host: "worker",
+        codeFolder: "/code",
+        recipes: [{ tool: "agy", install: false, signIn: false, pluginInstall: "invalid" }],
+      },
+    ],
+  });
+  await expect(api.hosts({ action: "list" })).rejects.toThrow();
+});

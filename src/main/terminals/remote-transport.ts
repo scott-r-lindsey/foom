@@ -375,6 +375,17 @@ export class RemoteTransport extends EventEmitter {
               throw new Error("Host version mismatch");
             }
             if (
+              ((this.management?.type === "manage" &&
+                this.management.operation === "inspect" &&
+                this.management.agentDetails) ||
+                this.target.recipe?.action === "install-plugin") &&
+              value.agentSettings !== 1
+            ) {
+              this.managementFailure = "facts-unavailable";
+              this.kill();
+              return;
+            }
+            if (
               this.management?.type === "manage" &&
               (this.management.operation === "create-folder" ||
                 (this.management.operation === "inspect" && this.management.target)) &&

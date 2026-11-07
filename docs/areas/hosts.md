@@ -318,8 +318,9 @@ Alpine/musl and glibc below 2.28 are unsupported. Distro, libc and package-manag
 observations are closed values. Linux parses bounded `/etc/os-release` as data
 (ID first, then ID_LIKE), never sources it. macOS reports only booleans for Command
 Line Tools (missing CLT suppresses the system git shim probe and git installation actions), disabled idle sleep and code folders under Documents, Desktop or
-Downloads. Failed sleep observations conservatively warn. Raw OS/probe output
-stays on the host. Burstable cloud instances can show low load while CPU credits
+Downloads. Failed sleep observations conservatively warn. Raw OS/status-probe output
+stays on the host; explicitly requested bounded agent version/path display facts
+follow the Settings agent-scopes contract below. Burstable cloud instances can show low load while CPU credits
 or other quotas throttle them; the resource numbers are not a readiness guarantee.
 
 `gh auth status` and optional bundled manifest `hostSetup.status` probes use ignored
@@ -570,3 +571,28 @@ inventory, without renewing its freshness; saved observations never populate it.
 Resource refresh replies remain separate from the launch inventory when no live
 inventory exists or a full read is pending. A failed resource refresh reports its
 failure under Host facts while retaining the checklist observations.
+
+## Settings agent scopes (#1070)
+
+Hosts shows an enabled-agent readiness count and Open, which selects that host in
+Settings → Agents. Agents controls and recipes live in that machine scope. Reading
+the saved host list or selecting a scope starts no full check. The explicit machine
+reload in Agents runs the full preflight and advances Last checked; individual
+agent reloads use the existing scoped tool/sign-in requests.
+
+Protocol-3 hello advertises `agentSettings: 1`. Read-only inspect may request
+`agentDetails: true`; only then does each agent include bounded display-only path,
+version, closed capabilities and Antigravity plugin-inventory state. A compatible
+older daemon lacking the capability refuses with facts-unavailable before dispatch.
+These observations grant no launch authority and saved observations remain stale
+until explicitly refreshed.
+
+Antigravity's Install plugin is opt-in and separately confirmed in main, naming the
+host, two fixed steps and global CLI effect. Its digest-bound recipe runs the
+`foom-host --stage-plugin agy` handler, prints the staged directory, then runs
+resolved `agy plugin install DIRECTORY` with an argument array in a human-owned
+recipe tile. Both hub and daemon select only the bundled agy action; no supplied
+path, shell source, other plugin or manifest can select it. The host rechecks CLI
+inventory and refuses unless Foom is absent; present or unrecognized inventories
+must be managed in agy. Staging alone does not install. No global configuration
+file is written directly. Older daemons lacking agentSettings refuse this recipe.

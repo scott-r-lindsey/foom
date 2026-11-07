@@ -809,13 +809,19 @@ function resumeSupport(report: AgentReport | undefined): string {
   );
 }
 
-export async function scanAgents(this: AgentSetupContext, refresh: boolean): Promise<AgentReport> {
+export async function scanAgents(
+  this: AgentSetupContext,
+  refresh: boolean,
+  agent?: string,
+): Promise<AgentReport> {
   if (refresh || this.scannedProviders !== providerRevision()) this.scanned = undefined;
   this.scannedProviders = providerRevision();
-  const pending = (this.scanned ??= this.agents.scan(this.enabled));
+  const pending = (this.scanned ??=
+    agent === undefined ? this.agents.scan(this.enabled) : this.agents.scan(this.enabled, agent));
   try {
-    const { warning, agents } = await pending;
+    const { warning, agents, checkedAt } = await pending;
     const report = {
+      ...(checkedAt === undefined ? {} : { checkedAt }),
       warning,
       agents: await Promise.all(
         agents.map(async (agent) => {

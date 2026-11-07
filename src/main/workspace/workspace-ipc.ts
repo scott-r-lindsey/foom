@@ -565,9 +565,17 @@ export function attachWorkspace(
     ],
     [
       "agents:scan",
-      (refresh) => {
-        if (typeof refresh !== "boolean") throw new Error("Invalid scan request");
-        return workspace.scanAgents(refresh);
+      (...args) => {
+        const [refresh, agent] = args;
+        if (
+          args.length > 2 ||
+          typeof refresh !== "boolean" ||
+          (agent !== undefined && (!refresh || typeof agent !== "string" || !knownAgentId(agent)))
+        )
+          throw new Error("Invalid scan request");
+        return agent === undefined
+          ? workspace.scanAgents(refresh)
+          : workspace.scanAgents(refresh, agent);
       },
     ],
     [

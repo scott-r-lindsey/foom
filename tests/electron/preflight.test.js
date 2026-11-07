@@ -467,7 +467,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     await writeFile(path.join(bin, name), source);
     await chmod(path.join(bin, name), 0o755);
   }
-  await page.getByRole("button", { name: "Scan again" }).click();
+  await page.getByRole("button", { name: "Re-check This computer" }).click();
   for (const [id, version] of Object.entries({
     claude: "2.1.300",
     codex: "0.155.1",

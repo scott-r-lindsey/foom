@@ -37,6 +37,7 @@ export interface AgentInstallation {
   readonly reason: string;
 }
 export interface AgentScan {
+  readonly checkedAt?: number;
   readonly path: string;
   readonly warning: string | null;
   readonly agents: readonly AgentInstallation[];

@@ -178,3 +178,9 @@ selects the folder and launch defaults. `workspace:create-worktree` accepts an
 optional fourth registered-host selector, retaining the existing local location
 parameter; remote creation uses the registered repository origin and approved
 folder and confers no orchestration role.
+
+`agents:scan` additionally accepts an optional known provider ID with refresh=true
+for an explicit card reload. Main rejects unknown providers, extra arguments and
+a selected ID with refresh=false. Other providers retain their cached observations
+and never run CLI probes as part of that scoped refresh. Reports optionally carry
+the actual discovery checkedAt timestamp; cached reads do not renew it.

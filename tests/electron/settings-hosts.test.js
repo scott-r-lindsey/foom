@@ -10,6 +10,7 @@ const { evidencePath } = require("../helpers/evidence.js");
 const { deadline, expect } = require("./test-policy.js");
 const {
   boardPage,
+  confirmationPage,
   fixtureCleanup,
   launchApp,
   openSettingsScreen,
@@ -157,7 +158,7 @@ process.stdin.on('data', bytes => {
     continue;
   }
   assert.equal('id' in message,false); appendFileSync(${JSON.stringify(calls)},JSON.stringify({host,message})+'\\n');
-  if(message.type==='hello') { send({type:'hello',build:host==='version-cloud'?'b'.repeat(64):${JSON.stringify(manifest.sha256)}}); continue; }
+  if(message.type==='hello') { send({type:'hello',agentSettings:1,build:host==='version-cloud'?'b'.repeat(64):${JSON.stringify(manifest.sha256)}}); continue; }
   if(message.type==='inventory') {send({type:'inventory-result',own:[],foreign:[]}); continue;}
   assert.equal(message.type,'manage');
   const scenario=require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8'); const settings=JSON.parse(scenario);
@@ -233,7 +234,7 @@ process.stdin.on('data', bytes => {
   const progressStatus = card.locator(".host-check-progress[role=status]");
   await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
   await expect(card.getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
-  await expect(card.getByText("Not found", { exact: true })).toHaveCount(2);
+  await expect(card.getByText("Not found", { exact: true })).toHaveCount(1);
   await expect(card.getByRole("button", { name: "Install codex", exact: true })).toHaveCount(0);
   await expect(card.getByText("Not checked", { exact: true })).toHaveCount(1);
   if (captureEnrollment) await capture("partial-facts");
@@ -1356,4 +1357,212 @@ test("Hosts merges recipe rows with two Hosts windows already open", {
     { kind: "sign-in", tool: "gh" },
     { kind: "tool", tool: "git" },
   ]);
+});
+
+test("Agents scopes use saved host observations and Global enablement without checks on navigation", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, navigation, calls, updateScenario } = await hostsFixture(context);
+  await updateScenario({
+    facts: {
+      agents: [
+        {
+          id: "claude",
+          state: "ready",
+          signIn: "signed-in",
+          details: {
+            path: "/usr/local/bin/claude",
+            version: "2.3.1",
+            capabilities: ["Hooks", "MCP", "Resume"],
+          },
+        },
+        { id: "codex", state: "missing" },
+      ],
+    },
+  });
+  await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
+  await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
+  await expect(card.getByText("1 of 2 ready", { exact: true })).toBeVisible();
+  // Join the sidebar invalidation from the explicit check before observing navigation.
+  await page.evaluate(() => window.desktop.sidebarInventory());
+  const before = (await readFile(calls, "utf8")).split("\n").filter(Boolean).length;
+  await card.getByRole("button", { name: "Open", exact: true }).click();
+  await expect(page.getByRole("tab", { name: "fixture-cloud", exact: true })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await expect(page.getByRole("region", { name: "Claude Code", exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: "Global", exact: true }).click();
+  await expect(page.getByRole("checkbox", { name: "Enable Codex", exact: true })).toBeChecked();
+  const afterNavigation = (await readFile(calls, "utf8")).split("\n").filter(Boolean);
+  if (afterNavigation.length !== before)
+    context.diagnostic(
+      JSON.stringify({
+        navigationRequests: afterNavigation.slice(before).map((line) => JSON.parse(line)),
+      }),
+    );
+  assert.equal(afterNavigation.length, before);
+  const reloadSize = await page
+    .getByRole("button", { name: "Re-check This computer", exact: true })
+    .locator("svg")
+    .evaluate((icon) => ({
+      width: icon.getBoundingClientRect().width,
+      label: parseFloat(getComputedStyle(icon.closest("th")).fontSize),
+    }));
+  assert.ok(
+    reloadSize.width >= 17 && reloadSize.width > reloadSize.label,
+    JSON.stringify(reloadSize),
+  );
+  for (const mode of ["light", "dark"]) {
+    await page.evaluate(
+      (mode) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${mode}` }),
+      mode,
+    );
+    await expect
+      .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
+      .toBe(mode === "dark");
+    await page
+      .locator(".agents-page")
+      .first()
+      .screenshot({ path: evidencePath(`1070/global-${mode}.png`) });
+    await page.getByRole("tab", { name: "fixture-cloud", exact: true }).click();
+    await page
+      .locator(".agents-page")
+      .first()
+      .screenshot({ path: evidencePath(`1070/host-${mode}.png`) });
+    await page.getByRole("tab", { name: "This computer", exact: true }).click();
+    await page
+      .locator(".agents-page")
+      .first()
+      .screenshot({ path: evidencePath(`1070/local-${mode}.png`) });
+    await page.getByRole("tab", { name: "Global", exact: true }).click();
+  }
+  await assertAccessible(page);
+  await page.getByRole("checkbox", { name: "Enable Codex", exact: true }).uncheck();
+  await page.getByRole("tab", { name: "fixture-cloud", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Codex", exact: true })).toHaveCount(0);
+  await page.getByRole("tab", { name: "Global", exact: true }).click();
+  await page.getByRole("checkbox", { name: "Enable Codex", exact: true }).check();
+  await page.getByRole("tab", { name: "This computer", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Codex", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Re-check Codex", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Re-check Codex", exact: true })).toBeEnabled();
+  assert.equal(
+    await page.evaluate(() =>
+      window.desktop.scanAgents(true, "unregistered-agent").then(
+        () => false,
+        () => true,
+      ),
+    ),
+    true,
+  );
+  await page.getByRole("tab", { name: "fixture-cloud", exact: true }).click();
+  await page.getByRole("button", { name: "Re-check Claude Code", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Re-check Claude Code", exact: true }),
+  ).toBeEnabled();
+  const requests = (await readFile(calls, "utf8"))
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
+  const latest = requests.filter(({ message }) => message.operation === "inspect").at(-1);
+  assert.deepEqual(latest.message.target, { kind: "sign-in", tool: "claude" });
+  await updateScenario({ inspectFailure: "unreachable" });
+  await page.getByRole("button", { name: "Re-check fixture-cloud", exact: true }).click();
+  await expect(page.getByText(/Offline · Last checked/)).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Re-check Claude Code", exact: true }),
+  ).toBeDisabled();
+  await expect(page.getByRole("region", { name: "Claude Code", exact: true })).toContainText(
+    "Signed in",
+  );
+  await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
+  await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
+  assert.ok(app);
+});
+
+test("Agents scopes use trusted consent and fixed recipes for host plugin installation", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, calls, recipeCalls, updateScenario } = await hostsFixture(context);
+  const agent = {
+    id: "agy",
+    state: "ready",
+    details: {
+      path: "/bin/agy",
+      version: "1.4.12",
+      capabilities: ["Resume"],
+      plugin: "not-installed",
+    },
+  };
+  await updateScenario({
+    facts: { agents: [{ id: "claude", state: "ready" }, { id: "codex", state: "missing" }, agent] },
+  });
+  await card.getByRole("button", { name: "Open", exact: true }).click();
+  await page.getByRole("tab", { name: "Global", exact: true }).click();
+  await page.getByRole("checkbox", { name: "Enable Antigravity", exact: true }).check();
+  await page.getByRole("tab", { name: "fixture-cloud", exact: true }).click();
+  await page.getByRole("button", { name: "Re-check fixture-cloud", exact: true }).click();
+  await page.getByRole("button", { name: "Install plugin", exact: true }).click();
+  let disclosure = await confirmationPage(app);
+  await expect(disclosure.getByRole("alertdialog")).toHaveAccessibleName(
+    "Install Foom plugin on host?",
+  );
+  await expect(disclosure.getByRole("alertdialog")).toContainText("foom-host --stage-plugin agy");
+  assert.equal(await readFile(recipeCalls, "utf8"), "");
+  await disclosure.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Install plugin", exact: true })).toBeEnabled();
+  assert.equal(await readFile(recipeCalls, "utf8"), "");
+  await page.getByRole("button", { name: "Install plugin", exact: true }).click();
+  disclosure = await confirmationPage(app);
+  await disclosure.getByRole("button", { name: "Install plugin", exact: true }).click();
+  await expect
+    .poll(
+      async () => (await readFile(recipeCalls, "utf8")).trim().split("\n").filter(Boolean).length,
+    )
+    .toBe(2);
+  assert.deepEqual(
+    (await readFile(recipeCalls, "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line)),
+    [
+      ["foom-host", "--stage-plugin", "agy"],
+      ["agy", "plugin", "install", "{stagedPlugin}"],
+    ],
+  );
+  await expect(page.getByRole("region", { name: "Settings", exact: true })).toHaveCount(0);
+  const checkpoint = (await readFile(calls, "utf8")).split("\n").filter(Boolean).length;
+  await updateScenario({
+    facts: {
+      agents: [
+        { id: "claude", state: "ready" },
+        { id: "codex", state: "missing" },
+        { ...agent, details: { ...agent.details, plugin: "present" } },
+      ],
+    },
+  });
+  await openSettingsScreen(page);
+  await page
+    .getByRole("navigation", { name: "Settings sections" })
+    .getByRole("button", { name: "Agents", exact: true })
+    .click();
+  await page.getByRole("tab", { name: "fixture-cloud", exact: true }).click();
+  await expect(page.getByText("Present · use agy to manage", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Install plugin", exact: true })).toHaveCount(0);
+  const inspected = (await readFile(calls, "utf8"))
+    .split("\n")
+    .filter(Boolean)
+    .slice(checkpoint)
+    .map((line) => JSON.parse(line))
+    .filter(({ message }) => message.operation === "inspect");
+  assert.deepEqual(
+    inspected.map(({ message }) => message.target),
+    [
+      { kind: "tool", tool: "agy" },
+      { kind: "sign-in", tool: "agy" },
+    ],
+  );
 });

@@ -399,6 +399,8 @@ test("Pi Settings card discloses project trust bypass and keeps MCP roles unavai
     (await page.evaluate(() => window.desktop.setupState())).settings.agentArguments.pi,
     ["-a"],
   );
-  await expect(page.getByRole("button", { name: "Scan again", exact: true })).toBeEnabled();
+  await expect(
+    page.getByRole("button", { name: "Re-check This computer", exact: true }),
+  ).toBeEnabled();
   await page.screenshot({ path: "test-results/pi-agent-settings.png", animations: "disabled" });
 });

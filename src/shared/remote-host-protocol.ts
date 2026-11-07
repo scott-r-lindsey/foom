@@ -38,6 +38,7 @@ function hello(value: object): boolean {
     value.type === "hello" &&
     (!("startupTheme" in value) || value.startupTheme === 1) &&
     (!("originTrust" in value) || value.originTrust === 1) &&
+    (!("agentSettings" in value) || value.agentSettings === 1) &&
     (!("hostRowCheck" in value) || value.hostRowCheck === 1) &&
     (!("hostPreflight" in value) || value.hostPreflight === 1) &&
     (!("hostFacts" in value) || value.hostFacts === 1) &&
@@ -155,6 +156,8 @@ export function remoteRequest(value: unknown): value is RemoteRequest {
           value["reattach"] === false)) &&
       (value["recipe"] === undefined ||
         (recipeLaunch(value["recipe"]) &&
+          (value["recipe"].action !== "install-plugin" ||
+            (value["human"] === true && value["reattach"] === false)) &&
           value["checkout"] === undefined &&
           value["context"] === undefined)) &&
       (value["checkout"] === undefined ||

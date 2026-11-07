@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { AgentsScopes } from "./agents-scopes";
 import { HostsSettings } from "./hosts-settings";
 import { ThemeMenu } from "./theme-menu";
 import { ForgesSettings } from "./forges-settings";
@@ -61,13 +63,17 @@ export function PreflightSections({
   scanCode,
   selectRepositories,
 }: SectionProps) {
+  const [agentScope, setAgentScope] = useState("global");
   let content;
   if (step === 0) {
     content = <WelcomeStep headingRef={headingRef} go={go} />;
   } else if (step === 1) {
     content = (
       <>
-        <AgentsStep
+        <AgentsPanel
+          settingsMode={settingsMode}
+          scope={agentScope}
+          selectScope={setAgentScope}
           source={source}
           saveArguments={saveArguments}
           headingRef={headingRef}
@@ -190,7 +196,17 @@ export function PreflightSections({
       </>
     );
   } else if (step === 13 && settingsMode) {
-    content = <HostsSettings source={source} headingRef={headingRef} />;
+    content = (
+      <HostsSettings
+        source={source}
+        headingRef={headingRef}
+        agents={state.settings.agents}
+        openAgents={(host) => {
+          setAgentScope(`host:${host}`);
+          go(1);
+        }}
+      />
+    );
   } else if (step === 12) {
     content = (
       <ForgesSettings
@@ -354,4 +370,11 @@ export function PreflightSections({
   }
 
   return content;
+}
+
+function AgentsPanel({
+  settingsMode,
+  ...props
+}: ComponentProps<typeof AgentsScopes> & { settingsMode: boolean }) {
+  return settingsMode ? <AgentsScopes {...props} /> : <AgentsStep {...props} />;
 }

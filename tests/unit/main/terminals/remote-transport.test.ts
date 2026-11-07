@@ -1835,3 +1835,37 @@ test("an older delayed theme acknowledgement cannot roll back a newer confirmed 
   await reconnectLive();
   expect(child.messages).not.toContainEqual(expect.objectContaining({ type: "theme" }));
 });
+
+test.each([false, true])(
+  "agent details require an explicit compatible capability (%s)",
+  async (supported) => {
+    transport.kill();
+    child = new Child();
+    mock.spawn.mockReturnValue(child);
+    const request = {
+      type: "manage",
+      operation: "inspect",
+      codeFolder: "/remote/code",
+      readOnly: true,
+      agentDetails: true,
+    } as const;
+    const pending = remoteManagement({ host: "fixture" }, "0.1.0", request);
+    await Promise.resolve();
+    child.header();
+    child.message({
+      type: "hello",
+      build: "b".repeat(64),
+      compatible: 2,
+      hostFacts: 1,
+      ...(supported ? { agentSettings: 1 as const } : {}),
+    });
+    if (supported) {
+      expect(child.messages).toContainEqual(request);
+      child.message({ type: "managed", result: { ok: false, reason: "folder-refused" } });
+    } else expect(child.messages).not.toContainEqual(request);
+    await expect(pending).resolves.toMatchObject({
+      ok: false,
+      reason: supported ? "folder-refused" : "facts-unavailable",
+    });
+  },
+);

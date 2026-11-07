@@ -163,3 +163,19 @@ checks, and a failed save can be retried without caching its failed availability
 Settings → Hosts and Repositories locations follow the [host contract](hosts.md).
 Host registration is profile-only and may retain incomplete preflight checks. Folder
 creation is explicit; checkout operations still require a canonical approved folder.
+
+## Agent scopes (#1070)
+
+Settings → Agents opens on Global: an agent-by-machine matrix owns the global
+enablement checkbox, launch defaults and custom manifest catalog. Cells and machine
+headings select This computer or the registered host without starting a check.
+Disabled agents disappear from machine cards and launch menus and do not run probes.
+Default arguments already reach both human remote launches and remote children;
+hub Environment settings remain local.
+
+Machine scopes show last-known cards, a last-checked time, explicit machine reload
+and hover/focus agent reload controls. Offline observations are dimmed and actions
+are disabled; Hosts retains explicit connection recovery. Global column reloads
+replace the old Agents Scan again control. First-run setup keeps the shared local
+card view and does not enumerate hosts. Install and Sign in use existing recipes
+where available; vendor installers and their local execution remain #1071.
