@@ -397,10 +397,28 @@ async function assertAccessible(page) {
   await page.emulateMedia({ colorScheme: null });
 }
 
-// Playwright closes its Node inspector only after its synchronous app.quit()
-// evaluation returns. Cancel that invocation and resume on the event loop so
-// Electron cannot wait for debugger disconnect inside the evaluation itself.
-function installQuitAcknowledgement({ app }) {
+// Playwright's close handler detaches its Node inspector after evaluating
+// app.quit(). Cancel that invocation and resume on the event loop so Electron
+// cannot wait for debugger disconnect inside the evaluation itself.
+function installQuitAcknowledgement({ app, BrowserWindow }) {
+  // Observe the existing acknowledgement RPC without wrapping app.quit or adding
+  // an inspector round trip: either could change the ordering being measured.
+  const started = performance.now();
+  const trace = (event) => {
+    if (BrowserWindow)
+      process.stderr.write(
+        `Quit trace: ${JSON.stringify({
+          event,
+          at: Date.now(),
+          ms: Math.round(performance.now() - started),
+        })}\n`,
+      );
+  };
+  if (BrowserWindow) {
+    for (const name of ["before-quit", "will-quit", "window-all-closed", "quit"])
+      app.on(name, (event) => trace(`${name}: prevented=${Boolean(event?.defaultPrevented)}`));
+    trace("acknowledgement installed");
+  }
   globalThis.readyToQuit = false;
   const ready = (event) => {
     if (event.defaultPrevented) return;
@@ -414,7 +432,15 @@ function installQuitAcknowledgement({ app }) {
         app.quit();
       });
     });
-    globalThis.readyToQuit = true;
+    // Electron clears its native quitting flag after cancelled will-quit unwinds.
+    // Publishing here can let Playwright's final app.quit run reentrantly and be
+    // ignored, after which Playwright detaches and waits for an exit never requested.
+    trace("will-quit cancelled");
+    setImmediate(() => {
+      trace("acknowledgement event loop resumed");
+      globalThis.readyToQuit = true;
+      trace("acknowledged");
+    });
   };
   app.on("will-quit", ready);
 }
@@ -774,6 +800,24 @@ async function launchApp(context, options = { fixture: "running-shell" }) {
     });
   cleanup.launches.set(app, { entry, env });
   const child = app.process();
+  const quitTrace = [];
+  const recordQuit = (event) => {
+    quitTrace.push({ at: Date.now(), event });
+    if (quitTrace.length > 64) quitTrace.shift();
+  };
+  const quitLines = require("node:readline").createInterface({ input: child.stderr });
+  quitLines.on("line", (line) => {
+    if (
+      line.startsWith("Quit trace:") ||
+      line.startsWith("Electron teardown:") ||
+      line.includes("Waiting for the debugger to disconnect")
+    ) {
+      recordQuit(line);
+    }
+  });
+  app.on("close", () => recordQuit("Playwright app closed"));
+  app.context().on("close", () => recordQuit("Playwright context closed"));
+  child.on("exit", () => recordQuit("Electron process exited"));
   cleanup.audit.add(child.pid);
   // Tests must never play through the developer's speakers, even under Xvfb.
   assert.equal(await app.evaluate(({ app }) => app.commandLine.hasSwitch("mute-audio")), true);
@@ -841,6 +885,7 @@ async function launchApp(context, options = { fixture: "running-shell" }) {
             },
             (phase) => {
               shutdownPhase = phase;
+              recordQuit(`Harness phase: ${phase}`);
             },
           );
         })(),
@@ -864,6 +909,7 @@ async function launchApp(context, options = { fixture: "running-shell" }) {
     } catch (error) {
       console.error("Electron shutdown diagnostics:", {
         phase: shutdownPhase,
+        quitTrace,
         pid: child.pid,
         exitCode: child.exitCode,
         signalCode: child.signalCode,
@@ -871,6 +917,7 @@ async function launchApp(context, options = { fixture: "running-shell" }) {
       });
       throw error;
     } finally {
+      quitLines.close();
       clearTimeout(timer);
       // If graceful shutdown failed, fail the test and terminate the process tree.
       // The watchdog stays armed while teardown runs, but must not outlive it.
