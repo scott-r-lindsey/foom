@@ -1076,6 +1076,9 @@ test("Hosts reloads individual rows and actions never trigger full capability ch
       async () =>
         (await window.desktop.setupState()).settings.registeredHosts[0].observation.checkedAt,
     );
+  // Enrollment notifies the sidebar asynchronously. Finish that independent
+  // checkout read before measuring the requests caused by a row action.
+  await page.evaluate(() => window.desktop.sidebarInventory());
   const timestamp = await checkedAt();
   let before = (await managementCalls()).length;
   await updateScenario({
@@ -1101,7 +1104,7 @@ test("Hosts reloads individual rows and actions never trigger full capability ch
   await updateScenario({});
   await expect(gitRow).toContainText("Pass · Installed");
   const afterReload = (await managementCalls()).slice(before);
-  assert.equal(afterReload.length, 1);
+  assert.equal(afterReload.length, 1, JSON.stringify(afterReload));
   assert.deepEqual(afterReload[0].target, { kind: "tool", tool: "git" });
   // The fixture returned changed gh facts too. Its row must retain its prior result.
   await expect(card.getByRole("button", { name: "Sign in gh", exact: true })).toBeVisible();
