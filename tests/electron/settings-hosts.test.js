@@ -142,9 +142,11 @@ process.stdin.on('data', bytes => {
     }
     const recipe=selectHostRecipe(message.recipe,{distro:'debian',libc:'supported',packageManager:'apt'});
     assert.equal(message.recipe.digest,require('node:crypto').createHash('sha256').update(JSON.stringify(recipe.steps)).digest('hex'));
-    assert.ok(recipe); assert.equal(recipe.steps.length,1);
-    const child=spawnSync(${JSON.stringify(process.execPath)},[${JSON.stringify(recipeFixture)},...recipe.steps[0]],{env:{},encoding:'utf8'});
-    assert.equal(child.status,0); terminalOutput=child.stdout;
+    assert.ok(recipe);
+    for (const step of recipe.steps) {
+      const child=spawnSync(${JSON.stringify(process.execPath)},[${JSON.stringify(recipeFixture)},...step],{env:{},encoding:'utf8'});
+      assert.equal(child.status,0); terminalOutput=child.stdout;
+    }
     send({type:'open-result',id:message.id,request:message.request,state:'live'});continue;
   }
   if('id' in message) {
@@ -752,7 +754,7 @@ test("Repositories clones per host and opens fixed repair recipes without exposi
     .poll(
       async () => (await readFile(recipeCalls, "utf8")).trim().split("\n").filter(Boolean).length,
     )
-    .toBe(1);
+    .toBe(2);
   await expect(page.locator(".terminal-tile[data-kind='shell']").last()).toBeVisible();
   await expect
     .poll(async () =>
@@ -774,13 +776,14 @@ test("Repositories clones per host and opens fixed repair recipes without exposi
     .poll(
       async () => (await readFile(recipeCalls, "utf8")).trim().split("\n").filter(Boolean).length,
     )
-    .toBe(2);
+    .toBe(3);
   assert.deepEqual(
     (await readFile(recipeCalls, "utf8"))
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line)),
     [
+      ["/usr/bin/sudo", "/usr/bin/apt-get", "update"],
       ["/usr/bin/sudo", "/usr/bin/apt-get", "install", "-y", "git"],
       ["gh", "auth", "login", "--web", "--git-protocol", "https", "--skip-ssh-key"],
     ],

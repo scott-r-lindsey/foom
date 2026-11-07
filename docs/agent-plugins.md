@@ -468,6 +468,11 @@ unsupported remotely. Exit 0 is signed-in, 1 signed-out, otherwise unknown; outp
 is discarded, and credential files/Keychain APIs are never consulted by Foom.
 Install argv must be one package name after the fixed sudo apt-get/dnf install -y,
 sudo pacman -S --noconfirm, or brew install prefix (optionally --cask). No shell, vendor installer or
-interpolation is permitted. Sign-in argv starts with the agent executable name.
+interpolation is permitted. The recipe selector prepends a fixed sudo apt-get update
+step for Debian installs and executes Arch installs with -Syu instead of -S to
+refresh databases with a full upgrade. These steps are part of the fixed argv
+digest; manifests do not need multi-step argv or broader validation permissions.
+No bundled agent currently declares a Debian or Arch install recipe; unavailable
+platforms remain unavailable. Sign-in argv starts with the agent executable name.
 Main selects the recipe, and a user click opens a visible human-owned remote tile.
 Missing recipes are unavailable, never inferred from discovery or another distro.

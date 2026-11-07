@@ -1008,7 +1008,7 @@ test("recipe clicks select main-owned data, recheck registrations, and return fi
       tool: "git",
       distro: "debian",
       action: "install",
-      digest: "ade67c0afec628cd6fba950e3f32b1160240445f9d486751b938e694fee2d3c2",
+      digest: "7e3bc2e59909c5227052034b2fc31f21ebc7f18456b44955a725f02f72f72a8e",
     },
   });
   expect(run).toHaveBeenLastCalledWith("worker", expect.objectContaining({ readOnly: true }));

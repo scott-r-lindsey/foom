@@ -330,7 +330,15 @@ Main selects checked-in recipes from the observed closed distro and the enabled
 bundled catalog. A user Install or Sign in click opens a human-owned visible tile
 on that host. Foreground tile placement waits for the refreshed row before closing Settings. The remote executable verifies a main-supplied SHA-256 digest of the fixed argv sequence before running it, without shell
 source or typing into an existing tile. Multi-step package repository preparation
-stops on the first failure. Prompts and sudo remain in the tile. Recipe processes
+stops on the first failure. Every Debian install starts with fixed
+`/usr/bin/sudo /usr/bin/apt-get update`, including manifest-provided package
+installs. gh refreshes again after enabling its repository. Arch installs use
+`pacman -Syu --noconfirm PACKAGE` to refresh databases and upgrade together;
+this can upgrade already-installed packages and avoids unsupported partial upgrades
+([Arch guidance](https://wiki.archlinux.org/title/System_maintenance#Partial_upgrades_are_unsupported)).
+DNF install already synchronizes missing or expired metadata
+([DNF metadata synchronization](https://dnf.readthedocs.io/en/stable/command_ref.html#metadata-synchronization)),
+so it needs no separate refresh step. Prompts and sudo remain in the tile. Recipe processes
 receive no terminal ID, orchestration authority or hub credentials. Restarting an exited recipe tile opens an ordinary shell on the same registered host, without replaying the install/sign-in. Recipe sessions
 reserve the daemon mutation slot until exit or completed session removal;
 disconnect does not release it. Removal releases the reservation even when stop
