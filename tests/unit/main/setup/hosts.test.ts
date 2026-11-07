@@ -1,5 +1,5 @@
 import { restartedBrewHost } from "./hosts-saved-fixture";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { registeredHosts } from "../../../../src/shared/registered-hosts";
@@ -2100,7 +2100,7 @@ test.each(["same-host", "other-host"])(
   },
 );
 
-test("a queued row profile write failure rejects list and retains the row for retry", async () => {
+test("a queued row profile write failure is visible and saves its known result on retry", async () => {
   const fixture = await restartedBrewHost();
   try {
     await fixture.hosts.action(
@@ -2111,8 +2111,98 @@ test("a queued row profile write failure rejects list and retains the row for re
     const failure = new Error("fixture profile write refused");
     const update = vi.spyOn(fixture.store, "update").mockRejectedValueOnce(failure);
     fixture.run.mockClear();
-    await expect(fixture.hosts.action({ action: "list" })).rejects.toBe(failure);
+    const listed = await fixture.hosts.action({ action: "list" });
+    expect(listed.hosts[0]?.rowFailures).toEqual([
+      { target: { kind: "tool", tool: "gh" }, reason: "save-failed" },
+    ]);
     update.mockRestore();
+    fixture.run.mockClear();
+    await fixture.hosts.action({ action: "list" });
+    expect(fixture.run).not.toHaveBeenCalled();
+    expect((await fixture.hosts.action({ action: "list" })).hosts[0]?.rowFailures).toBeUndefined();
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test.skipIf(process.platform === "win32")(
+  "read-only queued saves keep saved hosts readable and reuse known row results",
+  async () => {
+    const fixture = await restartedBrewHost();
+    try {
+      const original = fixture.store.get().registeredHosts?.[0];
+      if (!original) throw new Error("Missing fixture host");
+      await fixture.store.update({ registeredHosts: [original, { ...original, host: "other" }] });
+      for (const [host, tool] of [
+        ["mac-fixture", "gh"],
+        ["other", "git"],
+      ])
+        await fixture.hosts.action(
+          { action: "recipe", host, tool, operation: "install" },
+          undefined,
+          () => Promise.resolve(),
+        );
+      await chmod(fixture.root, 0o555);
+      fixture.run.mockClear();
+      for (let attempt = 0; attempt < 4; attempt++) {
+        const state = await fixture.hosts.action({ action: "list" });
+        expect(state.hosts).toHaveLength(2);
+        expect(state.hosts[0]?.observation).toEqual(original.observation);
+      }
+      expect(
+        fixture.run.mock.calls.map(([host, request]) => ({
+          host,
+          target: request.operation === "inspect" ? request.target : undefined,
+        })),
+      ).toEqual([
+        { host: "mac-fixture", target: { kind: "tool", tool: "gh" } },
+        { host: "mac-fixture", target: { kind: "sign-in", tool: "gh" } },
+        { host: "other", target: { kind: "tool", tool: "git" } },
+      ]);
+      await chmod(fixture.root, 0o700);
+      fixture.run.mockClear();
+      await fixture.hosts.action({ action: "list" });
+      expect(fixture.run).not.toHaveBeenCalled();
+    } finally {
+      await chmod(fixture.root, 0o700);
+      await fixture.dispose();
+    }
+  },
+);
+
+test("a folder's Not checked locations do not stand in for real sidebar checkout reads", async () => {
+  await hosts.action({ action: "add", host: "worker", codeFolder: facts.codeFolder });
+  run.mockResolvedValue({ ok: true, facts: { ...facts, codeFolder: "/home/worker/new" } });
+  run.mockClear();
+  await hosts.action({ action: "change-folder", host: "worker", codeFolder: "/home/worker/new" });
+  expect(run).toHaveBeenCalledTimes(1);
+  expect(run.mock.lastCall?.[1].operation).toBe("inspect");
+  run.mockImplementation((_host, request) =>
+    Promise.resolve({
+      ok: true,
+      facts: { ...facts, codeFolder: "/home/worker/new" },
+      ...(request.operation === "repository"
+        ? { checkout: { path: `/home/worker/new/${request.directory}`, state: "clean" as const } }
+        : {}),
+    }),
+  );
+  run.mockClear();
+  const sidebar = await hosts.locationsForSidebar();
+  expect(run).toHaveBeenCalledTimes(1);
+  expect(run.mock.lastCall?.[1].operation).toBe("repository");
+  const location = sidebar.locations[0]?.result;
+  expect(location?.ok && location.checkout?.state).toBe("clean");
+});
+
+test("consecutive recipes merge and deduplicate pending rows on the same host", async () => {
+  const fixture = await restartedBrewHost();
+  try {
+    for (const tool of ["gh", "git", "gh"])
+      await fixture.hosts.action(
+        { action: "recipe", host: "mac-fixture", tool, operation: "install" },
+        undefined,
+        () => Promise.resolve(),
+      );
     fixture.run.mockClear();
     await fixture.hosts.action({ action: "list" });
     expect(
@@ -2122,7 +2212,32 @@ test("a queued row profile write failure rejects list and retains the row for re
     ).toEqual([
       { kind: "tool", tool: "gh" },
       { kind: "sign-in", tool: "gh" },
+      { kind: "tool", tool: "git" },
     ]);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("an unsaved queued observation is dropped if its tool becomes disabled before retry", async () => {
+  const fixture = await restartedBrewHost();
+  try {
+    await fixture.hosts.action(
+      { action: "recipe", host: "mac-fixture", tool: "codex", operation: "install" },
+      undefined,
+      () => Promise.resolve(),
+    );
+    const update = vi
+      .spyOn(fixture.store, "update")
+      .mockRejectedValueOnce(new Error("fixture disk refused"));
+    const failed = await fixture.hosts.action({ action: "list" });
+    expect(failed.hosts[0]?.rowFailures).toHaveLength(1);
+    update.mockRestore();
+    await fixture.store.update({ agents: { ...fixture.store.get().agents, codex: false } });
+    fixture.run.mockClear();
+    const retried = await fixture.hosts.action({ action: "list" });
+    expect(retried.hosts[0]?.rowFailures).toBeUndefined();
+    expect(fixture.run).not.toHaveBeenCalled();
   } finally {
     await fixture.dispose();
   }

@@ -365,6 +365,8 @@ that identifies the row. Reload shows a spinner only on that row, preserves othe
 results and leaves other rows usable. A row that cannot display its result without
 a full check shows Check capabilities required in that row, with no helper copy. Stale queued
 recipe rows are dropped independently when Hosts reopens. Failed profile writes
-remain queued for retry. A newer action reply replaces transient checklist results. Use reload to inspect changes made outside Foom;
+leave saved hosts visible, show Unable to save only in affected rows, and retain
+known observations for retry without repeating remote checks. Multiple recipes on
+one host merge their pending rows. A newer action reply replaces transient checklist results. Use reload to inspect changes made outside Foom;
 use Check capabilities to check everything. Sign-in and origin reloads may use
 the host's own network access.

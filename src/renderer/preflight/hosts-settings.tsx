@@ -56,6 +56,7 @@ const ReloadContext = createContext<
       reload: (target: HostCheckTarget) => void;
       pending: ReadonlySet<string>;
       failed: ReadonlySet<string>;
+      saveFailed: ReadonlySet<string>;
       needsFullCheck: boolean;
     }
   | undefined
@@ -98,9 +99,11 @@ function Row({
         {pending
           ? "Checking…"
           : failed
-            ? reload?.needsFullCheck
-              ? "Check capabilities required"
-              : "Unable to check"
+            ? reload?.saveFailed.has(rowKey(target))
+              ? "Unable to save"
+              : reload?.needsFullCheck
+                ? "Check capabilities required"
+                : "Unable to check"
             : text}
       </Status>
       <span className="host-check-action">
@@ -1015,11 +1018,17 @@ export function HostsSettings({
                     void reload(entry.host, target);
                   },
                   needsFullCheck: (preflight?.result ?? entry.result)?.ok !== true,
-                  failed: new Set(
-                    [...rowFailed]
+                  saveFailed: new Set(
+                    (entry.rowFailures ?? [])
+                      .filter((row) => row.reason === "save-failed")
+                      .map((row) => rowKey(row.target)),
+                  ),
+                  failed: new Set([
+                    ...[...rowFailed]
                       .filter((key) => key.startsWith(`${entry.host}:`))
                       .map((key) => key.slice(entry.host.length + 1)),
-                  ),
+                    ...(entry.rowFailures ?? []).map((row) => rowKey(row.target)),
+                  ]),
                   pending: new Set(
                     [...rowPending]
                       .filter((key) => key.startsWith(`${entry.host}:`))

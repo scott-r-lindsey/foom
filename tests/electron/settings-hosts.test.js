@@ -2,7 +2,7 @@ const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const { createHash } = require("node:crypto");
 const { gzipSync } = require("node:zlib");
-const { mkdir, mkdtemp, readFile, writeFile, rename, rm } = require("node:fs/promises");
+const { chmod, mkdir, mkdtemp, readFile, writeFile, rename, rm } = require("node:fs/promises");
 const path = require("node:path");
 const { tmpdir } = require("node:os");
 const { gitSync } = require("../helpers/git.js");
@@ -1233,4 +1233,121 @@ test("Hosts replaces a transient folder reload with the newest folder reply", {
   assert.equal(registration.observation, undefined);
   await captureHosts(app, page, "1061/transient-folder-latest-reply");
   await assertAccessible(page);
+});
+
+test("Hosts loads saved rows and retries only persistence after queued profile writes fail", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, calls } = await hostsFixture(context);
+  const profile = await app.evaluate(({ app }) => app.getPath("userData"));
+  const before = await page.evaluate(
+    async () =>
+      (await window.desktop.setupState()).settings.registeredHosts[0].observation.checkedAt,
+  );
+  await card.getByRole("button", { name: "Install git", exact: true }).click();
+  await expect(page.locator(".terminal-tile[data-kind='shell']").last()).toBeVisible();
+  const inspectCount = async () =>
+    (await readFile(calls, "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line))
+      .filter(
+        ({ message, phase }) =>
+          !phase &&
+          message.operation === "inspect" &&
+          message.target?.kind === "tool" &&
+          message.target.tool === "git",
+      ).length;
+  const initial = await inspectCount();
+  try {
+    await chmod(profile, 0o555);
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await openSettingsScreen(page);
+      await page
+        .getByRole("navigation", { name: "Settings sections" })
+        .getByRole("button", { name: "Hosts", exact: true })
+        .click();
+      if (await card.getByRole("button", { name: "Expand fixture-cloud", exact: true }).count())
+        await card.getByRole("button", { name: "Expand fixture-cloud", exact: true }).click();
+      await expect(card.getByText("Unable to save", { exact: true })).toBeVisible();
+      await expect(page.getByText("Unable to load hosts", { exact: true })).toHaveCount(0);
+      if (attempt === 0) await captureHosts(app, page, "1061/queued-save-failure");
+      await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
+    }
+    assert.equal(await inspectCount(), initial + 1);
+  } finally {
+    await chmod(profile, 0o700);
+  }
+  await openSettingsScreen(page);
+  await page
+    .getByRole("navigation", { name: "Settings sections" })
+    .getByRole("button", { name: "Hosts", exact: true })
+    .click();
+  await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
+  await expect(card.getByText("Unable to save", { exact: true })).toHaveCount(0);
+  assert.equal(await inspectCount(), initial + 1);
+  assert.equal(
+    await page.evaluate(
+      async () =>
+        (await window.desktop.setupState()).settings.registeredHosts[0].observation.checkedAt,
+    ),
+    before,
+  );
+  await assertAccessible(page);
+});
+
+test("Hosts merges recipe rows with two Hosts windows already open", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, calls } = await hostsFixture(context);
+  await page.evaluate(() => window.desktop.appMenu.execute("new-window"));
+  await expect
+    .poll(() => app.windows().filter((window) => window.url() === "app://bundle/index.html").length)
+    .toBe(2);
+  const other = app
+    .windows()
+    .find((window) => window !== page && window.url() === "app://bundle/index.html");
+  await expect(other.locator(".config-gear")).toBeVisible();
+  await other.locator(".config-gear").click();
+  await other.getByRole("menuitem", { name: /^Settings/u }).click();
+  await expect(other.getByRole("region", { name: "Settings" })).toBeVisible();
+  await other
+    .getByRole("navigation", { name: "Settings sections" })
+    .getByRole("button", { name: "Hosts", exact: true })
+    .click();
+  const otherCard = other.getByRole("region", { name: "fixture-cloud", exact: true });
+  await expect(otherCard.getByRole("button", { name: "Install git", exact: true })).toBeVisible();
+  await card.getByRole("button", { name: "Sign in gh", exact: true }).click();
+  await expect
+    .poll(() => page.evaluate(async () => (await window.desktop.workspace()).terminals.length))
+    .toBe(1);
+  // Recipe reveal closes the receiving board's Settings. The other already-open
+  // Hosts view can queue a second recipe without mounting/listing again.
+  const remainingCard = (await card.isVisible()) ? card : otherCard;
+  await expect(
+    remainingCard.getByRole("button", { name: "Install git", exact: true }),
+  ).toBeEnabled();
+  await remainingCard.getByRole("button", { name: "Install git", exact: true }).click();
+  await expect
+    .poll(() => page.evaluate(async () => (await window.desktop.workspace()).terminals.length))
+    .toBe(2);
+  const beforeList = (await readFile(calls, "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line))
+    .filter(({ message, phase }) => !phase && message.operation === "inspect" && message.target);
+  assert.equal(beforeList.length, 0, "neither recipe remounted Hosts or refreshed queued rows");
+  await page.evaluate(() => window.desktop.hosts({ action: "list" }));
+  const targets = (await readFile(calls, "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line))
+    .filter(({ message, phase }) => !phase && message.operation === "inspect" && message.target)
+    .map(({ message }) => message.target);
+  assert.deepEqual(targets, [
+    { kind: "sign-in", tool: "gh" },
+    { kind: "tool", tool: "git" },
+  ]);
 });

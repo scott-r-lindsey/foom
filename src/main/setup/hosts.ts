@@ -68,6 +68,16 @@ function folderObservation(facts: HostFacts, result: HostResult): HostFacts {
 
 /** Profile-owned registrations only. Developer mappings never enter this service. */
 class HostRowUnavailable extends Error {}
+class HostRowSaveFailed extends Error {
+  constructor(readonly retry: () => Promise<HostPreflight | undefined>) {
+    super("Unable to save host row");
+  }
+}
+interface PendingHostRow {
+  target: HostCheckTarget;
+  retry?: () => Promise<HostPreflight | undefined>;
+  reason?: "save-failed" | "check-failed";
+}
 
 export class Hosts {
   private readonly savedPlacements = new Map<
@@ -652,6 +662,9 @@ export class Hosts {
   state(result?: HostResult, savedOnly = false): HostsState {
     return {
       hosts: (this.store.get().registeredHosts ?? []).map((host) => {
+        const rowFailures = (this.pendingRows.get(host.host) ?? []).flatMap((row) =>
+          row.reason ? [{ target: row.target, reason: row.reason }] : [],
+        );
         // Saved facts provide presentation only; actions select from a fresh inspection below.
         const displayResult =
           (!savedOnly && this.results.get(host.host)) || host.observation?.preflight.result;
@@ -660,6 +673,7 @@ export class Hosts {
           : (this.resourceResults.get(host.host) ?? this.results.get(host.host));
         return {
           ...host,
+          ...(rowFailures.length ? { rowFailures } : {}),
           ...(host.observation
             ? {
                 result: host.observation.preflight.result,
@@ -704,7 +718,34 @@ export class Hosts {
       ...(this.progress ? { progress: this.progress } : {}),
     };
   }
-  private readonly pendingRows = new Map<string, HostCheckTarget[]>();
+  private readonly pendingRows = new Map<string, PendingHostRow[]>();
+  private queueRows(host: string, targets: readonly HostCheckTarget[]) {
+    const rows = new Map(
+      (this.pendingRows.get(host) ?? []).map((row) => [JSON.stringify(row.target), row]),
+    );
+    for (const target of targets) rows.set(JSON.stringify(target), { target });
+    this.pendingRows.set(host, [...rows.values()]);
+  }
+  private registeredRow(host: string, target: HostCheckTarget) {
+    const registration = this.registered(host);
+    if (
+      "repository" in target &&
+      !this.repositories().some((repo) => repo.path === target.repository)
+    )
+      throw new HostRowUnavailable("Repository is not registered");
+    if (
+      "tool" in target &&
+      ![
+        "git",
+        "gh",
+        ...agentProviders()
+          .filter((provider) => this.store.get().agents[provider.id] !== false)
+          .map((provider) => provider.id),
+      ].includes(target.tool)
+    )
+      throw new HostRowUnavailable("Tool is not enabled");
+    return registration;
+  }
   private async updateChecklist(host: string, change: (previous: HostPreflight) => HostPreflight) {
     const registration = this.registered(host);
     const previous = registration.observation?.preflight;
@@ -743,11 +784,9 @@ export class Hosts {
     host: string,
     target: HostCheckTarget,
   ): Promise<HostPreflight | undefined> {
-    const registration = this.registered(host);
+    const registration = this.registeredRow(host, target);
     let result: HostResult;
     if ("repository" in target) {
-      if (!this.repositories().some((repo) => repo.path === target.repository))
-        throw new HostRowUnavailable("Repository is not registered");
       if (target.kind === "checkout") {
         result = await this.repository(host, registration.codeFolder, target.repository, false);
       } else {
@@ -765,17 +804,6 @@ export class Hosts {
         }
       }
     } else {
-      if (
-        "tool" in target &&
-        ![
-          "git",
-          "gh",
-          ...agentProviders()
-            .filter((provider) => this.store.get().agents[provider.id] !== false)
-            .map((provider) => provider.id),
-        ].includes(target.tool)
-      )
-        throw new HostRowUnavailable("Tool is not enabled");
       result = await this.run(host, {
         type: "manage",
         operation: "inspect",
@@ -811,7 +839,7 @@ export class Hosts {
     const check: HostCheck = result.ok
       ? { state: "pass" }
       : { state: "fail", reason: result.reason };
-    return this.updateChecklist(host, (previous) => {
+    const change = (previous: HostPreflight): HostPreflight => {
       if ("repository" in target)
         return {
           ...previous,
@@ -872,7 +900,18 @@ export class Hosts {
         };
       }
       return { ...previous, result: { ...previous.result, facts: next } };
-    });
+    };
+    const save = () => {
+      if (this.registeredRow(host, target).codeFolder !== registration.codeFolder)
+        return Promise.reject(new HostRowUnavailable("Folder changed"));
+      return this.updateChecklist(host, change);
+    };
+    try {
+      return await save();
+    } catch (error) {
+      if (error instanceof HostRowUnavailable) throw error;
+      throw new HostRowSaveFailed(save);
+    }
   }
   private profilePending: Promise<void> = Promise.resolve();
   /** Re-read registrations after earlier profile writes, independently of remote checks. */
@@ -926,24 +965,33 @@ export class Hosts {
       .catch(() => undefined)
       .then(async () => {
         if (input.action === "list") {
-          for (const [host, targets] of [...this.pendingRows]) {
+          for (const [host, rows] of [...this.pendingRows]) {
+            const retained: PendingHostRow[] = [];
             if (this.store.get().registeredHosts?.some((entry) => entry.host === host))
-              for (const [index, target] of targets.entries()) {
+              for (const row of rows) {
                 try {
-                  await this.reloadRow(host, target);
+                  this.registeredRow(host, row.target);
+                  if (row.retry) await row.retry();
+                  else await this.reloadRow(host, row.target);
                 } catch (error) {
-                  // Only stale/unrepresentable rows may be dropped. In particular,
-                  // a failed profile write must surface and leave this row queued.
-                  if (!(error instanceof HostRowUnavailable)) throw error;
+                  if (error instanceof HostRowUnavailable) continue;
+                  if (error instanceof HostRowSaveFailed) row.retry = error.retry;
+                  row.reason = row.retry ? "save-failed" : "check-failed";
+                  retained.push(row);
                 }
-                this.pendingRows.set(host, targets.slice(index + 1));
               }
-            this.pendingRows.delete(host);
+            if (retained.length) this.pendingRows.set(host, retained);
+            else this.pendingRows.delete(host);
           }
           return this.state(undefined, true);
         }
         if (input.action === "reload") {
           const preflight = await this.reloadRow(input.host, input.target);
+          const remaining = (this.pendingRows.get(input.host) ?? []).filter(
+            (row) => JSON.stringify(row.target) !== JSON.stringify(input.target),
+          );
+          if (remaining.length) this.pendingRows.set(input.host, remaining);
+          else this.pendingRows.delete(input.host);
           return { ...this.state(), ...(preflight ? { preflight } : {}) };
         }
         const hosts = this.store.get().registeredHosts ?? [];
@@ -963,7 +1011,7 @@ export class Hosts {
             human: true,
             trustOrigin: origin,
           });
-          this.pendingRows.set(input.host, [
+          this.queueRows(input.host, [
             { kind: "origin", repository: input.repository },
             { kind: "checkout", repository: input.repository },
           ]);
@@ -1002,7 +1050,7 @@ export class Hosts {
               digest: createHash("sha256").update(JSON.stringify(recipe.steps)).digest("hex"),
             },
           });
-          this.pendingRows.set(input.host, [
+          this.queueRows(input.host, [
             ...(input.operation === "install" ? [{ kind: "tool" as const, tool: input.tool }] : []),
             ...(input.tool !== "git" ? [{ kind: "sign-in" as const, tool: input.tool }] : []),
           ]);
@@ -1072,6 +1120,7 @@ export class Hosts {
                     : entry,
                 ),
               );
+              this.pendingRows.delete(input.host);
             }
             this.progress = undefined;
             if (registration)
@@ -1122,15 +1171,12 @@ export class Hosts {
             );
             this.locations = [
               ...this.locations.filter((entry) => entry.host !== input.host),
-              ...this.repositories().map((repo) =>
-                this.rememberLocation(
-                  {
-                    host: input.host,
-                    repository: repo.path,
-                    result: { ok: true, facts: { ...result.facts, agents: [] } },
-                  },
-                  observedAt,
-                ),
+              ...this.repositories().map(
+                (repo): RepositoryLocation => ({
+                  host: input.host,
+                  repository: repo.path,
+                  result: { ok: true, facts: { ...result.facts, agents: [] } },
+                }),
               ),
             ];
             this.invalidateWorktrees(input.host);

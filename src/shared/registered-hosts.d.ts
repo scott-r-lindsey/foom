@@ -126,6 +126,7 @@ export type HostResult = { connection?: HostConnectionChecks } & (
     }
 );
 export interface HostRow extends RegisteredHost {
+  rowFailures?: readonly { target: HostCheckTarget; reason: "save-failed" | "check-failed" }[];
   recipes?: readonly {
     tool: string;
     install: boolean;

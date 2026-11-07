@@ -1,3 +1,4 @@
+import { chmod } from "node:fs/promises";
 // @vitest-environment jsdom
 import { restartedBrewHost } from "../../main/setup/hosts-saved-fixture";
 import { createRef } from "react";
@@ -1365,3 +1366,27 @@ test("a later live folder reply replaces a transient reload checklist", async ()
   expect(screen.queryByText("Pass · Valid")).toBeNull();
   expect(screen.queryByText(/Last checked/u)).toBeNull();
 });
+
+test.skipIf(process.platform === "win32")(
+  "Hosts remains readable while queued row saves keep failing",
+  async () => {
+    const fixture = await restartedBrewHost();
+    try {
+      await fixture.hosts.action(
+        { action: "recipe", host: "mac-fixture", tool: "gh", operation: "install" },
+        undefined,
+        () => Promise.resolve(),
+      );
+      await chmod(fixture.root, 0o555);
+      const api = (action: HostsAction) => fixture.hosts.action(action);
+      render(<HostsSettings source={{ hosts: api }} headingRef={createRef()} />);
+      const card = await screen.findByRole("region", { name: "mac-fixture" });
+      expandHosts();
+      expect(within(card).getAllByText("Unable to save")).toHaveLength(2);
+      expect(screen.queryByText("Unable to load hosts")).toBeNull();
+    } finally {
+      await chmod(fixture.root, 0o700);
+      await fixture.dispose();
+    }
+  },
+);

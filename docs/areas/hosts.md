@@ -521,8 +521,12 @@ there is no hidden repository check. Clone and Trust origin update only that
 repository. Install and Sign in refresh only their tool/sign-in rows when Hosts
 is reopened after the foreground recipe. Queued rows that become stale (disabled tools
 or removed repositories) are dropped independently; they never prevent the page or
-other queued rows from loading. Unexpected failures such as rejected profile writes
-surface to the caller and retain the affected and remaining rows for retry.
+other queued rows from loading. Queued failures never reject the list read: saved
+hosts remain visible, and failed profile writes show Unable to save in the affected
+row's existing failure state. Known row results are retained for persistence-only
+retry without another remote inspection; one row's failure never blocks another.
+Recipes on the same host merge and deduplicate pending targets, including recipes
+launched from already-open Hosts views in different windows.
 A refused replacement folder leaves the registered
 folder's saved and live observations intact and reports only the attempted change.
 Action validation and launch inspection
@@ -546,6 +550,8 @@ only when every registered host/repository pair is represented, including the ac
 host's other repositories. Each location retains its own observation time; a seed
 uses the oldest included time and never renews untouched data. Successful folder
 actions contribute explicit Not checked locations without probing repositories.
+Those invalidations have no read timestamp and cannot satisfy the sidebar cache;
+the next sidebar read obtains actual checkout data.
 A partial seed never stands in for the full location inventory. Scoped
 observations may update only the corresponding fields of an existing live
 inventory, without renewing its freshness; saved observations never populate it.
