@@ -27,7 +27,18 @@ export function terminalLinks(
   let rendered: TerminalLink[] = [];
   const open = (link: TerminalLink) => {
     const id = target();
-    if (id) void desktop.openTerminalLink(id, link.url, link.text).catch(() => {});
+    const row = link.rows[0];
+    const current =
+      row &&
+      linksOnRow(terminal, row.y).find(
+        (candidate) =>
+          candidate.url === link.url &&
+          candidate.rows.some(
+            (range) => range.y === row.y && range.start <= row.start && range.end > row.start,
+          ),
+      );
+    // Keyboard overlays/menu closures may predate a theme or output change.
+    if (id && current) void desktop.openTerminalLink(id, current.url, current.text).catch(() => {});
   };
   const lookup = (event: MouseEvent): TerminalLink | undefined => {
     const element = container.querySelector<HTMLElement>(".xterm-screen");

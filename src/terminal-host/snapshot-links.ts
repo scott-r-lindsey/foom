@@ -2,8 +2,7 @@ import type { IBuffer, IBufferLine, IBufferCell, Terminal } from "@xterm/headles
 import type { SerializeAddon } from "@xterm/addon-serialize";
 import { terminalLink, terminalOscId, terminalOscTarget } from "../shared/terminal-link";
 
-export class SnapshotLinkBudget extends Error {}
-
+const refused = "\x1b]8;;foom-refused:\x1b\\";
 const close = "\x1b]8;;\x1b\\";
 function open(screen: Terminal, id: number): string {
   const target = terminalOscTarget(screen, id);
@@ -19,21 +18,27 @@ function open(screen: Terminal, id: number): string {
 export function withSnapshotLinks(
   screen: Terminal,
   addon: SerializeAddon,
-  serialize: () => string,
+  serialize: (pen: string) => string,
+  budget = 4 * 1024 * 1024,
 ): string {
+  // Last transport fallback: one opaque run for the replay, rather than adding
+  // per-cell inert markers that could themselves exceed a wire-size limit.
+  if (budget === 0) return refused + serialize(refused);
   const starts = new Map<number, string>();
-  let remaining = 4 * 1024 * 1024;
+  let remaining = budget;
   const start = (id: number) => {
     let value = starts.get(id);
     if (!value) {
       value = open(screen, id);
-      starts.set(id, value);
     }
-    remaining -= value.length;
-    if (remaining < 0) throw new SnapshotLinkBudget("Terminal link snapshot exceeds budget");
+    // Reserve an opening and its closer once per emitted run, never per getChars
+    // call. The serializer reads glyphs both to test emptiness and to emit them.
+    if (remaining < value.length + close.length) return refused;
+    starts.set(id, value);
+    remaining -= value.length + close.length;
     return value;
   };
-  const lineView = (line: IBufferLine): IBufferLine =>
+  const lineView = (line: IBufferLine, row: number, openings: Map<number, string>): IBufferLine =>
     new Proxy(line, {
       get(target, key): unknown {
         if (key !== "getCell") return Reflect.get(target, key);
@@ -52,23 +57,32 @@ export function withSnapshotLinks(
                 const after = target.getCell(col + Math.max(1, current.getWidth()));
                 const begins = col === 0 || terminalOscId(before) !== id || !before?.getChars();
                 const ends = terminalOscId(after) !== id || !after?.getChars();
-                return (begins ? start(id) : "") + text + (ends ? close : "");
+                let opening = "";
+                if (begins) {
+                  const key = row * screen.cols + col;
+                  const existing = openings.get(key);
+                  opening = existing ?? start(id);
+                  if (existing === undefined) openings.set(key, opening);
+                }
+                return opening + text + (ends ? close : "");
               };
             },
           });
         };
       },
     });
-  const bufferView = (buffer: IBuffer): IBuffer =>
-    new Proxy(buffer, {
+  const bufferView = (buffer: IBuffer): IBuffer => {
+    const openings = new Map<number, string>();
+    return new Proxy(buffer, {
       get(target, key): unknown {
         if (key !== "getLine") return Reflect.get(target, key);
         return (row: number) => {
           const line = target.getLine(row);
-          return line ? lineView(line) : undefined;
+          return line ? lineView(line, row, openings) : undefined;
         };
       },
     });
+  };
   // No wrapper survives this synchronous parser barrier, including a failed serialization.
   const original: unknown = Reflect.get(addon, "_serializeBufferByRange");
   if (typeof original !== "function") throw new Error("Unsupported xterm row serializer");
@@ -87,17 +101,17 @@ export function withSnapshotLinks(
   );
   if (!installed) throw new Error("Unsupported xterm row serializer");
   try {
-    return serialize();
+    return serialize(snapshotLinkPen(screen, start));
   } finally {
     Reflect.set(addon, "_serializeBufferByRange", original);
   }
 }
 
 /** Preserve an OSC run left open across the snapshot/live-output boundary. */
-export function snapshotLinkPen(screen: Terminal): string {
+function snapshotLinkPen(screen: Terminal, start: (id: number) => string): string {
   const field = (value: unknown, key: string): unknown =>
     value && typeof value === "object" ? Reflect.get(value, key) : undefined;
   const attributes = field(field(field(screen, "_core"), "_inputHandler"), "_curAttrData");
   const id = terminalOscId(attributes);
-  return id ? open(screen, id) : close;
+  return id ? start(id) : close;
 }

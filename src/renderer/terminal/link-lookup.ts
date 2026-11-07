@@ -1,4 +1,4 @@
-import type { IBuffer, Terminal } from "@xterm/xterm";
+import type { IBuffer, IBufferCell, Terminal } from "@xterm/xterm";
 import {
   terminalLink,
   TERMINAL_LINK_LIMIT,
@@ -18,11 +18,34 @@ export interface TerminalLink {
   rows: LinkRow[];
 }
 
+type LinkTerminal = Pick<Terminal, "buffer" | "cols"> & Partial<Pick<Terminal, "options">>;
+
+// Explicit cell colors, faint/inverse attributes and unresolvable theme colors
+// take the safe path. We do not try to reproduce xterm's renderer/color pipeline.
+function displayed(cell: IBufferCell | undefined, defaultsVisible: boolean): boolean {
+  return (
+    !!cell &&
+    defaultsVisible &&
+    !cell.isInvisible() &&
+    !cell.isDim() &&
+    !cell.isInverse() &&
+    cell.isFgDefault() &&
+    cell.isBgDefault()
+  );
+}
+
 /** Coordinates are zero-based buffer cells, independently of xterm's hover state. */
-export function linksOnRow(terminal: Pick<Terminal, "buffer" | "cols">, y: number): TerminalLink[] {
+export function linksOnRow(terminal: LinkTerminal, y: number): TerminalLink[] {
   const buffer = terminal.buffer.active;
   const line = buffer.getLine(y);
   if (!line) return [];
+  const theme = terminal.options?.theme;
+  const foreground = theme?.foreground ?? "#ffffff";
+  const background = theme?.background ?? "#000000";
+  const defaultsVisible =
+    /^#[a-f\d]{6}$/iu.test(foreground) &&
+    /^#[a-f\d]{6}$/iu.test(background) &&
+    foreground.toLowerCase() !== background.toLowerCase();
   const result: TerminalLink[] = [];
   const seen = new Set<number>();
   for (let x = 0; x < terminal.cols; x++) {
@@ -50,10 +73,18 @@ export function linksOnRow(terminal: Pick<Terminal, "buffer" | "cols">, y: numbe
         if (col < terminal.cols && terminalOscId(cell) === id) {
           if (start < 0) start = col;
           // Concealed text must never qualify as a fully displayed destination.
-          if (cell?.isInvisible()) complete = false;
+          if (!displayed(cell, defaultsVisible)) complete = false;
           text += cell?.getChars() ?? "";
         } else if (start >= 0) {
-          if (rows.at(-1)?.y === row) complete = false;
+          const previous = rows.at(-1);
+          if (
+            previous &&
+            (previous.y !== row - 1 ||
+              !current.isWrapped ||
+              previous.end !== terminal.cols ||
+              start !== 0)
+          )
+            complete = false;
           rows.push({ y: row, start, end: col });
           start = -1;
         }
@@ -95,7 +126,7 @@ export function linksOnRow(terminal: Pick<Terminal, "buffer" | "cols">, y: numbe
           x,
           y: end,
           width: cell?.getWidth() || 1,
-          hidden: !!cell?.isInvisible(),
+          hidden: !displayed(cell, defaultsVisible),
           osc: terminalOscId(cell),
         });
     }

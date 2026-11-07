@@ -1,4 +1,4 @@
-/** Long OAuth targets fit; oversized or presentation-control-bearing URLs refuse whole. */
+/** Long OAuth targets fit; oversized URLs, whitespace, C0/C1 and bidi controls refuse whole. */
 export const TERMINAL_LINK_LIMIT = 16_384;
 
 export function terminalLink(value: unknown): URL | undefined {
@@ -6,7 +6,7 @@ export function terminalLink(value: unknown): URL | undefined {
     typeof value !== "string" ||
     value.length === 0 ||
     value.length > TERMINAL_LINK_LIMIT ||
-    /[\s\u200e\u200f\u202a-\u202e\u2066-\u2069]/u.test(value)
+    /[\s\p{Bidi_Control}]/u.test(value)
   )
     return undefined;
   for (const char of value) {

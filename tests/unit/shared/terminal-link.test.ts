@@ -74,3 +74,7 @@ test("OSC adapter refuses missing or incompatible xterm state and leaves target 
     expect(terminalLink(target)).toBeUndefined();
   }
 });
+
+test("Arabic letter mark is refused as a bidi presentation control", () => {
+  expect(terminalLink("https://a.test/\u061cpath")).toBeUndefined();
+});

@@ -295,7 +295,7 @@ export function attachTerminal(
         !event.sender.isCrashed();
       pendingLinks.add(event.sender);
       try {
-        if (text !== target) {
+        if (text !== target || !/^[\x21-\x7e]+$/u.test(target) || parsed.href !== target) {
           const confirm = linkConfirmations.get(event.sender);
           if (
             !confirm ||
@@ -306,7 +306,7 @@ export function attachTerminal(
                 glyph: "link",
                 subject: parsed.host,
                 detail:
-                  "The terminal's link text differs from its target. Check the destination before opening it.",
+                  "Check the destination before opening it. The terminal text may hide or disguise part of this URL.",
                 facts: [
                   { label: "Host", value: parsed.host, mono: true },
                   { label: "URL", value: target, mono: true },

@@ -32,6 +32,9 @@ async function fixture() {
     );
   let selection = "";
   const view = {
+    get options() {
+      return terminal.options;
+    },
     get buffer() {
       return terminal.buffer;
     },
@@ -62,6 +65,7 @@ async function fixture() {
     },
   } satisfies Pick<
     BrowserTerminal,
+    | "options"
     | "buffer"
     | "cols"
     | "rows"
@@ -259,4 +263,16 @@ test("grid resize refreshes highlight geometry even when a short link's buffer r
   const segment = f.container.querySelector<HTMLElement>(".terminal-link > span");
   expect(segment?.style.width).toBe("18.75%");
   expect(segment?.style.height).toBe("10%");
+});
+
+test("activation rechecks visibility after a menu/keyboard overlay was cached", async () => {
+  const f = await fixture();
+  f.render[0]?.();
+  const menu = f.links.menu(new MouseEvent("contextmenu", { clientX: 25, clientY: 30 }));
+  f.terminal.options.theme = { foreground: "#000000", background: "#000000" };
+  menu?.open();
+  expect(f.desktop.openTerminalLink).toHaveBeenCalledExactlyOnceWith("one", f.url, undefined);
+  f.terminal.reset();
+  menu?.open();
+  expect(f.desktop.openTerminalLink).toHaveBeenCalledTimes(1);
 });

@@ -1,4 +1,4 @@
-import { withSnapshotLinks, snapshotLinkPen, SnapshotLinkBudget } from "./snapshot-links";
+import { withSnapshotLinks } from "./snapshot-links";
 import type { IBuffer, Terminal } from "@xterm/headless";
 import type { SerializeAddon } from "@xterm/addon-serialize";
 
@@ -124,9 +124,14 @@ function blankBackground(screen: Terminal, buffer: IBuffer): string {
 }
 
 /** Called at the host parser barrier, before any subsequent live output. */
-function snapshot(screen: Terminal, serialize: SerializeAddon, scrollback?: number): string {
+function snapshot(
+  screen: Terminal,
+  serialize: SerializeAddon,
+  pen: string,
+  scrollback?: number,
+): string {
   const cursorState = cursorSnapshot(screen);
-  const cursor = snapshotLinkPen(screen) + cursorState;
+  const cursor = pen + cursorState;
   const options = scrollback === undefined ? {} : { scrollback };
   const serialized = serialize.serialize(options);
   const normalBackground = scrollback === 0 ? blankBackground(screen, screen.buffer.normal) : "";
@@ -138,7 +143,13 @@ function snapshot(screen: Terminal, serialize: SerializeAddon, scrollback?: numb
       restore(screen, serialize, active, screen.modes.originMode) +
       cursor
     );
-  const normal = serialize.serialize({ ...options, excludeAltBuffer: true, excludeModes: true });
+  // Split the one serialization at the pinned addon's buffer transition. A
+  // second normal serialization could degrade different links after spending
+  // the shared budget, making its length unsafe as an offset into the first.
+  const separator = "\x1b[?1049h\x1b[H";
+  const alternateStart = serialized.indexOf(separator);
+  if (alternateStart < 0) throw new Error("Unsupported xterm alternate-buffer serialization");
+  const normal = serialized.slice(0, alternateStart);
   // Restore the inactive normal buffer before 1049h saves its cursor. The active
   // alternate buffer and modes are then serialized in their original order.
   return (
@@ -146,8 +157,8 @@ function snapshot(screen: Terminal, serialize: SerializeAddon, scrollback?: numb
     normal +
     restore(screen, serialize, screen.buffer.normal, false) +
     (scrollback === 0
-      ? `\x1b[?1049h\x1b[H${blankBackground(screen, active)}${serialized.slice(normal.length + "\x1b[?1049h\x1b[H".length)}`
-      : serialized.slice(normal.length)) +
+      ? `\x1b[?1049h\x1b[H${blankBackground(screen, active)}${serialized.slice(alternateStart + separator.length)}`
+      : serialized.slice(alternateStart)) +
     restore(screen, serialize, active, screen.modes.originMode) +
     cursor
   );
@@ -160,17 +171,21 @@ export function terminalSnapshot(
   fits?: (data: string) => boolean,
 ): string {
   let scrollback: number | undefined;
+  let omitTargets = false;
   for (;;) {
-    let data: string;
-    try {
-      data = withSnapshotLinks(screen, serialize, () => snapshot(screen, serialize, scrollback));
-    } catch (error) {
-      if (!(error instanceof SnapshotLinkBudget) || scrollback === 0) throw error;
-      scrollback = 0;
+    const data = withSnapshotLinks(
+      screen,
+      serialize,
+      (pen) => snapshot(screen, serialize, pen, scrollback),
+      omitTargets ? 0 : undefined,
+    );
+    if (!fits || fits(data)) return data;
+    if (scrollback === 0) {
+      if (omitTargets) throw new Error("Visible terminal exceeds snapshot budget");
+      // OSC targets must never be the reason visible output cannot reattach.
+      omitTargets = true;
       continue;
     }
-    if (!fits || fits(data)) return data;
-    if (scrollback === 0) throw new Error("Visible terminal exceeds snapshot budget");
     // One fallback bounds reserialization work and preserves both visible buffers.
     scrollback = 0;
   }

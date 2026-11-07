@@ -459,26 +459,123 @@ test("replay retains OSC targets, normal/alternate history, label styles and an 
   }
 });
 
-test("link expansion is bounded: excess history falls back, excess visible content refuses", async () => {
-  const url = "https://budget.test/" + "x".repeat(16000);
-  const output = `\x1b]8;;${url}\x1b\\x\x1b]8;;\x1b\\\r\n`.repeat(150);
-  for (const rows of [5, 180]) {
-    const host = new Terminal({ cols: 20, rows, scrollback: 400, allowProposedApi: true });
+test.each([260, 300])(
+  "OSC replay retains the full budget and degrades excess targets without losing cells (%s links)",
+  async (count) => {
+    const { terminalOscId, terminalOscTarget } = await import("../../../src/shared/terminal-link");
+    const host = new Terminal({ cols: 80, rows: 24, allowProposedApi: true });
+    const view = new Terminal({ cols: 80, rows: 24, allowProposedApi: true });
     const addon = new SerializeAddon();
     host.loadAddon(addon);
+    const targets = Array.from({ length: count }, (_, i) =>
+      ("https://budget.test/" + String(i) + "/").padEnd(16000, "x"),
+    );
     try {
-      await write(host, output);
-      if (rows === 180)
-        expect(() => terminalSnapshot(host, addon)).toThrow("link snapshot exceeds budget");
+      await write(host, targets.map((url) => `\x1b]8;;${url}\x1b\\x\x1b]8;;\x1b\\`).join(""));
+      const snapshot = terminalSnapshot(host, addon);
+      await write(view, snapshot);
+      expect(lines(view)).toEqual(lines(host));
+      const replayed = targets.map((_, i) => {
+        const id = terminalOscId(view.buffer.active.getLine(Math.floor(i / 80))?.getCell(i % 80));
+        return id && terminalOscTarget(view, id);
+      });
+      if (count === 260) expect(replayed).toEqual(targets);
       else {
-        const snapshot = terminalSnapshot(host, addon);
-        expect(snapshot.length).toBeLessThan(200000);
-        expect(snapshot).toContain("https://budget.test/");
+        expect(replayed[0]).toBe(targets[0]);
+        expect(replayed.at(-1)).toBe("foom-refused:");
+        expect(snapshot.length).toBeLessThan(4 * 1024 * 1024 + 20000);
       }
-      // A failure must not leave the serializer wrapped for later requests.
       expect(addon.serialize()).not.toContain("\x1b]8;");
     } finally {
       host.dispose();
+      view.dispose();
     }
+  },
+);
+
+test("transport size fallback removes OSC targets without turning their labels into plain links", async () => {
+  const { linksOnRow } = await import("../../../src/renderer/terminal/link-lookup");
+  const host = new Terminal({ cols: 80, rows: 24, allowProposedApi: true });
+  const view = new Terminal({ cols: 80, rows: 24, allowProposedApi: true });
+  const addon = new SerializeAddon();
+  host.loadAddon(addon);
+  try {
+    await write(
+      host,
+      `\x1b]8;;https://budget.test/${"x".repeat(16000)}\x1b\\https://safe.example/\x1b]8;;\x1b\\`,
+    );
+    const snapshot = terminalSnapshot(host, addon, (data) => data.length < 500);
+    await write(view, snapshot);
+    expect(lines(view)).toEqual(lines(host));
+    expect(linksOnRow(view, 0)).toEqual([]);
+    expect(snapshot.length).toBeLessThan(500);
+  } finally {
+    host.dispose();
+    view.dispose();
+  }
+});
+
+test("130 distinct one-cell 16000-character OSC targets cannot prevent visible-screen replay", async () => {
+  const { terminalOscId, terminalOscTarget } = await import("../../../src/shared/terminal-link");
+  const host = new Terminal({ cols: 80, rows: 24, allowProposedApi: true });
+  const view = new Terminal({ cols: 80, rows: 24, allowProposedApi: true });
+  const addon = new SerializeAddon();
+  host.loadAddon(addon);
+  const targets = Array.from({ length: 130 }, (_, i) =>
+    ("https://budget.test/" + String(i) + "/").padEnd(16000, "x"),
+  );
+  try {
+    await write(host, targets.map((url) => `\x1b]8;;${url}\x1b\\x\x1b]8;;\x1b\\`).join(""));
+    await write(view, terminalSnapshot(host, addon));
+    expect(lines(view)).toEqual(lines(host));
+    for (let i = 0; i < targets.length; i++) {
+      const cell = view.buffer.active.getLine(Math.floor(i / 80))?.getCell(i % 80);
+      const id = terminalOscId(cell);
+      expect(id && terminalOscTarget(view, id)).toBe(targets[i]);
+    }
+  } finally {
+    host.dispose();
+    view.dispose();
+  }
+});
+
+test("over-budget replay keeps normal and alternate buffers aligned when target metadata degrades", async () => {
+  const host = new Terminal({ cols: 80, rows: 24, allowProposedApi: true });
+  const view = new Terminal({ cols: 80, rows: 24, allowProposedApi: true });
+  const addon = new SerializeAddon();
+  host.loadAddon(addon);
+  const links = (label: string) =>
+    Array.from(
+      { length: 150 },
+      (_, i) =>
+        `\x1b]8;;${(`https://budget.test/${label}/${String(i)}/`).padEnd(16000, "x")}\x1b\\${label}\x1b]8;;\x1b\\`,
+    ).join("");
+  try {
+    await write(host, links("n"));
+    await write(host, "\x1b[?1049h" + links("a"));
+    await write(view, terminalSnapshot(host, addon));
+    expect(view.buffer.active.type).toBe("alternate");
+    expect(lines(view)).toEqual(lines(host));
+    await write(host, "\x1b[?1049l");
+    await write(view, "\x1b[?1049l");
+    expect(lines(view)).toEqual(lines(host));
+  } finally {
+    host.dispose();
+    view.dispose();
+  }
+});
+
+test("a changed pinned alternate-buffer separator refuses with a fixed compatibility error", async () => {
+  const host = new Terminal({ allowProposedApi: true });
+  const addon = new SerializeAddon();
+  host.loadAddon(addon);
+  try {
+    await write(host, "\x1b[?1049h");
+    vi.spyOn(addon, "serialize").mockReturnValue("changed serializer");
+    expect(() => terminalSnapshot(host, addon)).toThrow(
+      "Unsupported xterm alternate-buffer serialization",
+    );
+  } finally {
+    host.dispose();
   }
 });

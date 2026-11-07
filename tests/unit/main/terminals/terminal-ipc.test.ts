@@ -1699,6 +1699,7 @@ test("terminal link capabilities revalidate sender, attachment, URL and label; c
       "file:///etc/passwd",
       "javascript:alert(1)",
       "https://x.test/\n",
+      "https://a.test/\u061cpath",
       "https://x.test/" + "a".repeat(16384),
     ])
       await expect(invoke(operation, [id, value])).rejects.toThrow("Invalid terminal link");
@@ -1774,4 +1775,42 @@ test("browser failures report fixed text and release the pending link without ex
   await expect(invoke("open-link", [id, url, url])).rejects.toThrow("Unable to open terminal link");
   await invoke("open-link", [id, url, url]);
   expect(mock.shell.openExternal).toHaveBeenCalledTimes(2);
+});
+
+test("exact raw labels with noncanonical, look-alike or invisible target characters still confirm", async () => {
+  const id = await create();
+  await invoke("attach", [id]);
+  const confirm = vi
+    .fn<(content: DialogContent, signal: AbortSignal) => Promise<boolean>>()
+    .mockResolvedValue(false);
+  terminalControl.setLinkConfirmation(contents as unknown as WebContents, confirm);
+  for (const url of [
+    "https://good.example\u2215login.evil.test/",
+    "https://evil.test\\.good.example/",
+    "https://good.example/\u200bpath",
+    "https://good.example/\u00adpath",
+    "https://good.example/\u034fpath",
+    "HTTPS://Example.com/",
+  ]) {
+    confirm.mockClear();
+    await invoke("open-link", [id, url, url]);
+    expect.soft(confirm).toHaveBeenCalledOnce();
+    expect.soft(mock.shell.openExternal).not.toHaveBeenCalled();
+  }
+});
+
+test("a long canonical ASCII OAuth URL with percent escapes and ampersands skips confirmation", async () => {
+  const id = await create();
+  await invoke("attach", [id]);
+  const confirm = vi
+    .fn<(content: DialogContent, signal: AbortSignal) => Promise<boolean>>()
+    .mockResolvedValue(false);
+  terminalControl.setLinkConfirmation(contents as unknown as WebContents, confirm);
+  const url =
+    "https://login.example/oauth?redirect_uri=https%3A%2F%2Fapp.example%2Fcallback&scope=openid%20profile&state=" +
+    "x".repeat(2100);
+  expect(new URL(url).href).toBe(url);
+  await invoke("open-link", [id, url, url]);
+  expect(confirm).not.toHaveBeenCalled();
+  expect(mock.shell.openExternal).toHaveBeenCalledExactlyOnceWith(url);
 });

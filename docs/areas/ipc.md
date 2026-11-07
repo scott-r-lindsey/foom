@@ -17,7 +17,7 @@ Every channel checks the sender (a registered app window, its main frame, `app:/
 | `terminal:input` | renderer → main | `id`, `data` (≤ 64 KB; chunked on code-point boundaries) |
 | `terminal:copy-selection` | renderer → main (invoke) | owned attached `id`, nonempty text ≤65,536 UTF-16 units; writes clipboard only on macOS/Windows while Copy on select is enabled; no read capability |
 | `terminal:copy-link` | renderer → main (invoke) | owned attached `id`, exact HTTP(S) target ≤16,384 UTF-16 units; main parses and validates it before a write-only clipboard operation |
-| `terminal:open-link` | renderer → main (invoke) | owned attached `id`, HTTP(S) target and optional complete label (each ≤16,384 UTF-16 units); full case-sensitive equality skips review, otherwise the owning board's trusted confirmation shows the actual host and full URL; attachment is rechecked after approval |
+| `terminal:open-link` | renderer → main (invoke) | owned attached `id`, HTTP(S) target and optional complete label (each ≤16,384 UTF-16 units); only complete visible case-sensitive equality with a printable ASCII target exactly equal to parsed `URL.href` skips review, otherwise the owning board's trusted confirmation shows the actual host and full URL; attachment is rechecked after approval |
 | `terminal:paste` | renderer → main (invoke) | owned attached live `id` → one validated `text` insertion or fixed `unsupported` / `empty` / `failed` / `cancelled` result; main captures clipboard on the gesture, binds work to the attachment generation and serializes a bounded FIFO; image bytes never reach renderer |
 | `terminal:resize` | renderer → main | `id`, `cols`, `rows` |
 | `terminal:ack` | renderer → main | `id`, attachment token, `count` (attached terminals only) |

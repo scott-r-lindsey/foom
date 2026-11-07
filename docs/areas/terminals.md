@@ -166,9 +166,19 @@ Headless snapshots retain OSC targets through a synchronous, scoped facade aroun
 the pinned serializer's buffer-range method. It adds OSC boundaries to printed
 runs without changing cells, widths, SGR or wrapping, restores the open link pen,
 and leaves no wrapper installed after success or failure. Refused targets stay
-opaque on replay. Added link text has a 4,194,304 UTF-16-unit budget before the ordinary
-replay size check; excess history falls back to the visible screen, while an
-oversized visible screen refuses rather than allocating without a bound.
+opaque on replay. Each snapshot reserves at most 4,194,304 UTF-16 units for
+retained target-bearing OSC opening/closing sequences across serializer passes,
+including the live link pen. The normal prefix is split from the same serialized
+normal/alternate result at its checked buffer-transition marker, so budget
+choices cannot change slicing offsets. A run's buffer position is charged once per pass,
+not again when the serializer rereads its glyphs. Excess targets degrade to fixed
+inert OSC markers: their cells, styles and wrapping still replay, but those links
+are unavailable in that replay. These small fixed markers are outside the target
+budget; the host retains its original target metadata. The ordinary transport
+size check can reduce replayed history; if visible output still does not fit,
+one opaque run replaces all link metadata before the final size check, avoiding
+per-cell marker expansion. OSC targets must never make an otherwise fitting
+visible screen impossible to reattach.
 
 Main revalidates the registered board main frame, owned attached terminal ID,
 URL type, length (at most 16,384 UTF-16 units), URL parse, HTTP(S) scheme and
@@ -179,9 +189,21 @@ never a shell command. Both capabilities are local; neither is exposed to the
 remote host or agent control tools. The window-open, navigation and CSP policies
 remain unchanged.
 
-A full, case-sensitive label/target equality skips confirmation. Soft-wrapped
-labels join for this comparison; hard newlines, concealed text and incomplete labels cannot count
-as a match. All other opens use the owning board's trusted Foom confirmation,
+Skipping confirmation is conservative: main requires a printable ASCII target
+exactly equal to its parsed `URL.href` and a full, case-sensitive label/target
+match. Canonical long OAuth URLs containing percent escapes and ampersands still
+qualify. Unicode look-alikes, backslashes and other noncanonical forms always
+confirm; default-ignorable/format characters never qualify, and all Unicode
+`Bidi_Control` characters, including U+061C, refuse entirely.
+
+The matching cells must be contiguous, with no unlinked cells between them even
+across a soft wrap. Continuation rows must start at column zero after a full
+linked previous row. Hard newlines, SGR 8, incomplete labels and uncertain color
+visibility cannot count as a match. Rather than replicate xterm's color pipeline,
+any explicit cell foreground/background, faint/inverse attribute, equal default
+colors or default colors not resolvable as distinct opaque six-digit RGB values
+requires confirmation. Activation rechecks current cell visibility, including
+from cached keyboard links and menus. All other opens use the owning board's trusted Foom confirmation,
 showing the parsed host separately and the full wrapped, scrollable URL. Cancel
 is focused by default. Only one open request per board can be pending. Detachment,
 view replacement or renderer loss cancels a pending request; main rechecks the

@@ -263,3 +263,136 @@ test("terminal links open and copy complete targets with trusted confirmation, w
   await click(plain);
   await expect.poll(async () => (await opened()).length).toBe(exitedCount + 1);
 });
+
+test("terminal link security confirms gaps, hidden colors and noncanonical targets while preserving OAuth and oversized replay", {
+  timeout: deadline(60000),
+}, async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "foom-link-security-"));
+  removeAfterApps(context, root);
+  const program = path.join(root, "security.cjs");
+  const gap = "https://evil.test/x";
+  const hidden = ["rgb-osc", "rgb-plain", "palette-osc", "palette-plain"].map((kind) => {
+    const url = `https://good.example@evil.test/${kind}`;
+    const sgr = kind.startsWith("rgb") ? "38;2;0;0;0;48;2;0;0;0" : "30;40";
+    const text = `https://good.example\x1b[${sgr}m@evil.test/${kind}\x1b[0m`;
+    return { url, output: kind.endsWith("osc") ? osc(url, text) : text };
+  });
+  const suspicious = [
+    "https://good.example\u2215login.evil.test/",
+    "https://evil.test\\.good.example/",
+    "https://good.example/\u200bpath",
+  ].flatMap((base) => [
+    { url: base + "?osc", output: osc(base + "?osc", base + "?osc") },
+    { url: base + "?plain", output: base + "?plain" },
+  ]);
+  const oauth =
+    "https://login.example/oauth?redirect_uri=https%3A%2F%2Fapp.example%2Fcallback&scope=openid%20profile&state=" +
+    "x".repeat(2100);
+  const budgetTargets = Array.from({ length: 300 }, (_, i) =>
+    `https://budget.test/${i}/`.padEnd(16000, "x"),
+  );
+  await writeFile(
+    program,
+    `
+    process.stdin.setRawMode(true); process.stdin.resume();
+    const osc = (url, text, id = "") => "\\x1b]8;" + id + ";" + url + "\\x1b\\\\" + text + "\\x1b]8;;\\x1b\\\\";
+    const gap = ${JSON.stringify(gap)};
+    const targets = ${JSON.stringify(budgetTargets)};
+    process.stdout.write("\\x1bc" + osc(gap, "https://", "id=a") + "good.example/account" + " ".repeat(process.stdout.columns - 28 + 30) + osc(gap, "evil.test/x", "id=a") + "\\r\\n" + ${JSON.stringify(
+      [...hidden, ...suspicious]
+        .map((entry) => entry.output)
+        .concat("https://a.test/\u061cpath", "SECURITY_READY")
+        .join("\r\n"),
+    )});
+    process.stdin.on("data", (data) => {
+      if (data.toString() === "o") process.stdout.write("\\x1bc" + osc(${JSON.stringify(oauth)}, ${JSON.stringify(oauth)}) + "\\r\\nOAUTH_READY");
+      if (data.toString() === "p") process.stdout.write("\\x1bc" + ${JSON.stringify(oauth)} + "\\r\\nPLAIN_OAUTH_READY");
+      if (data.toString() === "b") process.stdout.write("\\x1bc" + targets.map(url => osc(url, "x")).join("") + "\\r\\nBUDGET_READY");
+      if (data.toString() === "a") process.stdout.write("\\x1bc" + targets.slice(0, 150).map(url => osc(url, "n")).join("") + "\\r\\nNORMAL_BUDGET_READY\\x1b[?1049h" + targets.slice(150).map(url => osc(url, "a")).join("") + "\\r\\nALT_BUDGET_READY");
+      if (data.toString() === "n") process.stdout.write("\\x1b[?1049l");
+      if (data.toString() === "q") process.exit(0);
+    });
+  `,
+  );
+  const app = await launchApp(context, { fixture: "running-shell" });
+  const page = await boardPage(app);
+  await app.evaluate(({ shell }) => {
+    globalThis.securityOpenedLinks = [];
+    shell.openExternal = async (url) => {
+      globalThis.securityOpenedLinks.push(url);
+    };
+  });
+  await page.keyboard.type(
+    `${process.platform === "win32" ? "& " : ""}"${process.execPath}" "${program}"`,
+  );
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".xterm-rows")).toContainText("SECURITY_READY");
+  const id = (await page.evaluate(() => window.desktop.workspace())).terminals[0].id;
+  const dialog = await confirmationPage(app);
+  const heading = dialog.getByRole("heading", { name: "Open this link?" });
+  const opened = () => app.evaluate(() => globalThis.securityOpenedLinks);
+  const click = async (url) => {
+    const bounds = await page
+      .getByRole("link", { name: url, exact: true })
+      .locator(":scope > span")
+      .first()
+      .boundingBox();
+    assert.ok(bounds);
+    await page.mouse.click(bounds.x + Math.min(10, bounds.width / 2), bounds.y + bounds.height / 2);
+  };
+  // Confirm this fixture really hides a suffix in the rendered app, not only in cell metadata.
+  const styles = await page
+    .locator(".xterm-rows span")
+    .filter({ hasText: "@evil.test/rgb-osc" })
+    .first()
+    .evaluate((element) => {
+      const style = getComputedStyle(element);
+      return { foreground: style.color, background: style.backgroundColor };
+    });
+  assert.equal(styles.foreground, styles.background);
+  for (const url of [
+    gap,
+    ...hidden.map((entry) => entry.url),
+    ...suspicious.map((entry) => entry.url),
+  ]) {
+    await click(url);
+    await expect(heading).toBeVisible();
+    await expect(dialog.locator(".facts")).toContainText(new URL(url).host);
+    assert.deepEqual(await opened(), []);
+    await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(heading).toHaveCount(0);
+  }
+  await expect(
+    page.getByRole("link", { name: "https://a.test/\u061cpath", exact: true }),
+  ).toHaveCount(0);
+  for (const [mode, marker] of [
+    ["o", "OAUTH_READY"],
+    ["p", "PLAIN_OAUTH_READY"],
+  ]) {
+    await page.evaluate(({ id, mode }) => window.desktop.input(id, mode), { id, mode });
+    await expect(page.locator(".xterm-rows")).toContainText(marker);
+    await click(oauth);
+    await expect.poll(opened).toHaveLength(mode === "o" ? 1 : 2);
+    await expect(heading).toHaveCount(0);
+  }
+  assert.deepEqual(await opened(), [oauth, oauth]);
+  await page.evaluate((id) => window.desktop.input(id, "b"), id);
+  await expect(page.locator(".xterm-rows")).toContainText("BUDGET_READY");
+  await openSettingsScreen(page);
+  await page.keyboard.press("Escape");
+  await page.locator(".board-row[data-kind='shell']").click();
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+  await expect(page.locator(".xterm-rows")).toContainText("BUDGET_READY");
+  await expect(page.getByRole("link", { name: budgetTargets[0], exact: true })).toHaveCount(1);
+  await expect(page.getByRole("link", { name: budgetTargets.at(-1), exact: true })).toHaveCount(0);
+  await page.evaluate((id) => window.desktop.input(id, "a"), id);
+  await expect(page.locator(".xterm-rows")).toContainText("ALT_BUDGET_READY");
+  await openSettingsScreen(page);
+  await page.keyboard.press("Escape");
+  await page.locator(".board-row[data-kind='shell']").click();
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+  await expect(page.locator(".xterm-rows")).toContainText("ALT_BUDGET_READY");
+  await page.evaluate((id) => window.desktop.input(id, "n"), id);
+  await expect(page.locator(".xterm-rows")).toContainText("NORMAL_BUDGET_READY");
+  await page.evaluate((id) => window.desktop.input(id, "q"), id);
+});

@@ -35,7 +35,7 @@ test("OSC labels with hard newlines retain them and all rows keep the complete t
   const first = linksOnRow(terminal, 0)[0];
   expect(first).toMatchObject({
     url,
-    text: "https://example.com/\none/two/three",
+    text: undefined,
     rows: [
       { y: 0, start: 0, end: 20 },
       { y: 1, start: 0, end: 13 },
@@ -111,6 +111,72 @@ test("concealed OSC and plain targets never qualify as fully displayed matching 
   const url = "https://concealed.example/path";
   for (const output of [osc(url, `\x1b[8m${url}\x1b[0m`), `\x1b[8m${url}\x1b[0m`]) {
     const terminal = await fixture(output);
-    expect(linksOnRow(terminal, 0)[0]).toMatchObject({ url, text: undefined });
+    expect.soft(linksOnRow(terminal, 0)[0]).toMatchObject({ url, text: undefined });
+  }
+});
+
+test("unlinked cells across a soft wrap break the OSC exact-label match", async () => {
+  const url = "https://evil.test/x";
+  const begin = `\x1b]8;id=a;${url}\x1b\\`;
+  const end = "\x1b]8;;\x1b\\";
+  const terminal = await fixture(
+    begin +
+      "https://" +
+      end +
+      "good.example/account" +
+      " ".repeat(12) +
+      " ".repeat(30) +
+      begin +
+      "evil.test/x" +
+      end,
+    40,
+  );
+  expect(terminal.buffer.active.getLine(0)?.translateToString(true).trimEnd()).toBe(
+    "https://good.example/account",
+  );
+  const link = linksOnRow(terminal, 0)[0];
+  expect(link?.url).toBe(url);
+  expect(link?.rows).toEqual([
+    { y: 0, start: 0, end: 8 },
+    { y: 1, start: 30, end: 40 },
+    { y: 2, start: 0, end: 1 },
+  ]);
+  expect(link?.text).toBeUndefined();
+});
+
+test("matching RGB or palette colors cannot make hidden OSC or plain text an exact match", async () => {
+  const url = "https://good.example@evil.test/";
+  for (const sgr of ["38;2;0;0;0;48;2;0;0;0", "30;40"])
+    for (const output of [
+      osc(url, `https://good.example\x1b[${sgr}m@evil.test/\x1b[0m`),
+      `https://good.example\x1b[${sgr}m@evil.test/\x1b[0m`,
+    ]) {
+      const terminal = await fixture(output);
+      expect.soft(linksOnRow(terminal, 0)[0]).toMatchObject({ url, text: undefined });
+    }
+});
+
+test("unknown or equal default theme colors, faint/inverse and explicit colors require confirmation", async () => {
+  const url = "https://visibility.example/path";
+  const terminal = await fixture(url);
+  for (const theme of [
+    { foreground: "#000000", background: "#000000" },
+    { foreground: "rgb(0,0,0)", background: "#000000" },
+  ]) {
+    terminal.options.theme = theme;
+    expect(linksOnRow(terminal, 0)[0]?.text).toBeUndefined();
+  }
+  for (const sgr of ["2", "7", "31", "41"])
+    expect(linksOnRow(await fixture(`\x1b[${sgr}m${url}`), 0)[0]?.text).toBeUndefined();
+});
+
+test("canonical ASCII OAuth URL preserves percent escapes and ampersands across soft wraps", async () => {
+  const url =
+    "https://login.example/oauth?redirect_uri=https%3A%2F%2Fapp.example%2Fcallback&scope=openid%20profile&state=" +
+    "x".repeat(2100);
+  for (const output of [url, osc(url, url)]) {
+    const terminal = await fixture(output, 80, 40);
+    for (let row = 0; row < 20; row++)
+      expect(linksOnRow(terminal, row)[0]).toMatchObject({ url, text: url });
   }
 });
