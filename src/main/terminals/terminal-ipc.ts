@@ -260,7 +260,7 @@ export function attachTerminal(
     if (!validId(id) || attached.get(id) !== event.sender)
       throw new Error("Unknown or unattached terminal ID");
     if (!isTerminalSelection(text)) throw new Error("Invalid terminal selection");
-    if (copyOnSelect()) await clipboard.writeText(text);
+    if (process.platform !== "linux" && copyOnSelect()) await clipboard.writeText(text);
   });
   handlers.set("terminal:tail", async (event, id, lines) => {
     if (!trusted(event)) throw new Error("Untrusted IPC sender");
