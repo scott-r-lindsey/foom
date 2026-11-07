@@ -1325,3 +1325,43 @@ test("an unrepresentable row failure names Check capabilities only in that row",
   );
   expect(screen.getByText(/Last checked/u).textContent).toContain("Last checked");
 });
+
+test("a later live folder reply replaces a transient reload checklist", async () => {
+  const raw: HostsState = { hosts: [host], locations: [] };
+  const missing = {
+    ok: true as const,
+    facts: {
+      ...facts,
+      codeFolder: "/home/worker/new",
+      folder: { state: "fail" as const, reason: "folder-missing" as const },
+    },
+  };
+  const api = vi.fn(
+    (action: HostsAction): Promise<HostsState> =>
+      Promise.resolve(
+        action.action === "reload"
+          ? { ...raw, preflight: { ...preflight, repositories: [] } }
+          : action.action === "change-folder"
+            ? {
+                hosts: [{ ...host, codeFolder: missing.facts.codeFolder, result: missing }],
+                locations: [],
+                result: missing,
+              }
+            : raw,
+      ),
+  );
+  render(<HostsSettings source={{ hosts: api }} headingRef={createRef()} />);
+  await screen.findByRole("region", { name: "worker" });
+  expandHosts();
+  fireEvent.click(screen.getByRole("button", { name: "Reload Code folder" }));
+  await screen.findByText("Pass · Valid");
+  fireEvent.click(screen.getByRole("button", { name: "Change folder" }));
+  fireEvent.change(screen.getByLabelText("Code folder"), {
+    target: { value: missing.facts.codeFolder },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  await screen.findByRole("button", { name: "Create" });
+  expect(screen.getByText("Code folder does not exist · folder-missing")).toBeTruthy();
+  expect(screen.queryByText("Pass · Valid")).toBeNull();
+  expect(screen.queryByText(/Last checked/u)).toBeNull();
+});

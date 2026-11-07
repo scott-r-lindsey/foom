@@ -521,7 +521,9 @@ there is no hidden repository check. Clone and Trust origin update only that
 repository. Install and Sign in refresh only their tool/sign-in rows when Hosts
 is reopened after the foreground recipe. Queued rows that become stale (disabled tools
 or removed repositories) are dropped independently; they never prevent the page or
-other queued rows from loading. A refused replacement folder leaves the registered
+other queued rows from loading. Unexpected failures such as rejected profile writes
+surface to the caller and retain the affected and remaining rows for retry.
+A refused replacement folder leaves the registered
 folder's saved and live observations intact and reports only the attempted change.
 Action validation and launch inspection
 still use the fresh inspections required above.
@@ -535,11 +537,16 @@ sign-in and origin checks can contact the network. Read-only partial inspection
 accepts a closed `target` selector. Hello advertises `hostRowCheck: 1`; compatible
 older daemons without it refuse scoped inspection and folder creation with `facts-unavailable`,
 without falling back to a full check. Scoped results update saved presentation
-without granting launch authority or advancing the full-check timestamp.
+without granting launch authority or advancing the full-check timestamp. Transient
+checklists are replaced or cleared by each newer action reply; they never mask
+newer live folder state.
 Scoped reload replies do not publish a broad board inventory refresh. Folder and
 clone replies may seed the sidebar's location view from the action's own observations
-only when every other registered host's repository rows are already represented.
-A partial seed never stands in for the other hosts' location inventory. Scoped
+only when every registered host/repository pair is represented, including the acting
+host's other repositories. Each location retains its own observation time; a seed
+uses the oldest included time and never renews untouched data. Successful folder
+actions contribute explicit Not checked locations without probing repositories.
+A partial seed never stands in for the full location inventory. Scoped
 observations may update only the corresponding fields of an existing live
 inventory, without renewing its freshness; saved observations never populate it.
 Resource refresh replies remain separate from the launch inventory when no live

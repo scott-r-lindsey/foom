@@ -1202,3 +1202,35 @@ test("Hosts preserves a rejected replacement folder and reports unrepresentable 
   await captureHosts(app, page, "1061/unrepresentable-row-reload");
   await assertAccessible(page);
 });
+
+test("Hosts replaces a transient folder reload with the newest folder reply", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, navigation, updateScenario } = await hostsFixture(context);
+  await page.evaluate(async () => {
+    await window.desktop.hosts({ action: "remove", host: "fixture-cloud" });
+    await window.desktop.hosts({ action: "add", host: "fixture-cloud", codeFolder: "~/foom" });
+  });
+  await navigation.getByRole("button", { name: "General", exact: true }).click();
+  await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
+  const card = page.getByRole("region", { name: "fixture-cloud", exact: true });
+  await card.getByRole("button", { name: "Expand fixture-cloud", exact: true }).click();
+  await card.getByRole("button", { name: "Reload Code folder", exact: true }).click();
+  await expect(card.getByText("Pass · Valid", { exact: true })).toBeVisible();
+  await updateScenario({ facts: { folder: { state: "fail", reason: "folder-missing" } } });
+  await card.getByRole("button", { name: "Change folder", exact: true }).click();
+  await card.getByLabel("Code folder", { exact: true }).fill("~/new");
+  await card.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(card.getByRole("button", { name: "Create", exact: true })).toBeVisible();
+  await expect(
+    card.getByText("Code folder does not exist · folder-missing", { exact: true }),
+  ).toBeVisible();
+  await expect(card.getByText("Pass · Valid", { exact: true })).toHaveCount(0);
+  const registration = await page.evaluate(
+    async () => (await window.desktop.setupState()).settings.registeredHosts[0],
+  );
+  assert.equal(registration.observation, undefined);
+  await captureHosts(app, page, "1061/transient-folder-latest-reply");
+  await assertAccessible(page);
+});

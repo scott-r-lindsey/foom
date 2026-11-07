@@ -2035,3 +2035,95 @@ test.each(["preflight", "change-folder", "create-folder", "clone"] as const)(
     ).toBe(true);
   },
 );
+
+test("a cold clone seed cannot hide the acting host's other repositories", async () => {
+  repositories.push({ path: "/local/two", name: "two" });
+  run.mockImplementation((_host, request) =>
+    Promise.resolve({
+      ok: true,
+      facts,
+      ...(request.operation === "clone" || request.operation === "repository"
+        ? {
+            checkout: { path: `${facts.codeFolder}/${request.directory}`, state: "clean" as const },
+          }
+        : {}),
+    }),
+  );
+  await hosts.action({ action: "add", host: "worker", codeFolder: facts.codeFolder });
+  await hosts.action({ action: "clone", host: "worker", repository: "/local/repo" });
+  run.mockClear();
+  const sidebar = await hosts.locationsForSidebar();
+  expect(sidebar.locations.map((entry) => entry.repository)).toEqual(["/local/repo", "/local/two"]);
+  expect(run.mock.calls.filter(([, request]) => request.operation === "repository")).toHaveLength(
+    2,
+  );
+});
+
+test.each(["same-host", "other-host"])(
+  "a clone seed cannot renew untouched %s location data",
+  async (scenario) => {
+    let now = 0;
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+    try {
+      if (scenario === "same-host") repositories.push({ path: "/local/two", name: "two" });
+      run.mockImplementation((host, request) =>
+        Promise.resolve({
+          ok: true,
+          facts: { ...facts, codeFolder: `/home/${host}/code` },
+          ...(request.operation === "clone" || request.operation === "repository"
+            ? {
+                checkout: {
+                  path: `/home/${host}/code/${request.directory}`,
+                  state: "clean" as const,
+                },
+              }
+            : {}),
+        }),
+      );
+      for (const host of scenario === "other-host" ? ["worker", "other"] : ["worker"])
+        await hosts.action({ action: "add", host, codeFolder: `/home/${host}/code` });
+      await hosts.locationsForSidebar();
+      now = 3_600_000;
+      await hosts.action({ action: "clone", host: "worker", repository: "/local/repo" });
+      run.mockClear();
+      await hosts.locationsForSidebar();
+      expect(
+        run.mock.calls.some(
+          ([host, request]) =>
+            request.operation === "repository" &&
+            (scenario === "other-host" ? host === "other" : true),
+        ),
+      ).toBe(true);
+    } finally {
+      clock.mockRestore();
+    }
+  },
+);
+
+test("a queued row profile write failure rejects list and retains the row for retry", async () => {
+  const fixture = await restartedBrewHost();
+  try {
+    await fixture.hosts.action(
+      { action: "recipe", host: "mac-fixture", tool: "gh", operation: "install" },
+      undefined,
+      () => Promise.resolve(),
+    );
+    const failure = new Error("fixture profile write refused");
+    const update = vi.spyOn(fixture.store, "update").mockRejectedValueOnce(failure);
+    fixture.run.mockClear();
+    await expect(fixture.hosts.action({ action: "list" })).rejects.toBe(failure);
+    update.mockRestore();
+    fixture.run.mockClear();
+    await fixture.hosts.action({ action: "list" });
+    expect(
+      fixture.run.mock.calls.map(([, request]) =>
+        request.operation === "inspect" ? request.target : request.operation,
+      ),
+    ).toEqual([
+      { kind: "tool", tool: "gh" },
+      { kind: "sign-in", tool: "gh" },
+    ]);
+  } finally {
+    await fixture.dispose();
+  }
+});

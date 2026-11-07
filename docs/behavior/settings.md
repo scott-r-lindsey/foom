@@ -364,6 +364,7 @@ Each checklist row has a reload icon on hover and keyboard focus, with a name
 that identifies the row. Reload shows a spinner only on that row, preserves other
 results and leaves other rows usable. A row that cannot display its result without
 a full check shows Check capabilities required in that row, with no helper copy. Stale queued
-recipe rows are dropped independently when Hosts reopens. Use reload to inspect changes made outside Foom;
+recipe rows are dropped independently when Hosts reopens. Failed profile writes
+remain queued for retry. A newer action reply replaces transient checklist results. Use reload to inspect changes made outside Foom;
 use Check capabilities to check everything. Sign-in and origin reloads may use
 the host's own network access.

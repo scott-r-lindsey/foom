@@ -740,9 +740,15 @@ export function HostsSettings({
       )
         setError(reasons[next.result.reason]);
       if (action.action !== "preflight" && "host" in action) {
-        const observed = next.hosts.find((entry) => entry.host === action.host)?.observation
-          ?.preflight;
-        if (observed) setChecks((previous) => new Map(previous).set(action.host, observed));
+        const observed =
+          next.preflight ??
+          next.hosts.find((entry) => entry.host === action.host)?.observation?.preflight;
+        setChecks((previous) => {
+          const updated = new Map(previous);
+          if (observed) updated.set(action.host, observed);
+          else updated.delete(action.host);
+          return updated;
+        });
       }
       if (action.action === "clone") {
         const checkout = next.locations.find(
