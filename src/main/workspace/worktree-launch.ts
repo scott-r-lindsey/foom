@@ -1,3 +1,4 @@
+import type { ParentIdentity } from "../control/orchestration.d";
 import { canRestoreControl } from "./session-restore";
 import { locationId } from "../control/metadata";
 import type { RemoteTarget } from "../../shared/remote-host";
@@ -125,8 +126,6 @@ export async function launchAgent(
     const launchVersion = replacement
       ? (this.launched.get(replacement.id)?.launchVersion ?? 0) + 1
       : undefined;
-    if (extra.control && "role" in extra.control && checkoutIdentity !== undefined)
-      this.sessions.rememberIdentity(request.repository, checkoutIdentity);
     this.launched.set(result.id, {
       ...(launchVersion === undefined ? {} : { launchVersion }),
       id: result.id,
@@ -600,7 +599,7 @@ export async function startExisting(
   replacement?: { id: string; conversationId?: string },
   control?: AgentLaunch["control"],
   restoring = false,
-  authorityIdentity?: string,
+  authorityIdentity?: ParentIdentity,
   pastedId?: string,
 ): Promise<string | undefined> {
   return this.withRepository(repository, async () => {
@@ -609,7 +608,6 @@ export async function startExisting(
       | Exclude<ReturnType<WorktreeLaunchContext["orchestration"]["reserve"]>, { existing: string }>
       | undefined;
     let finishResume: (() => void) | undefined;
-    let resumeIdentity: string | undefined;
     let resumeRuntime: Awaited<WorktreeLaunchContext["control"]> = undefined;
     const oldParent = replacement ? this.launched.get(replacement.id) : undefined;
     let resumeGuard =
@@ -651,7 +649,12 @@ export async function startExisting(
       const identity =
         registeredRemote?.identity ??
         (await this.deps.worktrees.launchIdentity(repository, worktree));
-      if (authorityIdentity !== undefined && identity !== authorityIdentity)
+      if (
+        authorityIdentity !== undefined &&
+        (identity !== authorityIdentity.worktree ||
+          (await this.deps.worktrees.launchIdentity(repository, repository)) !==
+            authorityIdentity.repository)
+      )
         throw new Error("Repository identity changed during restore");
       if (run !== "shell" && !restoring && !(await this.confirmAgentLaunch(worktree, confirm)))
         return;
@@ -674,12 +677,12 @@ export async function startExisting(
         if (resumeGuard && !canRestoreControl(oldParent, agent)) resumeGuard = undefined;
         if (resumeGuard && replacement) {
           const rootIdentity = await this.deps.worktrees.launchIdentity(repository, repository);
-          if (rootIdentity !== this.sessions.identity(repository))
+          const parentIdentity = this.orchestration.identity(replacement.id);
+          if (rootIdentity !== parentIdentity?.repository || identity !== parentIdentity.worktree)
             throw new Error("Repository identity changed during resume");
-          resumeIdentity = rootIdentity;
           resumeRuntime = await this.control;
           resumeGuard();
-          const slot = this.orchestration.reserve(repository, undefined, true);
+          const slot = this.orchestration.reserve(repository, undefined, true, parentIdentity);
           if ("existing" in slot) throw new Error("The orchestrator changed. Try again.");
           resumeSlot = slot;
           control = { role: "orchestrator" };
@@ -754,8 +757,6 @@ export async function startExisting(
                   }),
             },
           );
-          if (resumeIdentity !== undefined)
-            this.sessions.rememberIdentity(repository, resumeIdentity);
           // A human revoke may finish while the host is spawning. Keep the new
           // process ordinary and live rather than restoring cancelled authority.
           if (resumeGuard) {

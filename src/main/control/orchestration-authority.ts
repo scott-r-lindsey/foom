@@ -21,7 +21,7 @@ import { locationId, metadataName, SessionMetadata } from "./metadata";
 import type { Operations } from "./operations";
 import type { Operation, Principal } from "./types";
 import { ControlError } from "../../shared/control-validation";
-import type { Child, Parent, OrchestrationHost } from "./orchestration.d";
+import type { Child, Parent, ParentIdentity, OrchestrationHost } from "./orchestration.d";
 import { WORKTREE_LIMIT } from "./orchestration-limits";
 
 const HISTORY = 20;
@@ -292,9 +292,19 @@ export class OrchestrationAuthority {
   }
 
   /** Check before transferring away the current role: unsettled effects cannot be recovered. */
-  checkRecovery(id: string): void {
+  checkRecovery(id: string, identity?: ParentIdentity): void {
     const parent = this.parents.get(id);
+    if (
+      parent &&
+      (parent.identity?.repository !== identity?.repository ||
+        parent.identity?.worktree !== identity?.worktree)
+    )
+      throw new Error("Repository identity changed before re-grant");
     if (parent && (parent.starting > 0 || parent.creating > 0)) throw new ControlError("conflict");
+  }
+
+  identity(id: string): ParentIdentity | undefined {
+    return this.parents.get(id)?.identity;
   }
 
   /** One parent per canonical repository; a live duplicate returns the existing parent's ID. */
@@ -302,8 +312,9 @@ export class OrchestrationAuthority {
     repository: string,
     recovering?: string,
     allowResume = false,
+    identity?: ParentIdentity,
   ): { existing: string } | { bind(terminalId: string): void; release(): void } {
-    if (recovering !== undefined) this.checkRecovery(recovering);
+    if (recovering !== undefined) this.checkRecovery(recovering, identity);
     const current = this.slots.get(repository);
     if (current) {
       if (current.terminalId !== null) return { existing: current.terminalId };
@@ -311,6 +322,7 @@ export class OrchestrationAuthority {
     }
     const parent: Parent = {
       repository,
+      ...(identity ? { identity: Object.freeze({ ...identity }) } : {}),
       terminalId: null,
       generation: null,
       active: true,
@@ -329,7 +341,7 @@ export class OrchestrationAuthority {
         if (this.slots.get(repository) !== parent || parent.terminalId !== null) return;
         // A human re-grant (or verified same-tile resume) recovers this session only.
         const previous = this.parents.get(terminalId);
-        this.checkRecovery(terminalId);
+        this.checkRecovery(terminalId, identity);
         parent.terminalId = terminalId;
         if (previous && previous !== parent && previous.repository === repository) {
           for (const [id, child] of previous.children)

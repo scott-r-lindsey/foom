@@ -88,10 +88,16 @@ export async function makeOrchestrator(
   await this.initializeControl();
   const control = await this.control;
   if (!control) throw new Error("Control service unavailable");
-  const identity = await this.deps.worktrees.launchIdentity(entry.repository, entry.repository);
-  const prior = this.orchestration.view(id);
-  if (prior?.role === "orchestrator" && this.sessions.identity(entry.repository) !== identity)
-    throw new Error("Repository identity changed before re-grant");
+  const captureIdentity = async () => {
+    const repository = await this.deps.worktrees.launchIdentity(entry.repository, entry.repository);
+    const worktree =
+      entry.worktree === entry.repository
+        ? repository
+        : await this.deps.worktrees.launchIdentity(entry.repository, entry.worktree);
+    return { repository, worktree };
+  };
+  const identity = await captureIdentity();
+  this.orchestration.checkRecovery(id, identity);
   const report = await this.scanAgents(false);
   const restoreOnResume = canRestoreControl(
     entry,
@@ -119,17 +125,22 @@ export async function makeOrchestrator(
   }
   try {
     // The dialog took time: recheck everything it described.
+    const currentIdentity = await captureIdentity();
     running();
     if (this.orchestration.active(entry.repository) !== current)
       throw new Error("The orchestrator changed. Try again.");
-    this.orchestration.checkRecovery(id);
+    if (
+      identity.repository !== currentIdentity.repository ||
+      identity.worktree !== currentIdentity.worktree
+    )
+      throw new Error("Repository identity changed before re-grant");
+    this.orchestration.checkRecovery(id, identity);
     if (current !== undefined) await this.revokeOrchestrator(current);
-    const slot = this.orchestration.reserve(entry.repository, id, restoreOnResume);
+    const slot = this.orchestration.reserve(entry.repository, id, restoreOnResume, identity);
     if ("existing" in slot) throw new Error("The orchestrator changed. Try again.");
     try {
       control.setRole(id, "orchestrator");
       slot.bind(id);
-      this.sessions.rememberIdentity(entry.repository, identity);
     } finally {
       slot.release();
     }

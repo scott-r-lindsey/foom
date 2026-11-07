@@ -621,3 +621,105 @@ it("a late older scan cannot resurrect an unsupported provider's pending Resume 
   await stale;
   expect(workspace.snapshot().terminals[0]?.orchestration).not.toHaveProperty("restoreOnResume");
 });
+
+it.each([false, true])(
+  "an interim grant cannot recover a replaced repository's records (live child=%s)",
+  async (liveChild) => {
+    const workspace = createWorkspace(deps);
+    await orchestrate(workspace);
+    const operations = new Operations(
+      async () => {},
+      () => undefined,
+    );
+    const tree = (await workspace.orchestration.call(
+      principal(),
+      "create_worktree",
+      { branch: "feature", idempotencyKey: "original-tree" },
+      operations,
+    )) as Operation;
+    if (liveChild) {
+      launch.mockResolvedValueOnce({ id: "live-child", attention: "evaluator" });
+      await workspace.orchestration.call(
+        principal(),
+        "launch",
+        { worktreeId: tree.resultId, agent: "claude", idempotencyKey: "original-child" },
+        operations,
+      );
+    }
+    await workspace.sidebarCommand({ kind: "revoke-orchestrator", id: "parent" }, confirm);
+    deps.worktrees.launchIdentity = (_repository, checkout) =>
+      Promise.resolve(checkout === repo.path ? "replaced" : "identity");
+    await expect(make(workspace)).rejects.toThrow("Repository identity changed before re-grant");
+    launch.mockResolvedValueOnce({ id: "interim", attention: "evaluator" });
+    await workspace.sidebarCommand(
+      { kind: "launch", repository: repo.path, worktree: repo.path, run: "claude" },
+      confirm,
+    );
+    await make(workspace, "interim");
+    await expect(make(workspace)).rejects.toThrow("Repository identity changed before re-grant");
+    expect(workspace.orchestration.active(repo.path)).toBe("interim");
+    await workspace.sidebarCommand({ kind: "revoke-orchestrator", id: "interim" }, confirm);
+    confirm.mockClear();
+    setRole.mockClear();
+    await expect(make(workspace)).rejects.toThrow("Repository identity changed before re-grant");
+    expect(confirm).not.toHaveBeenCalled();
+    expect(setRole).not.toHaveBeenCalled();
+    expect(workspace.orchestration.active(repo.path)).toBeUndefined();
+    expect(workspace.orchestration.ownedWorktrees("interim")).toEqual([]);
+    if (liveChild) {
+      expect(workspace.orchestration.view("parent")).toMatchObject({ active: false, children: 1 });
+      await expect(
+        workspace.orchestration.call(principal(), "tail", { id: "live-child" }, operations),
+      ).rejects.toThrow();
+      expect(workspace.snapshot().terminals.find((row) => row.id === "live-child")?.exited).toBe(
+        false,
+      );
+    }
+  },
+);
+
+it.each(["repository", "worktree"])(
+  "refuses a %s replacement while the grant dialog is open",
+  async (changed) => {
+    let replaced = false;
+    deps.worktrees.launchIdentity = (_repository, checkout) =>
+      Promise.resolve(
+        `${checkout}:${replaced && checkout === (changed === "repository" ? repo.path : child.path) ? "replaced" : "original"}`,
+      );
+    const workspace = createWorkspace(deps);
+    await orchestrate(workspace);
+    launch.mockResolvedValueOnce({ id: "second", attention: "evaluator" });
+    await workspace.sidebarCommand(
+      { kind: "launch", repository: repo.path, worktree: child.path, run: "claude" },
+      confirm,
+    );
+    confirm.mockImplementationOnce(() => {
+      replaced = true;
+      return Promise.resolve(true);
+    });
+    setRole.mockClear();
+    await expect(make(workspace, "second")).rejects.toThrow(
+      "Repository identity changed before re-grant",
+    );
+    expect(workspace.orchestration.active(repo.path)).toBe("parent");
+    expect(setRole).not.toHaveBeenCalled();
+  },
+);
+
+it("refuses a retained parent's replaced linked checkout even when the repository root matches", async () => {
+  let replaced = false;
+  deps.worktrees.launchIdentity = (_repository, checkout) =>
+    Promise.resolve(checkout === child.path && replaced ? "replaced-checkout" : checkout);
+  const workspace = createWorkspace(deps);
+  await workspace.sidebarCommand(
+    { kind: "launch", repository: repo.path, worktree: child.path, run: "claude" },
+    confirm,
+  );
+  await make(workspace);
+  await workspace.sidebarCommand({ kind: "revoke-orchestrator", id: "parent" }, confirm);
+  replaced = true;
+  confirm.mockClear();
+  await expect(make(workspace)).rejects.toThrow("Repository identity changed before re-grant");
+  expect(confirm).not.toHaveBeenCalled();
+  expect(workspace.orchestration.active(repo.path)).toBeUndefined();
+});

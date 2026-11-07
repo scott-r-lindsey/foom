@@ -19,7 +19,7 @@ or error text. New Foom instances and resumed sessions receive fresh credentials
 pause or MCP reinitialization preserves the existing role. Same-tile Resume can
 restore it from main-owned role-at-exit provenance, a human grant accepting the
 current disclosure during this app lifetime, and matching registered
-repository identity when the installed agent supports per-launch MCP and restore
+repository-root and checkout identities when the installed agent supports per-launch MCP and restore
 control (using the same gate as restart, including refusal of config-origin
 providers using built-in IDs), with a reserved slot and a pre-spawn
 provenance check. Explicit revoke, another grant, removal or a new conversation
@@ -39,10 +39,12 @@ later accepted grant.
 Before Foom restarts, a human re-grant to the same tile and repository restores
 its retained previous children,
 handoffs and worktrees, excluding taken-over children, as disclosed in the grant.
+The retained parent owns both identities; an interim grant to another tile cannot
+authorize records from a replaced repository or checkout.
 Old in-flight capabilities and operations remain invalid. Across app restart,
-automatic restore may re-grant orchestrator control only from Foom's main-owned session store, when restore is enabled, the orchestrator was active at quit, the same repository identity is still registered and the installed provider supports restore control and per-launch MCP. Bundled restore support is Claude Code/Codex; valid v2 config providers may declare the same capability, subject to these provenance checks (see [architecture](../areas/providers.md#agent-provider-registry-and-manifest-approval-407)). Hook data, conversation metadata, agent output and environment flags never grant roles. Otherwise the session resumes ordinarily and its panel says the role was not restored. Every resumed launch has a new principal generation and token; human elevation
+automatic restore may re-grant orchestrator control only from Foom's main-owned session store, when restore is enabled, the orchestrator was active at quit, the same repository-root and parent-checkout identities still match and the installed provider supports restore control and per-launch MCP. Bundled restore support is Claude Code/Codex; valid v2 config providers may declare the same capability, subject to these provenance checks (see [architecture](../areas/providers.md#agent-provider-registry-and-manifest-approval-407)). Hook data, conversation metadata, agent output and environment flags never grant roles. Otherwise the session resumes ordinarily and its panel says the role was not restored. Every resumed launch has a new principal generation and token; human elevation
 of a running session swaps its immutable principal while retaining its launch
-token and generation. The verified repository identity is carried into the launch and rechecked before spawning. Tokens, confirmations, replies, waits and in-flight mutations never survive; unresolved persisted operation intents still require human reconciliation.
+token and generation. The verified repository-root and checkout identities are carried separately into the launch and rechecked against their respective paths before spawning. A linked parent therefore restores without comparing its checkout to the root identity. Legacy records lacking a checkout identity can restore a main-checkout role, but cannot restore authority in a linked checkout. Tokens, confirmations, replies, waits and in-flight mutations never survive; unresolved persisted operation intents still require human reconciliation.
 
 Restored parents launch before their running, non-taken-over children. Those children keep child launch rules (user defaults with bypass refused and an orchestrator prompt prefix), count toward the configured child limit, and may be stopped, tailed and waited for by the new parent. Stop returns a conflict while a restored child is still starting; it cannot report success for a PTY that does not exist yet. Taken-over children and children without a re-granted parent resume ordinarily. The active panel and its action history continue without a restore badge.
 
