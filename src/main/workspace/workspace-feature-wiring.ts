@@ -147,6 +147,12 @@ export function workspaceFeatureWiring(owner: WorkspaceContext): {
       },
     } satisfies WorktreeLaunchContext,
     agentSetup: {
+      get agentReport() {
+        return owner.agentReport;
+      },
+      set agentReport(value) {
+        owner.agentReport = value;
+      },
       get agentHooks() {
         return owner.agentHooks;
       },
@@ -479,6 +485,12 @@ export function workspaceFeatureWiring(owner: WorkspaceContext): {
       },
     } satisfies RepositoryOperationsContext,
     orchestrationCommands: {
+      get agentReport() {
+        return owner.agentReport;
+      },
+      get scanAgents() {
+        return owner.scanAgents.bind(owner);
+      },
       get auditHuman() {
         return owner.auditHuman.bind(owner);
       },

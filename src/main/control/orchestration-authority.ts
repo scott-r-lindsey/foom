@@ -74,6 +74,10 @@ export class OrchestrationAuthority {
   readonly unreadChildren: UnreadChildEvents;
   readonly childEvents = new ChildEvents();
   private readonly resumable = new Map<string, Parent>();
+  // Only a human grant shown the current disclosure opts into manual Resume.
+  // This consent is deliberately not inferred from roles restored from disk.
+  private readonly resumeConsent = new Set<string>();
+  private readonly parentResumes = new Map<string, { exited: boolean }>();
   private readonly slots = new Map<string, Parent>();
   private readonly parents = new Map<string, Parent>();
   protected readonly early = new Set<string>();
@@ -297,6 +301,7 @@ export class OrchestrationAuthority {
   reserve(
     repository: string,
     recovering?: string,
+    allowResume = false,
   ): { existing: string } | { bind(terminalId: string): void; release(): void } {
     if (recovering !== undefined) this.checkRecovery(recovering);
     const current = this.slots.get(repository);
@@ -343,7 +348,13 @@ export class OrchestrationAuthority {
         for (const [id, candidate] of this.resumable)
           if (candidate.repository === repository) this.resumable.delete(id);
         this.parents.set(terminalId, parent);
-        if (this.early.delete(terminalId)) this.retire(parent);
+        if (allowResume) this.resumeConsent.add(terminalId);
+        else this.resumeConsent.delete(terminalId);
+        if (
+          this.parentResumes.get(terminalId)?.exited ||
+          (recovering === undefined && this.early.delete(terminalId))
+        )
+          this.retire(parent);
         this.changed();
       },
       release: () => {
@@ -457,7 +468,16 @@ export class OrchestrationAuthority {
     };
   }
 
-  /** Only a same-tile conversation resume may use this main-owned exit provenance. */
+  /** Scope host exits to this tile's current Resume, including revoke during spawn. */
+  observeParentResume(id: string): () => void {
+    const invocation = { exited: false };
+    this.parentResumes.set(id, invocation);
+    return () => {
+      if (this.parentResumes.get(id) === invocation) this.parentResumes.delete(id);
+    };
+  }
+
+  /** Only a same-tile Resume with current disclosure consent may use this exit provenance. */
   resumeGuard(id: string, repository: string): (() => void) | undefined {
     const parent = this.resumable.get(id);
     if (!parent || parent.repository !== repository || this.active(repository)) return undefined;
@@ -470,6 +490,7 @@ export class OrchestrationAuthority {
 
   /** The human revoked the role: authority ends as on exit, and the session keeps running. */
   revoke(id: string): void {
+    this.resumeConsent.delete(id);
     const pending = this.resumable.delete(id);
     const parent = this.parents.get(id);
     if (parent?.active) this.retire(parent);
@@ -481,11 +502,9 @@ export class OrchestrationAuthority {
     this.childEvents.publish();
     const parent = this.parents.get(id);
     if (parent) {
-      if (parent.active) this.resumable.set(id, parent);
-      else if (this.launching()) {
-        this.finishedChildren.observeExit(id);
-        this.early.add(id);
-      }
+      if (parent.active && this.resumeConsent.has(id)) this.resumable.set(id, parent);
+      const invocation = this.parentResumes.get(id);
+      if (invocation) invocation.exited = true;
       this.retire(parent);
       return;
     }
@@ -503,6 +522,7 @@ export class OrchestrationAuthority {
 
   /** The session left the board. A parent's history goes with its row. */
   removed(id: string): void {
+    this.resumeConsent.delete(id);
     this.resumable.delete(id);
     void this.recordChild(id, "close", { status: "closed" });
     this.childEvents.publish();
@@ -540,7 +560,11 @@ export class OrchestrationAuthority {
 
   /** Local human relaunch drops ownership; phase-2 remote resume retains a main-validated parent. */
   relaunched(id: string, remoteParentId?: string, resumeParent = false): void {
-    if (!resumeParent) this.resumable.delete(id);
+    this.early.delete(id);
+    if (!resumeParent) {
+      this.resumeConsent.delete(id);
+      this.resumable.delete(id);
+    }
     if (remoteParentId !== undefined) {
       const parent = this.parents.get(remoteParentId);
       const child = parent?.children.get(id);

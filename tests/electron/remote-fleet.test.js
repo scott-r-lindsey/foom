@@ -730,7 +730,7 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
         parentId,
       );
       const recovery = await confirmationPage(app);
-      await expect(recovery.getByText(/Recover this session’s previous children/)).toBeVisible();
+      await expect(recovery.getByText(/Re-granting this tile before Foom restarts/)).toBeVisible();
       await recovery.getByRole("button", { name: "Make orchestrator" }).click();
       await regrant;
       assert.ok((await call("tail", { id: launched.resultId })).lines.length > 0);

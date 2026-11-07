@@ -1,6 +1,6 @@
 import type { AgentId } from "../../shared/agents";
 import type { Settings } from "../../shared/setup";
-import type { WorkspaceSnapshot, WorkspaceTerminal } from "../../shared/workspace";
+import type { AgentReport, WorkspaceSnapshot, WorkspaceTerminal } from "../../shared/workspace";
 import type { AgyPlugin } from "../agents/agy-plugin";
 import type { AgentProbes } from "../agents/probes";
 import type { ProbeHttp } from "../agents/probe-http";
@@ -42,6 +42,7 @@ export interface WorktreeLaunchContext {
     | "remoteCheckout"
     | "worktreeHost"
     | "resumeGuard"
+    | "observeParentResume"
     | "reserve"
   >;
   readonly persist: () => void;
@@ -80,6 +81,7 @@ export interface AgentSetupContext {
   readonly hooksEnabled: boolean;
   readonly launchAbort: AbortController;
   readonly scanAgents: WorkspaceMethods["scanAgents"];
+  agentReport: AgentReport | undefined;
   scanned: ReturnType<Agents["scan"]> | undefined;
   scannedProviders: number;
   readonly deps: {
@@ -207,6 +209,8 @@ export interface RepositoryOperationsContext {
 }
 
 export interface OrchestrationCommandsContext {
+  readonly agentReport: AgentReport | undefined;
+  readonly scanAgents: WorkspaceMethods["scanAgents"];
   readonly auditHuman: WorkspaceMethods["auditHuman"];
   readonly busyWorktrees: Set<string>;
   readonly control:

@@ -1,3 +1,4 @@
+import { canRestoreControl } from "./session-restore";
 import { locationId } from "../control/metadata";
 import type { RemoteTarget } from "../../shared/remote-host";
 import { LaunchFailure } from "../../shared/launch-failure";
@@ -607,6 +608,7 @@ export async function startExisting(
     let resumeSlot:
       | Exclude<ReturnType<WorktreeLaunchContext["orchestration"]["reserve"]>, { existing: string }>
       | undefined;
+    let finishResume: (() => void) | undefined;
     let resumeIdentity: string | undefined;
     let resumeRuntime: Awaited<WorktreeLaunchContext["control"]> = undefined;
     const oldParent = replacement ? this.launched.get(replacement.id) : undefined;
@@ -669,14 +671,7 @@ export async function startExisting(
       if (run !== "shell") {
         const report = !isRemote ? await this.scanAgents(false) : undefined;
         const agent = report?.agents.find((entry) => entry.id === run);
-        if (
-          resumeGuard &&
-          !(
-            agent?.mcp === true &&
-            (agent.restoreControl ?? builtinAgent(agent.id)?.restoreControl) === true
-          )
-        )
-          resumeGuard = undefined;
+        if (resumeGuard && !canRestoreControl(oldParent, agent)) resumeGuard = undefined;
         if (resumeGuard && replacement) {
           const rootIdentity = await this.deps.worktrees.launchIdentity(repository, repository);
           if (rootIdentity !== this.sessions.identity(repository))
@@ -684,7 +679,7 @@ export async function startExisting(
           resumeIdentity = rootIdentity;
           resumeRuntime = await this.control;
           resumeGuard();
-          const slot = this.orchestration.reserve(repository);
+          const slot = this.orchestration.reserve(repository, undefined, true);
           if ("existing" in slot) throw new Error("The orchestrator changed. Try again.");
           resumeSlot = slot;
           control = { role: "orchestrator" };
@@ -709,6 +704,8 @@ export async function startExisting(
           this.executionOwner.reset(old.id);
           this.deps.verdicts.forget(old.id);
         }
+        if (resumeGuard && replacement)
+          finishResume = this.orchestration.observeParentResume(replacement.id);
         const childParentId = control && "parentId" in control ? control.parentId : undefined;
         try {
           const resumed = await this.launchAgent(
@@ -795,19 +792,29 @@ export async function startExisting(
         );
       }
     } finally {
+      finishResume?.();
       resumeSlot?.release();
       if (reservation !== undefined) this.busyWorktrees.delete(reservation);
     }
   });
 }
 
+function resumeSupport(report: AgentReport | undefined): string {
+  return JSON.stringify(
+    (report?.agents ?? [])
+      .filter((agent) => canRestoreControl({ agent: agent.id }, agent))
+      .map((agent) => agent.id)
+      .sort(),
+  );
+}
+
 export async function scanAgents(this: AgentSetupContext, refresh: boolean): Promise<AgentReport> {
   if (refresh || this.scannedProviders !== providerRevision()) this.scanned = undefined;
   this.scannedProviders = providerRevision();
-  this.scanned ??= this.agents.scan(this.enabled);
+  const pending = (this.scanned ??= this.agents.scan(this.enabled));
   try {
-    const { warning, agents } = await this.scanned;
-    return {
+    const { warning, agents } = await pending;
+    const report = {
       warning,
       agents: await Promise.all(
         agents.map(async (agent) => {
@@ -838,8 +845,19 @@ export async function scanAgents(this: AgentSetupContext, refresh: boolean): Pro
         }),
       ),
     };
+    if (this.scanned === pending) {
+      const previous = resumeSupport(this.agentReport);
+      this.agentReport = report;
+      if (previous !== resumeSupport(report)) this.deps.onChange?.();
+    }
+    return report;
   } catch (error) {
-    this.scanned = undefined;
+    if (this.scanned === pending) {
+      const previous = resumeSupport(this.agentReport);
+      this.agentReport = undefined;
+      if (previous !== resumeSupport(undefined)) this.deps.onChange?.();
+      this.scanned = undefined;
+    }
     throw error;
   }
 }

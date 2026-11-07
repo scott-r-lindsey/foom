@@ -83,8 +83,10 @@ created an ordinary grant, and re-grant retained only history, stranding childre
 MCP reinitialization alone does not replace a control principal or revoke its role.
 
 Resume of the same main-owned tile may restore the role with fresh credentials
-when it held the role at exit, its registered repository identity still matches,
-the installed agent supports per-launch MCP and restore control, and no intervening
+when its human grant accepted the current Resume disclosure in this app lifetime,
+it held the role at exit, and its registered repository identity still matches,
+the installed agent passes the shared restart/Resume provider gate (per-launch MCP,
+restore control and no config-origin provider using a built-in ID), and no intervening
 grant, explicit revoke, removal or new conversation invalidated that provenance. Main reserves the repository slot and
 rechecks the captured provenance before spawn and after the host returns. Revoke also cancels recovery
 for an exited parent; if it wins while spawn completes, the new process stays
@@ -92,16 +94,22 @@ live with an ordinary grant. A pasted conversation or a different
 tile never establishes this authority. The recorded conversation ID selects the
 provider conversation; it is not independent authority provenance. A failed launch
 releases its reservation. An exit during spawn retires the new authority and frees
-the slot even when the terminal ID still has a retired parent record.
+the slot even when the terminal ID still has a retired parent record. Parent exits
+are observed only within that tile’s specific Resume invocation and discarded when
+it finishes; an unrelated retired parent’s exit cannot poison a later grant.
 
-The trusted Make orchestrator disclosure says plainly that resuming this
-conversation restores its role and children without asking again, and Revoke
-cancels that recovery. An exited parent with pending recovery offers **Revoke
+For a supported provider, the trusted Make orchestrator disclosure says that before
+Foom restarts, Resume in this tile can restore its role and children without asking
+again, and Revoke cancels this. Unsupported providers receive no Resume promise.
+Consent is main-owned, transient state set only by this trusted grant; neither a
+saved role nor a renderer projection creates it. A role restored at restart may
+continue under the established restart contract, but its later manual Resume is
+ordinary until the human revokes and re-grants with the current disclosure. An exited parent with pending recovery offers **Revoke
 orchestrator** in its menu; after revocation Resume starts ordinarily. Agents
 without MCP or restore control also resume ordinarily.
 
-The trusted Make orchestrator disclosure states that re-granting the same tile in
-the same repository restores its prior children, retained handoffs and created
+The trusted Make orchestrator disclosure limits re-grant recovery to the same tile
+and repository before Foom restarts. It restores its retained prior children, retained handoffs and created
 worktrees. Main carries those records into a new authority object, retaining host
 placement and takeover flags and resetting handoff read cursors. Old capabilities,
 waits, operations and confirmations remain invalid. Existing checkout identity and

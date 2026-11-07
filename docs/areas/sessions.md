@@ -106,3 +106,12 @@ Resume resets lifecycle facts with execution state after draining the old queue.
 Queued exit work captures the execution invocation identity; reset or removal
 invalidates it before it can set exit metadata or classify a replacement invocation.
 Completion of old evaluation likewise cannot settle a replacement lifecycle fact.
+
+
+Manual tile Resume and restart use the same provider capability gate, including
+refusal of config-origin providers using built-in IDs. The new #1081 manual Resume
+consent is app-lifetime state supplied only by the trusted human grant. Restart
+restoration does not infer it from a saved role; after such a restored session exits,
+its manual Resume is ordinary until the human explicitly re-grants with the current
+disclosure. Re-grant ownership recovery promises are limited to retained records
+before Foom restarts. See [orchestration](orchestration.md#same-session-resume-and-re-grant-1081).

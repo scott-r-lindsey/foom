@@ -26,11 +26,13 @@ never return terminal output. **Make orchestrator…** in a running Claude Code,
 Antigravity session's menu grants that session permission to create worktrees and run up to
 the concurrent child limit set in Settings → General (default 4, integer 1–16),
 without restarting it; **Revoke orchestrator** takes it back. Re-granting the same
-tile restores its previous children, handoffs and worktrees in that repository,
+tile before Foom restarts recovers its retained children, handoffs and worktrees in that repository,
 except children you took over. A verified Resume in the same tile restores its
-role and children without asking again when it held that role at exit, its agent
+role and children without asking again before Foom restarts when its human grant
+accepted the current disclosure in this app lifetime, it held that role at exit, its agent
 supports MCP and restore control, and no intervening grant or revoke changed it.
-The grant dialog discloses this. **Revoke orchestrator** is also available in the
+The grant dialog discloses this for supported providers. Disk-restored roles do not
+inherit this new consent; they later Resume ordinarily until explicitly re-granted. **Revoke orchestrator** is also available in the
 exited tile’s menu while recovery is pending; it cancels automatic recovery, so
 Resume starts ordinarily.
 One session per repository holds the role: making another the orchestrator asks once and

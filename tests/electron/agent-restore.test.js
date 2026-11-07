@@ -384,6 +384,29 @@ req.end(JSON.stringify(payload));
         async () => (await rows(page)).find((row) => row.branch === "unused-child")?.conversationId,
       )
       .toBe("saved-unused-child");
+    if (agent === "claude") {
+      // Disk restoration keeps its established role contract, but does not infer
+      // consent to a later manual Resume from this persisted role.
+      await page.evaluate((id) => window.desktop.input(id, "q"), parentId);
+      await expect
+        .poll(async () => (await rows(page)).find((row) => row.id === parentId)?.exited)
+        .toBe(true);
+      assert.equal(
+        (await rows(page)).find((row) => row.id === parentId)?.orchestration?.restoreOnResume,
+        undefined,
+      );
+      const parentRow = page
+        .locator(".session-entry")
+        .filter({ has: page.locator(`[data-drag-session="${parentId}"]`) });
+      await parentRow
+        .locator(":scope > .board-row")
+        .getByRole("button", { name: /^Actions for/ })
+        .click();
+      await expect(page.getByRole("menuitem", { name: "Revoke orchestrator" })).toHaveCount(0);
+      await page.getByRole("menuitem", { name: /^Resume conversation/ }).click();
+      const ordinaryParent = await waitForCredentials("repo", newParent);
+      assert.equal((await call(ordinaryParent, "whoami")).role, "agent");
+    }
     const beforeDisabled = await rows(page);
     await page.evaluate(() => window.desktop.saveSetup({ restoreSessions: false }));
     await quit(restored);

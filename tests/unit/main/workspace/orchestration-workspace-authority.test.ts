@@ -23,6 +23,7 @@ it("makes a running agent the orchestrator after the trusted disclosure, without
   expect(launch.mock.calls[0]?.[0].control).toBeUndefined();
   expect(confirm).toHaveBeenLastCalledWith({
     kind: "orchestrator",
+    restoreOnResume: true,
     agent: "claude",
     subject: "app · main",
   });
@@ -53,6 +54,7 @@ it("transfers the role only after the human accepts, revoking the previous orche
   await make(workspace, "second");
   expect(confirm).toHaveBeenLastCalledWith({
     kind: "orchestrator",
+    restoreOnResume: true,
     agent: "claude",
     replacing: "Claude Code on main",
     subject: "app · feature",
@@ -449,4 +451,173 @@ it("keeps the current orchestrator when transfer back to a former parent has uns
     created.resolve({ path: child.path, outcome: "new" });
     await pending;
   }
+});
+
+it("an unrelated retired parent's exit cannot poison a later accepted grant", async () => {
+  const workspace = createWorkspace(deps);
+  const first = { id: "parent", attention: "evaluator" as const, conversationId: "a-saved" };
+  launch.mockResolvedValueOnce(first);
+  await orchestrate(workspace);
+  const second = { id: "second", attention: "evaluator" as const, conversationId: "d-saved" };
+  launch.mockResolvedValueOnce(second);
+  await workspace.sidebarCommand(
+    { kind: "launch", repository: repo.path, worktree: child.path, run: "claude" },
+    confirm,
+  );
+  await make(workspace, "second");
+  await workspace.exited("second", 0);
+  launch.mockImplementationOnce(async (request) => {
+    request.beforeSpawn?.();
+    await workspace.exited("parent", 0);
+    return { id: "second", attention: "evaluator" };
+  });
+  await workspace.sidebarCommand({ kind: "resume", id: "second" }, confirm);
+  launch.mockResolvedValueOnce({ id: "parent", attention: "evaluator" });
+  await workspace.sidebarCommand({ kind: "resume", id: "parent" }, confirm);
+  expect(launch.mock.calls.at(-1)?.[0].control).toBeUndefined();
+  await make(workspace);
+  expect(workspace.orchestration.active(repo.path)).toBe("parent");
+});
+
+it("a revoked Resume's early exit cannot retire the next live invocation's accepted grant", async () => {
+  const workspace = createWorkspace(deps);
+  const initial = { id: "parent", attention: "evaluator" as const, conversationId: "saved-123" };
+  launch.mockResolvedValueOnce(initial);
+  await orchestrate(workspace);
+  await workspace.exited("parent", 0);
+  launch.mockImplementationOnce(async (request) => {
+    request.beforeSpawn?.();
+    await workspace.sidebarCommand({ kind: "revoke-orchestrator", id: "parent" }, confirm);
+    await workspace.exited("parent", 1);
+    return { id: "parent", attention: "evaluator" };
+  });
+  await workspace.sidebarCommand({ kind: "resume", id: "parent" }, confirm);
+  launch.mockResolvedValueOnce({ id: "parent", attention: "evaluator" });
+  await workspace.sidebarCommand({ kind: "resume", id: "parent" }, confirm);
+  await make(workspace);
+  expect(workspace.orchestration.active(repo.path)).toBe("parent");
+});
+
+it("config-origin providers using a built-in ID cannot recover on Resume", async () => {
+  const workspace = createWorkspace(deps);
+  const initial = {
+    id: "parent",
+    attention: "evaluator" as const,
+    conversationId: "saved",
+    providerOrigin: "config" as const,
+  };
+  launch.mockResolvedValueOnce(initial);
+  await orchestrate(workspace);
+  await workspace.exited("parent", 0);
+  launch.mockResolvedValueOnce({ id: "parent", attention: "evaluator" });
+  await workspace.sidebarCommand({ kind: "resume", id: "parent" }, confirm);
+  expect(launch.mock.calls.at(-1)?.[0].control).toBeUndefined();
+});
+
+it("CLI-only grants do not offer automatic recovery or an exited Revoke item", async () => {
+  scans.current = {
+    ...scan(false),
+    agents: [
+      {
+        id: "agy",
+        path: "/fixture/agy",
+        version: "1",
+        hooks: false,
+        mcp: false,
+        restoreControl: false,
+        reason: "ok",
+      },
+    ],
+  };
+  const workspace = createWorkspace(deps);
+  const initial = { id: "parent", attention: "evaluator" as const, conversationId: "saved" };
+  launch.mockResolvedValueOnce(initial);
+  await workspace.sidebarCommand(
+    { kind: "launch", repository: repo.path, worktree: repo.path, run: "agy" },
+    confirm,
+  );
+  await make(workspace);
+  await workspace.exited("parent", 0);
+  expect(workspace.snapshot().terminals[0]?.orchestration).not.toHaveProperty("restoreOnResume");
+});
+
+it("a legacy role restored at restart cannot opt into the new Resume disclosure", async () => {
+  const { readSessions } = await import("../../../../src/main/workspace/session-store");
+  const saved = readSessions([
+    {
+      id: "parent",
+      agent: "claude",
+      repository: repo.path,
+      worktree: repo.path,
+      branch: "main",
+      conversationId: "old-saved",
+      running: true,
+      orchestrator: { identity: "identity", history: [] },
+    },
+  ]);
+  deps.sessions = {
+    load: () => Promise.resolve(saved),
+    save: () => Promise.resolve(),
+    flush: async () => {},
+  };
+  const workspace = createWorkspace(deps);
+  await workspace.restore();
+  await workspace.restartSaved();
+  expect(workspace.orchestration.active(repo.path)).toBe("parent");
+  await workspace.exited("parent", 0);
+  launch.mockResolvedValueOnce({ id: "parent", attention: "evaluator" });
+  await workspace.sidebarCommand({ kind: "resume", id: "parent" }, confirm);
+  expect(launch.mock.calls.at(-1)?.[0].control).toBeUndefined();
+  await make(workspace);
+  expect(confirm).toHaveBeenLastCalledWith(
+    expect.objectContaining({ kind: "orchestrator", restoreOnResume: true }),
+  );
+  await workspace.exited("parent", 0);
+  launch.mockResolvedValueOnce({ id: "parent", attention: "evaluator" });
+  await workspace.sidebarCommand({ kind: "resume", id: "parent" }, confirm);
+  expect(launch.mock.calls.at(-1)?.[0].control).toEqual({ role: "orchestrator" });
+});
+
+it("withdrawn provider capabilities hide pending Resume recovery in the menu projection", async () => {
+  const changed = vi.fn();
+  deps.onChange = changed;
+  const workspace = createWorkspace(deps);
+  const initial = { id: "parent", attention: "evaluator" as const, conversationId: "saved" };
+  launch.mockResolvedValueOnce(initial);
+  await orchestrate(workspace);
+  await workspace.exited("parent", 0);
+  expect(workspace.snapshot().terminals[0]?.orchestration).toHaveProperty("restoreOnResume", true);
+  changed.mockClear();
+  scans.current = scan(false);
+  await workspace.scanAgents(true);
+  expect(changed).toHaveBeenCalled();
+  expect(workspace.snapshot().terminals[0]?.orchestration).not.toHaveProperty("restoreOnResume");
+});
+
+it("a late older scan cannot resurrect an unsupported provider's pending Resume menu", async () => {
+  const agents = deps.agents?.(() => Promise.reject(new Error("unused fixture hooks")));
+  if (!agents) throw new Error("missing fixture agents");
+  const older = Promise.withResolvers<ReturnType<typeof scan>>();
+  const newer = Promise.withResolvers<ReturnType<typeof scan>>();
+  deps.agents = () => ({
+    ...agents,
+    scan: vi
+      .fn(() => Promise.resolve(scan(true)))
+      .mockResolvedValueOnce(scan(true))
+      .mockReturnValueOnce(older.promise)
+      .mockReturnValueOnce(newer.promise),
+  });
+  const workspace = createWorkspace(deps);
+  const initial = { id: "parent", attention: "evaluator" as const, conversationId: "saved" };
+  launch.mockResolvedValueOnce(initial);
+  await orchestrate(workspace);
+  await workspace.exited("parent", 0);
+  const stale = workspace.scanAgents(true);
+  const current = workspace.scanAgents(true);
+  newer.resolve(scan(false));
+  await current;
+  expect(workspace.snapshot().terminals[0]?.orchestration).not.toHaveProperty("restoreOnResume");
+  older.resolve(scan(true));
+  await stale;
+  expect(workspace.snapshot().terminals[0]?.orchestration).not.toHaveProperty("restoreOnResume");
 });

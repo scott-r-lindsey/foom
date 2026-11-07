@@ -152,7 +152,8 @@ offers **Resume conversation** with a short ID hint when a validated Claude Code
 Codex or Antigravity conversation ID was recorded, **New conversation here**, **Copy session
 ID** when an ID exists, then a separator and **Close**.
 
-An exited orchestrator with pending automatic role recovery offers **Revoke
+An exited orchestrator with current disclosure consent and supported-provider
+capabilities for pending automatic role recovery offers **Revoke
 orchestrator** in its session menu. Revoking cancels recovery before Resume, which
 then starts an ordinary session. See [orchestration](orchestration.md#orchestration-and-privacy).
 

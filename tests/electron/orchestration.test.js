@@ -105,3 +105,10 @@ test("revoking an exited orchestrator prevents automatic role recovery on resume
 }, async (context) => {
   await runOrchestratorScenario(context, false, "resume-revoked");
 });
+
+test("a CLI-only orchestrator has no Resume promise or exited Revoke menu item", {
+  timeout: deadline(90_000),
+  skip: process.platform === "win32" && "The fake agent is a POSIX script",
+}, async (context) => {
+  await runOrchestratorScenario(context, true, "resume-unsupported");
+});

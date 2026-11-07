@@ -965,9 +965,25 @@ test("machine launch IPC accepts only a host selector and known agent, with a re
 });
 
 test("the trusted grant discloses automatic Resume recovery and how to cancel it", () => {
-  const text = JSON.stringify(orchestratorDisclosure("claude").sections);
+  const text = JSON.stringify(orchestratorDisclosure("claude", undefined, true).sections);
   expect(text).toContain(
-    "Resuming this conversation restores its role and children without asking again.",
+    "Before Foom restarts, Resume in this tile can restore its role and children without asking again. Revoke cancels this.",
   );
   expect(text).toContain("Revoke orchestrator ends its access and cancels automatic recovery.");
+});
+
+test("Resume consent names the tile and app lifetime, rather than conversation identity", () => {
+  const text = JSON.stringify(orchestratorDisclosure("claude", undefined, true).sections);
+  expect(text).not.toContain("Resuming this conversation");
+  expect(text).toContain("Resume in this tile");
+});
+
+test("unsupported providers receive no automatic Resume promise", () => {
+  expect(JSON.stringify(orchestratorDisclosure("agy").sections)).not.toMatch(/resum/iu);
+});
+
+test("re-grant recovery copy explicitly ends at app restart", () => {
+  expect(JSON.stringify(orchestratorDisclosure("claude").sections)).toContain(
+    "before Foom restarts",
+  );
 });

@@ -1,3 +1,4 @@
+import { canRestoreControl } from "./session-restore";
 import type { ReviewSnapshot } from "../control/review-loops.d";
 import { remoteAgentTarget } from "../terminals/remote-bootstrap";
 import { randomUUID } from "node:crypto";
@@ -42,7 +43,17 @@ export function orchestrationView(
   this: OrchestrationCommandsContext,
   id: string,
 ): Pick<WorkspaceTerminal, "orchestration" | "handoff" | "review"> {
-  const view = this.orchestration.view(id);
+  let view = this.orchestration.view(id);
+  const entry = this.launched.get(id);
+  if (
+    view?.role === "orchestrator" &&
+    view.restoreOnResume &&
+    !canRestoreControl(
+      entry,
+      this.agentReport?.agents.find((agent) => agent.id === entry?.agent),
+    )
+  )
+    view = { role: view.role, active: view.active, children: view.children, history: view.history };
   const handoff = this.orchestration.handoffs.latest(id);
   const review = this.orchestration.reviews.view(id) ?? this.launched.get(id)?.review;
   return {
@@ -81,6 +92,11 @@ export async function makeOrchestrator(
   const prior = this.orchestration.view(id);
   if (prior?.role === "orchestrator" && this.sessions.identity(entry.repository) !== identity)
     throw new Error("Repository identity changed before re-grant");
+  const report = await this.scanAgents(false);
+  const restoreOnResume = canRestoreControl(
+    entry,
+    report.agents.find((item) => item.id === agent),
+  );
   const current = this.orchestration.active(entry.repository);
   const replaced = current === undefined ? undefined : this.launched.get(current);
   const operationId = randomUUID();
@@ -88,6 +104,7 @@ export async function makeOrchestrator(
   await this.auditHuman(action, id, current ?? null, "pending_confirmation", operationId);
   const accepted = await confirm({
     kind: "orchestrator",
+    ...(restoreOnResume ? { restoreOnResume: true } : {}),
     subject: `${basename(entry.repository)} · ${entry.branch ?? basename(entry.worktree)}`,
     agent,
     ...(replaced && replaced.agent !== "shell"
@@ -107,7 +124,7 @@ export async function makeOrchestrator(
       throw new Error("The orchestrator changed. Try again.");
     this.orchestration.checkRecovery(id);
     if (current !== undefined) await this.revokeOrchestrator(current);
-    const slot = this.orchestration.reserve(entry.repository, id);
+    const slot = this.orchestration.reserve(entry.repository, id, restoreOnResume);
     if ("existing" in slot) throw new Error("The orchestrator changed. Try again.");
     try {
       control.setRole(id, "orchestrator");

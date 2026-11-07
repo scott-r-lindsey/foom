@@ -17,17 +17,26 @@ inherited Foom credentials before constructing each child's environment, then ad
 fresh child-scoped values. Never return tokens to the renderer, logs, MCP results
 or error text. New Foom instances and resumed sessions receive fresh credentials. A live-process
 pause or MCP reinitialization preserves the existing role. Same-tile Resume can
-restore it from main-owned role-at-exit provenance and matching registered
+restore it from main-owned role-at-exit provenance, a human grant accepting the
+current disclosure during this app lifetime, and matching registered
 repository identity when the installed agent supports per-launch MCP and restore
-control, with a reserved slot and a pre-spawn
+control (using the same gate as restart, including refusal of config-origin
+providers using built-in IDs), with a reserved slot and a pre-spawn
 provenance check. Explicit revoke, another grant, removal or a new conversation
 invalidates that provenance, including a revoke after exit. Main rechecks recovery
 after spawn; a revoke that wins during spawn leaves the process live with an
 ordinary grant. The recorded conversation ID selects the provider conversation;
 it supplies no independent authority provenance. Conversation text or a pasted ID
-alone grants nothing. The trusted grant discloses automatic Resume recovery
-without another confirmation; the exited tile offers Revoke to cancel it.
-A human re-grant to the same tile and repository restores its previous children,
+alone grants nothing. For supported providers the trusted grant discloses that
+Resume in this tile can recover authority without another confirmation before
+Foom restarts; the exited tile offers Revoke to cancel it. Unsupported providers
+receive no such promise or exited Revoke item. Resume consent is transient,
+main-owned state, not inferred from disk-restored roles (including legacy grants);
+these sessions later Resume ordinarily until explicitly re-granted. Parent exits
+during spawn are scoped to the specific Resume invocation and cannot retire a
+later accepted grant.
+Before Foom restarts, a human re-grant to the same tile and repository restores
+its retained previous children,
 handoffs and worktrees, excluding taken-over children, as disclosed in the grant.
 Old in-flight capabilities and operations remain invalid. Across app restart,
 automatic restore may re-grant orchestrator control only from Foom's main-owned session store, when restore is enabled, the orchestrator was active at quit, the same repository identity is still registered and the installed provider supports restore control and per-launch MCP. Bundled restore support is Claude Code/Codex; valid v2 config providers may declare the same capability, subject to these provenance checks (see [architecture](../areas/providers.md#agent-provider-registry-and-manifest-approval-407)). Hook data, conversation metadata, agent output and environment flags never grant roles. Otherwise the session resumes ordinarily and its panel says the role was not restored. Every resumed launch has a new principal generation and token; human elevation
