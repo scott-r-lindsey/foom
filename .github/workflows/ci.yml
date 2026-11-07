@@ -387,6 +387,8 @@ jobs:
         # policy/transport case took 5.4s. Warm runtime startup separately from
         # bounded hook/policy assertions, without retries or relaxed probe limits.
         run: powershell.exe -NoProfile -NonInteractive -Command "exit 0"
+      - name: Real Node integration pilot
+        run: pnpm run test:integration
       - name: Test hooks and control storage with native OS tools
         # Cold PowerShell probes compete for startup when these files run together.
         # Exercise native transport once per platform, with one OS probe at a time.
