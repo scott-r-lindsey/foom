@@ -131,13 +131,17 @@ if(process.argv.includes('--help')){console.log('--standalone --session --prompt
   await assert.rejects(readFile(report));
   await openSettingsScreen(page);
   await page.getByRole("button", { name: "Agents", exact: true }).click();
+  await page.getByRole("tab", { name: "This computer", exact: true }).click();
   const card = page.locator("#agent-card-opencode");
   await expect(card).toContainText("OpenCode");
   await expect(card).toContainText("2.0.32");
-  const defaults = card.getByRole("textbox", { name: "OpenCode default arguments" });
+  await page.getByRole("tab", { name: "Global", exact: true }).click();
+  const defaults = page.getByRole("textbox", { name: "OpenCode default arguments" });
   await expect(defaults).toHaveValue("--auto");
   await defaults.fill("--auto\n--model\nreviewed");
-  await expect(card.locator(".agent-bypass")).toContainText("Bypass approvals");
+  await expect(
+    page.locator(".agent-setting").filter({ has: defaults }).locator(".agent-bypass"),
+  ).toContainText("Bypass approvals");
   await defaults.blur();
   const disclosure = await confirmationPage(app);
   await expect(disclosure.getByRole("alertdialog")).toHaveAccessibleName(
@@ -149,7 +153,13 @@ if(process.argv.includes('--help')){console.log('--standalone --session --prompt
   await expect(defaults).toBeEnabled();
   await defaults.fill("");
   await defaults.blur();
-  await expect(card.getByRole("switch", { name: "OpenCode", exact: true })).toBeEnabled();
+  await expect
+    .poll(async () =>
+      page.evaluate(
+        async () => (await window.desktop.setupState()).settings.agentArguments.opencode,
+      ),
+    )
+    .toEqual([]);
   const configStatus = await page.evaluate(() => window.desktop.configStatus());
   assert.ok(
     configStatus.agentPlugins.some(

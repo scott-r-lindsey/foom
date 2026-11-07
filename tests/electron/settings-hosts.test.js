@@ -1069,7 +1069,11 @@ test("Hosts reloads individual rows and actions never trigger full capability ch
       .map((line) => JSON.parse(line))
       .filter(
         ({ message, phase }) =>
-          message.type === "manage" && message.operation !== "list-worktrees" && !phase,
+          // Sidebar checkout discovery is a separate read-only refresh after
+          // registration changes. Keep every capability/row action in this count.
+          message.type === "manage" &&
+          !["list-worktrees", "repository"].includes(message.operation) &&
+          !phase,
       )
       .map(({ message }) => message);
   const checkedAt = () =>

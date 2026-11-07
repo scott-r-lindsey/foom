@@ -191,6 +191,7 @@ process.stdin.on('data', data => {
     .getByRole("navigation", { name: "Settings sections" })
     .getByRole("button", { name: "Agents", exact: true })
     .click();
+  await page.getByRole("tab", { name: "This computer", exact: true }).click();
   await expect(page.getByText(/Trusted · observed working/)).toBeVisible();
   await page.screenshot({
     path: evidencePath("codex-hook-setup.png"),
