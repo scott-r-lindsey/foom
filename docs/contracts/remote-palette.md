@@ -17,8 +17,9 @@ and reconnect or hub restart does not replace an unchanged palette after open.
 Snapshots replay the retained defaults and application-set overrides. Explicit
 theme changes still replace defaults and reset overrides, as locally. The hub
 retains the latest desired palette and tracks acknowledged replacements. A change
-made while disconnected, or sent without a matching acknowledgement before SSH
-loss, is replayed before attachment and remains pending until acknowledged. An
+made before the initial reattach handshake or while disconnected, or sent without
+a matching acknowledgement before SSH loss, is replayed after the live open reply
+and before attachment, and remains pending until acknowledged. An
 older acknowledgement cannot confirm a newer replacement. Reconnecting again
 after confirmation sends no replacement, preserving application colors.
 

@@ -1561,6 +1561,36 @@ test("hub restart reattaches an older compatible daemon without replacing retain
   expect(transport.launchFailure).toBeUndefined();
 });
 
+test("initial reattach delivers a theme changed before hello and preserves it after acknowledgement", async () => {
+  transport.kill();
+  transport = new RemoteTransport(
+    { host: "fixture", artifact: "/artifact", reattach: true },
+    "0.1.0",
+  );
+  transport.postMessage({ ...create, dark: false, theme: terminalThemes["foom-light"] });
+  transport.postMessage({
+    type: "theme",
+    id: "one",
+    request: 2,
+    dark: true,
+    theme: terminalThemes["foom-dark"],
+  });
+  await Promise.resolve();
+  child.greet();
+  expect(child.messages).not.toContainEqual(expect.objectContaining({ type: "theme" }));
+  child.message({ type: "open-result", id: "one", request: 1, state: "live" });
+  expect(child.messages).toContainEqual(
+    expect.objectContaining({ type: "theme", dark: true, theme: terminalThemes["foom-dark"] }),
+  );
+  child.message({ type: "result", id: "one", request: requestOf(child, "theme"), lines: [] });
+  await reconnectLive();
+  expect(child.messages).not.toContainEqual(expect.objectContaining({ type: "theme" }));
+  expect(child.messages).not.toContainEqual(expect.objectContaining({ type: "resize" }));
+  await vi.advanceTimersByTimeAsync(120_001);
+  expect(child.kill).not.toHaveBeenCalled();
+  expect(vi.getTimerCount()).toBe(0);
+});
+
 test.each(["offline", "in-flight"])(
   "replays a %s theme update after reconnect, then preserves colors after acknowledgement",
   async (loss) => {

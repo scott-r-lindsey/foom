@@ -333,8 +333,9 @@ back to `dark` then light for older hubs, to terminal creation. Agent preparatio
 retains these fields until authorized `agent-start`; shell and machine launches
 use them at creation too. Existing sessions ignore these startup fields on
 reattach, preserving application-set colors. The hub does not replace an unchanged palette on reconnect. Explicit theme
-changes made while disconnected, or sent without an acknowledgement before SSH
-loss, are replayed before attachment until acknowledged; later reconnects retain
+changes made before the initial reattach handshake or while disconnected, or sent
+without an acknowledgement before SSH loss, are replayed after the live open
+reply and before attachment until acknowledged; later reconnects retain
 application colors again. Only view-reported dimensions are restored: a saved
 session's initial 80x24 creation grid must not resize its live remote PTY. An open
 with no state to restore completes immediately and clears its reconnect deadline. See the [remote palette protocol](../contracts/remote-palette.md).

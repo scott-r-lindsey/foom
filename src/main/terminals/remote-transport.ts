@@ -183,6 +183,23 @@ export class RemoteTransport extends EventEmitter {
   private themeKey(): string {
     return JSON.stringify(this.theme?.theme ?? this.theme?.dark ?? false);
   }
+  private restoreState(restoreView: boolean): void {
+    // Only replay a changed palette or a replacement whose reply was lost.
+    // Reapplying an acknowledged theme erases application colors.
+    const missedTheme =
+      this.themeKey() !== this.confirmedThemeKey ||
+      this.themeSequence > this.confirmedThemeSequence;
+    for (const command of [
+      missedTheme ? this.theme : undefined,
+      restoreView ? this.dimensions : undefined,
+      restoreView ? this.attachment : undefined,
+    ])
+      if (command) {
+        const request = --this.internal;
+        this.restoration.add(request);
+        this.send({ ...command, request });
+      }
+  }
   private send(message: RemoteRequest): void {
     const connection = this.connection;
     try {
@@ -569,21 +586,7 @@ export class RemoteTransport extends EventEmitter {
                 return;
               }
               this.restoring = undefined;
-              // Only replay a changed palette or a replacement whose reply was
-              // lost. Reapplying an acknowledged theme erases application colors.
-              const missedTheme =
-                this.themeKey() !== this.confirmedThemeKey ||
-                this.themeSequence > this.confirmedThemeSequence;
-              for (const command of [
-                missedTheme ? this.theme : undefined,
-                this.dimensions,
-                this.attachment,
-              ])
-                if (command) {
-                  const request = --this.internal;
-                  this.restoration.add(request);
-                  this.send({ ...command, request });
-                }
+              this.restoreState(true);
               // A hidden restored session may have neither a view nor a
               // reported size. Its open reply alone completes restoration.
               if (this.restoration.size === 0) {
@@ -615,6 +618,7 @@ export class RemoteTransport extends EventEmitter {
             clearTimeout(deadline);
             this.opened = true;
             if (this.openingThemeKey !== undefined) this.confirmedThemeKey = this.openingThemeKey;
+            if (this.target.reattach) this.restoreState(false);
             this.emit("message", {
               type: "result",
               id: value.id,
