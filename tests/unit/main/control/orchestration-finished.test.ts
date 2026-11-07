@@ -71,6 +71,7 @@ describe("close finished agents", () => {
         id,
         expect.any(Function),
         expect.any(AbortSignal),
+        expect.any(Function),
       );
       await h.sync();
       expect(h.host.close).toHaveBeenCalledTimes(1);
@@ -154,6 +155,7 @@ describe("close finished agents", () => {
       id,
       expect.any(Function),
       expect.any(AbortSignal),
+      expect.any(Function),
     );
     for (let i = 0; i < 10; i++) await h.sync();
     expect(h.host.close).toHaveBeenCalledTimes(1);
@@ -220,6 +222,7 @@ describe("close finished agents", () => {
         "child-2",
         expect.any(Function),
         expect.any(AbortSignal),
+        expect.any(Function),
       );
       expect(h.orchestration.reviews.view(author)?.phase).toBe(
         verdict === "clean" ? "clean" : "fixing",
@@ -282,6 +285,7 @@ describe("close finished agents", () => {
       "child-2",
       expect.any(Function),
       expect.any(AbortSignal),
+      expect.any(Function),
     );
     expect(h.orchestration.reviewUnreadAt("parent")).toBeDefined();
     h.host.forge.read.mockReturnValue({
@@ -295,6 +299,7 @@ describe("close finished agents", () => {
       author,
       expect.any(Function),
       expect.any(AbortSignal),
+      expect.any(Function),
     );
     expect(h.orchestration.reviewUnreadAt("parent")).toBeDefined();
     expect(h.orchestration.reviews.view(author)?.phase).toBe("clean");
@@ -342,6 +347,7 @@ describe("close finished agents", () => {
       author,
       expect.any(Function),
       expect.any(AbortSignal),
+      expect.any(Function),
     );
     reviewer.state = null;
     await h.sync();
@@ -487,6 +493,7 @@ describe("close finished agents", () => {
           id,
           expect.any(Function),
           expect.any(AbortSignal),
+          expect.any(Function),
         );
         expect(changed).toHaveBeenCalledTimes(1);
         now += 600000;
@@ -563,6 +570,7 @@ describe("close finished agents", () => {
         id,
         expect.any(Function),
         expect.any(AbortSignal),
+        expect.any(Function),
       );
     } finally {
       release?.(closed);

@@ -63,7 +63,12 @@ export interface OrchestrationHost {
   /** Whether the user's default arguments for this agent bypass permissions. */
   bypassDefaults?(agent: AgentId): boolean;
   stop(id: string): Promise<boolean>;
-  close(id: string, validate?: () => void, signal?: AbortSignal): Promise<boolean>;
+  close(
+    id: string,
+    validate?: () => void,
+    signal?: AbortSignal,
+    onReview?: (pending: boolean) => Promise<void>,
+  ): Promise<boolean>;
   place?(id: string, parentId: string): void;
   /** Starting restored sessions do not yet have a stoppable PTY. */
   starting?(id: string): boolean;

@@ -1,3 +1,4 @@
+import { worktreeReservation } from "./worktree-reservations";
 import { agentProviders } from "../agents/providers/registry";
 import { localResources } from "../setup/local-host";
 import { prepareTail } from "../evaluator/terminal-tail";
@@ -202,7 +203,11 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
             unused,
             (path, branch) => {
               if (branchKey === undefined) {
-                const candidate = `${repository}\0${branch ?? ""}`;
+                const candidate = worktreeReservation(
+                  repository,
+                  path ?? `:adopt-pr-${String(number)}`,
+                  branch,
+                );
                 if (caps.busyWorktrees.has(candidate)) throw new ControlError("branch_in_use");
                 branchKey = candidate;
                 caps.busyWorktrees.add(candidate);
@@ -319,12 +324,13 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
       return { branch, identity };
     },
     stop: (id) => caps.deps.terminals.stop(id),
-    close: async (id, validate, signal) => {
+    close: async (id, validate, signal, onReview) => {
       await caps.sidebarCommand(
         { kind: "close", id },
         () => Promise.resolve(true),
         validate,
         signal,
+        onReview,
       );
       return !caps.snapshot().terminals.some((row) => row.id === id);
     },

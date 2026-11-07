@@ -13,6 +13,7 @@ import {
   orchestrate,
   principal,
   createWorkspace,
+  launch,
 } from "./orchestration-workspace-fixture";
 
 it("removes an orchestrator worktree only through the trusted dialog", async () => {
@@ -554,5 +555,77 @@ it.each([false, true])(
         expect.any(Function),
       );
     else expect(deps.worktrees.removeWorktree).not.toHaveBeenCalled();
+  },
+);
+
+it.each([true, false])(
+  "joins duplicate detached removals and isolates other checkouts (approve: %s)",
+  async (approved) => {
+    const first = { ...child, branch: null };
+    const second = { ...first, path: "/trees/app/review-two" };
+    vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([main, first, second]);
+    vi.mocked(deps.worktrees.adoptWorktree).mockImplementation(
+      (_repo, number, _unused, validate) => {
+        const tree = number === 1 ? first : second;
+        validate(undefined);
+        return Promise.resolve({
+          path: tree.path,
+          branch: `review-${String(number)}`,
+          identity: "identity",
+        });
+      },
+    );
+    const pending = Promise.withResolvers<boolean>();
+    deps.dialog = vi.fn(() => pending.promise);
+    const workspace = createWorkspace(deps);
+    await orchestrate(workspace);
+    const actor = principal();
+    const operations = new Operations(
+      async () => {},
+      () => {},
+    );
+    const call = (method: string, key: string, params: Record<string, unknown>) =>
+      workspace.orchestration.call(
+        actor,
+        method,
+        { ...params, idempotencyKey: key },
+        operations,
+      ) as Promise<Operation>;
+    const one = await call("create_worktree", "one", { pullRequest: 1, review: true });
+    await call("remove_worktree", "remove-one", { worktreeId: one.resultId });
+    await vi.waitFor(() => {
+      expect(deps.dialog).toHaveBeenCalledOnce();
+    });
+    // A distinct key joins the same deletion; it never opens another review.
+    await call("remove_worktree", "duplicate", { worktreeId: one.resultId });
+    const two = await call("create_worktree", "two", { pullRequest: 2, review: true });
+    expect(two.status).toBe("succeeded");
+    launch.mockResolvedValueOnce({ id: "second-reviewer", attention: "evaluator" });
+    expect(
+      await call("launch", "launch-two", { worktreeId: two.resultId, agent: "claude" }),
+    ).toMatchObject({ status: "succeeded" });
+    await workspace.exited("second-reviewer", 0);
+    await workspace.sidebarCommand({ kind: "close", id: "second-reviewer" }, confirm);
+    // Human shell/legacy agent launches also use the same detached path reservation.
+    await workspace.sidebarCommand(
+      { kind: "launch", repository: repo.path, worktree: second.path, run: "shell" },
+      confirm,
+    );
+    await workspace.exited("shell", 0);
+    await workspace.sidebarCommand({ kind: "close", id: "shell" }, confirm);
+    await call("remove_worktree", "remove-two", { worktreeId: two.resultId });
+    await vi.waitFor(() => {
+      expect(deps.dialog).toHaveBeenCalledTimes(2);
+    });
+    expect(deps.worktrees.removeWorktree).not.toHaveBeenCalled();
+    pending.resolve(approved);
+    await vi.waitFor(() => {
+      for (const key of ["remove-one", "duplicate", "remove-two"])
+        expect(operations.lookup(actor, { idempotencyKey: key }).status).toBe(
+          approved ? "succeeded" : "declined",
+        );
+    });
+    expect(deps.worktrees.removeWorktree).toHaveBeenCalledTimes(approved ? 2 : 0);
+    expect(deps.dialog).toHaveBeenCalledTimes(2);
   },
 );
