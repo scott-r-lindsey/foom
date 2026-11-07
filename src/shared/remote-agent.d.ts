@@ -1,3 +1,4 @@
+import type { HostPressure } from "./host-pressure.d";
 /** Bounded host evidence; contains no file content or process authority. */
 export interface RemoteReviewSnapshot {
   head: string;
@@ -6,6 +7,7 @@ export interface RemoteReviewSnapshot {
 import type { HookSignal } from "./hooks";
 /** Main-only mapping; paths authorize nothing without the selected local checkout. */
 export interface RemoteAgentSpec {
+  childPressure?: true;
   agent: string;
   repository: string;
   worktree: string;
@@ -44,6 +46,7 @@ export interface RemoteAgentReady {
 export interface RemoteAgentBinding {
   /** Installed by the main transport; opens the remote relay after grant binding. */
   activate?(): void;
+  pressure?: (value: HostPressure) => void;
   spec: RemoteAgentSpec;
   authorize(): Promise<void>;
   /** Recheck captured parent/operation authority synchronously before agent-start. */

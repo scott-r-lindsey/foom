@@ -2,6 +2,7 @@ import { expect, it, vi } from "vitest";
 import { Operations } from "../../../../src/main/control/operations";
 import type { Operation } from "../../../../src/main/control/types";
 import {
+  resources,
   repo,
   child,
   deps,
@@ -336,4 +337,94 @@ it("closes an exited child through the normal session removal path", async () =>
   expect(forget).toHaveBeenCalledWith("child");
   expect(workspace.snapshot().terminals.some((row) => row.id === "child")).toBe(false);
   expect(deps.worktrees.removeWorktree).not.toHaveBeenCalled();
+});
+
+it.each([{ load: [64, 0, 0] }, { memoryAvailable: 1 }, { cores: 1 }])(
+  "refuses child pressure with facts, keeps the checkout retryable, and never blocks humans: %j",
+  async (pressure) => {
+    const workspace = createWorkspace(deps);
+    await orchestrate(workspace);
+    const operations = new Operations(
+      async () => {},
+      () => {},
+    );
+    const actor = principal();
+    const tree = (await workspace.orchestration.call(
+      actor,
+      "create_worktree",
+      { idempotencyKey: "tree", branch: "feature" },
+      operations,
+    )) as Operation;
+    const healthy = await resources.read();
+    resources.read.mockResolvedValue({ ...healthy, ...pressure });
+    launch.mockClear();
+    const result = await workspace.orchestration.call(
+      actor,
+      "launch",
+      { idempotencyKey: "busy", worktreeId: tree.resultId, agent: "claude" },
+      operations,
+    );
+    expect(result).toMatchObject({
+      status: "failed",
+      reason: "host_busy",
+      pressure: { measured: true, sessions: 1 },
+    });
+    expect(launch).not.toHaveBeenCalled();
+    expect(
+      await workspace.orchestration.call(
+        actor,
+        "launch",
+        { idempotencyKey: "busy", worktreeId: tree.resultId, agent: "claude" },
+        operations,
+      ),
+    ).toEqual(result);
+    launch.mockResolvedValueOnce({ id: "human", attention: "evaluator" });
+    resources.read.mockResolvedValue({
+      ...healthy,
+      load: [1000, 0, 0],
+      memoryAvailable: 0,
+    });
+    await expect(
+      workspace.launch(
+        { agent: "claude", repository: repo.path, worktree: child.path, cols: 80, rows: 24 },
+        confirm,
+      ),
+    ).resolves.toMatchObject({ id: "human" });
+    // Human did not read the pressure signal.
+    resources.read.mockReset().mockResolvedValue(healthy);
+  },
+);
+
+it("unreadable local measurements launch explicitly unmeasured and retain facts on lookup", async () => {
+  const workspace = createWorkspace(deps);
+  await orchestrate(workspace);
+  const operations = new Operations(
+    async () => {},
+    () => {},
+  );
+  const actor = principal();
+  const tree = (await workspace.orchestration.call(
+    actor,
+    "create_worktree",
+    { idempotencyKey: "tree", branch: "feature" },
+    operations,
+  )) as Operation;
+  resources.read.mockRejectedValue(new Error("unreadable"));
+  launch.mockResolvedValueOnce({ id: "child", attention: "evaluator" });
+  const result = (await workspace.orchestration.call(
+    actor,
+    "launch",
+    { idempotencyKey: "unmeasured", worktreeId: tree.resultId, agent: "claude" },
+    operations,
+  )) as Operation;
+  expect(result).toMatchObject({ status: "succeeded", pressure: { measured: false } });
+  expect(operations.lookup(actor, { operationId: result.operationId })).toMatchObject({
+    pressure: { measured: false },
+  });
+  resources.read.mockReset().mockResolvedValue({
+    cores: 64,
+    load: [0, 0, 0],
+    memoryTotal: 256 * 1024 ** 3,
+    memoryAvailable: 128 * 1024 ** 3,
+  });
 });

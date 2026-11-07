@@ -95,6 +95,16 @@ process.stdout.write("FOOM_AGENT_READY`,
   const credentials = path.join(root, "credentials.json");
   const app = await launchApp(context, {
     fixture: "agent",
+    ...(phase === "pressure"
+      ? {
+          hostResources: {
+            cores: 4,
+            load: [4, 0, 0],
+            memoryTotal: 16 * 1024 ** 3,
+            memoryAvailable: 8 * 1024 ** 3,
+          },
+        }
+      : {}),
     args: [`--user-data-dir=${path.join(root, "user-data")}`],
     env: {
       HOME: home,
@@ -265,6 +275,45 @@ process.stdout.write("FOOM_AGENT_READY`,
   const whoami = await call(parent.controlToken, "whoami");
   assert.ok(whoami.body.result.capabilities.includes("launch"));
   assert.equal(whoami.body.result.terminalId, parentId);
+
+  if (phase === "pressure") {
+    const tree = await call(parent.controlToken, "create_worktree", {
+      idempotencyKey: "pressure-tree",
+      branch: "pressure-child",
+    });
+    assert.equal(tree.body.result.status, "succeeded");
+    const request = {
+      idempotencyKey: "pressure-launch",
+      worktreeId: tree.body.result.resultId,
+      agent: "claude",
+    };
+    const busy = await call(parent.controlToken, "launch", request);
+    assert.equal(busy.body.result.reason, "host_busy", JSON.stringify(busy.body));
+    assert.equal(busy.body.result.status, "failed");
+    assert.deepEqual(busy.body.result.pressure, {
+      measured: true,
+      loadPerCore: 1,
+      memoryAvailable: 8 * 1024 ** 3,
+      memoryTotal: 16 * 1024 ** 3,
+      sessions: 1,
+      reservations: 0,
+      budget: 4,
+    });
+    assert.deepEqual((await call(parent.controlToken, "launch", request)).body, busy.body);
+    const worktree = path.join(root, "human-pressure");
+    git("worktree", "add", "-b", "human-pressure", worktree);
+    await page.evaluate(
+      ({ repository, worktree }) =>
+        window.desktop.sidebarCommand({ kind: "launch", repository, worktree, run: "claude" }),
+      { repository, worktree },
+    );
+    await expect
+      .poll(() => existsSync(`${credentials}.human-pressure`), { timeout: deadline(15000) })
+      .toBe(true);
+    const rows = await page.evaluate(() => window.desktop.workspace());
+    assert.equal(rows.terminals.filter((row) => row.kind === "agent" && !row.exited).length, 2);
+    return;
+  }
 
   if (phase === "board") {
     const site = path.join(root, "site");

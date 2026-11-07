@@ -1,3 +1,4 @@
+import { LaunchFailure } from "../../../../src/shared/launch-failure";
 import { describe, expect, it, vi } from "vitest";
 import type { OrchestrationHost } from "../../../../src/main/control/orchestration.d";
 import type { ReviewLoops } from "../../../../src/main/control/review-loops";
@@ -218,3 +219,22 @@ it("keeps reviewer selections separate from the author's resumed selection", asy
     effort: "high",
   });
 });
+
+it.each([true, false])(
+  "host pressure preserves a retryable review refusal and releases capacity (reviewer %s)",
+  async (reviewer) => {
+    const h = fixture();
+    const error = new LaunchFailure("host_busy", { measured: false });
+    h.host.launch.mockRejectedValue(error);
+    await expect(h.effects.step("author", reviewer, "review")).rejects.toBe(error);
+    expect(h.owned.note).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "failed",
+        reason: "host_busy",
+        pressure: { measured: false },
+      }),
+    );
+    expect(h.reservation.release).toHaveBeenCalledOnce();
+    expect(h.reservation.attach).not.toHaveBeenCalled();
+  },
+);

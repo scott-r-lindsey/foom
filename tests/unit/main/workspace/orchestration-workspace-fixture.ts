@@ -39,6 +39,12 @@ export let confirm: ReturnType<typeof vi.fn<(request: WorkspaceConfirmation) => 
 export let setRole: ReturnType<typeof vi.fn<ControlRuntime["setRole"]>>;
 
 beforeEach(() => {
+  resources.read.mockReset().mockResolvedValue({
+    cores: 64,
+    load: [0, 0, 0],
+    memoryTotal: 256 * 1024 ** 3,
+    memoryAvailable: 128 * 1024 ** 3,
+  });
   agentProvider("codex").discover("/bin/codex", "codex-cli 0.161.0", "-c");
   scans.current = scan(true);
   launch = vi.fn((_request: AgentLaunch) =>
@@ -127,3 +133,17 @@ afterEach(async () => {
     vi.restoreAllMocks();
   }
 });
+
+const resourceMock = vi.hoisted(() => ({
+  read: vi.fn(() =>
+    Promise.resolve({
+      cores: 64,
+      load: [0, 0, 0],
+      memoryTotal: 256 * 1024 ** 3,
+      memoryAvailable: 128 * 1024 ** 3,
+    }),
+  ),
+}));
+vi.mock("../../../../src/main/setup/local-host", () => ({ localResources: resourceMock.read }));
+
+export const resources = resourceMock;

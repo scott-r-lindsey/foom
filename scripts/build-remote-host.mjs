@@ -6,6 +6,7 @@ import { checkoutRevision, writeHostManifest } from "./remote-host-artifacts.mjs
 import { assembleDarwinHost, writeDarwinInputs } from "./remote-host-darwin.mjs";
 import { fileURLToPath } from "node:url";
 
+const fixtureResources = process.argv.includes("--fixture-resources");
 const root = fileURLToPath(new URL("../", import.meta.url));
 if (process.versions.node.split(".")[0] !== "24" || !["linux", "darwin"].includes(process.platform))
   throw new Error("Build foom-host on Linux or macOS with Node 24");
@@ -26,6 +27,20 @@ await build({
   // node-pty dynamically resolves its N-API addon. SEA embeds the exact pinned
   // prebuild; the shim extracts and verifies it before loading, without Electron.
   plugins: [
+    ...(fixtureResources
+      ? [
+          {
+            name: "fixture-launch-resources",
+            setup(api) {
+              api.onLoad({ filter: /terminal-host[\\/]remote[\\/]resources\.ts$/ }, () => ({
+                contents:
+                  "export async function launchResources() { return { cores: 64, load: [0,0,0], memoryTotal: 256 * 1024 ** 3, memoryAvailable: 128 * 1024 ** 3 }; }",
+                loader: "ts",
+              }));
+            },
+          },
+        ]
+      : []),
     {
       name: "sea-pty",
       setup(api) {
