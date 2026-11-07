@@ -193,3 +193,9 @@ open may have been sent, completion after cancellation closes the new terminal
 through the existing host-bound cleanup path, preserving its checkout. The source also closes a late result if cancellation
 races the command reply and inventory refresh. Startup labels and reserved tile
 placement are renderer view state and do not authorize attachment or input.
+
+A declined sharing warning returns no terminal ID and emits no
+`workspace:launch-started`; a refusal after that event retains its failure tile.
+A failed cleanup of a terminal created after cancellation returns the fixed
+`launch-cancel-incomplete` code. Its action error remains visible after the startup
+reservation is closed; ordinary pre-spawn aborts remain silent.

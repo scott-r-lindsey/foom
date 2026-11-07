@@ -10,7 +10,7 @@ const { evidencePath } = require("../helpers/evidence.js");
 const { deadline, expect } = require("./test-policy.js");
 const { boardPage, launchApp, removeAfterApps, assertAccessible } = require("./harness.js");
 
-async function sidebarMachines(context, startupOnly = false) {
+async function sidebarMachines(context, startupOnly = false, firstRemoteOnly = false) {
   const root = await mkdtemp(path.join(tmpdir(), "sidebar-machines-"));
   removeAfterApps(context, root);
   const bin = path.join(root, "bin");
@@ -292,13 +292,76 @@ wait();`,
       page.locator(".terminal-tile .xterm").filter({ hasText: "LOCAL_STARTUP_READY" }),
     ).toBeVisible();
     await expect(localStartup).toHaveCount(0);
-    await page.getByRole("button", { name: "Actions for Main checkout", exact: true }).click();
-    await page.getByRole("menuitem", { name: "Claude Code", exact: true }).click();
-    const armed = page.getByRole("menuitem", {
-      name: "Click again for multiple agents here",
-      exact: true,
-    });
-    await expect(armed).toBeVisible();
+    if (firstRemoteOnly) {
+      // No remote session exists when this repository's first remote agent is requested.
+      await page.evaluate(async () => {
+        for (const row of (await window.desktop.workspace()).terminals)
+          if (row.placement?.kind === "remote") await window.desktop.kill(row.id);
+      });
+      await expect
+        .poll(() =>
+          page.evaluate(
+            async () =>
+              (await window.desktop.workspace()).terminals.filter(
+                (row) => row.placement?.kind === "remote",
+              ).length,
+          ),
+        )
+        .toBe(0);
+      await page.getByRole("button", { name: "Actions for shell-fixture", exact: true }).click();
+      await page.getByRole("menuitem", { name: "New agent", exact: true }).hover();
+      await page.getByRole("menuitem", { name: "Builder", exact: true }).hover();
+      await page.getByRole("menuitem", { name: "Claude Code", exact: true }).click();
+      await expect(page.locator(".sidebar-panel")).toHaveCount(0);
+      await expect(
+        page.getByRole("menuitem", { name: "Click again for multiple agents here", exact: true }),
+      ).toHaveCount(0);
+      await expect
+        .poll(() =>
+          page.evaluate(
+            async () =>
+              (await window.desktop.workspace()).terminals.filter(
+                (row) =>
+                  row.agent === "claude" &&
+                  row.branch === "Main checkout" &&
+                  row.placement?.host === "fixture-cloud",
+              ).length,
+          ),
+        )
+        .toBe(1);
+      await expect(page.locator('.tile-startup[data-failed="true"]')).toHaveCount(0);
+      return;
+    }
+    const requestShared = async () => {
+      const actions = page.getByRole("button", { name: "Actions for Main checkout", exact: true });
+      await actions.press("Escape");
+      await actions.click();
+      await page.getByRole("menuitem", { name: "Claude Code", exact: true }).click();
+      const armed = page.getByRole("menuitem", {
+        name: "Click again for multiple agents here",
+        exact: true,
+      });
+      await expect(armed).toBeVisible();
+      await expect(page.locator(".tile-startup")).toHaveCount(0);
+      return armed;
+    };
+    const spacesBeforeWarning = await page.locator(".terminal-tile").count();
+    for (const abandon of ["pointer", "blur", "expiry"]) {
+      const warning = await requestShared();
+      if (abandon === "pointer") await page.mouse.move(0, 0);
+      else if (abandon === "blur")
+        await page.getByRole("button", { name: "Actions for Main checkout", exact: true }).focus();
+      // Main's existing three-second expiry is the behavior under test.
+      await expect(warning).toHaveCount(0);
+      await page.evaluate(async () => {
+        await window.desktop.sidebarInventory();
+        await window.desktop.workspace();
+      });
+      await expect(page.locator(".tile-startup")).toHaveCount(0);
+      await expect(page.locator(".terminal-tile")).toHaveCount(spacesBeforeWarning);
+      await expect(page.getByRole("dialog", { name: "Action failed", exact: true })).toHaveCount(0);
+    }
+    const armed = await requestShared();
     await expect(page.locator(".sidebar-panel")).toHaveCount(1);
     // The sharing capability deliberately rejects a second click before 300 ms.
     await page.waitForTimeout(310);
@@ -572,3 +635,10 @@ test(
   },
   (context) => sidebarMachines(context, true),
 );
+
+test("first remote repository launch ignores a local main-checkout agent in the real menu", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  await sidebarMachines(context, true, true);
+});

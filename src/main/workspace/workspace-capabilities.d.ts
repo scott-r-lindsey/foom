@@ -120,7 +120,13 @@ export interface SidebarCommandsContext {
     readonly hosts:
       | Pick<
           NonNullable<WorkspaceDependencies["hosts"]>,
-          "placement" | "registered" | "shellTarget" | "fleet" | "state" | "locationsForSidebar"
+          | "placement"
+          | "registered"
+          | "shellTarget"
+          | "fleet"
+          | "state"
+          | "locationsForSidebar"
+          | "repositoryTarget"
         >
       | undefined;
     readonly worktrees: Pick<

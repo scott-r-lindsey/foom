@@ -1035,3 +1035,31 @@ test("cancelling an armed startup releases its own confirmation immediately", as
     vi.useRealTimers();
   }
 });
+
+test("a failed late startup cleanup returns a fixed warning code, never host diagnostics", async () => {
+  const response = Promise.withResolvers<{ terminalId: string }>();
+  const sidebar = vi.fn<Workspace["sidebarCommand"]>((_command, _confirm, startup) => {
+    startup?.started();
+    return response.promise;
+  });
+  const cancelStartup = vi.fn(() =>
+    Promise.reject(new Error("host unreachable during cleanup /private/host")),
+  );
+  attached.dispose();
+  mock.handle.mockClear();
+  attached = attachWorkspace(
+    window,
+    { ...workspace, sidebarCommand: sidebar, cancelStartup } as unknown as Workspace,
+    owns,
+    requestDialog,
+  );
+  const pending = invoke("workspace:sidebar-command", [
+    { kind: "machine-launch", host: "worker", run: "shell" },
+    "late_cleanup",
+  ]);
+  const rejected = expect(pending).rejects.toThrow("foom-error:launch-cancel-incomplete");
+  await invoke("workspace:cancel-launch", ["late_cleanup"]);
+  response.resolve({ terminalId: "created" });
+  await rejected;
+  expect(cancelStartup).toHaveBeenCalledWith("created");
+});

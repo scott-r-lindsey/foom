@@ -716,3 +716,67 @@ test("startup sharing keeps the remote launch reservation until confirmation and
   await workspace.sidebarCommand(command, () => Promise.resolve(true));
   expect(create).toHaveBeenCalledTimes(3);
 });
+
+test.each([false, true])(
+  "a first remote repository launch never shares with a local main-checkout agent (startup=%s)",
+  async (startup) => {
+    const { repo } = await import("./workspace-fixture");
+    vi.spyOn(deps.worktrees, "listWorktrees").mockResolvedValue([
+      { ...tree, path: repo.path, branch: "main" },
+    ]);
+    const { workspace, create } = remoteMainFixture();
+    await workspace.sidebarCommand(
+      { kind: "repository-launch", repository: repo.path, host: null, run: "claude" },
+      () => Promise.resolve(false),
+    );
+    expect(workspace.snapshot().terminals).toEqual([
+      expect.objectContaining({ worktree: repo.path, agent: "claude" }),
+    ]);
+    const confirm = vi.fn(() => Promise.resolve(false));
+    const started = vi.fn();
+    const result = await workspace.sidebarCommand(
+      { kind: "repository-launch", repository: repo.path, host: "dozer", run: "claude" },
+      confirm,
+      startup ? { signal: new AbortController().signal, started } : undefined,
+    );
+    expect(confirm).not.toHaveBeenCalled();
+    expect(create).toHaveBeenCalledOnce();
+    expect(result).toEqual({ terminalId: "remote-1" });
+    expect(workspace.snapshot().terminals.find((row) => row.id === "remote-1")).toMatchObject({
+      worktree: `/foom-remote/${locationId(JSON.stringify(["dozer", "/code/repository-clone"]))}`,
+      placement: { kind: "remote", host: "dozer" },
+    });
+    expect(started).toHaveBeenCalledTimes(startup ? 1 : 0);
+  },
+);
+
+test("startup sharing checks the resolved remote clone instead of an older session's checkout", async () => {
+  const { repo } = await import("./workspace-fixture");
+  const { workspace, create } = remoteMainFixture();
+  const command = {
+    kind: "repository-launch",
+    repository: repo.path,
+    host: "dozer",
+    run: "claude",
+  } as const;
+  await workspace.sidebarCommand(command, () => Promise.resolve(true));
+  if (!deps.hosts) throw new Error("Missing hosts");
+  vi.spyOn(deps.hosts, "repositoryTarget").mockResolvedValue({
+    host: "dozer",
+    human: true,
+    machine: {
+      codeFolder: "/code",
+      repository: { directory: "moved-clone", origin: "git@fixture.test:team/repo.git" },
+    },
+  });
+  const confirm = vi.fn(() => Promise.resolve(false));
+  const started = vi.fn();
+  const result = await workspace.sidebarCommand(command, confirm, {
+    signal: new AbortController().signal,
+    started,
+  });
+  expect(confirm).not.toHaveBeenCalled();
+  expect(started).toHaveBeenCalledOnce();
+  expect(create).toHaveBeenCalledTimes(2);
+  expect(result).toEqual({ terminalId: "remote-2" });
+});

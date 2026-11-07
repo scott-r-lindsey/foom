@@ -1061,7 +1061,7 @@ test("slow list and independent host checks leave Add enabled and preserve a new
   expect(screen.getByRole<HTMLButtonElement>("button", { name: "Remove" }).disabled).toBe(true);
   expect(
     screen.getByRole<HTMLButtonElement>("button", { name: "Rename worker" }).matches(":disabled"),
-  ).toBe(true);
+  ).toBe(false);
   fireEvent.click(screen.getByRole("button", { name: "Add host" }));
   fireEvent.change(screen.getByLabelText("SSH host"), { target: { value: "second" } });
   fireEvent.click(screen.getByRole("button", { name: "Add host" }));
@@ -1159,3 +1159,97 @@ test("the name and OS appear once in both compact and expanded host headers", as
   expect(screen.getAllByText("Build box")).toHaveLength(1);
   expect(screen.getAllByText("macOS")).toHaveLength(1);
 });
+
+test("Add nickname validates inline, preserves invalid or failed input and submits valid names", async () => {
+  const { api } = await mount();
+  fireEvent.click(screen.getByRole("button", { name: "Add host" }));
+  fireEvent.change(screen.getByLabelText("SSH host"), { target: { value: "second" } });
+  const input = screen.getByLabelText("Nickname (optional)");
+  fireEvent.change(input, { target: { value: "worker" } });
+  expect(screen.getByRole<HTMLButtonElement>("button", { name: "Add host" }).disabled).toBe(true);
+  expect(screen.getByRole("alert").textContent).toBe("Name already used");
+  fireEvent.change(input, { target: { value: "<invalid>" } });
+  expect(screen.getByRole("alert").textContent).toContain("Use 1–40");
+  const form = input.closest("form");
+  if (!form) throw new Error("Missing add form");
+  fireEvent.submit(form);
+  expect(api.mock.calls.some(([action]) => action.action === "add")).toBe(false);
+  fireEvent.change(input, { target: { value: "Build box" } });
+  api.mockRejectedValueOnce(new Error("Failed"));
+  fireEvent.click(screen.getByRole("button", { name: "Add host" }));
+  await screen.findByText("Unable to update hosts");
+  expect(screen.getByRole<HTMLInputElement>("textbox", { name: "Nickname (optional)" }).value).toBe(
+    "Build box",
+  );
+  expect(api).toHaveBeenCalledWith({
+    action: "add",
+    host: "second",
+    codeFolder: "~/foom",
+    nickname: "Build box",
+  });
+});
+
+test("rename stays editable during checks and a stale check reply preserves the new name", async () => {
+  const { api } = await mount();
+  let finish: ((state: HostsState) => void) | undefined;
+  api.mockImplementation((action) => {
+    if (action.action === "preflight")
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    if (action.action === "rename")
+      return Promise.resolve({ ...initial, hosts: [{ ...host, nickname: action.nickname }] });
+    return Promise.resolve(initial);
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Check capabilities" }));
+  await waitFor(() => {
+    expect(finish).toBeDefined();
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Rename worker" }));
+  fireEvent.change(screen.getByLabelText("Host nickname"), { target: { value: "During check" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save name" }));
+  await screen.findByRole("button", { name: "Rename During check" });
+  await act(async () => {
+    finish?.(initial);
+    await Promise.resolve();
+  });
+  expect(screen.getByRole("button", { name: "Rename During check" })).toBeTruthy();
+});
+
+test.each(["Build box", ""])(
+  "late check replies preserve repeated renames ending with %j",
+  async (finalName) => {
+    const { api } = await mount();
+    let finish: ((state: HostsState) => void) | undefined;
+    api.mockImplementation((action) => {
+      if (action.action === "preflight")
+        return new Promise((resolve) => {
+          finish = resolve;
+        });
+      if (action.action === "rename")
+        return Promise.resolve({
+          ...initial,
+          hosts: [action.nickname ? { ...host, nickname: action.nickname } : host],
+        });
+      return Promise.resolve(initial);
+    });
+    const rename = async (from: string, to: string) => {
+      fireEvent.click(screen.getByRole("button", { name: `Rename ${from}` }));
+      fireEvent.change(screen.getByLabelText("Host nickname"), { target: { value: to } });
+      fireEvent.click(screen.getByRole("button", { name: "Save name" }));
+      await screen.findByRole("button", { name: `Rename ${to || "worker"}` });
+    };
+    await rename("worker", "Build box");
+    fireEvent.click(screen.getByRole("button", { name: "Check capabilities" }));
+    await waitFor(() => {
+      expect(finish).toBeDefined();
+    });
+    await rename("Build box", "Interim");
+    await rename("Interim", finalName);
+    await act(async () => {
+      finish?.({ ...initial, hosts: [{ ...host, nickname: "Interim" }] });
+      await Promise.resolve();
+    });
+    expect(screen.getByRole("button", { name: `Rename ${finalName || "worker"}` })).toBeTruthy();
+  },
+);

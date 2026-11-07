@@ -11,8 +11,12 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-async function slowLaunch(machine = false, agent = false, remoteCheckout = false) {
+async function slowLaunch(machine = false, agent = false, remoteCheckout = false, sharing = true) {
   const view = setup();
+  if (!sharing)
+    act(() => {
+      view.base.update("a", { exited: true });
+    });
   if (remoteCheckout)
     act(() => {
       view.base.update("a", { placement: { kind: "remote", host: "dozer" } });
@@ -110,6 +114,10 @@ test.each([false, true])(
 
 test("local startup reserves a tile before discovery completes and a failure stays in that tile", async () => {
   const view = await slowLaunch(false, true);
+  expect(view.queryByText("Starting on Local…")).toBeNull();
+  act(() => {
+    view.started();
+  });
   const startup = view.getByText("Starting on Local…");
   const tile = startup.closest("[data-tile]");
   expect(startup.parentElement?.getAttribute("data-remote")).toBe("false");
@@ -145,6 +153,7 @@ test("closing during startup cancels its operation and completion cannot reopen 
 test("a refused launch retains an explanatory failure in its reserved tile", async () => {
   const view = await slowLaunch(true);
   await act(async () => {
+    view.started();
     view.finish(undefined);
     await Promise.resolve();
   });
@@ -153,9 +162,92 @@ test("a refused launch retains an explanatory failure in its reserved tile", asy
 
 test("a remote session's host still names startup when checkout inventory has no host field", async () => {
   const view = await slowLaunch(false, true, true);
+  act(() => {
+    view.started();
+  });
   expect(view.getByText("Starting on Build box…")).toBeTruthy();
   await act(async () => {
     view.finish(undefined);
     await Promise.resolve();
   });
+});
+
+test("abandoning a sharing warning never reserves a tile or leaves a failure across retries", async () => {
+  const view = await slowLaunch(false, true);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt) view.launch();
+    expect(view.queryByText("Starting on Local…")).toBeNull();
+    await act(async () => {
+      view.finish(undefined);
+      await Promise.resolve();
+    });
+    expect(view.queryByText("Launch was cancelled or refused.")).toBeNull();
+    expect(view.container.querySelectorAll('.terminal-tile[data-empty="false"]')).toHaveLength(0);
+    expect(view.queryByRole("alertdialog")).toBeNull();
+  }
+  expect(view.command).toHaveBeenCalledTimes(3);
+});
+
+test("a main-process late cleanup failure after Close remains visible", async () => {
+  const view = await slowLaunch(true);
+  const tile = view.getByText("Starting on Build box…").closest("[data-tile]");
+  const close = tile?.querySelector<HTMLButtonElement>('button[aria-label="Close"]');
+  if (!close) throw new Error("Missing close control");
+  await act(async () => {
+    fireEvent.click(close);
+    await Promise.resolve();
+  });
+  expect(view.cancel).toHaveBeenCalledOnce();
+  await act(async () => {
+    view.fail(
+      new Error(
+        "Error invoking remote method 'workspace:sidebar-command': Error: foom-error:launch-cancel-incomplete",
+      ),
+    );
+    await Promise.resolve();
+  });
+  expect(view.getByRole("dialog")).toBeTruthy();
+  expect(view.getByRole("alert").textContent).toContain("Terminal may still be running.");
+  expect(view.queryByText("Starting on Build box…")).toBeNull();
+});
+
+test("an accepted sharing warning reserves its tile only when main starts the launch", async () => {
+  const view = await slowLaunch(false, true);
+  expect(view.queryByText("Starting on Local…")).toBeNull();
+  act(() => {
+    view.started();
+    view.started();
+  });
+  expect(view.getAllByText("Starting on Local…")).toHaveLength(1);
+  await act(async () => {
+    view.finish(undefined);
+    await Promise.resolve();
+  });
+  expect(view.getByText("Launch was cancelled or refused.")).toBeTruthy();
+});
+
+test("a normal pre-spawn cancellation rejection does not report a surviving terminal", async () => {
+  const view = await slowLaunch(true);
+  const tile = view.getByText("Starting on Build box…").closest("[data-tile]");
+  const close = tile?.querySelector<HTMLButtonElement>('button[aria-label="Close"]');
+  if (!close) throw new Error("Missing close control");
+  await act(async () => {
+    fireEvent.click(close);
+    view.fail(new Error("foom-error:operation-failed"));
+    await Promise.resolve();
+  });
+  expect(view.queryByText("Terminal may still be running.")).toBeNull();
+  expect(view.queryByText("Unable to cancel launch.")).toBeNull();
+});
+
+test("a declined sharing warning discovered after the UI snapshot removes its temporary tile", async () => {
+  const view = await slowLaunch(false, true, false, false);
+  expect(view.getByText("Starting on Local…")).toBeTruthy();
+  await act(async () => {
+    view.finish(undefined);
+    await Promise.resolve();
+  });
+  expect(view.queryByText("Starting on Local…")).toBeNull();
+  expect(view.queryByText("Launch was cancelled or refused.")).toBeNull();
+  expect(view.container.querySelectorAll('.terminal-tile[data-empty="false"]')).toHaveLength(0);
 });

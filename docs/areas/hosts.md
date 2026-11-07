@@ -8,7 +8,8 @@ the host expands it; canonical absolute observations are required before checkou
 confer no later fleet authority. Host-aware orchestration (#756) uses the same registration and management service.
 
 Each registration may have a profile-only nickname (#1027). Click its title in
-Settings → Hosts to edit; Save name or Enter commits, Cancel or Escape discards,
+Settings → Hosts to edit; expanded editable titles show a pencil, while collapsed
+titles expand the row. Renaming remains available during remote checks; Save name or Enter commits, Cancel or Escape discards,
 and an empty name restores the default unless another host has claimed it as a
 nickname. A refused reset preserves the saved name and profile. Nicknames use 1–40 Unicode letters,
 numbers, spaces, dots, hyphens or underscores, without surrounding whitespace.
@@ -22,7 +23,9 @@ remains visible and copyable on the card.
 chips and tile title bars; board launch options also expose registered host labels. Labels never
 replace registration keys or enter remote requests, SSH, environment, argv or
 agent projections. Rename only updates the local profile and performs no remote
-inspection. Folder changes and canonical expansion preserve nicknames.
+inspection. Check replies preserve a name saved while the check was running.
+Add host accepts an optional nickname with the same validation and inline errors;
+main validates it again and saves it only together with a successful enrollment. Folder changes and canonical expansion preserve nicknames.
 
 `setup:hosts` accepts one closed action from the registered board main frame:
 list, progress, test, add, rename, preflight, create-folder, change-folder, refresh, remove, locations, clone, trust-origin, end or recipe. Main selects enabled agent
@@ -330,7 +333,16 @@ Main selects checked-in recipes from the observed closed distro and the enabled
 bundled catalog. A user Install or Sign in click opens a human-owned visible tile
 on that host. Foreground tile placement waits for the refreshed row before closing Settings. The remote executable verifies a main-supplied SHA-256 digest of the fixed argv sequence before running it, without shell
 source or typing into an existing tile. Multi-step package repository preparation
-stops on the first failure. Prompts and sudo remain in the tile. Recipe processes
+stops on the first failure. Every Debian install starts with fixed
+`/usr/bin/sudo /usr/bin/apt-get update`, including manifest-provided package
+installs. gh refreshes again after enabling its repository. Arch recipes retain
+`pacman -S --noconfirm PACKAGE` and do not refresh package databases. `-Sy` alone
+would create an unsupported partial upgrade
+([Arch guidance](https://wiki.archlinux.org/title/System_maintenance#Partial_upgrades_are_unsupported)),
+so a new image with missing or stale databases may fail until the user updates it.
+DNF install already synchronizes missing or expired metadata
+([DNF metadata synchronization](https://dnf.readthedocs.io/en/stable/command_ref.html#metadata-synchronization)),
+so it needs no separate refresh step. Prompts and sudo remain in the tile. Recipe processes
 receive no terminal ID, orchestration authority or hub credentials. Restarting an exited recipe tile opens an ordinary shell on the same registered host, without replaying the install/sign-in. Recipe sessions
 reserve the daemon mutation slot until exit or completed session removal;
 disconnect does not release it. Removal releases the reservation even when stop
@@ -441,7 +453,8 @@ unreachable replies reconcile through a read-only location/preflight check.
 
 The sidebar projects registration order, bounded agent facts and checked repository
 locations. Location reads share a one-minute on-demand cache, invalidated by
-explicit checks, registration changes and clone mutations; there is no timer. Agent availability never comes from the
+explicit checks, host or repository registration changes and clone mutations; there is no timer.
+Repository names and registration order do not affect the location cache key. Agent availability never comes from the
 hub's installation when launching remotely. Host display labels are presentation
 only and do not replace registration keys.
 

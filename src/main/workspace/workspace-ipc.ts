@@ -520,7 +520,11 @@ export function attachWorkspace(
         )
           .then(async (result) => {
             if (controller?.signal.aborted && result) {
-              await workspace.cancelStartup(result.terminalId);
+              try {
+                await workspace.cancelStartup(result.terminalId);
+              } catch {
+                throw new ApplicationError("launch-cancel-incomplete");
+              }
               return undefined;
             }
             return result;

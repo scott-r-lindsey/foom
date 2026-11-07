@@ -1,3 +1,4 @@
+import { launchNeedsSharingWarning } from "./sidebar-model";
 import { ConfigThemeLauncherContext } from "../preflight/custom-theme-hint";
 import type { TerminalFocusRestoration } from "../terminal/terminal-view-source.d";
 import { restoreBoardFocus, captureTerminalFocusRestoration } from "./focus-restore";
@@ -541,14 +542,19 @@ function BoardContents({
         tail: [],
         startup,
       };
-      setStartingRows((current) => [...current, row]);
-      open(row, false, space ? { tile: space, session: "" } : undefined);
-      if (!leaves(layoutRef.current.tree).some((tile) => sessionId(tile) === id)) {
+      const defer =
+        Boolean(source.cancelSidebarLaunch) &&
+        launchNeedsSharingWarning(source.getSnapshot(), value);
+      const place = () => {
+        setStartingRows((current) => [...current, row]);
+        open(row, false, space ? { tile: space, session: "" } : undefined);
+        if (leaves(layoutRef.current.tree).some((tile) => sessionId(tile) === id)) return true;
         pendingLaunchesRef.current.delete(key);
         startupOperationsRef.current.delete(id);
         setStartingRows((current) => current.filter((entry) => entry.id !== id));
-        return Promise.resolve();
-      }
+        return false;
+      };
+      if (!defer && !place()) return Promise.resolve();
       const failed = (message: string) => {
         pendingLaunchesRef.current.delete(key);
         if (!leaves(layoutRef.current.tree).some((tile) => sessionId(tile) === id)) {
@@ -565,10 +571,20 @@ function BoardContents({
           ),
         );
       };
-      let started = () => {};
+      let launchStarted = !source.cancelSidebarLaunch;
+      let presented = () => {};
       const presentation = new Promise<void>((resolve) => {
-        started = resolve;
+        presented = resolve;
       });
+      const started = () => {
+        if (launchStarted) return;
+        launchStarted = true;
+        if (defer && !place())
+          void source.cancelSidebarLaunch?.(id).catch(() => {
+            setRemoveError("Unable to cancel launch.");
+          });
+        presented();
+      };
       void (
         (source.cancelSidebarLaunch
           ? source.sidebarCommand?.(value, { id, started })
@@ -580,6 +596,14 @@ function BoardContents({
               void source.discardStartup?.(result.terminalId).catch(() => {
                 setRemoveError("Unable to cancel launch.");
               });
+            return;
+          }
+          if (!result && !launchStarted) {
+            pendingLaunchesRef.current.delete(key);
+            startupOperationsRef.current.delete(id);
+            const tile = leaves(layoutRef.current.tree).find((leaf) => sessionId(leaf) === id);
+            if (tile) regularTileAction(tile.id, "hide");
+            setStartingRows((current) => current.filter((entry) => entry.id !== id));
             return;
           }
           const created = result
@@ -611,10 +635,14 @@ function BoardContents({
           );
         })
         .catch((error: unknown) => {
-          if (pendingLaunchesRef.current.get(key) !== id) return;
+          if (pendingLaunchesRef.current.get(key) !== id) {
+            if (applicationErrorCode(error) === "launch-cancel-incomplete")
+              setRemoveError(errorMessage(error));
+            return;
+          }
           failed(errorMessage(error, commandFailures[value.kind]));
         })
-        .finally(started);
+        .finally(presented);
       return presentation;
     }
     const before = new Set(source.getSnapshot().map((row) => row.id));

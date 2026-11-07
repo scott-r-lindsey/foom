@@ -195,18 +195,16 @@ export async function sidebarCommand(
           (command.kind === "launch" || command.kind === "repository-launch") &&
           command.run !== "shell"
         ) {
-          const worktree =
-            command.kind === "launch"
-              ? command.worktree
-              : command.host === null
-                ? command.repository
-                : ([...this.launched.values()].find(
-                    (row) =>
-                      row.repository === command.repository &&
-                      row.placement?.kind === "remote" &&
-                      row.placement.host === command.host &&
-                      row.branch === "Main checkout",
-                  )?.worktree ?? command.repository);
+          let worktree = command.kind === "launch" ? command.worktree : command.repository;
+          if (command.kind === "repository-launch" && command.host !== null) {
+            const hosts = this.deps.hosts;
+            const registered = hosts?.registered(command.host);
+            const target = await hosts?.repositoryTarget?.(command.host, command.repository);
+            const directory = target?.machine?.repository?.directory;
+            if (!registered || !directory) throw new LaunchFailure("remote_worktree_unavailable");
+            const path = `${registered.codeFolder}/${directory}`;
+            worktree = `/foom-remote/${locationId(JSON.stringify([command.host, path]))}`;
+          }
           const active = [...this.launched.values()].find(
             (row) =>
               row.worktree === worktree &&

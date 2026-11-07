@@ -1,3 +1,4 @@
+import { runnerEnvironment } from "../tests/helpers/environment.js";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, statfsSync, writeFileSync } from "node:fs";
@@ -102,7 +103,7 @@ try {
     stdio: "inherit",
     detached: process.platform !== "win32",
     env: {
-      ...process.env,
+      ...runnerEnvironment(),
       TMPDIR: root,
       TMP: root,
       TEMP: root,
