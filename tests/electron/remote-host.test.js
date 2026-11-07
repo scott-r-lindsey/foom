@@ -250,6 +250,32 @@ child.on('close', code => { appendFileSync(${JSON.stringify(sshLog)}, 'fixture s
   const tail = () =>
     page.evaluate(async (id) => (await window.desktop.tail(id, 40)).join("\n"), id);
   await expect.poll(tail).toMatch(/[$#>]\s*$/);
+  // Links from fixture SSH output use the local clipboard and stubbed local browser.
+  const remoteUrl = "https://remote.example.test/oauth?state=fixture";
+  await app.evaluate(({ shell }) => {
+    globalThis.remoteOpenedLinks = [];
+    shell.openExternal = async (url) => {
+      globalThis.remoteOpenedLinks.push(url);
+    };
+  });
+  await page.keyboard.type(
+    String.raw`printf '\033]8;;${remoteUrl}\007Remote sign in\033]8;;\007\n'`,
+  );
+  await page.keyboard.press("Enter");
+  const remoteLink = page.getByRole("link", { name: remoteUrl, exact: true });
+  await expect(remoteLink).toHaveCount(1);
+  const linkBounds = await remoteLink.locator(":scope > span").first().boundingBox();
+  assert.ok(linkBounds);
+  const linkPoint = { x: linkBounds.x + 10, y: linkBounds.y + linkBounds.height / 2 };
+  await page.mouse.click(linkPoint.x, linkPoint.y, { button: "right" });
+  const linkMenu = page.getByRole("menu", { name: "Terminal menu", exact: true });
+  await linkMenu.getByRole("menuitem", { name: "Copy link", exact: true }).click();
+  assert.equal(await app.evaluate(({ clipboard }) => clipboard.readText()), remoteUrl);
+  await page.mouse.click(linkPoint.x, linkPoint.y);
+  const linkConfirmation = await confirmationPage(app);
+  await expect(linkConfirmation.getByRole("heading", { name: "Open this link?" })).toBeVisible();
+  await linkConfirmation.getByRole("button", { name: "Open in browser", exact: true }).click();
+  await expect.poll(() => app.evaluate(() => globalThis.remoteOpenedLinks)).toEqual([remoteUrl]);
   // A shell variable and PID prove process continuity, not merely replayed text.
   await page.keyboard.type(
     'persist=STILL_ALIVE; printf \'REMOTE_READY:%s:%s\\n\' "$persist" "$$"; pwd',

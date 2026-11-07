@@ -132,6 +132,61 @@ scroll events from focus changes or output. There is no helper copy. Escape and 
 to the originating terminal, preserving a newer outside focus choice (#903).
 The [board rules](board.md) own the unchanged directional controls.
 
+## Links in terminal output (#1065)
+
+OSC 8 targets and plain HTTP(S) URLs have the same Open link and Copy link menu
+commands, including from any row of a wrapped link and with no prior pointer
+movement. Copy remains tied to the selection and right-click preserves it. Links remain
+usable in attached output after a normal process exit.
+Only a trusted primary-button gesture or keyboard Enter on a focused link opens;
+right and middle clicks never activate, including after a preceding primary click.
+Mouse-reporting applications retain right-click; Shift opens Foom's menu as above.
+Hover and keyboard focus highlight every visible segment of a link; hover exposes
+the complete target URL. The link overlay never intercepts pointer selection or
+mouse reports. Output parsing alone never opens or copies anything.
+
+OSC 8 uses its complete target even when its label differs or spans rows. Plain
+URLs join only rows xterm marks as soft-wrapped. Hard-newline plain URLs stay
+separate; Foom never guesses that the next row continues a URL. No real Claude
+Code sign-in capture was taken for this issue, so whether that screen uses OSC 8,
+soft wraps or hard wraps remains unknown. OSC 52 clipboard support is separate
+work in #1073.
+
+The renderer's pinned-xterm adapter reads OSC IDs from cells and resolves their
+registered target through xterm 6's OSC service, with runtime shape checks.
+The active extended-attributes flag is checked before reading its OSC ID; reused
+xterm cells retain stale extended values even when that flag is off. It
+never substitutes label text for an unavailable or refused OSC target. Lookup
+is bounded; an incomplete label always requires confirmation. Native xterm OSC
+activation is inert; Foom independently checks the gesture and pointer coordinates.
+Keyboard links precede xterm's input in Tab order and share the same lookup,
+highlighting and activation path. Shift+F10 or the Menu key opens the focused
+link's context menu, including while a program owns mouse reports.
+Headless snapshots retain OSC targets through a synchronous, scoped facade around
+the pinned serializer's buffer-range method. It adds OSC boundaries to printed
+runs without changing cells, widths, SGR or wrapping, restores the open link pen,
+and leaves no wrapper installed after success or failure. Refused targets stay
+opaque on replay. Added link text has a 4,194,304 UTF-16-unit budget before the ordinary
+replay size check; excess history falls back to the visible screen, while an
+oversized visible screen refuses rather than allocating without a bound.
+
+Main revalidates the registered board main frame, owned attached terminal ID,
+URL type, length (at most 16,384 UTF-16 units), URL parse, HTTP(S) scheme and
+hostname length (at most 255 characters, keeping the host disclosure bounded). Control,
+whitespace and bidi presentation characters refuse. Copy uses main's clipboard
+write path and preserves the exact target. Open uses Electron's browser opener,
+never a shell command. Both capabilities are local; neither is exposed to the
+remote host or agent control tools. The window-open, navigation and CSP policies
+remain unchanged.
+
+A full, case-sensitive label/target equality skips confirmation. Soft-wrapped
+labels join for this comparison; hard newlines, concealed text and incomplete labels cannot count
+as a match. All other opens use the owning board's trusted Foom confirmation,
+showing the parsed host separately and the full wrapped, scrollable URL. Cancel
+is focused by default. Only one open request per board can be pending. Detachment,
+view replacement or renderer loss cancels a pending request; main rechecks the
+attachment lease after approval before opening.
+
 ## Image paste (#937)
 
 Keyboard paste and context-menu Paste capture the clipboard only on that explicit

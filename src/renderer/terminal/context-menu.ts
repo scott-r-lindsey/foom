@@ -15,6 +15,7 @@ export function terminalContextMenu(
     paste?: () => Promise<void>;
   } = window.desktop,
   platform = navigator.platform,
+  linkAt?: (event: MouseEvent) => TerminalContextMenu["link"],
 ) {
   const owns = (event: MouseEvent) =>
     (event.button === 2 || (platform.startsWith("Mac") && event.button === 0 && event.ctrlKey)) &&
@@ -55,15 +56,18 @@ export function terminalContextMenu(
       selectAll: run(() => {
         terminal.selectAll();
       }),
+      ...(linkAt ? { link: linkAt(event) } : {}),
       clear: run(() => {
         terminal.clear();
       }),
     });
   };
   container.addEventListener("mousedown", down, true);
+  container.addEventListener("mouseup", down, true);
   container.addEventListener("contextmenu", context, true);
   return () => {
     container.removeEventListener("mousedown", down, true);
+    container.removeEventListener("mouseup", down, true);
     container.removeEventListener("contextmenu", context, true);
   };
 }

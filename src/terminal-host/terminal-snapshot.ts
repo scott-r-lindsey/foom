@@ -1,3 +1,4 @@
+import { withSnapshotLinks, snapshotLinkPen, SnapshotLinkBudget } from "./snapshot-links";
 import type { IBuffer, Terminal } from "@xterm/headless";
 import type { SerializeAddon } from "@xterm/addon-serialize";
 
@@ -124,7 +125,8 @@ function blankBackground(screen: Terminal, buffer: IBuffer): string {
 
 /** Called at the host parser barrier, before any subsequent live output. */
 function snapshot(screen: Terminal, serialize: SerializeAddon, scrollback?: number): string {
-  const cursor = cursorSnapshot(screen);
+  const cursorState = cursorSnapshot(screen);
+  const cursor = snapshotLinkPen(screen) + cursorState;
   const options = scrollback === undefined ? {} : { scrollback };
   const serialized = serialize.serialize(options);
   const normalBackground = scrollback === 0 ? blankBackground(screen, screen.buffer.normal) : "";
@@ -159,7 +161,14 @@ export function terminalSnapshot(
 ): string {
   let scrollback: number | undefined;
   for (;;) {
-    const data = snapshot(screen, serialize, scrollback);
+    let data: string;
+    try {
+      data = withSnapshotLinks(screen, serialize, () => snapshot(screen, serialize, scrollback));
+    } catch (error) {
+      if (!(error instanceof SnapshotLinkBudget) || scrollback === 0) throw error;
+      scrollback = 0;
+      continue;
+    }
     if (!fits || fits(data)) return data;
     if (scrollback === 0) throw new Error("Visible terminal exceeds snapshot budget");
     // One fallback bounds reserialization work and preserves both visible buffers.

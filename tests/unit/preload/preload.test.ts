@@ -1835,3 +1835,23 @@ test("worktree replies validate and preserve the optional persisted-removal fail
   mock.invoke.mockResolvedValue(trees.map((tree) => ({ ...tree, removalFailed: "true" })));
   await expect(api.worktrees("/repo")).rejects.toThrow();
 });
+
+test("terminal link bridge exposes only ID-scoped void open and copy capabilities", async () => {
+  const api = await bridge();
+  mock.invoke.mockResolvedValue({ unexpected: "private main data" });
+  await expect(api.copyTerminalLink("one", "https://example.com/Case")).resolves.toBeUndefined();
+  expect(mock.invoke).toHaveBeenLastCalledWith(
+    "terminal:copy-link",
+    "one",
+    "https://example.com/Case",
+  );
+  await expect(
+    api.openTerminalLink("one", "https://example.com/", "Login"),
+  ).resolves.toBeUndefined();
+  expect(mock.invoke).toHaveBeenLastCalledWith(
+    "terminal:open-link",
+    "one",
+    "https://example.com/",
+    "Login",
+  );
+});

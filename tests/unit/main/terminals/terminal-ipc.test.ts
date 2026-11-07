@@ -1,3 +1,4 @@
+import type { DialogContent } from "../../../../src/shared/confirmation";
 import type { ChildInput } from "../../../../src/shared/child-input";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { Terminal } from "@xterm/headless";
@@ -23,6 +24,7 @@ const mock = vi.hoisted(() => ({
   spawn: vi.fn(),
   clipboard: { writeText: vi.fn() },
   readPaste: vi.fn(),
+  shell: { openExternal: vi.fn().mockResolvedValue(undefined) },
   normalize: vi.fn(),
   imagePut: vi.fn(),
   imageClose: vi.fn(),
@@ -44,7 +46,12 @@ vi.mock("../../../../src/main/terminals/image-files", () => ({
     }
   },
 }));
-vi.mock("electron", () => ({ app: mock.app, ipcMain: mock, clipboard: mock.clipboard }));
+vi.mock("electron", () => ({
+  app: mock.app,
+  ipcMain: mock,
+  clipboard: mock.clipboard,
+  shell: mock.shell,
+}));
 vi.mock("node-pty", () => ({ spawn: mock.spawn }));
 vi.mock("../../../../src/main/terminals/terminal-host-client", async () => {
   const { TerminalManager } = await import("../../../../src/terminal-host/terminal-manager");
@@ -1672,4 +1679,99 @@ test("queued paste preserves each gesture's text snapshot and bounds the FIFO", 
   expect(await Promise.all(rest)).toEqual(
     Array.from({ length: 15 }, (_, n) => ({ kind: "text", text: String(n + 1) })),
   );
+});
+
+test("terminal link capabilities revalidate sender, attachment, URL and label; copy is exact", async () => {
+  const id = await create();
+  for (const operation of ["open-link", "copy-link"]) {
+    await expect(invoke(operation, [id, "https://example.com"])).rejects.toThrow("unattached");
+  }
+  await invoke("attach", [id]);
+  for (const operation of ["open-link", "copy-link"]) {
+    await expect(
+      invoke(operation, [id, "https://example.com"], { ...event, senderFrame: null }),
+    ).rejects.toThrow("Untrusted");
+    await expect(invoke(operation, ["foreign", "https://example.com"])).rejects.toThrow(
+      "unattached",
+    );
+    for (const value of [
+      null,
+      "file:///etc/passwd",
+      "javascript:alert(1)",
+      "https://x.test/\n",
+      "https://x.test/" + "a".repeat(16384),
+    ])
+      await expect(invoke(operation, [id, value])).rejects.toThrow("Invalid terminal link");
+    await expect(invoke(operation, [id, "https://example.com", 42])).rejects.toThrow("text");
+    await expect(invoke(operation, [id, "https://example.com", "x".repeat(16385)])).rejects.toThrow(
+      "text",
+    );
+  }
+  const url = "https://example.com/?case=Case%2f" + "x".repeat(2100);
+  await invoke("copy-link", [id, url]);
+  expect(mock.clipboard.writeText).toHaveBeenCalledExactlyOnceWith(url);
+  await invoke("open-link", [id, url]);
+  expect(mock.shell.openExternal).not.toHaveBeenCalled();
+  await invoke("open-link", [id, url, url]);
+  expect(mock.shell.openExternal).toHaveBeenCalledExactlyOnceWith(url);
+});
+
+test("mismatched terminal links confirm on their owning board and recheck the attachment lease", async () => {
+  const id = await create();
+  await invoke("attach", [id]);
+  const confirm = vi
+    .fn<(content: DialogContent, signal: AbortSignal) => Promise<boolean>>()
+    .mockResolvedValue(false);
+  expect(() => {
+    terminalControl.setLinkConfirmation({} as WebContents, confirm);
+  }).toThrow("Unknown terminal window");
+  terminalControl.setLinkConfirmation(contents as unknown as WebContents, confirm);
+  const url = "https://trusted.test@actual.test/" + "x".repeat(2100);
+  await invoke("open-link", [id, url, "Login"]);
+  expect(confirm.mock.calls[0]?.[0]).toMatchObject({
+    subject: "actual.test",
+    facts: [
+      { label: "Host", value: "actual.test" },
+      { label: "URL", value: url },
+    ],
+  });
+  expect(mock.shell.openExternal).not.toHaveBeenCalled();
+  confirm.mockResolvedValue(true);
+  await invoke("open-link", [id, url, "Login"]);
+  expect(mock.shell.openExternal).toHaveBeenCalledExactlyOnceWith(url);
+  mock.shell.openExternal.mockClear();
+  const pending = Promise.withResolvers<boolean>();
+  confirm.mockReturnValue(pending.promise);
+  const opening = invoke("open-link", [id, url, "Login"]);
+  await invoke("open-link", [id, url, url]);
+  expect(mock.shell.openExternal).not.toHaveBeenCalled();
+  const signal = confirm.mock.calls.at(-1)?.[1];
+  await invoke("detach", [id]);
+  expect(signal?.aborted).toBe(true);
+  pending.resolve(true);
+  await opening;
+  expect(mock.shell.openExternal).not.toHaveBeenCalled();
+});
+
+test("normal exit keeps link gestures available on the attached output while paste stays cancelled", async () => {
+  const id = await create();
+  await invoke("attach", [id]);
+  pty().emitExit();
+  await vi.waitFor(() => {
+    expect(contents.send).toHaveBeenCalledWith("terminal:exit", id, 0);
+  });
+  const url = "https://example.test/exited";
+  await invoke("open-link", [id, url, url]);
+  expect(mock.shell.openExternal).toHaveBeenCalledExactlyOnceWith(url);
+  expect(await invoke("paste", [id])).toEqual({ kind: "cancelled" });
+});
+
+test("browser failures report fixed text and release the pending link without exposing the target", async () => {
+  const id = await create();
+  await invoke("attach", [id]);
+  const url = "https://example.test/?private=fixture";
+  mock.shell.openExternal.mockRejectedValueOnce(new Error(url));
+  await expect(invoke("open-link", [id, url, url])).rejects.toThrow("Unable to open terminal link");
+  await invoke("open-link", [id, url, url]);
+  expect(mock.shell.openExternal).toHaveBeenCalledTimes(2);
 });

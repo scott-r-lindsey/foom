@@ -2032,3 +2032,30 @@ button.failure-mark {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* Keyboard links and pointer hover share every visible segment, even across wraps.
+   Pointer events stay with xterm so selections and mouse-reporting applications work. */
+.terminal-links,
+.terminal-link {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.terminal-links {
+  z-index: 5;
+}
+.terminal-link {
+  outline: none;
+}
+.terminal-link > span {
+  position: absolute;
+}
+.terminal-link.hovered > span,
+.terminal-link:focus-visible > span {
+  border-bottom: 1px solid var(--terminal-foreground);
+  background: color-mix(in srgb, var(--highlight) 12%, transparent);
+}
+.terminal-link:focus-visible > span {
+  outline: 1px solid var(--highlight);
+  outline-offset: -1px;
+}
