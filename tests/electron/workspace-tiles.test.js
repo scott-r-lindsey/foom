@@ -1329,6 +1329,7 @@ test("small tile splits refuse visibly in both menus and keyboard commands", asy
         exact: true,
       });
       await expect(button).toHaveAttribute("aria-disabled", "true");
+      await page.mouse.move(1450, 850);
       await button.focus();
       await expect(button).toBeFocused();
       await expect(button).toHaveAccessibleDescription(/Too narrow to split/);
@@ -1338,14 +1339,29 @@ test("small tile splits refuse visibly in both menus and keyboard commands", asy
           button.evaluate((button) => {
             const tip = document.getElementById(button.getAttribute("aria-describedby"));
             const body = tip?.closest(".panel-body");
-            if (!tip || !body) return false;
+            const pad = button.closest(".direction-pad");
+            const label = pad?.querySelector(".pad-label");
+            const shape = button.querySelector("polygon");
+            const controls = body?.querySelectorAll(".pad-grid button");
+            if (!tip || !body || !label || !shape || !controls) return false;
             const reason = tip.getBoundingClientRect(),
               bounds = body.getBoundingClientRect();
             return (
               reason.x >= bounds.x &&
               reason.right <= bounds.right &&
               reason.y >= bounds.y &&
-              reason.bottom <= bounds.bottom
+              reason.bottom <= bounds.bottom &&
+              [...controls].every((control) => {
+                const rect = control.getBoundingClientRect();
+                return (
+                  reason.right <= rect.x ||
+                  reason.x >= rect.right ||
+                  reason.bottom <= rect.y ||
+                  reason.y >= rect.bottom
+                );
+              }) &&
+              getComputedStyle(tip).backgroundColor === getComputedStyle(shape).fill &&
+              getComputedStyle(tip).color === getComputedStyle(label).color
             );
           }),
         )
@@ -1353,7 +1369,7 @@ test("small tile splits refuse visibly in both menus and keyboard commands", asy
       await button.click({ force: true });
       await expect(tiles).toHaveCount(count);
     }
-    await page.screenshot({ path: evidencePath(`tiles-1069-refused-${base}.png`) });
+    await page.screenshot({ path: evidencePath(`tiles-1069-review-refused-${base}.png`) });
   }
   await page.keyboard.press("Escape");
   await page.evaluate(() => window.desktop.appMenu.execute("split-right"));

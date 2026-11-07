@@ -73,6 +73,10 @@ divider. Each shows its divider icon above a centered label on two lines (Split 
 horizontal or vertical). Splits below the measured floor report “Too narrow to split” or “Too short to split”.
 Keyboard splits show the same reason in the neutral board status message without changing layout.
 Edge drops show the reason in their drop preview and preserve the source and destination.
+An occupied drop can borrow room from neighboring tiles during repair. Moving visible
+content from the sidebar empties its origin before that check, so it fits whenever
+the corresponding title-bar move fits. A drop onto its own tile is a no-op without
+a refusal. Refusal text uses neutral menu tokens below the pads, clear of their controls.
 Grow only expands geometry and needs no size refusal. Depth and leaf limits are unchanged: refused buttons stay
 focusable, dimmed and dashed, with a reason on hover/focus. New shell here (using the
 existing home-shell directory) and Close space (giving its area to its sibling)

@@ -78,8 +78,11 @@ are never interpreted. Drop-time inventory and tree lookups reject stale origins
 and targets. Main publishes opaque tokens for drags from another registered Foom
 board; the destination never reads DataTransfer contents. Cross-window placement
 stages the same tile geometry before main transfers ownership (see [windows](windows.md#cross-window-moves-950)). Preview sidebar rows are local drag origins too.
-Edge drops obey the same measured size, depth and leaf limits as ordinary splits;
-the drop preview displays the refusal reason and leaves the original tree intact. Whole-leaf swaps and moves preserve the
+Edge drops obey the same measured floor, depth and leaf limits as ordinary splits.
+They repair the complete occupied candidate before checking its floor, so neighboring
+tiles may lend room. Visible sidebar origins are emptied before repair, giving the
+same feasibility as title-bar moves; dropping onto the origin is a no-op without a
+refusal. The drop preview displays a refusal reason and leaves the original tree intact. Whole-leaf swaps and moves preserve the
 keyed controllers and their terminal attachments.
 
 `terminal-view-source.ts` creates passive controllers (no process launch) through

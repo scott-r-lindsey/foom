@@ -66,19 +66,20 @@ beforeEach(() => {
 });
 test("only fixed argv execute, in order, with terminal stdio and no shell or IDs", async () => {
   expect(await runHostRecipe(["git", "install", "debian"], "/fixture/home")).toBe(0);
-  expect(mock.spawn).toHaveBeenCalledExactlyOnceWith(
-    "/usr/bin/sudo",
-    ["/usr/bin/apt-get", "install", "-y", "git"],
-    {
-      cwd: "/fixture/home",
-      env: { PATH: "/fixture:/usr/local/bin" },
-      shell: false,
-      stdio: "inherit",
-    },
-  );
+  expect(mock.spawn.mock.calls.map((call: readonly unknown[]) => call.slice(0, 2))).toEqual([
+    ["/usr/bin/sudo", ["/usr/bin/apt-get", "update"]],
+    ["/usr/bin/sudo", ["/usr/bin/apt-get", "install", "-y", "git"]],
+  ]);
+  expect(mock.spawn).toHaveBeenNthCalledWith(1, "/usr/bin/sudo", ["/usr/bin/apt-get", "update"], {
+    cwd: "/fixture/home",
+    env: { PATH: "/fixture:/usr/local/bin" },
+    shell: false,
+    stdio: "inherit",
+  });
   mock.spawn.mockClear();
   expect(await runHostRecipe(["gh", "install", "debian"], "/fixture/home")).toBe(0);
   expect(mock.spawn.mock.calls.map((call: readonly unknown[]) => call.slice(0, 2))).toEqual([
+    ["/usr/bin/sudo", ["/usr/bin/apt-get", "update"]],
     ["/usr/bin/sudo", ["/usr/bin/apt-get", "install", "-y", "extrepo"]],
     ["/usr/bin/sudo", ["/usr/bin/extrepo", "enable", "github-cli"]],
     ["/usr/bin/sudo", ["/usr/bin/apt-get", "update"]],
@@ -145,6 +146,11 @@ test.each([7, null, "error"])(
       outcome === 7 ? 7 : 1,
     );
     expect(mock.spawn).toHaveBeenCalledTimes(1);
+    expect(mock.spawn).toHaveBeenCalledWith(
+      "/usr/bin/sudo",
+      ["/usr/bin/apt-get", "update"],
+      expect.any(Object),
+    );
   },
 );
 
