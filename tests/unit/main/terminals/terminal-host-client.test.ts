@@ -5,6 +5,7 @@ import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { HostRequest } from "../../../../src/shared/terminal-host";
 const mock = vi.hoisted(() => ({
+  lagMax: 0,
   recordExit: vi.fn(),
   recordTimeout: vi.fn(),
   recordNearMiss: vi.fn(),
@@ -28,10 +29,14 @@ vi.mock("node:perf_hooks", async (original) => ({
   ...(await original<typeof PerfHooks>()),
   monitorEventLoopDelay: () => ({
     count: 0,
-    max: 0,
+    get max() {
+      return mock.lagMax;
+    },
     mean: 0,
     enable: () => {},
-    reset: () => {},
+    reset: () => {
+      mock.lagMax = 0;
+    },
     disable: () => {},
   }),
 }));
@@ -81,6 +86,7 @@ const exited = vi.fn();
 beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
+  mock.lagMax = 0;
   vi.spyOn(performance, "now").mockImplementation(() => Date.now());
   vi.spyOn(process, "threadCpuUsage").mockReturnValue({ user: 0, system: 0 });
   appEvents.removeAllListeners();
@@ -959,6 +965,23 @@ test("self exit snapshots and unavailable memory are contained", async () => {
     expect.objectContaining({
       cause: "host-exit",
       snapshot: { liveTerminals: 1, hostMemoryKB: null, lastMessageAgeMs: 0, mainLagMs: 0 },
+    }),
+  );
+});
+
+test("snapshot measures recent main delay and tolerates a host missing from process metrics", async () => {
+  const id = await create();
+  mock.lagMax = 900e6;
+  child.emit("message", { type: "output", id });
+  mock.lagMax = 140e6;
+  mock.app.getAppMetrics.mockReturnValueOnce([]);
+  await vi.advanceTimersByTimeAsync(250);
+  child.emit("exit", 9);
+  expect(mock.recordExit).toHaveBeenLastCalledWith(
+    "/fixture/profile",
+    expect.objectContaining({
+      cause: "host-exit",
+      snapshot: { liveTerminals: 1, hostMemoryKB: null, lastMessageAgeMs: 250, mainLagMs: 120 },
     }),
   );
 });

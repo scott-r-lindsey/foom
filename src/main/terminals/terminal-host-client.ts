@@ -166,8 +166,8 @@ export class TerminalHostClient {
       // Electron may already have removed a crashed process from its metrics.
       try {
         hostMemoryKB =
-          app.getAppMetrics().find((metric) => metric.pid === child.pid)?.memory.workingSetSize ??
-          null;
+          app.getAppMetrics().find((metric) => metric.pid === (diagnostics.pid ?? child.pid))
+            ?.memory.workingSetSize ?? null;
       } catch {
         /* Diagnostics must never obstruct terminal recovery. */
       }

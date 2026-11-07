@@ -234,3 +234,48 @@ test("near-miss reserve is bounded independently, sanitized and retained on rest
   expect(JSON.parse(nearMiss)).toMatchObject({ probeElapsedMs: 5049 });
   expect(raw).not.toContain("PRIVATE_CONTENT");
 });
+
+test("version-two migration strips extra snapshot fields and rejects nonnumeric metadata", async () => {
+  const profile = await mkdtemp(join(tmpdir(), "foom-v2-host-log-"));
+  const directory = join(profile, "terminal-host-diagnostics");
+  await mkdir(directory, { mode: 0o700 });
+  const path = join(directory, "exits.json");
+  await writeFile(
+    path,
+    JSON.stringify({
+      version: 2,
+      timeouts: [],
+      exits: [
+        JSON.stringify({
+          ...diagnostic,
+          cause: ["watchdog-kill"],
+          snapshot: {
+            liveTerminals: "PRIVATE_CONTENT",
+            hostMemoryKB: -1,
+            lastMessageAgeMs: 1.5,
+            mainLagMs: null,
+            extra: "PRIVATE_CONTENT",
+          },
+        }),
+      ],
+    }),
+    { mode: 0o600 },
+  );
+  initializeHostLog(profile);
+  recordHostNearMiss(profile, {
+    kind: "late-reply",
+    replyLatencyMs: -1,
+    probeElapsedMs: 1.5,
+    lateCycles: NaN,
+    mainLagMs: Infinity,
+  });
+  await flushHostExits();
+  const raw = await readFile(path, "utf8");
+  expect(raw).not.toContain("PRIVATE_CONTENT");
+  expect(raw).not.toContain("watchdog-kill");
+  expect(JSON.parse(raw)).toMatchObject({
+    version: 3,
+    exits: [expect.stringContaining('"liveTerminals":null')],
+    nearMisses: [expect.stringContaining('"replyLatencyMs":null')],
+  });
+});

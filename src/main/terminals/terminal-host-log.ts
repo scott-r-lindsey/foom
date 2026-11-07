@@ -42,9 +42,11 @@ function safeExit(line: string): string {
     throw new Error("Invalid host diagnostics");
   const gone = value["gone"];
   return JSON.stringify({
-    cause: ["watchdog-kill", "foom-kill", "host-exit"].includes(String(value["cause"]))
-      ? value["cause"]
-      : undefined,
+    cause:
+      typeof value["cause"] === "string" &&
+      ["watchdog-kill", "foom-kill", "host-exit"].includes(value["cause"])
+        ? value["cause"]
+        : undefined,
     snapshot: safeSnapshot(value["snapshot"]),
     time: value["time"],
     reason: value["reason"],
@@ -70,7 +72,11 @@ function safeSnapshot(value: unknown): unknown {
 }
 function safeNearMiss(line: string): string {
   const value: unknown = JSON.parse(line);
-  if (!object(value) || !["late-reply", "late-drain", "late-turn"].includes(String(value["kind"])))
+  if (
+    !object(value) ||
+    typeof value["kind"] !== "string" ||
+    !["late-reply", "late-drain", "late-turn"].includes(value["kind"])
+  )
     throw new Error("Invalid host diagnostics");
   return JSON.stringify({
     time: value["time"],
