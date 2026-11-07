@@ -767,6 +767,15 @@ function dropOrigin(tree: TileNode, drag: TileDrag | undefined): TileLeaf | unde
   );
 }
 
+/** A local drop onto its content's current tile does nothing, from either handle. */
+export function isDropOnOrigin(
+  layout: TileLayout,
+  drag: TileDrag | undefined,
+  target: string,
+): boolean {
+  return dropOrigin(layout.tree, drag)?.id === target;
+}
+
 /** An edge drop is occupied before repair; neighboring tiles may lend it room. */
 function edgeDrop(
   layout: TileLayout,
@@ -813,11 +822,20 @@ function edgeDrop(
     zone === "left" || zone === "up" ? swapTiles(placed, moving.id, target) : placed;
   const next = fitLayout(positioned, metrics);
   if (validMetrics(metrics)) {
-    for (const { rect } of rectangles(next.tree, { x: 0, y: 0, ...metrics }).tiles) {
+    const before = new Map(
+      rectangles(layout.tree, { x: 0, y: 0, ...metrics }).tiles.map(({ tile, rect }) => [
+        tile.id,
+        rect,
+      ]),
+    );
+    for (const { tile, rect } of rectangles(next.tree, { x: 0, y: 0, ...metrics }).tiles) {
+      // A shrunken board may already have undersized occupied tiles. Only new
+      // shortages or worsening an existing shortage can block this operation.
+      const previous = before.get(tile.id === moving.id && origin ? origin.id : tile.id);
       const refusal = tileSizeReason(
         rect,
-        Math.min(metrics.minWidth, metrics.width),
-        Math.min(metrics.minHeight, metrics.height),
+        Math.min(metrics.minWidth, metrics.width, previous?.width ?? Infinity),
+        Math.min(metrics.minHeight, metrics.height, previous?.height ?? Infinity),
       );
       if (refusal) return { layout, reason: refusal };
     }

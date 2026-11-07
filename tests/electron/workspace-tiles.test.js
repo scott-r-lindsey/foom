@@ -377,19 +377,38 @@ test("tile drag drops replace, split every edge, swap and move without reattachm
   const tiles = page.locator(".terminal-tile");
   const drag = async (source, target, x, y, cancel = false) => {
     const before = await saved();
+    const targetId = await target.getAttribute("data-tile");
+    const sourceId = await source.getAttribute("data-drag-session");
+    const sourceTile = await source.evaluate(
+      (element) => element.closest("[data-tile]")?.dataset.tile,
+    );
+    const find = (node) =>
+      node.kind === "tile"
+        ? node.id === targetId
+          ? node
+          : undefined
+        : (find(node.first) ?? find(node.second));
+    const noop =
+      sourceTile === targetId ||
+      (sourceId && find(JSON.parse(before).tree)?.content?.session === sourceId);
     const from = await source.boundingBox(),
       to = await target.boundingBox();
     assert.ok(from && to);
     await page.mouse.move(from.x + 10, from.y + from.height / 2);
     await page.mouse.down();
     await page.mouse.move(to.x + to.width * x, to.y + to.height * y, { steps: 12 });
-    await expect(page.locator(".tile-drop-preview")).toBeVisible();
-    await expect(page.locator(".tile-drop-preview")).toHaveCSS("border-top-style", "dashed");
-    const theme = await page
-      .locator("html")
-      .evaluate((element) => getComputedStyle(element).colorScheme);
-    await page.screenshot({ path: evidencePath(`foom-133-preview-${theme}.png`) });
-    await expect(page.locator('.tile-area > [role="status"]')).toContainText("Escape cancels");
+    if (noop) {
+      await expect(page.locator(".tile-drop-preview")).toHaveCount(0);
+      await expect(page.locator('.tile-area > [role="status"]')).toHaveText("");
+    } else {
+      await expect(page.locator(".tile-drop-preview")).toBeVisible();
+      await expect(page.locator(".tile-drop-preview")).toHaveCSS("border-top-style", "dashed");
+      const theme = await page
+        .locator("html")
+        .evaluate((element) => getComputedStyle(element).colorScheme);
+      await page.screenshot({ path: evidencePath(`foom-133-preview-${theme}.png`) });
+      await expect(page.locator('.tile-area > [role="status"]')).toContainText("Escape cancels");
+    }
     if (cancel) await page.keyboard.press("Escape");
     await page.mouse.up();
     await expect(page.locator(".tile-drop-preview")).toHaveCount(0);
@@ -415,6 +434,30 @@ test("tile drag drops replace, split every edge, swap and move without reattachm
   };
   for (const theme of ["light", "dark"]) {
     await page.emulateMedia({ colorScheme: theme, reducedMotion: "reduce" });
+    for (const source of [rows.nth(0), tiles.locator(".tile-title").first()]) {
+      const beforeSelf = await saved();
+      const target = page.locator('.terminal-tile[data-empty="false"]').first();
+      const from = await source.boundingBox(),
+        to = await target.boundingBox();
+      assert.ok(from && to);
+      await page.evaluate(() => {
+        window.selfDropEffect = null;
+        window.selfDropListener = (event) => {
+          window.selfDropEffect = event.dataTransfer.dropEffect;
+        };
+        document.addEventListener("dragover", window.selfDropListener);
+      });
+      await page.mouse.move(from.x + 10, from.y + from.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(to.x + to.width * 0.95, to.y + to.height / 2, { steps: 12 });
+      await expect.poll(() => page.evaluate(() => window.selfDropEffect)).toBe("none");
+      await expect(page.locator(".tile-drop-preview")).toHaveCount(0);
+      await expect(page.locator('.tile-area > [role="status"]')).toHaveText("");
+      await page.screenshot({ path: evidencePath(`tiles-1069-round2-self-${theme}.png`) });
+      await page.mouse.up();
+      await page.evaluate(() => document.removeEventListener("dragover", window.selfDropListener));
+      assert.equal(await saved(), beforeSelf);
+    }
     await page.getByRole("button", { name: "Tile 1 menu" }).click();
     await page.getByRole("menuitem", { name: "Split terminal left", exact: true }).click();
     await page.getByRole("button", { name: "Tile 1 menu" }).click();

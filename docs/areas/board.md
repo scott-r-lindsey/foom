@@ -80,10 +80,12 @@ board; the destination never reads DataTransfer contents. Cross-window placement
 stages the same tile geometry before main transfers ownership (see [windows](windows.md#cross-window-moves-950)). Preview sidebar rows are local drag origins too.
 Edge drops obey the same measured floor, depth and leaf limits as ordinary splits.
 They repair the complete occupied candidate before checking its floor, so neighboring
-tiles may lend room. Visible sidebar origins are emptied before repair, giving the
-same feasibility as title-bar moves; dropping onto the origin is a no-op without a
-refusal. The drop preview displays a refusal reason and leaves the original tree intact. Whole-leaf swaps and moves preserve the
-keyed controllers and their terminal attachments.
+tiles may lend room. A pre-existing below-floor tile blocks only if the drop makes
+that dimension smaller; new below-floor tiles still refuse. Visible sidebar origins
+are emptied before repair, giving the same feasibility as title-bar moves; dropping onto the origin is a no-op without a
+refusal, split preview or split announcement, and uses the no-drop effect. The drop
+preview displays a refusal reason and leaves the original tree intact. Whole-leaf
+swaps and moves preserve the keyed controllers and their terminal attachments.
 
 `terminal-view-source.ts` creates passive controllers (no process launch) through
 the board source. Workspace subscriptions belong to `BoardSource.connect`, not an

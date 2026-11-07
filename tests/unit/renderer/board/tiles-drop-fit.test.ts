@@ -6,6 +6,7 @@ import {
   fitLayout,
   leaves,
   rectangles,
+  splitReason,
 } from "../../../../src/renderer/board/tiles";
 import type {
   TileContent,
@@ -140,4 +141,77 @@ test("visible sidebar origins share title-bar resource limits", () => {
     expect(dropReason(start, drag, "a", "down")).toBeUndefined();
     expect(leaves(dropTile(start, drag, "a", "down").tree)).toHaveLength(65);
   }
+});
+
+const stack = (count: number, axis: TileSplit["direction"]): TileNode => {
+  let tree: TileNode = pane("stack-0");
+  for (let i = 1; i < count; i++) tree = pair(tree, pane(`stack-${String(i)}`), axis, i / (i + 1));
+  return tree;
+};
+
+test.each(["vertical", "horizontal"] as const)(
+  "edge drops tolerate an unchanged undersized %s stack and agree with the menu",
+  (axis) => {
+    const metrics = axis === "vertical" ? size : { ...size, width: 900, height: 1200 };
+    const zone = axis === "vertical" ? "right" : "down";
+    const start = board(
+      pair(stack(11, axis), pane("a"), axis === "vertical" ? "horizontal" : "vertical", 0.5),
+    );
+    const drag = { kind: "session", id: "s" } as const;
+    expect(
+      splitReason(start, axis === "vertical" ? "horizontal" : "vertical", metrics),
+    ).toBeUndefined();
+    expect(dropReason(start, drag, "a", zone, metrics)).toBeUndefined();
+    const next = dropTile(start, drag, "a", zone, metrics);
+    expect(next).not.toBe(start);
+    expect(leaves(next.tree).filter((t) => t.content)).toHaveLength(13);
+    expect(
+      leaves(next.tree)
+        .map((t) => t.content)
+        .filter(Boolean),
+    ).toEqual(expect.arrayContaining(leaves(start.tree).map((t) => t.content)));
+    expect(dimensions(next, metrics).find((t) => t.id === "a")?.width).toBeGreaterThanOrEqual(
+      metrics.minWidth,
+    );
+    expect(dimensions(next, metrics).find((t) => t.id === "a")?.height).toBeGreaterThanOrEqual(
+      metrics.minHeight,
+    );
+    const before = dimensions(start, metrics);
+    for (const rect of dimensions(next, metrics).filter((t) => t.id.startsWith("stack-"))) {
+      const previous = before.find((t) => t.id === rect.id);
+      expect(rect.width).toBeCloseTo(previous?.width ?? 0);
+      expect(rect.height).toBeCloseTo(previous?.height ?? 0);
+    }
+  },
+);
+
+test("moving out of a twelve-stack may improve existing below-floor tiles", () => {
+  const start = board(pair(stack(12, "vertical"), pane("a"), "horizontal", 0.5));
+  for (const kind of ["tile", "session"] as const) {
+    const drag = { kind, id: "stack-0" };
+    expect(dropReason(start, drag, "a", "right", size)).toBeUndefined();
+    const next = dropTile(start, drag, "a", "right", size);
+    expect(leaves(next.tree).filter((t) => t.content)).toHaveLength(13);
+    expect(
+      dimensions(next)
+        .filter((t) => t.id.startsWith("stack-") && t.id !== "stack-0")
+        .every((t) => t.height > 75),
+    ).toBe(true);
+  }
+});
+
+test("a new height shortage names height despite unrelated narrow columns and refuses atomically", () => {
+  const start = board(pair(stack(11, "horizontal"), pane("a"), "vertical", 0.5));
+  const drag = { kind: "session", id: "s" } as const;
+  const metrics = { ...size, width: 900, height: 160 };
+  expect(dropReason(start, drag, "a", "down", metrics)).toBe("Too short to split");
+  expect(dropTile(start, drag, "a", "down", metrics)).toBe(start);
+  expect(start.focused).toBe("a");
+});
+
+test("a drop cannot worsen a pre-existing shortage", () => {
+  const start = board(pair(stack(11, "vertical"), pane("a"), "horizontal", 0.5));
+  const drag = { kind: "session", id: "s" } as const;
+  expect(dropReason(start, drag, "stack-0", "down", size)).toBe("Too short to split");
+  expect(dropTile(start, drag, "stack-0", "down", size)).toBe(start);
 });

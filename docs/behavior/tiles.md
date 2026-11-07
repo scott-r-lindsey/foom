@@ -76,14 +76,17 @@ Edge drops show the reason in their drop preview and preserve the source and des
 An occupied drop can borrow room from neighboring tiles during repair. Moving visible
 content from the sidebar empties its origin before that check, so it fits whenever
 the corresponding title-bar move fits. A drop onto its own tile is a no-op without
-a refusal. Refusal text uses neutral menu tokens below the pads, clear of their controls.
+a refusal, split preview or split announcement, and has no drop effect.
+An existing below-floor dimension caused by a smaller window may stay unchanged
+or grow, but cannot shrink further. New tiles must meet the floor.
+Refusal text uses neutral menu tokens below the pads, clear of their controls.
 Grow only expands geometry and needs no size refusal. Depth and leaf limits are unchanged: refused buttons stay
 focusable, dimmed and dashed, with a reason on hover/focus. New shell here (using the
 existing home-shell directory) and Close space (giving its area to its sibling)
 follow. Tab visits the two buttons, then the commands. Escape, outside clicks and
 Tab past the menu boundary dismiss it. While a tile
 or sidebar row is dragged over the board, a dashed, labelled drop preview marks
-the target; leaving the board, ending the drag or cancelling clears it. Sidebar placement
+the target, except for self-drops; leaving the board, ending the drag or cancelling clears it. Sidebar placement
 fills it and focuses the terminal; dropping onto any empty space fills that space.
 Focus uses the highlight border and brighter occupied title bar; Needs you uses an
 amber border that takes precedence and a labelled, haloed light.

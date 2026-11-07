@@ -24,6 +24,7 @@ import {
   evenSplitRun,
   dropTile,
   dropReason,
+  isDropOnOrigin,
   dropZone,
   terminals,
   ratioLimits,
@@ -163,6 +164,7 @@ export function TileArea({
   }>();
   const preview =
     lastPreview?.drag === drag && lastPreview?.token === foreign ? lastPreview : undefined;
+  const noop = preview && isDropOnOrigin(layout, drag, preview.tile);
   const geometry = rectangles(layout.tree);
   const refusal = preview && dropReason(layout, drag, preview.tile, preview.zone, measure?.());
   const placing =
@@ -204,15 +206,11 @@ export function TileArea({
         const target = targetAt(event);
         if (!target) return;
         event.preventDefault();
-        event.dataTransfer.dropEffect = dropReason(
-          layout,
-          drag,
-          target.tile,
-          target.zone,
-          measure?.(),
-        )
-          ? "none"
-          : "move";
+        event.dataTransfer.dropEffect =
+          isDropOnOrigin(layout, drag, target.tile) ||
+          dropReason(layout, drag, target.tile, target.zone, measure?.())
+            ? "none"
+            : "move";
         setLastPreview(target);
       }}
       onDragLeave={(event) => {
@@ -239,15 +237,17 @@ export function TileArea({
       }}
     >
       <span className="visually-hidden" role="status">
-        {drag || foreign
-          ? refusal
+        {noop
+          ? ""
+          : drag || foreign
             ? refusal
-            : preview
-              ? `Drop ${preview.zone === "center" ? (placing ? "to place here" : drag?.kind === "tile" ? "to swap" : "to replace session") : `to split ${preview.zone}`} on tile ${String(geometry.tiles.findIndex(({ tile }) => tile.id === preview.tile) + 1)}. Escape cancels.`
-              : "Drag to a tile center to replace or swap, or an edge to split. Escape cancels."
-          : ""}
+              ? refusal
+              : preview
+                ? `Drop ${preview.zone === "center" ? (placing ? "to place here" : drag?.kind === "tile" ? "to swap" : "to replace session") : `to split ${preview.zone}`} on tile ${String(geometry.tiles.findIndex(({ tile }) => tile.id === preview.tile) + 1)}. Escape cancels.`
+                : "Drag to a tile center to replace or swap, or an edge to split. Escape cancels."
+            : ""}
       </span>
-      {(drag || foreign) && preview && (
+      {(drag || foreign) && preview && !noop && (
         <div
           className="tile-drop-preview"
           data-zone={preview.zone}

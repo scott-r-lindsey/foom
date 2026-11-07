@@ -386,3 +386,35 @@ test("startup tracing waits for the board document and skips cancelled or failed
     assert.equal(contents.listenerCount("render-process-gone"), 0);
   }
 });
+
+test("app fixtures isolate inherited Foom variables and retain explicit overrides", async (context) => {
+  const names = [
+    "FOOM_REMOTE_HELPER",
+    "FOOM_REMOTE_SOCKET",
+    "FOOM_CONTROL_TOKEN",
+    "FOOM_FUTURE_SESSION_VARIABLE",
+  ];
+  const before = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+  context.after(() => {
+    for (const name of names) {
+      if (before[name] === undefined) delete process.env[name];
+      else process.env[name] = before[name];
+    }
+  });
+  for (const name of names) process.env[name] = "inherited-session";
+  const app = await launchApp(context, {
+    fixture: "empty-board",
+    env: { FOOM_FIXTURE_OVERRIDE: "explicit-fixture" },
+  });
+  const launched = fixtureCleanup(context).launches.get(app).env;
+  const actual = Object.fromEntries(
+    [...names, "FOOM_FIXTURE_OVERRIDE"].map((name) => [name, launched[name] ?? null]),
+  );
+  assert.deepEqual(actual, {
+    FOOM_REMOTE_HELPER: null,
+    FOOM_REMOTE_SOCKET: null,
+    FOOM_CONTROL_TOKEN: null,
+    FOOM_FUTURE_SESSION_VARIABLE: null,
+    FOOM_FIXTURE_OVERRIDE: "explicit-fixture",
+  });
+});
