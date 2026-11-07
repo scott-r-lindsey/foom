@@ -309,9 +309,10 @@ Each host is a compact name, OS, status and chevron row. It opens by default onl
 when it needs attention. Expanding exposes its controls and checklist. Repositories
 collapse to a count of ready ones and show only problems until expanded. Add host
 stays enabled during loading and checks and is disabled only while an add runs.
-Checking one host never disables another host's actions.
+Checking one host never disables another host's actions. Expanded host names show
+a pencil and can be renamed even while a check runs; collapsed names expand the row.
 
-Add host takes an SSH alias or user@host and a code folder (default `~/foom`),
+Add host takes an SSH alias or user@host, an optional nickname, and a code folder (default `~/foom`),
 then runs one full checklist. An incomplete host stays enrolled. Host, Tools,
 Agents, each repository and macOS Power rows retain their independent results;
 unrun checks say Not checked. While checking, a throbber and current step identify

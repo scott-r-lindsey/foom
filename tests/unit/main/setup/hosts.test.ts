@@ -1731,3 +1731,81 @@ test("malformed saved requirements are rejected on reload without remote reads",
     await fixture.dispose();
   }
 });
+
+test.each(["preflight", "refresh", "change-folder", "create-folder"] as const)(
+  "rename saves while %s is pending and survives its reply",
+  async (action) => {
+    settings.registeredHosts = [{ host: "worker", codeFolder: "~/code" }];
+    let finish: ((result: HostResult) => void) | undefined;
+    run.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const check = hosts.action({
+      action,
+      host: "worker",
+      ...(action === "preflight" || action === "change-folder" ? { codeFolder: "~/code" } : {}),
+    });
+    await vi.waitFor(() => {
+      expect(finish).toBeDefined();
+    });
+    await hosts.action({ action: "rename", host: "worker", nickname: "During check" });
+    expect(settings.registeredHosts[0]?.nickname).toBe("During check");
+    finish?.({ ok: true, facts });
+    const reply = await check;
+    expect(reply.hosts[0]?.nickname).toBe("During check");
+    expect(settings.registeredHosts[0]?.nickname).toBe("During check");
+  },
+);
+
+test("enrollment validates optional nicknames and saves them only with enrollment", async () => {
+  await hosts.action({ action: "add", host: "worker", codeFolder: "~/code", nickname: "" });
+  expect(settings.registeredHosts?.[0]?.nickname).toBeUndefined();
+  await hosts.action({
+    action: "add",
+    host: "second",
+    codeFolder: "~/code",
+    nickname: "Build box",
+  });
+  expect(settings.registeredHosts?.[1]?.nickname).toBe("Build box");
+  const calls = run.mock.calls.length;
+  await expect(
+    hosts.action({ action: "add", host: "third", codeFolder: "~/code", nickname: "BUILD BOX" }),
+  ).rejects.toThrow("Name already used");
+  await expect(
+    hosts.action({ action: "add", host: "third", codeFolder: "~/code", nickname: " bad " }),
+  ).rejects.toThrow("Invalid host action");
+  expect(run).toHaveBeenCalledTimes(calls);
+  run.mockResolvedValueOnce({ ok: false, reason: "invalid-reply" });
+  await hosts.action({ action: "add", host: "third", codeFolder: "~/code", nickname: "Third" });
+  expect(settings.registeredHosts).toHaveLength(2);
+});
+
+test("enrollment revalidates a nickname claimed during inspection and preserves concurrent renames", async () => {
+  settings.registeredHosts = [{ host: "worker", codeFolder: "~/code" }];
+  let finish: ((result: HostResult) => void) | undefined;
+  run.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const add = hosts.action({
+    action: "add",
+    host: "second",
+    codeFolder: "~/code",
+    nickname: "Claimed",
+  });
+  const rejected = expect(add).rejects.toThrow("Name already used");
+  await vi.waitFor(() => {
+    expect(finish).toBeDefined();
+  });
+  await hosts.action({ action: "rename", host: "worker", nickname: "Claimed" });
+  finish?.({ ok: true, facts });
+  await rejected;
+  expect(settings.registeredHosts).toEqual([
+    { host: "worker", codeFolder: "~/code", nickname: "Claimed" },
+  ]);
+});

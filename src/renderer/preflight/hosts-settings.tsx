@@ -403,12 +403,10 @@ function Checklist({
 }
 function HostName({
   entry,
-  disabled,
   hosts,
   save,
 }: {
   entry: HostRow;
-  disabled: boolean;
   hosts: readonly HostRow[];
   save: (nickname: string) => Promise<void>;
 }) {
@@ -422,7 +420,6 @@ function HostName({
       <h3>
         <button
           type="button"
-          disabled={disabled}
           className="host-name"
           aria-label={`Rename ${hostDisplayName(entry)}`}
           onClick={() => {
@@ -432,6 +429,16 @@ function HostName({
           }}
         >
           {hostDisplayName(entry)}
+          <svg
+            className="host-name-pencil"
+            viewBox="0 0 16 16"
+            aria-hidden="true"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.25"
+          >
+            <path d="m10.5 2.5 3 3-8 8-4 1 1-4zM9 4l3 3" />
+          </svg>
         </button>
       </h3>
     );
@@ -470,19 +477,19 @@ function HostName({
         aria-label="Host nickname"
         placeholder={hostDisplayName({ host: entry.host })}
         value={name}
-        disabled={disabled || saving}
+        disabled={saving}
         aria-invalid={!!error || !!failure}
         onChange={(event) => {
           setName(event.target.value);
           setFailure("");
         }}
       />
-      <button type="submit" disabled={disabled || !!error || saving}>
+      <button type="submit" disabled={!!error || saving}>
         Save name
       </button>
       <button
         type="button"
-        disabled={disabled || saving}
+        disabled={saving}
         onClick={() => {
           setEditing(false);
         }}
@@ -511,6 +518,9 @@ export function HostsSettings({
   const [adding, setAdding] = useState(false);
   const [host, setHost] = useState("");
   const [folder, setFolder] = useState("~/foom");
+  const [nickname, setNickname] = useState("");
+  const nicknameError = hostNicknameError(state.hosts, host.trim(), nickname);
+  const renamedRef = useRef(new Map<string, { nickname: string }>());
   const [changing, setChanging] = useState<{ host: string; folder: string }>();
   const [busy, setBusy] = useState<ReadonlySet<string>>(() => new Set());
   const [addBusy, setAddBusy] = useState(false);
@@ -521,12 +531,20 @@ export function HostsSettings({
   const [progress, setProgress] = useState<HostCheckProgress>();
   const changedRef = useRef(false);
   const [expanded, setExpanded] = useState<ReadonlyMap<string, boolean>>(() => new Map());
-  const applyState = (next: HostsState, host: string) => {
+  const applyState = (next: HostsState, host: string, startedRename?: { nickname: string }) => {
     setState((previous) => ({
       ...next,
       hosts: [
         ...previous.hosts.filter((entry) => entry.host !== host),
-        ...next.hosts.filter((entry) => entry.host === host),
+        ...next.hosts
+          .filter((entry) => entry.host === host)
+          .map((entry) => {
+            const rename = renamedRef.current.get(entry.host);
+            if (rename === undefined || rename === startedRename) return entry;
+            const registration = { ...entry };
+            delete registration.nickname;
+            return rename.nickname ? { ...registration, nickname: rename.nickname } : registration;
+          }),
       ].sort((a, b) => {
         const order = [...previous.hosts.map((entry) => entry.host), host];
         return order.indexOf(a.host) - order.indexOf(b.host);
@@ -607,6 +625,7 @@ export function HostsSettings({
     changedRef.current = true;
     if ("host" in action) setExpanded((previous) => new Map(previous).set(action.host, true));
     const target = "host" in action ? action.host : "";
+    const startedRename = renamedRef.current.get(target);
     setBusy((previous) => new Set(previous).add(target));
     let enrolling = action.action === "add";
     if (enrolling) setAddBusy(true);
@@ -623,7 +642,7 @@ export function HostsSettings({
         enrolling = false;
       }
       if (!next) return;
-      applyState(next, target);
+      applyState(next, target, startedRename);
       if (action.action === "preflight" && next.preflight) {
         const preflight = next.preflight;
         setChecks((previous) => new Map(previous).set(action.host, preflight));
@@ -633,6 +652,7 @@ export function HostsSettings({
         setAdding(false);
         setHost("");
         setFolder("~/foom");
+        setNickname("");
       } else if (action.action === "add" && next.result && !next.result.ok)
         setError(reasons[next.result.reason]);
       if (action.action === "change-folder") setChanging(undefined);
@@ -657,7 +677,7 @@ export function HostsSettings({
         if (entry) {
           next = await runCheck(entry.host, entry.codeFolder);
           if (next) {
-            applyState(next, target);
+            applyState(next, target, startedRename);
             const observed = next.preflight;
             const preflight =
               observed &&
@@ -722,7 +742,13 @@ export function HostsSettings({
           className="host-card host-add"
           onSubmit={(event) => {
             event.preventDefault();
-            void act({ action: "add", host: host.trim(), codeFolder: folder });
+            if (nicknameError || addBusy) return;
+            void act({
+              action: "add",
+              host: host.trim(),
+              codeFolder: folder,
+              ...(nickname ? { nickname } : {}),
+            });
           }}
         >
           <h3>Add host</h3>
@@ -738,6 +764,16 @@ export function HostsSettings({
               />
             </label>
             <label>
+              Nickname (optional)
+              <input
+                value={nickname}
+                aria-invalid={!!nicknameError}
+                onChange={(event) => {
+                  setNickname(event.target.value);
+                }}
+              />
+            </label>
+            <label>
               Code folder
               <input
                 value={folder}
@@ -746,9 +782,14 @@ export function HostsSettings({
                 }}
               />
             </label>
-            <button type="submit" disabled={!host.trim()}>
+            <button type="submit" disabled={!host.trim() || !!nicknameError}>
               Add host
             </button>
+            {nicknameError && (
+              <span role="alert" className="hosts-failure host-notice">
+                {nicknameError}
+              </span>
+            )}
             <span className="host-notice">Host key trusted outside Foom</span>
           </fieldset>
           <button
@@ -800,12 +841,13 @@ export function HostsSettings({
                 <div className="host-title">
                   <HostName
                     entry={entry}
-                    disabled={busy.has(entry.host)}
                     hosts={state.hosts}
                     save={async (nickname) => {
                       const next = await api?.({ action: "rename", host: entry.host, nickname });
                       if (!next) throw new Error("Rename unavailable");
-                      applyState(next, entry.host);
+                      const rename = { nickname };
+                      renamedRef.current.set(entry.host, rename);
+                      applyState(next, entry.host, rename);
                     }}
                   />
                   <span className="host-count">{os}</span>
