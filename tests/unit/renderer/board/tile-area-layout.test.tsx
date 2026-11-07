@@ -207,8 +207,12 @@ test.each(["full", "focused empty", "first empty"] as const)(
     }
     await act(async () => {});
     source.sidebarCommand = vi.fn(async (command: SidebarCommand) => {
-      if (command.kind === "launch") data.update("check", { id: "launched" });
-      await Promise.resolve();
+      if (command.kind === "launch") {
+        data.update("check", { id: "launched" });
+        await Promise.resolve();
+        return { terminalId: "launched" };
+      }
+      return undefined;
     });
     fireEvent.click(screen.getByRole("button", { name: "Actions for fix/session-restore" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Shell" }));

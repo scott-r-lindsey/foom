@@ -4,6 +4,7 @@ import { locationId } from "../control/metadata";
 import { LaunchFailure } from "../../shared/launch-failure";
 import { copyableErrorText, ApplicationError } from "../../shared/application-errors";
 import { gitOrigin } from "../../shared/registered-hosts";
+import type { SidebarStartup } from "./workspace-types";
 import type { SidebarCommandResult } from "../../shared/workspace";
 import { randomUUID } from "node:crypto";
 import { basename, isAbsolute } from "node:path";
@@ -179,9 +180,90 @@ export async function sidebarCommand(
   confirm: ConfirmWorkspace,
   validateClose?: () => void,
   closeSignal?: AbortSignal,
+  startup?: SidebarStartup,
+  heldReservation?: string,
 ): Promise<SidebarCommandResult> {
   validateClose?.();
   if (this.closed) throw new Error("Workspace is closed");
+  if (startup) {
+    const begin = async () => {
+      let reservation: string | undefined;
+      try {
+        startup.signal.throwIfAborted();
+        let sharedAcknowledged = false;
+        if (
+          (command.kind === "launch" || command.kind === "repository-launch") &&
+          command.run !== "shell"
+        ) {
+          const worktree =
+            command.kind === "launch"
+              ? command.worktree
+              : command.host === null
+                ? command.repository
+                : ([...this.launched.values()].find(
+                    (row) =>
+                      row.repository === command.repository &&
+                      row.placement?.kind === "remote" &&
+                      row.placement.host === command.host &&
+                      row.branch === "Main checkout",
+                  )?.worktree ?? command.repository);
+          const active = [...this.launched.values()].find(
+            (row) =>
+              row.worktree === worktree &&
+              row.kind === "agent" &&
+              this.executionOwner.view(row.id).exitCode === undefined,
+          );
+          if (active) {
+            let key: string;
+            if (active.placement?.kind === "remote" && active.branch === "Main checkout")
+              key = `remote-main\0${worktree}`;
+            else if (this.orchestration.worktreeHost(worktree) !== undefined)
+              key = `${command.repository}\0:remote:${worktree}`;
+            else {
+              const tree = (await this.worktrees(command.repository)).find(
+                (entry) => entry.path === worktree,
+              );
+              if (!tree) throw new Error("Worktree was removed. Choose another checkout.");
+              key = `${command.repository}\0${tree.branch ?? ""}`;
+            }
+            if (this.busyWorktrees.has(key)) throw new Error("This worktree is busy");
+            this.busyWorktrees.add(key);
+            reservation = key;
+          }
+          startup.signal.throwIfAborted();
+          if (
+            !(await this.confirmAgentLaunch(worktree, async (request) => {
+              const accepted = await confirm(request);
+              if (accepted && request.kind === "shared-agent") sharedAcknowledged = true;
+              return accepted;
+            }))
+          )
+            return;
+        }
+        startup.signal.throwIfAborted();
+        startup.started();
+        return await sidebarCommand.call(
+          this,
+          command,
+          async (request) => {
+            startup.signal.throwIfAborted();
+            // A newly discovered sharing requirement needs a fresh gesture.
+            return request.kind === "shared-agent" ? sharedAcknowledged : confirm(request);
+          },
+          () => {
+            startup.signal.throwIfAborted();
+          },
+          startup.signal,
+          undefined,
+          reservation,
+        );
+      } finally {
+        if (reservation !== undefined) this.busyWorktrees.delete(reservation);
+      }
+    };
+    return "repository" in command ? this.withRepository(command.repository, begin) : begin();
+  }
+
   if (command.kind === "copy-error-text") {
     const value = Object.hasOwn(copyableErrorText, command.error)
       ? copyableErrorText[command.error]
@@ -205,6 +287,14 @@ export async function sidebarCommand(
         command.repository,
         command.run,
         confirm,
+        undefined,
+        undefined,
+        false,
+        undefined,
+        undefined,
+        validateClose,
+        closeSignal,
+        heldReservation,
       );
       return id ? { terminalId: id } : undefined;
     }
@@ -216,14 +306,30 @@ export async function sidebarCommand(
       location,
       undefined,
       confirm,
+      validateClose,
+      closeSignal,
+      heldReservation,
     );
     return id ? { terminalId: id } : undefined;
   }
   if (command.kind === "machine-launch") {
-    const id = await this.startMachine(command.host, command.run);
+    const id = await this.startMachine(
+      command.host,
+      command.run,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      validateClose,
+      closeSignal,
+      heldReservation,
+    );
     return id ? { terminalId: id } : undefined;
   }
-  if (command.kind === "home-shell") return { terminalId: await this.startHomeShell() };
+  if (command.kind === "home-shell")
+    return {
+      terminalId: await this.startHomeShell(undefined, undefined, validateClose, closeSignal),
+    };
   if (command.kind === "config-launch") {
     await this.startConfig(command.run);
     return;
@@ -572,7 +678,7 @@ export async function sidebarCommand(
         !this.orchestration.view(row.id),
     );
     if (human?.placement?.kind === "remote" && human.branch === "Main checkout") {
-      await this.startMachine(
+      const id = await this.startMachine(
         human.placement.host,
         command.run,
         undefined,
@@ -583,11 +689,27 @@ export async function sidebarCommand(
         },
         undefined,
         confirm,
+        validateClose,
+        closeSignal,
+        heldReservation,
       );
-      return;
+      return id ? { terminalId: id } : undefined;
     }
-    await this.startExisting(command.repository, command.worktree, command.run, confirm);
-    return;
+    const id = await this.startExisting(
+      command.repository,
+      command.worktree,
+      command.run,
+      confirm,
+      undefined,
+      undefined,
+      false,
+      undefined,
+      undefined,
+      validateClose,
+      closeSignal,
+      heldReservation,
+    );
+    return id ? { terminalId: id } : undefined;
   }
   const tree = (await this.worktrees(command.repository)).find(
     (item) => item.path === command.worktree,

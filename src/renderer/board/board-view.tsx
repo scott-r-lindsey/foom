@@ -7,6 +7,7 @@ import {
   useEffect,
   useEffectEvent,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -52,7 +53,7 @@ import {
   terminals,
   TILE_STORAGE,
 } from "./tiles";
-import type { TileDrag } from "./tiles.d";
+import type { TileAction, TileDrag } from "./tiles.d";
 import { useBoardCommands } from "./use-board-commands";
 import { useBoardOptions } from "./use-board-options";
 import { useBoardTiles } from "./use-board-tiles";
@@ -161,7 +162,25 @@ function BoardContents({
   const boardShown = boardOpen && !logOpen && !settingsView;
   const settingsOpen = Boolean(settingsView) || logOpen || boardShown;
   const paneInactive = inactive || settingsOpen;
-  const rows = useSyncExternalStore(source.subscribe, source.getSnapshot);
+  const liveRows = useSyncExternalStore(source.subscribe, source.getSnapshot);
+  const [startingRows, setStartingRows] = useState<BoardRow[]>([]);
+  const pendingLaunchesRef = useRef(new Map<string, string>());
+  const startupOperationsRef = useRef(
+    new Map<string, { operation: string; terminalId?: string }>(),
+  );
+  const rows = useMemo(() => {
+    const pending = new Set(startingRows.map((row) => row.id));
+    return startingRows.length
+      ? [
+          ...liveRows.filter((row) => !pending.has(row.id)),
+          ...startingRows.map((row) =>
+            row.startup?.pending === false
+              ? { ...(liveRows.find((entry) => entry.id === row.id) ?? row), startup: row.startup }
+              : row,
+          ),
+        ]
+      : liveRows;
+  }, [liveRows, startingRows]);
   const previews = source.previews?.getSnapshot() ?? emptyPreviews;
   const [arrivals, setArrivals] = useState<ReadonlySet<string>>(() => new Set());
   const acknowledgePreview = (id: string) => {
@@ -186,7 +205,7 @@ function BoardContents({
     setFocusRequest,
     changeLayout,
     placementOptions,
-    tileAction,
+    tileAction: regularTileAction,
   } = useBoardTiles({
     source,
     soundSetup,
@@ -196,6 +215,28 @@ function BoardContents({
     setArrivals,
     setRemoveError,
   });
+  const tileAction = (tile: string, action: Exclude<TileAction, "popout" | "new-shell">) => {
+    const session = sessionId(leaves(layoutRef.current.tree).find((leaf) => leaf.id === tile));
+    const startup = session ? startupOperationsRef.current.get(session) : undefined;
+    if (startup && (action === "close" || action === "hide")) {
+      const id = startup.terminalId ?? startup.operation;
+      startupOperationsRef.current.delete(id);
+      for (const [key, value] of pendingLaunchesRef.current)
+        if (value === startup.operation) pendingLaunchesRef.current.delete(key);
+      const cancelling = startup.terminalId
+        ? source.discardStartup?.(startup.terminalId)
+        : source.cancelSidebarLaunch?.(startup.operation);
+      void cancelling?.catch(() => {
+        setRemoveError("Unable to cancel launch.");
+      });
+      setStartingRows((current) =>
+        current.filter((row) => row.id !== id && row.id !== startup.operation),
+      );
+      regularTileAction(tile, "hide");
+      return;
+    }
+    regularTileAction(tile, action);
+  };
   const [preferencesStore] = useState(() => createPreferencesStore(localStorage, window));
   const sharedPreferences = useSyncExternalStore(
     preferencesStore.subscribe,
@@ -241,7 +282,8 @@ function BoardContents({
   const terminalRef = useRef<HTMLElement>(null);
   const focusedSession = sessionId(leaves(layout.tree).find((tile) => tile.id === layout.focused));
   const focusedRow = rows.find((row) => row.id === focusedSession);
-  const displayedId = focusedRow?.kind === "sample" ? undefined : focusedRow?.id;
+  const displayedId =
+    focusedRow?.kind === "sample" || focusedRow?.startup ? undefined : focusedRow?.id;
   const [audioEnabled, setAudioEnabled] = useState(() => !source.windows?.audio);
   const sharedSoundFocusRef = useRef<string | undefined>(undefined);
   const soundControllerRef = useRef<ReturnType<typeof createSoundController>>(undefined);
@@ -390,7 +432,7 @@ function BoardContents({
           background ? { ...next, focused: current.focused, maximized: current.maximized } : next,
           background,
         );
-        if (background) return;
+        if (background || row.startup) return;
         setFocusRequest((value) => value + 1);
         setSelection(row.id);
         revealRef.current?.(row);
@@ -399,7 +441,7 @@ function BoardContents({
         onCloseSettings?.();
         source.markSeen(row.id);
       };
-      if (source.windows && !background) {
+      if (source.windows && !background && !row.startup) {
         void source.windows
           .select(row.id)
           .then((selected) => {
@@ -437,6 +479,145 @@ function BoardContents({
     actionOriginRef.current = captureErrorFocus();
     setRemoveError("");
     setPrune(undefined);
+    if (
+      value.kind === "launch" ||
+      value.kind === "machine-launch" ||
+      value.kind === "repository-launch" ||
+      value.kind === "home-shell"
+    ) {
+      const key = JSON.stringify([value, space ?? null]);
+      if (pendingLaunchesRef.current.has(key)) return Promise.resolve();
+      const id = `launch_${crypto.randomUUID()}`;
+      pendingLaunchesRef.current.set(key, id);
+      startupOperationsRef.current.set(id, { operation: id });
+      const previous =
+        value.kind === "launch"
+          ? source
+              .getSnapshot()
+              .find(
+                (row) =>
+                  rowRepository(row) === value.repository &&
+                  rowWorktree(row) === value.worktree &&
+                  row.placement?.kind === "remote" &&
+                  !row.orchestration,
+              )
+          : undefined;
+      const host =
+        "host" in value
+          ? value.host
+          : value.kind === "launch"
+            ? (source
+                .getSidebar?.()
+                .flatMap((repo) => repo.worktrees)
+                .find((tree) => tree.path === value.worktree)?.host ??
+              (previous?.placement?.kind === "remote" ? previous.placement.host : null))
+            : null;
+      const machine = source.getMachines?.().find((entry) => entry.host === host);
+      const run = "run" in value ? value.run : "shell";
+      const startup = {
+        label: `Starting on ${machine?.name ?? (host || "Local")}…`,
+        remote: host !== null,
+        since: Date.now(),
+      };
+      const row: BoardRow = {
+        id,
+        kind: run === "shell" ? "shell" : "agent",
+        agent: run,
+        repository: "repository" in value ? value.repository : (machine?.name ?? "Local"),
+        branch: value.kind === "launch" ? value.worktree : "Home",
+        ...("repository" in value
+          ? {
+              repositoryPath: value.repository,
+              worktree: value.kind === "launch" ? value.worktree : value.repository,
+            }
+          : { home: true, machine: true }),
+        ...(host ? { placement: { kind: "remote", host } } : {}),
+        state: "working",
+        reason: "Starting…",
+        rate: 0,
+        waitingSince: 0,
+        seen: false,
+        tail: [],
+        startup,
+      };
+      setStartingRows((current) => [...current, row]);
+      open(row, false, space ? { tile: space, session: "" } : undefined);
+      if (!leaves(layoutRef.current.tree).some((tile) => sessionId(tile) === id)) {
+        pendingLaunchesRef.current.delete(key);
+        startupOperationsRef.current.delete(id);
+        setStartingRows((current) => current.filter((entry) => entry.id !== id));
+        return Promise.resolve();
+      }
+      const failed = (message: string) => {
+        pendingLaunchesRef.current.delete(key);
+        if (!leaves(layoutRef.current.tree).some((tile) => sessionId(tile) === id)) {
+          startupOperationsRef.current.delete(id);
+          setStartingRows((current) => current.filter((row) => row.id !== id));
+          setRemoveError(message);
+          return;
+        }
+        setStartingRows((current) =>
+          current.map((row) =>
+            row.id === id
+              ? { ...row, state: "failed", exited: true, startup: { ...startup, error: message } }
+              : row,
+          ),
+        );
+      };
+      let started = () => {};
+      const presentation = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+      void (
+        (source.cancelSidebarLaunch
+          ? source.sidebarCommand?.(value, { id, started })
+          : source.sidebarCommand?.(value)) ?? Promise.resolve()
+      )
+        .then((result) => {
+          if (pendingLaunchesRef.current.get(key) !== id) {
+            if (result)
+              void source.discardStartup?.(result.terminalId).catch(() => {
+                setRemoveError("Unable to cancel launch.");
+              });
+            return;
+          }
+          const created = result
+            ? source.getSnapshot().find((entry) => entry.id === result.terminalId)
+            : undefined;
+          if (!created) {
+            failed("Launch was cancelled or refused.");
+            return;
+          }
+          const current = layoutRef.current;
+          const tile = leaves(current.tree).find((leaf) => sessionId(leaf) === id);
+          startupOperationsRef.current.delete(id);
+          if (!tile) {
+            pendingLaunchesRef.current.delete(key);
+            setStartingRows((current) => current.filter((row) => row.id !== id));
+            return;
+          }
+          startupOperationsRef.current.set(created.id, { operation: id, terminalId: created.id });
+          const next = placeSession({ ...current, focused: tile.id }, created.id, true);
+          if (next)
+            changeLayout({ ...next, focused: current.focused, maximized: current.maximized });
+          if (current.focused === tile.id) {
+            setSelection(created.id);
+            setFocusRequest((value) => value + 1);
+            source.markSeen(created.id);
+          }
+          setStartingRows((current) =>
+            current.map((entry) =>
+              entry.id === id ? { ...created, startup: { ...startup, pending: false } } : entry,
+            ),
+          );
+        })
+        .catch((error: unknown) => {
+          if (pendingLaunchesRef.current.get(key) !== id) return;
+          failed(errorMessage(error, commandFailures[value.kind]));
+        })
+        .finally(started);
+      return presentation;
+    }
     const before = new Set(source.getSnapshot().map((row) => row.id));
     const original =
       value.kind === "restart"
@@ -448,27 +629,19 @@ function BoardContents({
         ? { tile: original.id, session: sessionId(original) ?? "" }
         : undefined;
     return (source.sidebarCommand?.(value) ?? Promise.resolve())
-      .then((result) => {
+      .then(() => {
         if (value.kind === "resume" || value.kind === "new-conversation") {
           const resumed = source.getSnapshot().find((row) => row.id === value.id && !row.exited);
           if (resumed) open(resumed, true);
         }
         if (
-          value.kind === "launch" ||
           value.kind === "resume-id" ||
           value.kind === "restart" ||
-          value.kind === "home-shell" ||
-          value.kind === "machine-launch" ||
-          value.kind === "repository-launch" ||
           value.kind === "config-launch"
         ) {
           const created = source
             .getSnapshot()
-            .find((row) =>
-              value.kind === "home-shell" || value.kind === "machine-launch"
-                ? row.id === result?.terminalId
-                : !before.has(row.id) && (value.kind !== "config-launch" || row.config),
-            );
+            .find((row) => !before.has(row.id) && (value.kind !== "config-launch" || row.config));
           if (created) {
             open(created, false, destination);
             const name = value.kind === "restart" ? preferences.names[value.id] : undefined;
@@ -709,7 +882,7 @@ function BoardContents({
           revealRef={revealRef}
           {...(onSettings ? { openSettings: onSettings } : {})}
           inactive={inactive}
-          rows={rows}
+          rows={liveRows}
           preferences={preferences}
           save={save}
           selected={selected}
@@ -797,6 +970,13 @@ function BoardContents({
                 setFocusRequest((value) => value + 1);
             }}
             rows={rows}
+            startupReady={(id) => {
+              const operation = startupOperationsRef.current.get(id)?.operation;
+              startupOperationsRef.current.delete(id);
+              for (const [key, value] of pendingLaunchesRef.current)
+                if (value === operation) pendingLaunchesRef.current.delete(key);
+              setStartingRows((current) => current.filter((row) => row.id !== id));
+            }}
             previews={previews}
             arrivals={arrivals}
             acknowledgePreview={acknowledgePreview}

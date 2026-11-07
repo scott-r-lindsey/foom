@@ -301,6 +301,14 @@ export function useSidebar(props: SidebarProps) {
     return actions.map((action) => ({
       ...action,
       ...(host ? { disabled: !machine?.available } : {}),
+      dismissBeforeRun:
+        action.run === "shell" ||
+        !rows.some(
+          (row) =>
+            row.kind === "agent" &&
+            !row.exited &&
+            rowWorktree(row) === (location.worktree ?? location.repository),
+        ),
       run: () => {
         return command({
           kind: "launch",

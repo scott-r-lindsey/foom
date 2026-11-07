@@ -716,3 +716,34 @@ test("machine inventory changes preserve the focused terminal DOM and never reop
     expect(mock.hide).toHaveBeenCalledTimes(hidden);
   }
 });
+
+test("launch presentation follows only its operation and releases its listener after inventory refresh", async () => {
+  const source = createAppSource();
+  let notify: (id: string) => void = () => {};
+  const off = vi.fn();
+  window.desktop.onSidebarLaunchStarted = (listener) => {
+    notify = listener;
+    return off;
+  };
+  const cancel = vi.fn(() => Promise.resolve());
+  window.desktop.cancelSidebarLaunch = cancel;
+  const result = Promise.withResolvers<{ terminalId: string }>();
+  mock.sidebarCommand.mockReturnValueOnce(result.promise);
+  const started = vi.fn();
+  const pending = source.sidebarCommand?.(
+    { kind: "machine-launch", host: "worker", run: "shell" },
+    { id: "launch_one", started },
+  );
+  notify("launch_other");
+  expect(started).not.toHaveBeenCalled();
+  notify("launch_one");
+  expect(started).toHaveBeenCalledOnce();
+  expect(off).not.toHaveBeenCalled();
+  result.resolve({ terminalId: "created" });
+  await expect(pending).resolves.toEqual({ terminalId: "created" });
+  expect(off).toHaveBeenCalledOnce();
+  await source.cancelSidebarLaunch?.("launch_one");
+  expect(cancel).toHaveBeenCalledWith("launch_one");
+  await source.discardStartup?.("created");
+  expect(mock.kill).toHaveBeenCalledWith("created");
+});

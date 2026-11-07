@@ -293,6 +293,7 @@ export function SpaceMenu({
         null,
         {
           label: "New shell here",
+          dismissBeforeRun: true,
           run: () => {
             run("new-shell");
           },

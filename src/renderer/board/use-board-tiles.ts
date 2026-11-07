@@ -371,7 +371,10 @@ export function useBoardTiles({
     if (movePendingRef.current || !source.windows || (source.isReady && !source.isReady())) return;
     const current = layout;
     const ids = leaves(current.tree).flatMap((tile) =>
-      sessionId(tile) && rows.some((row) => row.id === sessionId(tile))
+      sessionId(tile) &&
+      rows.some(
+        (row) => row.id === sessionId(tile) && (!row.startup || row.startup.pending === false),
+      )
         ? [sessionId(tile) ?? ""]
         : [],
     );
@@ -389,7 +392,12 @@ export function useBoardTiles({
         if (layoutRef.current === current && ids.some((id) => !accepted.includes(id)))
           changeLayout(
             pruneContent(current, {
-              sessions: new Set(accepted),
+              sessions: new Set([
+                ...accepted,
+                ...rows
+                  .filter((row) => row.startup && row.startup.pending !== false)
+                  .map((row) => row.id),
+              ]),
               previews: previewIds(current),
             }),
             true,

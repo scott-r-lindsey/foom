@@ -584,3 +584,135 @@ test("human linked-checkout launches recover as repository agents from daemon in
   expect(hosts.placement(location.worktree)?.localRepository).toBe(location.repository);
   await workspace.dispose();
 });
+
+test("startup begins before agent discovery and cancellation prevents the local spawn", async () => {
+  const workspace = new Workspace(deps);
+  const controller = new AbortController();
+  const started = vi.fn();
+  const discovered = await agents.scan();
+  let finish = () => {};
+  agents.scan.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = () => {
+          resolve(discovered);
+        };
+      }),
+  );
+  const pending = workspace.sidebarCommand(
+    { kind: "machine-launch", host: null, run: "claude" },
+    () => Promise.resolve(true),
+    { signal: controller.signal, started },
+  );
+  expect(started).toHaveBeenCalledOnce();
+  expect(agents.launch).not.toHaveBeenCalled();
+  controller.abort();
+  finish();
+  await expect(pending).rejects.toThrow();
+  expect(agents.launch).not.toHaveBeenCalled();
+  expect(workspace.snapshot().terminals).toEqual([]);
+});
+
+test("startup cancellation before dispatch creates no terminal or startup notification", async () => {
+  const workspace = new Workspace(deps);
+  const controller = new AbortController();
+  controller.abort();
+  const started = vi.fn();
+  await expect(
+    workspace.sidebarCommand(
+      { kind: "machine-launch", host: null, run: "shell" },
+      () => Promise.resolve(true),
+      { signal: controller.signal, started },
+    ),
+  ).rejects.toThrow();
+  expect(started).not.toHaveBeenCalled();
+  expect(workspace.snapshot().terminals).toEqual([]);
+});
+
+test("remote startup preserves its sharing warning before publishing startup, including denial", async () => {
+  const { repo } = await import("./workspace-fixture");
+  const { workspace, create } = remoteMainFixture();
+  const command = {
+    kind: "repository-launch",
+    repository: repo.path,
+    host: "dozer",
+    run: "claude",
+  } as const;
+  await workspace.sidebarCommand(command, () => Promise.resolve(true));
+  const controller = new AbortController();
+  const started = vi.fn();
+  const confirm = vi.fn(() => Promise.resolve(false));
+  expect(
+    await workspace.sidebarCommand(command, confirm, { signal: controller.signal, started }),
+  ).toBeUndefined();
+  expect(confirm).toHaveBeenCalledExactlyOnceWith({ kind: "shared-agent" });
+  expect(started).not.toHaveBeenCalled();
+  expect(create).toHaveBeenCalledTimes(1);
+  confirm.mockResolvedValue(true);
+  await workspace.sidebarCommand(command, confirm, { signal: controller.signal, started });
+  expect(started).toHaveBeenCalledOnce();
+  expect(create).toHaveBeenCalledTimes(2);
+});
+
+test("startup cleanup removes only its new remote session and retains a failed cleanup for retry", async () => {
+  const { repo } = await import("./workspace-fixture");
+  const { workspace } = remoteMainFixture();
+  const result = await workspace.sidebarCommand(
+    { kind: "repository-launch", repository: repo.path, host: "dozer", run: "shell" },
+    () => Promise.resolve(true),
+  );
+  if (!result) throw new Error("Missing created session");
+  const kill = vi.spyOn(deps.terminals, "kill");
+  kill.mockRejectedValueOnce(new Error("unreachable"));
+  await expect(workspace.cancelStartup(result.terminalId)).rejects.toThrow("unreachable");
+  expect(workspace.snapshot().terminals).toHaveLength(1);
+  await workspace.cancelStartup(result.terminalId);
+  expect(kill).toHaveBeenLastCalledWith(result.terminalId, "dozer");
+  expect(workspace.snapshot().terminals).toHaveLength(0);
+  await workspace.cancelStartup(result.terminalId);
+  expect(kill).toHaveBeenCalledTimes(2);
+});
+
+test("startup sharing keeps the remote launch reservation until confirmation and spawning settle", async () => {
+  const { repo } = await import("./workspace-fixture");
+  const { workspace, create } = remoteMainFixture();
+  const command = {
+    kind: "repository-launch",
+    repository: repo.path,
+    host: "dozer",
+    run: "claude",
+  } as const;
+  await workspace.sidebarCommand(command, () => Promise.resolve(true));
+  const confirmation = Promise.withResolvers<boolean>();
+  const asked = Promise.withResolvers<undefined>();
+  const started = vi.fn();
+  const pending = workspace.sidebarCommand(
+    command,
+    () => {
+      asked.resolve(undefined);
+      return confirmation.promise;
+    },
+    { signal: new AbortController().signal, started },
+  );
+  await asked.promise;
+  expect(started).not.toHaveBeenCalled();
+  await expect(workspace.sidebarCommand(command, () => Promise.resolve(true))).rejects.toThrow(
+    "busy",
+  );
+  const spawning = Promise.withResolvers<string>();
+  const entered = Promise.withResolvers<undefined>();
+  create.mockImplementationOnce(() => {
+    entered.resolve(undefined);
+    return spawning.promise;
+  });
+  confirmation.resolve(true);
+  await entered.promise;
+  expect(started).toHaveBeenCalledOnce();
+  await expect(workspace.sidebarCommand(command, () => Promise.resolve(true))).rejects.toThrow(
+    "busy",
+  );
+  spawning.resolve("second");
+  await pending;
+  await workspace.sidebarCommand(command, () => Promise.resolve(true));
+  expect(create).toHaveBeenCalledTimes(3);
+});

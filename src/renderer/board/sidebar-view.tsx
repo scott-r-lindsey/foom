@@ -244,7 +244,12 @@ export function Sidebar(props: SidebarProps) {
                   {source.shellName?.() ?? "Shell"} ~
                 </button>
                 {actions("home", "Home shell", [
-                  { label: "New shell", badge: ">_", run: () => command({ kind: "home-shell" }) },
+                  {
+                    label: "New shell",
+                    badge: ">_",
+                    dismissBeforeRun: true,
+                    run: () => command({ kind: "home-shell" }),
+                  },
                 ])}
               </div>
               {preferences.expanded["home"] !== false && (
@@ -379,6 +384,17 @@ export function Sidebar(props: SidebarProps) {
                                 run: () => {},
                                 submenu: machine.agents.map((agent) => ({
                                   label: agent.name,
+                                  dismissBeforeRun: !rows.some(
+                                    (row) =>
+                                      row.kind === "agent" &&
+                                      !row.exited &&
+                                      rowRepository(row) === repo.repository.path &&
+                                      (machine.host === null
+                                        ? rowWorktree(row) === repo.repository.path
+                                        : row.placement?.kind === "remote" &&
+                                          row.placement.host === machine.host &&
+                                          row.branch === "Main checkout"),
+                                  ),
                                   run: () =>
                                     command({
                                       kind: "repository-launch",

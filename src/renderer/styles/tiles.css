@@ -587,3 +587,56 @@
   bottom: auto;
   max-width: calc(100% - 12px);
 }
+
+.tile-startup {
+  position: absolute;
+  inset: 38px 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--muted);
+  background: var(--surface);
+  font-family: var(--font-mono);
+}
+.tile-startup[data-remote="false"] {
+  animation: startup-reveal 0s 200ms both;
+}
+.tile-startup[data-failed="true"] {
+  color: var(--failed-ink);
+  animation: none;
+}
+.tile-startup-orbit {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: startup-orbit 1.2s linear infinite;
+}
+.terminal-tile[data-behind="true"] .tile-startup-orbit,
+.tile-area[hidden] .tile-startup-orbit {
+  animation: none;
+}
+@keyframes startup-orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes startup-reveal {
+  from {
+    visibility: hidden;
+  }
+  to {
+    visibility: visible;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tile-startup-orbit {
+    animation: none;
+  }
+}
+
+.tile-shell .tile-startup {
+  inset: 0;
+}

@@ -78,7 +78,12 @@ export interface BoardSource {
   createView?: () => TerminalViewSource;
   getMachines?: () => readonly SidebarMachine[];
   getSidebar?: () => SidebarRepository[] | readonly SidebarRepository[];
-  sidebarCommand?: (command: SidebarCommand) => Promise<SidebarCommandResult> | Promise<void>;
+  sidebarCommand?: (
+    command: SidebarCommand,
+    startup?: { id: string; started: () => void },
+  ) => Promise<SidebarCommandResult> | Promise<void>;
+  cancelSidebarLaunch?: (id: string) => Promise<void>;
+  discardStartup?: (id: string) => Promise<void>;
   panelFacts?: (repository: string, worktree: string) => Promise<GitPanelFacts>;
   homeShell?: () => HomeShellFacts | undefined;
   shellName?: () => string;

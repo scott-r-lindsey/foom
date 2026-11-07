@@ -117,6 +117,7 @@ export function TileArea({
   setLayout,
   resizeLayout,
   rows,
+  startupReady,
   previews,
   arrivals,
   acknowledgePreview,
@@ -135,6 +136,7 @@ export function TileArea({
   setLayout: (next: TileLayout) => void;
   resizeLayout: (next: TileLayout, commit: boolean) => void;
   rows: readonly BoardRow[];
+  startupReady?: (id: string) => void;
   previews: readonly PreviewSummary[];
   arrivals: ReadonlySet<string>;
   acknowledgePreview: (id: string) => void;
@@ -276,6 +278,7 @@ export function TileArea({
           })}
           source={source}
           rows={rows}
+          startupReady={startupReady}
           arrived={tile.content?.kind === "preview" && arrivals.has(tile.content.preview)}
           acknowledgePreview={() => {
             if (tile.content?.kind === "preview" && arrivals.has(tile.content.preview))

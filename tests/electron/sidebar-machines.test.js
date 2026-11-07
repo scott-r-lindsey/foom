@@ -10,10 +10,7 @@ const { evidencePath } = require("../helpers/evidence.js");
 const { deadline, expect } = require("./test-policy.js");
 const { boardPage, launchApp, removeAfterApps, assertAccessible } = require("./harness.js");
 
-test("sidebar machines launch human shells and agents and keep remote worktrees under repositories", {
-  skip: process.platform === "win32",
-  timeout: deadline(60000),
-}, async (context) => {
+async function sidebarMachines(context, startupOnly = false) {
   const root = await mkdtemp(path.join(tmpdir(), "sidebar-machines-"));
   removeAfterApps(context, root);
   const bin = path.join(root, "bin");
@@ -21,6 +18,28 @@ test("sidebar machines launch human shells and agents and keep remote worktrees 
   const calls = path.join(root, "calls.jsonl");
   const offline = path.join(root, "offline");
   const agentChoice = path.join(root, "agents");
+  const launchGate = path.join(root, "launch-gate");
+  const blockedSsh = path.join(root, "blocked-ssh");
+  const exitedSsh = path.join(root, "exited-ssh");
+  const discoveryGate = path.join(root, "discovery-gate");
+  const discoveryEntered = path.join(root, "discovery-entered");
+  if (startupOnly)
+    await writeFile(
+      path.join(bin, "claude"),
+      `#!${process.execPath}
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+let entered = false;
+function run() {
+ if (args.includes('--version')) process.stdout.write('2.1.285 (Claude Code)\\n');
+ else if (args.includes('--help')) process.stdout.write('--settings\\n');
+ else { process.stdout.write('LOCAL_STARTUP_READY\\r\\n'); process.stdin.resume(); return; }
+ process.exit(0);
+}
+function wait() { if (args.some(arg => arg === '--version' || arg === '--help') && fs.existsSync(${JSON.stringify(discoveryGate)})) { if (!entered) { fs.writeFileSync(${JSON.stringify(discoveryEntered)}, 'blocked'); entered = true; } setTimeout(wait, 20); } else run(); }
+wait();`,
+      { mode: 0o700 },
+    );
   const catalog = path.resolve("build/remote-hosts", `${process.platform}-${process.arch}`);
   const backups = new Map();
   for (const name of ["foom-host.gz", "manifest.json"]) {
@@ -59,8 +78,12 @@ test("sidebar machines launch human shells and agents and keep remote worktrees 
     `#!${process.execPath}
 const fs=require('node:fs');const assert=require('node:assert/strict');
 const args=process.argv.slice(2);const host=args[args.indexOf('--')+1];
+process.on('SIGTERM', () => process.exit(0));
+process.on('exit', () => fs.appendFileSync(${JSON.stringify(exitedSsh)}, String(process.pid)+'\\n'));
+let held = false;
 assert.ok(['fixture-cloud','offline-cloud'].includes(host));
 for(const flag of ['BatchMode=yes','ClearAllForwardings=yes','ForwardAgent=no','ForwardX11=no'])assert.ok(args.includes(flag));
+function run() {
 if(host==='offline-cloud'||fs.existsSync(${JSON.stringify(offline)}))process.exit(255);
 if(args.at(-1)==='uname -s; uname -m'){process.stdout.write((process.platform==='darwin'?'Darwin':'Linux')+'\\n'+(process.arch==='x64'?'x86_64':process.platform==='darwin'?'arm64':'aarch64')+'\\n');process.exit(0);}
 if(args.at(-1).includes('FOOM-LIBC-UNSUPPORTED')&&!args.at(-1).includes('FOOM-READY'))process.exit(0);
@@ -93,7 +116,10 @@ process.stdin.on('data',bytes=>frames.push(bytes,message=>{
  if(message.operation==='inspect-worktree')result.worktree={path:message.path,branch:'remote-work',identity:message.identity,changes:''};
  if(message.operation==='list-worktrees')result.inventory={own:[{repository:'/remote/code/repository-'+require('node:crypto').createHash('sha256').update('git@forge.test:team/project.git').digest('hex').slice(0,24),path:'/remote/code/.foom-worktree-fixture',branch:'remote-work',identity:'a'.repeat(64),origin:'git@forge.test:team/project.git'}],other:0};
  send({type:'managed',result});
-}));`,
+}));
+}
+function wait() { if (args.at(-1).includes('FOOM-READY') && fs.existsSync(${JSON.stringify(launchGate)})) { if (!held) { fs.appendFileSync(${JSON.stringify(blockedSsh)}, String(process.pid)+'\\n'); held = true; } setTimeout(wait, 20); } else run(); }
+wait();`,
     { mode: 0o700 },
   );
   const app = await launchApp(context, { fixture: "repository", env: { PATH: bin } });
@@ -164,6 +190,132 @@ process.stdin.on('data',bytes=>frames.push(bytes,message=>{
   assert.equal(statusTypography.family, statusTypography.rowFamily);
   assert.equal(statusTypography.size, "11px");
   await capture("machines");
+  if (startupOnly) {
+    const launch = async () => {
+      await page.getByRole("button", { name: "Actions for Builder", exact: true }).click();
+      await page.getByRole("menuitem", { name: "New shell", exact: true }).click();
+    };
+    await writeFile(launchGate, "hold");
+    await launch();
+    const startup = page.locator(".tile-startup").filter({ hasText: "Starting on Builder…" });
+    await expect(startup).toBeVisible();
+    await expect(page.getByRole("menu", { name: "Actions for Builder", exact: true })).toHaveCount(
+      0,
+    );
+    const tileId = await startup.locator("..").getAttribute("data-tile");
+    assert.ok(tileId);
+    const tile = page.locator(`[data-tile="${tileId}"]`);
+    for (const mode of ["light", "dark"]) {
+      await page.evaluate(
+        (mode) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${mode}` }),
+        mode,
+      );
+      await expect(page.locator("html")).toHaveCSS("color-scheme", mode);
+      await tile.screenshot({
+        path: evidencePath(`1044/startup-${mode}.png`),
+        animations: "disabled",
+      });
+    }
+    await launch();
+    await expect(startup).toHaveCount(1);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await expect(startup.locator(".tile-startup-orbit")).toHaveCSS("animation-name", "none");
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    await rm(launchGate);
+    await expect(tile.locator(".xterm")).toContainText("FIXTURE_shell /remote/home");
+    await expect(startup).toHaveCount(0);
+    assert.equal(await tile.getAttribute("data-tile"), tileId);
+    const opened = () =>
+      readFile(calls, "utf8").then((text) =>
+        text
+          .trim()
+          .split("\n")
+          .map((line) => JSON.parse(line))
+          .filter(({ message }) => message.type === "open"),
+      );
+    assert.equal((await opened()).length, 1);
+
+    const lines = async (file) => {
+      try {
+        return (await readFile(file, "utf8")).trim().split("\n");
+      } catch {
+        return [];
+      }
+    };
+    const previousBlocked = new Set(await lines(blockedSsh));
+    await writeFile(launchGate, "hold");
+    await launch();
+    await expect(startup).toBeVisible();
+    await expect
+      .poll(async () => (await lines(blockedSsh)).filter((pid) => !previousBlocked.has(pid)).length)
+      .toBeGreaterThan(0);
+    const cancelled = startup.locator("..");
+    await cancelled.getByRole("button", { name: "Close", exact: true }).click();
+    await expect(startup).toHaveCount(0);
+    await expect
+      .poll(async () => {
+        const exited = new Set(await lines(exitedSsh));
+        return (await lines(blockedSsh)).some(
+          (pid) => !previousBlocked.has(pid) && exited.has(pid),
+        );
+      })
+      .toBe(true);
+    await rm(launchGate);
+    assert.equal(
+      (await opened()).length,
+      1,
+      "Cancellation must not send a session-open after the blocked SSH stage",
+    );
+
+    // Invalidate discovery explicitly while retaining the already-rendered launcher.
+    await page.evaluate(() => window.desktop.scanAgents(false));
+    await writeFile(discoveryGate, "hold");
+    await page.evaluate(() => {
+      window.startupFixtureScan = window.desktop.scanAgents(true);
+    });
+    await expect
+      .poll(async () => {
+        try {
+          return await readFile(discoveryEntered, "utf8");
+        } catch {
+          return "";
+        }
+      })
+      .toBe("blocked");
+    await page.getByRole("button", { name: "Actions for Main checkout", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Claude Code", exact: true }).click();
+    const localStartup = page.locator('.tile-startup[data-remote="false"]');
+    await expect(localStartup).toBeVisible();
+    await expect(page.locator(".sidebar-panel")).toHaveCount(0);
+    await rm(discoveryGate);
+    await expect(
+      page.locator(".terminal-tile .xterm").filter({ hasText: "LOCAL_STARTUP_READY" }),
+    ).toBeVisible();
+    await expect(localStartup).toHaveCount(0);
+    await page.getByRole("button", { name: "Actions for Main checkout", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Claude Code", exact: true }).click();
+    const armed = page.getByRole("menuitem", {
+      name: "Click again for multiple agents here",
+      exact: true,
+    });
+    await expect(armed).toBeVisible();
+    await expect(page.locator(".sidebar-panel")).toHaveCount(1);
+    // The sharing capability deliberately rejects a second click before 300 ms.
+    await page.waitForTimeout(310);
+    await armed.click();
+    await expect(page.locator(".sidebar-panel")).toHaveCount(0);
+    await expect
+      .poll(() =>
+        page.evaluate(
+          async () =>
+            (await window.desktop.workspace()).terminals.filter(
+              (row) => row.agent === "claude" && row.placement?.kind !== "remote",
+            ).length,
+        ),
+      )
+      .toBe(2);
+    return;
+  }
   await page.getByRole("button", { name: "Actions for Builder", exact: true }).click();
   await expect(page.getByRole("menuitem", { name: "New Claude Code", exact: true })).toBeVisible();
   await expect(page.getByRole("menuitem", { name: "New Codex", exact: true })).toHaveCount(0);
@@ -401,4 +553,22 @@ process.stdin.on('data',bytes=>frames.push(bytes,message=>{
       (call) => call.message.type === "open" && call.message.machine.agent === "claude",
     ),
   );
-});
+}
+
+test(
+  "sidebar machines launch human shells and agents and keep remote worktrees under repositories",
+  {
+    skip: process.platform === "win32",
+    timeout: deadline(60000),
+  },
+  (context) => sidebarMachines(context),
+);
+
+test(
+  "launch startup dismisses menus and reserves tiles during slow SSH and agent discovery",
+  {
+    skip: process.platform === "win32",
+    timeout: deadline(60000),
+  },
+  (context) => sidebarMachines(context, true),
+);

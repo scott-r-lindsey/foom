@@ -105,6 +105,15 @@ export class WorkspaceContext {
     throw new Error("Invalid board method");
   }
 
+  /** Cancellation removes only the newly created session, never its checkout. */
+  async cancelStartup(id: string): Promise<void> {
+    const entry = this.launched.get(id);
+    if (!entry) return;
+    const host = entry.placement?.kind === "remote" ? entry.placement.host : undefined;
+    await this.deps.terminals.kill(id, host);
+    if (this.launched.get(id) === entry) this.removed(id);
+  }
+
   async actionLog(query: unknown): Promise<ActionLogPage> {
     await this.initializeControl();
     const audit = (await this.control)?.audit;

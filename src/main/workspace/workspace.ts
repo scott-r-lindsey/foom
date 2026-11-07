@@ -21,7 +21,7 @@ import type {
 import type { BranchInventory, CreateOutcome, Repository, Worktree } from "../../shared/worktrees";
 import type { Orchestration } from "../control/orchestration";
 import { WorkspaceContext } from "./workspace-context";
-import type { WorkspaceDependencies } from "./workspace-types";
+import type { SidebarStartup, WorkspaceDependencies } from "./workspace-types";
 
 /** Main-owned public workspace API; feature capabilities stay inside the coordinator. */
 export class Workspace {
@@ -157,11 +157,15 @@ export class Workspace {
   async sidebarInventory(): Promise<SidebarInventory> {
     return this.owner.sidebarInventory();
   }
+  async cancelStartup(id: string): Promise<void> {
+    return this.owner.cancelStartup(id);
+  }
   async sidebarCommand(
     command: Exclude<SidebarCommand, { kind: "open-handoff-link" }>,
     confirm: ConfirmWorkspace,
+    startup?: SidebarStartup,
   ): Promise<SidebarCommandResult> {
-    return this.owner.sidebarCommand(command, confirm);
+    return this.owner.sidebarCommand(command, confirm, undefined, startup?.signal, startup);
   }
   subscribeExecution(listener: (event: ExecutionTransition) => void): () => void {
     return this.owner.subscribeExecution(listener);

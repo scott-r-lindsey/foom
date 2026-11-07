@@ -83,6 +83,7 @@ export interface AgentSetupContext {
 }
 
 export interface SidebarCommandsContext {
+  readonly confirmAgentLaunch: WorkspaceMethods["confirmAgentLaunch"];
   readonly scanAgents: WorkspaceMethods["scanAgents"];
   readonly enabled: Readonly<Record<AgentId, boolean>>;
   readonly auditHuman: WorkspaceMethods["auditHuman"];
@@ -99,7 +100,7 @@ export interface SidebarCommandsContext {
   readonly known: WorkspaceMethods["known"];
   readonly launched: Map<string, WorkspaceTerminal>;
   readonly makeOrchestrator: WorkspaceMethods["makeOrchestrator"];
-  readonly orchestration: Pick<Orchestration, "stopReviews" | "takeOver" | "view">;
+  readonly orchestration: Pick<Orchestration, "stopReviews" | "takeOver" | "view" | "worktreeHost">;
   readonly refresh: () => void;
   readonly removeRepository: (
     repository: string,

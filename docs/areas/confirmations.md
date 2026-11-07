@@ -19,7 +19,8 @@ three seconds later, and come from the board's top frame. A monotonic clock chec
 the deadline independently of the expiry timer. Acceptance consumes the nonce
 before resuming the operation; forged, mismatched, early and replayed answers do
 not approve anything. `confirmation:cancel`, expiry, replacement, navigation and
-renderer loss revoke pending arming. Generation checks reject delayed preparation
+renderer loss revoke pending arming. Startup cancellation revokes only its own
+confirmation generation, so an older launch cannot disarm a newer action. Generation checks reject delayed preparation
 after cancellation. Existing workspace locks, identity/status rechecks and launch
 validation remain in force while an operation awaits confirmation.
 
