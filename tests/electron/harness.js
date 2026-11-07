@@ -914,6 +914,7 @@ async function launchApp(context, options = { fixture: "running-shell" }) {
   }
   await launchCheckoutShell(app, page);
   await page.locator(".board-row[data-kind='shell']").waitFor();
+  await expect(page.locator(".tile-startup")).toHaveCount(0);
   // Report startup errors directly instead of timing out on a permanently disabled control.
   await expect
     .poll(() => page.locator(".tile-status").textContent(), { timeout: deadline(10000) })
