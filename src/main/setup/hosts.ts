@@ -538,10 +538,25 @@ export class Hosts {
         }
       : result;
   }
-  private sidebarLocations: { at: number; read: Promise<HostsState> } | undefined;
+  private sidebarLocations:
+    | { at: number; repositories: string; read: Promise<HostsState> }
+    | undefined;
   locationsForSidebar(): Promise<HostsState> {
-    if (!this.sidebarLocations || Date.now() - this.sidebarLocations.at > 60_000) {
-      this.sidebarLocations = { at: Date.now(), read: this.action({ action: "locations" }) };
+    const repositories = JSON.stringify(
+      this.repositories()
+        .map((repo) => repo.path)
+        .sort(),
+    );
+    if (
+      !this.sidebarLocations ||
+      this.sidebarLocations.repositories !== repositories ||
+      Date.now() - this.sidebarLocations.at > 60_000
+    ) {
+      this.sidebarLocations = {
+        at: Date.now(),
+        repositories,
+        read: this.action({ action: "locations" }),
+      };
     }
     return this.sidebarLocations.read;
   }

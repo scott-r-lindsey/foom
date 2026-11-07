@@ -1249,6 +1249,57 @@ test("sidebar location reads share a freshness cache and host mutations invalida
   await hosts.locationsForSidebar();
 });
 
+test("sidebar locations refresh after repository additions and removals within the cache lifetime", async () => {
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  const now = vi.spyOn(Date, "now").mockReturnValue(1000);
+  run.mockImplementation((_host, request) =>
+    Promise.resolve({
+      ok: true,
+      facts,
+      ...(request.operation === "repository"
+        ? {
+            checkout: { path: `${facts.codeFolder}/${request.directory}`, state: "clean" as const },
+          }
+        : {}),
+    }),
+  );
+  try {
+    const first = hosts.locationsForSidebar();
+    expect((await first).locations.map((location) => location.repository)).toEqual(["/local/repo"]);
+    expect(hosts.locationsForSidebar()).toBe(first);
+
+    repositories.push({ path: "/local/added", name: "added" });
+    const added = hosts.locationsForSidebar();
+    expect(added).not.toBe(first);
+    expect(hosts.locationsForSidebar()).toBe(added);
+    expect((await added).locations.map((location) => location.repository)).toEqual([
+      "/local/repo",
+      "/local/added",
+    ]);
+    const probes = run.mock.calls.length;
+    repositories = [...repositories].reverse().map((repo) => ({ ...repo, name: "renamed" }));
+    expect(hosts.locationsForSidebar()).toBe(added);
+    expect(run.mock.calls).toHaveLength(probes);
+
+    repositories = repositories.filter((repo) => repo.path !== "/local/repo");
+    const removed = hosts.locationsForSidebar();
+    expect(removed).not.toBe(added);
+    expect((await removed).locations.map((location) => location.repository)).toEqual([
+      "/local/added",
+    ]);
+    expect(run.mock.calls).toHaveLength(probes + 1);
+    expect(hosts.locationsForSidebar()).toBe(removed);
+
+    now.mockReturnValue(61_001);
+    const expired = hosts.locationsForSidebar();
+    expect(expired).not.toBe(removed);
+    await expired;
+    expect(run.mock.calls).toHaveLength(probes + 2);
+  } finally {
+    now.mockRestore();
+  }
+});
+
 test("repository human launch targets require an approved registration and checked clone", async () => {
   settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
   hosts = new Hosts(store, () => repositories, "0.1.0", run, "a".repeat(32));
