@@ -1829,17 +1829,26 @@ test("copy on select writes only completed terminal selections when enabled", {
   removeAfterApps(context, root);
   const marker = path.join(root, "input");
   await writeFile(marker, "");
-  const app = await launchApp(context, { fixture: "running-shell" });
-  let page = await boardPage(app);
-  const capture = process.env.FOOM_CAPTURE_872 === "1";
-  if (capture) {
-    // Show both neighboring options in review captures on Linux.
-    await page.addInitScript(() => {
-      Object.defineProperty(navigator, "platform", { get: () => "MacIntel" });
-    });
-    await page.reload();
-    page = await boardPage(app);
-  }
+  await writeFile(
+    path.join(root, "settings.json"),
+    JSON.stringify({
+      version: 1,
+      settings: {
+        setupComplete: true,
+        checkForUpdates: false,
+        copyOnSelect: process.platform === "linux",
+      },
+    }),
+  );
+  const app = await launchApp(context, {
+    fixture: "running-shell",
+    args: [`--user-data-dir=${root}`],
+  });
+  const page = await boardPage(app);
+  assert.equal(
+    await page.evaluate(async () => (await window.desktop.setupState()).settings.copyOnSelect),
+    process.platform === "linux",
+  );
   await app.evaluate(({ BrowserWindow }) => {
     BrowserWindow.getAllWindows()
       .find((window) => window.webContents.getURL() === "app://bundle/index.html")
@@ -1851,29 +1860,11 @@ test("copy on select writes only completed terminal selections when enabled", {
   await openSettingsScreen(page);
   await page.getByRole("button", { name: "Terminal", exact: true }).click();
   const toggle = page.getByRole("checkbox", { name: "Copy on select", exact: true });
-  await expect(toggle).not.toBeChecked();
+  if (process.platform === "linux") await expect(toggle).toHaveCount(0);
+  else await expect(toggle).not.toBeChecked();
   await expect(
     page.getByRole("checkbox", { name: "Middle-click pastes selection", exact: true }),
-  ).toHaveCount(capture || process.platform === "darwin" ? 1 : 0);
-  if (capture) {
-    for (const mode of ["light", "dark"]) {
-      await page.evaluate(
-        (colorMode) =>
-          window.desktop.saveSetup({
-            interfaceTheme: colorMode === "system" ? "follow" : `eclipse-${colorMode}`,
-          }),
-        mode,
-      );
-      await expect
-        .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
-        .toBe(mode === "dark");
-      await toggle.scrollIntoViewIfNeeded();
-      await page.screenshot({
-        path: evidencePath(`screenshots-872/settings-terminal-${mode}.png`),
-        animations: "disabled",
-      });
-    }
-  }
+  ).toHaveCount(process.platform === "darwin" ? 1 : 0);
   await assertAccessible(page);
   await page.locator(".board-row[data-kind='shell']").click();
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
@@ -1888,6 +1879,12 @@ test("copy on select writes only completed terminal selections when enabled", {
   // Wait beyond the selection debounce to prove the disabled path stays unchanged.
   await page.waitForTimeout(150);
   assert.equal(await app.evaluate(({ clipboard }) => clipboard.readText()), "COPY_SENTINEL");
+  if (process.platform === "linux") {
+    // A persisted true value cannot enable selection copying on Linux.
+    await page.keyboard.type("q");
+    return;
+  }
+
   await openSettingsScreen(page);
   await page.getByRole("button", { name: "Terminal", exact: true }).click();
   await toggle.check();

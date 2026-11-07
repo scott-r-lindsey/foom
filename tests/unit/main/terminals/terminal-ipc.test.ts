@@ -1493,50 +1493,55 @@ test("snapshot budgets include reset, colors and token while preserving retained
   }
 });
 
-test("selection copying validates sender, attached ownership, payload and preference", async () => {
-  const id = await create();
-  await expect(invoke("copy-selection", [id, "text"])).rejects.toThrow("unattached");
-  await invoke("attach", [id]);
-  await invoke("copy-selection", [id, "disabled"]);
-  expect(mock.clipboard.writeText).not.toHaveBeenCalled();
-  await terminalControl.dispose();
-  mock.handle.mockClear();
-  let enabled = true;
-  terminalControl = attachTerminal(
-    window as unknown as BrowserWindow,
-    {},
-    undefined,
-    undefined,
-    () => enabled,
-  );
-  const next = await create();
-  await invoke("attach", [next]);
-  for (const value of [null, {}, 12, "", "x".repeat(65_537)])
-    await expect(invoke("copy-selection", [next, value])).rejects.toThrow(
-      "Invalid terminal selection",
+test.each(["linux", "darwin", "win32"] as const)(
+  "selection copying validates sender, attached ownership, payload and preference on %s",
+  async (platform) => {
+    vi.spyOn(process, "platform", "get").mockReturnValue(platform);
+    const id = await create();
+    await expect(invoke("copy-selection", [id, "text"])).rejects.toThrow("unattached");
+    await invoke("attach", [id]);
+    await invoke("copy-selection", [id, "disabled"]);
+    expect(mock.clipboard.writeText).not.toHaveBeenCalled();
+    await terminalControl.dispose();
+    mock.handle.mockClear();
+    let enabled = true;
+    terminalControl = attachTerminal(
+      window as unknown as BrowserWindow,
+      {},
+      undefined,
+      undefined,
+      () => enabled,
     );
-  await expect(invoke("copy-selection", ["foreign", "text"])).rejects.toThrow("unattached");
-  await expect(
-    invoke("copy-selection", [next, "text"], { ...event, senderFrame: null }),
-  ).rejects.toThrow("Untrusted");
-  await expect(
-    invoke("copy-selection", [next, "text"], { ...event, sender: {} } as IpcMainInvokeEvent &
-      IpcMainEvent),
-  ).rejects.toThrow("Untrusted");
-  await expect(
-    invoke("copy-selection", [next, "text"], {
-      ...event,
-      senderFrame: { url: "app://bundle/index.html" },
-    } as IpcMainInvokeEvent & IpcMainEvent),
-  ).rejects.toThrow("Untrusted");
-  await invoke("copy-selection", [next, "x".repeat(65_536)]);
-  expect(mock.clipboard.writeText).toHaveBeenCalledExactlyOnceWith("x".repeat(65_536));
-  enabled = false;
-  await invoke("copy-selection", [next, "off"]);
-  await invoke("detach", [next]);
-  await expect(invoke("copy-selection", [next, "hidden"])).rejects.toThrow("unattached");
-  expect(mock.clipboard.writeText).toHaveBeenCalledTimes(1);
-});
+    const next = await create();
+    await invoke("attach", [next]);
+    for (const value of [null, {}, 12, "", "x".repeat(65_537)])
+      await expect(invoke("copy-selection", [next, value])).rejects.toThrow(
+        "Invalid terminal selection",
+      );
+    await expect(invoke("copy-selection", ["foreign", "text"])).rejects.toThrow("unattached");
+    await expect(
+      invoke("copy-selection", [next, "text"], { ...event, senderFrame: null }),
+    ).rejects.toThrow("Untrusted");
+    await expect(
+      invoke("copy-selection", [next, "text"], { ...event, sender: {} } as IpcMainInvokeEvent &
+        IpcMainEvent),
+    ).rejects.toThrow("Untrusted");
+    await expect(
+      invoke("copy-selection", [next, "text"], {
+        ...event,
+        senderFrame: { url: "app://bundle/index.html" },
+      } as IpcMainInvokeEvent & IpcMainEvent),
+    ).rejects.toThrow("Untrusted");
+    await invoke("copy-selection", [next, "x".repeat(65_536)]);
+    if (platform === "linux") expect(mock.clipboard.writeText).not.toHaveBeenCalled();
+    else expect(mock.clipboard.writeText).toHaveBeenCalledExactlyOnceWith("x".repeat(65_536));
+    enabled = false;
+    await invoke("copy-selection", [next, "off"]);
+    await invoke("detach", [next]);
+    await expect(invoke("copy-selection", [next, "hidden"])).rejects.toThrow("unattached");
+    expect(mock.clipboard.writeText).toHaveBeenCalledTimes(platform === "linux" ? 0 : 1);
+  },
+);
 
 test("shared paste authorizes attached sender, keeps text precedence, and gates shells/agents", async () => {
   const id = await terminalControl.create({ ...spec, imagePaste: true });
