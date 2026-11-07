@@ -529,6 +529,7 @@ test("host recipes are human-owned remote shells without hub environment or orch
     kind: "shell",
     home: true,
     remote: true,
+    recipe: true,
     placement: { kind: "remote", host: "worker" },
   });
 });

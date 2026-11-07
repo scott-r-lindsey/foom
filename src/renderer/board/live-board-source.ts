@@ -261,12 +261,17 @@ export function createAppSource(): BoardSource {
         ...row,
         state: code === 0 ? "done" : "failed",
         waitingSince: 0,
+        exitCode: code,
         reason: `Process exited (${String(code)}) · process:exit`,
         seen: false,
         exited: true,
       };
     return state
-      ? { ...stateRow(row, state), exited: code !== undefined || row.exited === true }
+      ? {
+          ...stateRow(row, state),
+          ...(code === undefined ? {} : { exitCode: code }),
+          exited: code !== undefined || row.exited === true,
+        }
       : { ...row, rate: rates.get(row.id) ?? row.rate };
   };
   const snapshot = (next: WorkspaceSnapshot, settledReplacement?: string) => {
@@ -344,6 +349,7 @@ export function createAppSource(): BoardSource {
         startedAt: entry.startedAt,
         exitCode: entry.exitCode,
         foregroundProgram: entry.foregroundProgram ?? "",
+        ...(entry.recipe ? { recipe: true } : {}),
         launchFlags: entry.launchFlags,
         environment: entry.environment,
         orchestration: entry.orchestration,
@@ -621,6 +627,7 @@ export function createAppSource(): BoardSource {
         : {}),
     },
     connect,
+    createHostView: () => createTerminalView(scheduleView, owners),
     createView: () => {
       const view = createTerminalView(
         scheduleView,

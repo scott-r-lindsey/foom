@@ -322,3 +322,20 @@ test("terminal context menu dismisses on commands, hiding and reassignment", () 
   expect(screen.queryByRole("menu", { name: "Terminal menu" })).toBeNull();
   anchor.remove();
 });
+
+test.each([0, 23, undefined])(
+  "recipe tile chrome reports exit %s without writing to the terminal",
+  (exitCode) => {
+    const { screen, click, data } = setup();
+    click(0);
+    act(() => {
+      data.update("permission", { recipe: true, exited: true, exitCode });
+    });
+    const tile = screen.getByRole("region", { name: /Tile 1:/ });
+    expect(
+      within(tile).getByText(
+        exitCode === 0 ? "Done" : `Failed · exit code ${String(exitCode ?? "unknown")}`,
+      ),
+    ).toBeTruthy();
+  },
+);

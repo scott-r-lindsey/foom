@@ -1,3 +1,5 @@
+import type { SetupSource } from "../../../../src/renderer/preflight/setup-source.d";
+import type { TerminalViewSource } from "../../../../src/renderer/terminal/terminal-view-source.d";
 import { chmod } from "node:fs/promises";
 // @vitest-environment jsdom
 import { restartedBrewHost } from "../../main/setup/hosts-saved-fixture";
@@ -78,10 +80,10 @@ function expandHosts() {
     fireEvent.click(button);
   for (const summary of screen.queryAllByText("Host facts")) fireEvent.click(summary);
 }
-async function mount(state: HostsState = initial) {
+async function mount(state: HostsState = initial, extra: Pick<SetupSource, "hostTerminal"> = {}) {
   state = saved(state);
   const api = vi.fn<(action: HostsAction) => Promise<HostsState>>().mockResolvedValue(state);
-  const view = render(<HostsSettings source={{ hosts: api }} headingRef={createRef()} />);
+  const view = render(<HostsSettings source={{ hosts: api, ...extra }} headingRef={createRef()} />);
   const first = state.hosts[0];
   if (first) await screen.findByRole("region", { name: first.host });
   expandHosts();
@@ -1164,11 +1166,12 @@ test("the name and OS appear once in both compact and expanded host headers", as
 test("row reload keeps other rows usable and does not run a full preflight", async () => {
   const { api } = await mount();
   let finish: ((state: HostsState) => void) | undefined;
-  api.mockImplementation(
-    () =>
-      new Promise((resolve) => {
-        finish = resolve;
-      }),
+  api.mockImplementation((action) =>
+    action.action === "progress"
+      ? Promise.resolve(saved(initial))
+      : new Promise((resolve) => {
+          finish = resolve;
+        }),
   );
   const button = screen.getByRole("button", { name: "Reload git" });
   fireEvent.click(button);
@@ -1179,7 +1182,9 @@ test("row reload keeps other rows usable and does not run a full preflight", asy
   expect(screen.getByRole<HTMLButtonElement>("button", { name: "Change folder" }).disabled).toBe(
     false,
   );
-  expect(api.mock.lastCall?.[0]).toEqual({
+  expect(
+    api.mock.calls.map(([action]) => action).filter((action) => action.action !== "progress"),
+  ).toContainEqual({
     action: "reload",
     host: "worker",
     target: { kind: "tool", tool: "git" },
@@ -1390,3 +1395,123 @@ test.skipIf(process.platform === "win32")(
     }
   },
 );
+
+test("host check output remains inert, readable and dismissible after failure", async () => {
+  const output = {
+    host: "worker",
+    text: "<script>never execute</script>\nSSH refused",
+    running: false,
+    failed: true,
+  };
+  const { api } = await mount({ ...initial, output });
+  const panel = await screen.findByRole("region", { name: "Host check output" });
+  expect(panel.textContent).toContain(output.text);
+  expect(panel.querySelector("script")).toBeNull();
+  expect(within(panel).getByRole("status").textContent).toBe("Failed");
+  fireEvent.click(within(panel).getByRole("button", { name: "Dismiss" }));
+  expect(screen.queryByRole("region", { name: "Host check output" })).toBeNull();
+  expect(api).toHaveBeenCalledWith({ action: "dismiss-output" });
+});
+
+test.each([false, true])(
+  "embedded recipe exit reloads its saved rows (read fails: %s)",
+  async (fails) => {
+    let exit = (_state: { exited: boolean; code?: number }) => {};
+    const view: TerminalViewSource = {
+      mount: () => () => {},
+      open: async () => {},
+      hide: async () => {},
+      focus: () => {},
+      subscribe: () => () => {},
+      getSnapshot: () => ({
+        status: "",
+        state: "quiet_ok",
+        visible: true,
+        attaching: false,
+        toggleLabel: "",
+        toggleDisabled: false,
+        restartDisabled: false,
+      }),
+    };
+    const missing: HostsState = {
+      ...initial,
+      preflight: {
+        ...preflight,
+        result: {
+          ok: true,
+          facts: { ...facts, tools: [{ id: "git", state: "missing", signIn: "unknown" }] },
+        },
+      },
+      hosts: [{ ...host, recipes: [{ tool: "git", install: true, signIn: false }] }],
+    };
+    const { api } = await mount(missing, {
+      hostTerminal: {
+        createView: () => view,
+        observe: (_id, listener) => {
+          exit = listener;
+          return () => {};
+        },
+      },
+    });
+    api.mockResolvedValue({ ...missing, recipeSession: "recipe" });
+    fireEvent.click(screen.getByRole("button", { name: "Install git" }));
+    await screen.findByRole("region", { name: "Install terminal" });
+    if (fails) api.mockRejectedValueOnce(new Error("read failed"));
+    await act(async () => {
+      exit({ exited: true, code: 0 });
+      await Promise.resolve();
+    });
+    if (fails) expect(screen.getByText("Unable to refresh tool")).toBeTruthy();
+    else expect(api).toHaveBeenLastCalledWith({ action: "list" });
+  },
+);
+
+test("installs on different hosts keep their own terminal panels", async () => {
+  const result: HostPreflight["result"] = {
+    ok: true,
+    facts: { ...facts, tools: [{ id: "git", state: "missing", signIn: "unknown" }] },
+  };
+  const missing: HostsState = {
+    ...initial,
+    preflight: { ...preflight, result },
+    hosts: [host, { ...host, host: "second" }].map((entry) => ({
+      ...entry,
+      recipes: [{ tool: "git", install: true, signIn: false }],
+    })),
+  };
+  const { api } = await mount(missing, {
+    hostTerminal: {
+      createView: () => ({
+        mount: () => () => {},
+        open: async () => {},
+        hide: async () => {},
+        focus: () => {},
+        subscribe: () => () => {},
+        getSnapshot: () => ({
+          status: "",
+          state: "quiet_ok",
+          visible: true,
+          attaching: false,
+          toggleLabel: "",
+          toggleDisabled: false,
+          restartDisabled: false,
+        }),
+      }),
+      observe: (_id, listener) => {
+        listener({ exited: false });
+        return () => {};
+      },
+    },
+  });
+  api.mockImplementation((action) =>
+    Promise.resolve(
+      action.action === "recipe" ? { ...missing, recipeSession: `${action.host}-recipe` } : missing,
+    ),
+  );
+  for (const name of ["worker", "second"]) {
+    const card = screen.getByRole("region", { name });
+    fireEvent.click(within(card).getByRole("button", { name: "Install git" }));
+    await within(card).findByRole("region", { name: "Install terminal" });
+  }
+  expect(screen.getAllByRole("region", { name: "Install terminal" })).toHaveLength(2);
+});

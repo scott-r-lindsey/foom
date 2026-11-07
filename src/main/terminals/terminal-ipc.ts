@@ -100,12 +100,14 @@ export function attachTerminal(
     event.senderFrame !== null &&
     event.senderFrame === event.sender.mainFrame &&
     event.senderFrame.url === "app://bundle/index.html";
+  const exitListeners = new Set<(id: string, code: number) => void>();
   const manager = new TerminalHostClient(
     (id, code) => {
       closeImages(id);
       running.delete(id);
       broadcast("terminal:exit", id, code);
       if (owned.has(id)) events.onExit?.(id, code);
+      for (const listener of exitListeners) listener(id, code);
     },
     {
       onForeground: (id, name) => {
@@ -404,10 +406,17 @@ export function attachTerminal(
     await manager.dispose();
     await manager.waitForExit();
     await Promise.allSettled([...pasteQueues.values()]);
+    exitListeners.clear();
     await images.dispose();
     app.removeListener("will-quit", willQuit);
   };
   return {
+    onExit: (listener: (id: string, code: number) => void) => {
+      exitListeners.add(listener);
+      return () => {
+        exitListeners.delete(listener);
+      };
+    },
     detachView: (id: string, contents: WebContents) => {
       if (attached.get(id) === contents) {
         invalidatePaste(id);

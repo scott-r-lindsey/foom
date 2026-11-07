@@ -1,4 +1,12 @@
-import { previewMock, mock, start, quitting, invokeWindow, newWindow } from "./main-fixture";
+import {
+  forgeUi,
+  previewMock,
+  mock,
+  start,
+  quitting,
+  invokeWindow,
+  newWindow,
+} from "./main-fixture";
 import type { Settings } from "../../../src/shared/setup";
 
 import { setupState } from "../../fixtures/setup";
@@ -386,4 +394,67 @@ test("terminal clipboard permission reads the current copy-on-select preference"
   expect(mock.copyOnSelect()).toBe(true);
   enabled = false;
   expect(mock.copyOnSelect()).toBe(false);
+});
+
+test("install recipes stay in Settings and native exit refreshes their rows once", async () => {
+  await start();
+  const off = vi.fn();
+  mock.terminals.onExit.mockReturnValue(off);
+  const finished = vi.fn();
+  const launch = mock.setup.deps?.launchHostRecipe;
+  const id = await launch?.(
+    {
+      host: "worker",
+      human: true,
+      recipe: { tool: "git", action: "install", distro: "debian", digest: "a".repeat(64) },
+    },
+    finished,
+  );
+  expect(id).toBe("recipe");
+  expect(mock.window.webContents.send).not.toHaveBeenCalledWith("app-menu:session", "recipe");
+  const listener = mock.terminals.onExit.mock.calls[0]?.[0];
+  listener?.("other", 0);
+  expect(finished).not.toHaveBeenCalled();
+  listener?.("recipe", 17);
+  expect(finished).toHaveBeenCalledOnce();
+  expect(off).toHaveBeenCalledOnce();
+});
+
+test("sign-in recipes keep the human foreground tile", async () => {
+  await start();
+  await mock.setup.deps?.launchHostRecipe?.({
+    host: "worker",
+    human: true,
+    recipe: { tool: "gh", action: "sign-in", distro: "debian", digest: "a".repeat(64) },
+  });
+  await vi.waitFor(() => {
+    expect(mock.window.webContents.send).toHaveBeenCalledWith("app-menu:session", "recipe");
+  });
+});
+
+test("a recipe that exits during startup still refreshes its rows", async () => {
+  await start();
+  forgeUi.rows = [
+    {
+      id: "recipe",
+      kind: "shell",
+      agent: "shell",
+      repository: "/home",
+      worktree: "/home",
+      branch: null,
+      attention: "evaluator",
+      state: null,
+      exited: true,
+    },
+  ];
+  const finished = vi.fn();
+  await mock.setup.deps?.launchHostRecipe?.(
+    {
+      host: "worker",
+      human: true,
+      recipe: { tool: "git", action: "install", distro: "debian", digest: "a".repeat(64) },
+    },
+    finished,
+  );
+  expect(finished).toHaveBeenCalledOnce();
 });

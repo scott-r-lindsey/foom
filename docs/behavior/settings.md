@@ -358,8 +358,13 @@ for the profile and cleanup rules.
 Other Hosts actions never start a full check. Rename is local. Folder actions
 refresh the folder from their successful reply and mark affected repositories **Not checked**.
 A failed replacement reports the attempted change and preserves the registered folder's result.
-Clone/Trust origin update that repository; returning from Install/Sign in refreshes
-only the affected tool and sign-in rows. **Last checked** records full checks only.
+Clone/Trust origin update that repository. Install stays in Settings in an
+interactive terminal inside the host card; closing Settings keeps it running
+in its visible sidebar session. Sign in retains its foreground tile. On exit,
+Install and Sign in refresh only their affected tool and sign-in rows. The
+terminal header states Done or Failed with its exit code and retains the output
+until dismissed or replaced. Add and checks retain bounded read-only step
+output, including OpenSSH stderr, in the Add section or host card. **Last checked** records full checks only.
 Each checklist row has a reload icon on hover and keyboard focus, with a name
 that identifies the row. Reload shows a spinner only on that row, preserves other
 results and leaves other rows usable. A row that cannot display its result without

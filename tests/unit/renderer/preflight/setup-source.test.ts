@@ -90,3 +90,75 @@ test("Foom config reaches main only through the config bridge", async () => {
   expect(config.subscribe(listener)).toBe("off");
   expect(desktop.onConfigChange).toHaveBeenCalledWith(listener);
 });
+
+test("host recipe observations discard stale reads and release subscriptions", async () => {
+  const view = vi.fn();
+  const off = vi.fn();
+  let changed = () => {};
+  const workspace = vi
+    .fn()
+    .mockResolvedValue({ terminals: [{ id: "recipe", exited: true, exitCode: 0 }] });
+  Object.defineProperty(window, "desktop", {
+    configurable: true,
+    value: {
+      workspace,
+      onExit: () => () => {},
+      onWorkspaceChange: (listener: () => void) => {
+        changed = listener;
+        return off;
+      },
+    },
+  });
+  const source = createSetupSource(view);
+  source.hostTerminal?.createView();
+  expect(view).toHaveBeenCalledOnce();
+  const listener = vi.fn();
+  const dispose = source.hostTerminal?.observe("recipe", listener);
+  await vi.waitFor(() => {
+    expect(listener).toHaveBeenCalledWith({ exited: true, code: 0 });
+  });
+  workspace.mockResolvedValue({ terminals: [{ id: "recipe" }] });
+  changed();
+  await vi.waitFor(() => {
+    expect(listener).toHaveBeenCalledWith({ exited: false });
+  });
+  listener.mockClear();
+  changed();
+  changed();
+  dispose?.();
+  await Promise.resolve();
+  expect(listener).not.toHaveBeenCalled();
+  expect(off).toHaveBeenCalledOnce();
+});
+
+test("recipe exit events win over earlier workspace reads", async () => {
+  let exit = (_id: string, _code: number) => {};
+  const off = vi.fn();
+  let resolve: (value: unknown) => void = () => {};
+  Object.defineProperty(window, "desktop", {
+    configurable: true,
+    value: {
+      workspace: () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+      onWorkspaceChange: () => () => {},
+      onExit: (listener: typeof exit) => {
+        exit = listener;
+        return off;
+      },
+    },
+  });
+  const listener = vi.fn();
+  const dispose = createSetupSource().hostTerminal?.observe("recipe", listener);
+  exit("other", 1);
+  expect(listener).not.toHaveBeenCalled();
+  exit("recipe", 17);
+  expect(listener).toHaveBeenCalledExactlyOnceWith({ exited: true, code: 17 });
+  resolve({ terminals: [{ id: "recipe", exited: false }] });
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(listener).toHaveBeenCalledOnce();
+  dispose?.();
+  expect(off).toHaveBeenCalledOnce();
+});

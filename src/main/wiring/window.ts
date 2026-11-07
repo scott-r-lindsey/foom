@@ -274,9 +274,23 @@ export async function buildWindow(
     hostsChanged: () => {
       wiring.workspace.refresh();
     },
-    launchHostRecipe: async (target) => {
+    launchHostRecipe: async (target, finished) => {
       const id = await wiring.workspace.startHostRecipe(target);
+      if (finished) {
+        const off = wiring.terminals.onExit((exitedId) => {
+          if (exitedId === id) {
+            off();
+            finished();
+          }
+        });
+        if (wiring.workspace.snapshot().terminals.find((row) => row.id === id)?.exited) {
+          off();
+          finished();
+        }
+      }
+      if (target.recipe?.action === "install") return id;
       wiring.revealSession(id);
+      return id;
     },
     copyText: (text) => clipboard.writeText(text),
     confirmRemoteSessions: (content) => confirmations.request(content),

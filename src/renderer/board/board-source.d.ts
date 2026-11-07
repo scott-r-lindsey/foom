@@ -76,6 +76,8 @@ export interface BoardSource {
   isSidebarReady?: () => boolean;
   connect?: (errors?: BackgroundErrorReporter) => () => void;
   createView?: () => TerminalViewSource;
+  /** Settings/preflight recipe IDs come from main before board inventory exists. */
+  createHostView?: () => TerminalViewSource;
   getMachines?: () => readonly SidebarMachine[];
   getSidebar?: () => SidebarRepository[] | readonly SidebarRepository[];
   sidebarCommand?: (command: SidebarCommand) => Promise<SidebarCommandResult> | Promise<void>;

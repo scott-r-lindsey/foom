@@ -1,8 +1,43 @@
+import { createTerminalView } from "../terminal/terminal-view-source";
 import type { SetupSource } from "./setup-source.d";
 
-export function createSetupSource(): SetupSource {
+export function createSetupSource(createView = createTerminalView): SetupSource {
   const desktop = window.desktop;
   return {
+    hostTerminal: {
+      createView: () => createView(),
+      observe: (id, listener) => {
+        let active = true;
+        let generation = 0;
+        let ended = false;
+        const refresh = async () => {
+          const current = ++generation;
+          const snapshot = await desktop.workspace().catch(() => undefined);
+          if (!active || ended || current !== generation) return;
+          const row = snapshot?.terminals.find((row) => row.id === id);
+          if (row)
+            listener({
+              exited: row.exited === true,
+              ...(row.exitCode === undefined ? {} : { code: row.exitCode }),
+            });
+        };
+        const off = desktop.onWorkspaceChange(() => {
+          void refresh();
+        });
+        const offExit = desktop.onExit((exitedId, code) => {
+          if (exitedId !== id || !active) return;
+          ended = true;
+          generation++;
+          listener({ exited: true, code });
+        });
+        void refresh();
+        return () => {
+          active = false;
+          off();
+          offExit();
+        };
+      },
+    },
     copyHost: (command) => desktop.copyHost(command),
     hosts: (action) => desktop.hosts(action),
     checkReadiness: () => desktop.checkReadiness(),

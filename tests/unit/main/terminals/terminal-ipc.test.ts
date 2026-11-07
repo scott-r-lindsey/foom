@@ -1673,3 +1673,18 @@ test("queued paste preserves each gesture's text snapshot and bounds the FIFO", 
     Array.from({ length: 15 }, (_, n) => ({ kind: "text", text: String(n + 1) })),
   );
 });
+
+test("main recipe exit subscriptions observe native exit and dispose independently", async () => {
+  const listener = vi.fn();
+  const off = terminalControl.onExit(listener);
+  const first = await terminalControl.create(spec);
+  ptys[0]?.emitExit();
+  await vi.waitFor(() => {
+    expect(listener).toHaveBeenCalledWith(first, 0);
+  });
+  off();
+  const second = await terminalControl.create(spec);
+  ptys[1]?.emitExit();
+  await manager.tail(second, 1).catch(() => []);
+  expect(listener).toHaveBeenCalledOnce();
+});

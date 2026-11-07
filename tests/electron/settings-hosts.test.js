@@ -47,7 +47,7 @@ async function captureHosts(app, page, name) {
         .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
         .toBe(mode === "dark");
       await area.screenshot({
-        path: evidencePath(`${name.startsWith("1061/") ? name : `1063/${name}`}-${mode}.png`),
+        path: evidencePath(`${/^106[12]\//u.test(name) ? name : `1063/${name}`}-${mode}.png`),
       });
     }
   } finally {
@@ -123,7 +123,7 @@ if (args.at(-1) === 'uname -s; uname -m') { process.stdout.write(${JSON.stringif
 // Standalone fixed libc preflight has no daemon protocol handshake.
 if (args.at(-1).includes('FOOM-LIBC-UNSUPPORTED') && !args.at(-1).includes('FOOM-READY')) { if(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8').includes('musl')) { process.stdout.write('FOOM-LIBC-UNSUPPORTED'); process.exit(1); } process.exit(0); }
 process.stdout.write('FOOM-READY\\n');
-let input=Buffer.alloc(0), terminalOutput='';
+let input=Buffer.alloc(0), terminalOutput='', recipeInput='', recipeEnded=false, finishTimer;
 const {spawnSync}=require('node:child_process');
 const {selectHostRecipe}=require(${JSON.stringify(path.resolve("build/shared/registered-host-recipes.js"))});
 function send(message) { const data=Buffer.from(JSON.stringify({version:3,message})); const head=Buffer.alloc(4); head.writeUInt32BE(data.length); process.stdout.write(Buffer.concat([head,data])); }
@@ -152,7 +152,20 @@ process.stdin.on('data', bytes => {
     send({type:'open-result',id:message.id,request:message.request,state:'live'});continue;
   }
   if('id' in message) {
-    if(message.type==='attach')send({type:'data',id:message.id,view:message.view,token:'fixture-recipe',data:terminalOutput});
+    const recipeSettings=JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8'));
+    if(message.type==='write' && recipeSettings.recipeInteractive && !recipeEnded) {
+      recipeInput+=message.data;
+      if(recipeInput.includes('fixture-password'+String.fromCharCode(13))) {
+        recipeEnded=true;
+        require('node:fs').writeFileSync(${JSON.stringify(scenario)},JSON.stringify({...recipeSettings,facts:{...recipeSettings.facts,tools:[{id:'git',state:'ready',signIn:'unknown'},{id:'gh',state:'ready',signIn:'signed-out'}]}}));
+        send({type:'exit',id:message.id,code:recipeSettings.recipeExit ?? 0});
+      }
+    }
+    if(message.type==='attach') {
+      if(!finishTimer) finishTimer=setInterval(()=>{ const next=JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8')); if(next.recipeExit !== undefined && !next.recipeInteractive && !recipeEnded) { recipeEnded=true;clearInterval(finishTimer);send({type:'exit',id:message.id,code:next.recipeExit}); } },20);
+      send({type:'data',id:message.id,view:message.view,token:'fixture-recipe',data:terminalOutput+(recipeSettings.recipeInteractive?'[sudo] password: ':'')});
+      if(recipeSettings.recipeExit !== undefined && !recipeSettings.recipeInteractive && !recipeEnded) {recipeEnded=true;send({type:'exit',id:message.id,code:recipeSettings.recipeExit});}
+    }
     send({type:'result',id:message.id,request:message.request,lines:terminalOutput.split('\\r\\n'),cols:80,rows:24,title:'Recipe'});
     continue;
   }
@@ -831,7 +844,7 @@ test("Repositories clones per host and opens fixed repair recipes without exposi
       async () => (await readFile(recipeCalls, "utf8")).trim().split("\n").filter(Boolean).length,
     )
     .toBe(2);
-  await expect(page.locator(".terminal-tile[data-kind='shell']").last()).toBeVisible();
+  await expect(card.getByRole("region", { name: "Install terminal" })).toBeVisible();
   await expect
     .poll(async () =>
       page.evaluate(async () => {
@@ -842,6 +855,7 @@ test("Repositories clones per host and opens fixed repair recipes without exposi
     .toContain("FIXTURE_RECIPE_COMPLETE");
   await capture("fix-install-tile");
   await updateScenario({
+    recipeExit: 0,
     facts: {
       tools: [
         { id: "git", state: "ready", signIn: "unknown" },
@@ -849,6 +863,7 @@ test("Repositories clones per host and opens fixed repair recipes without exposi
       ],
     },
   });
+  await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
   await openSettingsScreen(page);
   await page
     .getByRole("navigation", { name: "Settings sections" })
@@ -1245,14 +1260,14 @@ test("Hosts loads saved rows and retries only persistence after queued profile w
   skip: process.platform === "win32",
   timeout: deadline(60000),
 }, async (context) => {
-  const { app, page, card, calls } = await hostsFixture(context);
+  const { app, page, card, calls, updateScenario } = await hostsFixture(context);
   const profile = await app.evaluate(({ app }) => app.getPath("userData"));
   const before = await page.evaluate(
     async () =>
       (await window.desktop.setupState()).settings.registeredHosts[0].observation.checkedAt,
   );
   await card.getByRole("button", { name: "Install git", exact: true }).click();
-  await expect(page.locator(".terminal-tile[data-kind='shell']").last()).toBeVisible();
+  await expect(card.getByRole("region", { name: "Install terminal" })).toBeVisible();
   const inspectCount = async () =>
     (await readFile(calls, "utf8"))
       .trim()
@@ -1268,6 +1283,9 @@ test("Hosts loads saved rows and retries only persistence after queued profile w
   const initial = await inspectCount();
   try {
     await chmod(profile, 0o555);
+    await updateScenario({ recipeExit: 0 });
+    await expect(card.getByText("Unable to save", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
     for (let attempt = 0; attempt < 3; attempt++) {
       await openSettingsScreen(page);
       await page
@@ -1307,7 +1325,7 @@ test("Hosts merges recipe rows with two Hosts windows already open", {
   skip: process.platform === "win32",
   timeout: deadline(60000),
 }, async (context) => {
-  const { app, page, card, calls } = await hostsFixture(context);
+  const { app, page, card, calls, updateScenario } = await hostsFixture(context);
   await page.evaluate(() => window.desktop.appMenu.execute("new-window"));
   await expect
     .poll(() => app.windows().filter((window) => window.url() === "app://bundle/index.html").length)
@@ -1329,6 +1347,13 @@ test("Hosts merges recipe rows with two Hosts windows already open", {
   await expect
     .poll(() => page.evaluate(async () => (await window.desktop.workspace()).terminals.length))
     .toBe(1);
+  await expect
+    .poll(
+      async () =>
+        (await page.locator(".terminal-tile[data-kind='shell']").last().isVisible()) ||
+        (await other.locator(".terminal-tile[data-kind='shell']").last().isVisible()),
+    )
+    .toBe(true);
   // Recipe reveal closes the receiving board's Settings. The other already-open
   // Hosts view can queue a second recipe without mounting/listing again.
   const remainingCard = (await card.isVisible()) ? card : otherCard;
@@ -1345,15 +1370,143 @@ test("Hosts merges recipe rows with two Hosts windows already open", {
     .map((line) => JSON.parse(line))
     .filter(({ message, phase }) => !phase && message.operation === "inspect" && message.target);
   assert.equal(beforeList.length, 0, "neither recipe remounted Hosts or refreshed queued rows");
-  await page.evaluate(() => window.desktop.hosts({ action: "list" }));
+  await expect(
+    remainingCard.getByRole("region", { name: "Install terminal" }).locator(".xterm-screen"),
+  ).toContainText("FIXTURE_RECIPE_COMPLETE");
+  await updateScenario({ recipeExit: 0 });
+  await expect
+    .poll(
+      async () =>
+        (await readFile(calls, "utf8")).split("\n").filter((line) => line.includes('"target"'))
+          .length,
+    )
+    .toBe(2);
   const targets = (await readFile(calls, "utf8"))
     .trim()
     .split("\n")
     .map((line) => JSON.parse(line))
     .filter(({ message, phase }) => !phase && message.operation === "inspect" && message.target)
     .map(({ message }) => message.target);
-  assert.deepEqual(targets, [
-    { kind: "sign-in", tool: "gh" },
-    { kind: "tool", tool: "git" },
-  ]);
+  assert.deepEqual(
+    targets.sort((a, b) => a.kind.localeCompare(b.kind)),
+    [
+      { kind: "sign-in", tool: "gh" },
+      { kind: "tool", tool: "git" },
+    ],
+  );
+});
+
+test("Hosts embeds interactive installs, retains outcomes, and refreshes only the installed tool", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, calls, updateScenario } = await hostsFixture(context);
+  await updateScenario({ recipeInteractive: true });
+  const initial = (await readFile(calls, "utf8")).trim().split("\n").length;
+  await card.getByRole("button", { name: "Install git", exact: true }).click();
+  const terminal = card.getByRole("region", { name: "Install terminal" });
+  await expect(terminal).toBeVisible();
+  await expect(page.getByRole("region", { name: "Settings", exact: true })).toBeVisible();
+  await expect(terminal.locator(".xterm-screen")).toContainText("[sudo] password:");
+  await assertAccessible(page);
+  await captureHosts(app, page, "1062/install-prompt");
+  await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .setContentSize(900, 760),
+  );
+  await expect.poll(() => page.evaluate(() => innerWidth)).toBe(900);
+  await captureHosts(app, page, "1062/install-narrow");
+  await terminal.locator(".xterm-helper-textarea").focus();
+  await page.keyboard.type("fixture-password");
+  await page.keyboard.press("Enter");
+  await expect(terminal.getByRole("status")).toHaveText("Done");
+  const gitRow = card
+    .locator(".host-check-row")
+    .filter({ has: page.getByRole("button", { name: "Reload git", exact: true }) });
+  await expect(gitRow).toContainText("Pass · Installed");
+  await expect(page.getByRole("region", { name: "Settings", exact: true })).toBeVisible();
+  await captureHosts(app, page, "1062/install-done");
+  const checks = (await readFile(calls, "utf8"))
+    .trim()
+    .split("\n")
+    .slice(initial)
+    .map((line) => JSON.parse(line))
+    .filter(({ message, phase }) => !phase && message.operation === "inspect")
+    .map(({ message }) => message.target ?? null);
+  assert.deepEqual(checks, [null, { kind: "tool", tool: "git" }]);
+  await terminal.getByRole("button", { name: "Dismiss" }).click();
+  await expect(terminal).toHaveCount(0);
+  await updateScenario({
+    recipeExit: 23,
+    facts: { tools: [{ id: "git", state: "missing", signIn: "unknown" }] },
+  });
+  await card.getByRole("button", { name: "Reload git", exact: true }).click();
+  await expect(card.getByRole("button", { name: "Install git", exact: true })).toBeEnabled();
+  await card.getByRole("button", { name: "Install git", exact: true }).click();
+  await expect(terminal.getByRole("status")).toHaveText("Failed · exit code 23");
+  await expect(gitRow).toContainText("Not found");
+  await captureHosts(app, page, "1062/install-failed");
+});
+
+test("Hosts retains failed Add stderr in a read-only panel", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, updateScenario } = await hostsFixture(context);
+  await page.getByRole("button", { name: "Add host", exact: true }).click();
+  const add = page.locator(".host-add");
+  await add.getByLabel("SSH host", { exact: true }).fill("offline-cloud");
+  await add.getByRole("button", { name: "Add host", exact: true }).click();
+  const output = page
+    .getByRole("region", { name: "offline-cloud", exact: true })
+    .getByRole("region", { name: "Host check output" });
+  await expect(output).toContainText("RAW SSH SECRET");
+  await expect(output.getByRole("status")).toHaveText("Failed");
+  await captureHosts(app, page, "1062/add-failed");
+  await output.getByRole("button", { name: "Dismiss" }).click();
+  await expect(output).toHaveCount(0);
+  await updateScenario({ hold: "inspect" });
+  await page.getByRole("button", { name: "Add host", exact: true }).click();
+  await add.getByLabel("SSH host", { exact: true }).fill("other-cloud");
+  await add.getByRole("button", { name: "Add host", exact: true }).click();
+  const live = add.getByRole("region", { name: "Host check output" });
+  await expect(live).toContainText("Daemon ready · Inspecting…");
+  await expect(live.getByRole("status")).toHaveText("Checking…");
+  await captureHosts(app, page, "1062/add-live");
+  await updateScenario({});
+  await expect(page.getByRole("region", { name: "other-cloud", exact: true })).toBeVisible();
+});
+
+test("Hosts keeps a running install reachable after Settings closes", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { page, card, calls, updateScenario } = await hostsFixture(context);
+  await updateScenario({ recipeInteractive: true });
+  await card.getByRole("button", { name: "Install git", exact: true }).click();
+  const terminal = card.getByRole("region", { name: "Install terminal" });
+  await expect(terminal.locator(".xterm-screen")).toContainText("[sudo] password:");
+  await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Settings", exact: true })).toHaveCount(0);
+  // The human-owned session remains in the sidebar even without a board tile.
+  const id = await page.evaluate(
+    async () => (await window.desktop.workspace()).terminals.at(-1).id,
+  );
+  await page.locator(`[data-drag-session="${id}"]`).click();
+  const tile = page.locator(".terminal-tile[data-kind='shell']").last();
+  await expect(tile.locator(".xterm-screen")).toContainText("[sudo] password:");
+  await page.screenshot({ path: evidencePath("1062/closed-settings.png") });
+  await tile.locator(".xterm-helper-textarea").focus();
+  await page.keyboard.type("fixture-password");
+  await page.keyboard.press("Enter");
+  await expect(tile.locator(".session-program")).toHaveText("Done");
+  await expect
+    .poll(
+      async () =>
+        (await readFile(calls, "utf8"))
+          .split("\n")
+          .filter((line) => line.includes('"target":{"kind":"tool","tool":"git"}')).length,
+    )
+    .toBe(1);
 });

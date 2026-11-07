@@ -39,6 +39,8 @@ export interface TerminalState {
 export type McpConnection = "connecting" | "connected" | "not-connected";
 
 export interface WorkspaceTerminal {
+  /** Transient human-owned setup recipe, never replayed. */
+  recipe?: boolean;
   /** Phase-2 remote child; never silently relaunched as a local process. */
   remote?: true;
   remoteCleanup?: "unreachable";

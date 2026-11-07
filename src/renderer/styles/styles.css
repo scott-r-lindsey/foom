@@ -10,6 +10,7 @@
 @import "./agent-card.css";
 @import "./branch-field.css";
 @import "./settings.css";
+@import "./hosts.css";
 @import "./environment.css";
 
 @import "./tiles.css";

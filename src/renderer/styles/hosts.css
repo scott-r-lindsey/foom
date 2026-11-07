@@ -1,0 +1,29 @@
+.host-terminal {
+  min-width: 0;
+  margin-block: 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.host-terminal > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.host-terminal > pre {
+  max-height: 240px;
+  min-height: 100px;
+  margin: 0;
+  padding: 10px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 12px / 1.5 var(--font-mono);
+  user-select: text;
+}
+.host-terminal-view {
+  height: 240px;
+  padding: 8px;
+}

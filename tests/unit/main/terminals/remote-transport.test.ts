@@ -1835,3 +1835,24 @@ test("an older delayed theme acknowledgement cannot roll back a newer confirmed 
   await reconnectLive();
   expect(child.messages).not.toContainEqual(expect.objectContaining({ type: "theme" }));
 });
+
+test("explicit management output observes upload steps and stderr without exposing protocol frames", async () => {
+  transport.kill();
+  const output = vi.fn();
+  const managed = remoteManagement(
+    { host: "fixture", artifact: "/artifact" },
+    "0.1.0",
+    { type: "manage", operation: "inspect", readOnly: true, partial: true, codeFolder: "~/code" },
+    undefined,
+    output,
+  );
+  await Promise.resolve();
+  child.stderr.write("SSH diagnostic\n");
+  child.header("FOOM-UPLOAD\nFOOM-READY\n");
+  child.message({ type: "hello", build: "a".repeat(64) });
+  child.message({ type: "managed", result: { ok: false, reason: "folder-missing" } });
+  await expect(managed).resolves.toMatchObject({ ok: false, reason: "folder-missing" });
+  expect(output.mock.calls.flat().join("")).toBe(
+    "SSH diagnostic\nUploading daemon…\nDaemon ready · Inspecting…\n",
+  );
+});

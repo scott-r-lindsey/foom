@@ -1,3 +1,4 @@
+import type { HostOutput } from "../../shared/registered-hosts.d";
 import { selectHostRecipe } from "../../shared/registered-host-recipes";
 import type { RemoteTarget } from "../../shared/remote-host";
 import { bundledAgentData } from "../../shared/bundled-agent-data";
@@ -338,7 +339,7 @@ export class Hosts {
             readOnly: true,
             codeFolder: registration.codeFolder,
           },
-          current,
+          { currentObservation: current },
         ).then((result) => {
           this.registered(host, registration.codeFolder);
           if (current()) this.results.set(host, result);
@@ -547,16 +548,24 @@ export class Hosts {
   /** Display-only resource replies never seed the launch inventory. */
   private readonly resourceResults = new Map<string, HostResult>();
   private progress: HostCheckProgress | undefined;
+  private output: HostOutput | undefined;
+  private outputGeneration = 0;
+  private appendOutput(text: string): void {
+    if (this.output)
+      this.output = { ...this.output, text: (this.output.text + text).slice(-65536) };
+  }
   private locations: RepositoryLocation[] = [];
   private pending: Promise<unknown> = Promise.resolve();
   constructor(
     private readonly store: Pick<SettingsStore, "get" | "update">,
     private readonly repositories: () => readonly Repository[],
     private readonly version: string,
-    private readonly execute: (host: string, request: HostManagement) => Promise<HostResult> = (
-      host,
-      request,
-    ) => remoteManagement({ host }, version, request, this.cancellation.signal),
+    private readonly execute: (
+      host: string,
+      request: HostManagement,
+      output?: (text: string) => void,
+    ) => Promise<HostResult> = (host, request, output) =>
+      remoteManagement({ host }, version, request, this.cancellation.signal, output),
     private readonly profile?: string,
   ) {}
   private projectedResult(host: string, result = this.results.get(host)): HostResult | undefined {
@@ -716,9 +725,11 @@ export class Hosts {
       ),
       ...(result ? { result } : {}),
       ...(this.progress ? { progress: this.progress } : {}),
+      ...(this.output ? { output: this.output } : {}),
     };
   }
   private readonly pendingRows = new Map<string, PendingHostRow[]>();
+  private pendingRecipeRefreshes = 0;
   private queueRows(host: string, targets: readonly HostCheckTarget[]) {
     const rows = new Map(
       (this.pendingRows.get(host) ?? []).map((row) => [JSON.stringify(row.target), row]),
@@ -783,6 +794,7 @@ export class Hosts {
   private async reloadRow(
     host: string,
     target: HostCheckTarget,
+    output = false,
   ): Promise<HostPreflight | undefined> {
     const registration = this.registeredRow(host, target);
     let result: HostResult;
@@ -804,14 +816,18 @@ export class Hosts {
         }
       }
     } else {
-      result = await this.run(host, {
-        type: "manage",
-        operation: "inspect",
-        readOnly: true,
-        partial: true,
-        codeFolder: registration.codeFolder,
-        target,
-      });
+      result = await this.run(
+        host,
+        {
+          type: "manage",
+          operation: "inspect",
+          readOnly: true,
+          partial: true,
+          codeFolder: registration.codeFolder,
+          target,
+        },
+        { output },
+      );
     }
     if (
       (target.kind === "power" || target.kind === "command-line-tools") &&
@@ -931,11 +947,15 @@ export class Hosts {
   action(
     input: unknown,
     confirm?: (content: DialogContent) => Promise<boolean>,
-    launchRecipe?: (target: RemoteTarget) => Promise<void>,
+    launchRecipe?: (target: RemoteTarget, finished?: () => void) => Promise<unknown>,
   ): Promise<HostsState> {
     if (!hostsAction(input)) return Promise.reject(new Error("Invalid host action"));
+    if (input.action === "dismiss-output") {
+      if (!this.output?.running) this.output = undefined;
+      return Promise.resolve(this.state());
+    }
     if (input.action === "progress") return Promise.resolve(this.state());
-    if (input.action === "list" && !this.pendingRows.size)
+    if (input.action === "list" && !this.pendingRows.size && !this.pendingRecipeRefreshes)
       return Promise.resolve(this.state(undefined, true));
     if (input.action === "rename")
       return this.updateRegistrations((hosts) => {
@@ -961,9 +981,15 @@ export class Hosts {
       ].includes(input.action)
     )
       this.sidebarLocations = undefined;
+    const showOutput = ["add", "test", "preflight", "reload", "refresh"].includes(input.action);
     const work = this.pending
       .catch(() => undefined)
       .then(async () => {
+        if (input.action === "recipe") this.output = undefined;
+        if (showOutput && "host" in input) {
+          this.outputGeneration++;
+          this.output = { host: input.host, text: "", running: true, failed: false };
+        }
         if (input.action === "list") {
           for (const [host, rows] of [...this.pendingRows]) {
             const retained: PendingHostRow[] = [];
@@ -988,7 +1014,7 @@ export class Hosts {
         if (input.action === "reload") {
           // Supersede any queued observation even when this reload cannot be saved.
           this.queueRows(input.host, [input.target]);
-          const preflight = await this.reloadRow(input.host, input.target);
+          const preflight = await this.reloadRow(input.host, input.target, true);
           const remaining = (this.pendingRows.get(input.host) ?? []).filter(
             (row) => JSON.stringify(row.target) !== JSON.stringify(input.target),
           );
@@ -1041,22 +1067,47 @@ export class Hosts {
           );
           if (!recipe || !launchRecipe || !this.profile)
             return { ...this.state(), recipeFailure: "recipe-unavailable" as const };
-          await launchRecipe({
-            host: input.host,
-            profile: this.profile,
-            human: true,
-            recipe: {
-              tool: recipe.tool,
-              action: recipe.action,
-              distro: recipe.distro,
-              digest: createHash("sha256").update(JSON.stringify(recipe.steps)).digest("hex"),
-            },
-          });
-          this.queueRows(input.host, [
+          const targets: HostCheckTarget[] = [
             ...(input.operation === "install" ? [{ kind: "tool" as const, tool: input.tool }] : []),
             ...(input.tool !== "git" ? [{ kind: "sign-in" as const, tool: input.tool }] : []),
-          ]);
-          return this.state();
+          ];
+          const recipeSession = await launchRecipe(
+            {
+              host: input.host,
+              profile: this.profile,
+              human: true,
+              recipe: {
+                tool: recipe.tool,
+                action: recipe.action,
+                distro: recipe.distro,
+                digest: createHash("sha256").update(JSON.stringify(recipe.steps)).digest("hex"),
+              },
+            },
+            () => {
+              this.pendingRecipeRefreshes++;
+              const queued = this.pending
+                .catch(() => undefined)
+                .then(() => {
+                  this.queueRows(input.host, targets);
+                })
+                .finally(() => {
+                  this.pendingRecipeRefreshes--;
+                });
+              this.pending = queued;
+              void queued
+                .then(() => this.action({ action: "list" }))
+                .catch(() => {
+                  console.warn("Recipe row refresh failed");
+                });
+            },
+          );
+          if (typeof recipeSession !== "string") this.queueRows(input.host, targets);
+          return {
+            ...this.state(),
+            ...(input.operation === "install" && typeof recipeSession === "string"
+              ? { recipeSession }
+              : {}),
+          };
         }
         if (input.action === "end") {
           const before = await this.readSessions(input.host);
@@ -1220,13 +1271,17 @@ export class Hosts {
             if (error) throw new Error(error);
           };
           validateName(hosts);
-          const result = await this.run(input.host, {
-            type: "manage",
-            operation: "inspect",
-            readOnly: true,
-            partial: true,
-            codeFolder: input.codeFolder,
-          });
+          const result = await this.run(
+            input.host,
+            {
+              type: "manage",
+              operation: "inspect",
+              readOnly: true,
+              partial: true,
+              codeFolder: input.codeFolder,
+            },
+            { output: true },
+          );
           if (
             input.action === "add" &&
             !(
@@ -1290,14 +1345,18 @@ export class Hosts {
             await this.readSessions(host.host);
             await this.readWorktrees(host.host, true);
           }
-          const result = await this.run(host.host, {
-            type: "manage",
-            operation: "inspect",
-            readOnly: true,
-            partial: true,
-            target: { kind: "facts" },
-            codeFolder: host.codeFolder,
-          });
+          const result = await this.run(
+            host.host,
+            {
+              type: "manage",
+              operation: "inspect",
+              readOnly: true,
+              partial: true,
+              target: { kind: "facts" },
+              codeFolder: host.codeFolder,
+            },
+            { output: true },
+          );
           const live = this.results.get(host.host);
           const previous = live ?? host.observation?.preflight.result;
           const refreshed: HostResult =
@@ -1342,19 +1401,33 @@ export class Hosts {
         const state = this.state();
         this.cacheHostLocations(state, repositories);
         return state;
-      });
+      })
+      .finally(() => {
+        if (showOutput && this.output) this.output = { ...this.output, running: false };
+      })
+      .then((state) => ({ ...state, ...(this.output ? { output: this.output } : {}) }));
     this.pending = work;
     return work;
   }
   private async run(
     host: string,
     request: HostManagement,
-    currentObservation: () => boolean = () => true,
+    options: { currentObservation?: () => boolean; output?: boolean } = {},
   ): Promise<HostResult> {
+    const currentObservation = options.currentObservation ?? (() => true);
     const failed = (
       reason: HostFailure,
       step: "providers" | "connection" | "reply" | "configuration" | "cancellation",
     ): HostResult => {
+      if (
+        options.output &&
+        this.output?.running &&
+        this.output.host === host &&
+        !this.output.failed
+      ) {
+        this.output.failed = true;
+        this.appendOutput(`Failed · ${reason}\n`);
+      }
       console.warn(`Host check failed: reason=${reason} step=${step}`);
       return { ok: false, reason };
     };
@@ -1390,7 +1463,23 @@ export class Hosts {
       }));
       let result: unknown;
       try {
-        result = await this.execute(host, { ...request, agents: probes });
+        const generation = this.outputGeneration;
+        const output =
+          options.output &&
+          this.output?.running &&
+          this.output.host === host &&
+          request.operation === "inspect"
+            ? (text: string) => {
+                if (this.outputGeneration === generation) this.appendOutput(text);
+              }
+            : undefined;
+        result = output
+          ? await this.execute(host, { ...request, agents: probes }, output)
+          : await this.execute(host, { ...request, agents: probes });
+        if (output && hostResult(result)) {
+          output(result.ok ? "Done\n" : `Failed · ${result.reason}\n`);
+          if (this.output && !result.ok) this.output.failed = true;
+        }
       } catch {
         return cancelled()
           ? failed("cancelled", "cancellation")
@@ -1446,13 +1535,17 @@ export class Hosts {
     this.invalidateWorktrees(host);
   }
   private async preflight(host: string, codeFolder: string): Promise<HostPreflight> {
-    const result = await this.run(host, {
-      type: "manage",
-      operation: "inspect",
-      codeFolder,
-      readOnly: true,
-      partial: true,
-    });
+    const result = await this.run(
+      host,
+      {
+        type: "manage",
+        operation: "inspect",
+        codeFolder,
+        readOnly: true,
+        partial: true,
+      },
+      { output: true },
+    );
     const pass: HostCheck = { state: "pass" };
     const unknown: HostCheck = { state: "not-checked" };
     const fail = (reason: HostFailure): HostCheck => ({ state: "fail", reason });

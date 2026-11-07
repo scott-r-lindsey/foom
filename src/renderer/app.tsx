@@ -84,7 +84,7 @@ function AppContents({ source }: { source: BoardSource }) {
       showing = visible;
     });
   }, [source]);
-  const [setup] = useState(createSetupSource);
+  const [setup] = useState(() => createSetupSource(source.createHostView));
   useEffect(() => attachInterfaceTheme(setup), [setup]);
   useEffect(() => attachTerminalSelectionBuffer(setup), [setup]);
   const [state, setState] = useState<SetupState>();

@@ -93,6 +93,7 @@ export class RemoteTransport extends EventEmitter {
     private readonly target: RemoteTarget,
     expectedVersion: string,
     private readonly management?: HostManagement | RemoteInventory | ImagePut,
+    private readonly output?: (text: string) => void,
   ) {
     super();
     this.expectedVersion = expectedVersion;
@@ -120,6 +121,7 @@ export class RemoteTransport extends EventEmitter {
             if (this.connectionChecks) this.connectionChecks[stage] = result;
           }
         : undefined,
+      output,
     )
       .then((artifact) => {
         if (this.closed) return;
@@ -330,6 +332,7 @@ export class RemoteTransport extends EventEmitter {
             const line = header.subarray(0, end).toString("ascii");
             header = header.subarray(end + 1);
             if (line === "FOOM-UPLOAD" && !uploading) {
+              this.output?.("Uploading daemon…\n");
               uploading = true;
               child.stdin.write(artifact.upload);
               continue;
@@ -345,6 +348,7 @@ export class RemoteTransport extends EventEmitter {
               throw new Error("Unsupported host libc");
             }
             if (line !== "FOOM-READY") throw new Error("Invalid bootstrap");
+            this.output?.("Daemon ready · Inspecting…\n");
             bootstrapped = true;
             this.send({ type: "hello", build: artifact.sha256 });
             bytes = header;
@@ -684,8 +688,10 @@ export class RemoteTransport extends EventEmitter {
     child.stdin.on("error", () => {
       this.retireConnection(connection, "failure");
     });
-    // stderr is deliberately drained without logging: a remote host controls it.
-    child.stderr.resume();
+    // Only explicit Settings checks opt into bounded display output. Never log stderr.
+    if (this.output)
+      child.stderr.on("data", (bytes: Buffer) => this.output?.(bytes.toString("utf8")));
+    else child.stderr.resume();
     child.once("error", () => {
       this.retireConnection(connection, "failure");
     });
@@ -820,9 +826,10 @@ export function remoteManagement(
   version: string,
   request: HostManagement,
   signal?: AbortSignal,
+  output?: (text: string) => void,
 ): Promise<HostResult> {
   return new Promise((resolve) => {
-    const transport = new RemoteTransport(target, version, request);
+    const transport = new RemoteTransport(target, version, request, output);
     const cancel = () => {
       transport.kill();
     };

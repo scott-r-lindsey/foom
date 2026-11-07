@@ -1,3 +1,4 @@
+import type { TerminalViewSource } from "../terminal/terminal-view-source.d";
 import type { HostsApi } from "../../shared/registered-hosts.d";
 import type { ReadinessReport } from "../../shared/readiness";
 import type { ThemeKind } from "../../shared/theme-file";
@@ -17,6 +18,10 @@ import type { ConfigStatus } from "../../shared/foom-config";
 
 /** What preflight needs from main. Components use this, never the bridge directly. */
 export interface SetupSource {
+  hostTerminal?: {
+    createView(): TerminalViewSource;
+    observe(id: string, listener: (exit: { exited: boolean; code?: number }) => void): () => void;
+  };
   copyHost?: HostsApi["copyHost"];
   hosts?: HostsApi["hosts"];
   restartToUpdate?(): Promise<void>;

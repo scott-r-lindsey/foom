@@ -11,14 +11,14 @@ export function TerminalMenu({
   action,
 }: {
   menu: TerminalContextMenu;
-  layout: TileLayout;
+  layout?: TileLayout;
   metrics?: TileMetrics | undefined;
   close: () => void;
-  action: (value: TileAction) => void;
+  action?: (value: TileAction) => void;
 }) {
   const run = (value: TileAction) => {
     close();
-    action(value);
+    action?.(value);
   };
   return (
     <RowMenu
@@ -49,11 +49,15 @@ export function TerminalMenu({
               </button>
             );
           })}
-          <hr />
-          <div className="tile-pads">
-            <DirectionPad kind="Split" layout={layout} metrics={metrics} run={run} />
-            <DirectionPad kind="Grow" layout={layout} run={run} />
-          </div>
+          {layout && (
+            <>
+              <hr />
+              <div className="tile-pads">
+                <DirectionPad kind="Split" layout={layout} metrics={metrics} run={run} />
+                <DirectionPad kind="Grow" layout={layout} run={run} />
+              </div>
+            </>
+          )}
         </>
       }
       actions={[]}

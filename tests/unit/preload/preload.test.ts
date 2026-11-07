@@ -1868,3 +1868,31 @@ test("host row failures are validated and projected without raw errors", async (
     await expect(api.hosts({ action: "list" })).rejects.toThrow();
   }
 });
+
+test("host setup output and recipe IDs are bounded display-only reply fields", async () => {
+  const api = await bridge();
+  const output = {
+    host: "worker",
+    text: "SSH stderr\n<script>inert</script>",
+    running: false,
+    failed: true,
+  };
+  mock.invoke.mockResolvedValue({ hosts: [], locations: [], output, recipeSession: "recipe" });
+  await expect(api.hosts({ action: "progress" })).resolves.toMatchObject({
+    output,
+    recipeSession: "recipe",
+  });
+  for (const invalid of [
+    { ...output, text: "x".repeat(65537) },
+    { ...output, running: 1 },
+    { ...output, failed: "no" },
+    { ...output, host: "-oCommand" },
+  ]) {
+    mock.invoke.mockResolvedValue({ hosts: [], locations: [], output: invalid });
+    await expect(api.hosts({ action: "progress" })).rejects.toThrow();
+  }
+  for (const recipeSession of ["", "x".repeat(201), 1]) {
+    mock.invoke.mockResolvedValue({ hosts: [], locations: [], recipeSession });
+    await expect(api.hosts({ action: "list" })).rejects.toThrow();
+  }
+});
