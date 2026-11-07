@@ -608,6 +608,7 @@ export async function startExisting(
       | Exclude<ReturnType<WorktreeLaunchContext["orchestration"]["reserve"]>, { existing: string }>
       | undefined;
     let resumeIdentity: string | undefined;
+    let resumeRuntime: Awaited<WorktreeLaunchContext["control"]> = undefined;
     const oldParent = replacement ? this.launched.get(replacement.id) : undefined;
     const resumeGuard =
       !restoring &&
@@ -673,6 +674,7 @@ export async function startExisting(
           if (rootIdentity !== this.sessions.identity(repository))
             throw new Error("Repository identity changed during resume");
           resumeIdentity = rootIdentity;
+          resumeRuntime = await this.control;
           resumeGuard();
           const slot = this.orchestration.reserve(repository);
           if ("existing" in slot) throw new Error("The orchestrator changed. Try again.");
@@ -747,9 +749,19 @@ export async function startExisting(
                   }),
             },
           );
-          resumeSlot?.bind(resumed.id);
           if (resumeIdentity !== undefined)
             this.sessions.rememberIdentity(repository, resumeIdentity);
+          // A human revoke may finish while the host is spawning. Keep the new
+          // process ordinary and live rather than restoring cancelled authority.
+          if (resumeGuard) {
+            try {
+              resumeGuard();
+            } catch {
+              resumeRuntime?.setRole?.(resumed.id, "agent");
+              return resumed.id;
+            }
+          }
+          resumeSlot?.bind(resumed.id);
           return resumed.id;
         } catch (error) {
           if (replacement) {

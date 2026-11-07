@@ -127,7 +127,7 @@ export async function revokeOrchestrator(
   id: string,
 ): Promise<void> {
   const view = this.orchestration.view(id);
-  if (view?.role !== "orchestrator" || !view.active) return;
+  if (view?.role !== "orchestrator") return;
   const operationId = randomUUID();
   await this.auditHuman("revoke_orchestrator", id, id, "running", operationId);
   try {

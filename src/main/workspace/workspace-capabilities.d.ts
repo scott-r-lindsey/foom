@@ -17,6 +17,7 @@ import type { Agents, WorkspaceDependencies, WorkspaceMethods } from "./workspac
 /** Independent feature contracts. Shared mutable state remains owned by the composer. */
 export interface WorktreeLaunchContext {
   readonly closed: boolean;
+  readonly control: Promise<Partial<Pick<ControlRuntime, "setRole">>> | undefined;
   readonly addWorktree: WorkspaceMethods["addWorktree"];
   readonly agents: Pick<Agents, "launch">;
   readonly busyWorktrees: Set<string>;

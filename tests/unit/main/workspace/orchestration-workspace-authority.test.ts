@@ -120,10 +120,10 @@ it("revokes like an exit: the session keeps running and a later grant keeps its 
   await expect(
     workspace.orchestration.call(principal(), "tail", { id: "child" }, operations),
   ).rejects.toMatchObject({ code: "forbidden" });
-  // Revoking an ordinary session does nothing.
+  // Revoking a retired orchestrator also cancels pending resume authority.
   setRole.mockClear();
   await workspace.sidebarCommand({ kind: "revoke-orchestrator", id: "parent" }, confirm);
-  expect(setRole).not.toHaveBeenCalled();
+  expect(setRole).toHaveBeenCalledExactlyOnceWith("parent", "agent");
   await make(workspace);
   const view = workspace.orchestration.view("parent");
   expect(view).toMatchObject({ role: "orchestrator", active: true });
@@ -262,7 +262,14 @@ it("resumes an exited orchestrator in its tile with fresh role credentials and i
   });
 });
 
-for (const action of ["revoke", "new-conversation", "transfer", "identity", "failure"] as const) {
+for (const action of [
+  "revoke",
+  "revoke-after-exit",
+  "new-conversation",
+  "transfer",
+  "identity",
+  "failure",
+] as const) {
   it(`guards orchestrator resume against ${action}`, async () => {
     const workspace = createWorkspace(deps);
     const initial = { id: "parent", attention: "evaluator" as const, conversationId: "saved-123" };
@@ -271,6 +278,8 @@ for (const action of ["revoke", "new-conversation", "transfer", "identity", "fai
     if (action === "revoke")
       await workspace.sidebarCommand({ kind: "revoke-orchestrator", id: "parent" }, confirm);
     await workspace.exited("parent", 0);
+    if (action === "revoke-after-exit")
+      await workspace.sidebarCommand({ kind: "revoke-orchestrator", id: "parent" }, confirm);
     if (action === "transfer") {
       launch.mockResolvedValueOnce({ id: "second", attention: "evaluator" });
       await workspace.sidebarCommand(
@@ -312,4 +321,24 @@ it("refuses to recover a prior role into a replaced repository at the same path"
   await workspace.sidebarCommand({ kind: "revoke-orchestrator", id: "parent" }, confirm);
   deps.worktrees.launchIdentity = () => Promise.resolve("replaced");
   await expect(make(workspace)).rejects.toThrow("Repository identity changed before re-grant");
+});
+
+it("a revoke during resume spawn leaves the new process ordinary and live", async () => {
+  const workspace = createWorkspace(deps);
+  const initial = { id: "parent", attention: "evaluator" as const, conversationId: "saved-123" };
+  launch.mockResolvedValueOnce(initial);
+  await orchestrate(workspace);
+  await workspace.exited("parent", 0);
+  launch.mockImplementationOnce(async (request) => {
+    request.beforeSpawn?.();
+    await workspace.sidebarCommand({ kind: "revoke-orchestrator", id: "parent" }, confirm);
+    return { id: "parent", attention: "evaluator" };
+  });
+  await workspace.sidebarCommand({ kind: "resume", id: "parent" }, confirm);
+  expect(setRole).toHaveBeenLastCalledWith("parent", "agent");
+  expect(workspace.orchestration.active(repo.path)).toBeUndefined();
+  expect(workspace.snapshot().terminals.find((row) => row.id === "parent")?.exited).toBe(false);
+  // An explicit subsequent human grant still succeeds; no resume reservation leaks.
+  await make(workspace);
+  expect(workspace.orchestration.active(repo.path)).toBe("parent");
 });

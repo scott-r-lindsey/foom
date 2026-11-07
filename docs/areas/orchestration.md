@@ -85,7 +85,9 @@ Resume of the same main-owned tile and recorded conversation may restore the rol
 with fresh credentials when it held the role at exit, its registered repository
 identity still matches, and no intervening grant, explicit revoke, removal or new
 conversation invalidated that provenance. Main reserves the repository slot and
-rechecks the captured provenance before spawn. A pasted conversation or a different
+rechecks the captured provenance before spawn and after the host returns. Revoke also cancels recovery
+for an exited parent; if it wins while spawn completes, the new process stays
+live with an ordinary grant. A pasted conversation or a different
 tile never establishes this authority. A failed launch releases its reservation.
 
 The trusted Make orchestrator disclosure states that re-granting the same tile in

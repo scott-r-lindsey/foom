@@ -98,3 +98,10 @@ test("same-tile orchestrator resume retains its live children with fresh credent
 }, async (context) => {
   await runOrchestratorScenario(context, false, "resume");
 });
+
+test("revoking an exited orchestrator prevents automatic role recovery on resume", {
+  timeout: deadline(90_000),
+  skip: process.platform === "win32" && "The fake agent is a POSIX script",
+}, async (context) => {
+  await runOrchestratorScenario(context, false, "resume-revoked");
+});

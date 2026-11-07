@@ -42,7 +42,7 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
     path.join(bin, "claude"),
     ["waiting", "unread"].includes(phase)
       ? waitingFixture
-      : phase === "resume"
+      : ["resume", "resume-revoked"].includes(phase)
         ? FAKE_ORCHESTRATED_CLAUDE.replace(
             'process.stdout.write("FOOM_AGENT_READY',
             `
@@ -541,7 +541,7 @@ process.stdout.write("FOOM_AGENT_READY`,
       });
     }
     const childId = launched.body.result.resultId;
-    if (phase === "resume") {
+    if (["resume", "resume-revoked"].includes(phase)) {
       await expect
         .poll(
           async () =>
@@ -560,15 +560,23 @@ process.stdout.write("FOOM_AGENT_READY`,
             )?.exited,
         )
         .toBe(true);
+      if (phase === "resume-revoked")
+        await page.evaluate(
+          (id) => window.desktop.sidebarCommand({ kind: "revoke-orchestrator", id }),
+          parentId,
+        );
       await page.evaluate((id) => window.desktop.sidebarCommand({ kind: "resume", id }), parentId);
       await expect.poll(async () => (await read("app")).controlToken).not.toBe(oldToken);
       Object.assign(parent, await read("app"));
       assert.equal(
         (await directCall(parent.controlToken, "whoami")).body.result.role,
-        "orchestrator",
+        phase === "resume" ? "orchestrator" : "agent",
       );
       assert.equal((await directCall(oldToken, "whoami")).status, 401);
-      assert.equal((await directCall(parent.controlToken, "tail", { id: childId })).status, 200);
+      assert.equal(
+        (await directCall(parent.controlToken, "tail", { id: childId })).status,
+        phase === "resume" ? 200 : 403,
+      );
       return;
     }
 
