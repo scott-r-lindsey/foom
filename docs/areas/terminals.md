@@ -234,7 +234,9 @@ menus. Mouse press records the label and its cell ranges; a change before releas
 requires confirmation even if the new label equals the target. Parser, scroll or
 resize invalidations remain uncertain until xterm's next rendered frame; a link
 never rendered or looked up while dirty cannot qualify by settling before release.
-A settled matching link still opens without a dialog. For every activation, every cell of the label must be within the current viewport. Scrolling a
+Activation also requires the label and cell ranges to agree with the last
+rendered link snapshot. Theme changes refresh that evidence on the next rendered
+frame, even without new terminal output. A settled matching link still opens without a dialog. For every activation, every cell of the label must be within the current viewport. Scrolling a
 matching label partly out of view requires confirmation. All other opens use the owning board's trusted Foom confirmation,
 showing the parsed host separately and the full wrapped, scrollable URL. Cancel
 is focused by default. Only one open request per board can be pending. Detachment,

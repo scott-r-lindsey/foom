@@ -395,3 +395,17 @@ test.each(["unrendered", "parsed", "scrolled"])(
     expect(f.desktop.openTerminalLink).toHaveBeenLastCalledWith("one", f.url, f.url);
   },
 );
+
+test("theme changes cannot establish a matching label before it is painted", async () => {
+  const f = await fixture();
+  f.terminal.options.theme = { foreground: "#000000", background: "#000000" };
+  f.render[0]?.();
+  f.terminal.options.theme = { foreground: "#ffffff", background: "#000000" };
+  f.mouse("mousedown");
+  f.mouse("mouseup");
+  expect(f.desktop.openTerminalLink).toHaveBeenLastCalledWith("one", f.url, undefined);
+  f.render[0]?.();
+  f.mouse("mousedown");
+  f.mouse("mouseup");
+  expect(f.desktop.openTerminalLink).toHaveBeenLastCalledWith("one", f.url, f.url);
+});

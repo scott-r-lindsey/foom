@@ -10,6 +10,7 @@ export function terminalLinks(
     | "buffer"
     | "cols"
     | "rows"
+    | "options"
     | "onRender"
     | "onScroll"
     | "onResize"
@@ -24,9 +25,21 @@ export function terminalLinks(
   let overlay: HTMLElement | undefined;
   let hover: TerminalLink | undefined;
   let pressed:
-    | { link: TerminalLink; dirty: boolean; x: number; y: number; id: string; selection: string }
+    | {
+        link: TerminalLink;
+        uncertain: boolean;
+        x: number;
+        y: number;
+        id: string;
+        selection: string;
+      }
     | undefined;
   let rendered: TerminalLink[] = [];
+  let paintedTheme: string | undefined;
+  const painted = (link: TerminalLink) => {
+    const key = JSON.stringify(link);
+    return !dirty && rendered.some((saved) => JSON.stringify(saved) === key);
+  };
   const open = (link: TerminalLink, uncertain = false) => {
     const id = target();
     const row = link.rows[0];
@@ -53,7 +66,10 @@ export function terminalLinks(
         .openTerminalLink(
           id,
           current.url,
-          visible && !dirty && !uncertain && JSON.stringify(link) === JSON.stringify(current)
+          visible &&
+            !uncertain &&
+            painted(current) &&
+            JSON.stringify(link) === JSON.stringify(current)
             ? current.text
             : undefined,
         )
@@ -87,7 +103,9 @@ export function terminalLinks(
   };
   const render = () => {
     screen = container.querySelector<HTMLElement>(".xterm-screen");
-    if (!screen || !dirty) return;
+    const theme = JSON.stringify(terminal.options.theme);
+    if (!screen || (!dirty && paintedTheme === theme)) return;
+    paintedTheme = theme;
     dirty = false;
     // Keep focused links and their keyboard focus across ordinary cursor repaints.
     const next: TerminalLink[] = [];
@@ -181,7 +199,7 @@ export function terminalLinks(
     if (link && id)
       pressed = {
         link,
-        dirty,
+        uncertain: !painted(link),
         x: event.clientX,
         y: event.clientY,
         id,
@@ -210,7 +228,7 @@ export function terminalLinks(
       return;
     const link = lookup(event);
     if (link?.url === previous.link.url)
-      open(link, previous.dirty || JSON.stringify(link) !== JSON.stringify(previous.link));
+      open(link, previous.uncertain || JSON.stringify(link) !== JSON.stringify(previous.link));
   };
   const offRender = terminal.onRender(render);
   // Scroll fires for each parsed line, inside the parser. Only invalidate here;
@@ -232,8 +250,8 @@ export function terminalLinks(
     menu: (event: MouseEvent) => {
       const link = lookup(event);
       const id = target();
-      const uncertain = dirty;
       if (!link || !id) return undefined;
+      const uncertain = !painted(link);
       return {
         url: link.url,
         copy: () => {
