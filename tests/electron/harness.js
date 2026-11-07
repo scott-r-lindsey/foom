@@ -397,6 +397,29 @@ async function assertAccessible(page) {
   await page.emulateMedia({ colorScheme: null });
 }
 
+// Fixed lifecycle facts only: keep terminal text, paths and credentials out of
+// failure evidence. stderr remains observable after the inspector disconnects.
+function installQuitTrace({ app, BrowserWindow }) {
+  const started = performance.now();
+  const trace = (event) =>
+    process.stderr.write(
+      `Quit trace: ${JSON.stringify({
+        event,
+        ms: Math.round(performance.now() - started),
+        windows: BrowserWindow.getAllWindows().length,
+      })}\n`,
+    );
+  const originalQuit = app.quit;
+  app.quit = function () {
+    trace("app.quit entered");
+    originalQuit.call(app);
+    trace("app.quit returned");
+  };
+  for (const name of ["before-quit", "will-quit", "window-all-closed", "quit"])
+    app.on(name, (event) => trace(`${name}: prevented=${Boolean(event?.defaultPrevented)}`));
+  trace("trace installed");
+}
+
 // Playwright closes its Node inspector only after its synchronous app.quit()
 // evaluation returns. Cancel that invocation and resume on the event loop so
 // Electron cannot wait for debugger disconnect inside the evaluation itself.
@@ -415,11 +438,15 @@ function installQuitAcknowledgement({ app }) {
       });
     });
     globalThis.readyToQuit = true;
+    process.stderr.write("Quit trace: acknowledged\n");
+    setImmediate(() => process.stderr.write("Quit trace: acknowledgement event loop resumed\n"));
   };
   app.on("will-quit", ready);
 }
 
 async function quitAndWait(app, requestQuit, phase = () => {}) {
+  phase("install quit trace");
+  await app.evaluate(installQuitTrace);
   phase("install quit acknowledgement");
   await app.evaluate(installQuitAcknowledgement);
   phase("request quit");
@@ -774,6 +801,21 @@ async function launchApp(context, options = { fixture: "running-shell" }) {
     });
   cleanup.launches.set(app, { entry, env });
   const child = app.process();
+  const quitTrace = [];
+  const quitLines = require("node:readline").createInterface({ input: child.stderr });
+  quitLines.on("line", (line) => {
+    if (
+      line.startsWith("Quit trace:") ||
+      line.startsWith("Electron teardown:") ||
+      line.includes("Waiting for the debugger to disconnect")
+    ) {
+      quitTrace.push(line);
+      if (quitTrace.length > 128) quitTrace.shift();
+    }
+  });
+  app.on("close", () => quitTrace.push("Playwright app closed"));
+  app.context().on("close", () => quitTrace.push("Playwright context closed"));
+  child.on("exit", () => quitTrace.push("Electron process exited"));
   cleanup.audit.add(child.pid);
   // Tests must never play through the developer's speakers, even under Xvfb.
   assert.equal(await app.evaluate(({ app }) => app.commandLine.hasSwitch("mute-audio")), true);
@@ -841,6 +883,7 @@ async function launchApp(context, options = { fixture: "running-shell" }) {
             },
             (phase) => {
               shutdownPhase = phase;
+              quitTrace.push(`Harness phase: ${phase}`);
             },
           );
         })(),
@@ -864,6 +907,7 @@ async function launchApp(context, options = { fixture: "running-shell" }) {
     } catch (error) {
       console.error("Electron shutdown diagnostics:", {
         phase: shutdownPhase,
+        quitTrace,
         pid: child.pid,
         exitCode: child.exitCode,
         signalCode: child.signalCode,
@@ -871,6 +915,7 @@ async function launchApp(context, options = { fixture: "running-shell" }) {
       });
       throw error;
     } finally {
+      quitLines.close();
       clearTimeout(timer);
       // If graceful shutdown failed, fail the test and terminate the process tree.
       // The watchdog stays armed while teardown runs, but must not outlive it.

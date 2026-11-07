@@ -244,3 +244,20 @@ and command/facts bounds. A missing grid distinguishes an absent menu from a
 present menu whose facts do not stack. Neither earlier macOS nor Linux CI artifacts
 recorded those final values; the original bare predicate timeout does not itself
 establish an incorrect grid layout.
+
+## Quit ordering diagnostics (#1056)
+
+The harness retains a bounded stderr lifecycle trace and prints it only when
+app teardown fails. It records main's `app.quit` entry/return, native quit events,
+window counts, acknowledgement delivery and the next event-loop turn, together
+with harness phases and connection/process closure. These are fixed lifecycle
+facts; terminal output, paths, credentials and message payloads are excluded.
+The trace starts before requesting quit and survives inspector disconnection.
+
+A teardown phase named `invoke Playwright quit evaluation` covers the entire
+public `app.close()` call, including Playwright's work before its evaluation.
+That label alone cannot establish a product quit hang. Use the event order to
+distinguish an evaluation that never reaches main, an ignored/reentrant native
+quit, a pending service barrier and a process waiting for debugger disconnect.
+The normal-exit assertion, shutdown deadline and forced cleanup on failure remain
+unchanged.
