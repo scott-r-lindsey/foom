@@ -553,8 +553,23 @@ export function createAppSource(): BoardSource {
         ? {
             onPlace: (callback) =>
               window.desktop.previews?.onPlace?.(async (id, expiresAt) => {
-                const inventory = await window.desktop.sidebarInventory();
-                acceptInventory(inventory);
+                if (window.desktop.previews?.describe) {
+                  // Placement has its own deadline. Repository/host inventory can
+                  // take longer; the already-authorized owned record is enough.
+                  const preview = await window.desktop.previews.describe(id);
+                  const repository =
+                    previews.find((entry) => entry.id === id)?.repository ??
+                    sidebar.find((entry) =>
+                      entry.worktrees.some((tree) => tree.path === preview.worktree),
+                    )?.path ??
+                    "";
+                  previews = [
+                    ...previews.filter((entry) => entry.id !== id),
+                    { ...preview, repository },
+                  ];
+                } else {
+                  acceptInventory(await window.desktop.sidebarInventory());
+                }
                 rows = [...rows];
                 publish();
                 return callback(id, expiresAt);

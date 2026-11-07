@@ -11,6 +11,7 @@ const {
   FAKE_ORCHESTRATED_CLAUDE,
   assertAccessible,
   boardPage,
+  confirmationPage,
   launchApp,
   removeAfterApps,
 } = require("./harness.js");
@@ -91,7 +92,7 @@ async function agentPreviewFixture(context) {
   const requestPreview = (requestId, file) =>
     requestAgent(requestId, ["open-preview", file, "--json"]);
   const listPreviews = (requestId) => requestAgent(requestId, ["previews", "--json"]);
-  return { app, page, repo, agent, shell, credentials, requestPreview, listPreviews };
+  return { app, page, repo, agent, shell, credentials, requestAgent, requestPreview, listPreviews };
 }
 
 test("agent previews split a blank window into terminal-width columns", {
@@ -648,4 +649,102 @@ test("agent reopen is visible with free space and reports sidebar only at protec
   assert.equal(retry.placement, "empty");
   await expect.poll(async () => (await previewViewState(app, retry.previewId)).attached).toBe(true);
   assert.equal((await listPreviews("retry-list")).previews[0].visible, true);
+});
+
+test("agent previews stay visible after window moves while sidebar inventory is pending", {
+  skip: process.platform === "win32" && "The fake agent is a POSIX script",
+}, async (context) => {
+  const { app, page, agent, credentials, requestAgent, requestPreview } =
+    await agentPreviewFixture(context);
+  await page.getByRole("button", { name: "Actions for Claude Code in main" }).click();
+  await page.getByRole("menuitem", { name: "Make orchestrator…" }).click();
+  const confirmation = await confirmationPage(app);
+  await confirmation.getByRole("button", { name: "Make orchestrator", exact: true }).click();
+  assert.equal((await requestAgent("role", ["whoami", "--json"])).role, "orchestrator");
+  await sizeTileBoard(app, page, 2400);
+  await page.locator('.board-row[data-kind="agent"]').click();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        async (id) =>
+          (await window.desktop.windows.snapshot()).some(
+            (view) => view.id === id && view.window === 0,
+          ),
+        agent.id,
+      ),
+    )
+    .toBe(true);
+  const first = await requestPreview("before-move", "notes.md");
+  await movePreviewTile(app, page, first.previewId, async (target) => {
+    await target.evaluate(() => window.desktop.appMenu.execute("settings"));
+    await expect(target.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
+    // Gate the expensive sidebar read, without load or a timer override. A
+    // placement must not spend its five-second deadline waiting on inventory.
+    await app.evaluate(({ ipcMain }) => {
+      const original = ipcMain._invokeHandlers.get("workspace:sidebar");
+      let release;
+      const pending = new Promise((resolve) => {
+        release = resolve;
+      });
+      globalThis.releasePreviewInventory = () => {
+        release();
+        ipcMain.removeHandler("workspace:sidebar");
+        ipcMain.handle("workspace:sidebar", original);
+      };
+      ipcMain.removeHandler("workspace:sidebar");
+      ipcMain.handle("workspace:sidebar", async (...args) => {
+        await pending;
+        return original(...args);
+      });
+    });
+    const actor = JSON.parse(await readFile(`${credentials}.app`, "utf8"));
+    const call = async (method, params) => {
+      const response = await fetch(actor.controlUrl, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${actor.controlToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ version: 1, instanceId: actor.instanceId, method, params }),
+      });
+      assert.equal(response.status, 200);
+      return (await response.json()).result;
+    };
+    try {
+      const opened = await call("open_preview", { path: "narrow.md" });
+      assert.notEqual(opened.placement, "sidebar");
+      assert.equal(opened.reused, false);
+      await expect(page.locator(`[data-preview-id="${opened.previewId}"]`)).toBeVisible();
+      await expect
+        .poll(() =>
+          previewContents(app, opened.previewId, "document.querySelector('h1')?.textContent", {
+            requireAttached: true,
+          }),
+        )
+        .toBe("Narrow notes");
+      assert.equal(
+        (await call("list_previews", {})).previews.find(
+          (preview) => preview.previewId === opened.previewId,
+        ).visible,
+        true,
+      );
+      const reused = await call("open_preview", { path: "narrow.md" });
+      assert.equal(reused.previewId, opened.previewId);
+      assert.equal(reused.placement, "existing");
+      assert.equal(reused.reused, true);
+      assert.equal(
+        (await target.evaluate((id) => window.desktop.previews.describe(id), first.previewId)).id,
+        first.previewId,
+      );
+      await assert.rejects(
+        page.evaluate((id) => window.desktop.previews.describe(id), first.previewId),
+      );
+      await page.evaluate((id) => window.desktop.previews.close(id), opened.previewId);
+      await assert.rejects(
+        page.evaluate((id) => window.desktop.previews.describe(id), opened.previewId),
+      );
+    } finally {
+      await app.evaluate(() => globalThis.releasePreviewInventory());
+    }
+  });
 });

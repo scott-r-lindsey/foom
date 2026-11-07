@@ -138,6 +138,11 @@ Closed records disappear immediately; a healthy membership read still excludes
 previews whose checkout is absent. These display associations grant no file access
 or worktree authorization. The board places human previews with `placeContent`, preserving
 focus, and measures each preview body to report bounds through the source interface.
+Agent placement obtains the owned record's display facts through `preview:describe`
+without waiting for sidebar inventory, repository scans or registered-host reads.
+The renderer uses cached repository associations until ordinary inventory refresh
+supplies them. Slow inventory cannot consume the placement deadline.
+
 Cross-window token drops and **Move to window** call the same `PreviewHost.moveTo`
 transaction after the destination reserves valid tile geometry; they retain the
 same ID, attribution, reload behavior and network reset described below.
