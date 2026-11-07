@@ -1,3 +1,4 @@
+import { canRestoreControl } from "./session-restore";
 import type { ReviewSnapshot } from "../control/review-loops.d";
 import { remoteAgentTarget } from "../terminals/remote-bootstrap";
 import { randomUUID } from "node:crypto";
@@ -42,7 +43,17 @@ export function orchestrationView(
   this: OrchestrationCommandsContext,
   id: string,
 ): Pick<WorkspaceTerminal, "orchestration" | "handoff" | "review"> {
-  const view = this.orchestration.view(id);
+  let view = this.orchestration.view(id);
+  const entry = this.launched.get(id);
+  if (
+    view?.role === "orchestrator" &&
+    view.restoreOnResume &&
+    !canRestoreControl(
+      entry,
+      this.agentReport?.agents.find((agent) => agent.id === entry?.agent),
+    )
+  )
+    view = { role: view.role, active: view.active, children: view.children, history: view.history };
   const handoff = this.orchestration.handoffs.latest(id);
   const review = this.orchestration.reviews.view(id) ?? this.launched.get(id)?.review;
   return {
@@ -77,7 +88,21 @@ export async function makeOrchestrator(
   await this.initializeControl();
   const control = await this.control;
   if (!control) throw new Error("Control service unavailable");
-  const identity = await this.deps.worktrees.launchIdentity(entry.repository, entry.repository);
+  const captureIdentity = async () => {
+    const repository = await this.deps.worktrees.launchIdentity(entry.repository, entry.repository);
+    const worktree =
+      entry.worktree === entry.repository
+        ? repository
+        : await this.deps.worktrees.launchIdentity(entry.repository, entry.worktree);
+    return { repository, worktree };
+  };
+  const identity = await captureIdentity();
+  this.orchestration.checkRecovery(id, identity);
+  const report = await this.scanAgents(false);
+  const restoreOnResume = canRestoreControl(
+    entry,
+    report.agents.find((item) => item.id === agent),
+  );
   const current = this.orchestration.active(entry.repository);
   const replaced = current === undefined ? undefined : this.launched.get(current);
   const operationId = randomUUID();
@@ -85,6 +110,7 @@ export async function makeOrchestrator(
   await this.auditHuman(action, id, current ?? null, "pending_confirmation", operationId);
   const accepted = await confirm({
     kind: "orchestrator",
+    ...(restoreOnResume ? { restoreOnResume: true } : {}),
     subject: `${basename(entry.repository)} · ${entry.branch ?? basename(entry.worktree)}`,
     agent,
     ...(replaced && replaced.agent !== "shell"
@@ -99,16 +125,22 @@ export async function makeOrchestrator(
   }
   try {
     // The dialog took time: recheck everything it described.
+    const currentIdentity = await captureIdentity();
     running();
     if (this.orchestration.active(entry.repository) !== current)
       throw new Error("The orchestrator changed. Try again.");
+    if (
+      identity.repository !== currentIdentity.repository ||
+      identity.worktree !== currentIdentity.worktree
+    )
+      throw new Error("Repository identity changed before re-grant");
+    this.orchestration.checkRecovery(id, identity);
     if (current !== undefined) await this.revokeOrchestrator(current);
-    const slot = this.orchestration.reserve(entry.repository);
+    const slot = this.orchestration.reserve(entry.repository, id, restoreOnResume, identity);
     if ("existing" in slot) throw new Error("The orchestrator changed. Try again.");
     try {
       control.setRole(id, "orchestrator");
       slot.bind(id);
-      this.sessions.rememberIdentity(entry.repository, identity);
     } finally {
       slot.release();
     }
@@ -124,7 +156,7 @@ export async function revokeOrchestrator(
   id: string,
 ): Promise<void> {
   const view = this.orchestration.view(id);
-  if (view?.role !== "orchestrator" || !view.active) return;
+  if (view?.role !== "orchestrator") return;
   const operationId = randomUUID();
   await this.auditHuman("revoke_orchestrator", id, id, "running", operationId);
   try {

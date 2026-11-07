@@ -1,3 +1,4 @@
+import type { ParentIdentity } from "../control/orchestration.d";
 import type { RemoteTarget } from "../../shared/remote-host";
 import type { ReviewSnapshot } from "../control/review-loops.d";
 import type { Orchestration } from "../control/orchestration";
@@ -108,7 +109,7 @@ export interface WorkspaceMethods {
     replacement?: { id: string; conversationId?: string },
     control?: AgentLaunch["control"],
     restoring?: boolean,
-    authorityIdentity?: string,
+    authorityIdentity?: ParentIdentity,
     pastedId?: string,
   ): Promise<string | undefined>;
   revokeConfig(id: string): void;

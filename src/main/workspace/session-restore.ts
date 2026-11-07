@@ -14,6 +14,20 @@ export function restorePlan(entries: readonly StoredSession[], enabled: boolean)
     : [];
 }
 
+/** The same installation/provenance gate governs restart and human tile Resume. */
+export function canRestoreControl(
+  entry: Pick<StoredSession, "agent" | "providerOrigin"> | undefined,
+  agent: AgentInstallation | undefined,
+): boolean {
+  return (
+    entry !== undefined &&
+    !(entry.providerOrigin === "config" && builtinAgent(entry.agent)) &&
+    agent?.path != null &&
+    agent.mcp === true &&
+    (agent.restoreControl ?? builtinAgent(agent.id)?.restoreControl) === true
+  );
+}
+
 export function restoreAuthority(
   entry: StoredSession,
   identity: string | undefined,
@@ -23,13 +37,10 @@ export function restoreAuthority(
   return (
     enabled &&
     entry.remote !== true &&
-    !(entry.providerOrigin === "config" && builtinAgent(entry.agent)) &&
     entry.running === true &&
     entry.orchestrator !== undefined &&
     entry.orchestrator.identity === identity &&
-    agent?.path !== null &&
-    agent?.mcp === true &&
-    (agent.restoreControl ?? builtinAgent(agent.id)?.restoreControl) === true
+    canRestoreControl(entry, agent)
   );
 }
 

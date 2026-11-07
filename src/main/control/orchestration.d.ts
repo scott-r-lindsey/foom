@@ -92,8 +92,14 @@ export interface Child {
   tailAt: number;
   readHandoff?: number;
 }
+/** Filesystem identities captured by main for this parent's repository and checkout. */
+export interface ParentIdentity {
+  readonly repository: string;
+  readonly worktree: string;
+}
 export interface Parent {
   readonly repository: string;
+  readonly identity?: ParentIdentity;
   terminalId: string | null;
   generation: string | null;
   active: boolean;

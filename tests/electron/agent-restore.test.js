@@ -16,8 +16,13 @@ const {
   removeAfterApps,
 } = require("./harness.js");
 
-for (const agent of ["claude", "codex"])
-  test(`restores running ${agent}, shell and orchestrator children across windows`, {
+for (const { agent, linked, replaced } of [
+  { agent: "claude", linked: false },
+  { agent: "codex", linked: false },
+  { agent: "claude", linked: true },
+  { agent: "claude", linked: true, replaced: true },
+])
+  test(`restores running ${agent}${linked ? " in a linked worktree" : ""}${replaced ? " with a replaced checkout" : ""}, shell and orchestrator children across windows`, {
     timeout: deadline(90000),
     skip: process.platform === "win32" && "The fake CLI is a POSIX executable",
   }, async (context) => {
@@ -44,6 +49,9 @@ for (const agent of ["claude", "codex"])
       "-qm",
       "init",
     ]);
+    const parentCheckout = linked ? path.join(root, "linked-parent") : repo;
+    const parentName = path.basename(parentCheckout);
+    if (linked) isolatedGit(["-C", repo, "worktree", "add", "-b", "parent-topic", parentCheckout]);
     let fake = FAKE_ORCHESTRATED_CLAUDE;
     if (agent === "codex")
       fake = fake
@@ -80,18 +88,18 @@ req.end(JSON.stringify(payload));
     });
     const rows = (page) => page.evaluate(async () => (await window.desktop.workspace()).terminals);
     await first.evaluate(
-      ({ repo, agent }) =>
+      ({ repo, agent, parentCheckout }) =>
         window.desktop.sidebarCommand({
           kind: "launch",
           repository: repo,
-          worktree: repo,
+          worktree: parentCheckout,
           run: agent,
         }),
-      { repo, agent },
+      { repo, agent, parentCheckout },
     );
     await expect
       .poll(() => rows(first))
-      .toMatchObject([{ conversationId: "saved-repo", exited: false }]);
+      .toMatchObject([{ conversationId: `saved-${parentName}`, exited: false }]);
     const parentId = (await rows(first))[0].id;
     await first.evaluate((id) => {
       void window.desktop.sidebarCommand({ kind: "make-orchestrator", id });
@@ -100,7 +108,7 @@ req.end(JSON.stringify(payload));
     await expect.poll(async () => (await rows(first))[0].orchestration?.active).toBe(true);
     const readCredentials = async (name) =>
       JSON.parse(await readFile(`${credentials}.${name}`, "utf8"));
-    const oldParent = await readCredentials("repo");
+    const oldParent = await readCredentials(parentName);
     const call = async (parent, method, params = {}) => {
       const response = await fetch(parent.controlUrl, {
         method: "POST",
@@ -207,6 +215,10 @@ req.end(JSON.stringify(payload));
     const saved = JSON.parse(await readFile(path.join(profile, "sessions.json"), "utf8"));
     assert.equal(saved.filter((row) => row.running).length, 3);
     assert.ok(saved.find((row) => row.id === parentId).orchestrator.identity);
+    if (replaced) {
+      isolatedGit(["-C", repo, "worktree", "remove", parentCheckout]);
+      isolatedGit(["-C", repo, "worktree", "add", parentCheckout, "parent-topic"]);
+    }
     const restored = await launchApp(context, { ...options, fixture: "restored" });
     let pages;
     await expect
@@ -216,6 +228,22 @@ req.end(JSON.stringify(payload));
       })
       .toBe(2);
     const page = pages[0];
+    if (replaced) {
+      await expect
+        .poll(async () => (await rows(page)).find((row) => row.id === parentId))
+        .toMatchObject({ exited: true, dormant: true, roleNotRestored: true });
+      assert.equal(
+        (await rows(page)).find((row) => row.id === parentId).orchestration?.active,
+        undefined,
+      );
+      await expect.poll(async () => (await rows(page)).filter((row) => !row.exited).length).toBe(2);
+      assert.deepEqual(
+        await readCredentials(parentName),
+        oldParent,
+        "replaced checkout was never spawned with authority",
+      );
+      return;
+    }
     await expect
       .poll(async () => (await rows(page)).filter((row) => !row.exited && !row.dormant).length)
       .toBe(3);
@@ -297,7 +325,7 @@ req.end(JSON.stringify(payload));
       }
       await expect(ownerPage.locator(".tile-restoring")).toHaveCount(0);
     }
-    const newParent = await waitForCredentials("repo", oldParent);
+    const newParent = await waitForCredentials(parentName, oldParent);
     // The role is re-granted from main's store; the resumed agent gets no launch prompt.
     assert.ok(
       !newParent.args.includes("--"),
@@ -384,6 +412,29 @@ req.end(JSON.stringify(payload));
         async () => (await rows(page)).find((row) => row.branch === "unused-child")?.conversationId,
       )
       .toBe("saved-unused-child");
+    if (agent === "claude") {
+      // Disk restoration keeps its established role contract, but does not infer
+      // consent to a later manual Resume from this persisted role.
+      await page.evaluate((id) => window.desktop.input(id, "q"), parentId);
+      await expect
+        .poll(async () => (await rows(page)).find((row) => row.id === parentId)?.exited)
+        .toBe(true);
+      assert.equal(
+        (await rows(page)).find((row) => row.id === parentId)?.orchestration?.restoreOnResume,
+        undefined,
+      );
+      const parentRow = page
+        .locator(".session-entry")
+        .filter({ has: page.locator(`[data-drag-session="${parentId}"]`) });
+      await parentRow
+        .locator(":scope > .board-row")
+        .getByRole("button", { name: /^Actions for/ })
+        .click();
+      await expect(page.getByRole("menuitem", { name: "Revoke orchestrator" })).toHaveCount(0);
+      await page.getByRole("menuitem", { name: /^Resume conversation/ }).click();
+      const ordinaryParent = await waitForCredentials(parentName, newParent);
+      assert.equal((await call(ordinaryParent, "whoami")).role, "agent");
+    }
     const beforeDisabled = await rows(page);
     await page.evaluate(() => window.desktop.saveSetup({ restoreSessions: false }));
     await quit(restored);

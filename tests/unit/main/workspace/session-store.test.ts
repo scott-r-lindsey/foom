@@ -159,6 +159,9 @@ test.each([
   { orchestrator: {} },
   { orchestrator: { identity: "", history: [] } },
   { orchestrator: { identity: "x".repeat(4097), history: [] } },
+  { orchestrator: { identity: "ok", worktreeIdentity: "", history: [] } },
+  { orchestrator: { identity: "ok", worktreeIdentity: 1, history: [] } },
+  { orchestrator: { identity: "ok", worktreeIdentity: "x".repeat(4097), history: [] } },
   { orchestrator: { identity: "ok", history: {} } },
   { orchestrator: { identity: "ok", history: Array(21).fill({}) } },
   { orchestrator: { identity: "ok", history: [null] } },
@@ -411,4 +414,12 @@ test("machine-owned home agent records survive storage without child or reposito
     { ...machine, orchestrator: {} },
   ])
     expect(() => readSessions([forged])).toThrow();
+});
+
+test("retains the parent's distinct repository and checkout identities", () => {
+  expect(
+    readSessions([
+      { ...record, orchestrator: { identity: "root", worktreeIdentity: "linked", history: [] } },
+    ])[0]?.orchestrator,
+  ).toEqual({ identity: "root", worktreeIdentity: "linked", history: [] });
 });
