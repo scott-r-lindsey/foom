@@ -74,6 +74,7 @@ Main, host, and preload compile to CommonJS. esbuild bundles the renderer and xt
 | `pnpm run typecheck` | Check application, tests, and Vitest configuration without emitting files |
 | `pnpm test` / `pnpm run test:watch` | Run Vitest once / in watch mode, without a desktop display |
 | `pnpm run test:coverage` | Enforce per-file coverage and write HTML, LCOV, JSON, and terminal reports |
+| `pnpm run test:integration` | Run the [real Node integration pilot](node-integration.md) with Git, PTYs, files and fixture CLIs |
 | `pnpm run test:electron` | Build and launch the real Electron feature suites |
 | `pnpm run build` | Compile application code, bundle xterm, and copy assets |
 | `pnpm run package` / `pnpm run make` | Create an executable application / native installers and ZIP |
