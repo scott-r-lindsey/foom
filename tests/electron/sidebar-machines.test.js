@@ -124,7 +124,7 @@ wait();`,
   );
   const app = await launchApp(context, { fixture: "repository", env: { PATH: bin } });
   const page = await boardPage(app);
-  const width = scenario === "reload" ? 2200 : 1280;
+  const width = ["reload", "failed-save"].includes(scenario) ? 2200 : 1280;
   await app.evaluate(
     ({ BrowserWindow }, width) =>
       BrowserWindow.getAllWindows()
@@ -220,6 +220,55 @@ wait();`,
         path: evidencePath(`1044/startup-${mode}.png`),
         animations: "disabled",
       });
+    }
+    if (scenario === "failed-save") {
+      await writeFile(offline, "offline");
+      await rm(launchGate, { force: true });
+      await expect(page.locator('.tile-startup[data-failed="true"]')).toHaveCount(1);
+      for (const mode of ["light", "dark"]) {
+        await page.evaluate(
+          (mode) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${mode}` }),
+          mode,
+        );
+        await expect(page.locator("html")).toHaveCSS("color-scheme", mode);
+        await page
+          .locator('.tile-startup[data-failed="true"]')
+          .locator("..")
+          .screenshot({
+            path: evidencePath(`1044/round3/failure-${mode}.png`),
+            animations: "disabled",
+          });
+      }
+      const savedLayout = () =>
+        page.evaluate(() => localStorage.getItem(`foom.tiles.v1.${window.desktop.windows.id}`));
+      const saved = await savedLayout();
+      const count = await page.locator(".terminal-tile").count();
+      await page.locator('.terminal-tile[data-empty="true"]').first().click({ button: "right" });
+      await page.getByRole("menuitem", { name: "Split horizontal", exact: true }).click();
+      await expect(page.locator(".terminal-tile")).toHaveCount(count + 1);
+      await expect.poll(savedLayout).not.toBe(saved);
+      assert.ok(!(await savedLayout()).includes("launch_"));
+      await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
+      await expect.poll(async () => JSON.parse(await savedLayout()).sidebarCollapsed).toBe(true);
+      await page.getByRole("button", { name: "Expand sidebar", exact: true }).click();
+      await page.getByRole("button", { name: "Actions for localhost", exact: true }).click();
+      await page.getByRole("menuitem", { name: "New shell", exact: true }).click();
+      await expect(page.locator('.tile-startup:not([data-failed="true"])')).toHaveCount(0);
+      await expect
+        .poll(() => page.evaluate(async () => (await window.desktop.workspace()).terminals.length))
+        .toBe(1);
+      const realId = await page.evaluate(
+        async () => (await window.desktop.workspace()).terminals[0].id,
+      );
+      await expect.poll(savedLayout).toContain(realId);
+      assert.ok(!(await savedLayout()).includes("launch_"));
+      await page.reload();
+      await expect(page.getByRole("navigation", { name: "Terminal sidebar" })).toBeVisible();
+      await expect(page.locator(".tile-startup")).toHaveCount(0);
+      await expect(page.locator(".terminal-tile")).toHaveCount(2);
+      await expect(page.locator('.terminal-tile[data-empty="true"]')).toHaveCount(1);
+      await expect(page.locator('.terminal-tile[data-empty="false"] .xterm')).toBeVisible();
+      return;
     }
     if (scenario === "reload") {
       try {
@@ -723,4 +772,13 @@ test(
     timeout: deadline(60000),
   },
   (context) => sidebarMachines(context, true, "reload"),
+);
+
+test(
+  "a failed launch resumes layout saves and reload keeps later splits and terminals",
+  {
+    skip: process.platform === "win32",
+    timeout: deadline(60000),
+  },
+  (context) => sidebarMachines(context, true, "failed-save"),
 );

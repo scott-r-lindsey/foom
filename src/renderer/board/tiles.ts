@@ -1,6 +1,8 @@
+import { settledStartupTree } from "./startup-layout";
 import type { BoardRow } from "./board.d";
 import { conversationId } from "../../shared/conversation";
 import type {
+  TileStartupReservation,
   TileMetrics,
   TileDirection,
   TileContent,
@@ -724,10 +726,30 @@ export function saveLayout(
   storage: Pick<Storage, "setItem">,
   layout: TileLayout,
   key = TILE_STORAGE,
+  reservations: readonly TileStartupReservation[] = [],
 ): void {
-  // Renderer-only launch reservations must not replace the last settled geometry.
-  // A real terminal ID commits the layout once startup creation completes.
-  if (leaves(layout.tree).some((tile) => sessionId(tile)?.startsWith("launch_"))) return;
+  const sessions = new Set(leaves(layout.tree).map(sessionId));
+  if (reservations.some((entry) => entry.pending && sessions.has(entry.id))) return;
+  const settled = reservations.filter((entry) => !entry.pending);
+  let tree = layout.tree;
+  for (const reservation of [...settled].reverse()) tree = settledStartupTree(tree, reservation);
+  // Stale or untracked view-only assignments cannot become stored terminal IDs.
+  for (const tile of leaves(tree))
+    if (sessionId(tile)?.startsWith("launch_"))
+      tree = update(tree, tile.id, (node) => ({ ...node, content: null }));
+  if (tree !== layout.tree) {
+    const tiles = leaves(tree);
+    layout = {
+      ...layout,
+      tree,
+      focused: tiles.some((tile) => tile.id === layout.focused)
+        ? layout.focused
+        : (tiles[0]?.id ?? tree.id),
+      landing: tiles.some((tile) => tile.id === layout.landing && tile.content === null)
+        ? layout.landing
+        : undefined,
+    };
+  }
   storage.setItem(
     key,
     JSON.stringify({

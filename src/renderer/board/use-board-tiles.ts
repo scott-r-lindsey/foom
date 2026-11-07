@@ -26,7 +26,7 @@ import {
   sessionId,
   splitTile,
 } from "./tiles";
-import type { TileAction, TileLayout } from "./tiles.d";
+import type { TileAction, TileLayout, TileStartupReservation } from "./tiles.d";
 
 import type { Dispatch, SetStateAction } from "react";
 export function useBoardTiles({
@@ -100,6 +100,7 @@ export function useBoardTiles({
     };
   }, [soundSetup]);
   const layoutRef = useRef(layout);
+  const startupLayoutsRef = useRef(new Map<string, TileStartupReservation>());
   const startupIdsRef = useRef<ReadonlySet<string>>(new Set());
   useLayoutEffect(() => {
     startupIdsRef.current = new Set(rows.filter((row) => row.startup).map((row) => row.id));
@@ -181,17 +182,36 @@ export function useBoardTiles({
             });
         }
       }
+      const ids = new Set(leaves(next.tree).map(sessionId));
+      for (const id of startupLayoutsRef.current.keys())
+        if (!ids.has(id)) startupLayoutsRef.current.delete(id);
+      for (const id of ids)
+        if (id?.startsWith("launch_") && !startupLayoutsRef.current.has(id))
+          startupLayoutsRef.current.set(id, {
+            id,
+            before: layoutRef.current.tree,
+            placed: next.tree,
+            pending: true,
+          });
       layoutRef.current = next;
       setLayout(next);
       if (transient) return;
       try {
-        saveLayout(localStorage, next, storageKey);
+        saveLayout(localStorage, next, storageKey, [...startupLayoutsRef.current.values()]);
         clear("tile-layout");
       } catch {
         report("tile-layout", "Unable to save tile layout.");
       }
     },
     [storageKey, source, clear, report, measureTiles],
+  );
+  const failStartup = useCallback(
+    (id: string) => {
+      const reservation = startupLayoutsRef.current.get(id);
+      if (reservation) reservation.pending = false;
+      changeLayout(layoutRef.current, true);
+    },
+    [changeLayout],
   );
   // A transfer reserves geometry, but a startup may gain its terminal ID meanwhile.
   const completeStartup = useCallback(
@@ -350,7 +370,7 @@ export function useBoardTiles({
       layoutRef.current = next;
       setLayout(next);
       try {
-        saveLayout(localStorage, next, storageKey);
+        saveLayout(localStorage, next, storageKey, [...startupLayoutsRef.current.values()]);
         clear("tile-layout");
       } catch {
         report("tile-layout", "Unable to save tile layout.");
@@ -532,6 +552,7 @@ export function useBoardTiles({
     changeLayout,
     placementOptions,
     completeStartup,
+    failStartup,
     tileAction,
   };
 }

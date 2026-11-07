@@ -1063,6 +1063,7 @@ const invokeReply: Record<string, (api: DesktopApi) => Promise<unknown>> = {
   "windows:sync": async (api) => api.windows?.sync(["one"]),
   "windows:select": async (api) => api.windows?.select("one"),
   "preview:pick": async (api) => api.previews?.pick("/worktrees/feature"),
+  "preview:describe": async (api) => api.previews?.describe?.("a".repeat(32)),
 };
 
 test.each(Object.entries(invokeReply))(

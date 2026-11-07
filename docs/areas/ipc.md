@@ -68,6 +68,11 @@ arrays, unions and explicitly declared dictionaries; undeclared object propertie
 are not exposed. Byte replies are copied. Void capabilities discard internal
 main-process return values.
 
+`preview:describe` takes exactly one 128-bit hex preview ID from the owning board
+main frame. It returns only that window's existing registry record as validated
+preview display facts, with an empty repository association until sidebar inventory
+resolves it. Closed and foreign IDs refuse; no filesystem or host read runs.
+
 `preview:place` validates its UUID request, 128-bit hex preview ID and positive
 safe-integer expiry before buffering or dispatch. Expired requests are discarded;
 human moves retain main's existing maximum-safe-integer expiry. The existing

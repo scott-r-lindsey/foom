@@ -117,10 +117,21 @@ pending or failed initial inventory reads retain saved repository/worktree choic
 Unavailable repository membership also retains worktree choices until recovery. Preview
 assignments wait for their own first successful inventory, including while
 terminal reservations change, so independent asynchronous loads cannot erase
-valid assignments. File-picker replies publish preview inventory before returning
-an ID for placement. Renderer-only `launch_` reservations suspend layout saves until they settle;
-reload retains the last saved tree rather than pruning a temporary assignment
-into extra empty space. This data grants no process capabilities. Maximize
+valid assignments. All sidebar inventory callers share read revisions. A successful
+reply applies unless a newer successful reply has already applied; a pending,
+failed or hung read cannot discard an older success. An applied success clears
+the sidebar-refresh error only if its read began after the failure that reported
+that error; older good data can apply without concealing a newer failure. Preview
+IDs published locally by placement or picking survive inventory reads begun before that publication, while those reads still
+refresh other sidebar facts. A successful read begun after publication reconciles
+those IDs normally, including removing closed records.
+File-picker replies publish preview inventory, using owned display facts if their
+inventory read was superseded or failed, before returning
+an ID for placement. Only genuinely pending renderer launch reservations suspend
+layout saves. Failed launch presentations are omitted from saved assignments and
+untouched reservation-only geometry; later splits, moves, sidebar geometry and
+real terminals keep saving. Reload does not revive failed presentations or add
+empty columns. This data grants no process capabilities. Maximize
 is not persisted. All terminal IPC remains ID-scoped and main-validated.
 
 The first board opens the bundled manual after setup, with no terminal running. Shells and agents launch from checkout panels; home shells use the home row; **New worktree** is a repository action. `pnpm run start:samples` explicitly builds the development sample board. Normal builds omit its data, and Forge rebuilds without the sample flag before packaging, including when invoked directly. New worktree is a branch field inside the repository panel (`branch-field.ts` holds its pure completion, status and ref-rule logic; `branch-field-view.tsx` the field). It reads `workspace:branches` and creates through `workspace:create-worktree` without a location, so main applies the configured one; it never launches. Whether a panel shows the field is part of the panel intent target, so it closes with its panel. Repository paths come from main’s registry or native directory picker; main chooses worktree destinations and executables.

@@ -24,6 +24,13 @@ export interface TileLayout {
   maximized: string | null;
   landing?: string | undefined;
 }
+/** View-only placement history; never serialized as layout metadata. */
+export interface TileStartupReservation {
+  id: string;
+  before: TileNode;
+  placed: TileNode;
+  pending: boolean;
+}
 export interface TileRect {
   x: number;
   y: number;

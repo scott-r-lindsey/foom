@@ -41,9 +41,32 @@ export function createAppSource(): BoardSource {
   let workspaceSnapshot: WorkspaceSnapshot | undefined;
   let errors: BackgroundErrorReporter | undefined;
   const inventoryFailures = new Set<string>();
-  const acceptInventory = (
-    inventory: Awaited<ReturnType<typeof window.desktop.sidebarInventory>>,
-  ) => {
+  let inventoryRevision = 0;
+  let appliedInventoryRevision = 0;
+  let inventoryErrorRevision = 0;
+  // Locally published IDs need a read begun after publication to remove them.
+  // Older worktree membership can still refresh the rest of the sidebar.
+  const previewPublications = new Map<string, number>();
+  const refreshInventory = async ({
+    active = () => true,
+    reportFailure = false,
+  }: {
+    active?: () => boolean;
+    reportFailure?: boolean;
+  } = {}): Promise<boolean> => {
+    const revision = ++inventoryRevision;
+    let inventory: Awaited<ReturnType<typeof window.desktop.sidebarInventory>>;
+    try {
+      inventory = await window.desktop.sidebarInventory();
+    } catch (error) {
+      if (revision !== inventoryRevision || !active()) return false;
+      if (!reportFailure) throw error;
+      inventoryErrorRevision = revision;
+      errors?.report("sidebar-refresh", "Unable to load sidebar inventory.");
+      return false;
+    }
+    // A pending or failed newer read provides no replacement for good data.
+    if (revision <= appliedInventoryRevision || !active()) return false;
     inventoryLoaded = true;
     const previous = new Map(sidebar.map((repo) => [repo.path, repo]));
     const failed = new Set<string>();
@@ -58,11 +81,24 @@ export function createAppSource(): BoardSource {
     for (const operation of inventoryFailures) if (!failed.has(operation)) errors?.clear(operation);
     inventoryFailures.clear();
     for (const operation of failed) inventoryFailures.add(operation);
-    previews = inventory.previews ?? [];
+    const incoming = inventory.previews ?? [];
+    const known = new Set(incoming.map((preview) => preview.id));
+    previews = [
+      ...incoming,
+      ...previews.filter(
+        (preview) =>
+          !known.has(preview.id) && revision <= (previewPublications.get(preview.id) ?? -1),
+      ),
+    ];
+    for (const [id, published] of previewPublications)
+      if (revision > published) previewPublications.delete(id);
     previewActions = inventory.previewActions ?? [];
     shellName = inventory.shell;
     home = inventory.home;
     machines = inventory.machines ?? [];
+    appliedInventoryRevision = revision;
+    if (revision > inventoryErrorRevision) errors?.clear("sidebar-refresh");
+    return true;
   };
   let rows: readonly BoardRow[] = [];
   let repositories: readonly string[] = [];
@@ -118,6 +154,15 @@ export function createAppSource(): BoardSource {
   };
   const publish = () => {
     for (const listener of listeners) listener();
+  };
+  const rememberPreview = (preview: PreviewSummary) => {
+    const repository =
+      previews.find((entry) => entry.id === preview.id)?.repository ??
+      sidebar.find((entry) => entry.worktrees.some((tree) => tree.path === preview.worktree))
+        ?.path ??
+      "";
+    previews = [...previews.filter((entry) => entry.id !== preview.id), { ...preview, repository }];
+    previewPublications.set(preview.id, inventoryRevision);
   };
   const stateRow = (row: BoardRow, state: TerminalState): BoardRow => ({
     ...row,
@@ -421,18 +466,11 @@ export function createAppSource(): BoardSource {
           }
         })(),
         (async () => {
-          try {
-            const inventory = await window.desktop.sidebarInventory();
-            if (!active()) return;
-            errors?.clear("sidebar-refresh");
-            acceptInventory(inventory);
-            if (workspaceSnapshot) snapshot(workspaceSnapshot);
-            else {
-              rows = [...rows];
-              publish();
-            }
-          } catch {
-            if (active()) errors?.report("sidebar-refresh", "Unable to load sidebar inventory.");
+          if (!(await refreshInventory({ active: () => !disposed, reportFailure: true }))) return;
+          if (workspaceSnapshot) snapshot(workspaceSnapshot);
+          else {
+            rows = [...rows];
+            publish();
           }
         })(),
       ]);
@@ -538,11 +576,26 @@ export function createAppSource(): BoardSource {
       pick: async (worktree) => {
         const id = (await window.desktop.previews?.pick(worktree)) ?? null;
         if (id) {
-          acceptInventory(await window.desktop.sidebarInventory());
-          if (workspaceSnapshot) snapshot(workspaceSnapshot);
-          else {
-            rows = [...rows];
-            publish();
+          try {
+            // The picker has already opened the record. Inventory failure must
+            // take the same owned-record recovery path as a superseded reply.
+            const applied = await refreshInventory().catch(() => false);
+            if (!applied || !previews.some((preview) => preview.id === id)) {
+              const preview = await window.desktop.previews?.describe?.(id);
+              if (preview) {
+                if (preview.id !== id) return null;
+                rememberPreview(preview);
+              }
+            }
+            if (!previews.some((preview) => preview.id === id)) return null;
+            // The returned ID must survive reads already pending at publication.
+            previewPublications.set(id, inventoryRevision);
+          } finally {
+            if (workspaceSnapshot) snapshot(workspaceSnapshot);
+            else {
+              rows = [...rows];
+              publish();
+            }
           }
         }
         return id;
@@ -553,8 +606,13 @@ export function createAppSource(): BoardSource {
         ? {
             onPlace: (callback) =>
               window.desktop.previews?.onPlace?.(async (id, expiresAt) => {
-                const inventory = await window.desktop.sidebarInventory();
-                acceptInventory(inventory);
+                if (window.desktop.previews?.describe) {
+                  // Placement has its own deadline. Repository/host inventory can
+                  // take longer; the already-authorized owned record is enough.
+                  rememberPreview(await window.desktop.previews.describe(id));
+                } else {
+                  await refreshInventory();
+                }
                 rows = [...rows];
                 publish();
                 return callback(id, expiresAt);
@@ -654,8 +712,7 @@ export function createAppSource(): BoardSource {
         rows = rows.filter((row) => row.id !== command.id);
         if (command.id === shellId) shellId = pendingShell;
       }
-      const inventory = await window.desktop.sidebarInventory();
-      acceptInventory(inventory);
+      await refreshInventory();
       snapshot(await window.desktop.workspace());
       return result;
     },
@@ -685,8 +742,7 @@ export function createAppSource(): BoardSource {
           host === undefined
             ? await window.desktop.createWorktree(repository, branch)
             : await window.desktop.createWorktree(repository, branch, undefined, host);
-        const inventory = await window.desktop.sidebarInventory();
-        acceptInventory(inventory);
+        await refreshInventory();
         snapshot(await window.desktop.workspace());
         return created;
       },

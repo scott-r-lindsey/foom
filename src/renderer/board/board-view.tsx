@@ -207,6 +207,7 @@ function BoardContents({
     changeLayout,
     placementOptions,
     completeStartup,
+    failStartup,
     tileAction: regularTileAction,
   } = useBoardTiles({
     source,
@@ -573,6 +574,7 @@ function BoardContents({
               : row,
           ),
         );
+        failStartup(id);
       };
       let launchStarted = !source.cancelSidebarLaunch;
       let presented = () => {};
