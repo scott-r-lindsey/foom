@@ -4,7 +4,7 @@ const { gitSync: isolatedGit } = require("../helpers/git.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const path = require("node:path");
-const { mkdir, mkdtemp, readFile, writeFile } = require("node:fs/promises");
+const { mkdir, mkdtemp, readFile, realpath, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const { expect } = require("./test-policy.js");
 const {
@@ -25,7 +25,8 @@ const {
 async function agentPreviewFixture(context) {
   const { chmod, symlink } = require("node:fs/promises");
   const { existsSync } = require("node:fs");
-  const root = await mkdtemp(path.join(tmpdir(), "foom-agent-preview-"));
+  // Match Git inventory paths when the platform temporary parent is an alias.
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-agent-preview-")));
   removeAfterApps(context, root);
   const bin = path.join(root, "bin");
   const repo = path.join(root, "app");
