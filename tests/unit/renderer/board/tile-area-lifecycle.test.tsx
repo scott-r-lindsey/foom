@@ -394,3 +394,60 @@ test("Close during the startup handoff cancels the actual ID before React commit
   expect(discard).toHaveBeenCalledExactlyOnceWith("permission");
   expect(tile.getAttribute("data-empty")).toBe("true");
 });
+
+test("startup cancellation failures remain visible, including a late terminal cleanup failure", async () => {
+  const response = Promise.withResolvers<{ terminalId: string }>();
+  const cancel = vi.fn(() => Promise.reject(new Error("cancel unavailable")));
+  const discard = vi.fn(() => Promise.reject(new Error("host unavailable")));
+  const view = setup(
+    {},
+    {
+      sidebarCommand: () => response.promise,
+      cancelSidebarLaunch: cancel,
+      discardStartup: discard,
+    },
+  );
+  const tile = view.screen.container.querySelector(".terminal-tile");
+  if (!tile) throw new Error("Missing tile");
+  fireEvent.contextMenu(tile);
+  fireEvent.click(view.screen.getByRole("menuitem", { name: "New shell here" }));
+  await act(async () => {
+    view.send("close-tile");
+    await Promise.resolve();
+  });
+  expect(cancel).toHaveBeenCalledOnce();
+  expect(view.screen.getByText("Unable to cancel launch.")).toBeTruthy();
+  await act(async () => {
+    response.resolve({ terminalId: "permission" });
+    await Promise.resolve();
+  });
+  expect(discard).toHaveBeenCalledExactlyOnceWith("permission");
+  expect(view.screen.getByText("Unable to cancel launch.")).toBeTruthy();
+  expect(tile.getAttribute("data-empty")).toBe("true");
+});
+
+test.each(["ready", "failed"] as const)(
+  "a displaced startup that becomes %s preserves the user's replacement tile",
+  async (outcome) => {
+    const response = Promise.withResolvers<{ terminalId: string }>();
+    const view = setup({}, { sidebarCommand: () => response.promise });
+    const existing = view.row(1);
+    const tile = view.screen.container.querySelector(".terminal-tile");
+    if (!tile) throw new Error("Missing tile");
+    fireEvent.contextMenu(tile);
+    fireEvent.click(view.screen.getByRole("menuitem", { name: "New shell here" }));
+    expect(view.screen.getByText("Starting on Local…")).toBeTruthy();
+    fireEvent.click(existing);
+    expect(view.screen.queryByText("Starting on Local…")).toBeNull();
+    const replacement = tile.querySelector(".tile-name")?.textContent;
+    await act(async () => {
+      if (outcome === "ready") response.resolve({ terminalId: "permission" });
+      else response.reject(new Error("launch unavailable"));
+      await Promise.resolve();
+    });
+    expect(tile.querySelector(".tile-name")?.textContent).toBe(replacement);
+    expect(view.screen.queryByText("Starting on Local…")).toBeNull();
+    if (outcome === "failed") expect(view.screen.getByText("Unable to start shell.")).toBeTruthy();
+    else expect(view.source.getSnapshot().some((row) => row.id === "permission")).toBe(true);
+  },
+);
