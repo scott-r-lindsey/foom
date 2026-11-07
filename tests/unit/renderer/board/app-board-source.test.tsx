@@ -10,7 +10,8 @@ import {
   saveLayout,
   TILE_STORAGE,
 } from "../../../../src/renderer/board/tiles";
-import type { WorkspaceSnapshot } from "../../../../src/shared/workspace";
+import type { PreviewApi } from "../../../../src/shared/previews";
+import type { SidebarInventory, WorkspaceSnapshot } from "../../../../src/shared/workspace";
 test("source connects independently of views, reconciles events, preserves ordering, and keeps activity outside snapshots", async () => {
   const source = createAppSource();
   expect(source.previews?.getSnapshot()).toEqual([]);
@@ -716,3 +717,204 @@ test("machine inventory changes preserve the focused terminal DOM and never reop
     expect(mock.hide).toHaveBeenCalledTimes(hidden);
   }
 });
+
+test("preview placement publishes owned display facts without waiting for sidebar inventory", async () => {
+  const preview = {
+    id: "a".repeat(32),
+    repository: "",
+    worktree: "/r",
+    relativePath: "plan.md",
+    kind: "markdown" as const,
+    network: false,
+  };
+  const describe = vi.fn(() => Promise.resolve(preview));
+  let place: Parameters<NonNullable<PreviewApi["onPlace"]>>[0] | undefined;
+  window.desktop.previews = {
+    describe,
+    onPlace: (callback) => {
+      place = callback;
+      return () => {};
+    },
+    pick: vi.fn(),
+    reload: vi.fn(),
+    network: vi.fn(),
+    popout: vi.fn(),
+    close: vi.fn(),
+    bounds: vi.fn(),
+    painted: vi.fn(),
+    cover: vi.fn(),
+    onSnapshots: vi.fn(),
+  };
+  const source = createAppSource();
+  const callback = vi.fn(() => {
+    expect(source.previews?.getSnapshot()).toEqual([preview]);
+    return Promise.resolve("empty" as const);
+  });
+  const off = source.previews?.onPlace?.(callback);
+  const reads = mock.sidebarInventory.mock.calls.length;
+  await expect(place?.(preview.id, 100)).resolves.toBe("empty");
+  expect(describe).toHaveBeenCalledWith(preview.id);
+  expect(callback).toHaveBeenCalledWith(preview.id, 100);
+  expect(mock.sidebarInventory).toHaveBeenCalledTimes(reads);
+  await expect(place?.(preview.id, 200)).resolves.toBe("empty");
+  expect(source.previews?.getSnapshot()).toHaveLength(1);
+  off?.();
+  // Older/test bridges without the narrow capability retain their inventory path.
+  delete window.desktop.previews.describe;
+  mock.sidebarInventory.mockResolvedValueOnce({
+    repositories: [],
+    shell: "bash",
+    previews: [preview],
+  });
+  const fallback = createAppSource();
+  const fallbackCallback = vi.fn(() => Promise.resolve("empty" as const));
+  fallback.previews?.onPlace?.(fallbackCallback);
+  await expect(place?.(preview.id, 300)).resolves.toBe("empty");
+  expect(fallback.previews?.getSnapshot()).toEqual([preview]);
+  expect(fallbackCallback).toHaveBeenCalledWith(preview.id, 300);
+  delete window.desktop.previews;
+});
+
+test.each([false, true])(
+  "preview placement retains repository associations (cached: %s)",
+  async (cached) => {
+    const preview = {
+      id: "b".repeat(32),
+      repository: "/r",
+      worktree: "/r",
+      relativePath: "plan.md",
+      kind: "markdown" as const,
+      network: false,
+    };
+    mock.sidebarInventory.mockResolvedValue({
+      shell: "bash",
+      repositories: [
+        {
+          path: "/r",
+          name: "Repo",
+          worktrees: [
+            {
+              path: "/r",
+              branch: "main",
+              head: "abc",
+              bare: false,
+              locked: false,
+              prunable: false,
+              managed: false,
+            },
+          ],
+        },
+      ],
+      previews: cached ? [preview] : [],
+    });
+    let place: Parameters<NonNullable<PreviewApi["onPlace"]>>[0] | undefined;
+    window.desktop.previews = {
+      describe: vi.fn(() => Promise.resolve({ ...preview, repository: "", network: true })),
+      onPlace: (callback) => {
+        place = callback;
+        return () => {};
+      },
+      pick: vi.fn(),
+      reload: vi.fn(),
+      network: vi.fn(),
+      popout: vi.fn(),
+      close: vi.fn(),
+      bounds: vi.fn(),
+      painted: vi.fn(),
+      cover: vi.fn(),
+      onSnapshots: vi.fn(),
+    };
+    const source = createAppSource();
+    const disconnect = source.connect?.();
+    await settle();
+    source.previews?.onPlace?.(() => Promise.resolve("empty"));
+    await expect(place?.(preview.id, 100)).resolves.toBe("empty");
+    expect(source.previews?.getSnapshot()).toEqual([{ ...preview, network: true }]);
+    disconnect?.();
+    delete window.desktop.previews;
+  },
+);
+
+test.each(["sidebar command", "worktree create"])(
+  "an older inventory from %s cannot prune a preview placed while a newer read is pending",
+  async (caller) => {
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe = vi.fn();
+        disconnect = vi.fn();
+      },
+    );
+    const preview = {
+      id: "c".repeat(32),
+      repository: "/code/app",
+      worktree: "/code/new",
+      relativePath: "notes.md",
+      kind: "markdown" as const,
+      network: false,
+    };
+    const oldInventory: SidebarInventory = {
+      shell: "bash",
+      repositories: [{ path: "/code/app", name: "app", worktrees: [] }],
+      previews: [],
+    };
+    mock.sidebarInventory.mockResolvedValue(oldInventory);
+    let place: Parameters<NonNullable<PreviewApi["onPlace"]>>[0] | undefined;
+    window.desktop.previews = {
+      describe: vi.fn(() => Promise.resolve(preview)),
+      onPlace: (callback) => {
+        place = callback;
+        return () => {};
+      },
+      pick: vi.fn(),
+      reload: vi.fn(),
+      network: vi.fn(),
+      popout: vi.fn(),
+      close: vi.fn(),
+      bounds: vi.fn(async () => {}),
+      painted: vi.fn(),
+      cover: vi.fn(),
+      onSnapshots: vi.fn(),
+    };
+    const source = createAppSource();
+    const view = render(<Board source={source} />);
+    try {
+      await settle();
+      const oldRead = Promise.withResolvers<SidebarInventory>();
+      const newRead = Promise.withResolvers<SidebarInventory>();
+      mock.sidebarInventory.mockReturnValueOnce(oldRead.promise);
+      const operation =
+        caller === "sidebar command"
+          ? source.sidebarCommand?.({ kind: "copy-foom-session-id", id: "session" })
+          : source.worktrees?.create("/code/app", "new");
+      await settle();
+      mock.sidebarInventory.mockReturnValueOnce(newRead.promise);
+      act(() => {
+        mock.changed?.();
+      });
+      await settle();
+      const placement = place;
+      if (!placement) throw new Error("Missing preview placement subscription");
+      await act(async () => {
+        expect(await placement(preview.id, Date.now() + 5000)).toBe("empty");
+      });
+      const tile = () => view.container.querySelector(`[data-preview-id="${preview.id}"]`);
+      expect(tile()).not.toBeNull();
+      await act(async () => {
+        oldRead.resolve(oldInventory);
+        await operation;
+      });
+      await settle();
+      expect(source.previews?.getSnapshot().map((entry) => entry.id)).toEqual([preview.id]);
+      expect(tile()).not.toBeNull();
+      newRead.resolve({ ...oldInventory, previews: [preview] });
+      await settle();
+      expect(source.previews?.getSnapshot()).toEqual([preview]);
+      expect(tile()).not.toBeNull();
+    } finally {
+      view.unmount();
+      vi.unstubAllGlobals();
+      delete window.desktop.previews;
+    }
+  },
+);
