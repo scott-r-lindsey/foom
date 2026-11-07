@@ -9,8 +9,8 @@ afterEach(() => {
   for (const cleanup of cleanups.splice(0).reverse()) cleanup();
   document.body.replaceChildren();
 });
-async function fixture() {
-  const terminal = new Terminal({ cols: 40, rows: 5, allowProposedApi: true });
+async function fixture(cols = 40, rows = 5) {
+  const terminal = new Terminal({ cols, rows, allowProposedApi: true });
   const url = "https://example.test/" + "a".repeat(90);
   await new Promise<void>((resolve) => {
     terminal.write(url, resolve);
@@ -38,8 +38,8 @@ async function fixture() {
     get buffer() {
       return terminal.buffer;
     },
-    cols: 40,
-    rows: 5,
+    cols,
+    rows,
     getSelection: () => selection,
     onWriteParsed: (callback: () => void) => {
       render.push(callback);
@@ -47,7 +47,7 @@ async function fixture() {
     },
     onRender: (callback: (event: { start: number; end: number }) => void) => {
       render.push(() => {
-        callback({ start: 0, end: 4 });
+        callback({ start: 0, end: rows - 1 });
       });
       return { dispose };
     },
@@ -59,7 +59,7 @@ async function fixture() {
     },
     onResize: (callback: (event: { cols: number; rows: number }) => void) => {
       render.push(() => {
-        callback({ cols: 40, rows: 5 });
+        callback({ cols, rows });
       });
       return { dispose };
     },
@@ -135,6 +135,7 @@ test("link overlays highlight all visible rows, retain focus on repaint and rebu
   link?.blur();
   f.view.cols = 50;
   f.render[3]?.();
+  f.render[0]?.();
   expect(f.container.querySelector(".terminal-link")).not.toBe(link);
   f.screen.remove();
   f.render[2]?.();
@@ -260,6 +261,7 @@ test("grid resize refreshes highlight geometry even when a short link's buffer r
   f.view.cols = 80;
   f.view.rows = 10;
   f.render[3]?.();
+  f.render[0]?.();
   const segment = f.container.querySelector<HTMLElement>(".terminal-link > span");
   expect(segment?.style.width).toBe("18.75%");
   expect(segment?.style.height).toBe("10%");
@@ -276,3 +278,84 @@ test("activation rechecks visibility after a menu/keyboard overlay was cached", 
   menu?.open();
   expect(f.desktop.openTerminalLink).toHaveBeenCalledTimes(1);
 });
+
+test("scroll events during a parse do no sweeps and coalesce into one rendered viewport", async () => {
+  const lookup = await import("../../../../src/renderer/terminal/link-lookup");
+  const f = await fixture();
+  const sweep = vi.spyOn(lookup, "linksOnRow").mockReturnValue([]);
+  let scrolls = 0;
+  const off = f.terminal.onScroll(() => {
+    scrolls++;
+    f.render[2]?.();
+  });
+  cleanups.push(() => {
+    off.dispose();
+  });
+  await new Promise<void>((resolve) => {
+    f.terminal.write("Fixture output line\r\n".repeat(128), resolve);
+  });
+  expect(scrolls).toBeGreaterThan(100);
+  expect(sweep.mock.calls.length).toBe(0);
+  f.render[0]?.();
+  expect(sweep).toHaveBeenCalledTimes(f.view.rows);
+  f.render[0]?.();
+  expect(sweep).toHaveBeenCalledTimes(f.view.rows);
+});
+
+test("activation confirms when scrolling clips any row of the complete label", async () => {
+  const f = await fixture();
+  const url = "https://good.example.evil.test/";
+  f.terminal.reset();
+  f.terminal.resize(25, 3);
+  f.view.cols = 25;
+  f.view.rows = 3;
+  await new Promise<void>((resolve) => {
+    f.terminal.write("one\r\ntwo\r\n" + url, resolve);
+  });
+  f.terminal.scrollToTop();
+  const menu = f.links.menu(new MouseEvent("contextmenu", { clientX: 20, clientY: 105 }));
+  expect(menu?.url).toBe(url);
+  menu?.open();
+  expect(f.desktop.openTerminalLink).toHaveBeenCalledExactlyOnceWith("one", url, undefined);
+  f.terminal.scrollToBottom();
+  f.links.menu(new MouseEvent("contextmenu", { clientX: 20, clientY: 105 }))?.open();
+  expect(f.desktop.openTerminalLink).toHaveBeenLastCalledWith("one", url, url);
+});
+
+test.each([
+  [80, 24],
+  [120, 40],
+])(
+  "one MiB parser fixture has zero viewport sweeps before its frame (%s x %s)",
+  async (cols, rows) => {
+    const lookup = await import("../../../../src/renderer/terminal/link-lookup");
+    const f = await fixture(cols, rows);
+    const base = new Terminal({ cols, rows, allowProposedApi: true });
+    cleanups.push(() => {
+      base.dispose();
+    });
+    const write = (terminal: Terminal, data: string) =>
+      new Promise<void>((resolve) => {
+        terminal.write(data, resolve);
+      });
+    await write(base, f.url);
+    const line = "Fixture output line\r\n";
+    const data = line.repeat(Math.ceil((1024 * 1024) / line.length));
+    const baselineStart = performance.now();
+    await write(base, data);
+    const baselineMs = performance.now() - baselineStart;
+    const sweeps = vi.spyOn(lookup, "linksOnRow");
+    const off = f.terminal.onScroll(() => f.render[2]?.());
+    cleanups.push(() => {
+      off.dispose();
+    });
+    const linkedStart = performance.now();
+    await write(f.terminal, data);
+    const linkedMs = performance.now() - linkedStart;
+    expect(sweeps.mock.calls.length).toBe(0);
+    f.render[0]?.();
+    expect(sweeps.mock.calls.length).toBe(rows);
+    // Diagnostic only: regression correctness is the operation count, not timing.
+    console.info(JSON.stringify({ cols, rows, bytes: data.length, baselineMs, linkedMs }));
+  },
+);

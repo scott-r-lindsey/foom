@@ -1,3 +1,4 @@
+import { contrast } from "../../shared/theme-colors";
 import type { IBuffer, IBufferCell, Terminal } from "@xterm/xterm";
 import {
   terminalLink,
@@ -17,6 +18,9 @@ export interface TerminalLink {
   text: string | undefined;
   rows: LinkRow[];
 }
+
+// WCAG 2.2 AA minimum contrast for normal-size text.
+const MIN_LINK_CONTRAST_RATIO = 4.5;
 
 type LinkTerminal = Pick<Terminal, "buffer" | "cols"> & Partial<Pick<Terminal, "options">>;
 
@@ -45,7 +49,7 @@ export function linksOnRow(terminal: LinkTerminal, y: number): TerminalLink[] {
   const defaultsVisible =
     /^#[a-f\d]{6}$/iu.test(foreground) &&
     /^#[a-f\d]{6}$/iu.test(background) &&
-    foreground.toLowerCase() !== background.toLowerCase();
+    contrast(foreground, background) >= MIN_LINK_CONTRAST_RATIO;
   const result: TerminalLink[] = [];
   const seen = new Set<number>();
   for (let x = 0; x < terminal.cols; x++) {

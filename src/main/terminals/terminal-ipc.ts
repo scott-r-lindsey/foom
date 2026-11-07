@@ -295,7 +295,13 @@ export function attachTerminal(
         !event.sender.isCrashed();
       pendingLinks.add(event.sender);
       try {
-        if (text !== target || !/^[\x21-\x7e]+$/u.test(target) || parsed.href !== target) {
+        if (
+          text !== target ||
+          !/^[\x21-\x7e]+$/u.test(target) ||
+          parsed.href !== target ||
+          parsed.username !== "" ||
+          parsed.password !== ""
+        ) {
           const confirm = linkConfirmations.get(event.sender);
           if (
             !confirm ||

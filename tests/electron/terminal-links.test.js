@@ -281,6 +281,8 @@ test("terminal link security confirms gaps, hidden colors and noncanonical targe
     "https://good.example\u2215login.evil.test/",
     "https://evil.test\\.good.example/",
     "https://good.example/\u200bpath",
+    "https://good.example@evil.test/",
+    "https://good.example%2Flogin@evil.test/",
   ].flatMap((base) => [
     { url: base + "?osc", output: osc(base + "?osc", base + "?osc") },
     { url: base + "?plain", output: base + "?plain" },
@@ -288,6 +290,11 @@ test("terminal link security confirms gaps, hidden colors and noncanonical targe
   const oauth =
     "https://login.example/oauth?redirect_uri=https%3A%2F%2Fapp.example%2Fcallback&scope=openid%20profile&state=" +
     "x".repeat(2100);
+  const contrastOutput =
+    "\x1bc\x1b]10;#000001\x1b\\\x1b]11;#000000\x1b\\" +
+    osc("https://contrast.example.test/path", "https://contrast.example.test/path") +
+    "\r\nCONTRAST_READY";
+  const resetColors = "\x1b]110;\x1b\\\x1b]111;\x1b\\\x1bc";
   const budgetTargets = Array.from({ length: 300 }, (_, i) =>
     `https://budget.test/${i}/`.padEnd(16000, "x"),
   );
@@ -298,6 +305,7 @@ test("terminal link security confirms gaps, hidden colors and noncanonical targe
     const osc = (url, text, id = "") => "\\x1b]8;" + id + ";" + url + "\\x1b\\\\" + text + "\\x1b]8;;\\x1b\\\\";
     const gap = ${JSON.stringify(gap)};
     const targets = ${JSON.stringify(budgetTargets)};
+    const clipped = "https://good.example.evil.test/" + "x".repeat(process.stdout.columns * 2);
     process.stdout.write("\\x1bc" + osc(gap, "https://", "id=a") + "good.example/account" + " ".repeat(process.stdout.columns - 28 + 30) + osc(gap, "evil.test/x", "id=a") + "\\r\\n" + ${JSON.stringify(
       [...hidden, ...suspicious]
         .map((entry) => entry.output)
@@ -310,6 +318,8 @@ test("terminal link security confirms gaps, hidden colors and noncanonical targe
       if (data.toString() === "b") process.stdout.write("\\x1bc" + targets.map(url => osc(url, "x")).join("") + "\\r\\nBUDGET_READY");
       if (data.toString() === "a") process.stdout.write("\\x1bc" + targets.slice(0, 150).map(url => osc(url, "n")).join("") + "\\r\\nNORMAL_BUDGET_READY\\x1b[?1049h" + targets.slice(150).map(url => osc(url, "a")).join("") + "\\r\\nALT_BUDGET_READY");
       if (data.toString() === "n") process.stdout.write("\\x1b[?1049l");
+      if (data.toString() === "c") process.stdout.write(${JSON.stringify(contrastOutput)});
+      if (data.toString() === "v") process.stdout.write(${JSON.stringify(resetColors)} + "\\r\\n".repeat(process.stdout.rows - 1) + osc(clipped, clipped) + "\\r\\nCLIPPED_READY");
       if (data.toString() === "q") process.exit(0);
     });
   `,
@@ -376,6 +386,24 @@ test("terminal link security confirms gaps, hidden colors and noncanonical targe
     await expect(heading).toHaveCount(0);
   }
   assert.deepEqual(await opened(), [oauth, oauth]);
+  await page.evaluate((id) => window.desktop.input(id, "c"), id);
+  await expect(page.locator(".xterm-rows")).toContainText("CONTRAST_READY");
+  await click("https://contrast.example.test/path");
+  await expect(heading).toBeVisible();
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await page.evaluate((id) => window.desktop.input(id, "v"), id);
+  await expect(page.locator(".xterm-rows")).toContainText("CLIPPED_READY");
+  await page.locator(".xterm-screen").hover();
+  await page.mouse.wheel(0, -10000);
+  const clipped = page.locator('.terminal-link[aria-label^="https://good.example.evil.test/"]');
+  await expect(clipped).toHaveCount(1);
+  const clipUrl = await clipped.getAttribute("aria-label");
+  assert.ok(clipUrl);
+  await expect(clipped.locator(":scope > span")).toHaveCount(1);
+  await click(clipUrl);
+  await expect(heading).toBeVisible();
+  assert.deepEqual(await opened(), [oauth, oauth]);
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
   await page.evaluate((id) => window.desktop.input(id, "b"), id);
   await expect(page.locator(".xterm-rows")).toContainText("BUDGET_READY");
   await openSettingsScreen(page);

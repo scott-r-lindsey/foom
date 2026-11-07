@@ -180,3 +180,43 @@ test("canonical ASCII OAuth URL preserves percent escapes and ampersands across 
       expect(linksOnRow(terminal, row)[0]).toMatchObject({ url, text: url });
   }
 });
+
+test.each(["#000001", "#0a0a0a"])(
+  "low contrast defaults from OSC 10/11 cannot qualify as displayed (%s)",
+  async (foreground) => {
+    const { TerminalColors } = await import("../../../../src/shared/terminal-colors");
+    const terminal = await fixture("");
+    const colors = new TerminalColors(
+      terminal.parser,
+      true,
+      () => {},
+      () => {
+        terminal.options.theme = colors.theme();
+      },
+    );
+    terminal.options.theme = colors.theme();
+    const url = "https://good.example/";
+    await new Promise<void>((resolve) => {
+      terminal.write(
+        `\x1b]10;${foreground}\x1b\\\x1b]11;#000000\x1b\\${osc(url, url)}\r\n${url}`,
+        resolve,
+      );
+    });
+    expect(terminal.options.theme.foreground).toBe(foreground);
+    for (const row of [0, 1])
+      expect.soft(linksOnRow(terminal, row)[0]).toMatchObject({ url, text: undefined });
+  },
+);
+
+test.each([
+  ["#777777", false],
+  ["#767676", true],
+])(
+  "WCAG AA normal-text 4.5:1 threshold determines default-color visibility (%s)",
+  async (foreground, visible) => {
+    const url = "https://contrast.test/";
+    const terminal = await fixture(url);
+    terminal.options.theme = { foreground, background: "#ffffff" };
+    expect(linksOnRow(terminal, 0)[0]?.text).toBe(visible ? url : undefined);
+  },
+);

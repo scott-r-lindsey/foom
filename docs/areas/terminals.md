@@ -143,7 +143,9 @@ right and middle clicks never activate, including after a preceding primary clic
 Mouse-reporting applications retain right-click; Shift opens Foom's menu as above.
 Hover and keyboard focus highlight every visible segment of a link; hover exposes
 the complete target URL. The link overlay never intercepts pointer selection or
-mouse reports. Output parsing alone never opens or copies anything.
+mouse reports. Parse, scroll and resize events only mark links dirty; the one
+viewport sweep runs from xterm's coalesced render event, never from per-line
+parser scroll callbacks. Cursor-only frames do no sweep when links are clean. Output parsing alone never opens or copies anything.
 
 OSC 8 uses its complete target even when its label differs or spans rows. Plain
 URLs join only rows xterm marks as soft-wrapped. Hard-newline plain URLs stay
@@ -163,22 +165,27 @@ Keyboard links precede xterm's input in Tab order and share the same lookup,
 highlighting and activation path. Shift+F10 or the Menu key opens the focused
 link's context menu, including while a program owns mouse reports.
 Headless snapshots retain OSC targets through a synchronous, scoped facade around
-the pinned serializer's buffer-range method. It adds OSC boundaries to printed
-runs without changing cells, widths, SGR or wrapping, restores the open link pen,
-and leaves no wrapper installed after success or failure. Refused targets stay
-opaque on replay. Each snapshot reserves at most 4,194,304 UTF-16 units for
-retained target-bearing OSC opening/closing sequences across serializer passes,
-including the live link pen. The normal prefix is split from the same serialized
-normal/alternate result at its checked buffer-transition marker, so budget
-choices cannot change slicing offsets. A run's buffer position is charged once per pass,
-not again when the serializer rereads its glyphs. Excess targets degrade to fixed
-inert OSC markers: their cells, styles and wrapping still replay, but those links
-are unavailable in that replay. These small fixed markers are outside the target
-budget; the host retains its original target metadata. The ordinary transport
-size check can reduce replayed history; if visible output still does not fit,
-one opaque run replaces all link metadata before the final size check, avoiding
-per-cell marker expansion. OSC targets must never make an otherwise fitting
-visible screen impossible to reattach.
+the pinned serializer's buffer-range method. A read-only planning pass counts
+contiguous OSC runs over the ranges actually serialized (including cursor-row
+replays); a second pass adds metadata. Snapshots without linked cells use the
+first result directly. Wide-character width-zero placeholders and contiguous
+soft wraps do not split a run. The target-bearing opening/closing reservations
+are bounded to 4,194,304 UTF-16 units, including an open live pen. Every occurrence
+of an OSC ID is retained or degraded together: losing a continuation must never
+turn a formerly differing label into an apparent exact match. Excess IDs use
+fixed inert OSC markers; cells, SGR, widths, cursor accounting and wrapping stay
+intact. Fixed inert markers are outside the target reservation; the host retains
+its original metadata. Normal/alternate splitting uses the same serialized
+result's checked transition marker. No wrapper survives success or failure.
+
+The ordinary transport bound may reduce replayed history, then replay all visible
+cells in one opaque run if targets still prevent fitting. That run ends at the
+snapshot boundary: the actual host OSC pen (closed or open) is always restored
+before live output, independently of historical target degradation. The remote
+daemon uses this same manager snapshot, includes the restored pen in its counted
+payload and forwards live data afterward. Refused/degraded labels never become
+plain links, and later unlinked output remains unlinked. OSC targets must never
+make an otherwise fitting visible screen impossible to reattach.
 
 Main revalidates the registered board main frame, owned attached terminal ID,
 URL type, length (at most 16,384 UTF-16 units), URL parse, HTTP(S) scheme and
@@ -190,8 +197,8 @@ remote host or agent control tools. The window-open, navigation and CSP policies
 remain unchanged.
 
 Skipping confirmation is conservative: main requires a printable ASCII target
-exactly equal to its parsed `URL.href` and a full, case-sensitive label/target
-match. Canonical long OAuth URLs containing percent escapes and ampersands still
+exactly equal to its parsed `URL.href`, no username or password (userinfo),
+and a full, case-sensitive label/target match. Canonical long OAuth URLs containing percent escapes and ampersands still
 qualify. Unicode look-alikes, backslashes and other noncanonical forms always
 confirm; default-ignorable/format characters never qualify, and all Unicode
 `Bidi_Control` characters, including U+061C, refuse entirely.
@@ -200,10 +207,14 @@ The matching cells must be contiguous, with no unlinked cells between them even
 across a soft wrap. Continuation rows must start at column zero after a full
 linked previous row. Hard newlines, SGR 8, incomplete labels and uncertain color
 visibility cannot count as a match. Rather than replicate xterm's color pipeline,
-any explicit cell foreground/background, faint/inverse attribute, equal default
-colors or default colors not resolvable as distinct opaque six-digit RGB values
-requires confirmation. Activation rechecks current cell visibility, including
-from cached keyboard links and menus. All other opens use the owning board's trusted Foom confirmation,
+any explicit cell foreground/background, faint/inverse attribute or default
+colors not resolvable as opaque six-digit RGB values requires confirmation.
+Resolved default colors must meet the WCAG 2.2 AA normal-text minimum contrast
+ratio of 4.5:1, using the shared sRGB relative-luminance measure. Low contrast
+(including near-black OSC 10 foregrounds on an OSC 11 black background) confirms.
+Activation rechecks current cell visibility, including cached keyboard links and
+menus; every cell of the label must be within the current viewport. Scrolling a
+matching label partly out of view requires confirmation. All other opens use the owning board's trusted Foom confirmation,
 showing the parsed host separately and the full wrapped, scrollable URL. Cancel
 is focused by default. Only one open request per board can be pending. Detachment,
 view replacement or renderer loss cancels a pending request; main rechecks the

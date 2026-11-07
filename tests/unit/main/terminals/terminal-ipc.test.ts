@@ -1814,3 +1814,20 @@ test("a long canonical ASCII OAuth URL with percent escapes and ampersands skips
   expect(confirm).not.toHaveBeenCalled();
   expect(mock.shell.openExternal).toHaveBeenCalledExactlyOnceWith(url);
 });
+
+test.each([
+  "https://good.example@evil.test/",
+  "https://good.example%2Flogin@evil.test/",
+  "https://user:password@evil.test/",
+])("canonical userinfo confirms despite identical visible text: %s", async (url) => {
+  const id = await create();
+  await invoke("attach", [id]);
+  const confirm = vi
+    .fn<(content: DialogContent, signal: AbortSignal) => Promise<boolean>>()
+    .mockResolvedValue(false);
+  terminalControl.setLinkConfirmation(contents as unknown as WebContents, confirm);
+  expect(new URL(url).href).toBe(url);
+  await invoke("open-link", [id, url, url]);
+  expect(confirm).toHaveBeenCalledOnce();
+  expect(mock.shell.openExternal).not.toHaveBeenCalled();
+});

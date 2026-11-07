@@ -38,7 +38,19 @@ export function terminalLinks(
           ),
       );
     // Keyboard overlays/menu closures may predate a theme or output change.
-    if (id && current) void desktop.openTerminalLink(id, current.url, current.text).catch(() => {});
+    if (id && current) {
+      const top = terminal.buffer.active.viewportY;
+      const visible = current.rows.every(
+        (range) =>
+          range.y >= top &&
+          range.y < top + terminal.rows &&
+          range.start >= 0 &&
+          range.end <= terminal.cols,
+      );
+      void desktop
+        .openTerminalLink(id, current.url, visible ? current.text : undefined)
+        .catch(() => {});
+    }
   };
   const lookup = (event: MouseEvent): TerminalLink | undefined => {
     const element = container.querySelector<HTMLElement>(".xterm-screen");
@@ -191,9 +203,10 @@ export function terminalLinks(
     if (link?.url === previous.url) open(link);
   };
   const offRender = terminal.onRender(render);
+  // Scroll fires for each parsed line, inside the parser. Only invalidate here;
+  // xterm's frame-coalesced onRender is the sole place that sweeps the viewport.
   const refresh = () => {
     dirty = true;
-    render();
   };
   const offParsed = terminal.onWriteParsed(() => {
     dirty = true;

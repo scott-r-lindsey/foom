@@ -579,3 +579,157 @@ test("a changed pinned alternate-buffer separator refuses with a fixed compatibi
     host.dispose();
   }
 });
+
+test.each([false, true])(
+  "opaque transport replay restores the live OSC pen (open=%s)",
+  async (linked) => {
+    const { linksOnRow } = await import("../../../src/renderer/terminal/link-lookup");
+    const host = new Terminal({ cols: 80, rows: 24, allowProposedApi: true });
+    const view = new Terminal({ cols: 80, rows: 24, allowProposedApi: true });
+    const addon = new SerializeAddon();
+    host.loadAddon(addon);
+    try {
+      await write(
+        host,
+        `\x1b]8;;https://budget.test/${"x".repeat(16000)}\x1b\\https://safe.example/\x1b]8;;\x1b\\\r\n`,
+      );
+      if (linked) await write(host, "\x1b]8;;https://live.test/\x1b\\");
+      await write(
+        view,
+        terminalSnapshot(host, addon, (data) => data.length < 500),
+      );
+      await write(host, "https://after.test/");
+      await write(view, "https://after.test/");
+      expect(linksOnRow(view, 1)[0]?.url).toBe(
+        linked ? "https://live.test/" : "https://after.test/",
+      );
+    } finally {
+      host.dispose();
+      view.dispose();
+    }
+  },
+);
+
+test.each(["wrapped", "gap"])(
+  "budget cannot turn a confirming OSC label into an exact partial match (%s)",
+  async (kind) => {
+    const { linksOnRow } = await import("../../../src/renderer/terminal/link-lookup");
+    const { withSnapshotLinks } = await import("../../../src/terminal-host/snapshot-links");
+    const { terminalOscId } = await import("../../../src/shared/terminal-link");
+    const url = "https://evil.test/";
+    const cols = kind === "wrapped" ? url.length : 80;
+    const host = new Terminal({ cols, rows: 24, allowProposedApi: true });
+    const view = new Terminal({ cols, rows: 24, allowProposedApi: true });
+    const addon = new SerializeAddon();
+    host.loadAddon(addon);
+    const begin = `\x1b]8;id=same;${url}\x1b\\`;
+    const end = "\x1b]8;;\x1b\\";
+    try {
+      await write(host, begin + url + (kind === "gap" ? end + " " + begin : "") + "tail" + end);
+      expect(linksOnRow(host, 0)[0]?.text).not.toBe(url);
+      const id = terminalOscId(host.buffer.active.getLine(0)?.getCell(0));
+      const opening = `\x1b]8;id=foom-${String(id)};${url}\x1b\\`;
+      const data = withSnapshotLinks(
+        host,
+        addon,
+        (pen) => addon.serialize() + pen,
+        opening.length + end.length,
+      );
+      await write(view, data);
+      expect(linksOnRow(view, 0)[0]?.text).not.toBe(url);
+    } finally {
+      host.dispose();
+      view.dispose();
+    }
+  },
+);
+
+test("one long OSC target over 300 wide glyphs retains every linked cell", async () => {
+  const { terminalOscId, terminalOscTarget } = await import("../../../src/shared/terminal-link");
+  const host = new Terminal({ cols: 80, rows: 24, allowProposedApi: true });
+  const view = new Terminal({ cols: 80, rows: 24, allowProposedApi: true });
+  const addon = new SerializeAddon();
+  host.loadAddon(addon);
+  const url = "https://wide.test/".padEnd(16000, "x");
+  try {
+    await write(host, `\x1b]8;;${url}\x1b\\${"中".repeat(300)}\x1b]8;;\x1b\\`);
+    const data = terminalSnapshot(host, addon);
+    await write(view, data);
+    let retained = 0;
+    for (let i = 0; i < 300; i++) {
+      const id = terminalOscId(
+        view.buffer.active.getLine(Math.floor(i / 40))?.getCell((i % 40) * 2),
+      );
+      if (id && terminalOscTarget(view, id) === url) retained++;
+    }
+    expect.soft(retained).toBe(300);
+    expect(data.split(url)).toHaveLength(2);
+  } finally {
+    host.dispose();
+    view.dispose();
+  }
+});
+
+test("snapshot link adapter validates pinned row ranges and accepts marker coordinates", async () => {
+  const { withSnapshotLinks } = await import("../../../src/terminal-host/snapshot-links");
+  const host = new Terminal({ cols: 8, rows: 6, allowProposedApi: true });
+  const addon = new SerializeAddon();
+  host.loadAddon(addon);
+  const run = (range: unknown) =>
+    withSnapshotLinks(host, addon, (pen) => {
+      const method: unknown = Reflect.get(addon, "_serializeBufferByRange");
+      if (typeof method !== "function") throw new Error("Missing row serializer");
+      const data: unknown = Reflect.apply(method, addon, [host, host.buffer.normal, range, true]);
+      if (typeof data !== "string") throw new Error("Missing row string");
+      return data + pen;
+    });
+  try {
+    await write(host, "\x1b]8;;https://range.test/\x1b\\中A\x1b]8;;\x1b\\");
+    for (const range of [
+      undefined,
+      {},
+      { start: null, end: 1 },
+      { start: -1, end: 1 },
+      { start: 0.5, end: 1 },
+      { start: { line: "bad" }, end: 1 },
+      { start: 2, end: 1 },
+    ])
+      expect(() => run(range)).toThrow("Unsupported xterm row range");
+    expect(run({ start: { line: 0 }, end: { line: 0 } })).toContain("https://range.test/");
+  } finally {
+    host.dispose();
+  }
+});
+
+test.each([5, 8])(
+  "wide OSC runs and pending-wrap row replay preserve both buffers at %s columns",
+  async (cols) => {
+    const { terminalOscId, terminalOscTarget } = await import("../../../src/shared/terminal-link");
+    const host = new Terminal({ cols, rows: 8, allowProposedApi: true });
+    const view = new Terminal({ cols, rows: 8, allowProposedApi: true });
+    const addon = new SerializeAddon();
+    host.loadAddon(addon);
+    try {
+      for (const alternate of [false, true]) {
+        if (alternate) await write(host, "\x1b[?1049h");
+        await write(
+          host,
+          "\x1b[2;7r\x1b[?6h\x1b]8;;https://wide.test/\x1b\\" + "ab中".repeat(4) + "\x1b]8;;\x1b\\",
+        );
+        view.reset();
+        await write(view, terminalSnapshot(host, addon));
+        expect(lines(view)).toEqual(lines(host));
+        for (let row = 0; row < host.rows; row++)
+          for (let col = 0; col < cols; col++) {
+            const original = host.buffer.active.getLine(row)?.getCell(col);
+            if (!original?.getChars()) continue;
+            const id = terminalOscId(view.buffer.active.getLine(row)?.getCell(col));
+            expect(id && terminalOscTarget(view, id)).toBe("https://wide.test/");
+          }
+      }
+    } finally {
+      host.dispose();
+      view.dispose();
+    }
+  },
+);

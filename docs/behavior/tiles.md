@@ -229,10 +229,11 @@ keep their right-click; hold Shift to open Foom's menu. Middle-click never opens
 link.
 
 A link opens directly only when its contiguous, fully visible text matches the
-complete destination, and that destination is printable ASCII in the browser's
-canonical URL form. Long sign-in URLs with percent escapes and ampersands can
+complete destination, all its cells are in the viewport, and that destination is
+printable ASCII in the browser's canonical URL form with no userinfo. Long sign-in URLs with percent escapes and ampersands can
 qualify. Gaps, concealed or explicitly colored text, uncertain visibility,
-Unicode look-alikes and noncanonical destinations ask **Open this link?** in Foom's trusted window, with the actual host and
+low-contrast default colors (below WCAG AA 4.5:1), Unicode look-alikes and
+noncanonical destinations ask **Open this link?** in Foom's trusted window, with the actual host and
 complete destination shown. Copy link needs no confirmation. Other URL schemes
 are unavailable. OSC 8 hyperlinks keep their full target across rows. Plain URLs
 join soft wraps only; application-authored newlines remain separate. If excessive
