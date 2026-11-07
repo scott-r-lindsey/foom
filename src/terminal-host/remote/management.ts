@@ -419,7 +419,9 @@ export async function manageHost(
             !ssh ||
             request.origin.startsWith("https://") ||
             !(error instanceof HostGitFailure) ||
-            !["origin-auth", "origin-host-key", "origin-unreachable"].includes(error.reason)
+            !["origin-auth", "origin-host-key", "origin-unreachable", "timed-out"].includes(
+              error.reason,
+            )
           )
             throw error;
           const hostname = ssh[1];

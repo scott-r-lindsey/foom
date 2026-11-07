@@ -1596,9 +1596,11 @@ test.skipIf(process.platform === "win32")(
   },
 );
 
-test.skipIf(process.platform === "win32")(
-  "SSH clones fall back to host gh with clone-local HTTPS config inherited by worktrees",
-  async () => {
+test
+  .skipIf(process.platform === "win32")
+  .each(["origin-auth", "origin-host-key", "origin-unreachable", "timed-out"] as const)(
+  "SSH clone failure %s falls back to host gh with clone-local HTTPS config inherited by worktrees",
+  async (reason) => {
     const origin = "git@github.com:team/project.git";
     const destination = join(home, "code/repo");
     const configurations: string[] = [];
@@ -1614,7 +1616,7 @@ test.skipIf(process.platform === "win32")(
       if (!staging) throw new Error("Missing staging");
       if (clones === 1) {
         await writeFile(join(staging, "partial"), "partial clone");
-        throw new HostGitFailure("origin-auth");
+        throw new HostGitFailure(reason);
       }
       expect(await readdir(join(home, "code"))).toEqual([]);
       await mkdir(staging, { mode: 0o700 });

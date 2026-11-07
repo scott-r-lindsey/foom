@@ -106,7 +106,7 @@ They run in a detached process group with ignored stdin and no controlling termi
 Git resolves its own SSH command and variant, including conditional configuration
 in the clone target context, `ssh.variant`, `GIT_SSH_VARIANT` and auto-detection.
 Foom does not add variant-specific SSH options;
-SSH configuration and keys remain owned by Git's transport. If SSH fails with an authentication, host-key or connectivity reason and the host has a signed-in gh for the origin hostname, Foom retries in fresh staging using HTTPS. Clone-local URL rewriting and a host-scoped `gh auth git-credential` helper preserve `remote.origin.url` exactly and are inherited by linked worktrees. No global Git or gh configuration is written. Local failures and timeouts do not trigger transport fallback. Terminal/askpass and
+SSH configuration and keys remain owned by Git's transport. If SSH fails with an authentication, host-key, connectivity or timeout reason and the host has a signed-in gh for the origin hostname, Foom retries in fresh staging using HTTPS. Clone-local URL rewriting and a host-scoped `gh auth git-credential` helper preserve `remote.origin.url` exactly and are inherited by linked worktrees. No global Git or gh configuration is written. Local checkout failures do not trigger transport fallback. Terminal/askpass and
 GCM interaction are disabled for every variant. Diagnostics
 are bounded and classified on the host, under the C locale, into `origin-auth`,
 `origin-host-key`, `origin-unreachable`, `timed-out` or `checkout-invalid`. A refused
