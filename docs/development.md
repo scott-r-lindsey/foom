@@ -95,9 +95,9 @@ Sources: [Forge 8.0.1 release notes](https://github.com/electron/forge/releases/
 ## Focused local validation
 
 The required pre-commit/pre-push gate remains `pnpm run check`: complete, uncached,
-sequential validation. Runtime/build/tooling changes also require the coverage,
-Electron, make, packaged-smoke and cleanup checks in [AGENTS.md](../AGENTS.md). Focused feedback
-and local cache hits do not replace those gates.
+sequential validation. Runtime/build/tooling changes also require the focused Electron, coverage,
+make, packaged-smoke and cleanup checks in [AGENTS.md](../AGENTS.md). The full Electron suite
+runs in CI, which is the authority.
 
 On Linux, run a named Electron test through the supported wrapper:
 
