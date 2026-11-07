@@ -32,6 +32,26 @@ export function TerminalMenu({
       close={close}
       leading={
         <>
+          {menu.link && (
+            <>
+              {(["Copy link", "Open link"] as const).map((label) => (
+                <button
+                  key={label}
+                  type="button"
+                  role="menuitem"
+                  title={menu.link?.url}
+                  onClick={() => {
+                    close();
+                    if (label === "Copy link") void menu.link?.copy().catch(() => {});
+                    else menu.link?.open();
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+              <hr />
+            </>
+          )}
           {(["Copy", "Paste", "Select all", "Clear"] as const).map((label, index) => {
             const command = [menu.copy, menu.paste, menu.selectAll, menu.clear][index];
             return (

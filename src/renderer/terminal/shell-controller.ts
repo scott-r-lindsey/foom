@@ -1,3 +1,4 @@
+import { terminalLinks } from "./link-interaction";
 import { TerminalInputOrder } from "./input-order";
 import { copyOnSelect } from "./copy-on-select";
 import { terminalFontStack, TERMINAL_FONT_FALLBACK } from "../../shared/terminal-fonts";
@@ -44,6 +45,8 @@ export function createShell(
   let themeChoice: TerminalThemeChoice = "follow";
   const theme = () => resolveTerminalTheme(themeChoice, colors.matches);
   const terminal = new Terminal({
+    // Activation is owned by Foom, including primary-button and trusted-gesture checks.
+    linkHandler: { activate: () => {} },
     cursorBlink: true,
     fontSize: 14,
     fontFamily: TERMINAL_FONT_FALLBACK,
@@ -180,6 +183,9 @@ export function createShell(
     view.attaching = false;
     publish();
   });
+  const links = terminalLinks(container, terminal, () =>
+    attached && !busy && !isDisposed() ? activeId : undefined,
+  );
   const visibility = (visible: boolean) => {
     if (!visible) {
       ++frameGeneration;
@@ -514,6 +520,7 @@ export function createShell(
     offSelectionCopy();
     if (activeId && attached && isAvailable(activeId))
       void window.desktop.detach(activeId).catch(() => {});
+    links.dispose();
     renderer.dispose();
     terminal.dispose();
   };
@@ -577,6 +584,7 @@ export function createShell(
 
   return {
     terminal,
+    links,
     paste,
     release,
     open: async (id?: string) => {

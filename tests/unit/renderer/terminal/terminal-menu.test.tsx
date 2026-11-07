@@ -46,3 +46,40 @@ test("commands and reused pads close and act; Copy requires a selection", () => 
   expect(document.activeElement).toBe(anchor);
   anchor.remove();
 });
+
+test("link commands remain available without a selection and show the exact target", async () => {
+  const anchor = document.body.appendChild(document.createElement("textarea"));
+  const close = vi.fn(),
+    copy = vi.fn().mockResolvedValue(undefined),
+    open = vi.fn();
+  render(
+    <TerminalMenu
+      menu={{
+        id: "a",
+        anchor,
+        point: { x: 10, y: 10 },
+        copy: undefined,
+        paste: vi.fn(),
+        clear: vi.fn(),
+        selectAll: vi.fn(),
+        link: { url: "https://example.com/Case", copy, open },
+      }}
+      layout={initialLayout()}
+      close={close}
+      action={vi.fn()}
+    />,
+  );
+  expect(screen.getByRole("menuitem", { name: "Copy" }).hasAttribute("disabled")).toBe(true);
+  expect(screen.getByRole("menuitem", { name: "Copy link" }).title).toBe(
+    "https://example.com/Case",
+  );
+  fireEvent.click(screen.getByRole("menuitem", { name: "Copy link" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Open link" }));
+  expect(copy).toHaveBeenCalledOnce();
+  expect(open).toHaveBeenCalledOnce();
+  copy.mockRejectedValue(new Error("clipboard unavailable"));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Copy link" }));
+  await Promise.resolve();
+  expect(close).toHaveBeenCalledTimes(3);
+  anchor.remove();
+});
