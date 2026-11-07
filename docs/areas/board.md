@@ -119,13 +119,14 @@ assignments wait for their own first successful inventory, including while
 terminal reservations change, so independent asynchronous loads cannot erase
 valid assignments. All sidebar inventory callers share read revisions. A successful
 reply applies unless a newer successful reply has already applied; a pending,
-failed or hung read cannot discard an older success. Every applied success clears
-the sidebar-refresh error. Preview IDs published locally by placement or picking
-survive inventory reads begun before that publication, while those reads still
+failed or hung read cannot discard an older success. An applied success clears
+the sidebar-refresh error only if its read began after the failure that reported
+that error; older good data can apply without concealing a newer failure. Preview
+IDs published locally by placement or picking survive inventory reads begun before that publication, while those reads still
 refresh other sidebar facts. A successful read begun after publication reconciles
 those IDs normally, including removing closed records.
 File-picker replies publish preview inventory, using owned display facts if their
-inventory read was superseded, before returning
+inventory read was superseded or failed, before returning
 an ID for placement. This data grants no process capabilities. Maximize
 is not persisted. All terminal IPC remains ID-scoped and main-validated.
 

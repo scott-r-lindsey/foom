@@ -1064,3 +1064,89 @@ test("a human-picked preview survives inventory reads started before and after i
     await app.evaluate(() => globalThis.previewPickerOrder.restore());
   }
 });
+
+test("a human-picked preview is tiled when its newest inventory read fails", {
+  skip: process.platform === "win32" && "The fake agent is a POSIX script",
+}, async (context) => {
+  const { app, page, repo } = await agentPreviewFixture(context);
+  await sizeTileBoard(app, page, 2400);
+  await app.evaluate(
+    ({ ipcMain, dialog }, file) => {
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] });
+      const names = ["preview:pick", "workspace:sidebar", "preview:describe"];
+      const original = new Map(names.map((name) => [name, ipcMain._invokeHandlers.get(name)]));
+      let releasePicker;
+      let failNext = false;
+      const pickerReply = new Promise((resolve) => {
+        releasePicker = resolve;
+      });
+      let restored = false;
+      const state = (globalThis.previewPickerFailure = {
+        id: null,
+        failed: false,
+        descriptions: 0,
+        release: () => {
+          failNext = true;
+          releasePicker();
+        },
+        restore: () => {
+          if (restored) return;
+          restored = true;
+          failNext = false;
+          releasePicker();
+          for (const name of names) {
+            ipcMain.removeHandler(name);
+            ipcMain.handle(name, original.get(name));
+          }
+        },
+      });
+      for (const name of names) ipcMain.removeHandler(name);
+      ipcMain.handle("preview:pick", async (...args) => {
+        state.id = await original.get("preview:pick")(...args);
+        await pickerReply;
+        return state.id;
+      });
+      ipcMain.handle("workspace:sidebar", (...args) => {
+        if (failNext) {
+          failNext = false;
+          state.failed = true;
+          throw new Error("Fixture inventory failure");
+        }
+        return original.get("workspace:sidebar")(...args);
+      });
+      ipcMain.handle("preview:describe", (...args) => {
+        state.descriptions++;
+        return original.get("preview:describe")(...args);
+      });
+    },
+    path.join(repo, "notes.md"),
+  );
+  try {
+    await page
+      .getByRole("treeitem", { name: "app", exact: true })
+      .getByRole("button", { name: "Actions for Main checkout", exact: true })
+      .click();
+    await page.getByRole("menuitem", { name: "Preview file…", exact: true }).click();
+    await expect.poll(() => app.evaluate(() => globalThis.previewPickerFailure.id)).toBeTruthy();
+    const id = await app.evaluate(() => globalThis.previewPickerFailure.id);
+    // The host's workspace event has completed its read before the picker starts
+    // the newest read, whose injected rejection must still use owned metadata.
+    await expect(page.locator('.preview-row[data-drag-preview="' + id + '"]')).toBeVisible();
+    await app.evaluate(() => globalThis.previewPickerFailure.release());
+    await expect.poll(() => app.evaluate(() => globalThis.previewPickerFailure.failed)).toBe(true);
+    const tile = page.locator('.terminal-tile[data-preview-id="' + id + '"]');
+    await expect(tile).toBeVisible();
+    assert.equal(await app.evaluate(() => globalThis.previewPickerFailure.descriptions), 1);
+    await expect(page.getByRole("alertdialog")).not.toBeVisible();
+    await app.evaluate(() => globalThis.previewPickerFailure.restore());
+    const inventory = await page.evaluate(() => window.desktop.sidebarInventory());
+    assert.ok(inventory.previews.some((preview) => preview.id === id));
+    await expect.poll(async () => (await previewViewState(app, id)).visible).toBe(true);
+    await expect(tile).toBeVisible();
+    context.diagnostic(
+      "Newest inventory rejected: recordOpen=true, previewTiles=1, nativeVisible=true",
+    );
+  } finally {
+    await app.evaluate(() => globalThis.previewPickerFailure.restore());
+  }
+});

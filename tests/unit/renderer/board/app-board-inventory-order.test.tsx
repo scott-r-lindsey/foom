@@ -378,3 +378,69 @@ test("only a successful read begun after publication can remove a locally placed
     off?.();
   }
 });
+
+test("a picker recovers its opened record when the newest inventory read fails", async () => {
+  mock.workspace.mockResolvedValue({
+    repositories: [{ path: "/code/app", name: "app" }],
+    terminals: [{ ...agent("a"), worktree: "/code/app" }],
+  });
+  window.desktop.panelFacts = () => new Promise(() => {});
+  const source = createAppSource();
+  const view = render(<Board source={source} />);
+  await settle();
+  mock.sidebarInventory.mockRejectedValueOnce(new Error("inventory offline"));
+  try {
+    fireEvent.click(view.getByRole("button", { name: "Actions for Main checkout" }));
+    fireEvent.click(view.getByRole("menuitem", { name: "Preview file…" }));
+    await settle();
+    expect(source.previews?.getSnapshot()).toContainEqual(preview);
+    expect(view.container.querySelectorAll('[data-preview-id="' + preview.id + '"]')).toHaveLength(
+      1,
+    );
+    expect(view.queryByRole("alertdialog")).toBeNull();
+    mock.sidebarInventory.mockResolvedValue(withPreview);
+    act(() => mock.changed?.());
+    await settle();
+    expect(view.container.querySelectorAll('[data-preview-id="' + preview.id + '"]')).toHaveLength(
+      1,
+    );
+    expect(closePreview).not.toHaveBeenCalled();
+  } finally {
+    view.unmount();
+  }
+});
+
+test("older successful inventory applies data without clearing a newer failure", async () => {
+  const older = Promise.withResolvers<SidebarInventory>();
+  const newer = Promise.withResolvers<SidebarInventory>();
+  mock.sidebarInventory.mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise);
+  const marks = new Set<string>();
+  const source = createAppSource();
+  const off = source.connect?.({
+    report: (operation) => {
+      marks.add(operation);
+    },
+    clear: (operation) => {
+      marks.delete(operation);
+    },
+  });
+  await settle();
+  mock.changed?.();
+  await settle();
+  newer.reject(new Error("newer inventory offline"));
+  await settle();
+  expect(marks.has("sidebar-refresh")).toBe(true);
+  older.resolve(named("OLDER"));
+  await settle();
+  try {
+    expect(source.isSidebarReady?.()).toBe(true);
+    expect(source.getSidebar?.()[0]?.name).toBe("OLDER");
+    expect(marks.has("sidebar-refresh")).toBe(true);
+    mock.sidebarInventory.mockResolvedValueOnce(named("RECOVERED"));
+    await source.sidebarCommand?.({ kind: "copy-foom-session-id", id: "a" });
+    expect(source.getSidebar?.()[0]?.name).toBe("RECOVERED");
+    expect(marks.has("sidebar-refresh")).toBe(false);
+  } finally {
+    off?.();
+  }
+});
