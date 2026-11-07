@@ -397,33 +397,27 @@ async function assertAccessible(page) {
   await page.emulateMedia({ colorScheme: null });
 }
 
-// Fixed lifecycle facts only: keep terminal text, paths and credentials out of
-// failure evidence. stderr remains observable after the inspector disconnects.
-function installQuitTrace({ app, BrowserWindow }) {
-  const started = performance.now();
-  const trace = (event) =>
-    process.stderr.write(
-      `Quit trace: ${JSON.stringify({
-        event,
-        ms: Math.round(performance.now() - started),
-        windows: BrowserWindow.getAllWindows().length,
-      })}\n`,
-    );
-  const originalQuit = app.quit;
-  app.quit = function () {
-    trace("app.quit entered");
-    originalQuit.call(app);
-    trace("app.quit returned");
-  };
-  for (const name of ["before-quit", "will-quit", "window-all-closed", "quit"])
-    app.on(name, (event) => trace(`${name}: prevented=${Boolean(event?.defaultPrevented)}`));
-  trace("trace installed");
-}
-
 // Playwright closes its Node inspector only after its synchronous app.quit()
 // evaluation returns. Cancel that invocation and resume on the event loop so
 // Electron cannot wait for debugger disconnect inside the evaluation itself.
-function installQuitAcknowledgement({ app }) {
+function installQuitAcknowledgement({ app, BrowserWindow }) {
+  // Observe the existing acknowledgement RPC without wrapping app.quit or adding
+  // an inspector round trip: either could change the ordering being measured.
+  const started = performance.now();
+  const trace = (event) => {
+    if (BrowserWindow)
+      process.stderr.write(
+        `Quit trace: ${JSON.stringify({
+          event,
+          ms: Math.round(performance.now() - started),
+        })}\n`,
+      );
+  };
+  if (BrowserWindow) {
+    for (const name of ["before-quit", "will-quit", "window-all-closed", "quit"])
+      app.on(name, (event) => trace(`${name}: prevented=${Boolean(event?.defaultPrevented)}`));
+    trace("acknowledgement installed");
+  }
   globalThis.readyToQuit = false;
   const ready = (event) => {
     if (event.defaultPrevented) return;
@@ -438,15 +432,13 @@ function installQuitAcknowledgement({ app }) {
       });
     });
     globalThis.readyToQuit = true;
-    process.stderr.write("Quit trace: acknowledged\n");
-    setImmediate(() => process.stderr.write("Quit trace: acknowledgement event loop resumed\n"));
+    trace("acknowledged");
+    setImmediate(() => trace("acknowledgement event loop resumed"));
   };
   app.on("will-quit", ready);
 }
 
 async function quitAndWait(app, requestQuit, phase = () => {}) {
-  phase("install quit trace");
-  await app.evaluate(installQuitTrace);
   phase("install quit acknowledgement");
   await app.evaluate(installQuitAcknowledgement);
   phase("request quit");

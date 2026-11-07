@@ -248,11 +248,13 @@ establish an incorrect grid layout.
 ## Quit ordering diagnostics (#1056)
 
 The harness retains a bounded stderr lifecycle trace and prints it only when
-app teardown fails. It records main's `app.quit` entry/return, native quit events,
-window counts, acknowledgement delivery and the next event-loop turn, together
-with harness phases and connection/process closure. These are fixed lifecycle
+app teardown fails. It records native quit events, acknowledgement delivery and
+the next event-loop turn, together with harness phases, the final window list,
+and connection/process closure. These are fixed lifecycle
 facts; terminal output, paths, credentials and message payloads are excluded.
-The trace starts before requesting quit and survives inspector disconnection.
+The trace starts in the existing acknowledgement evaluation before requesting
+quit and survives inspector disconnection. It neither wraps `app.quit` nor adds
+an inspector round trip, which could change the ordering being measured.
 
 A teardown phase named `invoke Playwright quit evaluation` covers the entire
 public `app.close()` call, including Playwright's work before its evaluation.
