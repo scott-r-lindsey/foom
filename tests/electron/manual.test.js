@@ -87,10 +87,11 @@ test("blank-window manual and terminals share the leftmost column geometry", asy
   }
   const id = (await page.evaluate(() => window.desktop.sidebarInventory())).previews[0].id;
   await page.evaluate((id) => window.desktop.previews.close(id), id);
-  // Return to one blank leaf, then launch a terminal into the same available width.
-  await page.evaluate(() => {
+  // Seed the next document, after all old-page layout saves have stopped.
+  const storageKey = await page.evaluate(() => `foom.tiles.v1.${window.desktop.windows.id}`);
+  await page.addInitScript((storageKey) => {
     localStorage.setItem(
-      `foom.tiles.v1.${window.desktop.windows.id}`,
+      storageKey,
       JSON.stringify({
         version: 2,
         tree: { kind: "tile", id: "blank", content: null },
@@ -98,7 +99,7 @@ test("blank-window manual and terminals share the leftmost column geometry", asy
         maximized: null,
       }),
     );
-  });
+  }, storageKey);
   await page.reload();
   await expect(page.locator('.terminal-tile[data-empty="true"]')).toHaveCount(1);
   await launchCheckoutShell(app, page);
