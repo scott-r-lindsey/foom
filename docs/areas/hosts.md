@@ -443,7 +443,8 @@ unreachable replies reconcile through a read-only location/preflight check.
 
 The sidebar projects registration order, bounded agent facts and checked repository
 locations. Location reads share a one-minute on-demand cache, invalidated by
-explicit checks, registration changes and clone mutations; there is no timer. Agent availability never comes from the
+explicit checks, host or repository registration changes and clone mutations; there is no timer.
+Repository names and registration order do not affect the location cache key. Agent availability never comes from the
 hub's installation when launching remotely. Host display labels are presentation
 only and do not replace registration keys.
 

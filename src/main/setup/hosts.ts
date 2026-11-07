@@ -561,10 +561,28 @@ export class Hosts {
         }
       : result;
   }
-  private sidebarLocations: { at: number; read: Promise<HostsState> } | undefined;
+  private sidebarLocations:
+    | { at: number; repositories: string; read: Promise<HostsState> }
+    | undefined;
+  private repositorySignature(): string {
+    return JSON.stringify(
+      this.repositories()
+        .map((repo) => repo.path)
+        .sort(),
+    );
+  }
   locationsForSidebar(): Promise<HostsState> {
-    if (!this.sidebarLocations || Date.now() - this.sidebarLocations.at > 60_000) {
-      this.sidebarLocations = { at: Date.now(), read: this.action({ action: "locations" }) };
+    const repositories = this.repositorySignature();
+    if (
+      !this.sidebarLocations ||
+      this.sidebarLocations.repositories !== repositories ||
+      Date.now() - this.sidebarLocations.at > 60_000
+    ) {
+      this.sidebarLocations = {
+        at: Date.now(),
+        repositories,
+        read: this.action({ action: "locations" }),
+      };
     }
     return this.sidebarLocations.read;
   }
@@ -837,6 +855,7 @@ export class Hosts {
           return { ...this.state(), ...(preflight ? { preflight } : {}) };
         }
         const hosts = this.store.get().registeredHosts ?? [];
+        const repositories = this.repositorySignature();
         if (input.action === "rename") {
           this.registered(input.host);
           const error = hostNicknameError(hosts, input.host, input.nickname);
@@ -990,7 +1009,11 @@ export class Hosts {
               ];
             const state = { ...this.state(), preflight };
             if (registration)
-              this.sidebarLocations = { at: Date.now(), read: Promise.resolve(state) };
+              this.sidebarLocations = {
+                at: Date.now(),
+                repositories,
+                read: Promise.resolve(state),
+              };
             return state;
           } finally {
             this.progress = undefined;
@@ -1046,7 +1069,7 @@ export class Hosts {
               : previous.repositories,
           }));
           const state = this.state(result);
-          this.sidebarLocations = { at: Date.now(), read: Promise.resolve(state) };
+          this.sidebarLocations = { at: Date.now(), repositories, read: Promise.resolve(state) };
           return state;
         }
         if (input.action === "add" || input.action === "test") {
@@ -1168,7 +1191,7 @@ export class Hosts {
           ),
         }));
         const state = this.state();
-        this.sidebarLocations = { at: Date.now(), read: Promise.resolve(state) };
+        this.sidebarLocations = { at: Date.now(), repositories, read: Promise.resolve(state) };
         return state;
       });
     this.pending = work;
