@@ -171,7 +171,7 @@ test("tiles build irregular layouts, preserve views and replace explicitly for a
   );
 });
 
-test("launching into a narrow full tile uses the focused fallback and empty tiles support mouse controls", async (context) => {
+test("launching into a narrow full tile adds a column and empty tiles support mouse controls", async (context) => {
   const app = await launchApp(context, { fixture: "running-shell" });
   const page = await boardPage(app);
   await page.emulateMedia({ reducedMotion: "reduce" });
@@ -184,6 +184,13 @@ test("launching into a narrow full tile uses the focused fallback and empty tile
   const sessions = (await page.evaluate(() => window.desktop.workspace())).terminals;
   const created = sessions.find((session) => session.id !== original.id);
   assert.ok(created);
+  // Below the former 60-column threshold, launches now keep both shells visible.
+  await expect(page.locator('.terminal-tile[data-empty="false"]')).toHaveCount(2);
+  await page
+    .locator('.terminal-tile[data-focused="false"]')
+    .getByRole("button", { name: "Hide", exact: true })
+    .click();
+  await page.evaluate(() => window.desktop.appMenu.execute("tidy-tiles"));
   await expect
     .poll(() =>
       page.evaluate(
@@ -1197,9 +1204,8 @@ for (const shrink of ["ancestor drag", "window resize", "sidebar resize", "resto
       }, width);
       await expect.poll(() => page.evaluate(() => innerWidth)).toBe(width);
     };
-    if (shrink === "sidebar resize")
-      await page.evaluate(() => window.desktop.saveSetup({ terminalFontSize: 16 }));
-    await size(shrink === "sidebar resize" ? 750 : 2400);
+    await page.evaluate(() => window.desktop.saveSetup({ terminalFontSize: 32 }));
+    await size(shrink === "sidebar resize" ? 1200 : 2400);
     if (shrink === "sidebar resize")
       await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
     // Two nested horizontal splits leave a landing space inside a mixed side.
@@ -1224,7 +1230,7 @@ for (const shrink of ["ancestor drag", "window resize", "sidebar resize", "resto
       await page.mouse.move(area.x + area.width * 0.15, gutter.y + gutter.height / 2, { steps: 8 });
       await page.mouse.up();
     } else if (shrink === "window resize") {
-      await size(450);
+      await size(900);
     } else if (shrink === "sidebar resize") {
       await page.getByRole("button", { name: "Expand sidebar", exact: true }).click();
     } else {
@@ -1326,6 +1332,24 @@ test("small tile splits refuse visibly in both menus and keyboard commands", asy
       await button.focus();
       await expect(button).toBeFocused();
       await expect(button).toHaveAccessibleDescription(/Too narrow to split/);
+      // Keep the complete refusal text inside the panel's clipping boundary.
+      await expect
+        .poll(() =>
+          button.evaluate((button) => {
+            const tip = document.getElementById(button.getAttribute("aria-describedby"));
+            const body = tip?.closest(".panel-body");
+            if (!tip || !body) return false;
+            const reason = tip.getBoundingClientRect(),
+              bounds = body.getBoundingClientRect();
+            return (
+              reason.x >= bounds.x &&
+              reason.right <= bounds.right &&
+              reason.y >= bounds.y &&
+              reason.bottom <= bounds.bottom
+            );
+          }),
+        )
+        .toBe(true);
       await button.click({ force: true });
       await expect(tiles).toHaveCount(count);
     }
@@ -1340,7 +1364,7 @@ test("small tile splits refuse visibly in both menus and keyboard commands", asy
   );
   // The real terminal context menu shares the same measured refusal.
   await occupied.locator(".tile-terminal").click({ button: "right" });
-  const terminalMenu = page.getByRole("dialog", { name: "Terminal menu", exact: true });
+  const terminalMenu = page.getByRole("menu", { name: "Terminal menu", exact: true });
   await expect(
     terminalMenu.getByRole("menuitem", { name: "Split terminal left", exact: true }),
   ).toHaveAttribute("aria-disabled", "true");

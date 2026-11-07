@@ -400,12 +400,10 @@
   text-transform: uppercase;
 }
 .pad-grid {
+  position: relative;
   display: grid;
   grid-template: repeat(3, 28px) / repeat(3, 28px);
   gap: 2px;
-}
-.pad-direction {
-  position: relative;
 }
 .pad-direction[data-direction="up"] {
   grid-area: 1 / 2;
@@ -507,6 +505,12 @@
   color: var(--bg);
   font-size: 11px;
   pointer-events: none;
+}
+.direction-pad .pad-reason {
+  top: 0;
+  bottom: auto;
+  max-width: 110px;
+  text-align: center;
 }
 .pad-direction:hover .pad-reason,
 .pad-direction:focus-within .pad-reason {

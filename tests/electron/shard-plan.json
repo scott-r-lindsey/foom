@@ -102,7 +102,7 @@
         "launches an agent in a managed worktree and routes its attention signals": [
           14.065, 0, 23.896
         ],
-        "launching into a narrow full tile uses the focused fallback and empty tiles support mouse controls": [
+        "launching into a narrow full tile adds a column and empty tiles support mouse controls": [
           6.962, 25.789, 8.585
         ],
         "macOS quit from an inactive app activates trusted consent and keeps board close guarded": [
@@ -1128,7 +1128,7 @@
         "fresh focused terminal cursor blinks and preserves application style on reattach": [
           4.01, 11.203, 7.3
         ],
-        "launching into a narrow full tile uses the focused fallback and empty tiles support mouse controls": [
+        "launching into a narrow full tile adds a column and empty tiles support mouse controls": [
           6.962, 25.789, 8.585
         ],
         "macOS private selection pastes from terminal A to B through bracketed paste": [
@@ -1839,7 +1839,7 @@
         "footer config gear opens Settings and launches two independent docked Shells": [
           4.154, 10.439, 6.246
         ],
-        "launching into a narrow full tile uses the focused fallback and empty tiles support mouse controls": [
+        "launching into a narrow full tile adds a column and empty tiles support mouse controls": [
           6.962, 25.789, 8.585
         ],
         "macOS quit from an inactive app activates trusted consent and keeps board close guarded": [
