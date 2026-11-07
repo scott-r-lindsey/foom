@@ -595,7 +595,7 @@
   margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: 1.2fr 1fr auto;
+  grid-template-columns: 1.2fr 1fr 1fr auto;
   align-items: end;
   gap: 14px;
   min-width: 0;
@@ -884,6 +884,13 @@
   padding: 4px 0;
   text-align: left;
   overflow-wrap: anywhere;
+}
+.host-name-pencil {
+  width: 14px;
+  height: 14px;
+  margin-left: 6px;
+  vertical-align: -2px;
+  color: var(--muted);
 }
 .host-name-form {
   display: flex;

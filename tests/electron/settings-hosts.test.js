@@ -47,7 +47,7 @@ async function captureHosts(app, page, name) {
         .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
         .toBe(mode === "dark");
       await area.screenshot({
-        path: evidencePath(`${name.startsWith("1061/") ? name : `1041/${name}`}-${mode}.png`),
+        path: evidencePath(`${name.startsWith("1061/") ? name : `1063/${name}`}-${mode}.png`),
       });
     }
   } finally {
@@ -251,6 +251,49 @@ process.stdin.on('data', bytes => {
     recipeCalls,
   };
 }
+
+test("Hosts edits names during checks and enrolls optional nicknames", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, updateScenario, calls } = await hostsFixture(context, true);
+  const name = card.getByRole("button", { name: "Rename fixture-cloud", exact: true });
+  await expect(name.locator("svg")).toBeVisible();
+  await updateScenario({ hold: true });
+  await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
+  await expect
+    .poll(async () => (await readFile(calls, "utf8")).includes('"phase":"held"'))
+    .toBe(true);
+  await name.click();
+  await card.getByLabel("Host nickname", { exact: true }).fill("During check");
+  await card.getByRole("button", { name: "Save name", exact: true }).click();
+  await expect(card.getByRole("button", { name: "Rename During check" })).toBeVisible();
+  await captureHosts(app, page, "renamed-during-check");
+  await updateScenario({});
+  await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
+  await expect(card.getByRole("button", { name: "Rename During check" })).toBeVisible();
+  await page.getByRole("button", { name: "Add host", exact: true }).click();
+  await page.getByLabel("SSH host", { exact: true }).fill("other-cloud");
+  const nickname = page.getByLabel("Nickname (optional)");
+  await nickname.fill("DURING CHECK");
+  await expect(page.getByRole("alert")).toHaveText("Name already used");
+  await expect(page.getByRole("button", { name: "Add host", exact: true })).toBeDisabled();
+  await nickname.fill("Build box");
+  await captureHosts(app, page, "add-nickname");
+  await page.getByRole("button", { name: "Add host", exact: true }).click();
+  const other = page.getByRole("region", { name: "other-cloud", exact: true });
+  await expect(other.getByRole("button", { name: "Rename Build box", exact: true })).toBeVisible();
+  const persisted = await page.evaluate(() => window.desktop.setupState());
+  assert.equal(
+    persisted.settings.registeredHosts.find((entry) => entry.host === "fixture-cloud").nickname,
+    "During check",
+  );
+  assert.equal(
+    persisted.settings.registeredHosts.find((entry) => entry.host === "other-cloud").nickname,
+    "Build box",
+  );
+  await assertAccessible(page);
+});
 
 test("Hosts authorizes SSH hosts and validates nicknames without remote calls", {
   skip: process.platform === "win32",

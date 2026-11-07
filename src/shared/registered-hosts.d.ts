@@ -171,7 +171,7 @@ export type HostsAction =
   | { action: "change-folder"; host: string; codeFolder: string }
   | { action: "list" }
   | { action: "progress" }
-  | { action: "add"; host: string; codeFolder: string }
+  | { action: "add"; host: string; codeFolder: string; nickname?: string }
   | { action: "test"; host: string; codeFolder: string }
   | { action: "refresh"; host: string }
   | { action: "remove"; host: string }

@@ -511,8 +511,15 @@ export function hostsAction(value: unknown): value is HostsAction {
     value["action"] === "create-folder"
   )
     return keys(value, ["action", "host"]);
+  if (value["action"] === "add")
+    return (
+      keys(value, ["action", "host", "codeFolder", "nickname"]) &&
+      codeFolder(value["codeFolder"]) &&
+      (value["nickname"] === undefined ||
+        value["nickname"] === "" ||
+        hostNickname(value["nickname"]))
+    );
   if (
-    value["action"] === "add" ||
     value["action"] === "test" ||
     value["action"] === "preflight" ||
     value["action"] === "change-folder"
