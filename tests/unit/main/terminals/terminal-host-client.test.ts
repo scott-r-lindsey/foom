@@ -228,7 +228,7 @@ test("times out a hung host and rejects creation without leaking requests", asyn
   await vi.advanceTimersByTimeAsync(10000);
   await rejected;
   expect(child.kill).not.toHaveBeenCalled();
-  await vi.advanceTimersByTimeAsync(5001);
+  await vi.advanceTimersByTimeAsync(5003);
   expect(child.kill).toHaveBeenCalledOnce();
   expect(vi.getTimerCount()).toBe(0);
 });
@@ -782,7 +782,7 @@ test("coalesces liveness checks and ignores errors, ordinary results and foreign
   const failed = expect(waiting).rejects.toThrow("stopped");
   await vi.advanceTimersByTimeAsync(4999);
   expect(client.runningCount).toBe(2);
-  await vi.advanceTimersByTimeAsync(2);
+  await vi.advanceTimersByTimeAsync(4);
   await failed;
   expect(child.kill).toHaveBeenCalledOnce();
   expect(exited.mock.calls).toEqual([
@@ -833,7 +833,7 @@ test("late attachment responses and output cannot revive a timed-out view", asyn
   expect(vi.getTimerCount()).toBe(0);
 });
 
-test("replays the 10010/10060/16010 trace without blaming a delayed main", async () => {
+test("replays the 10011/10012/10061/16012 trace without blaming a delayed main", async () => {
   vi.setSystemTime(0);
   const id = await create();
   const timers = vi.spyOn(globalThis, "setTimeout");
@@ -842,22 +842,27 @@ test("replays the 10010/10060/16010 trace without blaming a delayed main", async
   const timeout = timers.mock.calls.at(-1)?.[0];
   if (typeof timeout !== "function") throw new Error("Missing request deadline");
   vi.clearAllTimers();
-  vi.setSystemTime(10010);
+  vi.setSystemTime(10011);
+  const send = child.postMessage.getMockImplementation();
+  child.postMessage.mockImplementationOnce((message) => {
+    vi.setSystemTime(10012);
+    send?.(message);
+  });
   timeout();
   await rejected;
   const ping = child.postMessage.mock.calls.at(-1)?.[0];
   if (!ping || ping === "shutdown") throw new Error("Missing ping");
-  // Host sent this at 10060; main could not dispatch it until 16011.
+  // Probe was sent at 10012; host replied at 10061; main resumes at 16012.
   const queuedPong = { type: "pong", id: "host", request: ping.request };
   const callback = timers.mock.calls.at(-1)?.[0];
   if (typeof callback !== "function") throw new Error("Missing probe timer");
   vi.clearAllTimers();
-  vi.setSystemTime(16010);
+  vi.setSystemTime(16012);
   callback(); // The overdue timer dispatches first.
   expect(child.kill).not.toHaveBeenCalled();
-  vi.setSystemTime(16011);
+  vi.setSystemTime(16013);
   child.emit("message", queuedPong);
   expect(client.runningCount).toBe(1);
   expect(vi.getTimerCount()).toBe(0);
-  expect(mock.recordTimeout).toHaveBeenCalledWith("/fixture/profile", "tail", 10010);
+  expect(mock.recordTimeout).toHaveBeenCalledWith("/fixture/profile", "tail", 10011);
 });

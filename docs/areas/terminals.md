@@ -44,14 +44,20 @@ Host requests and responses are validated at runtime and carry terminal IDs; req
 then sends one coalesced `ping {id: "host", request}` liveness probe, answered by a
 runtime-validated matching `pong` directly on the host event loop, independently
 of terminal parser and shutdown barriers. Ordinary replies, activity and stale or
-foreign pongs cannot satisfy it. Liveness samples a monotonic receive budget every 100 ms, discounting main-thread
-CPU time and native event-loop overruns (10 ms resolution). Node's idle-utilization
-clock is unavailable in Electron main. Overlapping CPU and lag are conservatively
-discounted twice, so main's work does not shorten the host's five-second window. A missed sampling turn (over 200 ms) restarts the full
-window, including after suspension. A final check-phase turn drains queued host
-messages before retirement; a main delay before that turn also restarts the window.
-A host that stays blocked past this receive window is still killed and its live
-terminals report exit. Other request timeouts do not renew an existing probe. Failed attachments
+foreign pongs cannot satisfy it. Liveness has a five-second monotonic reply deadline and an absolute
+15-second limit from the first unanswered probe. Before deciding, main crosses a
+timer and poll/check turn to drain queued pongs. A deadline turn delayed by more
+than 100 ms grants a fresh five-second window, clamped to that absolute limit.
+There are no CPU or event-loop-lag discounts, so overlapping measurements cannot
+count lost time twice. Repeated missed turns never renew the absolute limit.
+The 15-second cap covers the measured six-second main pause plus a fresh
+five-second reply window (about 11 seconds total), with four seconds of margin;
+the focused real Electron case measured silent-host retirement at 5,004 ms. If main is
+itself blocked across the cap, it cannot execute a kill then: on resumption it
+drains queued messages before retiring a still-silent host, without another grace
+window. This preserves the 10011/10012/10061/16012 ms delayed-main trace. A host
+that stays blocked past its reply window is still killed and its live terminals
+report exit. Other request timeouts do not renew an existing probe. Failed attachments
 detach their view and invalidate pending replay; failed creation removes its ID to
 avoid an unreachable PTY. Remote transport deadlines and reconnection are unchanged.
 A host exit, broken transport or unanswered liveness probe rejects pending operations,

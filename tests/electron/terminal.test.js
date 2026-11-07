@@ -758,10 +758,6 @@ test("an unanswered request times out while a real fixture terminal still answer
         .createRequire(app.getAppPath() + "/package.json");
       const { TerminalHostClient } = load("./build/main/terminals/terminal-host-client.js");
       const host = new TerminalHostClient(() => {});
-      const receiveClock = process
-        .getBuiltinModule("node:perf_hooks")
-        .monitorEventLoopDelay({ resolution: 10 });
-      receiveClock.enable();
       let restore = () => {};
       try {
         const id = await host.create({
@@ -788,6 +784,8 @@ test("an unanswered request times out while a real fixture terminal still answer
         const postMessage = transport.postMessage.bind(transport);
         let held = 0;
         let paused = false;
+        let pauseMs = 0;
+        let silentProbeAt = 0;
         transport.postMessage = (message) => {
           if (message !== "shutdown" && message.type === "tail" && held === 0) {
             held++;
@@ -798,7 +796,9 @@ test("an unanswered request times out while a real fixture terminal still answer
             paused = true;
             // Pause main without generating CPU/I/O load. The real host replies
             // while main cannot dispatch messages, reproducing the review trace.
+            const started = Date.now();
             Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 6000);
+            pauseMs = Date.now() - started;
           }
         };
         restore = () => {
@@ -818,8 +818,11 @@ test("an unanswered request times out while a real fixture terminal still answer
         // Now model a host that cannot answer its liveness channel. Verify the
         // real main-loop clock still retires it within a bounded receive window.
         transport.postMessage = (message) => {
-          if (message !== "shutdown" && (message.type === "tail" || message.type === "ping"))
+          if (message !== "shutdown" && message.type === "ping") {
+            silentProbeAt = Date.now();
             return;
+          }
+          if (message !== "shutdown" && message.type === "tail") return;
           postMessage(message);
         };
         const exited = new Promise((resolve) => transport.once("exit", resolve));
@@ -829,6 +832,7 @@ test("an unanswered request times out while a real fixture terminal still answer
         );
         if (!failed) throw new Error("Expected unanswered second request");
         await wait(() => host.runningCount === 0);
+        const retirementMs = Date.now() - silentProbeAt;
         await exited;
         restore();
         await host.dispose();
@@ -840,7 +844,8 @@ test("an unanswered request times out while a real fixture terminal still answer
         const log = JSON.parse(raw);
         return {
           alive,
-          receiveSamples: receiveClock.count,
+          pauseMs,
+          retirementMs,
           held,
           paused,
           markerLeaked: raw.includes("10821082"),
@@ -851,7 +856,6 @@ test("an unanswered request times out while a real fixture terminal still answer
           timeouts: log.timeouts.map((line) => JSON.parse(line)),
         };
       } finally {
-        receiveClock.disable();
         restore();
         if (host.runningCount) await host.shutdown();
         await host.dispose();
@@ -859,8 +863,10 @@ test("an unanswered request times out while a real fixture terminal still answer
     },
     { node: process.execPath, probe: path.join(__dirname, "host-probe.js") },
   );
+  context.diagnostic(
+    `Host watchdog measurement: pause=${result.pauseMs} ms; silent retirement=${result.retirementMs} ms`,
+  );
   assert.equal(result.alive, 1);
-  assert.ok(result.receiveSamples > 0, "native loop-lag clock runs in Electron main");
   assert.equal(result.held, 1);
   assert.equal(result.paused, true);
   assert.equal(result.markerLeaked, false);

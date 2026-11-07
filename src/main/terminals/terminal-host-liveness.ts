@@ -1,63 +1,47 @@
-import { monitorEventLoopDelay, performance } from "node:perf_hooks";
+import { performance } from "node:perf_hooks";
 
-const SAMPLE_MS = 100;
-const RESOLUTION_MS = 10;
-const WINDOW_MS = 5000;
+const RESPONSE_MS = 5000;
+const MAX_PROBE_MS = 15000;
+const LATE_TURN_MS = 100;
 
-/** Electron does not report Node's eventLoopUtilization idle clock. Discount
- * main-thread CPU and native loop overruns instead; missed turns reset the window.
- * Overlapping CPU/lag is deliberately discounted twice, conservatively.
+/** One absolute cap, independent of main load. A late turn may grant a fresh
+ * response window, clamped to that cap. Always drain messages before deciding.
+ * If main was blocked across the cap, retire on its first drain opportunity.
  */
 export function watchHostLiveness(unresponsive: () => void): () => void {
-  const delay = monitorEventLoopDelay({ resolution: RESOLUTION_MS });
-  delay.enable();
-  let previous = performance.now();
-  let cpu = process.threadCpuUsage();
-  let remaining = WINDOW_MS;
+  const started = performance.now();
+  const limit = started + MAX_PROBE_MS;
+  let deadline = started + RESPONSE_MS;
   let stopped = false;
   let timer: ReturnType<typeof setTimeout>;
+  let drain: ReturnType<typeof setTimeout> | undefined;
   let final: ReturnType<typeof setImmediate> | undefined;
-  const observe = (maximumGap: number) => {
-    const now = performance.now();
-    const nextCpu = process.threadCpuUsage();
-    const elapsed = now - previous;
-    const busy = Math.max(0, nextCpu.user - cpu.user + nextCpu.system - cpu.system) / 1000;
-    const lag = delay.count ? Math.max(0, delay.mean / 1e6 - RESOLUTION_MS) * delay.count : 0;
-    delay.reset();
-    if (elapsed > maximumGap) {
-      remaining = WINDOW_MS;
-      // Start a fresh native epoch too: a delayed histogram callback must not
-      // charge the old pause again after main has resumed.
-      delay.disable();
-      delay.enable();
-    } else remaining += lag - Math.max(0, Math.min(SAMPLE_MS, elapsed) - busy);
-    previous = now;
-    cpu = nextCpu;
-  };
   const stop = () => {
     if (stopped) return;
     stopped = true;
     clearTimeout(timer);
+    if (drain !== undefined) clearTimeout(drain);
     if (final !== undefined) clearImmediate(final);
-    delay.disable();
   };
-  const sample = () => {
-    observe(SAMPLE_MS * 2);
-    if (remaining <= 0) {
-      // Poll queued port messages before deciding; account for any further main
-      // delay before this check-phase turn, including a pending native lag sample.
+  const expired = () => {
+    // Cross a timer and poll/check turn, allowing already queued host messages
+    // to cancel retirement even when the expired timer dispatched first.
+    drain = setTimeout(() => {
+      drain = undefined;
       final = setImmediate(() => {
         final = undefined;
         if (stopped) return;
-        observe(SAMPLE_MS);
-        if (remaining > 0) timer = setTimeout(sample, SAMPLE_MS);
-        else {
+        const now = performance.now();
+        if (now < limit && now > deadline + LATE_TURN_MS) {
+          deadline = Math.min(now + RESPONSE_MS, limit);
+          timer = setTimeout(expired, deadline - now);
+        } else {
           stop();
           unresponsive();
         }
       });
-    } else timer = setTimeout(sample, SAMPLE_MS);
+    }, 0);
   };
-  timer = setTimeout(sample, SAMPLE_MS);
+  timer = setTimeout(expired, RESPONSE_MS);
   return stop;
 }
