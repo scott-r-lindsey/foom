@@ -191,3 +191,12 @@ test("sign-in is exit-code-only; status output is discarded and failures remain 
     expect(await signInStatus("/fixture/gh", [], root, {})).toBe(state);
   }
 });
+
+test.each([
+  ["power", "/usr/bin/pmset"],
+  ["command-line-tools", "/usr/bin/xcode-select"],
+])("scoped Mac %s requirements run only that row's command", async (scope, command) => {
+  await requirements("darwin", root, root, { PATH: "/opt/homebrew/bin" }, undefined, scope);
+  expect(mock.probe).toHaveBeenCalledTimes(1);
+  expect(mock.probe.mock.calls[0]?.[0]).toBe(command);
+});

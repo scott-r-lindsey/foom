@@ -404,6 +404,7 @@ export function serveHost(
           compatible: 2,
           hostFacts: 1,
           hostPreflight: 1,
+          hostRowCheck: 1,
           humanMachines: 1,
           machineHome: home,
           originTrust: 1,

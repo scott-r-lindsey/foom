@@ -23,6 +23,7 @@ import {
   originSshArgs,
 } from "../../shared/registered-hosts";
 import type {
+  HostCheckTarget,
   RegisteredHost,
   HostFailure,
   HostCheck,
@@ -44,7 +45,40 @@ import { locationId } from "../control/metadata";
 import { remoteInventory, remoteManagement } from "../terminals/remote-transport";
 import { sshEnvironment } from "../terminals/remote-bootstrap";
 
+/** Only the folder observation (including macOS's path warning) changes. */
+function folderObservation(facts: HostFacts, result: HostResult): HostFacts {
+  const observed = result.ok ? result.facts : undefined;
+  const mac = facts.requirements?.mac;
+  const observedMac = observed?.requirements?.mac;
+  return {
+    ...facts,
+    folder:
+      observed?.folder ??
+      (result.ok ? { state: "pass" } : { state: "fail", reason: result.reason }),
+    ...(facts.requirements && mac && observedMac
+      ? {
+          requirements: {
+            ...facts.requirements,
+            mac: { ...mac, protectedFolder: observedMac.protectedFolder },
+          },
+        }
+      : {}),
+  };
+}
+
 /** Profile-owned registrations only. Developer mappings never enter this service. */
+class HostRowUnavailable extends Error {}
+class HostRowSaveFailed extends Error {
+  constructor(readonly retry: () => Promise<HostPreflight | undefined>) {
+    super("Unable to save host row");
+  }
+}
+interface PendingHostRow {
+  target: HostCheckTarget;
+  retry?: () => Promise<HostPreflight | undefined>;
+  reason?: "save-failed" | "check-failed";
+}
+
 export class Hosts {
   private readonly savedPlacements = new Map<
     string,
@@ -510,6 +544,8 @@ export class Hosts {
     throw new Error("Invalid host copy");
   }
   private readonly results = new Map<string, HostResult>();
+  /** Display-only resource replies never seed the launch inventory. */
+  private readonly resourceResults = new Map<string, HostResult>();
   private progress: HostCheckProgress | undefined;
   private locations: RepositoryLocation[] = [];
   private pending: Promise<unknown> = Promise.resolve();
@@ -523,8 +559,7 @@ export class Hosts {
     ) => remoteManagement({ host }, version, request, this.cancellation.signal),
     private readonly profile?: string,
   ) {}
-  private projectedResult(host: string): HostResult | undefined {
-    const result = this.results.get(host);
+  private projectedResult(host: string, result = this.results.get(host)): HostResult | undefined {
     const inventory = this.sessionInventories.get(host);
     return result?.ok && inventory
       ? {
@@ -541,12 +576,15 @@ export class Hosts {
   private sidebarLocations:
     | { at: number; repositories: string; read: Promise<HostsState> }
     | undefined;
-  locationsForSidebar(): Promise<HostsState> {
-    const repositories = JSON.stringify(
+  private repositorySignature(): string {
+    return JSON.stringify(
       this.repositories()
         .map((repo) => repo.path)
         .sort(),
     );
+  }
+  locationsForSidebar(): Promise<HostsState> {
+    const repositories = this.repositorySignature();
     if (
       !this.sidebarLocations ||
       this.sidebarLocations.repositories !== repositories ||
@@ -559,6 +597,27 @@ export class Hosts {
       };
     }
     return this.sidebarLocations.read;
+  }
+  private readonly locationTimes = new WeakMap<RepositoryLocation, number>();
+  private rememberLocation(location: RepositoryLocation, at: number): RepositoryLocation {
+    this.locationTimes.set(location, at);
+    return location;
+  }
+  private cacheHostLocations(state: HostsState, repositories: string) {
+    let oldest = Date.now();
+    for (const host of this.store.get().registeredHosts ?? [])
+      for (const repo of this.repositories()) {
+        const location = state.locations.find(
+          (entry) => entry.host === host.host && entry.repository === repo.path,
+        );
+        const at = location && this.locationTimes.get(location);
+        if (at === undefined) {
+          this.sidebarLocations = undefined;
+          return;
+        }
+        oldest = Math.min(oldest, at);
+      }
+    this.sidebarLocations = { at: oldest, repositories, read: Promise.resolve(state) };
   }
   async repositoryTarget(host: string, repository: string): Promise<RemoteTarget> {
     const registration = this.registered(host);
@@ -603,11 +662,18 @@ export class Hosts {
   state(result?: HostResult, savedOnly = false): HostsState {
     return {
       hosts: (this.store.get().registeredHosts ?? []).map((host) => {
+        const rowFailures = (this.pendingRows.get(host.host) ?? []).flatMap((row) =>
+          row.reason ? [{ target: row.target, reason: row.reason }] : [],
+        );
         // Saved facts provide presentation only; actions select from a fresh inspection below.
         const displayResult =
           (!savedOnly && this.results.get(host.host)) || host.observation?.preflight.result;
+        const runtimeResult = savedOnly
+          ? undefined
+          : (this.resourceResults.get(host.host) ?? this.results.get(host.host));
         return {
           ...host,
+          ...(rowFailures.length ? { rowFailures } : {}),
           ...(host.observation
             ? {
                 result: host.observation.preflight.result,
@@ -640,9 +706,7 @@ export class Hosts {
                     ?.foreign.reduce((sum, entry) => sum + (entry.count ?? 1), 0) ?? 0,
               }
             : {}),
-          ...(!savedOnly && this.results.get(host.host)
-            ? { result: this.projectedResult(host.host) }
-            : {}),
+          ...(runtimeResult ? { result: this.projectedResult(host.host, runtimeResult) } : {}),
         };
       }),
       locations: this.locations.filter(
@@ -653,6 +717,201 @@ export class Hosts {
       ...(result ? { result } : {}),
       ...(this.progress ? { progress: this.progress } : {}),
     };
+  }
+  private readonly pendingRows = new Map<string, PendingHostRow[]>();
+  private queueRows(host: string, targets: readonly HostCheckTarget[]) {
+    const rows = new Map(
+      (this.pendingRows.get(host) ?? []).map((row) => [JSON.stringify(row.target), row]),
+    );
+    for (const target of targets) rows.set(JSON.stringify(target), { target });
+    this.pendingRows.set(host, [...rows.values()]);
+  }
+  private registeredRow(host: string, target: HostCheckTarget) {
+    const registration = this.registered(host);
+    if (
+      "repository" in target &&
+      !this.repositories().some((repo) => repo.path === target.repository)
+    )
+      throw new HostRowUnavailable("Repository is not registered");
+    if (
+      "tool" in target &&
+      ![
+        "git",
+        "gh",
+        ...agentProviders()
+          .filter((provider) => this.store.get().agents[provider.id] !== false)
+          .map((provider) => provider.id),
+      ].includes(target.tool)
+    )
+      throw new HostRowUnavailable("Tool is not enabled");
+    return registration;
+  }
+  private async updateChecklist(host: string, change: (previous: HostPreflight) => HostPreflight) {
+    const registration = this.registered(host);
+    const previous = registration.observation?.preflight;
+    const saved = previous ? change(previous) : undefined;
+    if (saved)
+      await this.updateRegistrations((hosts) =>
+        hosts.map((entry) =>
+          entry.host === host && entry.observation
+            ? { ...entry, observation: { ...entry.observation, preflight: saved } }
+            : entry,
+        ),
+      );
+    let preflight = saved;
+    // Update only the changed fields of an existing live inventory. Saved facts
+    // never populate that cache, and a scoped read never renews its timestamp.
+    const current = this.results.get(host);
+    if (current) {
+      const base: HostPreflight = previous ?? {
+        ...(current.connection ?? {
+          ssh: { state: "not-checked" },
+          platform: { state: "not-checked" },
+          artifact: { state: "not-checked" },
+        }),
+        repositories: [],
+        result: current,
+      };
+      const updated = change({ ...base, result: current });
+      if (!this.inventoryReads.has(host)) this.results.set(host, updated.result);
+      // Return a transient display update even when enrollment has no saved
+      // checklist. This neither saves an observation nor invents Last checked.
+      preflight ??= updated;
+    }
+    return preflight;
+  }
+  private async reloadRow(
+    host: string,
+    target: HostCheckTarget,
+  ): Promise<HostPreflight | undefined> {
+    const registration = this.registeredRow(host, target);
+    let result: HostResult;
+    if ("repository" in target) {
+      if (target.kind === "checkout") {
+        result = await this.repository(host, registration.codeFolder, target.repository, false);
+      } else {
+        try {
+          const origin = await this.origin(target.repository);
+          result = await this.run(host, {
+            type: "manage",
+            operation: "origin",
+            codeFolder: registration.codeFolder,
+            origin,
+            directory: `repository-${createHash("sha256").update(origin).digest("hex").slice(0, 24)}`,
+          });
+        } catch {
+          result = { ok: false, reason: "origin-unavailable" };
+        }
+      }
+    } else {
+      result = await this.run(host, {
+        type: "manage",
+        operation: "inspect",
+        readOnly: true,
+        partial: true,
+        codeFolder: registration.codeFolder,
+        target,
+      });
+    }
+    if (
+      (target.kind === "power" || target.kind === "command-line-tools") &&
+      (!result.ok || !result.facts.requirements?.mac)
+    )
+      throw new HostRowUnavailable("Unable to check host row");
+    const previous = registration.observation?.preflight;
+    const displayed = previous?.result ?? this.results.get(host);
+    const connectionRow = ["ssh", "platform", "artifact"].includes(target.kind);
+    if (
+      (!previous && (!displayed?.ok || "repository" in target)) ||
+      ("repository" in target &&
+        !previous?.repositories.some((repo) => repo.repository === target.repository)) ||
+      (!connectionRow && !("repository" in target) && !displayed?.ok) ||
+      ("tool" in target &&
+        displayed?.ok &&
+        ![...displayed.facts.agents, ...(displayed.facts.tools ?? [])].some(
+          (entry) => entry.id === target.tool,
+        )) ||
+      ((target.kind === "power" || target.kind === "command-line-tools") &&
+        displayed?.ok &&
+        !displayed.facts.requirements?.mac)
+    )
+      throw new HostRowUnavailable("Unable to display host row without a full check");
+    const check: HostCheck = result.ok
+      ? { state: "pass" }
+      : { state: "fail", reason: result.reason };
+    const change = (previous: HostPreflight): HostPreflight => {
+      if ("repository" in target)
+        return {
+          ...previous,
+          repositories: previous.repositories.map((repo) =>
+            repo.repository === target.repository
+              ? {
+                  ...repo,
+                  ...(target.kind === "origin" ? { origin: check } : { checkout: result }),
+                }
+              : repo,
+          ),
+        };
+      if (target.kind === "ssh" || target.kind === "platform" || target.kind === "artifact")
+        return { ...previous, [target.kind]: result.connection?.[target.kind] ?? check };
+      if (!previous.result.ok) return previous;
+      const facts = previous.result.facts;
+      const observed = result.ok ? result.facts : undefined;
+      let next = facts;
+      if (target.kind === "folder") next = folderObservation(facts, result);
+      if (
+        (target.kind === "command-line-tools" || target.kind === "power") &&
+        facts.requirements?.mac &&
+        observed?.requirements?.mac
+      ) {
+        const key = target.kind === "power" ? "staysAwake" : "commandLineTools";
+        next = {
+          ...facts,
+          requirements: {
+            ...facts.requirements,
+            mac: { ...facts.requirements.mac, [key]: observed.requirements.mac[key] },
+          },
+        };
+      }
+      if ("tool" in target) {
+        const merge = (items: HostFacts["agents"], observations: HostFacts["agents"]) =>
+          items.map((item) => {
+            if (item.id !== target.tool) return item;
+            const found = observations.find((entry) => entry.id === target.tool);
+            return target.kind === "sign-in"
+              ? { ...item, signIn: found?.signIn ?? "unknown" }
+              : { ...item, state: found?.state ?? "unable" };
+          });
+        next = {
+          ...facts,
+          agents: merge(facts.agents, observed?.agents ?? []),
+          ...(facts.tools
+            ? {
+                tools: facts.tools.map((item) => {
+                  const found = observed?.tools?.find((entry) => entry.id === target.tool);
+                  return item.id !== target.tool
+                    ? item
+                    : target.kind === "sign-in"
+                      ? { ...item, signIn: found?.signIn ?? "unknown" }
+                      : { ...item, state: found?.state ?? "unable" };
+                }),
+              }
+            : {}),
+        };
+      }
+      return { ...previous, result: { ...previous.result, facts: next } };
+    };
+    const save = () => {
+      if (this.registeredRow(host, target).codeFolder !== registration.codeFolder)
+        return Promise.reject(new HostRowUnavailable("Folder changed"));
+      return this.updateChecklist(host, change);
+    };
+    try {
+      return await save();
+    } catch (error) {
+      if (error instanceof HostRowUnavailable) throw error;
+      throw new HostRowSaveFailed(save);
+    }
   }
   private profilePending: Promise<void> = Promise.resolve();
   /** Re-read registrations after earlier profile writes, independently of remote checks. */
@@ -675,8 +934,9 @@ export class Hosts {
     launchRecipe?: (target: RemoteTarget) => Promise<void>,
   ): Promise<HostsState> {
     if (!hostsAction(input)) return Promise.reject(new Error("Invalid host action"));
-    if (input.action === "progress" || input.action === "list")
-      return Promise.resolve(this.state(undefined, input.action === "list"));
+    if (input.action === "progress") return Promise.resolve(this.state());
+    if (input.action === "list" && !this.pendingRows.size)
+      return Promise.resolve(this.state(undefined, true));
     if (input.action === "rename")
       return this.updateRegistrations((hosts) => {
         this.registered(input.host);
@@ -696,7 +956,6 @@ export class Hosts {
         "clone",
         "change-folder",
         "create-folder",
-        "refresh",
         "preflight",
         "locations",
       ].includes(input.action)
@@ -705,7 +964,39 @@ export class Hosts {
     const work = this.pending
       .catch(() => undefined)
       .then(async () => {
+        if (input.action === "list") {
+          for (const [host, rows] of [...this.pendingRows]) {
+            const retained: PendingHostRow[] = [];
+            if (this.store.get().registeredHosts?.some((entry) => entry.host === host))
+              for (const row of rows) {
+                try {
+                  this.registeredRow(host, row.target);
+                  if (row.retry) await row.retry();
+                  else await this.reloadRow(host, row.target);
+                } catch (error) {
+                  if (error instanceof HostRowUnavailable) continue;
+                  if (error instanceof HostRowSaveFailed) row.retry = error.retry;
+                  row.reason = row.retry ? "save-failed" : "check-failed";
+                  retained.push(row);
+                }
+              }
+            if (retained.length) this.pendingRows.set(host, retained);
+            else this.pendingRows.delete(host);
+          }
+          return this.state(undefined, true);
+        }
+        if (input.action === "reload") {
+          const preflight = await this.reloadRow(input.host, input.target);
+          const remaining = (this.pendingRows.get(input.host) ?? []).filter(
+            (row) => JSON.stringify(row.target) !== JSON.stringify(input.target),
+          );
+          if (remaining.length) this.pendingRows.set(input.host, remaining);
+          else this.pendingRows.delete(input.host);
+          return { ...this.state(), ...(preflight ? { preflight } : {}) };
+        }
         const hosts = this.store.get().registeredHosts ?? [];
+        const repositories = this.repositorySignature();
+        const observedAt = Date.now();
         if (input.action === "trust-origin") {
           const registration = this.registered(input.host);
           if (!this.repositories().some((repo) => repo.path === input.repository))
@@ -720,6 +1011,10 @@ export class Hosts {
             human: true,
             trustOrigin: origin,
           });
+          this.queueRows(input.host, [
+            { kind: "origin", repository: input.repository },
+            { kind: "checkout", repository: input.repository },
+          ]);
           return this.state();
         }
         if (input.action === "recipe") {
@@ -755,6 +1050,10 @@ export class Hosts {
               digest: createHash("sha256").update(JSON.stringify(recipe.steps)).digest("hex"),
             },
           });
+          this.queueRows(input.host, [
+            ...(input.operation === "install" ? [{ kind: "tool" as const, tool: input.tool }] : []),
+            ...(input.tool !== "git" ? [{ kind: "sign-in" as const, tool: input.tool }] : []),
+          ]);
           return this.state();
         }
         if (input.action === "end") {
@@ -794,6 +1093,7 @@ export class Hosts {
           try {
             const preflight = await this.preflight(input.host, input.codeFolder);
             if (registration) {
+              this.resourceResults.delete(input.host);
               this.results.set(input.host, preflight.result);
               await this.expandRegistration(input.host);
               if (this.profile && preflight.result.ok) {
@@ -820,9 +1120,26 @@ export class Hosts {
                     : entry,
                 ),
               );
+              this.pendingRows.delete(input.host);
             }
             this.progress = undefined;
-            return { ...this.state(), preflight };
+            if (registration)
+              this.locations = [
+                ...this.locations.filter((entry) => entry.host !== input.host),
+                ...preflight.repositories.map((repo) =>
+                  this.rememberLocation(
+                    {
+                      host: input.host,
+                      repository: repo.repository,
+                      result: repo.checkout,
+                    },
+                    observedAt,
+                  ),
+                ),
+              ];
+            const state = { ...this.state(), preflight };
+            if (registration) this.cacheHostLocations(state, repositories);
+            return state;
           } finally {
             this.progress = undefined;
           }
@@ -835,7 +1152,14 @@ export class Hosts {
             input.host,
             input.action === "create-folder"
               ? { type: "manage", operation: "create-folder", codeFolder }
-              : { type: "manage", operation: "inspect", readOnly: true, partial: true, codeFolder },
+              : {
+                  type: "manage",
+                  operation: "inspect",
+                  readOnly: true,
+                  partial: true,
+                  codeFolder,
+                  target: { kind: "folder" },
+                },
           );
           if (result.ok) {
             await this.updateRegistrations((hosts) =>
@@ -845,11 +1169,45 @@ export class Hosts {
                   : entry,
               ),
             );
-            this.locations = this.locations.filter((entry) => entry.host !== input.host);
+            this.locations = [
+              ...this.locations.filter((entry) => entry.host !== input.host),
+              ...this.repositories().map(
+                (repo): RepositoryLocation => ({
+                  host: input.host,
+                  repository: repo.path,
+                  result: { ok: true, facts: { ...result.facts, agents: [] } },
+                }),
+              ),
+            ];
             this.invalidateWorktrees(input.host);
           }
-          this.results.set(input.host, result);
-          return this.state(result);
+          const preflight =
+            result.ok || input.action === "create-folder"
+              ? await this.updateChecklist(input.host, (previous) => ({
+                  ...previous,
+                  result: previous.result.ok
+                    ? {
+                        ...previous.result,
+                        facts: {
+                          ...folderObservation(previous.result.facts, result),
+                          codeFolder: result.ok
+                            ? result.facts.codeFolder
+                            : previous.result.facts.codeFolder,
+                        },
+                      }
+                    : previous.result,
+                  repositories: result.ok
+                    ? previous.repositories.map((repo) => ({
+                        ...repo,
+                        origin: { state: "not-checked" },
+                        checkout: { ok: true, facts: { ...result.facts, agents: [] } },
+                      }))
+                    : previous.repositories,
+                }))
+              : undefined;
+          const state = { ...this.state(result), ...(preflight ? { preflight } : {}) };
+          this.cacheHostLocations(state, repositories);
+          return state;
         }
         if (input.action === "add" || input.action === "test") {
           if (hosts.length >= 32 || hosts.some((host) => host.host === input.host))
@@ -887,6 +1245,7 @@ export class Hosts {
                 },
               ];
             });
+            this.resourceResults.delete(input.host);
             this.results.set(input.host, result);
           }
           return this.state(result);
@@ -895,11 +1254,16 @@ export class Hosts {
           this.locations = [];
           for (const repo of this.repositories())
             for (const host of hosts)
-              this.locations.push({
-                repository: repo.path,
-                host: host.host,
-                result: await this.repository(host.host, host.codeFolder, repo.path, false),
-              });
+              this.locations.push(
+                this.rememberLocation(
+                  {
+                    repository: repo.path,
+                    host: host.host,
+                    result: await this.repository(host.host, host.codeFolder, repo.path, false),
+                  },
+                  observedAt,
+                ),
+              );
           return this.state();
         }
         const host = hosts.find((entry) => entry.host === input.host);
@@ -911,6 +1275,8 @@ export class Hosts {
           );
           this.locations = this.locations.filter((entry) => entry.host !== host.host);
           this.results.delete(host.host);
+          this.resourceResults.delete(host.host);
+          this.pendingRows.delete(host.host);
           this.sessionInventories.delete(host.host);
           this.invalidateWorktrees(host.host);
           for (const [path, entry] of this.savedPlacements)
@@ -922,17 +1288,35 @@ export class Hosts {
             await this.readSessions(host.host);
             await this.readWorktrees(host.host, true);
           }
-          this.results.set(
-            host.host,
-            await this.run(host.host, {
-              type: "manage",
-              operation: "inspect",
-              readOnly: true,
-              partial: true,
-              codeFolder: host.codeFolder,
-            }),
-          );
-          await this.expandRegistration(host.host);
+          const result = await this.run(host.host, {
+            type: "manage",
+            operation: "inspect",
+            readOnly: true,
+            partial: true,
+            target: { kind: "facts" },
+            codeFolder: host.codeFolder,
+          });
+          const live = this.results.get(host.host);
+          const previous = live ?? host.observation?.preflight.result;
+          const refreshed: HostResult =
+            result.ok && previous?.ok
+              ? {
+                  ...result,
+                  facts: {
+                    ...previous.facts,
+                    version: result.facts.version,
+                    sessions: result.facts.sessions,
+                    cores: result.facts.cores,
+                    load: result.facts.load,
+                    memoryTotal: result.facts.memoryTotal,
+                    memoryAvailable: result.facts.memoryAvailable,
+                  },
+                }
+              : result;
+          this.resourceResults.set(host.host, refreshed);
+          if (result.ok && live?.ok && !this.inventoryReads.has(host.host))
+            this.results.set(host.host, refreshed);
+          await this.expandRegistration(host.host, result);
           return this.state();
         }
         if (!this.repositories().some((repo) => repo.path === input.repository))
@@ -941,8 +1325,21 @@ export class Hosts {
         this.locations = this.locations.filter(
           (entry) => entry.host !== host.host || entry.repository !== input.repository,
         );
-        this.locations.push({ repository: input.repository, host: host.host, result });
-        return this.state();
+        this.locations.push(
+          this.rememberLocation(
+            { repository: input.repository, host: host.host, result },
+            observedAt,
+          ),
+        );
+        await this.updateChecklist(host.host, (previous) => ({
+          ...previous,
+          repositories: previous.repositories.map((repo) =>
+            repo.repository === input.repository ? { ...repo, checkout: result } : repo,
+          ),
+        }));
+        const state = this.state();
+        this.cacheHostLocations(state, repositories);
+        return state;
       });
     this.pending = work;
     return work;
@@ -1014,7 +1411,7 @@ export class Hosts {
         if (request.operation === "inspect" && attempt === 0) continue;
         return failed("configuration-changed", "configuration");
       }
-      if (request.operation === "inspect" && currentObservation())
+      if (request.operation === "inspect" && !request.target && currentObservation())
         this.observed.set(host, { at: Date.now(), revision, enabled });
       return {
         ...result,
@@ -1035,9 +1432,8 @@ export class Hosts {
       };
     }
   }
-  private async expandRegistration(host: string): Promise<void> {
+  private async expandRegistration(host: string, result = this.results.get(host)): Promise<void> {
     const registration = this.registered(host);
-    const result = this.results.get(host);
     if (!registration.codeFolder.startsWith("~/") || !result?.ok) return;
     await this.updateRegistrations((hosts) =>
       hosts.map((entry) =>

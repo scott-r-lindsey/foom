@@ -506,7 +506,14 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
     });
     assert.equal(tree.status, "succeeded", JSON.stringify(tree));
     await rename(path.join(remoteBin, "codex"), path.join(remoteBin, "codex-hidden"));
-    await page.evaluate(() => window.desktop.hosts({ action: "refresh", host: "fleet-worker" }));
+    // Refresh facts only reads resources; explicitly reload the changed agent row.
+    await page.evaluate(() =>
+      window.desktop.hosts({
+        action: "reload",
+        host: "fleet-worker",
+        target: { kind: "tool", tool: "codex" },
+      }),
+    );
     // Background forge inspections may use SSH; refused launch must send no
     // agent preparation/start frame. Record types only, never credentials or prompts.
     const before = await readFile(launchCalls, "utf8");
@@ -520,7 +527,13 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
     assert.equal(missing.reason, "remote_agent_unavailable");
     assert.equal(await readFile(launchCalls, "utf8"), before);
     await rename(path.join(remoteBin, "codex-hidden"), path.join(remoteBin, "codex"));
-    await page.evaluate(() => window.desktop.hosts({ action: "refresh", host: "fleet-worker" }));
+    await page.evaluate(() =>
+      window.desktop.hosts({
+        action: "reload",
+        host: "fleet-worker",
+        target: { kind: "tool", tool: "codex" },
+      }),
+    );
   }
   for (const agent of agents) {
     const checkout =

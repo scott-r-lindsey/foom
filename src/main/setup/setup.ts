@@ -78,7 +78,7 @@ export class Setup {
       .then((state) => {
         if (hostsAction(input)) {
           if (input.action === "rename") this.refresh();
-          if (input.action !== "progress" && input.action !== "list") this.deps.hostsChanged?.();
+          if (!["progress", "list", "reload"].includes(input.action)) this.deps.hostsChanged?.();
         }
         return state;
       });
