@@ -246,3 +246,28 @@ test.each([true, false])(
     });
   },
 );
+
+test("answers liveness probes while an attachment parser barrier is still pending", async () => {
+  await message({ type: "create", id: "one", request: 1, spec });
+  let release = () => {};
+  mock.attach.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+  );
+  await message({ type: "attach", id: "one", request: 2, view: "view" });
+  await message({ type: "ping", id: "foreign", request: 3 });
+  expect(port.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ request: 3 }));
+  await message({ type: "ping", id: "host", request: 4 });
+  expect(port.postMessage).toHaveBeenLastCalledWith({ type: "pong", id: "host", request: 4 });
+  expect(port.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ request: 2 }));
+  release();
+  await Promise.resolve();
+  expect(port.postMessage).toHaveBeenLastCalledWith({
+    type: "result",
+    id: "one",
+    request: 2,
+    lines: [],
+  });
+});

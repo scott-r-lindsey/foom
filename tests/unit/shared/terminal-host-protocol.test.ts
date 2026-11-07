@@ -203,3 +203,16 @@ test("the captured image recipient fact remains a boolean at the host boundary",
   for (const imagePaste of [null, 1, "true", {}])
     expect(hostRequest({ ...base, type: "create", spec: { ...spec, imagePaste } })).toBe(false);
 });
+
+test("liveness probes require the host ID and a positive safe request number on both boundaries", () => {
+  expect(hostRequest({ type: "ping", id: "host", request: 1 })).toBe(true);
+  expect(hostResponse({ type: "pong", id: "host", request: 1 })).toBe(true);
+  for (const id of [undefined, "", "foreign"]) {
+    expect(hostRequest({ type: "ping", id, request: 1 })).toBe(false);
+    expect(hostResponse({ type: "pong", id, request: 1 })).toBe(false);
+  }
+  for (const request of [undefined, "1", 0, -1, 1.5, Infinity]) {
+    expect(hostRequest({ type: "ping", id: "host", request })).toBe(false);
+    expect(hostResponse({ type: "pong", id: "host", request })).toBe(false);
+  }
+});

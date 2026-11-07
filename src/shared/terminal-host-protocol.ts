@@ -57,6 +57,8 @@ export function hostRequest(value: unknown): value is HostRequest {
       return typeof value["dark"] === "boolean";
     case "attach":
       return text(value["view"]);
+    case "ping":
+      return value["id"] === "host";
     case "screen":
     case "shutdown":
     case "detach":
@@ -120,6 +122,8 @@ export function hostResponse(value: unknown): value is HostResponse {
         value["lines"].length <= 10000 &&
         value["lines"].every((line: unknown) => typeof line === "string")
       );
+    case "pong":
+      return value["id"] === "host" && integer(value["request"], 1, Number.MAX_SAFE_INTEGER);
     case "error":
       return integer(value["request"], 1, Number.MAX_SAFE_INTEGER);
     case "data":
