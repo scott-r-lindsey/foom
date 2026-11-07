@@ -144,6 +144,8 @@ export class RemoteTransport extends EventEmitter {
         ? { type: "session-close", id: session.id, request, profile: this.target.profile }
         : { type: "agent-close", id: session.id, request };
     const metadata = {
+      dark: this.theme?.dark ?? false,
+      ...(this.theme?.theme ? { theme: this.theme.theme } : {}),
       ...(this.target.profile ? { profile: this.target.profile } : {}),
       ...(this.target.context ? { context: this.target.context } : {}),
     };
@@ -360,6 +362,12 @@ export class RemoteTransport extends EventEmitter {
               return;
             }
             if (
+              (!this.management &&
+                !this.target.cleanup &&
+                !this.opened &&
+                !this.target.reattach &&
+                value.build !== artifact.sha256 &&
+                value.startupTheme !== 1) ||
               (this.target.machine &&
                 !this.opened &&
                 !this.target.reattach &&
@@ -546,7 +554,7 @@ export class RemoteTransport extends EventEmitter {
                 return;
               }
               this.restoring = undefined;
-              for (const command of [this.theme, this.dimensions, this.attachment])
+              for (const command of [this.dimensions, this.attachment])
                 if (command) {
                   const request = --this.internal;
                   this.restoration.add(request);
@@ -576,7 +584,6 @@ export class RemoteTransport extends EventEmitter {
               throw new Error("Unexpected open result");
             clearTimeout(deadline);
             this.opened = true;
-            if (this.theme) this.send({ ...this.theme, request: --this.internal });
             this.emit("message", {
               type: "result",
               id: value.id,
@@ -713,6 +720,13 @@ export class RemoteTransport extends EventEmitter {
     if (message.type === "create") {
       if (this.session) throw new Error("Remote transport already owns a session");
       this.session = message;
+      this.dimensions = {
+        type: "resize",
+        id: message.id,
+        request: message.request,
+        cols: message.spec.cols,
+        rows: message.spec.rows,
+      };
       this.theme = {
         type: "theme",
         id: message.id,

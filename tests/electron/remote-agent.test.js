@@ -1,3 +1,4 @@
+const { colorQueryFixture, oscColor } = require("./color-query-fixture.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const { spawn } = require("node:child_process");
@@ -120,6 +121,7 @@ else process.exit(2);
     { mode: 0o700 },
   );
   const record = path.join(root, "remote-agent.json");
+  const colorRecord = path.join(root, "agent-colors.json");
   const mcpRecord = path.join(root, "remote-mcp.json");
   const imageRecord = path.join(root, "remote-image.json");
   await writeFile(
@@ -130,6 +132,8 @@ const { writeFileSync, renameSync } = require('node:fs');
 const args = process.argv.slice(2);
 if (args[0] === '--version') { console.log('2.1.296 (Claude Code)'); process.exit(0); }
 if (args[0] === '--help') { console.log('--settings --mcp-config'); process.exit(0); }
+(async () => {
+${colorQueryFixture(colorRecord)}
 const env = process.env;
 const conversation = args.includes('--resume') ? args[args.indexOf('--resume') + 1] : require('node:crypto').randomUUID();
 function hook(event) {
@@ -172,6 +176,8 @@ process.stdin.on('data', (bytes) => {
     hook('PreToolUse');
   }
 });
+process.stdin.resume();
+})().catch(() => process.exit(1));
 `,
     { mode: 0o700 },
   );
@@ -331,6 +337,7 @@ child.stdin.on('error',()=>{}); process.on('SIGTERM',()=>child.kill('SIGTERM'));
   await expect
     .poll(async () => (await call("session_state", { id: localChild.resultId })).placement)
     .toEqual({ kind: "local" });
+  await page.evaluate(() => window.desktop.saveSetup({ terminalTheme: "foom-dark" }));
   const child = await settle("launch", {
     worktreeId: tree.resultId,
     agent: "claude",
@@ -347,6 +354,9 @@ child.stdin.on('error',()=>{}); process.on('SIGTERM',()=>child.kill('SIGTERM'));
   assert.equal((await row()).remote, true);
   assert.deepEqual((await call("session_state", { id })).placement, child.placement);
   const first = JSON.parse(await readFile(record, "utf8"));
+  const darkColors = JSON.parse(await readFile(colorRecord, "utf8"));
+  assert.ok(darkColors.includes(oscColor(10, "#f4efff")));
+  assert.ok(darkColors.includes(oscColor(11, "#05040a")));
   for (const secret of [id, parentId, parent.controlToken])
     assert.ok(!JSON.stringify(first).includes(secret));
   assert.equal(JSON.parse(first.whoami).role, "child");
@@ -460,6 +470,7 @@ child.stdin.on('error',()=>{}); process.on('SIGTERM',()=>child.kill('SIGTERM'));
       }
     })
     .toBe(true);
+  await page.evaluate(() => window.desktop.saveSetup({ terminalTheme: "foom-light" }));
   await page.evaluate((id) => window.desktop.sidebarCommand({ kind: "resume", id }), id);
   await expect
     .poll(async () => {
@@ -471,6 +482,9 @@ child.stdin.on('error',()=>{}); process.on('SIGTERM',()=>child.kill('SIGTERM'));
     })
     .not.toBe(first.pid);
   const resumed = JSON.parse(await readFile(record, "utf8"));
+  const lightColors = JSON.parse(await readFile(colorRecord, "utf8"));
+  assert.ok(lightColors.includes(oscColor(10, "#14101f")));
+  assert.ok(lightColors.includes(oscColor(11, "#f3f0fa")));
   assert.ok(resumed.args.includes("--resume"));
   await expect.poll(async () => (await row())?.execution?.phase).toBe("working");
   assert.notEqual(JSON.parse(resumed.whoami).alias, JSON.parse(first.whoami).alias);
