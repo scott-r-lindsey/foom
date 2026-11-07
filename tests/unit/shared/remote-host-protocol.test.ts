@@ -1,3 +1,4 @@
+import { terminalThemes } from "../../../src/shared/terminal-themes";
 import { expect, test } from "vitest";
 import {
   MAX_REMOTE_FRAME,
@@ -420,4 +421,44 @@ test("machine home capability requires an absolute bounded remote path", () => {
     expect(remoteResponse({ type: "hello", build: "a".repeat(64), machineHome })).toBe(true);
   for (const machineHome of ["~/home", "relative", 2, "/bad\npath", "/" + "x".repeat(4097)])
     expect(remoteResponse({ type: "hello", build: "a".repeat(64), machineHome })).toBe(false);
+});
+
+test("remote launches validate optional startup palettes with the host theme validator", () => {
+  for (const type of ["open", "agent-open"]) {
+    const launch = {
+      type,
+      id: "palette",
+      request: 1,
+      cols: 80,
+      rows: 24,
+      ...(type === "open"
+        ? { reattach: false }
+        : {
+            spec: {
+              agent: "claude",
+              repository: "/repo",
+              worktree: "/tree",
+              defaults: [],
+              hooks: false,
+            },
+          }),
+    };
+    expect(remoteRequest(launch)).toBe(true);
+    for (const dark of [true, false]) {
+      const theme = terminalThemes[dark ? "foom-dark" : "foom-light"];
+      expect(remoteRequest({ ...launch, dark, theme })).toBe(true);
+      expect(remoteRequest({ ...launch, dark })).toBe(true);
+      for (const invalid of [
+        null,
+        {},
+        { ...theme, background: "red" },
+        { ...theme, extra: "#ffffff" },
+      ])
+        expect(remoteRequest({ ...launch, theme: invalid })).toBe(false);
+    }
+    for (const dark of [null, 1, "true"]) expect(remoteRequest({ ...launch, dark })).toBe(false);
+  }
+  const hello = { type: "hello", build: "a".repeat(64) };
+  expect(remoteResponse({ ...hello, startupTheme: 1 })).toBe(true);
+  expect(remoteResponse({ ...hello, startupTheme: 2 })).toBe(false);
 });
