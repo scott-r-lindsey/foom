@@ -275,22 +275,49 @@ export async function buildWindow(
       wiring.workspace.refresh();
     },
     launchHostRecipe: async (target, finished) => {
-      const id = await wiring.workspace.startHostRecipe(target);
-      if (finished) {
-        const off = wiring.terminals.onExit((exitedId) => {
-          if (exitedId === id) {
-            off();
-            finished();
+      let id: string | undefined;
+      // Creation and exit can share one host frame, before the launch promise settles.
+      const earlyExits = new Map<string, number>();
+      const off: (() => void) | undefined = finished
+        ? wiring.terminals.onExit((exitedId, code) => {
+            if (id === undefined) {
+              earlyExits.set(exitedId, code);
+              if (earlyExits.size > 256) {
+                const oldest = earlyExits.keys().next().value;
+                if (oldest !== undefined) earlyExits.delete(oldest);
+              }
+            } else if (exitedId === id) {
+              off?.();
+              finished();
+            }
+          })
+        : undefined;
+      try {
+        id = await wiring.workspace.startHostRecipe(target);
+        const code = earlyExits.get(id);
+        earlyExits.clear();
+        if (finished && code !== undefined) {
+          off?.();
+          try {
+            await wiring.workspace.exited(id, code);
+          } catch {
+            console.warn("Unable to settle recipe exit");
           }
-        });
-        if (wiring.workspace.snapshot().terminals.find((row) => row.id === id)?.exited) {
-          off();
+          finished();
+        } else if (
+          finished &&
+          wiring.workspace.snapshot().terminals.find((row) => row.id === id)?.exited
+        ) {
+          off?.();
           finished();
         }
+        if (target.recipe?.action === "install") return id;
+        wiring.revealSession(id);
+        return id;
+      } catch (error) {
+        off?.();
+        throw error;
       }
-      if (target.recipe?.action === "install") return id;
-      wiring.revealSession(id);
-      return id;
     },
     copyText: (text) => clipboard.writeText(text),
     confirmRemoteSessions: (content) => confirmations.request(content),

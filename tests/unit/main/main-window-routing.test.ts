@@ -458,3 +458,45 @@ test("a recipe that exits during startup still refreshes its rows", async () => 
   );
   expect(finished).toHaveBeenCalledOnce();
 });
+
+test.each([false, true])(
+  "recipe exits before launch settles retain their code (classification fails: %s)",
+  async (fails) => {
+    await start();
+    const off = vi.fn();
+    mock.terminals.onExit.mockReturnValue(off);
+    mock.workspace.startHostRecipe.mockImplementationOnce(() => {
+      const exit = mock.terminals.onExit.mock.calls[0]?.[0];
+      for (let index = 0; index < 260; index++) exit?.(`other-${String(index)}`, 1);
+      exit?.("recipe", 0);
+      return Promise.resolve("recipe");
+    });
+    if (fails)
+      mock.workspace.exited.mockImplementationOnce(() =>
+        Promise.reject(new Error("classification failed")),
+      );
+    const finished = vi.fn();
+    await mock.setup.deps?.launchHostRecipe?.(
+      {
+        host: "worker",
+        human: true,
+        recipe: { tool: "git", action: "install", distro: "debian", digest: "a".repeat(64) },
+      },
+      finished,
+    );
+    expect(mock.workspace.exited).toHaveBeenCalledExactlyOnceWith("recipe", 0);
+    expect(finished).toHaveBeenCalledOnce();
+    expect(off).toHaveBeenCalledOnce();
+  },
+);
+
+test("a refused recipe launch releases its exit subscription", async () => {
+  await start();
+  const off = vi.fn();
+  mock.terminals.onExit.mockReturnValue(off);
+  mock.workspace.startHostRecipe.mockRejectedValueOnce(new Error("launch refused"));
+  await expect(
+    mock.setup.deps?.launchHostRecipe?.({ host: "worker", human: true }, vi.fn()),
+  ).rejects.toThrow("launch refused");
+  expect(off).toHaveBeenCalledOnce();
+});

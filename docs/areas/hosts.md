@@ -591,7 +591,9 @@ visible and can be opened to answer prompts. Existing running-session quit
 confirmation still applies. The panel retains its screen until dismissed or a
 new install replaces it. Its own header states Installing, Done, or Failed with
 the exit code; recipe tiles also state the final outcome in Foom chrome, never
-by adding text to process output.
+by adding text to process output. The main exit subscription starts before
+creation; exits received while launch settles pass through the existing workspace
+exit lifecycle before the view is returned.
 
 Add and explicit checks show a read-only output panel inside Add host or the
 host card. Main retains the latest 65,536 UTF-16 units in memory, including

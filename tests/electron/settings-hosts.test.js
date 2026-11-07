@@ -126,7 +126,8 @@ process.stdout.write('FOOM-READY\\n');
 let input=Buffer.alloc(0), terminalOutput='', recipeInput='', recipeEnded=false, finishTimer;
 const {spawnSync}=require('node:child_process');
 const {selectHostRecipe}=require(${JSON.stringify(path.resolve("build/shared/registered-host-recipes.js"))});
-function send(message) { const data=Buffer.from(JSON.stringify({version:3,message})); const head=Buffer.alloc(4); head.writeUInt32BE(data.length); process.stdout.write(Buffer.concat([head,data])); }
+function frame(message) { const data=Buffer.from(JSON.stringify({version:3,message})); const head=Buffer.alloc(4); head.writeUInt32BE(data.length); return Buffer.concat([head,data]); }
+function send(message) { process.stdout.write(frame(message)); }
 process.stdin.on('data', bytes => {
  input=Buffer.concat([input,bytes]);
  while(input.length>=4 && input.length>=4+input.readUInt32BE(0)) {
@@ -149,7 +150,14 @@ process.stdin.on('data', bytes => {
       const child=spawnSync(${JSON.stringify(process.execPath)},[${JSON.stringify(recipeFixture)},...step],{env:{},encoding:'utf8'});
       assert.equal(child.status,0); terminalOutput=child.stdout;
     }
-    send({type:'open-result',id:message.id,request:message.request,state:'live'});continue;
+    const immediate=JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8'));
+    const opened={type:'open-result',id:message.id,request:message.request,state:'live'};
+    if(immediate.recipeImmediateExit) {
+      recipeEnded=true;
+      require('node:fs').writeFileSync(${JSON.stringify(scenario)},JSON.stringify({...immediate,facts:{...immediate.facts,tools:[{id:'git',state:'ready',signIn:'unknown'},{id:'gh',state:'ready',signIn:'signed-out'}]}}));
+      process.stdout.write(Buffer.concat([frame(opened),frame({type:'exit',id:message.id,code:0})]));
+    } else send(opened);
+    continue;
   }
   if('id' in message) {
     const recipeSettings=JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8'));
@@ -1509,4 +1517,29 @@ test("Hosts keeps a running install reachable after Settings closes", {
           .filter((line) => line.includes('"target":{"kind":"tool","tool":"git"}')).length,
     )
     .toBe(1);
+});
+
+test("Hosts reports recipes that exit in the creation frame and refreshes their tool", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { page, card, calls, updateScenario } = await hostsFixture(context);
+  await updateScenario({ recipeImmediateExit: true });
+  await card.getByRole("button", { name: "Install git", exact: true }).click();
+  const terminal = card.getByRole("region", { name: "Install terminal" });
+  await expect(terminal.getByRole("status")).toHaveText("Done");
+  await expect(
+    card
+      .locator(".host-check-row")
+      .filter({ has: page.getByRole("button", { name: "Reload git", exact: true }) }),
+  ).toContainText("Pass · Installed");
+  await expect
+    .poll(
+      async () =>
+        (await readFile(calls, "utf8"))
+          .split("\n")
+          .filter((line) => line.includes('"target":{"kind":"tool","tool":"git"}')).length,
+    )
+    .toBe(1);
+  await expect(terminal.locator(".xterm-screen")).toContainText("FIXTURE_RECIPE_COMPLETE");
 });
