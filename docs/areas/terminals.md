@@ -339,8 +339,9 @@ visible, attached terminal that is ready for input.
 ## Copy on select (#872)
 
 The profile-only `copyOnSelect` boolean is off by default on every platform.
-Settings → Terminal places **Copy on select** directly below the macOS-only
-middle-click checkbox, without helper copy. xterm's public `onSelectionChange`
+Settings → Terminal shows **Copy on select** on macOS and Windows only, directly
+below the macOS-only middle-click checkbox, without helper copy. Linux never
+writes the clipboard on selection, even with a saved true value. xterm's public `onSelectionChange`
 reports completed mouse selections rather than intermediate drag paints. A terminal-only
 mouse-up fallback handles repeated selections whose coordinates xterm considers
 unchanged, including a release outside the tile. Intermediate drags never copy; keyboard
@@ -354,7 +355,8 @@ Shift forces selection. Linux primary selection behavior remains unchanged.
 The renderer calls only the narrow write-only `copyTerminalSelection(id, text)`
 preload capability. Main validates the registered board main-frame sender, owned
 terminal ID, attachment to that sender and bounded nonempty string, then checks
-the current preference before writing the system clipboard. Foom never reads the
+the platform and current preference before writing the system clipboard. Linux
+never writes through this capability. Foom never reads the
 clipboard through this capability. The middle-click buffer remains separate and
 never supplies clipboard writes. Selection text is never persisted.
 
