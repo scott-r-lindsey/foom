@@ -81,7 +81,7 @@ test("host chips name the host and report unavailability with a symbol and words
   expect(view.getByLabelText("dozer · Unavailable").textContent).toBe("⊘ Unavailable");
 });
 
-test("repository placement requires a checked-out remote location and preserves machine order", async () => {
+test("repository placement includes absent checkouts and preserves machine order", async () => {
   const { repositoryMachines } = await import("../../../../src/renderer/board/sidebar-model");
   const machines = [
     { host: null, name: "localhost", available: true, agents: [] },
@@ -89,12 +89,12 @@ test("repository placement requires a checked-out remote location and preserves 
     { host: "first", name: "first", available: true, agents: [], repositories: ["/repo"] },
     { host: "other", name: "other", available: true, agents: [] },
   ];
-  expect(repositoryMachines([], "/repo")).toEqual([]);
-  expect(repositoryMachines(machines, "/absent")).toEqual([]);
-  expect(repositoryMachines(machines, "/repo").map((machine) => machine.host)).toEqual([
+  expect(repositoryMachines([])).toEqual([]);
+  expect(repositoryMachines(machines).map((machine) => machine.host)).toEqual([
     null,
     "second",
     "first",
+    "other",
   ]);
 });
 

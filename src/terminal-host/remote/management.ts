@@ -276,7 +276,11 @@ export async function manageHost(
   };
   const git = (args: string[], cwd: string, timeout = 5000) =>
     hostProbe("git", ["--no-optional-locks", ...args], cwd, env, true, timeout, signal);
-  const checkout = async (directory: string, origin: string) => {
+  const checkout = async (directory: string, origin: string, timeout = 5000) => {
+    const inspect = (args: string[]) =>
+      timeout === HOST_CLONE_TIMEOUT_MS
+        ? networkGit(args, directory, env, timeout, signal)
+        : git(args, directory, timeout);
     const info = await lstat(directory);
     if (
       !info.isDirectory() ||
@@ -284,13 +288,13 @@ export async function manageHost(
       info.uid !== process.getuid?.() ||
       (info.mode & 0o022) !== 0 ||
       (await realpath(directory)) !== directory ||
-      (await git(["config", "--get", "remote.origin.url"], directory)).trim() !== origin ||
-      (await git(["rev-parse", "--show-toplevel"], directory)).trim() !== directory
+      (await inspect(["config", "--get", "remote.origin.url"])).trim() !== origin ||
+      (await inspect(["rev-parse", "--show-toplevel"])).trim() !== directory
     )
       throw new Error("Invalid checkout");
     // An initialized repository left by an interrupted clone is not a checkout.
-    await git(["rev-parse", "--verify", "HEAD^{commit}"], directory);
-    return await git(["status", "--porcelain", "-z", "--untracked-files=normal"], directory);
+    await inspect(["rev-parse", "--verify", "HEAD^{commit}"]);
+    return await inspect(["status", "--porcelain", "-z", "--untracked-files=normal"]);
   };
   if (request.operation === "origin") {
     try {
@@ -397,17 +401,71 @@ export async function manageHost(
     if (!exists) {
       const temporary = await mkdtemp(join(folder, ".foom-clone-"));
       try {
-        await networkGit(
-          ["clone", "--", request.origin, temporary],
-          folder,
-          env,
-          HOST_CLONE_TIMEOUT_MS,
-          signal,
-        );
         try {
-          status = await checkout(temporary, request.origin);
-        } catch {
-          throw new HostGitFailure("checkout-invalid");
+          await networkGit(
+            ["clone", "--", request.origin, temporary],
+            folder,
+            env,
+            HOST_CLONE_TIMEOUT_MS,
+            signal,
+          );
+        } catch (error) {
+          // A signed-in host gh can supply HTTPS credentials without changing global Git config.
+          const ssh =
+            /^(?:ssh:\/\/)?(?:[^@/:]+@)?([a-zA-Z0-9.-]+)(?::[0-9]+)?[:/]([a-zA-Z0-9_./~-]+)$/u.exec(
+              request.origin,
+            );
+          if (
+            !ssh ||
+            request.origin.startsWith("https://") ||
+            !(error instanceof HostGitFailure) ||
+            !["origin-auth", "origin-host-key", "origin-unreachable"].includes(error.reason)
+          )
+            throw error;
+          const hostname = ssh[1];
+          const repository = ssh[2];
+          if (!hostname || !repository) throw error;
+          try {
+            await hostProbe(
+              "gh",
+              ["auth", "status", "--hostname", hostname],
+              home,
+              env,
+              true,
+              5000,
+              signal,
+              "status",
+            );
+          } catch {
+            throw error;
+          }
+          signal?.throwIfAborted();
+          await rm(temporary, { recursive: true, force: true });
+          await networkGit(
+            [
+              "clone",
+              "--config",
+              `url.https://${hostname}/${repository}.insteadOf=${request.origin}`,
+              "--config",
+              `credential.https://${hostname}.helper=`,
+              "--config",
+              `credential.https://${hostname}.helper=!gh auth git-credential`,
+              "--",
+              request.origin,
+              temporary,
+            ],
+            folder,
+            env,
+            HOST_CLONE_TIMEOUT_MS,
+            signal,
+          );
+        }
+        try {
+          status = await checkout(temporary, request.origin, HOST_CLONE_TIMEOUT_MS);
+        } catch (error) {
+          throw error instanceof HostGitFailure && error.reason === "timed-out"
+            ? error
+            : new HostGitFailure("checkout-invalid");
         }
         signal?.throwIfAborted();
         await approvedCodeFolder(folder, home);

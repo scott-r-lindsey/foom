@@ -1,6 +1,11 @@
 import type { copyableErrorText } from "./application-errors";
 /** Closed vocabulary for errors crossing a desktop capability boundary. */
 export type ApplicationErrorCode =
+  | "origin-auth"
+  | "origin-host-key"
+  | "origin-unreachable"
+  | "timed-out"
+  | "checkout-invalid"
   | "remote-host-unavailable"
   | "operation-failed"
   | "session-has-children"

@@ -175,6 +175,11 @@ logged. Ownership/grant refusals retain their existing control error semantics.
 | `remote_worktree_unavailable` | Remote checkout missing, changed or not a repository member |
 | `remote_prepare_refused` | Remote host refused preparation |
 | `remote_start_refused` | Remote host refused start |
+| `origin-auth` | Host Git origin authentication failed |
+| `origin-host-key` | Origin SSH host key is not trusted |
+| `origin-unreachable` | Origin unreachable from the host |
+| `timed-out` | Host Git subprocess deadline exceeded |
+| `checkout-invalid` | Host checkout validation or unclassified Git failure |
 | `launch_failed` | Other local launch failure |
 
 Successful `launch` results include `placement: {kind: "local"}` or
@@ -191,8 +196,7 @@ A failed cleanup retains the row; the close operation and session reason report
 ### Host-aware placement (#756)
 
 `host` is a Settings-registered SSH alias/account selector, never an arbitrary
-command. `create_worktree` uses that host's approved existing checkout; it never
-clones. Branch creation starts from the freshly fetched origin default. PR
+command. `create_worktree` reuses a validated checkout or first clones the registered origin inside the approved code folder. First-use repository launch uses the same shared preparation. Preparation failures return the fixed Git reason and do not charge the unused-worktree budget; no raw Git output crosses the protocol. Branch creation starts from the freshly fetched origin default. PR
 adoption retains open/same-repository/default-branch checks and tracks origin.
 `launch` uses the created worktree's host; an explicit different host refuses.
 A host's current inventory can refuse an absent/uncheckable agent with

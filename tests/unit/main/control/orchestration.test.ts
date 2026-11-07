@@ -176,3 +176,21 @@ it("keeps a remote child when close cannot reach the saved host", async () => {
   });
   expect(h.rows.has(id)).toBe(true);
 });
+
+it.each([
+  "origin-auth",
+  "origin-host-key",
+  "origin-unreachable",
+  "timed-out",
+  "checkout-invalid",
+] as const)("creation exposes %s without consuming a worktree slot", async (reason) => {
+  const h = harness();
+  h.host.createWorktree.mockRejectedValueOnce(new LaunchFailure(reason));
+  expect(await h.mutate("create_worktree", { branch: "first-use" })).toMatchObject({
+    status: "failed",
+    reason,
+  });
+  for (const branch of ["a", "b", "c", "d"]) {
+    expect(await h.mutate("create_worktree", { branch })).toMatchObject({ status: "succeeded" });
+  }
+});

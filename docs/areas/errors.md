@@ -7,6 +7,7 @@ Decided implementation and security rules. User-visible behavior: [errors](../be
 The window IPC router catches synchronous and asynchronous capability failures after
 validating the sender; feature handlers validate payloads. Workspace IPC also
 sanitizes failures when attached directly.
+Typed `LaunchFailure` host Git reasons (`origin-auth`, `origin-host-key`, `origin-unreachable`, `timed-out`, `checkout-invalid`) are mapped to their fixed application codes before sanitization. Arbitrary exceptions cannot select them.
 Only `ApplicationError` can select a code from the closed shared declaration in
 `shared/application-error.d.ts`; other exceptions become `operation-failed`.
 The rejection carries only `foom-error:<code>`, or

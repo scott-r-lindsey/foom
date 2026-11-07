@@ -224,13 +224,8 @@ export function buildSidebar(
   };
 }
 
-/** Only checked-out registered locations add a placement choice. Local stays first. */
-export function repositoryMachines(
-  machines: readonly SidebarMachine[],
-  repository: string,
-): readonly SidebarMachine[] {
-  const remote = machines.filter(
-    (machine) => machine.host !== null && machine.repositories?.includes(repository),
-  );
+/** Registered hosts are first-use targets too; Local stays first. */
+export function repositoryMachines(machines: readonly SidebarMachine[]): readonly SidebarMachine[] {
+  const remote = machines.filter((machine) => machine.host !== null);
   return remote.length ? [...machines.filter((machine) => machine.host === null), ...remote] : [];
 }

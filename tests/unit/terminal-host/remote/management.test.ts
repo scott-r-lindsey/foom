@@ -282,10 +282,11 @@ test.skipIf(process.platform === "win32")(
       ok: true,
       checkout: { path, state: "absent" },
     });
-    mock.probe.mockRejectedValueOnce(new Error("host denied credentials secret"));
+    mock.probe.mockRejectedValueOnce(new HostGitFailure("origin-auth"));
+    mock.probe.mockRejectedValueOnce(new Error("gh is signed out"));
     expect(
       await manageHost({ ...request, operation: "clone" }, 0, "/fixture", "0.1.0", home),
-    ).toEqual({ ok: false, reason: "origin-unreachable" });
+    ).toEqual({ ok: false, reason: "origin-auth" });
     mock.probe.mockImplementation((_cmd: string, args: string[], cwd: string) => {
       if (args.includes("clone")) {
         return Promise.resolve("");
@@ -1592,5 +1593,98 @@ test.skipIf(process.platform === "win32")(
     } finally {
       Object.defineProperty(process, "platform", descriptor);
     }
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "SSH clones fall back to host gh with clone-local HTTPS config inherited by worktrees",
+  async () => {
+    const origin = "git@github.com:team/project.git";
+    const destination = join(home, "code/repo");
+    const configurations: string[] = [];
+    let clones = 0;
+    mock.probe.mockImplementation(async (command: string, args: string[], cwd: string) => {
+      if (command === "gh") {
+        expect(args).toEqual(["auth", "status", "--hostname", "github.com"]);
+        return "";
+      }
+      if (!args.includes("clone")) return gitSync(args, { cwd }).toString();
+      clones++;
+      const staging = args.at(-1);
+      if (!staging) throw new Error("Missing staging");
+      if (clones === 1) {
+        await writeFile(join(staging, "partial"), "partial clone");
+        throw new HostGitFailure("origin-auth");
+      }
+      expect(await readdir(join(home, "code"))).toEqual([]);
+      await mkdir(staging, { mode: 0o700 });
+      gitSync(["init", "-q"], { cwd: staging });
+      gitSync(["remote", "add", "origin", origin], { cwd: staging });
+      for (let index = 0; index < args.length; index++) {
+        const value = args[index + 1];
+        if (args[index] !== "--config" || !value) continue;
+        configurations.push(value);
+        const equals = value.indexOf("=");
+        gitSync(["config", "--local", "--add", value.slice(0, equals), value.slice(equals + 1)], {
+          cwd: staging,
+        });
+      }
+      gitSync(
+        [
+          "-c",
+          "user.name=Fixture",
+          "-c",
+          "user.email=fixture@example.test",
+          "commit",
+          "--allow-empty",
+          "-qm",
+          "initial",
+        ],
+        { cwd: staging },
+      );
+      return "";
+    });
+    expect(
+      await manageHost(
+        {
+          type: "manage",
+          operation: "clone",
+          codeFolder: "~/code",
+          directory: "repo",
+          origin,
+          agents: [],
+        },
+        0,
+        "/fixture",
+        "0.1.0",
+        home,
+      ),
+    ).toMatchObject({ ok: true, checkout: { path: destination, state: "clean" } });
+    expect(clones).toBe(2);
+    expect(configurations).toEqual([
+      `url.https://github.com/team/project.git.insteadOf=${origin}`,
+      "credential.https://github.com.helper=",
+      "credential.https://github.com.helper=!gh auth git-credential",
+    ]);
+    expect(
+      gitSync(["config", "--local", "--get", "remote.origin.url"], { cwd: destination })
+        .toString()
+        .trim(),
+    ).toBe(origin);
+    const tree = join(home, "code/child");
+    gitSync(["worktree", "add", "-qb", "child", tree], { cwd: destination });
+    expect(
+      gitSync(["config", "--get-all", "credential.https://github.com.helper"], {
+        cwd: tree,
+      }).toString(),
+    ).toContain("!gh auth git-credential");
+    expect(
+      mock.probe.mock.calls
+        .filter(
+          ([, args]: unknown[]) =>
+            Array.isArray(args) && args.includes("status") && args.includes("--porcelain"),
+        )
+        .every((call) => call[5] === HOST_CLONE_TIMEOUT_MS),
+    ).toBe(true);
   },
 );
