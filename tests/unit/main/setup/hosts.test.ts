@@ -2248,3 +2248,59 @@ test("an unsaved queued observation is dropped if its tool becomes disabled befo
     await fixture.dispose();
   }
 });
+
+test.skipIf(process.platform === "win32")(
+  "a newer explicit reload failure supersedes older queued persistence",
+  async () => {
+    const fixture = await restartedBrewHost();
+    try {
+      await fixture.hosts.action(
+        { action: "recipe", host: "mac-fixture", tool: "gh", operation: "install" },
+        undefined,
+        () => Promise.resolve(),
+      );
+      await chmod(fixture.root, 0o555);
+      await fixture.hosts.action({ action: "list" });
+      const original = fixture.checked.preflight?.result;
+      if (!original?.ok) throw new Error("Missing fixture facts");
+      fixture.run.mockResolvedValue({
+        ok: true,
+        facts: {
+          ...original.facts,
+          tools: (original.facts.tools ?? []).map((tool) =>
+            tool.id === "gh" ? { ...tool, state: "missing" as const } : tool,
+          ),
+        },
+      });
+      await expect(
+        fixture.hosts.action({
+          action: "reload",
+          host: "mac-fixture",
+          target: { kind: "tool", tool: "gh" },
+        }),
+      ).rejects.toThrow();
+      await chmod(fixture.root, 0o700);
+      fixture.run.mockClear();
+      const retried = await fixture.hosts.action({ action: "list" });
+      const result = retried.hosts[0]?.observation?.preflight.result;
+      expect(result?.ok && result.facts.tools?.find((tool) => tool.id === "gh")?.state).toBe(
+        "missing",
+      );
+      expect(
+        fixture.run.mock.calls.map(([, request]) =>
+          request.operation === "inspect" ? request.target : request.operation,
+        ),
+      ).toEqual([{ kind: "tool", tool: "gh" }]);
+      expect(retried.hosts[0]?.rowFailures).toBeUndefined();
+      expect(retried.hosts[0]?.observation?.checkedAt).toBe(
+        fixture.checked.hosts[0]?.observation?.checkedAt,
+      );
+      fixture.run.mockClear();
+      await fixture.hosts.action({ action: "list" });
+      expect(fixture.run).not.toHaveBeenCalled();
+    } finally {
+      await chmod(fixture.root, 0o700);
+      await fixture.dispose();
+    }
+  },
+);

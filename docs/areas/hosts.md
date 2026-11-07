@@ -534,6 +534,9 @@ other queued rows from loading. Queued failures never reject the list read: save
 hosts remain visible, and failed profile writes show Unable to save in the affected
 row's existing failure state. Known row results are retained for persistence-only
 retry without another remote inspection; one row's failure never blocks another.
+An explicit row reload invalidates that target's older queued observation before
+checking it. If saving the reload fails, reopening Hosts inspects that row again
+rather than persisting the superseded result.
 Recipes on the same host merge and deduplicate pending targets, including recipes
 launched from already-open Hosts views in different windows.
 A refused replacement folder leaves the registered

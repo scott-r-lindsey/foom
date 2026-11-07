@@ -441,4 +441,13 @@ export const replies: Record<string, unknown> = {
   "windows:sync": ["one"],
   "windows:select": true,
   "preview:pick": "preview",
+  "preview:describe": {
+    id: "a".repeat(32),
+    repository: "",
+    worktree: "/repo",
+    relativePath: "plan.md",
+    kind: "markdown",
+    network: false,
+    openedBy: { terminalId: "one", agent: "claude" },
+  },
 };

@@ -64,11 +64,32 @@ test("board IPC accepts exact requests and routes only IDs to its window host", 
     handlers.get(`preview:${name}`)?.({} as IpcMainInvokeEvent, ...args);
   const id = "a".repeat(32);
   await expect(invoke("pick", "/repo")).resolves.toBe(id);
+  expect(invoke("describe", id)).toEqual({
+    id,
+    repository: "",
+    worktree: "/repo",
+    relativePath: "a.html",
+    network: false,
+    kind: "html",
+  });
+  for (const args of [[], ["unknown"], ["b".repeat(32)], [id, "extra"]])
+    expect(() => invoke("describe", ...args)).toThrow();
+
   invoke("copy-path", id);
   expect(copy).toHaveBeenCalledExactlyOnceWith(requirePath("/repo", "a.html"));
   for (const args of [[], ["unknown"], ["b".repeat(32)], [id, "arbitrary"]])
     expect(() => invoke("copy-path", ...args)).toThrow();
   expect(copy).toHaveBeenCalledTimes(1);
+  const agentRecord = {
+    id,
+    worktree: "/repo",
+    relativePath: "notes.markdown",
+    network: false,
+    openedBy: { terminalId: "agent", agent: "claude" },
+  };
+  host.registry.records.set(id, agentRecord);
+  expect(invoke("describe", id)).toEqual({ ...agentRecord, repository: "", kind: "markdown" });
+
   const moving = invoke("popout", id);
   expect(() => invoke("popout", id)).toThrow("in progress");
   await moving;

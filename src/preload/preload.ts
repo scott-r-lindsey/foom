@@ -1486,6 +1486,7 @@ const createdWorktree = both(
 );
 const desktop: DesktopApi = {
   previews: {
+    describe: (id) => reply("preview:describe", validPreviewSummary, id),
     onPlace(callback) {
       placePreview = callback;
       for (const [request, pending] of pendingPlacements) {

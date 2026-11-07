@@ -986,6 +986,8 @@ export class Hosts {
           return this.state(undefined, true);
         }
         if (input.action === "reload") {
+          // Supersede any queued observation even when this reload cannot be saved.
+          this.queueRows(input.host, [input.target]);
           const preflight = await this.reloadRow(input.host, input.target);
           const remaining = (this.pendingRows.get(input.host) ?? []).filter(
             (row) => JSON.stringify(row.target) !== JSON.stringify(input.target),

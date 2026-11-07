@@ -366,7 +366,9 @@ results and leaves other rows usable. A row that cannot display its result witho
 a full check shows Check capabilities required in that row, with no helper copy. Stale queued
 recipe rows are dropped independently when Hosts reopens. Failed profile writes
 leave saved hosts visible, show Unable to save only in affected rows, and retain
-known observations for retry without repeating remote checks. Multiple recipes on
+known observations for retry without repeating remote checks. An explicit reload
+supersedes its older queued result, even when saving fails; the next open then
+checks that row again. Multiple recipes on
 one host merge their pending rows. A newer action reply replaces transient checklist results. Use reload to inspect changes made outside Foom;
 use Check capabilities to check everything. Sign-in and origin reloads may use
 the host's own network access.
