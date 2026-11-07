@@ -159,3 +159,57 @@ test("empty-space placement marks only the drag target and clears on leave, end,
   expect(landing.dataset["empty"]).toBe("true");
   vi.unstubAllGlobals();
 });
+
+test("an impossible edge drop shows its reason and preserves the source and destination", async () => {
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    return DOMRect.fromRect({
+      width: this.tagName === "SPAN" ? 8.4 : 180,
+      height: 200,
+    });
+  });
+  vi.stubGlobal("DragEvent", MouseEvent);
+  const { screen, click, row } = setup();
+  click(0);
+  await act(async () => {});
+  const target = screen.container.querySelector<HTMLElement>('[data-empty="false"]');
+  if (!target) throw new Error("Missing tile");
+  const saved = localStorage.getItem(TILE_STORAGE);
+  const transfer = { setData: vi.fn(), effectAllowed: "", dropEffect: "" };
+  fireEvent.dragStart(row(2), { dataTransfer: transfer });
+  fireEvent.dragOver(target, { dataTransfer: transfer, clientX: 10, clientY: 100 });
+  expect(transfer.dropEffect).toBe("none");
+  expect(screen.container.querySelector(".tile-drop-preview")?.textContent).toBe(
+    "Too narrow to split",
+  );
+  fireEvent.drop(target, { dataTransfer: transfer, clientX: 10, clientY: 100 });
+  expect(localStorage.getItem(TILE_STORAGE)).toBe(saved);
+});
+
+test.each(["title", "sidebar"])("%s self edge drops have no split feedback or effect", (kind) => {
+  vi.stubGlobal("DragEvent", MouseEvent);
+  const { screen, click, row, views } = setup();
+  click(0);
+  const tile = screen.container.querySelector<HTMLElement>('[data-empty="false"]');
+  if (!tile) throw new Error("Missing tile");
+  vi.spyOn(tile, "getBoundingClientRect").mockReturnValue(
+    DOMRect.fromRect({ width: 100, height: 100 }),
+  );
+  const source = kind === "title" ? (tile.querySelector("header") ?? tile) : row(0);
+  const saved = localStorage.getItem(TILE_STORAGE);
+  const focused = document.activeElement;
+  const focusCalls = views.map((v) => v.focus.mock.calls.length);
+  const transfer = { setData: vi.fn(), effectAllowed: "", dropEffect: "" };
+  fireEvent.dragStart(source, { dataTransfer: transfer });
+  fireEvent.dragOver(tile, { dataTransfer: transfer, clientX: 99, clientY: 50 });
+  expect(transfer.dropEffect).toBe("none");
+  expect(screen.container.querySelector(".tile-drop-preview")).toBeNull();
+  expect(screen.container.querySelector('.tile-area [role="status"]')?.textContent).not.toMatch(
+    /split/i,
+  );
+  fireEvent.drop(tile, { dataTransfer: transfer, clientX: 99, clientY: 50 });
+  expect(localStorage.getItem(TILE_STORAGE)).toBe(saved);
+  expect(document.activeElement).toBe(focused);
+  expect(views.map((v) => v.focus.mock.calls.length)).toEqual(focusCalls);
+});

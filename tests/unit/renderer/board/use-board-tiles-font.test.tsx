@@ -122,7 +122,7 @@ function expectSpaces(view: ReturnType<typeof render>, count: number) {
 test("startup waits for the saved small font before repairing or saving measured spaces", async () => {
   const fonts = fontSetup();
   const view = render(<Harness setup={fonts.setup} />);
-  // Each 425px column fits 60 cells at 10px (360px), but not the 14px default (504px).
+  // Each 425px column preserves the old usable saved geometry at 10px and 14px.
   expectSpaces(view, 2);
   act(() => {
     for (const repair of [...repairs]) repair();
@@ -137,7 +137,7 @@ test("startup waits for the saved small font before repairing or saving measured
   act(() => {
     fonts.emit(setupState({ terminalFontSize: 14 }));
   });
-  expectSpaces(view, 1);
+  expectSpaces(view, 2);
 });
 
 test("a synchronous font subscription wins over a stale initial read", async () => {
@@ -167,7 +167,7 @@ test("a failed initial font read preserves geometry until a settings notificatio
   act(() => {
     fonts.emit(setupState({ terminalFontSize: 14 }));
   });
-  expectSpaces(view, 1);
+  expectSpaces(view, 2);
 });
 
 test("replaced and unmounted font sources cannot repair using stale settings", async () => {
@@ -197,5 +197,30 @@ test("replaced and unmounted font sources cannot repair using stale settings", a
 });
 
 test("boards without a settings source use their known default font immediately", () => {
-  expectSpaces(render(<Harness />), 1);
+  expectSpaces(render(<Harness />), 2);
+});
+
+test("the 12-cell repair floor still waits for loaded settings and responds to font changes", async () => {
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    return DOMRect.fromRect({
+      width: this.classList.contains("tile-area")
+        ? 170
+        : Number.parseFloat(this.style.fontSize) * 0.6,
+      height: 900,
+    });
+  });
+  const fonts = fontSetup();
+  const view = render(<Harness setup={fonts.setup} />);
+  expectSpaces(view, 2);
+  await act(async () => {
+    fonts.load.resolve(setupState({ terminalFontSize: 10 }));
+    await fonts.load.promise;
+  });
+  expectSpaces(view, 2);
+  act(() => {
+    fonts.emit(setupState({ terminalFontSize: 14 }));
+  });
+  expectSpaces(view, 1);
 });

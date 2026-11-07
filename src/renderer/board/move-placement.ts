@@ -10,7 +10,7 @@ export function prepareMove(
   options: TilePlacement,
 ): TileLayout | null {
   const next = at
-    ? dropTile(layout, { kind: "session", id: placeholder }, at.tile, at.zone)
+    ? dropTile(layout, { kind: "session", id: placeholder }, at.tile, at.zone, options.metrics)
     : placeContent(layout, { kind: "terminal", session: placeholder }, false, options);
   return next === layout ? null : next;
 }
