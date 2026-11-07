@@ -98,6 +98,7 @@ export async function requirements(
   home: string,
   env: NodeJS.ProcessEnv,
   signal?: AbortSignal,
+  scope?: string,
 ): Promise<HostRequirements> {
   const probe = (command: string, args: string[]) =>
     hostProbe(command, args, home, { ...env, LANG: "C", LC_ALL: "C" }, false, 5000, signal).catch(
@@ -106,7 +107,7 @@ export async function requirements(
   let distro: HostRequirements["distro"] = "unknown";
   let libc: HostRequirements["libc"] = "unsupported";
   let packageManager: HostRequirements["packageManager"] = "none";
-  if (platform === "linux") {
+  if (platform === "linux" && (!scope || scope === "platform")) {
     distro = hostDistro(await osRelease().catch(() => ""));
     libc = hostLibc(await probe("/usr/bin/getconf", ["GNU_LIBC_VERSION"]));
     const path =
@@ -123,7 +124,7 @@ export async function requirements(
     distro = "darwin";
     libc = "supported";
     // Neither fallback paths nor a non-login PATH may discover Homebrew.
-    for (const directory of (env["PATH"] ?? "").split(":")) {
+    for (const directory of !scope ? (env["PATH"] ?? "").split(":") : []) {
       if (
         ["/opt/homebrew/bin", "/usr/local/bin"].includes(directory) &&
         (await executable(posix.join(directory, "brew")))
@@ -131,8 +132,10 @@ export async function requirements(
         packageManager = "brew";
     }
     mac = {
-      commandLineTools: (await probe("/usr/bin/xcode-select", ["-p"])).startsWith("/"),
-      staysAwake: macSleep(await probe("/usr/bin/pmset", ["-g"])),
+      commandLineTools:
+        (!scope || scope === "command-line-tools") &&
+        (await probe("/usr/bin/xcode-select", ["-p"])).startsWith("/"),
+      staysAwake: (!scope || scope === "power") && macSleep(await probe("/usr/bin/pmset", ["-g"])),
       protectedFolder: protectedCodeFolder(folder, home),
     };
   }
