@@ -495,3 +495,42 @@ test("resource refresh preserves an inventory that completed during its remote r
   if (!cached.ok) throw new Error("Expected fresh inventory");
   expect(cached.facts.agents.find((agent) => agent.id === "codex")?.state).toBe("unable");
 });
+
+test("row reload updates an enrolled live inventory without inventing a saved full check", async () => {
+  const initialFacts = {
+    ...facts,
+    agents: [
+      { id: "codex", state: "ready" as const, signIn: "signed-in" as const },
+      { id: "claude", state: "ready" as const },
+    ],
+  };
+  execute.mockResolvedValue({ ok: true, facts: initialFacts });
+  await hosts.action({ action: "add", host: "fixture", codeFolder: facts.codeFolder });
+  const original = await hosts.inventory("fixture");
+  if (!original.ok) throw new Error("Expected live inventory");
+  execute.mockClear();
+  execute.mockResolvedValue({
+    ok: true,
+    facts: { ...facts, agents: [{ id: "codex", state: "missing" }] },
+  });
+  const state = await hosts.action({
+    action: "reload",
+    host: "fixture",
+    target: { kind: "tool", tool: "codex" },
+  });
+  const cached = await hosts.inventory("fixture");
+  expect(cached).toEqual({
+    ok: true,
+    facts: {
+      ...original.facts,
+      agents: original.facts.agents.map((agent) =>
+        agent.id === "codex" ? { ...agent, state: "missing" } : agent,
+      ),
+    },
+  });
+  expect(state.hosts[0]?.result).toEqual(cached);
+  expect(state.preflight).toBeUndefined();
+  expect(settings.registeredHosts?.[0]?.observation).toBeUndefined();
+  expect(execute).toHaveBeenCalledTimes(1);
+  expect(execute.mock.lastCall?.[1]).toMatchObject({ target: { kind: "tool", tool: "codex" } });
+});

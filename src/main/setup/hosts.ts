@@ -685,20 +685,28 @@ export class Hosts {
   private async updateChecklist(host: string, change: (previous: HostPreflight) => HostPreflight) {
     const registration = this.registered(host);
     const previous = registration.observation?.preflight;
-    if (!previous) return undefined;
-    const preflight = change(previous);
-    await this.updateRegistrations((hosts) =>
-      hosts.map((entry) =>
-        entry.host === host && entry.observation
-          ? { ...entry, observation: { ...entry.observation, preflight } }
-          : entry,
-      ),
-    );
+    const preflight = previous ? change(previous) : undefined;
+    if (preflight)
+      await this.updateRegistrations((hosts) =>
+        hosts.map((entry) =>
+          entry.host === host && entry.observation
+            ? { ...entry, observation: { ...entry.observation, preflight } }
+            : entry,
+        ),
+      );
     // Update only the changed fields of an existing live inventory. Saved facts
     // never populate that cache, and a scoped read never renews its timestamp.
     const current = this.results.get(host);
-    if (current && !this.inventoryReads.has(host))
-      this.results.set(host, change({ ...previous, result: current }).result);
+    if (current && !this.inventoryReads.has(host)) {
+      const base: HostPreflight = previous ?? {
+        ssh: { state: "not-checked" },
+        platform: { state: "not-checked" },
+        artifact: { state: "not-checked" },
+        repositories: [],
+        result: current,
+      };
+      this.results.set(host, change({ ...base, result: current }).result);
+    }
     return preflight;
   }
   private async reloadRow(
