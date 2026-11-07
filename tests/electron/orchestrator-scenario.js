@@ -302,10 +302,19 @@ process.stdout.write("FOOM_AGENT_READY`,
     assert.deepEqual((await call(parent.controlToken, "launch", request)).body, busy.body);
     const worktree = path.join(root, "human-pressure");
     git("worktree", "add", "-b", "human-pressure", worktree);
+    // Use main's canonical checkout path, including macOS /var aliases.
+    const humanWorktree = await page.evaluate(
+      async (repository) =>
+        (await window.desktop.worktrees(repository)).find(
+          (tree) => tree.branch === "human-pressure",
+        )?.path,
+      repository,
+    );
+    assert.ok(humanWorktree);
     await page.evaluate(
       ({ repository, worktree }) =>
         window.desktop.sidebarCommand({ kind: "launch", repository, worktree, run: "claude" }),
-      { repository, worktree },
+      { repository, worktree: humanWorktree },
     );
     await expect
       .poll(() => existsSync(`${credentials}.human-pressure`), { timeout: deadline(15000) })
