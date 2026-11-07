@@ -21,6 +21,7 @@ export function tileRemovalAction(row: BoardRow | undefined, preview = false): "
     ? "close"
     : "hide";
 }
+export const MIN_TILE_COLUMNS = 12;
 const id = () => crypto.randomUUID();
 export const newTile = (): TileLeaf => ({ kind: "tile", id: id(), content: null });
 export const initialLayout = (): TileLayout => {
@@ -46,7 +47,11 @@ function split(
 ): TileSplit {
   return { kind: "split", id: id(), direction, ratio, first, second };
 }
-export function splitReason(layout: TileLayout): string | undefined {
+export function splitReason(
+  layout: TileLayout,
+  direction?: TileDirection | TileSplit["direction"],
+  metrics?: TileMetrics,
+): string | undefined {
   const depth = (node: TileNode, level = 0): number =>
     node.id === layout.focused
       ? level
@@ -58,14 +63,36 @@ export function splitReason(layout: TileLayout): string | undefined {
   if (targetDepth < 0) return "Space no longer available";
   if (targetDepth >= 64) return "Split depth limit reached";
   if (leaves(layout.tree).length >= 256) return "Tile limit reached";
+  if (direction && metrics) {
+    const candidate = createSplit(layout, direction);
+    const repaired = fitLayout(candidate, metrics);
+    const retained = leaves(repaired.tree);
+    if (
+      !retained.some((tile) => tile.id === candidate.landing) ||
+      !retained.some((tile) => tile.id === layout.focused)
+    ) {
+      const rect = rectangles(candidate.tree, { x: 0, y: 0, ...metrics }).tiles.find(
+        ({ tile }) => tile.id === candidate.landing,
+      )?.rect;
+      return rect && rect.width + 0.01 < Math.min(metrics.minWidth, metrics.width)
+        ? "Too narrow to split"
+        : "Too short to split";
+    }
+  }
   return undefined;
 }
 /** Arrows name the retained tile’s side; axes split empty space without a direction. */
 export function splitTile(
   layout: TileLayout,
   direction: TileDirection | TileSplit["direction"],
+  metrics?: TileMetrics,
 ): TileLayout {
-  if (splitReason(layout)) return layout;
+  return splitReason(layout, direction, metrics) ? layout : createSplit(layout, direction);
+}
+function createSplit(
+  layout: TileLayout,
+  direction: TileDirection | TileSplit["direction"],
+): TileLayout {
   const next = newTile();
   return {
     ...layout,
@@ -281,14 +308,24 @@ export function tidyTiles(layout: TileLayout): TileLayout {
   };
 }
 
+function validMetrics(metrics: TileMetrics | undefined): metrics is TileMetrics {
+  return Boolean(
+    metrics && Object.values(metrics).every((value) => Number.isFinite(value) && value > 0),
+  );
+}
+function tileSizeReason(rect: TileRect, minWidth: number, minHeight: number): string | undefined {
+  if (rect.width + 0.01 < minWidth) return "Too narrow to split";
+  if (rect.height + 0.01 < minHeight) return "Too short to split";
+  return undefined;
+}
+
 /** Repair measured geometry without ever removing an occupied leaf. */
 export function fitLayout(
   layout: TileLayout,
   metrics: TileMetrics | undefined,
   commit = true,
 ): TileLayout {
-  if (!metrics || !Object.values(metrics).every((value) => Number.isFinite(value) && value > 0))
-    return layout;
+  if (!validMetrics(metrics)) return layout;
   const { width, height } = metrics;
   const minWidth = Math.min(metrics.minWidth, width);
   const minHeight = Math.min(metrics.minHeight, height);
@@ -299,8 +336,7 @@ export function fitLayout(
     const small =
       commit &&
       rectangles(tree, area).tiles.find(
-        ({ tile, rect }) =>
-          !tile.content && (rect.width + 0.01 < minWidth || rect.height + 0.01 < minHeight),
+        ({ tile, rect }) => !tile.content && tileSizeReason(rect, minWidth, minHeight),
       );
     if (!small || tree.kind === "tile") break;
     const remove = (node: TileNode): TileNode | null => {
@@ -356,8 +392,7 @@ export function fitLayout(
     commit &&
     tree.kind === "split" &&
     rectangles(tree, area).tiles.some(
-      ({ tile, rect }) =>
-        !tile.content && (rect.width + 0.01 < minWidth || rect.height + 0.01 < minHeight),
+      ({ tile, rect }) => !tile.content && tileSizeReason(rect, minWidth, minHeight),
     )
   )
     return fitLayout({ ...layout, tree }, metrics);
@@ -416,7 +451,7 @@ export function placeContent(
     const fits =
       Math.min(1 / (cols.length + 1), ...cols.map((col) => col.width * scale)) *
         placement.columns >=
-      60;
+      MIN_TILE_COLUMNS;
     const depth = (node: TileNode): number =>
       node.kind === "tile" ? 0 : 1 + Math.max(depth(node.first), depth(node.second));
     const canGrow = tiles.length < 256 && depth(layout.tree) < 64;
@@ -690,6 +725,9 @@ export function saveLayout(
   layout: TileLayout,
   key = TILE_STORAGE,
 ): void {
+  // Renderer-only launch reservations must not replace the last settled geometry.
+  // A real terminal ID commits the layout once startup creation completes.
+  if (leaves(layout.tree).some((tile) => sessionId(tile)?.startsWith("launch_"))) return;
   storage.setItem(
     key,
     JSON.stringify({
@@ -721,22 +759,118 @@ export function swapTiles(layout: TileLayout, from: string, to: string): TileLay
   return { ...layout, tree: fitRatios(swap(layout.tree)), focused: from, maximized: null };
 }
 
+function dropOrigin(tree: TileNode, drag: TileDrag | undefined): TileLeaf | undefined {
+  return (
+    drag &&
+    leaves(tree).find((tile) =>
+      drag.kind === "tile"
+        ? tile.id === drag.id
+        : drag.kind === "preview"
+          ? tile.content?.kind === "preview" && tile.content.preview === drag.id
+          : sessionId(tile) === drag.id,
+    )
+  );
+}
+
+/** A local drop onto its content's current tile does nothing, from either handle. */
+export function isDropOnOrigin(
+  layout: TileLayout,
+  drag: TileDrag | undefined,
+  target: string,
+): boolean {
+  return dropOrigin(layout.tree, drag)?.id === target;
+}
+
+/** An edge drop is occupied before repair; neighboring tiles may lend it room. */
+function edgeDrop(
+  layout: TileLayout,
+  drag: TileDrag | undefined,
+  target: string,
+  zone: Exclude<DropZone, "center">,
+  metrics: TileMetrics | undefined,
+): { layout: TileLayout; reason?: string | undefined } {
+  const destination = leaves(layout.tree).find((tile) => tile.id === target);
+  const origin = dropOrigin(layout.tree, drag);
+  if (!destination || origin === destination || (drag?.kind === "tile" && !origin))
+    return { layout };
+  const wholeLeaf = drag?.kind === "tile";
+  const base = wholeLeaf && origin ? removeTile({ ...layout, focused: origin.id }) : layout;
+  const focused = { ...base, focused: target };
+  const reason = splitReason(focused);
+  if (reason) {
+    // A visible sidebar origin can move as a whole leaf at split resource limits.
+    return origin && !wholeLeaf
+      ? edgeDrop(layout, { kind: "tile", id: origin.id }, target, zone, metrics)
+      : { layout, reason };
+  }
+  const added = createSplit(
+    focused,
+    zone === "left" || zone === "right" ? "horizontal" : "vertical",
+  );
+  const fresh = leaves(added.tree).find((tile) => tile.id === added.landing);
+  if (!fresh) return { layout };
+  const moving =
+    wholeLeaf && origin
+      ? origin
+      : {
+          ...fresh,
+          // A foreign drag preview needs occupancy, not the incoming content identity.
+          content:
+            drag?.kind === "preview"
+              ? { kind: "preview" as const, preview: drag.id }
+              : { kind: "terminal" as const, session: drag?.id ?? fresh.id },
+        };
+  let tree = update(added.tree, fresh.id, () => moving);
+  if (origin && !wholeLeaf) tree = update(tree, origin.id, () => ({ ...origin, content: null }));
+  const placed = { tree: fitRatios(tree), focused: moving.id, maximized: null };
+  const positioned =
+    zone === "left" || zone === "up" ? swapTiles(placed, moving.id, target) : placed;
+  const next = fitLayout(positioned, metrics);
+  if (validMetrics(metrics)) {
+    const before = new Map(
+      rectangles(layout.tree, { x: 0, y: 0, ...metrics }).tiles.map(({ tile, rect }) => [
+        tile.id,
+        rect,
+      ]),
+    );
+    for (const { tile, rect } of rectangles(next.tree, { x: 0, y: 0, ...metrics }).tiles) {
+      // A shrunken board may already have undersized occupied tiles. Only new
+      // shortages or worsening an existing shortage can block this operation.
+      const previous = before.get(tile.id === moving.id && origin ? origin.id : tile.id);
+      const refusal = tileSizeReason(
+        rect,
+        Math.min(metrics.minWidth, metrics.width, previous?.width ?? Infinity),
+        Math.min(metrics.minHeight, metrics.height, previous?.height ?? Infinity),
+      );
+      if (refusal) return { layout, reason: refusal };
+    }
+  }
+  return { layout: next };
+}
+
+/** Refusals and commits share the complete occupied drop, including origin removal. */
+export function dropReason(
+  layout: TileLayout,
+  drag: TileDrag | undefined,
+  target: string,
+  zone: DropZone,
+  metrics?: TileMetrics,
+): string | undefined {
+  if (zone === "center" || !leaves(layout.tree).find((tile) => tile.id === target)?.content)
+    return undefined;
+  return edgeDrop(layout, drag, target, zone, metrics).reason;
+}
+
 /** Drops are atomic: refused splits never remove their source. */
 export function dropTile(
   layout: TileLayout,
   drag: TileDrag,
   target: string,
   zone: DropZone,
+  metrics?: TileMetrics,
 ): TileLayout {
-  const tiles = leaves(layout.tree);
-  const destination = tiles.find((tile) => tile.id === target);
-  const origin = tiles.find((tile) =>
-    drag.kind === "tile"
-      ? tile.id === drag.id
-      : drag.kind === "preview"
-        ? tile.content?.kind === "preview" && tile.content.preview === drag.id
-        : sessionId(tile) === drag.id,
-  );
+  const destination = leaves(layout.tree).find((tile) => tile.id === target);
+  const origin = dropOrigin(layout.tree, drag);
   if (!destination || origin === destination || (drag.kind === "tile" && !origin)) return layout;
   if (zone === "center" || destination.content === null) {
     if (drag.kind === "tile") return swapTiles(layout, drag.id, target);
@@ -750,29 +884,7 @@ export function dropTile(
       ) ?? layout
     );
   }
-  const base = drag.kind === "tile" ? removeTile({ ...layout, focused: drag.id }) : layout;
-  const added = splitTile(
-    { ...base, focused: target },
-    zone === "left" || zone === "right" ? "horizontal" : "vertical",
-  );
-  if (added.tree === base.tree) return layout;
-  const fresh = leaves(added.tree).find((tile) => tile.id === added.landing);
-  if (!fresh) return layout;
-  const moving =
-    drag.kind === "tile" && origin
-      ? origin
-      : {
-          ...fresh,
-          content:
-            drag.kind === "preview"
-              ? { kind: "preview" as const, preview: drag.id }
-              : { kind: "terminal" as const, session: drag.id },
-        };
-  let tree = update(added.tree, fresh.id, () => moving);
-  if (drag.kind !== "tile" && origin)
-    tree = update(tree, origin.id, () => ({ ...origin, content: null }));
-  const result = { tree: fitRatios(tree), focused: moving.id, maximized: null };
-  return zone === "left" || zone === "up" ? swapTiles(result, moving.id, target) : result;
+  return edgeDrop(layout, drag, target, zone, metrics).layout;
 }
 
 export function dropZone(x: number, y: number): DropZone {

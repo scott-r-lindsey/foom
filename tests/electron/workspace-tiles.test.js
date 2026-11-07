@@ -171,7 +171,7 @@ test("tiles build irregular layouts, preserve views and replace explicitly for a
   );
 });
 
-test("launching into a narrow full tile uses the focused fallback and empty tiles support mouse controls", async (context) => {
+test("launching into a narrow full tile adds a column and empty tiles support mouse controls", async (context) => {
   const app = await launchApp(context, { fixture: "running-shell" });
   const page = await boardPage(app);
   await page.emulateMedia({ reducedMotion: "reduce" });
@@ -184,6 +184,13 @@ test("launching into a narrow full tile uses the focused fallback and empty tile
   const sessions = (await page.evaluate(() => window.desktop.workspace())).terminals;
   const created = sessions.find((session) => session.id !== original.id);
   assert.ok(created);
+  // Below the former 60-column threshold, launches now keep both shells visible.
+  await expect(page.locator('.terminal-tile[data-empty="false"]')).toHaveCount(2);
+  await page
+    .locator('.terminal-tile[data-focused="false"]')
+    .getByRole("button", { name: "Hide", exact: true })
+    .click();
+  await page.evaluate(() => window.desktop.appMenu.execute("tidy-tiles"));
   await expect
     .poll(() =>
       page.evaluate(
@@ -370,19 +377,38 @@ test("tile drag drops replace, split every edge, swap and move without reattachm
   const tiles = page.locator(".terminal-tile");
   const drag = async (source, target, x, y, cancel = false) => {
     const before = await saved();
+    const targetId = await target.getAttribute("data-tile");
+    const sourceId = await source.getAttribute("data-drag-session");
+    const sourceTile = await source.evaluate(
+      (element) => element.closest("[data-tile]")?.dataset.tile,
+    );
+    const find = (node) =>
+      node.kind === "tile"
+        ? node.id === targetId
+          ? node
+          : undefined
+        : (find(node.first) ?? find(node.second));
+    const noop =
+      sourceTile === targetId ||
+      (sourceId && find(JSON.parse(before).tree)?.content?.session === sourceId);
     const from = await source.boundingBox(),
       to = await target.boundingBox();
     assert.ok(from && to);
     await page.mouse.move(from.x + 10, from.y + from.height / 2);
     await page.mouse.down();
     await page.mouse.move(to.x + to.width * x, to.y + to.height * y, { steps: 12 });
-    await expect(page.locator(".tile-drop-preview")).toBeVisible();
-    await expect(page.locator(".tile-drop-preview")).toHaveCSS("border-top-style", "dashed");
-    const theme = await page
-      .locator("html")
-      .evaluate((element) => getComputedStyle(element).colorScheme);
-    await page.screenshot({ path: evidencePath(`foom-133-preview-${theme}.png`) });
-    await expect(page.locator('.tile-area > [role="status"]')).toContainText("Escape cancels");
+    if (noop) {
+      await expect(page.locator(".tile-drop-preview")).toHaveCount(0);
+      await expect(page.locator('.tile-area > [role="status"]')).toHaveText("");
+    } else {
+      await expect(page.locator(".tile-drop-preview")).toBeVisible();
+      await expect(page.locator(".tile-drop-preview")).toHaveCSS("border-top-style", "dashed");
+      const theme = await page
+        .locator("html")
+        .evaluate((element) => getComputedStyle(element).colorScheme);
+      await page.screenshot({ path: evidencePath(`foom-133-preview-${theme}.png`) });
+      await expect(page.locator('.tile-area > [role="status"]')).toContainText("Escape cancels");
+    }
     if (cancel) await page.keyboard.press("Escape");
     await page.mouse.up();
     await expect(page.locator(".tile-drop-preview")).toHaveCount(0);
@@ -408,6 +434,30 @@ test("tile drag drops replace, split every edge, swap and move without reattachm
   };
   for (const theme of ["light", "dark"]) {
     await page.emulateMedia({ colorScheme: theme, reducedMotion: "reduce" });
+    for (const source of [rows.nth(0), tiles.locator(".tile-title").first()]) {
+      const beforeSelf = await saved();
+      const target = page.locator('.terminal-tile[data-empty="false"]').first();
+      const from = await source.boundingBox(),
+        to = await target.boundingBox();
+      assert.ok(from && to);
+      await page.evaluate(() => {
+        window.selfDropEffect = null;
+        window.selfDropListener = (event) => {
+          window.selfDropEffect = event.dataTransfer.dropEffect;
+        };
+        document.addEventListener("dragover", window.selfDropListener);
+      });
+      await page.mouse.move(from.x + 10, from.y + from.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(to.x + to.width * 0.95, to.y + to.height / 2, { steps: 12 });
+      await expect.poll(() => page.evaluate(() => window.selfDropEffect)).toBe("none");
+      await expect(page.locator(".tile-drop-preview")).toHaveCount(0);
+      await expect(page.locator('.tile-area > [role="status"]')).toHaveText("");
+      await page.screenshot({ path: evidencePath(`tiles-1069-round2-self-${theme}.png`) });
+      await page.mouse.up();
+      await page.evaluate(() => document.removeEventListener("dragover", window.selfDropListener));
+      assert.equal(await saved(), beforeSelf);
+    }
     await page.getByRole("button", { name: "Tile 1 menu" }).click();
     await page.getByRole("menuitem", { name: "Split terminal left", exact: true }).click();
     await page.getByRole("button", { name: "Tile 1 menu" }).click();
@@ -1198,11 +1248,12 @@ for (const shrink of ["ancestor drag", "window resize", "sidebar resize", "resto
       }, width);
       await expect.poll(() => page.evaluate(() => innerWidth)).toBe(width);
     };
-    await size(shrink === "sidebar resize" ? 2250 : 2400);
+    await page.evaluate(() => window.desktop.saveSetup({ terminalFontSize: 32 }));
+    await size(shrink === "sidebar resize" ? 1200 : 2400);
     if (shrink === "sidebar resize")
       await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
     // Two nested horizontal splits leave a landing space inside a mixed side.
-    // At this size each quarter of the board has room for about 60 cells.
+    // Both splits initially fit the shared small width floor.
     await page.getByRole("button", { name: "Tile 1 menu", exact: true }).click();
     await page.getByRole("menuitem", { name: "Split terminal left", exact: true }).click();
     await expect(page.locator(".terminal-tile")).toHaveCount(2);
@@ -1285,4 +1336,114 @@ test("startup preserves usable landing space while loading a saved small termina
   assert.equal(saved.tree.kind, "split");
   assert.equal(saved.tree.ratio, 0.5);
   assert.equal(saved.landing, "font-space");
+});
+
+test("small tile splits refuse visibly in both menus and keyboard commands", async (context) => {
+  const app = await launchApp(context, { fixture: "running-shell" });
+  const page = await boardPage(app);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await sizeTileBoard(app, page);
+  const occupied = page.locator('.terminal-tile[data-empty="false"]');
+  const tiles = page.locator(".terminal-tile");
+  const openTileMenu = () => occupied.locator(".tile-title").click({ button: "right" });
+  // A quarter-width tile is already below the former 120-cell split requirement.
+  // Keep splitting until the shared 12-cell floor refuses it.
+  let count = 1;
+  for (; count < 8; count++) {
+    await openTileMenu();
+    const left = page.getByRole("menuitem", { name: "Split terminal left", exact: true });
+    if ((await left.getAttribute("aria-disabled")) === "true") break;
+    await left.click();
+    await expect(tiles).toHaveCount(count + 1);
+  }
+  assert.ok(count > 2 && count < 8);
+  const before = await page.evaluate(() =>
+    localStorage.getItem(`foom.tiles.v1.${window.desktop.windows.id}`),
+  );
+  for (const base of ["light", "dark"]) {
+    await page.keyboard.press("Escape");
+    await page.evaluate(
+      (base) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${base}` }),
+      base,
+    );
+    await openTileMenu();
+    for (const direction of ["left", "right"]) {
+      const button = page.getByRole("menuitem", {
+        name: `Split terminal ${direction}`,
+        exact: true,
+      });
+      await expect(button).toHaveAttribute("aria-disabled", "true");
+      await page.mouse.move(1450, 850);
+      await button.focus();
+      await expect(button).toBeFocused();
+      await expect(button).toHaveAccessibleDescription(/Too narrow to split/);
+      // Keep the complete refusal text inside the panel's clipping boundary.
+      await expect
+        .poll(() =>
+          button.evaluate((button) => {
+            const tip = document.getElementById(button.getAttribute("aria-describedby"));
+            const body = tip?.closest(".panel-body");
+            const pad = button.closest(".direction-pad");
+            const label = pad?.querySelector(".pad-label");
+            const shape = button.querySelector("polygon");
+            const controls = body?.querySelectorAll(".pad-grid button");
+            if (!tip || !body || !label || !shape || !controls) return false;
+            const reason = tip.getBoundingClientRect(),
+              bounds = body.getBoundingClientRect();
+            return (
+              reason.x >= bounds.x &&
+              reason.right <= bounds.right &&
+              reason.y >= bounds.y &&
+              reason.bottom <= bounds.bottom &&
+              [...controls].every((control) => {
+                const rect = control.getBoundingClientRect();
+                return (
+                  reason.right <= rect.x ||
+                  reason.x >= rect.right ||
+                  reason.bottom <= rect.y ||
+                  reason.y >= rect.bottom
+                );
+              }) &&
+              getComputedStyle(tip).backgroundColor === getComputedStyle(shape).fill &&
+              getComputedStyle(tip).color === getComputedStyle(label).color
+            );
+          }),
+        )
+        .toBe(true);
+      await button.click({ force: true });
+      await expect(tiles).toHaveCount(count);
+    }
+    await page.screenshot({ path: evidencePath(`tiles-1069-review-refused-${base}.png`) });
+  }
+  await page.keyboard.press("Escape");
+  await page.evaluate(() => window.desktop.appMenu.execute("split-right"));
+  await expect(page.locator(".board-terminal > [role=status]")).toHaveText("Too narrow to split");
+  assert.equal(
+    await page.evaluate(() => localStorage.getItem(`foom.tiles.v1.${window.desktop.windows.id}`)),
+    before,
+  );
+  // The real terminal context menu shares the same measured refusal.
+  await occupied.locator(".tile-terminal").click({ button: "right" });
+  const terminalMenu = page.getByRole("menu", { name: "Terminal menu", exact: true });
+  await expect(
+    terminalMenu.getByRole("menuitem", { name: "Split terminal left", exact: true }),
+  ).toHaveAttribute("aria-disabled", "true");
+  await page.keyboard.press("Escape");
+  const space = page.locator('.terminal-tile[data-empty="true"]').first();
+  await space.click({ button: "right" });
+  const horizontal = page.getByRole("menuitem", { name: "Split horizontal", exact: true });
+  await expect(horizontal).toHaveAttribute("aria-disabled", "true");
+  await horizontal.focus();
+  await expect(horizontal).toHaveAccessibleDescription("Too narrow to split");
+  await horizontal.click({ force: true });
+  await expect(tiles).toHaveCount(count);
+  await expect(page.getByRole("menuitem", { name: "Split vertical", exact: true })).toHaveAttribute(
+    "aria-disabled",
+    "false",
+  );
+  await page.keyboard.press("Escape");
+  // Width refusal must not prevent a fitting vertical split.
+  await page.evaluate(() => window.desktop.appMenu.execute("split-down"));
+  await expect(tiles).toHaveCount(count + 1);
+  await expect(page.locator(".board-terminal > [role=status]")).toHaveCount(0);
 });

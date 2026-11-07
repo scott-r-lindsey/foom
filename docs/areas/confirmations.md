@@ -33,6 +33,9 @@ main-only `TrustedDialog` API, preserves the full disclosure text and focuses
 Cancel by default; it never uses click-again.
 
 The board receives arm/end events through its source's `ConfirmationClient`.
+Sharing-capable launch menus remain mounted until main emits launch-started or
+settles the command. They never infer the absence of sharing from renderer rows,
+which may be stale or belong to another registered clone of the same origin.
 Menus and launch buttons keep only view state; pointer exit, focus movement and
 unmount disarm main. A trusted-dialog notification closes a menu and restores its
 anchor before the separate window takes focus. Main-originated end events reset

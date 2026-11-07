@@ -1,5 +1,5 @@
 import { useId } from "react";
-import type { TileAction, TileDirection, TileLayout } from "./tiles.d";
+import type { TileMetrics, TileAction, TileDirection, TileLayout } from "./tiles.d";
 import { growTarget, splitReason } from "./tiles";
 
 const arrows = {
@@ -23,10 +23,12 @@ const keys: Readonly<Record<string, TileDirection>> = {
 export function DirectionPad({
   kind,
   layout,
+  metrics,
   run,
 }: {
   kind: "Split" | "Grow";
   layout: TileLayout;
+  metrics?: TileMetrics | undefined;
   run: (value: TileAction) => void;
 }) {
   const id = useId();
@@ -53,7 +55,7 @@ export function DirectionPad({
           const target = kind === "Grow" ? growTarget(layout, direction) : undefined;
           const refusal =
             kind === "Split"
-              ? splitReason(layout)
+              ? splitReason(layout, direction, metrics)
               : target && "reason" in target
                 ? target.reason
                 : undefined;

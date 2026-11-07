@@ -13,7 +13,7 @@ import type { CSSProperties } from "react";
 import type { BoardSource } from "./board-source.d";
 import type { BoardRow } from "./board.d";
 import type { SidebarPreferences } from "./sidebar.d";
-import type { TileAction, TileLayout, TileLeaf, TileRect } from "./tiles.d";
+import type { TileAction, TileMetrics, TileLayout, TileLeaf, TileRect } from "./tiles.d";
 import { subscribeLights, lightState, movingLight } from "./light-activity";
 import { light } from "./board";
 import {
@@ -170,12 +170,14 @@ export function Tile({
   select,
   action,
   layout,
+  measure,
   collapsing,
   arrived,
   acknowledgePreview,
   startupReady,
 }: {
   layout: TileLayout;
+  measure?: (() => TileMetrics | undefined) | undefined;
   collapsing: boolean;
   arrived: boolean;
   acknowledgePreview: () => void;
@@ -506,6 +508,7 @@ export function Tile({
           anchor={menu.anchor}
           point={menu.point}
           layout={{ ...layout, focused: tile.id }}
+          metrics={measure?.()}
           close={() => {
             setMenu(undefined);
           }}
@@ -516,6 +519,7 @@ export function Tile({
         <TerminalMenu
           menu={terminalMenu}
           layout={{ ...layout, focused: tile.id }}
+          metrics={measure?.()}
           close={() => {
             setTerminalMenu(undefined);
           }}
@@ -534,6 +538,7 @@ export function Tile({
           anchor={menu.anchor}
           point={menu.point}
           layout={{ ...layout, focused: tile.id }}
+          metrics={measure?.()}
           row={row}
           preview={preview}
           reload={canReload ? reload : undefined}

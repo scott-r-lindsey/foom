@@ -8,13 +8,23 @@ import type { DragEvent } from "react";
 import type { BoardSource } from "./board-source.d";
 import type { BoardRow } from "./board.d";
 import type { SidebarPreferences } from "./sidebar.d";
-import type { TileAction, TileDrag, DropZone, TileLayout, TileRect, TileSplit } from "./tiles.d";
+import type {
+  TileAction,
+  TileDrag,
+  DropZone,
+  TileMetrics,
+  TileLayout,
+  TileRect,
+  TileSplit,
+} from "./tiles.d";
 
 import {
   rectangles,
   resizeSplit,
   evenSplitRun,
   dropTile,
+  dropReason,
+  isDropOnOrigin,
   dropZone,
   terminals,
   ratioLimits,
@@ -114,6 +124,7 @@ export function TileArea({
   dropLayout,
   source,
   layout,
+  measure,
   setLayout,
   resizeLayout,
   rows,
@@ -133,6 +144,7 @@ export function TileArea({
   dropLayout: (next: TileLayout) => void;
   source: BoardSource;
   layout: TileLayout;
+  measure?: (() => TileMetrics | undefined) | undefined;
   setLayout: (next: TileLayout) => void;
   resizeLayout: (next: TileLayout, commit: boolean) => void;
   rows: readonly BoardRow[];
@@ -154,7 +166,9 @@ export function TileArea({
   }>();
   const preview =
     lastPreview?.drag === drag && lastPreview?.token === foreign ? lastPreview : undefined;
+  const noop = preview && isDropOnOrigin(layout, drag, preview.tile);
   const geometry = rectangles(layout.tree);
+  const refusal = preview && dropReason(layout, drag, preview.tile, preview.zone, measure?.());
   const placing =
     preview && !geometry.tiles.find(({ tile }) => tile.id === preview.tile)?.tile.content;
   const targetAt = (event: DragEvent<HTMLDivElement>) => {
@@ -194,7 +208,11 @@ export function TileArea({
         const target = targetAt(event);
         if (!target) return;
         event.preventDefault();
-        event.dataTransfer.dropEffect = "move";
+        event.dataTransfer.dropEffect =
+          isDropOnOrigin(layout, drag, target.tile) ||
+          dropReason(layout, drag, target.tile, target.zone, measure?.())
+            ? "none"
+            : "move";
         setLastPreview(target);
       }}
       onDragLeave={(event) => {
@@ -206,14 +224,14 @@ export function TileArea({
       }}
       onDrop={(event) => {
         const target = targetAt(event);
-        if (target && foreign) {
+        if (target && !dropReason(layout, drag, target.tile, target.zone, measure?.()) && foreign) {
           event.preventDefault();
           void source.windows?.moves
             ?.drop(foreign, { tile: target.tile, zone: target.zone })
             .catch(() => {});
         } else if (target && drag) {
           event.preventDefault();
-          const next = dropTile(layout, drag, target.tile, target.zone);
+          const next = dropTile(layout, drag, target.tile, target.zone, measure?.());
           if (next !== layout) dropLayout(next);
         }
         setLastPreview(undefined);
@@ -221,13 +239,17 @@ export function TileArea({
       }}
     >
       <span className="visually-hidden" role="status">
-        {drag || foreign
-          ? preview
-            ? `Drop ${preview.zone === "center" ? (placing ? "to place here" : drag?.kind === "tile" ? "to swap" : "to replace session") : `to split ${preview.zone}`} on tile ${String(geometry.tiles.findIndex(({ tile }) => tile.id === preview.tile) + 1)}. Escape cancels.`
-            : "Drag to a tile center to replace or swap, or an edge to split. Escape cancels."
-          : ""}
+        {noop
+          ? ""
+          : drag || foreign
+            ? refusal
+              ? refusal
+              : preview
+                ? `Drop ${preview.zone === "center" ? (placing ? "to place here" : drag?.kind === "tile" ? "to swap" : "to replace session") : `to split ${preview.zone}`} on tile ${String(geometry.tiles.findIndex(({ tile }) => tile.id === preview.tile) + 1)}. Escape cancels.`
+                : "Drag to a tile center to replace or swap, or an edge to split. Escape cancels."
+            : ""}
       </span>
-      {(drag || foreign) && preview && (
+      {(drag || foreign) && preview && !noop && (
         <div
           className="tile-drop-preview"
           data-zone={preview.zone}
@@ -249,13 +271,14 @@ export function TileArea({
             })(),
           )}
         >
-          {preview.zone === "center"
-            ? placing
-              ? "Place here"
-              : drag?.kind === "tile"
-                ? "Swap tiles"
-                : "Replace session"
-            : `Split ${preview.zone}`}
+          {refusal ??
+            (preview.zone === "center"
+              ? placing
+                ? "Place here"
+                : drag?.kind === "tile"
+                  ? "Swap tiles"
+                  : "Replace session"
+              : `Split ${preview.zone}`)}
         </div>
       )}
       {geometry.tiles.map(({ tile, rect }) => (
@@ -265,6 +288,7 @@ export function TileArea({
           rect={rect}
           number={terminals(layout.tree).findIndex((item) => item.id === tile.id) + 1}
           layout={layout}
+          measure={measure}
           collapsing={geometry.gutters.some(({ split }) => {
             const [min, max] = ratioLimits(split);
             return (

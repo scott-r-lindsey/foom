@@ -4,7 +4,8 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { BoardSource } from "../../../../src/renderer/board/board-source.d";
 import type { SidebarCommandResult } from "../../../../src/shared/workspace";
 import { Board } from "../../../../src/renderer/board/board-view";
-import { setup } from "./sidebar-view-fixtures";
+import { setup, load, repository } from "./sidebar-view-fixtures";
+import type { ArmedConfirmation } from "../../../../src/shared/confirmation";
 
 beforeEach(() => {
   localStorage.clear();
@@ -240,9 +241,9 @@ test("a normal pre-spawn cancellation rejection does not report a surviving term
   expect(view.queryByText("Unable to cancel launch.")).toBeNull();
 });
 
-test("a declined sharing warning discovered after the UI snapshot removes its temporary tile", async () => {
+test("a declined sharing warning discovered after the UI snapshot creates no temporary tile", async () => {
   const view = await slowLaunch(false, true, false, false);
-  expect(view.getByText("Starting on Local…")).toBeTruthy();
+  expect(view.queryByText("Starting on Local…")).toBeNull();
   await act(async () => {
     view.finish(undefined);
     await Promise.resolve();
@@ -250,4 +251,109 @@ test("a declined sharing warning discovered after the UI snapshot removes its te
   expect(view.queryByText("Starting on Local…")).toBeNull();
   expect(view.queryByText("Launch was cancelled or refused.")).toBeNull();
   expect(view.container.querySelectorAll('.terminal-tile[data-empty="false"]')).toHaveLength(0);
+});
+
+test.each([false, true])(
+  "main's sharing warning stays answerable despite a stale renderer inventory (other clone=%s)",
+  async (otherClone) => {
+    const view = setup();
+    const second = { ...repository, path: "/clone-b", name: "Clone B", worktrees: [] };
+    const repositories = [repository, second];
+    view.source.getSidebar = () => repositories;
+    if (!view.source.worktrees) throw new Error("Missing worktrees");
+    view.source.worktrees.load = async () => ({ ...(await load()), repositories });
+    act(() => {
+      view.base.update(
+        "a",
+        otherClone
+          ? {
+              worktree: "/foom-remote/shared-origin",
+              branch: "Main checkout",
+              placement: { kind: "remote", host: "dozer" },
+            }
+          : { exited: true },
+      );
+    });
+    view.source.getMachines = () => [
+      {
+        host: "dozer",
+        name: "Build box",
+        available: true,
+        agents: [{ id: "claude", name: "Claude Code" }],
+        repositories: ["/foom", "/clone-b"],
+      },
+    ];
+    const listeners = new Set<(arm: ArmedConfirmation | null, accepted?: boolean) => void>();
+    const operation = Promise.withResolvers<SidebarCommandResult>();
+    let started = () => {};
+    const arm = {
+      nonce: "main-nonce",
+      target: "resolved-checkout",
+      label: "Click again for multiple agents here",
+    };
+    const confirm = vi.fn(() => {
+      for (const receive of listeners) receive(null, true);
+      started();
+      return Promise.resolve();
+    });
+    view.source.confirmations = {
+      subscribe: (receive) => {
+        listeners.add(receive);
+        return () => {
+          listeners.delete(receive);
+        };
+      },
+      confirm,
+      cancel: () => Promise.resolve(),
+    };
+    view.source.cancelSidebarLaunch = () => Promise.resolve();
+    view.source.sidebarCommand = vi.fn<NonNullable<BoardSource["sidebarCommand"]>>(
+      (_command, startup) => {
+        if (!startup) throw new Error("Missing startup");
+        started = startup.started;
+        return operation.promise;
+      },
+    );
+    view.rerender(<Board source={view.source} />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    if (otherClone) {
+      fireEvent.click(view.getByRole("button", { name: "Actions for Clone B" }));
+      fireEvent.click(view.getByRole("menuitem", { name: "New agent" }));
+      fireEvent.click(view.getByRole("menuitem", { name: "Build box" }));
+    } else {
+      fireEvent.click(view.getByRole("button", { name: "Expand Foom" }));
+      fireEvent.click(view.getByRole("button", { name: "Actions for feature" }));
+    }
+    fireEvent.click(view.getByRole("menuitem", { name: "Claude Code" }));
+    act(() => {
+      for (const receive of listeners) receive(arm);
+    });
+    expect(view.getByRole("menuitem", { name: arm.label })).toBeTruthy();
+    expect(view.container.querySelector(".tile-startup")).toBeNull();
+    await act(async () => {
+      fireEvent.click(view.getByRole("menuitem", { name: arm.label }));
+      await Promise.resolve();
+    });
+    expect(confirm).toHaveBeenCalledExactlyOnceWith(arm);
+    expect(view.queryByRole("menu")).toBeNull();
+    expect(view.container.querySelectorAll(".tile-startup")).toHaveLength(1);
+    await act(async () => {
+      operation.resolve(undefined);
+      await operation.promise;
+    });
+  },
+);
+
+test("a preparation error before main starts a sharing-capable launch keeps a failure tile", async () => {
+  const view = await slowLaunch(false, true, false, false);
+  expect(view.container.querySelector(".tile-startup")).toBeNull();
+  await act(async () => {
+    view.fail(new Error("foom-error:operation-failed"));
+    await Promise.resolve();
+  });
+  expect(view.container.querySelectorAll('.tile-startup[data-failed="true"]')).toHaveLength(1);
+  expect(view.getByText("Unable to launch session.")).toBeTruthy();
+  expect(view.queryByRole("menu")).toBeNull();
 });

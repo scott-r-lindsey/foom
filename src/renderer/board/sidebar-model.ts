@@ -1,4 +1,4 @@
-import type { SidebarCommand, SidebarMachine, PreviewSummary } from "../../shared/workspace";
+import type { SidebarMachine, PreviewSummary } from "../../shared/workspace";
 import type { BoardRow, BoardState } from "./board.d";
 import type { SidebarPreferences, SidebarRepository, SidebarTree } from "./sidebar.d";
 
@@ -233,26 +233,4 @@ export function repositoryMachines(
     (machine) => machine.host !== null && machine.repositories?.includes(repository),
   );
   return remote.length ? [...machines.filter((machine) => machine.host === null), ...remote] : [];
-}
-
-/** Presentation only: main independently checks the actual checkout before launch. */
-export function launchNeedsSharingWarning(
-  rows: readonly BoardRow[],
-  command: SidebarCommand,
-): boolean {
-  if (
-    (command.kind !== "launch" && command.kind !== "repository-launch") ||
-    command.run === "shell"
-  )
-    return false;
-  return rows.some((row) => {
-    if (row.kind !== "agent" || row.exited || rowRepository(row) !== command.repository)
-      return false;
-    if (command.kind === "launch") return rowWorktree(row) === command.worktree;
-    return command.host === null
-      ? rowWorktree(row) === command.repository
-      : row.placement?.kind === "remote" &&
-          row.placement.host === command.host &&
-          row.branch === "Main checkout";
-  });
 }

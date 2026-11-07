@@ -4,7 +4,7 @@ import type { PreviewSummary } from "../../shared/workspace";
 import type { WindowMovesApi, MoveContent, WindowDestination } from "../../shared/windows";
 import { useEffect, useState, useId, useSyncExternalStore } from "react";
 import type { BoardRow } from "./board.d";
-import type { TileAction, TileLayout } from "./tiles.d";
+import type { TileMetrics, TileAction, TileLayout } from "./tiles.d";
 import type { TerminalViewSource } from "../terminal/terminal-view-source.d";
 import { tileRemovalAction, splitReason } from "./tiles";
 import { DirectionPad } from "./direction-pad";
@@ -17,6 +17,7 @@ export function TileMenu({
   anchor,
   point,
   layout,
+  metrics,
   row,
   preview,
   name,
@@ -35,6 +36,7 @@ export function TileMenu({
   anchor: HTMLElement;
   point: { x: number; y: number } | undefined;
   layout: TileLayout;
+  metrics?: TileMetrics | undefined;
   row: BoardRow | undefined;
   preview?: PreviewSummary | undefined;
   name: string;
@@ -87,6 +89,7 @@ export function TileMenu({
           <DirectionPad
             kind="Split"
             layout={layout}
+            metrics={metrics}
             run={(value) => {
               close();
               action(value);
@@ -95,6 +98,7 @@ export function TileMenu({
           <DirectionPad
             kind="Grow"
             layout={layout}
+            metrics={metrics}
             run={(value) => {
               close();
               action(value);
@@ -233,17 +237,18 @@ export function SpaceMenu({
   anchor,
   point,
   layout,
+  metrics,
   close,
   action,
 }: {
   anchor: HTMLElement;
   point: { x: number; y: number };
   layout: TileLayout;
+  metrics?: TileMetrics | undefined;
   close: () => void;
   action: (value: TileAction) => void;
 }) {
   const id = useId();
-  const reason = splitReason(layout);
   const run = (value: TileAction) => {
     close();
     action(value);
@@ -259,34 +264,37 @@ export function SpaceMenu({
       close={close}
       leading={
         <div className="space-splits">
-          {(["horizontal", "vertical"] as const).map((axis) => (
-            <span className="space-split" key={axis}>
-              <button
-                type="button"
-                role="menuitem"
-                aria-label={`Split ${axis}`}
-                aria-disabled={Boolean(reason)}
-                aria-describedby={reason ? `${id}-${axis}` : undefined}
-                onClick={() => {
-                  if (!reason) run(axis);
-                }}
-              >
-                <svg viewBox="0 0 28 22" aria-hidden="true">
-                  <rect x="2" y="2" width="24" height="18" rx="2" />
-                  <path d={axis === "horizontal" ? "M14 2v18" : "M2 11h24"} />
-                </svg>
-                <span>
-                  Split <br />
-                  {axis}
-                </span>
-              </button>
-              {reason && (
-                <span className="pad-reason" aria-hidden="true" id={`${id}-${axis}`}>
-                  {reason}
-                </span>
-              )}
-            </span>
-          ))}
+          {(["horizontal", "vertical"] as const).map((axis) => {
+            const reason = splitReason(layout, axis, metrics);
+            return (
+              <span className="space-split" key={axis}>
+                <button
+                  type="button"
+                  role="menuitem"
+                  aria-label={`Split ${axis}`}
+                  aria-disabled={Boolean(reason)}
+                  aria-describedby={reason ? `${id}-${axis}` : undefined}
+                  onClick={() => {
+                    if (!reason) run(axis);
+                  }}
+                >
+                  <svg viewBox="0 0 28 22" aria-hidden="true">
+                    <rect x="2" y="2" width="24" height="18" rx="2" />
+                    <path d={axis === "horizontal" ? "M14 2v18" : "M2 11h24"} />
+                  </svg>
+                  <span>
+                    Split <br />
+                    {axis}
+                  </span>
+                </button>
+                {reason && (
+                  <span className="pad-reason" aria-hidden="true" id={`${id}-${axis}`}>
+                    {reason}
+                  </span>
+                )}
+              </span>
+            );
+          })}
         </div>
       }
       actions={[

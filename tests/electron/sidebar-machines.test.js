@@ -10,7 +10,7 @@ const { evidencePath } = require("../helpers/evidence.js");
 const { deadline, expect } = require("./test-policy.js");
 const { boardPage, launchApp, removeAfterApps, assertAccessible } = require("./harness.js");
 
-async function sidebarMachines(context, startupOnly = false, firstRemoteOnly = false) {
+async function sidebarMachines(context, startupOnly = false, scenario = "standard") {
   const root = await mkdtemp(path.join(tmpdir(), "sidebar-machines-"));
   removeAfterApps(context, root);
   const bin = path.join(root, "bin");
@@ -124,11 +124,15 @@ wait();`,
   );
   const app = await launchApp(context, { fixture: "repository", env: { PATH: bin } });
   const page = await boardPage(app);
-  await app.evaluate(({ BrowserWindow }) =>
-    BrowserWindow.getAllWindows()
-      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
-      .setContentSize(1280, 900),
+  const width = scenario === "reload" ? 2200 : 1280;
+  await app.evaluate(
+    ({ BrowserWindow }, width) =>
+      BrowserWindow.getAllWindows()
+        .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+        .setContentSize(width, 900),
+    width,
   );
+  await page.waitForFunction((width) => innerWidth === width, width);
   const repository = await page.evaluate(
     async () => (await window.desktop.workspace()).repositories[0].path,
   );
@@ -195,6 +199,7 @@ wait();`,
       await page.getByRole("button", { name: "Actions for Builder", exact: true }).click();
       await page.getByRole("menuitem", { name: "New shell", exact: true }).click();
     };
+    const beforeLaunchTiles = await page.locator(".terminal-tile").count();
     await writeFile(launchGate, "hold");
     await launch();
     const startup = page.locator(".tile-startup").filter({ hasText: "Starting on Builder…" });
@@ -215,6 +220,19 @@ wait();`,
         path: evidencePath(`1044/startup-${mode}.png`),
         animations: "disabled",
       });
+    }
+    if (scenario === "reload") {
+      try {
+        await page.reload();
+        await expect(page.getByRole("navigation", { name: "Terminal sidebar" })).toBeVisible();
+        await expect(page.locator(".tile-startup")).toHaveCount(0);
+        await expect(page.locator('.terminal-tile[data-empty="true"]')).toHaveCount(
+          beforeLaunchTiles,
+        );
+      } finally {
+        await rm(launchGate, { force: true });
+      }
+      return;
     }
     await launch();
     await expect(startup).toHaveCount(1);
@@ -292,7 +310,53 @@ wait();`,
       page.locator(".terminal-tile .xterm").filter({ hasText: "LOCAL_STARTUP_READY" }),
     ).toBeVisible();
     await expect(localStartup).toHaveCount(0);
-    if (firstRemoteOnly) {
+    if (scenario === "shared-clone") {
+      const agentCount = () =>
+        page.evaluate(
+          async () =>
+            (await window.desktop.workspace()).terminals.filter(
+              (row) =>
+                row.agent === "claude" &&
+                row.placement?.host === "fixture-cloud" &&
+                row.branch === "Main checkout",
+            ).length,
+        );
+      const launchAgent = async (name) => {
+        await page.getByRole("button", { name: `Actions for ${name}`, exact: true }).click();
+        await page.getByRole("menuitem", { name: "New agent", exact: true }).hover();
+        await page.getByRole("menuitem", { name: "Builder", exact: true }).hover();
+        await page.getByRole("menuitem", { name: "Claude Code", exact: true }).click();
+      };
+      await launchAgent("shell-fixture");
+      await expect.poll(agentCount).toBe(1);
+      await expect(page.locator(".tile-startup")).toHaveCount(0);
+      const clone = path.join(root, "clone-b");
+      await mkdir(clone);
+      gitSync(["init", "-q", "-b", "main"], { cwd: clone });
+      gitSync(["remote", "add", "origin", "git@forge.test:team/project.git"], { cwd: clone });
+      await app.evaluate(({ dialog }, clone) => {
+        dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [clone] });
+      }, clone);
+      await page.getByRole("button", { name: "Add repository", exact: true }).click();
+      await expect(
+        page.getByRole("button", { name: "Actions for clone-b", exact: true }),
+      ).toBeVisible();
+      await launchAgent("clone-b");
+      const armed = page.getByRole("menuitem", {
+        name: "Click again for multiple agents here",
+        exact: true,
+      });
+      await expect(armed).toBeVisible();
+      assert.equal(await agentCount(), 1);
+      await expect(page.locator(".tile-startup")).toHaveCount(0);
+      await page.waitForTimeout(310); // Main's click-again minimum is the behavior under test.
+      await armed.click();
+      await expect.poll(agentCount).toBe(2);
+      await expect(page.locator(".sidebar-panel")).toHaveCount(0);
+      await expect(page.locator(".tile-startup")).toHaveCount(0);
+      return;
+    }
+    if (scenario === "first-remote") {
       // No remote session exists when this repository's first remote agent is requested.
       await page.evaluate(async () => {
         for (const row of (await window.desktop.workspace()).terminals)
@@ -640,5 +704,23 @@ test("first remote repository launch ignores a local main-checkout agent in the 
   skip: process.platform === "win32",
   timeout: deadline(60000),
 }, async (context) => {
-  await sidebarMachines(context, true, true);
+  await sidebarMachines(context, true, "first-remote");
 });
+
+test(
+  "remote clones of one origin keep main's sharing warning answerable in the real menu",
+  {
+    skip: process.platform === "win32",
+    timeout: deadline(60000),
+  },
+  (context) => sidebarMachines(context, true, "shared-clone"),
+);
+
+test(
+  "reload during a blocked launch restores the original space without an extra empty tile",
+  {
+    skip: process.platform === "win32",
+    timeout: deadline(60000),
+  },
+  (context) => sidebarMachines(context, true, "reload"),
+);

@@ -327,7 +327,7 @@ test.each([100, 200, 300])(
 );
 
 test("board area resizing repairs measured spaces and persists without remounting occupants", async () => {
-  let width = 2400;
+  let width = 800;
   let repair: (() => void) | undefined;
   const disconnect = vi.fn();
   vi.stubGlobal(
@@ -356,7 +356,7 @@ test("board area resizing repairs measured spaces and persists without remountin
   expect(screen.container.querySelectorAll(".terminal-tile")).toHaveLength(3);
   const occupied = screen.container.querySelector('[data-empty="false"]');
   const before = views.map((view) => view.open.mock.calls.length);
-  width = 1100;
+  width = 220;
   act(() => {
     repair?.();
   });
@@ -377,7 +377,7 @@ test("keyboard nested-space collapse returns focus to the surviving terminal", a
     this: HTMLElement,
   ) {
     return DOMRect.fromRect({
-      width: this.classList.contains("tile-area") ? 2400 : 8.4,
+      width: this.classList.contains("tile-area") ? 480 : 8.4,
       height: 900,
     });
   });
@@ -421,4 +421,39 @@ test("remote tiles share the sidebar host chip and unavailable sessions expose a
   expect(screen.container.querySelector(".tile-restoring")?.getAttribute("aria-label")).toContain(
     "Unavailable",
   );
+});
+
+test("measured menus refuse each axis independently and keyboard refusal preserves focus and storage", async () => {
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    return DOMRect.fromRect({
+      width: this.classList.contains("tile-area") ? 300 : 8.4,
+      height: 150,
+    });
+  });
+  const { screen, click, send } = setup();
+  click(0);
+  send("split-right");
+  await act(async () => {});
+  const occupied = screen.container.querySelector<HTMLElement>('[data-empty="false"]');
+  const space = screen.container.querySelector<HTMLElement>('[data-empty="true"]');
+  if (!occupied || !space) throw new Error("Missing tiles");
+  const saved = localStorage.getItem(TILE_STORAGE);
+  occupied.focus();
+  send("split-right");
+  expect(screen.getByText("Too narrow to split")).toBeTruthy();
+  expect(document.activeElement).toBe(occupied);
+  expect(localStorage.getItem(TILE_STORAGE)).toBe(saved);
+  fireEvent.contextMenu(space, { clientX: 100, clientY: 100 });
+  const horizontal = screen.getByRole("menuitem", { name: "Split horizontal" });
+  const vertical = screen.getByRole("menuitem", { name: "Split vertical" });
+  expect(horizontal.getAttribute("aria-disabled")).toBe("true");
+  expect(vertical.getAttribute("aria-disabled")).toBe("true");
+  fireEvent.click(horizontal);
+  fireEvent.click(vertical);
+  expect(localStorage.getItem(TILE_STORAGE)).toBe(saved);
+  fireEvent.keyDown(horizontal, { key: "Escape" });
+  send("split-down");
+  expect(screen.getByText("Too short to split")).toBeTruthy();
 });

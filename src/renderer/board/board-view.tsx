@@ -1,4 +1,3 @@
-import { launchNeedsSharingWarning } from "./sidebar-model";
 import { ConfigThemeLauncherContext } from "../preflight/custom-theme-hint";
 import type { TerminalFocusRestoration } from "../terminal/terminal-view-source.d";
 import { restoreBoardFocus, captureTerminalFocusRestoration } from "./focus-restore";
@@ -199,6 +198,7 @@ function BoardContents({
   const [sidebarCompact, setSidebarCompact] = useState(false);
   const {
     otherViews,
+    splitRefusal,
     layout,
     boardRef,
     layoutRef,
@@ -544,7 +544,8 @@ function BoardContents({
       };
       const defer =
         Boolean(source.cancelSidebarLaunch) &&
-        launchNeedsSharingWarning(source.getSnapshot(), value);
+        (value.kind === "launch" || value.kind === "repository-launch") &&
+        value.run !== "shell";
       const place = () => {
         setStartingRows((current) => [...current, row]);
         open(row, false, space ? { tile: space, session: "" } : undefined);
@@ -556,6 +557,8 @@ function BoardContents({
       };
       if (!defer && !place()) return Promise.resolve();
       const failed = (message: string) => {
+        if (defer && !leaves(layoutRef.current.tree).some((tile) => sessionId(tile) === id))
+          place();
         pendingLaunchesRef.current.delete(key);
         if (!leaves(layoutRef.current.tree).some((tile) => sessionId(tile) === id)) {
           startupOperationsRef.current.delete(id);
@@ -977,7 +980,13 @@ function BoardContents({
           tabIndex={-1}
           ref={terminalRef}
         >
+          {splitRefusal && (
+            <div className="tile-paste-result" role="status">
+              {splitRefusal}
+            </div>
+          )}
           <TileArea
+            measure={() => placementOptions().metrics}
             dropLayout={(next) => {
               changeLayout(next);
               setFocusRequest((value) => value + 1);

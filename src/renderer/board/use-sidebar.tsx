@@ -18,7 +18,6 @@ import type { PanelSubject } from "./panel-facts";
 import { PanelIntent } from "./panel-intent";
 import type { RowAction } from "./row-menu";
 import {
-  launchNeedsSharingWarning,
   agentBadges,
   agentNames,
   buildSidebar,
@@ -302,12 +301,7 @@ export function useSidebar(props: SidebarProps) {
     return actions.map((action) => ({
       ...action,
       ...(host ? { disabled: !machine?.available } : {}),
-      dismissBeforeRun: !launchNeedsSharingWarning(rows, {
-        kind: "launch",
-        repository: location.repository,
-        worktree: location.worktree ?? location.repository,
-        run: action.run,
-      }),
+      dismissBeforeRun: action.run === "shell",
       run: () => {
         return command({
           kind: "launch",

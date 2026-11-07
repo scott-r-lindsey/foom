@@ -24,7 +24,7 @@ Otherwise, placement fills the landing spot, then the first empty space in tree
 order, after removing spaces below the measured minimum described below. A full board adds a column at the far right. Columns are the children of
 the root's horizontal split chain; any other root is one column. With N columns,
 existing widths scale by N/(N+1), the new column gets 1/(N+1), and nested row ratios
-stay unchanged. If any resulting column would have fewer than about 60 terminal
+stay unchanged. If any resulting column would have fewer than 12 terminal
 cells at the current font size, replace the least recently focused non-Needs-you
 tile, excluding the focused tile. If none qualifies, human placement uses the
 oldest-focused non-Needs-you tile, even if focused. Background arrivals never
@@ -70,13 +70,23 @@ accessibility navigation. Empty spaces have no landing marking at rest.
 Right-click opens a menu with two buttons: Split horizontal creates side-by-side
 panes with a vertical divider; Split vertical creates stacked panes with a horizontal
 divider. Each shows its divider icon above a centered label on two lines (Split /
-horizontal or vertical). Depth and leaf limits are unchanged: refused buttons stay
+horizontal or vertical). Splits below the measured floor report “Too narrow to split” or “Too short to split”.
+Keyboard splits show the same reason in the neutral board status message without changing layout.
+Edge drops show the reason in their drop preview and preserve the source and destination.
+An occupied drop can borrow room from neighboring tiles during repair. Moving visible
+content from the sidebar empties its origin before that check, so it fits whenever
+the corresponding title-bar move fits. A drop onto its own tile is a no-op without
+a refusal, split preview or split announcement, and has no drop effect.
+An existing below-floor dimension caused by a smaller window may stay unchanged
+or grow, but cannot shrink further. New tiles must meet the floor.
+Refusal text uses neutral menu tokens below the pads, clear of their controls.
+Grow only expands geometry and needs no size refusal. Depth and leaf limits are unchanged: refused buttons stay
 focusable, dimmed and dashed, with a reason on hover/focus. New shell here (using the
 existing home-shell directory) and Close space (giving its area to its sibling)
 follow. Tab visits the two buttons, then the commands. Escape, outside clicks and
 Tab past the menu boundary dismiss it. While a tile
 or sidebar row is dragged over the board, a dashed, labelled drop preview marks
-the target; leaving the board, ending the drag or cancelling clears it. Sidebar placement
+the target, except for self-drops; leaving the board, ending the drag or cancelling clears it. Sidebar placement
 fills it and focuses the terminal; dropping onto any empty space fills that space.
 Focus uses the highlight border and brighter occupied title bar; Needs you uses an
 amber border that takes precedence and a labelled, haloed light.
@@ -142,7 +152,8 @@ reduced motion). It applies only to the focused window, from View → Tidy tiles
 When resizing between two occupied sides, gutters stay between 15% and 85%
 where those limits allow the occupied subtrees to fit. Geometry additionally uses
 an absolute minimum of
-60 terminal-cell widths at the current font and three terminal rows plus 38 CSS
+12 terminal-cell widths at the current font (a small practical floor for title-bar
+controls and terminal text, shared with automatic column placement) and three terminal rows plus 38 CSS
 pixels for chrome (rows are estimated at 1.2 times the font size). These pixel
 minimums apply to every nested leaf, measured against the available board area,
 including after splits, window or sidebar resizing, font changes, Tidy, evening a gutter,
@@ -220,8 +231,11 @@ still naming that parent, including exited children.
 ## Launch startup (#1044)
 
 A human launch dismisses its menu and reserves its final tile before discovery or
-SSH preparation finishes. A sharing warning stays armed until confirmed and reserves
-no tile until accepted; leaving, blurring or letting it expire leaves no failure.
+SSH preparation finishes. Sharing-capable agent launches keep their menu available
+until main checks the resolved checkout and signals launch start. Renderer rows do
+not predict sharing: different registered clones can use the same remote checkout.
+A sharing warning stays armed until confirmed and reserves no tile until accepted;
+leaving, blurring or letting it expire leaves no failure.
 Repeated
 clicks on the same launcher cannot create a second pending launch. Remote tiles
 immediately say **Starting on MACHINE…**, using the host display name; local tiles
@@ -235,3 +249,9 @@ any terminal that finishes creation after cancellation. If that cleanup fails, t
 normal action error dialog says **Terminal may still be running.** A refused launch creates
 no terminal. These temporary presentations grant no terminal capability and are
 never session records.
+
+Pending launch reservations are not saved as terminal assignments or geometry.
+While a layout contains one, saves retain the last settled layout until all such
+reservations have real terminal IDs or close. Reload restores that prior layout,
+including the same single space for a previously blank board, without an extra
+empty column.

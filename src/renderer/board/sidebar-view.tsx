@@ -3,7 +3,6 @@ import { AgentBadge } from "./agent-badge";
 import { AppMenu } from "./app-menu";
 import { PanelMark } from "./panel-glyphs";
 import {
-  launchNeedsSharingWarning,
   repositoryMachines,
   repositoryKey,
   rowRepository,
@@ -385,12 +384,6 @@ export function Sidebar(props: SidebarProps) {
                                 run: () => {},
                                 submenu: machine.agents.map((agent) => ({
                                   label: agent.name,
-                                  dismissBeforeRun: !launchNeedsSharingWarning(rows, {
-                                    kind: "repository-launch",
-                                    repository: repo.repository.path,
-                                    host: machine.host,
-                                    run: agent.id,
-                                  }),
                                   run: () =>
                                     command({
                                       kind: "repository-launch",

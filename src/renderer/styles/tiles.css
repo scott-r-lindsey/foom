@@ -379,9 +379,10 @@
 }
 
 .tile-pads {
+  position: relative;
   display: flex;
   gap: 10px;
-  padding: 4px 6px 6px;
+  padding: 4px 6px 44px;
 }
 .direction-pad {
   display: grid;
@@ -403,9 +404,6 @@
   display: grid;
   grid-template: repeat(3, 28px) / repeat(3, 28px);
   gap: 2px;
-}
-.pad-direction {
-  position: relative;
 }
 .pad-direction[data-direction="up"] {
   grid-area: 1 / 2;
@@ -503,14 +501,28 @@
   width: max-content;
   padding: 3px 7px;
   border-radius: 4px;
-  background: var(--ink);
-  color: var(--bg);
+  background: var(--raised-top);
+  color: var(--muted);
+  border: 1px solid var(--raised-line);
   font-size: 11px;
+  line-height: 1.35;
   pointer-events: none;
+}
+.direction-pad .pad-reason {
+  top: calc(100% - 38px);
+  bottom: auto;
+  left: 6px;
+  right: 6px;
+  transform: none;
+  width: auto;
+  text-align: left;
 }
 .pad-direction:hover .pad-reason,
 .pad-direction:focus-within .pad-reason {
   display: block;
+}
+.tile-pads:has(button:hover) .pad-direction:focus-within:not(:hover) .pad-reason {
+  display: none;
 }
 @media (min-width: 601px) {
   .sidebar-panel:has(.tile-pads) .panel-body {

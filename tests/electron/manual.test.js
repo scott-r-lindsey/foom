@@ -33,6 +33,7 @@ test("blank-window manual and terminals share the leftmost column geometry", asy
   await expect(page.locator(".terminal-tile").first()).toHaveAttribute("data-kind", "preview");
   await launchCheckoutShell(app, page);
   await expect(page.locator('.terminal-tile[data-kind="shell"]')).toBeVisible();
+  await expect(page.locator(".tile-startup")).toHaveCount(0);
   assert.deepEqual(await geometry(), manualGeometry);
   if (process.env.FOOM_PLACEMENT_SCREENSHOTS === "1" && process.platform === "linux") {
     await mkdir(evidencePath("screenshots-746"), { recursive: true });
@@ -102,6 +103,7 @@ test("blank-window manual and terminals share the leftmost column geometry", asy
   await expect(page.locator('.terminal-tile[data-empty="true"]')).toHaveCount(1);
   await launchCheckoutShell(app, page);
   await expect(page.locator('.terminal-tile[data-kind="shell"]')).toBeVisible();
+  await expect(page.locator(".tile-startup")).toHaveCount(0);
   assert.deepEqual(await geometry(), manualGeometry);
   await expect(page.locator(".terminal-tile").first()).toHaveAttribute("data-kind", "shell");
 });
