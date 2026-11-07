@@ -306,13 +306,16 @@ const assert = require('node:assert/strict');
 const { spawnSync } = require('node:child_process');
 const leaked = Object.keys(process.env).filter(key => /^foom_/i.test(key) &&
   !['FOOM_ELECTRON_SHARD', 'FOOM_TEST_DISK_ROOT', 'FOOM_TEST_SHARED_MEMORY_ROOT',
-    'FOOM_REQUIRE_REMOTE_HOSTS', 'FOOM_REMOTE_HOST_ARTIFACTS', 'FOOM_PACKAGED_ROOT'].includes(key));
+    'FOOM_REQUIRE_REMOTE_HOSTS', 'FOOM_REMOTE_HOST_ARTIFACTS', 'FOOM_PACKAGED_ROOT',
+    'FOOM_COMPARE_PRODUCT_SHOTS', 'FOOM_PREVIEW_PROFILE_WITH_PREVIEW'].includes(key));
 assert.deepEqual(leaked, []);
 assert.equal(process.env.FOOM_ELECTRON_SHARD, '2/4');
 assert.equal(process.env.FOOM_REQUIRE_REMOTE_HOSTS, '1');
 assert.equal(process.env.FOOM_PACKAGED_ROOT, 'fixture-package');
 assert.equal(process.env.FOOM_REMOTE_HOST_ARTIFACTS, 'fixture-catalog');
 assert.equal(process.env.TEST_NON_FOOM, 'preserved');
+assert.equal(process.env.FOOM_COMPARE_PRODUCT_SHOTS, '1');
+assert.equal(process.env.FOOM_PREVIEW_PROFILE_WITH_PREVIEW, '1');
 // Intentional test configuration happens after setup, and reaches subprocesses.
 process.env.FOOM_REMOTE_HELPER = 'fixture-helper';
 process.env.FOOM_REMOTE_SOCKET = 'fixture-socket';
@@ -342,6 +345,8 @@ assert.equal(child.status, 0, child.stderr);
           FOOM_PACKAGED_ROOT: "fixture-package",
           FOOM_REMOTE_HOST_ARTIFACTS: "fixture-catalog",
           TEST_NON_FOOM: "preserved",
+          FOOM_COMPARE_PRODUCT_SHOTS: "1",
+          FOOM_PREVIEW_PROFILE_WITH_PREVIEW: "1",
         },
         encoding: "utf8",
       },

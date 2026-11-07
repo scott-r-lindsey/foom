@@ -294,7 +294,7 @@ loading tests, including remote helper/socket paths, hook credentials and local
 control credentials. `tests/helpers/environment.js` owns the explicit exceptions
 for runner controls: Electron sharding, packaged-root selection, required/available
 remote-host artifacts, the wrapper's owned temporary roots, and existing opt-in
-evidence switches. All other inherited `FOOM_*` variables are cleared.
+evidence/profiling switches (including screenshot comparisons). All other inherited `FOOM_*` variables are cleared.
 
 Electron app fixtures also filter their inherited environment at launch. Tests
 can deliberately supply `FOOM_*` through fixture `options.env`, or set them after
