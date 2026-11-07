@@ -176,6 +176,7 @@ export const workspace: WorkspaceSnapshot = {
       orchestration: {
         role: "orchestrator",
         active: true,
+        restoreOnResume: true,
         children: 1,
         history: [
           { id: "operation", action: "launch", label: "Launch", status: "succeeded", at: 1 },

@@ -113,6 +113,7 @@ export type WorkspaceConfirmation =
   | { kind: "dirty-worktree"; title: string; branch?: string; path?: string; changes: string }
   | {
       kind: "orchestrator";
+      restoreOnResume?: true;
       agent: string;
       subject?: string;
       replacing?: string;

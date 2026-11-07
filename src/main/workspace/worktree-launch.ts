@@ -1,3 +1,5 @@
+import type { ParentIdentity } from "../control/orchestration.d";
+import { canRestoreControl } from "./session-restore";
 import { locationId } from "../control/metadata";
 import type { RemoteTarget } from "../../shared/remote-host";
 import { LaunchFailure } from "../../shared/launch-failure";
@@ -124,8 +126,6 @@ export async function launchAgent(
     const launchVersion = replacement
       ? (this.launched.get(replacement.id)?.launchVersion ?? 0) + 1
       : undefined;
-    if (extra.control && "role" in extra.control && checkoutIdentity !== undefined)
-      this.sessions.rememberIdentity(request.repository, checkoutIdentity);
     this.launched.set(result.id, {
       ...(launchVersion === undefined ? {} : { launchVersion }),
       id: result.id,
@@ -599,11 +599,27 @@ export async function startExisting(
   replacement?: { id: string; conversationId?: string },
   control?: AgentLaunch["control"],
   restoring = false,
-  authorityIdentity?: string,
+  authorityIdentity?: ParentIdentity,
   pastedId?: string,
 ): Promise<string | undefined> {
   return this.withRepository(repository, async () => {
     let reservation: string | undefined;
+    let resumeSlot:
+      | Exclude<ReturnType<WorktreeLaunchContext["orchestration"]["reserve"]>, { existing: string }>
+      | undefined;
+    let finishResume: (() => void) | undefined;
+    let resumeRuntime: Awaited<WorktreeLaunchContext["control"]> = undefined;
+    const oldParent = replacement ? this.launched.get(replacement.id) : undefined;
+    let resumeGuard =
+      !restoring &&
+      !control &&
+      replacement?.conversationId &&
+      oldParent?.agent === run &&
+      oldParent.repository === repository &&
+      oldParent.worktree === worktree &&
+      !oldParent.remote
+        ? this.orchestration.resumeGuard(oldParent.id, repository)
+        : undefined;
     try {
       const registeredHost = this.orchestration.worktreeHost(worktree);
       if (registeredHost !== undefined) {
@@ -633,7 +649,12 @@ export async function startExisting(
       const identity =
         registeredRemote?.identity ??
         (await this.deps.worktrees.launchIdentity(repository, worktree));
-      if (authorityIdentity !== undefined && identity !== authorityIdentity)
+      if (
+        authorityIdentity !== undefined &&
+        (identity !== authorityIdentity.worktree ||
+          (await this.deps.worktrees.launchIdentity(repository, repository)) !==
+            authorityIdentity.repository)
+      )
         throw new Error("Repository identity changed during restore");
       if (run !== "shell" && !restoring && !(await this.confirmAgentLaunch(worktree, confirm)))
         return;
@@ -651,7 +672,21 @@ export async function startExisting(
         );
       }
       if (run !== "shell") {
-        if (!isRemote) await this.scanAgents(false);
+        const report = !isRemote ? await this.scanAgents(false) : undefined;
+        const agent = report?.agents.find((entry) => entry.id === run);
+        if (resumeGuard && !canRestoreControl(oldParent, agent)) resumeGuard = undefined;
+        if (resumeGuard && replacement) {
+          const rootIdentity = await this.deps.worktrees.launchIdentity(repository, repository);
+          const parentIdentity = this.orchestration.identity(replacement.id);
+          if (rootIdentity !== parentIdentity?.repository || identity !== parentIdentity.worktree)
+            throw new Error("Repository identity changed during resume");
+          resumeRuntime = await this.control;
+          resumeGuard();
+          const slot = this.orchestration.reserve(repository, undefined, true, parentIdentity);
+          if ("existing" in slot) throw new Error("The orchestrator changed. Try again.");
+          resumeSlot = slot;
+          control = { role: "orchestrator" };
+        }
         if (replacement) {
           const old = this.launched.get(replacement.id);
           if (old?.remote && !isRemote)
@@ -662,6 +697,7 @@ export async function startExisting(
             this.orchestration.relaunched(
               replacement.id,
               old.remote && control && "parentId" in control ? control.parentId : undefined,
+              resumeGuard !== undefined,
             );
           await this.queues.get(old.id);
           if (old.remote && old.placement?.kind === "remote")
@@ -671,54 +707,68 @@ export async function startExisting(
           this.executionOwner.reset(old.id);
           this.deps.verdicts.forget(old.id);
         }
+        if (resumeGuard && replacement)
+          finishResume = this.orchestration.observeParentResume(replacement.id);
+        const childParentId = control && "parentId" in control ? control.parentId : undefined;
         try {
-          return (
-            await this.launchAgent(
-              {
-                agent: run,
-                repository,
-                worktree,
-                cols: 80,
-                rows: 24,
-              },
-              worktree === repository,
-              true,
-              identity,
-              replacement,
-              {
-                ...(registeredRemote ? { remoteCheckout: registeredRemote } : {}),
-                ...(isRemote && control && "parentId" in control
-                  ? {
-                      beforeSpawn: () => {
-                        remoteParentGuard?.();
-                        const parent = this.orchestration.view(control.parentId);
-                        const child = replacement
-                          ? this.orchestration.view(replacement.id)
-                          : undefined;
-                        if (
-                          parent?.role !== "orchestrator" ||
-                          !parent.active ||
-                          (replacement &&
-                            (child?.role !== "child" ||
-                              child.parentId !== control.parentId ||
-                              child.takenOver))
-                        )
-                          throw new Error("Remote child ownership changed");
-                      },
-                    }
-                  : {}),
-                ...(pastedId === undefined
-                  ? {}
-                  : { conversationId: pastedId, pinConversation: true }),
-                ...(control === undefined
-                  ? {}
-                  : {
-                      control,
-                      ...("parentId" in control ? { prompt: "Resume your previous task." } : {}),
-                    }),
-              },
-            )
-          ).id;
+          const resumed = await this.launchAgent(
+            {
+              agent: run,
+              repository,
+              worktree,
+              cols: 80,
+              rows: 24,
+            },
+            worktree === repository,
+            true,
+            identity,
+            replacement,
+            {
+              ...(registeredRemote ? { remoteCheckout: registeredRemote } : {}),
+              ...(resumeGuard ? { beforeSpawn: resumeGuard } : {}),
+              ...(isRemote && childParentId !== undefined
+                ? {
+                    beforeSpawn: () => {
+                      remoteParentGuard?.();
+                      const parent = this.orchestration.view(childParentId);
+                      const child = replacement
+                        ? this.orchestration.view(replacement.id)
+                        : undefined;
+                      if (
+                        parent?.role !== "orchestrator" ||
+                        !parent.active ||
+                        (replacement &&
+                          (child?.role !== "child" ||
+                            child.parentId !== childParentId ||
+                            child.takenOver))
+                      )
+                        throw new Error("Remote child ownership changed");
+                    },
+                  }
+                : {}),
+              ...(pastedId === undefined
+                ? {}
+                : { conversationId: pastedId, pinConversation: true }),
+              ...(control === undefined
+                ? {}
+                : {
+                    control,
+                    ...("parentId" in control ? { prompt: "Resume your previous task." } : {}),
+                  }),
+            },
+          );
+          // A human revoke may finish while the host is spawning. Keep the new
+          // process ordinary and live rather than restoring cancelled authority.
+          if (resumeGuard) {
+            try {
+              resumeGuard();
+            } catch {
+              resumeRuntime?.setRole?.(resumed.id, "agent");
+              return resumed.id;
+            }
+          }
+          resumeSlot?.bind(resumed.id);
+          return resumed.id;
         } catch (error) {
           if (replacement) {
             this.executionOwner.markExited(replacement.id, -1);
@@ -743,18 +793,29 @@ export async function startExisting(
         );
       }
     } finally {
+      finishResume?.();
+      resumeSlot?.release();
       if (reservation !== undefined) this.busyWorktrees.delete(reservation);
     }
   });
 }
 
+function resumeSupport(report: AgentReport | undefined): string {
+  return JSON.stringify(
+    (report?.agents ?? [])
+      .filter((agent) => canRestoreControl({ agent: agent.id }, agent))
+      .map((agent) => agent.id)
+      .sort(),
+  );
+}
+
 export async function scanAgents(this: AgentSetupContext, refresh: boolean): Promise<AgentReport> {
   if (refresh || this.scannedProviders !== providerRevision()) this.scanned = undefined;
   this.scannedProviders = providerRevision();
-  this.scanned ??= this.agents.scan(this.enabled);
+  const pending = (this.scanned ??= this.agents.scan(this.enabled));
   try {
-    const { warning, agents } = await this.scanned;
-    return {
+    const { warning, agents } = await pending;
+    const report = {
       warning,
       agents: await Promise.all(
         agents.map(async (agent) => {
@@ -785,8 +846,19 @@ export async function scanAgents(this: AgentSetupContext, refresh: boolean): Pro
         }),
       ),
     };
+    if (this.scanned === pending) {
+      const previous = resumeSupport(this.agentReport);
+      this.agentReport = report;
+      if (previous !== resumeSupport(report)) this.deps.onChange?.();
+    }
+    return report;
   } catch (error) {
-    this.scanned = undefined;
+    if (this.scanned === pending) {
+      const previous = resumeSupport(this.agentReport);
+      this.agentReport = undefined;
+      if (previous !== resumeSupport(undefined)) this.deps.onChange?.();
+      this.scanned = undefined;
+    }
     throw error;
   }
 }

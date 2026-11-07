@@ -43,7 +43,10 @@ retained reports start unread. No new control-plane write or execution state is 
 
 Take over, revoke/transfer and parent exit end access as they do for tails. A
 restored parent can read retained reports only after its child ownership has been
-restored. Reports persist in the child's private session record and disappear when
+restored. Before Foom restarts, a human re-grant to the same tile and repository, or a
+verified same-tile Resume with current disclosure consent (#1081), restores its previous non-taken-over child ownership
+and retained reports, with unread cursors reset. A different session receives no
+reports through a transfer; ended review loops remain ended. Reports persist in the child's private session record and disappear when
 that row closes, including after takeover, except for owned reviewer reports
 retained with the worktree as described below. Session storage is bounded to 32 MiB;
 a failed save reports an error, retains the accepted report in memory, and a replay

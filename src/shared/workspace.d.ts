@@ -124,6 +124,7 @@ export type OrchestrationView =
   | {
       role: "orchestrator";
       active: boolean;
+      restoreOnResume?: true;
       children: number;
       history: readonly OrchestrationEntry[];
     }

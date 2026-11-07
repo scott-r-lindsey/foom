@@ -28,6 +28,8 @@ export interface StoredSession extends WorkspaceTerminal {
   running?: boolean;
   orchestrator?: {
     identity: string;
+    /** This parent tile's checkout identity, distinct from the repository root. */
+    worktreeIdentity?: string;
     history: readonly OrchestrationEntry[];
     worktrees?: readonly OwnedWorktree[];
     uncertain?: number;
