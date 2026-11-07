@@ -25,7 +25,10 @@ fallback. Managed client policy may deny attachment. These tools
 never return terminal output. **Make orchestrator…** in a running Claude Code, Codex or
 Antigravity session's menu grants that session permission to create worktrees and run up to
 the concurrent child limit set in Settings → General (default 4, integer 1–16),
-without restarting it; **Revoke orchestrator** takes it back.
+without restarting it; **Revoke orchestrator** takes it back. Re-granting the same
+tile restores its previous children, handoffs and worktrees in that repository,
+except children you took over. A verified Resume in the same tile restores its
+role when it held that role at exit and no intervening grant or revoke changed it.
 One session per repository holds the role: making another the orchestrator asks once and
 revokes the first. The session keeps its own launch flags, including bypass. Every
 agent sees the existing orchestration tools from launch, refused until you grant the role; tell

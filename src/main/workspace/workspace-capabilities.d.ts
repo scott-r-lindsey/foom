@@ -34,7 +34,14 @@ export interface WorktreeLaunchContext {
   readonly now: () => number;
   readonly orchestration: Pick<
     Orchestration,
-    "relaunched" | "view" | "exited" | "remoteParentGuard" | "remoteCheckout" | "worktreeHost"
+    | "relaunched"
+    | "view"
+    | "exited"
+    | "remoteParentGuard"
+    | "remoteCheckout"
+    | "worktreeHost"
+    | "resumeGuard"
+    | "reserve"
   >;
   readonly persist: () => void;
   readonly queues: Map<string, Promise<void>>;
@@ -42,7 +49,7 @@ export interface WorktreeLaunchContext {
   readonly replacementVersion: WorkspaceMethods["replacementVersion"];
   readonly resumeStarts: Map<string, Promise<void>>;
   readonly scanAgents: WorkspaceMethods["scanAgents"];
-  readonly sessions: Pick<SessionOwner, "rememberIdentity" | "rememberRemote">;
+  readonly sessions: Pick<SessionOwner, "rememberIdentity" | "rememberRemote" | "identity">;
   readonly shellEnvironment: WorkspaceMethods["shellEnvironment"];
   readonly startExisting: WorkspaceMethods["startExisting"];
   readonly startShell: WorkspaceMethods["startShell"];
@@ -216,7 +223,7 @@ export interface OrchestrationCommandsContext {
   readonly queues: Map<string, Promise<void>>;
   readonly refresh: () => void;
   readonly revokeOrchestrator: WorkspaceMethods["revokeOrchestrator"];
-  readonly sessions: Pick<SessionOwner, "isRestoring" | "rememberIdentity">;
+  readonly sessions: Pick<SessionOwner, "isRestoring" | "rememberIdentity" | "identity">;
   readonly withRepository: <T>(repository: string, work: () => Promise<T>) => Promise<T>;
   readonly worktrees: WorkspaceMethods["worktrees"];
   readonly deps: {

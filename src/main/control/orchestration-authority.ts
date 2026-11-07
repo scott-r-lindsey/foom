@@ -73,6 +73,7 @@ export class OrchestrationAuthority {
   readonly handoffs = new Handoffs();
   readonly unreadChildren: UnreadChildEvents;
   readonly childEvents = new ChildEvents();
+  private readonly resumable = new Map<string, Parent>();
   private readonly slots = new Map<string, Parent>();
   private readonly parents = new Map<string, Parent>();
   protected readonly early = new Set<string>();
@@ -289,7 +290,11 @@ export class OrchestrationAuthority {
   /** One parent per canonical repository; a live duplicate returns the existing parent's ID. */
   reserve(
     repository: string,
+    recovering?: string,
   ): { existing: string } | { bind(terminalId: string): void; release(): void } {
+    const recoveringParent = recovering === undefined ? undefined : this.parents.get(recovering);
+    if (recoveringParent && (recoveringParent.starting > 0 || recoveringParent.creating > 0))
+      throw new ControlError("conflict");
     const current = this.slots.get(repository);
     if (current) {
       if (current.terminalId !== null) return { existing: current.terminalId };
@@ -313,13 +318,27 @@ export class OrchestrationAuthority {
     return {
       bind: (terminalId) => {
         if (this.slots.get(repository) !== parent || parent.terminalId !== null) return;
-        parent.terminalId = terminalId;
-        // A session made orchestrator again keeps its earlier, retired action history.
+        // A human re-grant (or verified same-tile resume) recovers this session only.
         const previous = this.parents.get(terminalId);
-        if (previous && previous !== parent) {
+        if (previous && (previous.starting > 0 || previous.creating > 0))
+          throw new ControlError("conflict");
+        parent.terminalId = terminalId;
+        if (previous && previous !== parent && previous.repository === repository) {
+          for (const [id, child] of previous.children)
+            parent.children.set(id, {
+              worktreeId: child.worktreeId,
+              exited: child.exited,
+              takenOver: child.takenOver,
+              tailAt: 0,
+            });
+          for (const [id, tree] of previous.worktrees) parent.worktrees.set(id, { ...tree });
+          parent.uncertain = previous.uncertain;
+          for (const id of previous.refusedWorktrees) parent.refusedWorktrees.add(id);
           parent.history.push(...previous.history.slice(-HISTORY));
           this.retire(previous);
         }
+        for (const [id, candidate] of this.resumable)
+          if (candidate.repository === repository) this.resumable.delete(id);
         this.parents.set(terminalId, parent);
         if (this.early.delete(terminalId)) this.retire(parent);
         this.changed();
@@ -435,8 +454,20 @@ export class OrchestrationAuthority {
     };
   }
 
+  /** Only a same-tile conversation resume may use this main-owned exit provenance. */
+  resumeGuard(id: string, repository: string): (() => void) | undefined {
+    const parent = this.resumable.get(id);
+    if (!parent || parent.repository !== repository || this.active(repository)) return undefined;
+    return () => {
+      if (this.resumable.get(id) !== parent || this.parents.get(id) !== parent)
+        throw new ControlError("forbidden");
+      if (parent.starting > 0 || parent.creating > 0) throw new ControlError("conflict");
+    };
+  }
+
   /** The human revoked the role: authority ends as on exit, and the session keeps running. */
   revoke(id: string): void {
+    this.resumable.delete(id);
     const parent = this.parents.get(id);
     if (parent) this.retire(parent);
   }
@@ -446,6 +477,7 @@ export class OrchestrationAuthority {
     this.childEvents.publish();
     const parent = this.parents.get(id);
     if (parent) {
+      if (parent.active) this.resumable.set(id, parent);
       this.retire(parent);
       return;
     }
@@ -463,6 +495,7 @@ export class OrchestrationAuthority {
 
   /** The session left the board. A parent's history goes with its row. */
   removed(id: string): void {
+    this.resumable.delete(id);
     void this.recordChild(id, "close", { status: "closed" });
     this.childEvents.publish();
     const reviewer = this.reviews.isReviewer(id);
@@ -498,7 +531,8 @@ export class OrchestrationAuthority {
   }
 
   /** Local human relaunch drops ownership; phase-2 remote resume retains a main-validated parent. */
-  relaunched(id: string, remoteParentId?: string): void {
+  relaunched(id: string, remoteParentId?: string, resumeParent = false): void {
+    if (!resumeParent) this.resumable.delete(id);
     if (remoteParentId !== undefined) {
       const parent = this.parents.get(remoteParentId);
       const child = parent?.children.get(id);

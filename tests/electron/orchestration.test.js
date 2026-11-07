@@ -91,3 +91,10 @@ test("local orchestrators exchange board posts and the human replies and resolve
 }, async (context) => {
   await runOrchestratorScenario(context, false, "board");
 });
+
+test("same-tile orchestrator resume retains its live children with fresh credentials", {
+  timeout: deadline(90_000),
+  skip: process.platform === "win32" && "The fake agent is a POSIX script",
+}, async (context) => {
+  await runOrchestratorScenario(context, false, "resume");
+});

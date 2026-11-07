@@ -78,6 +78,9 @@ export async function makeOrchestrator(
   const control = await this.control;
   if (!control) throw new Error("Control service unavailable");
   const identity = await this.deps.worktrees.launchIdentity(entry.repository, entry.repository);
+  const prior = this.orchestration.view(id);
+  if (prior?.role === "orchestrator" && this.sessions.identity(entry.repository) !== identity)
+    throw new Error("Repository identity changed before re-grant");
   const current = this.orchestration.active(entry.repository);
   const replaced = current === undefined ? undefined : this.launched.get(current);
   const operationId = randomUUID();
@@ -103,7 +106,7 @@ export async function makeOrchestrator(
     if (this.orchestration.active(entry.repository) !== current)
       throw new Error("The orchestrator changed. Try again.");
     if (current !== undefined) await this.revokeOrchestrator(current);
-    const slot = this.orchestration.reserve(entry.repository);
+    const slot = this.orchestration.reserve(entry.repository, id);
     if ("existing" in slot) throw new Error("The orchestrator changed. Try again.");
     try {
       control.setRole(id, "orchestrator");

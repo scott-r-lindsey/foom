@@ -215,3 +215,101 @@ it("makes CLI-only agents orchestrators, including Antigravity without interacti
   });
   expect(setRole).toHaveBeenCalledWith("parent", "orchestrator");
 });
+
+it("resumes an exited orchestrator in its tile with fresh role credentials and its children", async () => {
+  const workspace = createWorkspace(deps);
+  const initial = { id: "parent", attention: "evaluator" as const, conversationId: "saved-123" };
+  launch.mockResolvedValueOnce(initial);
+  await orchestrate(workspace);
+  const operations = new Operations(
+    () => Promise.resolve(),
+    () => undefined,
+  );
+  const tree = (await workspace.orchestration.call(
+    principal(),
+    "create_worktree",
+    {
+      branch: "feature",
+      idempotencyKey: "resume-tree",
+    },
+    operations,
+  )) as Operation;
+  launch.mockResolvedValueOnce({ id: "child", attention: "evaluator" });
+  await workspace.orchestration.call(
+    principal(),
+    "launch",
+    {
+      worktreeId: tree.resultId,
+      agent: "claude",
+      idempotencyKey: "resume-child",
+    },
+    operations,
+  );
+  await workspace.exited("parent", 0);
+  launch.mockResolvedValueOnce({ id: "parent", attention: "evaluator" });
+  await workspace.sidebarCommand({ kind: "resume", id: "parent" }, confirm);
+  expect(launch).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      terminalId: "parent",
+      conversationId: "saved-123",
+      control: { role: "orchestrator" },
+    }),
+  );
+  expect(workspace.orchestration.view("parent")).toMatchObject({ active: true, children: 1 });
+  expect(workspace.orchestration.view("child")).toMatchObject({
+    parentId: "parent",
+    takenOver: false,
+  });
+});
+
+for (const action of ["revoke", "new-conversation", "transfer", "identity", "failure"] as const) {
+  it(`guards orchestrator resume against ${action}`, async () => {
+    const workspace = createWorkspace(deps);
+    const initial = { id: "parent", attention: "evaluator" as const, conversationId: "saved-123" };
+    launch.mockResolvedValueOnce(initial);
+    await orchestrate(workspace);
+    if (action === "revoke")
+      await workspace.sidebarCommand({ kind: "revoke-orchestrator", id: "parent" }, confirm);
+    await workspace.exited("parent", 0);
+    if (action === "transfer") {
+      launch.mockResolvedValueOnce({ id: "second", attention: "evaluator" });
+      await workspace.sidebarCommand(
+        { kind: "launch", repository: repo.path, worktree: child.path, run: "claude" },
+        confirm,
+      );
+      await make(workspace, "second");
+    }
+    if (action === "identity") deps.worktrees.launchIdentity = () => Promise.resolve("replaced");
+    launch.mockResolvedValueOnce({ id: "parent", attention: "evaluator" });
+    if (action === "failure") launch.mockRejectedValueOnce(new Error("spawn failed"));
+    const resume = () =>
+      workspace.sidebarCommand(
+        { kind: action === "new-conversation" ? "new-conversation" : "resume", id: "parent" },
+        confirm,
+      );
+    if (action === "identity") {
+      await expect(resume()).rejects.toThrow("Repository identity changed");
+      expect(workspace.orchestration.active(repo.path)).toBeUndefined();
+    } else if (action === "failure") {
+      // The first attempt succeeds; the following exit and failed resume release the slot.
+      await resume();
+      await workspace.exited("parent", 0);
+      await expect(resume()).rejects.toThrow("spawn failed");
+      expect(workspace.orchestration.active(repo.path)).toBeUndefined();
+    } else {
+      await resume();
+      expect(launch.mock.calls.at(-1)?.[0].control).toBeUndefined();
+      expect(workspace.orchestration.active(repo.path)).toBe(
+        action === "transfer" ? "second" : undefined,
+      );
+    }
+  });
+}
+
+it("refuses to recover a prior role into a replaced repository at the same path", async () => {
+  const workspace = createWorkspace(deps);
+  await orchestrate(workspace);
+  await workspace.sidebarCommand({ kind: "revoke-orchestrator", id: "parent" }, confirm);
+  deps.worktrees.launchIdentity = () => Promise.resolve("replaced");
+  await expect(make(workspace)).rejects.toThrow("Repository identity changed before re-grant");
+});

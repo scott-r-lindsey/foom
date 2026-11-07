@@ -15,8 +15,18 @@ Bind credentials before exposing a session; revoke on spawn failure, exit, remov
 and shutdown. No control registration depends on hooks being enabled. Scrub all
 inherited Foom credentials before constructing each child's environment, then add
 fresh child-scoped values. Never return tokens to the renderer, logs, MCP results
-or error text. New Foom instances and resumed sessions receive fresh credentials;
-automatic restore may re-grant orchestrator control only from Foom's main-owned session store, when restore is enabled, the orchestrator was active at quit, the same repository identity is still registered and the installed provider supports restore control and per-launch MCP. Bundled restore support is Claude Code/Codex; valid v2 config providers may declare the same capability, subject to these provenance checks (see [architecture](../areas/providers.md#agent-provider-registry-and-manifest-approval-407)). Hook data, conversation metadata, agent output and environment flags never grant roles. Otherwise the session resumes ordinarily and its panel says the role was not restored. Every re-grant has a new principal generation and token. The verified repository identity is carried into the launch and rechecked before spawning. Tokens, confirmations, replies, waits and in-flight mutations never survive; unresolved persisted operation intents still require human reconciliation.
+or error text. New Foom instances and resumed sessions receive fresh credentials. A live-process
+pause or MCP reinitialization preserves the existing role. Same-tile Resume can
+restore it from main-owned role-at-exit provenance, recorded conversation and
+matching registered repository identity, with a reserved slot and a pre-spawn
+provenance check. Explicit revoke, another grant, removal or a new conversation
+invalidates that provenance; conversation text or a pasted ID alone grants nothing.
+A human re-grant to the same tile and repository restores its previous children,
+handoffs and worktrees, excluding taken-over children, as disclosed in the grant.
+Old in-flight capabilities and operations remain invalid. Across app restart,
+automatic restore may re-grant orchestrator control only from Foom's main-owned session store, when restore is enabled, the orchestrator was active at quit, the same repository identity is still registered and the installed provider supports restore control and per-launch MCP. Bundled restore support is Claude Code/Codex; valid v2 config providers may declare the same capability, subject to these provenance checks (see [architecture](../areas/providers.md#agent-provider-registry-and-manifest-approval-407)). Hook data, conversation metadata, agent output and environment flags never grant roles. Otherwise the session resumes ordinarily and its panel says the role was not restored. Every resumed launch has a new principal generation and token; human elevation
+of a running session swaps its immutable principal while retaining its launch
+token and generation. The verified repository identity is carried into the launch and rechecked before spawning. Tokens, confirmations, replies, waits and in-flight mutations never survive; unresolved persisted operation intents still require human reconciliation.
 
 Restored parents launch before their running, non-taken-over children. Those children keep child launch rules (user defaults with bypass refused and an orchestrator prompt prefix), count toward the configured child limit, and may be stopped, tailed and waited for by the new parent. Stop returns a conflict while a restored child is still starting; it cannot report success for a PTY that does not exist yet. Taken-over children and children without a re-granted parent resume ordinarily. The active panel and its action history continue without a restore badge.
 
@@ -179,7 +189,9 @@ returns an operation ID, so agents cannot hold the HTTP connection indefinitely.
 Stopping a child needs no extra confirmation after the user has made its parent the
 orchestrator; stopping unrelated sessions is forbidden. Parent exit revokes its
 authority and cancels pending mutations/replies, but leaves children running for
-the human. Revoking the role has the same effect. A replacement orchestrator does not inherit those children; automatic restore reattaches saved children that had not been taken over, including exited children for worktree cleanup, under the re-grant checks above. Quit keeps
+the human. Revoking the role has the same effect. A different-session replacement orchestrator does not inherit those children;
+a same-session human re-grant recovers its prior non-taken-over children and
+worktrees, retaining handoffs and host placement but never replaying old actions; automatic restore reattaches saved children that had not been taken over, including exited children for worktree cleanup, under the re-grant checks above. Quit keeps
 the existing confirmation and stops all PTYs.
 
 ### Provider stalls (#339)

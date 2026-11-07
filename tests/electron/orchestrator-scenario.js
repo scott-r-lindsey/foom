@@ -40,7 +40,18 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
   );
   await writeFile(
     path.join(bin, "claude"),
-    ["waiting", "unread"].includes(phase) ? waitingFixture : FAKE_ORCHESTRATED_CLAUDE,
+    ["waiting", "unread"].includes(phase)
+      ? waitingFixture
+      : phase === "resume"
+        ? FAKE_ORCHESTRATED_CLAUDE.replace(
+            'process.stdout.write("FOOM_AGENT_READY',
+            `
+const settings = JSON.parse(args[args.indexOf("--settings") + 1]);
+const hook = require("node:child_process").spawn("sh", ["-c", settings.hooks.UserPromptSubmit[0].hooks[0].command], { stdio: ["pipe", "ignore", "inherit"] });
+hook.stdin.end(JSON.stringify({ session_id: "saved-1081", hook_event_name: "UserPromptSubmit" }));
+process.stdout.write("FOOM_AGENT_READY`,
+          )
+        : FAKE_ORCHESTRATED_CLAUDE,
   );
   if (cliOnly) {
     await writeFile(
@@ -530,6 +541,37 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
       });
     }
     const childId = launched.body.result.resultId;
+    if (phase === "resume") {
+      await expect
+        .poll(
+          async () =>
+            (await page.evaluate(() => window.desktop.workspace())).terminals.find(
+              (row) => row.id === parentId,
+            )?.conversationId,
+        )
+        .toBe("saved-1081");
+      const oldToken = parent.controlToken;
+      await page.evaluate((id) => window.desktop.input(id, "q"), parentId);
+      await expect
+        .poll(
+          async () =>
+            (await page.evaluate(() => window.desktop.workspace())).terminals.find(
+              (row) => row.id === parentId,
+            )?.exited,
+        )
+        .toBe(true);
+      await page.evaluate((id) => window.desktop.sidebarCommand({ kind: "resume", id }), parentId);
+      await expect.poll(async () => (await read("app")).controlToken).not.toBe(oldToken);
+      Object.assign(parent, await read("app"));
+      assert.equal(
+        (await directCall(parent.controlToken, "whoami")).body.result.role,
+        "orchestrator",
+      );
+      assert.equal((await directCall(oldToken, "whoami")).status, 401);
+      assert.equal((await directCall(parent.controlToken, "tail", { id: childId })).status, 200);
+      return;
+    }
+
     if (phase === "unread") {
       const parentBoard = parentRow.locator(":scope > .board-row");
       // Launch replies before the renderer handles the background placement.
@@ -1417,6 +1459,41 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
         }),
       );
       assert.equal(logged.total, 1);
+      // Re-grant visibly recovers this same running tile's previous live child.
+      const regrant = page.evaluate(
+        (id) => window.desktop.sidebarCommand({ kind: "make-orchestrator", id }),
+        parentId,
+      );
+      const recovery = await confirmationPage(app);
+      await expect(recovery.getByText(/Recover this session’s previous children/)).toBeVisible();
+      await recovery.getByRole("button", { name: "Make orchestrator" }).click();
+      await regrant;
+      assert.equal((await directCall(parent.controlToken, "tail", { id: liveId })).status, 200);
+      assert.equal(
+        (
+          await directCall(parent.controlToken, "prompt", {
+            id: liveId,
+            text: "Continue",
+            idempotencyKey: "regrant-prompt",
+          })
+        ).body.result.status,
+        "succeeded",
+      );
+      assert.equal(
+        (
+          await directCall(parent.controlToken, "send_keys", {
+            id: liveId,
+            keys: ["enter"],
+            idempotencyKey: "regrant-keys",
+          })
+        ).body.result.status,
+        "succeeded",
+      );
+      await page.evaluate(
+        (id) => window.desktop.sidebarCommand({ kind: "revoke-orchestrator", id }),
+        parentId,
+      );
+
       await page.evaluate(() => window.desktop.clearActionLog());
       assert.equal(
         (

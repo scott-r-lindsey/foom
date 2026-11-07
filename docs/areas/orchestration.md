@@ -74,6 +74,29 @@ to the normal sidebar close path; the final screen is discarded while the checko
 branch and review state remain for ordinary worktrees. Foom-created detached
 review checkouts instead use the narrow #843 removal exception above.
 
+## Same-session resume and re-grant (#1081)
+
+A provider pause inside a live process leaves the grant and role intact. Host exit
+revokes its credentials and retires authority; previously the tile's Resume path
+created an ordinary grant, and re-grant retained only history, stranding children.
+MCP reinitialization alone does not replace a control principal or revoke its role.
+
+Resume of the same main-owned tile and recorded conversation may restore the role
+with fresh credentials when it held the role at exit, its registered repository
+identity still matches, and no intervening grant, explicit revoke, removal or new
+conversation invalidated that provenance. Main reserves the repository slot and
+rechecks the captured provenance before spawn. A pasted conversation or a different
+tile never establishes this authority. A failed launch releases its reservation.
+
+The trusted Make orchestrator disclosure states that re-granting the same tile in
+the same repository restores its prior children, retained handoffs and created
+worktrees. Main carries those records into a new authority object, retaining host
+placement and takeover flags and resetting handoff read cursors. Old capabilities,
+waits, operations and confirmations remain invalid. Existing checkout identity and
+removal checks still apply. Taken-over children stay under human control; transfer
+to another session grants none of the former parent's children. Ended review loops
+stay ended; recovery never restarts automation or replays actions.
+
 ## Optional child build/review loop (#690)
 
 Only an orchestrator's `launch` accepts `review: {rounds?, agent?, model?, effort?, postFindings?, parentWaitMinutes?}`.

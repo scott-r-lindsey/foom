@@ -604,6 +604,22 @@ export async function startExisting(
 ): Promise<string | undefined> {
   return this.withRepository(repository, async () => {
     let reservation: string | undefined;
+    let resumeSlot:
+      | Exclude<ReturnType<WorktreeLaunchContext["orchestration"]["reserve"]>, { existing: string }>
+      | undefined;
+    let resumeIdentity: string | undefined;
+    const oldParent = replacement ? this.launched.get(replacement.id) : undefined;
+    const resumeGuard =
+      !restoring &&
+      !control &&
+      replacement?.conversationId &&
+      oldParent?.conversationId === replacement.conversationId &&
+      oldParent.agent === run &&
+      oldParent.repository === repository &&
+      oldParent.worktree === worktree &&
+      !oldParent.remote
+        ? this.orchestration.resumeGuard(oldParent.id, repository)
+        : undefined;
     try {
       const registeredHost = this.orchestration.worktreeHost(worktree);
       if (registeredHost !== undefined) {
@@ -652,6 +668,17 @@ export async function startExisting(
       }
       if (run !== "shell") {
         if (!isRemote) await this.scanAgents(false);
+        if (resumeGuard && replacement) {
+          const rootIdentity = await this.deps.worktrees.launchIdentity(repository, repository);
+          if (rootIdentity !== this.sessions.identity(repository))
+            throw new Error("Repository identity changed during resume");
+          resumeIdentity = rootIdentity;
+          resumeGuard();
+          const slot = this.orchestration.reserve(repository);
+          if ("existing" in slot) throw new Error("The orchestrator changed. Try again.");
+          resumeSlot = slot;
+          control = { role: "orchestrator" };
+        }
         if (replacement) {
           const old = this.launched.get(replacement.id);
           if (old?.remote && !isRemote)
@@ -662,6 +689,7 @@ export async function startExisting(
             this.orchestration.relaunched(
               replacement.id,
               old.remote && control && "parentId" in control ? control.parentId : undefined,
+              resumeGuard !== undefined,
             );
           await this.queues.get(old.id);
           if (old.remote && old.placement?.kind === "remote")
@@ -671,54 +699,58 @@ export async function startExisting(
           this.executionOwner.reset(old.id);
           this.deps.verdicts.forget(old.id);
         }
+        const childParentId = control && "parentId" in control ? control.parentId : undefined;
         try {
-          return (
-            await this.launchAgent(
-              {
-                agent: run,
-                repository,
-                worktree,
-                cols: 80,
-                rows: 24,
-              },
-              worktree === repository,
-              true,
-              identity,
-              replacement,
-              {
-                ...(registeredRemote ? { remoteCheckout: registeredRemote } : {}),
-                ...(isRemote && control && "parentId" in control
-                  ? {
-                      beforeSpawn: () => {
-                        remoteParentGuard?.();
-                        const parent = this.orchestration.view(control.parentId);
-                        const child = replacement
-                          ? this.orchestration.view(replacement.id)
-                          : undefined;
-                        if (
-                          parent?.role !== "orchestrator" ||
-                          !parent.active ||
-                          (replacement &&
-                            (child?.role !== "child" ||
-                              child.parentId !== control.parentId ||
-                              child.takenOver))
-                        )
-                          throw new Error("Remote child ownership changed");
-                      },
-                    }
-                  : {}),
-                ...(pastedId === undefined
-                  ? {}
-                  : { conversationId: pastedId, pinConversation: true }),
-                ...(control === undefined
-                  ? {}
-                  : {
-                      control,
-                      ...("parentId" in control ? { prompt: "Resume your previous task." } : {}),
-                    }),
-              },
-            )
-          ).id;
+          const resumed = await this.launchAgent(
+            {
+              agent: run,
+              repository,
+              worktree,
+              cols: 80,
+              rows: 24,
+            },
+            worktree === repository,
+            true,
+            identity,
+            replacement,
+            {
+              ...(registeredRemote ? { remoteCheckout: registeredRemote } : {}),
+              ...(resumeGuard ? { beforeSpawn: resumeGuard } : {}),
+              ...(isRemote && childParentId !== undefined
+                ? {
+                    beforeSpawn: () => {
+                      remoteParentGuard?.();
+                      const parent = this.orchestration.view(childParentId);
+                      const child = replacement
+                        ? this.orchestration.view(replacement.id)
+                        : undefined;
+                      if (
+                        parent?.role !== "orchestrator" ||
+                        !parent.active ||
+                        (replacement &&
+                          (child?.role !== "child" ||
+                            child.parentId !== childParentId ||
+                            child.takenOver))
+                      )
+                        throw new Error("Remote child ownership changed");
+                    },
+                  }
+                : {}),
+              ...(pastedId === undefined
+                ? {}
+                : { conversationId: pastedId, pinConversation: true }),
+              ...(control === undefined
+                ? {}
+                : {
+                    control,
+                    ...("parentId" in control ? { prompt: "Resume your previous task." } : {}),
+                  }),
+            },
+          );
+          resumeSlot?.bind(resumed.id);
+          if (resumeIdentity !== undefined)
+            this.sessions.rememberIdentity(repository, resumeIdentity);
+          return resumed.id;
         } catch (error) {
           if (replacement) {
             this.executionOwner.markExited(replacement.id, -1);
@@ -743,6 +775,7 @@ export async function startExisting(
         );
       }
     } finally {
+      resumeSlot?.release();
       if (reservation !== undefined) this.busyWorktrees.delete(reservation);
     }
   });

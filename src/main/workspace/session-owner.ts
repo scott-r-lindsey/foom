@@ -62,6 +62,10 @@ export class SessionOwner {
   roleNotRestored(id: string): boolean {
     return !this.restoring.has(id) && this.unrestoredRoles.has(id);
   }
+  identity(repository: string): string | undefined {
+    return this.repositoryIdentities.get(repository);
+  }
+
   rememberIdentity(repository: string, identity: string): void {
     this.repositoryIdentities.set(repository, identity);
   }
