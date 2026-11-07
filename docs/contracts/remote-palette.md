@@ -13,9 +13,19 @@ for agents and for machine agents, recipes and ordinary shells. The first OSC
 or a second message. The palette is metadata, never a process argument or file.
 
 A live session owns its current colors. Reattach ignores startup palette fields,
-and neither reconnect nor hub restart sends a theme replacement after open.
+and reconnect or hub restart does not replace an unchanged palette after open.
 Snapshots replay the retained defaults and application-set overrides. Explicit
-connected theme updates still replace defaults and reset overrides, as locally.
+theme changes still replace defaults and reset overrides, as locally. The hub
+retains the latest desired palette and tracks acknowledged replacements. A change
+made while disconnected, or sent without a matching acknowledgement before SSH
+loss, is replayed before attachment and remains pending until acknowledged. An
+older acknowledgement cannot confirm a newer replacement. Reconnecting again
+after confirmation sends no replacement, preserving application colors.
+
+Reconnect restores dimensions only after a view has reported a size. A restored
+session's creation grid (80x24) is not a resize observation. If there are no missed
+theme updates, reported dimensions or attachments, the live open reply completes
+restoration and clears its deadline without modifying the PTY or screen.
 
 New daemons advertise `startupTheme: 1` in `hello`. For a fresh launch against a
 compatible different build, the hub requires this capability and otherwise
