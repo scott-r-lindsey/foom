@@ -46,7 +46,9 @@ async function captureHosts(app, page, name) {
       await expect
         .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
         .toBe(mode === "dark");
-      await area.screenshot({ path: evidencePath(`1041/${name}-${mode}.png`) });
+      await area.screenshot({
+        path: evidencePath(`${name.startsWith("1061/") ? name : `1041/${name}`}-${mode}.png`),
+      });
     }
   } finally {
     if (resizeForCapture) await resize(original);
@@ -167,6 +169,7 @@ process.stdin.on('data', bytes => {
    if(message.operation==='repository' || message.operation==='clone') result.checkout={path:folder+'/'+message.directory,state:message.operation==='clone'?'clean':'absent'};
   }
   if(result.ok) { if(settings.facts) Object.assign(result.facts,settings.facts); if(message.operation==='origin' && settings.origin) result={ok:false,reason:settings.origin}; if(message.operation==='repository' && settings.checkout && result.ok) { result.checkout.state=settings.checkout; } }
+  if(message.operation==='inspect' && message.target?.kind==='facts' && settings.factsFailure) result={ok:false,reason:settings.factsFailure};
   if(host==='invalid-cloud') result={ok:true,facts:{}};
   const failures={'provider-cloud':'provider-invalid','configuration-cloud':'configuration-changed','cancelled-cloud':'cancelled'};
   if(failures[host]) result={ok:false,reason:failures[host]};
@@ -490,6 +493,20 @@ test("Hosts renders Git failures and platform capability diagnostics", {
   await expect(card.getByRole("button", { name: "Install git", exact: true })).toHaveCount(0);
   await capture("fresh-mac");
   await updateScenario({
+    facts: {
+      requirements: {
+        distro: "darwin",
+        libc: "supported",
+        packageManager: "brew",
+        mac: { commandLineTools: true, protectedFolder: false, staysAwake: true },
+      },
+    },
+  });
+  await card.getByRole("button", { name: "Reload Code folder", exact: true }).click();
+  await expect(card.getByText("Pass · Valid", { exact: true })).toBeVisible();
+  await expect(card.getByText("Do this on the Mac", { exact: true })).toBeVisible();
+  await expect(card.getByText("Warning · Sleeps when idle", { exact: true })).toBeVisible();
+  await updateScenario({
     facts: { requirements: { distro: "unknown", libc: "supported", packageManager: "none" } },
   });
   await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
@@ -596,6 +613,7 @@ test("Hosts shows readiness and clones checkouts with explicit origin trust", {
   await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
   await expect(card.getByRole("button", { name: "Trust host key", exact: true })).toBeEnabled();
   await capture("origin-host-key");
+  const beforeTrust = (await readFile(calls, "utf8")).trim().split("\n").length;
   await card.getByRole("button", { name: "Trust host key", exact: true }).click();
   await expect(page.locator(".terminal-tile[data-kind='shell']").last()).toBeVisible();
   await expect
@@ -613,6 +631,15 @@ test("Hosts shows readiness and clones checkouts with explicit origin trust", {
     .getByRole("button", { name: "Hosts", exact: true })
     .click();
   await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
+  const trustChecks = (await readFile(calls, "utf8"))
+    .trim()
+    .split("\n")
+    .slice(beforeTrust)
+    .map((line) => JSON.parse(line))
+    .filter(({ message }) => message.type === "manage")
+    .map(({ message }) => message.operation)
+    .filter((operation) => operation !== "list-worktrees");
+  assert.deepEqual(trustChecks, ["origin", "repository"]);
   await updateScenario(ready);
   await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
   await expect(card.getByText("Ready · 1 repository", { exact: true })).toBeVisible();
@@ -747,6 +774,11 @@ test("Repositories clones per host and opens fixed repair recipes without exposi
   await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
   await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
   await expect(card.getByRole("button", { name: "Install git", exact: true })).toBeEnabled();
+  const beforeInstall = (await readFile(calls, "utf8")).trim().split("\n").length;
+  const lastChecked = await page.evaluate(
+    async () =>
+      (await window.desktop.setupState()).settings.registeredHosts[0].observation.checkedAt,
+  );
   await card.getByRole("button", { name: "Install git", exact: true }).click();
   await expect
     .poll(
@@ -763,11 +795,51 @@ test("Repositories clones per host and opens fixed repair recipes without exposi
     )
     .toContain("FIXTURE_RECIPE_COMPLETE");
   await capture("fix-install-tile");
+  await updateScenario({
+    facts: {
+      tools: [
+        { id: "git", state: "ready", signIn: "unknown" },
+        { id: "gh", state: "ready", signIn: "signed-out" },
+      ],
+    },
+  });
   await openSettingsScreen(page);
   await page
     .getByRole("navigation", { name: "Settings sections" })
     .getByRole("button", { name: "Hosts", exact: true })
     .click();
+  await expect(card).toBeVisible();
+  const expandInstalled = card.getByRole("button", { name: "Expand fixture-cloud", exact: true });
+  if (await expandInstalled.count()) await expandInstalled.click();
+  await expect(
+    card
+      .locator(".host-check-row")
+      .filter({ has: page.getByRole("button", { name: "Reload git", exact: true }) }),
+  ).toContainText("Pass · Installed");
+  const installChecks = (await readFile(calls, "utf8"))
+    .trim()
+    .split("\n")
+    .slice(beforeInstall)
+    .map((line) => JSON.parse(line))
+    .filter(({ message }) => message.type === "manage")
+    .map(({ message }) => message);
+  assert.deepEqual(
+    installChecks
+      .filter(({ operation }) => operation === "inspect")
+      .map(({ target }) => target ?? null),
+    [null, { kind: "tool", tool: "git" }],
+  );
+  assert.equal(
+    installChecks.some(({ operation }) => ["origin", "repository"].includes(operation)),
+    false,
+  );
+  assert.equal(
+    await page.evaluate(
+      async () =>
+        (await window.desktop.setupState()).settings.registeredHosts[0].observation.checkedAt,
+    ),
+    lastChecked,
+  );
   await expect(card.getByRole("button", { name: "Sign in gh", exact: true })).toBeEnabled();
   await card.getByRole("button", { name: "Sign in gh", exact: true }).click();
   await expect
@@ -790,6 +862,9 @@ test("Repositories clones per host and opens fixed repair recipes without exposi
     .getByRole("navigation", { name: "Settings sections" })
     .getByRole("button", { name: "Hosts", exact: true })
     .click();
+  await expect(card).toBeVisible();
+  const expandSignedIn = card.getByRole("button", { name: "Expand fixture-cloud", exact: true });
+  if (await expandSignedIn.count()) await expandSignedIn.click();
   await expect(card.getByRole("button", { name: "Remove", exact: true })).toBeEnabled();
   await card.getByRole("button", { name: "Remove", exact: true }).click();
   await expect(card).toHaveCount(0);
@@ -932,4 +1007,120 @@ test("Hosts opens saved checks without SSH and keeps ready repositories compact"
   await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
   await expect(card.getByText("Ready · 6 repositories", { exact: true })).toBeVisible();
   assert.equal(await readFile(calls, "utf8"), before);
+});
+
+test("Hosts reloads individual rows and actions never trigger full capability checks", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, calls, updateScenario } = await hostsFixture(context);
+  const managementCalls = async () =>
+    (await readFile(calls, "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line))
+      .filter(
+        ({ message, phase }) =>
+          message.type === "manage" && message.operation !== "list-worktrees" && !phase,
+      )
+      .map(({ message }) => message);
+  const checkedAt = () =>
+    page.evaluate(
+      async () =>
+        (await window.desktop.setupState()).settings.registeredHosts[0].observation.checkedAt,
+    );
+  const timestamp = await checkedAt();
+  let before = (await managementCalls()).length;
+  await updateScenario({
+    hold: "inspect",
+    facts: {
+      tools: [
+        { id: "git", state: "ready", signIn: "unknown" },
+        { id: "gh", state: "missing", signIn: "unknown" },
+      ],
+    },
+  });
+  const gitRow = card
+    .locator(".host-check-row")
+    .filter({ has: page.getByRole("button", { name: "Reload git", exact: true }) });
+  await gitRow.hover();
+  const reload = card.getByRole("button", { name: "Reload git", exact: true });
+  await expect(reload).toHaveCSS("opacity", "1");
+  await reload.click();
+  await expect(gitRow).toContainText("Checking…");
+  await expect(card.getByRole("button", { name: "Reload SSH", exact: true })).toBeEnabled();
+  await expect(card.getByRole("button", { name: "Change folder", exact: true })).toBeEnabled();
+  await captureHosts(app, page, "1061/row-reload-pending");
+  await updateScenario({});
+  await expect(gitRow).toContainText("Pass · Installed");
+  const afterReload = (await managementCalls()).slice(before);
+  assert.equal(afterReload.length, 1);
+  assert.deepEqual(afterReload[0].target, { kind: "tool", tool: "git" });
+  // The fixture returned changed gh facts too. Its row must retain its prior result.
+  await expect(card.getByRole("button", { name: "Sign in gh", exact: true })).toBeVisible();
+  assert.equal(await checkedAt(), timestamp);
+  await captureHosts(app, page, "1061/row-reload-complete");
+  before = (await managementCalls()).length;
+  await card.getByRole("button", { name: "Change folder", exact: true }).click();
+  await card.getByLabel("Code folder", { exact: true }).fill("~/new-code");
+  await card.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
+  assert.deepEqual(
+    (await managementCalls()).slice(before).map(({ operation, target }) => ({ operation, target })),
+    [{ operation: "inspect", target: { kind: "folder" } }],
+  );
+  await expect(
+    card.locator(".host-check-row").filter({ hasText: "Repository checkout" }),
+  ).toContainText("Not checked");
+  assert.equal(await checkedAt(), timestamp);
+  // A row reload can reconcile a missing folder, then Create uses only its own reply.
+  await updateScenario({ facts: { folder: { state: "fail", reason: "folder-missing" } } });
+  await card.getByRole("button", { name: "Reload Code folder", exact: true }).click();
+  await expect(card.getByRole("button", { name: "Create", exact: true })).toBeEnabled();
+  await updateScenario({});
+  before = (await managementCalls()).length;
+  await card.getByRole("button", { name: "Create", exact: true }).click();
+  await expect(card.getByText("Pass · Valid", { exact: true })).toBeVisible();
+  assert.deepEqual(
+    (await managementCalls()).slice(before).map(({ operation }) => operation),
+    ["create-folder"],
+  );
+  assert.equal(await checkedAt(), timestamp);
+  // Checkout reload and Clone do not inspect other repositories or capabilities.
+  await card.getByRole("button", { name: /^Reload Repository checkout/u }).click();
+  await expect(card.getByRole("button", { name: "Clone here", exact: true })).toBeEnabled();
+  before = (await managementCalls()).length;
+  await card.getByRole("button", { name: "Clone here", exact: true }).click();
+  await expect(
+    card.getByText("Origin authentication failed · origin-auth", { exact: true }),
+  ).toBeVisible();
+  assert.deepEqual(
+    (await managementCalls()).slice(before).map(({ operation }) => operation),
+    ["clone"],
+  );
+  assert.equal(await checkedAt(), timestamp);
+  await card.getByText("Host facts", { exact: true }).click();
+  await updateScenario({ facts: { cores: 4 } });
+  before = (await managementCalls()).length;
+  await card.getByRole("button", { name: "Refresh facts", exact: true }).click();
+  await expect(card.getByText("CPU cores", { exact: true }).locator("..")).toContainText("4");
+  await expect(card.getByRole("button", { name: "Refresh facts", exact: true })).toBeEnabled();
+  assert.deepEqual(
+    (await managementCalls()).slice(before).map(({ operation, target }) => ({ operation, target })),
+    [{ operation: "inspect", target: { kind: "facts" } }],
+  );
+  assert.equal(await checkedAt(), timestamp);
+  await updateScenario({ factsFailure: "unreachable" });
+  before = (await managementCalls()).length;
+  await card.getByRole("button", { name: "Refresh facts", exact: true }).click();
+  await expect(card.getByText("Host unreachable", { exact: true })).toBeVisible();
+  await expect(card.getByRole("button", { name: "Refresh facts", exact: true })).toBeEnabled();
+  assert.deepEqual(
+    (await managementCalls()).slice(before).map(({ operation, target }) => ({ operation, target })),
+    [{ operation: "inspect", target: { kind: "facts" } }],
+  );
+  assert.equal(await checkedAt(), timestamp);
+  await expect(card.getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
+  await captureHosts(app, page, "1061/resource-refresh-failed");
+  await assertAccessible(page);
 });

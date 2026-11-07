@@ -1680,3 +1680,101 @@ test("malformed saved requirements are rejected on reload without remote reads",
     await fixture.dispose();
   }
 });
+
+test("repository reload and clone preserve all other rows and the full-check timestamp", async () => {
+  await hosts.action({ action: "add", host: "worker", codeFolder: "~/code" });
+  repositories.push({ path: "/local/other", name: "other" });
+  await hosts.action({ action: "preflight", host: "worker", codeFolder: facts.codeFolder });
+  const before = settings.registeredHosts?.[0]?.observation;
+  run.mockClear().mockResolvedValue({ ok: false, reason: "origin-auth" });
+  const origin = await hosts.action({
+    action: "reload",
+    host: "worker",
+    target: { kind: "origin", repository: "/local/repo" },
+  });
+  expect(run).toHaveBeenCalledTimes(1);
+  expect(run.mock.lastCall?.[1].operation).toBe("origin");
+  expect(origin.preflight?.repositories[0]?.origin).toEqual({
+    state: "fail",
+    reason: "origin-auth",
+  });
+  expect(origin.preflight?.repositories[1]).toEqual(before?.preflight.repositories[1]);
+  expect(origin.preflight?.result).toEqual(before?.preflight.result);
+  run.mockClear();
+  await hosts.action({
+    action: "reload",
+    host: "worker",
+    target: { kind: "checkout", repository: "/local/repo" },
+  });
+  expect(run).toHaveBeenCalledTimes(1);
+  expect(run.mock.lastCall?.[1].operation).toBe("repository");
+  run.mockClear();
+  await hosts.action({ action: "clone", host: "worker", repository: "/local/repo" });
+  expect(run).toHaveBeenCalledTimes(1);
+  expect(run.mock.lastCall?.[1].operation).toBe("clone");
+  expect(settings.registeredHosts?.[0]?.observation?.checkedAt).toBe(before?.checkedAt);
+  mock.execute.mockRejectedValue(new Error("origin missing"));
+  run.mockClear();
+  const unavailable = await hosts.action({
+    action: "reload",
+    host: "worker",
+    target: { kind: "origin", repository: "/local/repo" },
+  });
+  expect(run).not.toHaveBeenCalled();
+  expect(unavailable.preflight?.repositories[0]?.origin).toEqual({
+    state: "fail",
+    reason: "origin-unavailable",
+  });
+  run.mockResolvedValue({ ok: true, facts });
+  await hosts.action({ action: "change-folder", host: "worker", codeFolder: facts.codeFolder });
+  expect(
+    settings.registeredHosts?.[0]?.observation?.preflight.repositories.every(
+      (repo) => repo.origin.state === "not-checked" && repo.checkout.ok && !repo.checkout.checkout,
+    ),
+  ).toBe(true);
+});
+test("returning from recipes refreshes only the selected tool and sign-in without advancing Last checked", async () => {
+  const fixture = await restartedBrewHost();
+  try {
+    const before = fixture.checked.hosts[0]?.observation;
+    const launch = vi.fn(() => Promise.resolve());
+    await fixture.hosts.action(
+      { action: "recipe", host: "mac-fixture", tool: "git", operation: "install" },
+      undefined,
+      launch,
+    );
+    expect(launch).toHaveBeenCalledTimes(1);
+    fixture.run.mockClear();
+    const listed = await fixture.hosts.action({ action: "list" });
+    expect(
+      fixture.run.mock.calls.map(([, request]) =>
+        request.operation === "inspect" ? request.target : request.operation,
+      ),
+    ).toEqual([{ kind: "tool", tool: "git" }]);
+    expect(listed.hosts[0]?.observation?.checkedAt).toBe(before?.checkedAt);
+    fixture.run.mockClear();
+    await fixture.hosts.action({ action: "list" });
+    expect(fixture.run).not.toHaveBeenCalled();
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("explicit full checks supply sidebar locations without a second repository inspection", async () => {
+  await hosts.action({ action: "add", host: "worker", codeFolder: "~/code" });
+  const checked = await hosts.action({
+    action: "preflight",
+    host: "worker",
+    codeFolder: facts.codeFolder,
+  });
+  run.mockClear();
+  const sidebar = await hosts.locationsForSidebar();
+  expect(sidebar.locations).toEqual(
+    checked.preflight?.repositories.map((repo) => ({
+      host: "worker",
+      repository: repo.repository,
+      result: repo.checkout,
+    })),
+  );
+  expect(run).not.toHaveBeenCalled();
+});

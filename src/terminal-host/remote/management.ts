@@ -82,15 +82,19 @@ export async function manageHost(
   let folder = request.codeFolder.startsWith("~/")
     ? join(home, request.codeFolder.slice(2))
     : request.codeFolder;
-  let folderCheck: HostCheck = { state: "pass" };
+  const target = request.operation === "inspect" ? request.target : undefined;
+  let folderCheck: HostCheck = { state: "not-checked" };
   const partial = request.operation === "inspect" && request.partial;
 
   try {
-    folder = await approvedCodeFolder(
-      request.codeFolder,
-      home,
-      request.operation === "create-folder" ? "create" : "existing",
-    );
+    if (!target || target.kind === "folder") {
+      folder = await approvedCodeFolder(
+        request.codeFolder,
+        home,
+        request.operation === "create-folder" ? "create" : "existing",
+      );
+      folderCheck = { state: "pass" };
+    }
   } catch (error) {
     const reason =
       error instanceof Error && error.message === "unsafe-folder"
@@ -109,21 +113,52 @@ export async function manageHost(
   let facts: HostFacts;
   try {
     const agents: HostFacts["agents"][number][] = [];
-    const env = inspection
-      ? await hostLoginEnvironment(shell, home, signal, true).catch((error: unknown) => {
-          if (!partial) throw error;
-          return undefined;
-        })
-      : undefined;
-    const system = env
-      ? await requirements(process.platform, folder, home, env, signal).catch((error: unknown) => {
-          if (!partial) throw error;
-          return undefined;
-        })
-      : undefined;
+    const probeTools =
+      request.operation === "inspect" &&
+      (!target || target.kind === "tool" || target.kind === "sign-in");
+    const env =
+      request.operation === "inspect" &&
+      (!target ||
+        probeTools ||
+        target.kind === "platform" ||
+        target.kind === "command-line-tools" ||
+        target.kind === "power")
+        ? await hostLoginEnvironment(shell, home, signal, true).catch((error: unknown) => {
+            if (!partial) throw error;
+            return undefined;
+          })
+        : undefined;
+    const system =
+      (request.operation === "create-folder" || target?.kind === "folder") &&
+      process.platform === "darwin"
+        ? await requirements(process.platform, folder, home, {}, signal, "folder")
+        : env &&
+            (!target ||
+              target.kind === "platform" ||
+              target.kind === "command-line-tools" ||
+              target.kind === "power" ||
+              ("tool" in target && target.tool === "git" && process.platform === "darwin"))
+          ? await requirements(
+              process.platform,
+              folder,
+              home,
+              env,
+              signal,
+              target?.kind === "tool" || target?.kind === "sign-in"
+                ? "command-line-tools"
+                : target?.kind,
+            ).catch((error: unknown) => {
+              if (!partial) throw error;
+              return undefined;
+            })
+          : undefined;
     const tools: NonNullable<HostFacts["tools"]>[number][] = [];
-    for (const model of (inspection ? request.agents : []) ??
-      bundledAgentData.map((data) => parseAgentManifest(JSON.stringify(data), "bundled").model)) {
+    const models =
+      (inspection ? request.agents : []) ??
+      bundledAgentData.map((data) => parseAgentManifest(JSON.stringify(data), "bundled").model);
+    for (const model of models.filter(
+      (model) => probeTools && (!target || ("tool" in target && target.tool === model.id)),
+    )) {
       try {
         signal?.throwIfAborted();
         const found = await hostDiscovery(model, shell, home, signal);
@@ -149,7 +184,10 @@ export async function manageHost(
         agents.push({
           id: model.id,
           signIn:
-            bundled?.hostSetup?.status && found.version && found.help
+            (!target || target.kind === "sign-in") &&
+            bundled?.hostSetup?.status &&
+            found.version &&
+            found.help
               ? await signInStatus(found.command, bundled.hostSetup.status, home, found.env, signal)
               : "unknown",
           state:
@@ -174,7 +212,9 @@ export async function manageHost(
         });
       }
     }
-    for (const id of inspection ? ["git", "gh"] : []) {
+    for (const id of probeTools
+      ? ["git", "gh"].filter((id) => !target || ("tool" in target && target.tool === id))
+      : []) {
       // macOS's system git shim can open the CLT installer even for --version.
       if (id === "git" && system?.mac?.commandLineTools === false) {
         tools.push({ id, state: "unable", signIn: "unknown" });
@@ -186,7 +226,7 @@ export async function manageHost(
           id,
           state: found.version ? "ready" : "unable",
           signIn:
-            id === "gh"
+            id === "gh" && (!target || target.kind === "sign-in")
               ? await signInStatus(found.command, ["auth", "status"], home, found.env, signal)
               : "unknown",
         });
@@ -208,13 +248,16 @@ export async function manageHost(
       cores: cpus().length,
       load: loadavg(),
       memoryTotal: totalmem(),
-      memoryAvailable: Math.min(
-        totalmem(),
-        await daemonHostPlatform.memoryAvailable(signal).catch((error: unknown) => {
-          if (!partial) throw error;
-          return 0;
-        }),
-      ),
+      memoryAvailable:
+        target && target.kind !== "facts"
+          ? 0
+          : Math.min(
+              totalmem(),
+              await daemonHostPlatform.memoryAvailable(signal).catch((error: unknown) => {
+                if (!partial) throw error;
+                return 0;
+              }),
+            ),
       agents,
     };
   } catch {

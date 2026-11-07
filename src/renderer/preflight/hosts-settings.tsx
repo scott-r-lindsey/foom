@@ -1,8 +1,9 @@
 import { hostDisplayName, hostNicknameError } from "../../shared/registered-hosts";
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, createContext, use, useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode, RefObject } from "react";
 import { CopyValue } from "../ui/copy-value";
 import type {
+  HostCheckTarget,
   HostCheck,
   HostCheckProgress,
   HostFailure,
@@ -50,22 +51,68 @@ function Status({ tone, children }: { tone: Tone; children: ReactNode }) {
     </span>
   );
 }
+const ReloadContext = createContext<
+  | {
+      reload: (target: HostCheckTarget) => void;
+      pending: ReadonlySet<string>;
+      failed: ReadonlySet<string>;
+    }
+  | undefined
+>(undefined);
+const rowKey = (target: HostCheckTarget) => JSON.stringify(target);
+function reloadName(target: HostCheckTarget): string {
+  if ("tool" in target)
+    return `${agentNames.get(target.tool) ?? target.tool}${target.kind === "sign-in" ? " sign-in" : ""}`;
+  if ("repository" in target)
+    return `${target.kind === "origin" ? "Git access to origin" : "Repository checkout"} · ${target.repository.split(/[\\/]/u).at(-1) ?? ""}`;
+  return {
+    ssh: "SSH",
+    platform: "Platform",
+    artifact: "Remote daemon",
+    folder: "Code folder",
+    "command-line-tools": "Command Line Tools",
+    power: "Stays awake",
+  }[target.kind];
+}
 function Row({
   name,
   tone,
   text,
   action,
+  target,
 }: {
   name: ReactNode;
   tone: Tone;
   text: string;
   action?: ReactNode;
+  target?: HostCheckTarget;
 }) {
+  const reload = use(ReloadContext);
+  const pending = !!target && reload?.pending.has(rowKey(target));
+  const failed = !!target && reload?.failed.has(rowKey(target));
   return (
-    <div className="host-check-row">
+    <div className="host-check-row" aria-busy={pending}>
       <span className="host-check-name">{name}</span>
-      <Status tone={tone}>{text}</Status>
-      <span className="host-check-action">{action}</span>
+      <Status tone={pending ? "work" : failed ? "fail" : tone}>
+        {pending ? "Checking…" : failed ? "Unable to check" : text}
+      </Status>
+      <span className="host-check-action">
+        {typeof action === "string" ? <span>{action}</span> : action}
+        {target && reload && (
+          <button
+            type="button"
+            className="host-row-reload"
+            aria-label={`Reload ${reloadName(target)}`}
+            title={`Reload ${reloadName(target)}`}
+            disabled={pending}
+            onClick={() => {
+              reload.reload(target);
+            }}
+          >
+            <span aria-hidden="true">↻</span>
+          </button>
+        )}
+      </span>
     </div>
   );
 }
@@ -197,6 +244,7 @@ function Checklist({
       return (
         <Fragment key={agent.id}>
           <Row
+            target={{ kind: "tool", tool: agent.id }}
             name={agentNames.get(agent.id) ?? agent.id}
             tone={
               needsCLT || (agent.id === "git" && agent.state === "missing")
@@ -222,6 +270,7 @@ function Checklist({
           />
           {agent.id !== "git" && agent.state === "ready" && (
             <Row
+              target={{ kind: "sign-in", tool: agent.id }}
               name={
                 <>
                   {agentNames.get(agent.id) ?? agent.id} sign-in{" "}
@@ -258,10 +307,23 @@ function Checklist({
   return (
     <div className="host-checks" aria-busy={checking}>
       <Group>Host</Group>
-      <Row name="SSH" {...checkPresentation(connection?.ssh, "Host key trusted")} />
-      <Row name="Platform" {...checkPresentation(connection?.platform, "Supported")} />
-      <Row name="Remote daemon" {...checkPresentation(connection?.artifact, "In this build")} />
       <Row
+        target={{ kind: "ssh" }}
+        name="SSH"
+        {...checkPresentation(connection?.ssh, "Host key trusted")}
+      />
+      <Row
+        target={{ kind: "platform" }}
+        name="Platform"
+        {...checkPresentation(connection?.platform, "Supported")}
+      />
+      <Row
+        target={{ kind: "artifact" }}
+        name="Remote daemon"
+        {...checkPresentation(connection?.artifact, "In this build")}
+      />
+      <Row
+        target={{ kind: "folder" }}
         name="Code folder"
         {...folderStatus}
         action={
@@ -295,6 +357,7 @@ function Checklist({
       <Group>Tools</Group>
       {mac && (
         <Row
+          target={{ kind: "command-line-tools" }}
           name="Command Line Tools"
           tone={mac.commandLineTools ? "pass" : "need"}
           text={mac.commandLineTools ? "Pass · Installed" : "Not found"}
@@ -327,6 +390,7 @@ function Checklist({
           <Fragment key={repo.repository}>
             <Group>Repository · {repo.repository.split(/[\\/]/u).at(-1)}</Group>
             <Row
+              target={{ kind: "origin", repository: repo.repository }}
               name="Git access to origin"
               {...(checking && !repo.origin
                 ? { tone: "work" as const, text: "Checking…" }
@@ -365,6 +429,7 @@ function Checklist({
               </div>
             )}
             <Row
+              target={{ kind: "checkout", repository: repo.repository }}
               name="Repository checkout"
               {...(cloning === repo.repository
                 ? { tone: "work" as const, text: "Cloning…" }
@@ -391,6 +456,7 @@ function Checklist({
         <>
           <Group>Power</Group>
           <Row
+            target={{ kind: "power" }}
             name="Stays awake"
             tone={mac.staysAwake ? "pass" : "neutral"}
             text={mac.staysAwake ? "Pass · Stays awake" : "Warning · Sleeps when idle"}
@@ -623,6 +689,10 @@ export function HostsSettings({
         enrolling = false;
       }
       if (!next) return;
+      if ("host" in action && ["preflight", "add", "remove"].includes(action.action))
+        setRowFailed(
+          (previous) => new Set([...previous].filter((key) => !key.startsWith(`${action.host}:`))),
+        );
       applyState(next, target);
       if (action.action === "preflight" && next.preflight) {
         const preflight = next.preflight;
@@ -642,39 +712,39 @@ export function HostsSettings({
         !next.result.ok
       )
         setError(reasons[next.result.reason]);
-      const cloneResult =
-        action.action === "clone"
-          ? next.locations.find(
-              (location) =>
-                location.host === action.host && location.repository === action.repository,
-            )?.result
-          : undefined;
-      if (
-        "host" in action &&
-        !["remove", "recipe", "trust-origin", "end", "preflight"].includes(action.action)
-      ) {
+      if (action.action !== "preflight" && "host" in action) {
+        const observed = next.hosts.find((entry) => entry.host === action.host)?.observation
+          ?.preflight;
+        if (observed) setChecks((previous) => new Map(previous).set(action.host, observed));
+      }
+      if (action.action === "clone") {
+        const checkout = next.locations.find(
+          (location) => location.host === action.host && location.repository === action.repository,
+        )?.result;
+        if (checkout)
+          setChecks((previous) => {
+            const observed =
+              previous.get(action.host) ??
+              state.hosts.find((entry) => entry.host === action.host)?.observation?.preflight;
+            if (!observed) return previous;
+            return new Map(previous).set(action.host, {
+              ...observed,
+              repositories: observed.repositories.map((repo) =>
+                repo.repository === action.repository ? { ...repo, checkout } : repo,
+              ),
+            });
+          });
+      }
+      if (action.action === "add") {
         const entry = next.hosts.find((entry) => entry.host === action.host);
         if (entry) {
           next = await runCheck(entry.host, entry.codeFolder);
           if (next) {
             applyState(next, target);
-            const observed = next.preflight;
-            const preflight =
-              observed &&
-              action.action === "clone" &&
-              cloneResult &&
-              !cloneResult.ok &&
-              cloneResult.reason !== "unreachable"
-                ? {
-                    ...observed,
-                    repositories: observed.repositories.map((repo) =>
-                      repo.repository === action.repository
-                        ? { ...repo, checkout: cloneResult }
-                        : repo,
-                    ),
-                  }
-                : observed;
-            if (preflight) setChecks((previous) => new Map(previous).set(entry.host, preflight));
+            if (next.preflight) {
+              const preflight = next.preflight;
+              setChecks((previous) => new Map(previous).set(entry.host, preflight));
+            }
           }
         }
       }
@@ -692,6 +762,38 @@ export function HostsSettings({
         return next;
       });
       if (enrolling) setAddBusy(false);
+    }
+  };
+  const [rowFailed, setRowFailed] = useState<ReadonlySet<string>>(() => new Set());
+  const [rowPending, setRowPending] = useState<ReadonlySet<string>>(() => new Set());
+  const reload = async (host: string, target: HostCheckTarget) => {
+    const key = `${host}:${rowKey(target)}`;
+    setExpanded((previous) => new Map(previous).set(host, true));
+    setError("");
+    setRowPending((previous) => new Set(previous).add(key));
+    setRowFailed((previous) => {
+      const next = new Set(previous);
+      next.delete(key);
+      return next;
+    });
+    try {
+      const next = await api?.({ action: "reload", host, target });
+      if (next) {
+        applyState(next, host);
+        if (next.preflight) {
+          const preflight = next.preflight;
+          setChecks((previous) => new Map(previous).set(host, preflight));
+        }
+      }
+    } catch {
+      setError("Unable to reload host row");
+      setRowFailed((previous) => new Set(previous).add(key));
+    } finally {
+      setRowPending((previous) => {
+        const next = new Set(previous);
+        next.delete(key);
+        return next;
+      });
     }
   };
   return (
@@ -853,20 +955,38 @@ export function HostsSettings({
                   Remove
                 </button>
               </div>
-              <Checklist
-                entry={entry}
-                preflight={preflight}
-                progress={progress?.host === entry.host ? progress : undefined}
-                checking={checkingHosts.has(entry.host)}
-                cloning={cloning.get(entry.host)}
-                disabled={busy.has(entry.host)}
-                act={(action) => {
-                  void act(action);
+              <ReloadContext
+                value={{
+                  reload: (target) => {
+                    void reload(entry.host, target);
+                  },
+                  failed: new Set(
+                    [...rowFailed]
+                      .filter((key) => key.startsWith(`${entry.host}:`))
+                      .map((key) => key.slice(entry.host.length + 1)),
+                  ),
+                  pending: new Set(
+                    [...rowPending]
+                      .filter((key) => key.startsWith(`${entry.host}:`))
+                      .map((key) => key.slice(entry.host.length + 1)),
+                  ),
                 }}
-                changeFolder={() => {
-                  setChanging({ host: entry.host, folder: entry.codeFolder });
-                }}
-              />
+              >
+                <Checklist
+                  entry={entry}
+                  preflight={preflight}
+                  progress={progress?.host === entry.host ? progress : undefined}
+                  checking={checkingHosts.has(entry.host)}
+                  cloning={cloning.get(entry.host)}
+                  disabled={busy.has(entry.host)}
+                  act={(action) => {
+                    void act(action);
+                  }}
+                  changeFolder={() => {
+                    setChanging({ host: entry.host, folder: entry.codeFolder });
+                  }}
+                />
+              </ReloadContext>
               {changing?.host === entry.host && (
                 <form
                   className="host-folder-form"
@@ -956,6 +1076,11 @@ export function HostsSettings({
                         End…
                       </button>
                     )}
+                  </p>
+                )}
+                {entry.result && !entry.result.ok && preflight?.result.ok && (
+                  <p role="status">
+                    <Status tone="fail">{reasons[entry.result.reason]}</Status>
                   </p>
                 )}
                 {entry.result?.ok && (

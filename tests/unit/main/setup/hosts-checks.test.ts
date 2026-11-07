@@ -178,3 +178,320 @@ test("a provider replaced during validation retries the new catalog", async () =
   expect((await check()).result?.ok).toBe(true);
   expect(execute).toHaveBeenCalledTimes(1);
 });
+
+function checkedHost() {
+  const result: HostResult = {
+    ok: true,
+    facts: {
+      ...facts,
+      folder: { state: "pass" },
+      requirements: {
+        distro: "darwin",
+        libc: "supported",
+        packageManager: "brew",
+        mac: { commandLineTools: false, staysAwake: false, protectedFolder: false },
+      },
+      tools: [
+        { id: "git", state: "missing", signIn: "unknown" },
+        { id: "gh", state: "ready", signIn: "signed-out" },
+      ],
+      agents: [{ id: "codex", state: "missing", signIn: "signed-out" }],
+    },
+  };
+  settings = {
+    ...settings,
+    registeredHosts: [
+      {
+        host: "fixture",
+        codeFolder: facts.codeFolder,
+        observation: {
+          checkedAt: 1234,
+          preflight: {
+            result,
+            ssh: { state: "pass" },
+            platform: { state: "pass" },
+            artifact: { state: "pass" },
+            repositories: [],
+          },
+        },
+      },
+    ],
+  };
+  return result;
+}
+test.each([
+  { kind: "ssh" as const },
+  { kind: "platform" as const },
+  { kind: "artifact" as const },
+  { kind: "folder" as const },
+  { kind: "command-line-tools" as const },
+  { kind: "power" as const },
+  { kind: "tool" as const, tool: "git" },
+  { kind: "sign-in" as const, tool: "gh" },
+  { kind: "tool" as const, tool: "codex" },
+  { kind: "sign-in" as const, tool: "codex" },
+])("reload $kind selects one remote row and preserves full-check time", async (target) => {
+  const original = checkedHost();
+  execute.mockResolvedValue({
+    ok: true,
+    facts: {
+      ...original.facts,
+      folder: { state: "fail", reason: "folder-missing" },
+      requirements: {
+        distro: "darwin",
+        libc: "supported",
+        packageManager: "brew",
+        mac: { commandLineTools: true, staysAwake: true, protectedFolder: true },
+      },
+      tools: [
+        { id: "git", state: "ready", signIn: "unknown" },
+        { id: "gh", state: "ready", signIn: "signed-in" },
+      ],
+      agents: [{ id: "codex", state: "ready", signIn: "signed-in" }],
+    },
+  });
+  const state = await hosts.action({ action: "reload", host: "fixture", target });
+  expect(execute).toHaveBeenCalledTimes(1);
+  expect(execute.mock.lastCall?.[1]).toMatchObject({ operation: "inspect", target });
+  expect(settings.registeredHosts?.[0]?.observation?.checkedAt).toBe(1234);
+  const updated = state.preflight;
+  expect(updated?.repositories).toEqual([]);
+  if (!updated?.result.ok) throw new Error("Expected facts");
+  expect(updated.result.facts.cores).toBe(original.facts.cores);
+  if (target.kind === "tool" && target.tool === "git") {
+    expect(updated.result.facts.tools?.[0]?.state).toBe("ready");
+    expect(updated.result.facts.tools?.[1]).toEqual(original.facts.tools?.[1]);
+  }
+  if (target.kind === "sign-in" && target.tool === "codex") {
+    expect(updated.result.facts.agents.find((agent) => agent.id === "codex")).toEqual({
+      id: "codex",
+      state: "missing",
+      signIn: "signed-in",
+    });
+  }
+});
+test.each(["git", "codex"])("failed reload of %s changes only its state", async (tool) => {
+  checkedHost();
+  execute.mockResolvedValue({ ok: false, reason: "unreachable" });
+  const state = await hosts.action({
+    action: "reload",
+    host: "fixture",
+    target: { kind: "tool", tool },
+  });
+  expect(state.preflight?.result.ok).toBe(true);
+  expect(settings.registeredHosts?.[0]?.observation?.checkedAt).toBe(1234);
+});
+test("reload validates enabled tools and registered repositories before remote calls", async () => {
+  checkedHost();
+  await expect(
+    hosts.action({
+      action: "reload",
+      host: "fixture",
+      target: { kind: "tool", tool: "unregistered" },
+    }),
+  ).rejects.toThrow("Tool is not enabled");
+  await expect(
+    hosts.action({
+      action: "reload",
+      host: "fixture",
+      target: { kind: "origin", repository: "/unregistered" },
+    }),
+  ).rejects.toThrow("Repository is not registered");
+  expect(execute).not.toHaveBeenCalled();
+});
+test("scoped inspection without saved facts does not invent a full-check timestamp", async () => {
+  settings = { ...settings, registeredHosts: [{ host: "fixture", codeFolder: facts.codeFolder }] };
+  const state = await hosts.action({ action: "reload", host: "fixture", target: { kind: "ssh" } });
+  expect(state.hosts[0]?.observation).toBeUndefined();
+});
+test("folder actions refresh from their reply, invalidate repositories and preserve other facts", async () => {
+  const original = checkedHost();
+  execute.mockResolvedValue({
+    ok: true,
+    facts: { ...facts, codeFolder: "/remote/new", folder: { state: "pass" } },
+  });
+  await hosts.action({ action: "change-folder", host: "fixture", codeFolder: "/remote/new" });
+  expect(execute).toHaveBeenCalledTimes(1);
+  expect(execute.mock.lastCall?.[1]).toMatchObject({ target: { kind: "folder" } });
+  expect(settings.registeredHosts?.[0]?.codeFolder).toBe("/remote/new");
+  expect(settings.registeredHosts?.[0]?.observation?.checkedAt).toBe(1234);
+  const observed = settings.registeredHosts?.[0]?.observation?.preflight.result;
+  if (!observed?.ok) throw new Error("fixture");
+  expect(observed.facts.agents).toEqual(original.facts.agents);
+  execute.mockClear().mockResolvedValue({ ok: false, reason: "unsafe-folder" });
+  await hosts.action({ action: "create-folder", host: "fixture" });
+  expect(execute).toHaveBeenCalledTimes(1);
+  expect(settings.registeredHosts?.[0]?.observation?.preflight.result).toMatchObject({
+    facts: { folder: { state: "fail", reason: "unsafe-folder" } },
+  });
+});
+
+test.each(["power", "command-line-tools"] as const)(
+  "failed %s reload preserves other observations",
+  async (kind) => {
+    checkedHost();
+    execute.mockResolvedValue({ ok: false, reason: "unreachable" });
+    const before = settings.registeredHosts?.[0]?.observation;
+    await expect(
+      hosts.action({ action: "reload", host: "fixture", target: { kind } }),
+    ).rejects.toThrow("Unable to check host row");
+    expect(settings.registeredHosts?.[0]?.observation).toEqual(before);
+  },
+);
+
+test.each(["reload", "refresh"] as const)(
+  "%s saved observations never become a launch inventory cache",
+  async (action) => {
+    checkedHost();
+    await hosts.action(
+      action === "reload"
+        ? { action, host: "fixture", target: { kind: "tool", tool: "codex" } }
+        : { action, host: "fixture" },
+    );
+    expect((await hosts.fleet(false))[0]?.result).toEqual({
+      ok: false,
+      reason: "facts-unavailable",
+    });
+    execute.mockClear();
+    await hosts.inventory("fixture");
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(execute.mock.lastCall?.[1]).toMatchObject({ operation: "inspect" });
+    expect(execute.mock.lastCall?.[1]).not.toHaveProperty("target");
+  },
+);
+
+test("scoped refresh preserves live inventory fields and never renews full-inventory freshness", async () => {
+  checkedHost();
+  let now = 0;
+  vi.spyOn(Date, "now").mockImplementation(() => now);
+  execute.mockResolvedValue({
+    ok: true,
+    facts: {
+      ...facts,
+      agents: [
+        { id: "claude", state: "ready" },
+        { id: "codex", state: "ready" },
+      ],
+    },
+  });
+  const original = await hosts.inventory("fixture");
+  execute.mockClear();
+  now = 59000;
+  execute.mockResolvedValue({ ok: true, facts });
+  await hosts.action({ action: "reload", host: "fixture", target: { kind: "tool", tool: "git" } });
+  const cached = await hosts.inventory("fixture");
+  expect(cached).toEqual(original);
+  expect(execute).toHaveBeenCalledTimes(1);
+  execute.mockClear();
+  now = 60001;
+  await hosts.inventory("fixture");
+  expect(execute).toHaveBeenCalledTimes(1);
+  expect(execute.mock.lastCall?.[1]).not.toHaveProperty("target");
+});
+
+test("folder reload updates its Mac path warning while preserving the CLT and power rows", async () => {
+  const original = checkedHost();
+  execute.mockResolvedValue({
+    ok: true,
+    facts: {
+      ...original.facts,
+      requirements: {
+        distro: "darwin",
+        libc: "supported",
+        packageManager: "none",
+        mac: { commandLineTools: true, staysAwake: true, protectedFolder: true },
+      },
+    },
+  });
+  const updated = await hosts.action({
+    action: "reload",
+    host: "fixture",
+    target: { kind: "folder" },
+  });
+  expect(updated.preflight?.result).toMatchObject({
+    ok: true,
+    facts: {
+      requirements: {
+        packageManager: "brew",
+        mac: { commandLineTools: false, staysAwake: false, protectedFolder: true },
+      },
+    },
+  });
+});
+
+test.each(["reload", "refresh"] as const)(
+  "%s cannot discard a concurrent fresh launch inventory",
+  async (action) => {
+    checkedHost();
+    let now = 0;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    execute.mockResolvedValue({
+      ok: true,
+      facts: { ...facts, agents: [{ id: "codex", state: "ready" }] },
+    });
+    await hosts.inventory("fixture");
+    now = 60001;
+    let release: ((result: HostResult) => void) | undefined;
+    const held = new Promise<HostResult>((resolve) => {
+      release = resolve;
+    });
+    execute.mockImplementation((_host, request) =>
+      request.operation === "inspect" && request.target
+        ? Promise.resolve({ ok: true, facts: { ...facts, cores: 99 } })
+        : held,
+    );
+    const pending = hosts.inventory("fixture");
+    try {
+      const updated = await hosts.action(
+        action === "reload"
+          ? { action, host: "fixture", target: { kind: "tool", tool: "git" } }
+          : { action, host: "fixture" },
+      );
+      if (action === "refresh")
+        expect(updated.hosts[0]?.result).toMatchObject({ ok: true, facts: { cores: 99 } });
+    } finally {
+      release?.({ ok: true, facts });
+    }
+    const refreshed = await pending;
+    if (!refreshed.ok) throw new Error("Expected fresh inventory");
+    expect(refreshed.facts.agents.find((agent) => agent.id === "codex")?.state).toBe("unable");
+  },
+);
+
+test("resource refresh preserves an inventory that completed during its remote read", async () => {
+  checkedHost();
+  let now = 0;
+  vi.spyOn(Date, "now").mockImplementation(() => now);
+  execute.mockResolvedValue({
+    ok: true,
+    facts: { ...facts, agents: [{ id: "codex", state: "ready" }] },
+  });
+  await hosts.inventory("fixture");
+  now = 60001;
+  let release: ((result: HostResult) => void) | undefined;
+  const held = new Promise<HostResult>((resolve) => {
+    release = resolve;
+  });
+  let markStarted: (() => void) | undefined;
+  const started = new Promise<void>((resolve) => {
+    markStarted = resolve;
+  });
+  execute.mockImplementation((_host, request) => {
+    if (request.operation === "inspect" && request.target) {
+      markStarted?.();
+      return held;
+    }
+    return Promise.resolve({ ok: true, facts });
+  });
+  const refresh = hosts.action({ action: "refresh", host: "fixture" });
+  try {
+    await started;
+    await hosts.inventory("fixture");
+  } finally {
+    release?.({ ok: true, facts: { ...facts, cores: 99 } });
+  }
+  expect((await refresh).hosts[0]?.result).toMatchObject({ ok: true, facts: { cores: 99 } });
+  const cached = await hosts.inventory("fixture");
+  if (!cached.ok) throw new Error("Expected fresh inventory");
+  expect(cached.facts.agents.find((agent) => agent.id === "codex")?.state).toBe("unable");
+});

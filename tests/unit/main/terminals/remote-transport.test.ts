@@ -1313,6 +1313,7 @@ test.each([false, true])(
         build: "b".repeat(64),
         compatible: 2,
         hostFacts: 1,
+        hostRowCheck: 1,
         ...(supported ? { hostPreflight: 1 as const } : {}),
       });
       if (supported) {
@@ -1464,5 +1465,45 @@ test.each(["repository", "checkout", "reattach"] as const)(
       expect.objectContaining({ type: "open", reattach: kind === "reattach" }),
     );
     expect(machineHome).not.toHaveBeenCalled();
+  },
+);
+
+test.each([false, true])(
+  "row inspection capability refuses old daemons without falling back (%s)",
+  async (supported) => {
+    for (const request of [
+      {
+        type: "manage",
+        operation: "inspect",
+        codeFolder: "/remote/code",
+        readOnly: true,
+        partial: true,
+        target: { kind: "tool", tool: "git" },
+      },
+      { type: "manage", operation: "create-folder", codeFolder: "/remote/code" },
+    ] as const) {
+      transport.kill();
+      child = new Child();
+      mock.spawn.mockReturnValue(child);
+      const pending = remoteManagement({ host: "fixture" }, "0.1.0", request);
+      await Promise.resolve();
+      child.header();
+      child.message({
+        type: "hello",
+        build: "b".repeat(64),
+        compatible: 2,
+        hostFacts: 1,
+        hostPreflight: 1,
+        ...(supported ? { hostRowCheck: 1 as const } : {}),
+      });
+      if (supported) {
+        expect(child.messages).toContainEqual(request);
+        child.message({ type: "managed", result: { ok: false, reason: "folder-refused" } });
+      } else expect(child.messages).not.toContainEqual(request);
+      await expect(pending).resolves.toMatchObject({
+        ok: false,
+        reason: supported ? "folder-refused" : "facts-unavailable",
+      });
+    }
   },
 );

@@ -1002,3 +1002,11 @@
 .host-repositories summary {
   cursor: pointer;
 }
+
+.host-row-reload {
+  opacity: 0;
+}
+.host-check-row:hover .host-row-reload,
+.host-check-row:focus-within .host-row-reload {
+  opacity: 1;
+}

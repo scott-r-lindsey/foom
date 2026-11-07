@@ -7,6 +7,7 @@ import type {
   HostRequirements,
   HostCheck,
   HostObservation,
+  HostCheckTarget,
 } from "./registered-hosts.d";
 
 export const HOST_CLONE_TIMEOUT_MS = 5 * 60 * 1000;
@@ -191,6 +192,24 @@ function agentId(value: unknown): value is string {
     typeof value === "string" && !/\p{Cc}/u.test(value) && /^[a-z][a-z0-9-]{0,63}$/u.test(value)
   );
 }
+/** A closed row selector; executable names and remote paths remain main-owned. */
+export function hostCheckTarget(value: unknown): value is HostCheckTarget {
+  if (!record(value)) return false;
+  if (value["kind"] === "tool" || value["kind"] === "sign-in")
+    return keys(value, ["kind", "tool"]) && agentId(value["tool"]);
+  if (value["kind"] === "origin" || value["kind"] === "checkout")
+    return (
+      keys(value, ["kind", "repository"]) &&
+      typeof value["repository"] === "string" &&
+      value["repository"].length <= 4096 &&
+      !/\p{Cc}/u.test(value["repository"])
+    );
+  return (
+    keys(value, ["kind"]) &&
+    typeof value["kind"] === "string" &&
+    ["ssh", "platform", "artifact", "folder", "command-line-tools", "power"].includes(value["kind"])
+  );
+}
 export function hostManagement(value: unknown): value is HostManagement {
   if (!record(value) || value["type"] !== "manage" || !codeFolder(value["codeFolder"]))
     return false;
@@ -224,7 +243,14 @@ export function hostManagement(value: unknown): value is HostManagement {
     return keys(value, ["type", "operation", "codeFolder", "agents"]);
   if (value["operation"] === "inspect")
     return (
-      keys(value, ["type", "operation", "codeFolder", "agents", "readOnly", "partial"]) &&
+      keys(value, ["type", "operation", "codeFolder", "agents", "readOnly", "partial", "target"]) &&
+      (value["target"] === undefined ||
+        (((hostCheckTarget(value["target"]) && !("repository" in value["target"])) ||
+          (record(value["target"]) &&
+            keys(value["target"], ["kind"]) &&
+            value["target"]["kind"] === "facts")) &&
+          value["readOnly"] === true &&
+          value["partial"] === true)) &&
       (value["readOnly"] === undefined || value["readOnly"] === true) &&
       (value["partial"] === undefined || (value["partial"] === true && value["readOnly"] === true))
     );
@@ -465,6 +491,8 @@ export function hostsAction(value: unknown): value is HostsAction {
   )
     return keys(value, ["action"]);
   if (!hostAlias(value["host"])) return false;
+  if (value["action"] === "reload")
+    return keys(value, ["action", "host", "target"]) && hostCheckTarget(value["target"]);
   if (value["action"] === "rename")
     return (
       keys(value, ["action", "host", "nickname"]) &&

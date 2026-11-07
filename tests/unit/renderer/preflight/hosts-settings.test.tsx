@@ -1159,3 +1159,52 @@ test("the name and OS appear once in both compact and expanded host headers", as
   expect(screen.getAllByText("Build box")).toHaveLength(1);
   expect(screen.getAllByText("macOS")).toHaveLength(1);
 });
+
+test("row reload keeps other rows usable and does not run a full preflight", async () => {
+  const { api } = await mount();
+  let finish: ((state: HostsState) => void) | undefined;
+  api.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const button = screen.getByRole("button", { name: "Reload git" });
+  fireEvent.click(button);
+  expect(button.closest(".host-check-row")?.textContent).toContain("Checking…");
+  expect(screen.getByRole<HTMLButtonElement>("button", { name: "Reload SSH" }).disabled).toBe(
+    false,
+  );
+  expect(screen.getByRole<HTMLButtonElement>("button", { name: "Change folder" }).disabled).toBe(
+    false,
+  );
+  expect(api.mock.lastCall?.[0]).toEqual({
+    action: "reload",
+    host: "worker",
+    target: { kind: "tool", tool: "git" },
+  });
+  await act(async () => {
+    finish?.(saved(initial));
+    await Promise.resolve();
+  });
+  expect(api.mock.calls.some(([action]) => action.action === "preflight")).toBe(false);
+  api.mockRejectedValue(new Error("offline"));
+  fireEvent.click(button);
+  await screen.findByText("Unable to reload host row");
+  api.mockResolvedValue(saved(initial));
+  fireEvent.click(button);
+  await waitFor(() => {
+    expect(screen.queryByText("Unable to reload host row")).toBeNull();
+  });
+});
+
+test("failed resource refresh reports its failure without replacing checklist results", async () => {
+  const { api } = await mount();
+  api.mockResolvedValue(
+    saved({ ...initial, hosts: [{ ...host, result: { ok: false, reason: "unreachable" } }] }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Refresh facts" }));
+  await screen.findByText("Host unreachable");
+  expect(screen.getByText("Pass · Host key trusted")).toBeTruthy();
+  expect(api.mock.calls.some(([action]) => action.action === "preflight")).toBe(false);
+});

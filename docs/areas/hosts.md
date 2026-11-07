@@ -25,7 +25,7 @@ agent projections. Rename only updates the local profile and performs no remote
 inspection. Folder changes and canonical expansion preserve nicknames.
 
 `setup:hosts` accepts one closed action from the registered board main frame:
-list, progress, test, add, rename, preflight, create-folder, change-folder, refresh, remove, locations, clone, trust-origin, end or recipe. Main selects enabled agent
+list, progress, test, add, rename, preflight, create-folder, change-folder, refresh, remove, locations, clone, trust-origin, end, recipe or reload. Main selects enabled agent
 executables from its validated manifest catalog. Renderer inputs cannot choose
 remote commands, probe arguments, origins or checkout destinations. Replies are
 validated in preload and rebuilt from declared fields. All failures are fixed
@@ -71,8 +71,9 @@ files directly for memory and legacy process identity; it needs no `ps`/procps
 installation. macOS uses the built-in `/bin/ps` and `/usr/bin/vm_stat`. Bootstrap
 remains POSIX `sh`, before the daemon exists. Raw observations stay on the host.
 
-Host rows expose daemon version, live session count, CPU cores and three load
-averages, memory total/available and fixed agent states with Refresh. Linux uses
+Host facts exposes daemon version, live session count, CPU cores and three load
+averages, memory total/available with Refresh facts. Checklist agent states use
+Check capabilities or their own row reload. Linux uses
 `MemAvailable` from `/proc/meminfo`. macOS available is the sum of free, inactive
 and speculative page counts from fixed `/usr/bin/vm_stat`, multiplied by its page
 size; wired/compressed pages are excluded. [Apple’s vm_stat snapshot](https://github.com/apple-oss-distributions/system_cmds/blob/main/vm_stat/vm_stat.c#L122-L141) prints free pages with speculative pages removed, so this adds speculative pages once. This measures reclaimable memory and
@@ -137,7 +138,7 @@ Cancelled End stops no later session after an already-issued stop settles.
 Once cancellation settles, a clone retry inspects an existing published checkout
 instead of cloning again. Worktree creation remains charged/indeterminate if its
 reply is lost, and an existing branch refuses a duplicate creation as before.
-Settings automatically refreshes repository locations after an unreachable clone
+Repositories → Locations automatically refreshes repository locations after an unreachable clone
 reply and offers **Refresh locations** for later reconciliation, including a clone
 published before its reply was lost. Refresh reads state and never retries a mutation.
 Clones are prepared in a private temporary sibling inside the approved folder,
@@ -322,7 +323,7 @@ or other quotas throttle them; the resource numbers are not a readiness guarante
 stdin, bounded time/output and process-group cleanup. Output is discarded; exit 0
 means signed-in, 1 signed-out, all other outcomes unknown. Foom never reads token
 files or Keychain entries. A status is an observation, not a guarantee of later
-access; Refresh repeats the non-interactive call, including after signing in on a
+access; Check capabilities or sign-in row reload repeats the non-interactive call, including after signing in on a
 Mac whose login Keychain may be locked over SSH.
 
 Settings → Hosts uses the Add → Check → Fix checklist described below.
@@ -394,8 +395,9 @@ sandboxed preload validates and rebuilds all nested onboarding observations.
 ## Remote host onboarding UI (#963)
 
 Add host takes the SSH selector and code folder in one form, enrolls the host,
-and runs the full preflight. Opening Hosts reads saved state only, without SSH,
-including session and worktree inventory. Each host's Check capabilities runs the
+and runs the full preflight. Ordinary opening of Hosts reads saved state only, without SSH,
+including session and worktree inventory. Returning after an explicit foreground
+recipe refreshes only its affected rows as described under [refresh scope](#checklist-refresh-scope-1061). Each host's Check capabilities runs the
 full preflight, repositories and session/worktree inventory, saving a Last checked
 timestamp and the closed observations in its profile registration. Never-checked
 hosts say Not checked. Saved observations contain no secrets, terminal output,
@@ -504,3 +506,31 @@ They do not inspect language or package manifests, infer build requirements, or
 run repository scripts, plugins or package-manager probes. Preparing a host to
 build a repository is left to an agent the user runs on that host
 ([#1024](https://github.com/scott-r-lindsey/foom/issues/1024)).
+
+## Checklist refresh scope (#1061)
+
+A full check runs only for **Check capabilities** and the first check on Add
+(including a first-check retry after accepting a key). Only a full check changes
+**Last checked**. Rename contacts nothing remote. Create/Change folder use their
+own folder reply and invalidate affected repository rows to **Not checked**;
+there is no hidden repository check. Clone and Trust origin update only that
+repository. Install and Sign in refresh only their tool/sign-in rows when Hosts
+is reopened after the foreground recipe. Action validation and launch inspection
+still use the fresh inspections required above.
+
+Every checklist row has an accessibly named reload icon, revealed on hover or
+keyboard focus. Reload checks only that row, shows its own spinner and keeps
+other results and controls available. Tool discovery does not run sign-in probes;
+sign-in and origin checks can contact the network. Read-only partial inspection
+accepts a closed `target` selector. Hello advertises `hostRowCheck: 1`; compatible
+older daemons without it refuse scoped inspection and folder creation with `facts-unavailable`,
+without falling back to a full check. Scoped results update saved presentation
+without granting launch authority or advancing the full-check timestamp.
+Scoped reload replies do not publish a broad board inventory refresh. Folder and
+clone replies seed the sidebar's location view from the action's own observations,
+so displaying that view does not immediately trigger repository checks. Scoped
+observations may update only the corresponding fields of an existing live
+inventory, without renewing its freshness; saved observations never populate it.
+Resource refresh replies remain separate from the launch inventory when no live
+inventory exists or a full read is pending. A failed resource refresh reports its
+failure under Host facts while retaining the checklist observations.

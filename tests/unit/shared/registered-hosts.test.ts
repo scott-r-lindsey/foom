@@ -622,3 +622,58 @@ test("saved host observations accept only bounded display facts and closed check
   ])
     expect(registeredHosts([{ ...host, observation: invalid }])).toBe(false);
 });
+
+test("row selectors are closed and contain only bounded row identifiers", () => {
+  for (const target of [
+    { kind: "ssh" },
+    { kind: "tool", tool: "codex" },
+    { kind: "sign-in", tool: "gh" },
+    { kind: "origin", repository: "/registered/repo" },
+  ])
+    expect(hostsAction({ action: "reload", host: "fixture", target })).toBe(true);
+  for (const target of [
+    { kind: "exec", command: "id" },
+    { kind: "tool", tool: "../id" },
+    { kind: "tool", tool: "codex", argv: [] },
+    { kind: "origin", repository: "bad\0path" },
+  ])
+    expect(hostsAction({ action: "reload", host: "fixture", target })).toBe(false);
+  expect(
+    hostManagement({
+      type: "manage",
+      operation: "inspect",
+      codeFolder: "~/code",
+      readOnly: true,
+      partial: true,
+      target: { kind: "tool", tool: "codex" },
+    }),
+  ).toBe(true);
+  expect(
+    hostManagement({
+      type: "manage",
+      operation: "inspect",
+      codeFolder: "~/code",
+      readOnly: true,
+      partial: true,
+      target: { kind: "origin", repository: "/repo" },
+    }),
+  ).toBe(false);
+  expect(
+    hostManagement({
+      type: "manage",
+      operation: "inspect",
+      codeFolder: "~/code",
+      target: { kind: "folder" },
+    }),
+  ).toBe(false);
+  expect(
+    hostManagement({
+      type: "manage",
+      operation: "inspect",
+      codeFolder: "~/code",
+      readOnly: true,
+      partial: true,
+      target: { kind: "facts" },
+    }),
+  ).toBe(true);
+});
