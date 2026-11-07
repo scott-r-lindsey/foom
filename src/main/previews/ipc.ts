@@ -40,6 +40,21 @@ export function attachPreviews(
   copyText?: (text: string) => void | Promise<void>,
 ): () => void {
   const moving = new Set<string>();
+  ipc.handle("preview:describe", (_event, ...args) => {
+    const [id] = args;
+    if (args.length !== 1 || !previewId(id)) throw new Error("Invalid preview ID");
+    const record = host.registry.records.get(id);
+    if (!record) throw new Error("Unknown preview ID");
+    return {
+      id: record.id,
+      repository: "",
+      worktree: record.worktree,
+      relativePath: record.relativePath,
+      network: record.network,
+      kind: /\.(md|markdown)$/i.test(record.relativePath) ? "markdown" : "html",
+      ...(record.openedBy ? { openedBy: record.openedBy } : {}),
+    };
+  });
   ipc.handle("preview:pick", (_event, ...args) => {
     const [worktree] = args;
     if (
@@ -112,6 +127,7 @@ export function attachPreviews(
   });
   return () => {
     for (const channel of [
+      "preview:describe",
       "preview:copy-path",
       "preview:pick",
       "preview:popout",
