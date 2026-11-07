@@ -152,6 +152,10 @@ offers **Resume conversation** with a short ID hint when a validated Claude Code
 Codex or Antigravity conversation ID was recorded, **New conversation here**, **Copy session
 ID** when an ID exists, then a separator and **Close**.
 
+An exited orchestrator with pending automatic role recovery offers **Revoke
+orchestrator** in its session menu. Revoking cancels recovery before Resume, which
+then starts an ordinary session. See [orchestration](orchestration.md#orchestration-and-privacy).
+
 Git facts load lazily, locally and with bounded calls; unavailable facts say
 Unknown. Opening a panel never fetches from the network. Merge facts use the
 merge checker's last fetch and the eligible count uses its exact cleanup rules.

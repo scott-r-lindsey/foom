@@ -28,7 +28,11 @@ the concurrent child limit set in Settings → General (default 4, integer 1–1
 without restarting it; **Revoke orchestrator** takes it back. Re-granting the same
 tile restores its previous children, handoffs and worktrees in that repository,
 except children you took over. A verified Resume in the same tile restores its
-role when it held that role at exit and no intervening grant or revoke changed it.
+role and children without asking again when it held that role at exit, its agent
+supports MCP and restore control, and no intervening grant or revoke changed it.
+The grant dialog discloses this. **Revoke orchestrator** is also available in the
+exited tile’s menu while recovery is pending; it cancels automatic recovery, so
+Resume starts ordinarily.
 One session per repository holds the role: making another the orchestrator asks once and
 revokes the first. The session keeps its own launch flags, including bypass. Every
 agent sees the existing orchestration tools from launch, refused until you grant the role; tell

@@ -219,7 +219,7 @@ export interface OrchestrationCommandsContext {
   readonly location: "root" | "adjacent";
   readonly orchestration: Pick<
     Orchestration,
-    "active" | "handoffs" | "reserve" | "reviews" | "revoke" | "view"
+    "active" | "checkRecovery" | "handoffs" | "reserve" | "reviews" | "revoke" | "view"
   >;
   readonly queues: Map<string, Promise<void>>;
   readonly refresh: () => void;

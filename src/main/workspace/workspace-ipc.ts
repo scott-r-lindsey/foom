@@ -208,6 +208,7 @@ export function orchestratorDisclosure(id: string, replacing?: string): DialogCo
         items: [
           "Create worktrees and run child agents in this repository up to the limit in Settings → General.",
           "Stop them, and ask you to remove worktrees it created.",
+          "Resuming this conversation restores its role and children without asking again.",
           "Recover this session’s previous children, handoffs and worktrees in this repository when granted again, except children you took over. A different session receives none of them.",
           "Send prompts and keys to its own children without asking you, including answering permission, credential and provider prompts.",
           "Close its exited children, discarding their final screens; their worktrees and branches remain.",
@@ -229,7 +230,7 @@ export function orchestratorDisclosure(id: string, replacing?: string): DialogCo
         items: [
           "Its actions appear in its panel.",
           "Take over returns a child to you.",
-          "Revoke orchestrator ends its access.",
+          "Revoke orchestrator ends its access and cancels automatic recovery.",
         ],
       },
     ],

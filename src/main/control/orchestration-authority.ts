@@ -287,14 +287,18 @@ export class OrchestrationAuthority {
     );
   }
 
+  /** Check before transferring away the current role: unsettled effects cannot be recovered. */
+  checkRecovery(id: string): void {
+    const parent = this.parents.get(id);
+    if (parent && (parent.starting > 0 || parent.creating > 0)) throw new ControlError("conflict");
+  }
+
   /** One parent per canonical repository; a live duplicate returns the existing parent's ID. */
   reserve(
     repository: string,
     recovering?: string,
   ): { existing: string } | { bind(terminalId: string): void; release(): void } {
-    const recoveringParent = recovering === undefined ? undefined : this.parents.get(recovering);
-    if (recoveringParent && (recoveringParent.starting > 0 || recoveringParent.creating > 0))
-      throw new ControlError("conflict");
+    if (recovering !== undefined) this.checkRecovery(recovering);
     const current = this.slots.get(repository);
     if (current) {
       if (current.terminalId !== null) return { existing: current.terminalId };
@@ -320,8 +324,7 @@ export class OrchestrationAuthority {
         if (this.slots.get(repository) !== parent || parent.terminalId !== null) return;
         // A human re-grant (or verified same-tile resume) recovers this session only.
         const previous = this.parents.get(terminalId);
-        if (previous && (previous.starting > 0 || previous.creating > 0))
-          throw new ControlError("conflict");
+        this.checkRecovery(terminalId);
         parent.terminalId = terminalId;
         if (previous && previous !== parent && previous.repository === repository) {
           for (const [id, child] of previous.children)
@@ -467,9 +470,10 @@ export class OrchestrationAuthority {
 
   /** The human revoked the role: authority ends as on exit, and the session keeps running. */
   revoke(id: string): void {
-    this.resumable.delete(id);
+    const pending = this.resumable.delete(id);
     const parent = this.parents.get(id);
-    if (parent) this.retire(parent);
+    if (parent?.active) this.retire(parent);
+    else if (pending) this.changed();
   }
 
   /** Exit revokes the parent's authority; children keep running under human control. */
@@ -478,6 +482,10 @@ export class OrchestrationAuthority {
     const parent = this.parents.get(id);
     if (parent) {
       if (parent.active) this.resumable.set(id, parent);
+      else if (this.launching()) {
+        this.finishedChildren.observeExit(id);
+        this.early.add(id);
+      }
       this.retire(parent);
       return;
     }
@@ -596,6 +604,7 @@ export class OrchestrationAuthority {
       return {
         role: "orchestrator",
         active: parent.active,
+        ...(this.resumable.get(id) === parent ? { restoreOnResume: true as const } : {}),
         children: this.running(parent),
         history: [...parent.history],
       };

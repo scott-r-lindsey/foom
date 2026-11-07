@@ -17,12 +17,16 @@ inherited Foom credentials before constructing each child's environment, then ad
 fresh child-scoped values. Never return tokens to the renderer, logs, MCP results
 or error text. New Foom instances and resumed sessions receive fresh credentials. A live-process
 pause or MCP reinitialization preserves the existing role. Same-tile Resume can
-restore it from main-owned role-at-exit provenance, recorded conversation and
-matching registered repository identity, with a reserved slot and a pre-spawn
+restore it from main-owned role-at-exit provenance and matching registered
+repository identity when the installed agent supports per-launch MCP and restore
+control, with a reserved slot and a pre-spawn
 provenance check. Explicit revoke, another grant, removal or a new conversation
 invalidates that provenance, including a revoke after exit. Main rechecks recovery
 after spawn; a revoke that wins during spawn leaves the process live with an
-ordinary grant. Conversation text or a pasted ID alone grants nothing.
+ordinary grant. The recorded conversation ID selects the provider conversation;
+it supplies no independent authority provenance. Conversation text or a pasted ID
+alone grants nothing. The trusted grant discloses automatic Resume recovery
+without another confirmation; the exited tile offers Revoke to cancel it.
 A human re-grant to the same tile and repository restores its previous children,
 handoffs and worktrees, excluding taken-over children, as disclosed in the grant.
 Old in-flight capabilities and operations remain invalid. Across app restart,

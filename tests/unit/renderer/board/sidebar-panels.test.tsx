@@ -361,3 +361,37 @@ test("cleanup progress and finished results remain reachable without folding rec
   fireEvent.focus(view.getByRole("button", { name: /^feature$/ }));
   expect(view.queryByText("uncommitted changes")).toBeNull();
 });
+
+test("an exited parent offers Revoke only while automatic recovery is pending", async () => {
+  const view = setup();
+  await act(async () => {
+    await Promise.resolve();
+  });
+  act(() => {
+    view.base.update("a", {
+      exited: true,
+      conversationId: "saved-123",
+      orchestration: {
+        role: "orchestrator",
+        active: false,
+        restoreOnResume: true,
+        children: 0,
+        history: [],
+      },
+    });
+  });
+  fireEvent.click(view.getByRole("button", { name: "Actions for Claude Code in feature" }));
+  await act(async () => {
+    fireEvent.click(view.getByRole("menuitem", { name: "Revoke orchestrator" }));
+    await Promise.resolve();
+  });
+  expect(view.command).toHaveBeenLastCalledWith({ kind: "revoke-orchestrator", id: "a" });
+  act(() => {
+    view.base.update("a", {
+      orchestration: { role: "orchestrator", active: false, children: 0, history: [] },
+    });
+  });
+  fireEvent.click(view.getByRole("button", { name: "Actions for Claude Code in feature" }));
+  expect(view.queryByRole("menuitem", { name: "Revoke orchestrator" })).toBeNull();
+  expect(view.getByRole("menuitem", { name: /^Resume conversation/ })).toBeTruthy();
+});

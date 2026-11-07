@@ -753,6 +753,7 @@ const validOrchestrationView: Validator<OrchestrationView> = either(
   shape({
     role: literal("orchestrator"),
     active: boolean,
+    restoreOnResume: either(absent, literal(true)),
     children: count,
     history: array(validOrchestrationEntry),
   }),

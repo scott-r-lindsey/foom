@@ -237,6 +237,16 @@ process.stdout.write("FOOM_AGENT_READY`,
     }),
   ).toBeVisible();
   await expect(confirmation.getByText(/model provider/)).toBeVisible();
+  await expect(
+    confirmation.getByText(
+      "Resuming this conversation restores its role and children without asking again.",
+    ),
+  ).toBeVisible();
+  await expect(
+    confirmation.getByText("Revoke orchestrator ends its access and cancels automatic recovery."),
+  ).toBeVisible();
+  if (phase === "resume-revoked")
+    await confirmation.screenshot({ path: evidencePath("1081-resume-disclosure.png") });
   await confirmation.getByRole("button", { name: "Make orchestrator" }).click();
   await expect
     .poll(async () => (await call(parent.controlToken, "whoami")).body.result?.role)
@@ -560,12 +570,32 @@ process.stdout.write("FOOM_AGENT_READY`,
             )?.exited,
         )
         .toBe(true);
+      const openParentMenu = () =>
+        parentRow
+          .locator(":scope > .board-row")
+          .getByRole("button", { name: /^Actions for/ })
+          .click();
+      if (phase === "resume-revoked") {
+        await openParentMenu();
+        await expect(page.getByRole("menuitem", { name: "Revoke orchestrator" })).toBeVisible();
+        await page.screenshot({
+          path: evidencePath("1081-exited-revoke.png"),
+          animations: "disabled",
+        });
+        await page.getByRole("menuitem", { name: "Revoke orchestrator" }).click();
+        await expect
+          .poll(
+            async () =>
+              (await page.evaluate(() => window.desktop.workspace())).terminals.find(
+                (row) => row.id === parentId,
+              )?.orchestration?.restoreOnResume,
+          )
+          .toBeUndefined();
+      }
+      await openParentMenu();
       if (phase === "resume-revoked")
-        await page.evaluate(
-          (id) => window.desktop.sidebarCommand({ kind: "revoke-orchestrator", id }),
-          parentId,
-        );
-      await page.evaluate((id) => window.desktop.sidebarCommand({ kind: "resume", id }), parentId);
+        await expect(page.getByRole("menuitem", { name: "Revoke orchestrator" })).toHaveCount(0);
+      await page.getByRole("menuitem", { name: /^Resume conversation/ }).click();
       await expect.poll(async () => (await read("app")).controlToken).not.toBe(oldToken);
       Object.assign(parent, await read("app"));
       assert.equal(

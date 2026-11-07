@@ -1,4 +1,4 @@
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { Operations } from "../../../../src/main/control/operations";
 import type { Operation } from "../../../../src/main/control/types";
 import {
@@ -341,4 +341,112 @@ it("a revoke during resume spawn leaves the new process ordinary and live", asyn
   // An explicit subsequent human grant still succeeds; no resume reservation leaks.
   await make(workspace);
   expect(workspace.orchestration.active(repo.path)).toBe("parent");
+});
+
+it("records an exit during resume spawn even when the terminal has a retired parent", async () => {
+  const workspace = createWorkspace(deps);
+  const initial = { id: "parent", attention: "evaluator" as const, conversationId: "saved-123" };
+  launch.mockResolvedValueOnce(initial);
+  await orchestrate(workspace);
+  await workspace.exited("parent", 0);
+  launch.mockImplementationOnce(async (request) => {
+    request.beforeSpawn?.();
+    await workspace.exited("parent", 1);
+    return { id: "parent", attention: "evaluator" };
+  });
+  await workspace.sidebarCommand({ kind: "resume", id: "parent" }, confirm);
+  expect(workspace.snapshot().terminals.find((row) => row.id === "parent")?.exited).toBe(true);
+  expect(workspace.orchestration.active(repo.path)).toBeUndefined();
+  expect(workspace.orchestration.view("parent")).toMatchObject({ active: false });
+  // The dead invocation cannot block another session's grant.
+  launch.mockResolvedValueOnce({ id: "second", attention: "evaluator" });
+  await workspace.sidebarCommand(
+    { kind: "launch", repository: repo.path, worktree: child.path, run: "claude" },
+    confirm,
+  );
+  confirm.mockClear();
+  await make(workspace, "second");
+  expect(confirm.mock.calls.at(-1)?.[0]).not.toHaveProperty("replacing");
+  expect(workspace.orchestration.active(repo.path)).toBe("second");
+});
+
+it.each([
+  ["claude", false, true],
+  ["agy", false, false],
+  ["claude", true, false],
+] as const)(
+  "resumes %s ordinarily when MCP=%s and restoreControl=%s",
+  async (agent, mcp, restoreControl) => {
+    scans.current = {
+      ...scan(mcp),
+      agents: [
+        {
+          path: "/bin/fixture",
+          version: "1",
+          hooks: false,
+          reason: "ok",
+          id: agent,
+          mcp,
+          restoreControl,
+        },
+      ],
+    };
+    const workspace = createWorkspace(deps);
+    const initial = { id: "parent", attention: "evaluator" as const, conversationId: "saved-123" };
+    launch.mockResolvedValueOnce(initial);
+    await workspace.sidebarCommand(
+      { kind: "launch", repository: repo.path, worktree: repo.path, run: agent },
+      confirm,
+    );
+    await make(workspace);
+    await workspace.exited("parent", 0);
+    launch.mockImplementation((request) => {
+      if (request.control)
+        return Promise.reject(new Error("This launch cannot restore orchestration without MCP"));
+      return Promise.resolve({ id: "parent", attention: "evaluator" });
+    });
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await workspace.sidebarCommand({ kind: "resume", id: "parent" }, confirm);
+      expect(launch.mock.calls.at(-1)?.[0].control).toBeUndefined();
+      expect(workspace.orchestration.active(repo.path)).toBeUndefined();
+      await workspace.exited("parent", 0);
+    }
+  },
+);
+
+it("keeps the current orchestrator when transfer back to a former parent has unsettled creation", async () => {
+  const workspace = createWorkspace(deps);
+  await orchestrate(workspace);
+  launch.mockResolvedValueOnce({ id: "second", attention: "evaluator" });
+  await workspace.sidebarCommand(
+    { kind: "launch", repository: repo.path, worktree: child.path, run: "claude" },
+    confirm,
+  );
+  const created = Promise.withResolvers<{ path: string; outcome: "new" }>();
+  const entered = Promise.withResolvers<undefined>();
+  deps.worktrees.createWorktree = vi.fn(() => {
+    entered.resolve(undefined);
+    return created.promise;
+  });
+  const operations = new Operations(
+    () => Promise.resolve(),
+    () => undefined,
+  );
+  const pending = workspace.orchestration.call(
+    principal(),
+    "create_worktree",
+    { branch: "feature", idempotencyKey: "pending-transfer" },
+    operations,
+  );
+  await entered.promise;
+  try {
+    await make(workspace, "second");
+    setRole.mockClear();
+    await expect(make(workspace)).rejects.toThrow("conflict");
+    expect(workspace.orchestration.active(repo.path)).toBe("second");
+    expect(setRole).not.toHaveBeenCalled();
+  } finally {
+    created.resolve({ path: child.path, outcome: "new" });
+    await pending;
+  }
 });

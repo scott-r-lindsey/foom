@@ -610,12 +610,11 @@ export async function startExisting(
     let resumeIdentity: string | undefined;
     let resumeRuntime: Awaited<WorktreeLaunchContext["control"]> = undefined;
     const oldParent = replacement ? this.launched.get(replacement.id) : undefined;
-    const resumeGuard =
+    let resumeGuard =
       !restoring &&
       !control &&
       replacement?.conversationId &&
-      oldParent?.conversationId === replacement.conversationId &&
-      oldParent.agent === run &&
+      oldParent?.agent === run &&
       oldParent.repository === repository &&
       oldParent.worktree === worktree &&
       !oldParent.remote
@@ -668,7 +667,16 @@ export async function startExisting(
         );
       }
       if (run !== "shell") {
-        if (!isRemote) await this.scanAgents(false);
+        const report = !isRemote ? await this.scanAgents(false) : undefined;
+        const agent = report?.agents.find((entry) => entry.id === run);
+        if (
+          resumeGuard &&
+          !(
+            agent?.mcp === true &&
+            (agent.restoreControl ?? builtinAgent(agent.id)?.restoreControl) === true
+          )
+        )
+          resumeGuard = undefined;
         if (resumeGuard && replacement) {
           const rootIdentity = await this.deps.worktrees.launchIdentity(repository, repository);
           if (rootIdentity !== this.sessions.identity(repository))

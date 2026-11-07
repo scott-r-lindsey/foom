@@ -963,3 +963,11 @@ test("machine launch IPC accepts only a host selector and known agent, with a re
     invoke("workspace:create-worktree", ["/repo", "new-branch", undefined, false]),
   ).toThrow();
 });
+
+test("the trusted grant discloses automatic Resume recovery and how to cancel it", () => {
+  const text = JSON.stringify(orchestratorDisclosure("claude").sections);
+  expect(text).toContain(
+    "Resuming this conversation restores its role and children without asking again.",
+  );
+  expect(text).toContain("Revoke orchestrator ends its access and cancels automatic recovery.");
+});

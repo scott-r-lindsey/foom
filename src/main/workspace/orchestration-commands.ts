@@ -105,6 +105,7 @@ export async function makeOrchestrator(
     running();
     if (this.orchestration.active(entry.repository) !== current)
       throw new Error("The orchestrator changed. Try again.");
+    this.orchestration.checkRecovery(id);
     if (current !== undefined) await this.revokeOrchestrator(current);
     const slot = this.orchestration.reserve(entry.repository, id);
     if ("existing" in slot) throw new Error("The orchestrator changed. Try again.");

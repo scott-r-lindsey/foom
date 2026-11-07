@@ -43,7 +43,8 @@ orchestrator** on the active one (#303). There is no orchestrator launch. Main c
 the session is a running, non-config agent that is not an un-taken-over child, then
 asks through the trusted dialog, which discloses the output path and names any
 orchestrator it would replace. After the dialog it rechecks the session and the
-current orchestrator, revokes the old one, reserves the repository's slot, swaps
+current orchestrator, checks that the recipient has no unsettled launch or creation
+effects, revokes the old one, reserves the repository's slot, swaps
 the grant's principal (`ControlService.setRole`) and binds the slot. Every
 orchestrator has the CLI fallback; Antigravity can be elevated without interactive
 prompt support. Child worktree creation with `branch` requires a new local branch, refuses
@@ -81,14 +82,23 @@ revokes its credentials and retires authority; previously the tile's Resume path
 created an ordinary grant, and re-grant retained only history, stranding children.
 MCP reinitialization alone does not replace a control principal or revoke its role.
 
-Resume of the same main-owned tile and recorded conversation may restore the role
-with fresh credentials when it held the role at exit, its registered repository
-identity still matches, and no intervening grant, explicit revoke, removal or new
-conversation invalidated that provenance. Main reserves the repository slot and
+Resume of the same main-owned tile may restore the role with fresh credentials
+when it held the role at exit, its registered repository identity still matches,
+the installed agent supports per-launch MCP and restore control, and no intervening
+grant, explicit revoke, removal or new conversation invalidated that provenance. Main reserves the repository slot and
 rechecks the captured provenance before spawn and after the host returns. Revoke also cancels recovery
 for an exited parent; if it wins while spawn completes, the new process stays
 live with an ordinary grant. A pasted conversation or a different
-tile never establishes this authority. A failed launch releases its reservation.
+tile never establishes this authority. The recorded conversation ID selects the
+provider conversation; it is not independent authority provenance. A failed launch
+releases its reservation. An exit during spawn retires the new authority and frees
+the slot even when the terminal ID still has a retired parent record.
+
+The trusted Make orchestrator disclosure says plainly that resuming this
+conversation restores its role and children without asking again, and Revoke
+cancels that recovery. An exited parent with pending recovery offers **Revoke
+orchestrator** in its menu; after revocation Resume starts ordinarily. Agents
+without MCP or restore control also resume ordinarily.
 
 The trusted Make orchestrator disclosure states that re-granting the same tile in
 the same repository restores its prior children, retained handoffs and created
