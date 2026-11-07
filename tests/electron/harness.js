@@ -1,3 +1,4 @@
+const { fixtureEnvironment } = require("../helpers/environment.js");
 const { evidencePath } = require("../helpers/evidence.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
 const { AxeBuilder } = require("@axe-core/playwright");
@@ -637,7 +638,7 @@ async function launchApp(context, options = { fixture: "running-shell" }) {
     "Only a running shell can be hidden",
   );
   const display = electronLaunch({
-    env: { ...process.env, ...options.env },
+    env: { ...fixtureEnvironment(), ...options.env },
     args: options.args ?? [],
   });
   const setupStart = performance.now();
@@ -732,7 +733,7 @@ async function launchApp(context, options = { fixture: "running-shell" }) {
   }
   const { env } = electronLaunch({
     env: {
-      ...process.env,
+      ...fixtureEnvironment(),
       HOME: options.home,
       USERPROFILE: options.home,
       ...options.env,
