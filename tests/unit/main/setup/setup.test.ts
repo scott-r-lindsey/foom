@@ -556,6 +556,10 @@ test("completed host checks refresh inventory while saved list/progress reads an
   expect(changed).not.toHaveBeenCalled();
   await expect(setup.hosts({ action: "progress" })).resolves.toBe(state);
   expect(changed).not.toHaveBeenCalled();
+  await expect(
+    setup.hosts({ action: "reload", host: "worker", target: { kind: "tool", tool: "git" } }),
+  ).resolves.toBe(state);
+  expect(changed).not.toHaveBeenCalled();
   await expect(setup.hosts({ action: "refresh", host: "worker" })).resolves.toBe(state);
   expect(changed).toHaveBeenCalledOnce();
   action.mockRejectedValueOnce(new Error("refused"));

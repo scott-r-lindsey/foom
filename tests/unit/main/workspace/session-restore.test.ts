@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import {
   restoreAuthority,
+  canRestoreControl,
   restorePlan,
   runRestore,
 } from "../../../../src/main/workspace/session-restore";
@@ -128,4 +129,25 @@ test("v2 restore capability requires the persisted human grant and verified inst
     restoreAuthority(parent, "identity", { ...installation, restoreControl: false }, true),
   ).toBe(false);
   expect(restoreAuthority(parent, "identity", { ...installation, mcp: false }, true)).toBe(false);
+});
+
+test("restart and tile Resume share the config-origin built-in ID refusal", () => {
+  const agent = {
+    id: "claude",
+    path: "/fixture/claude",
+    version: "1",
+    hooks: false,
+    mcp: true,
+    restoreControl: true,
+    reason: "ok",
+  };
+  const entry = {
+    ...row,
+    providerOrigin: "config" as const,
+    orchestrator: { identity: "identity", history: [] },
+  };
+  expect(canRestoreControl(undefined, agent)).toBe(false);
+  expect(canRestoreControl(entry, agent)).toBe(false);
+  expect(restoreAuthority(entry, "identity", agent, true)).toBe(false);
+  expect(canRestoreControl({ ...entry, agent: "custom" }, { ...agent, id: "custom" })).toBe(true);
 });

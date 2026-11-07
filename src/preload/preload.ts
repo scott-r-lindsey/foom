@@ -10,6 +10,7 @@ import type {
   HostsState,
   HostResult,
   HostFacts,
+  HostCheckTarget,
   RegisteredHost,
 } from "../shared/registered-hosts.d";
 import type {
@@ -520,6 +521,11 @@ const validRegisteredHost: Validator<RegisteredHost> = shape({
   codeFolder: hostRequestedFolder,
   observation: either(absent, validHostObservation),
 } satisfies Contract<RegisteredHost>);
+const validHostCheckTarget: Validator<HostCheckTarget> = either(
+  shape({ kind: literal("ssh", "platform", "artifact", "folder", "command-line-tools", "power") }),
+  shape({ kind: literal("tool", "sign-in"), tool: hostAgentId }),
+  shape({ kind: literal("origin", "checkout"), repository: text }),
+);
 const validHostsState: Validator<HostsState> = shape({
   progress: either(
     absent,
@@ -545,6 +551,15 @@ const validHostsState: Validator<HostsState> = shape({
       nickname: either(absent, hostNickname),
       codeFolder: hostRequestedFolder,
       observation: either(absent, validHostObservation),
+      rowFailures: either(
+        absent,
+        array(
+          shape({
+            target: validHostCheckTarget,
+            reason: literal("save-failed", "check-failed"),
+          }),
+        ),
+      ),
       result: either(absent, validHostResult),
       recipes: either(
         absent,
@@ -753,6 +768,7 @@ const validOrchestrationView: Validator<OrchestrationView> = either(
   shape({
     role: literal("orchestrator"),
     active: boolean,
+    restoreOnResume: either(absent, literal(true)),
     children: count,
     history: array(validOrchestrationEntry),
   }),

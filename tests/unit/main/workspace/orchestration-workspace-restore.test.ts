@@ -1,3 +1,4 @@
+import type { StoredSession } from "../../../../src/main/workspace/session-restore.d";
 import { ForgeTracking } from "../../../../src/main/control/forge-tracking";
 import { expect, it, vi } from "vitest";
 import type { WorkspaceDependencies } from "../../../../src/main/workspace/workspace-types";
@@ -680,5 +681,58 @@ it.each(["MERGED", "CLOSED"] as const)(
     expect(parent()?.state?.signal).not.toBe("orchestration:unread");
     expect(launch.mock.calls.map(([request]) => request.terminalId)).toEqual(["parent"]);
     await workspace.dispose();
+  },
+);
+
+it.each(["unchanged", "repository", "worktree"])(
+  "restarts a linked-checkout orchestrator with per-path identities (%s)",
+  async (replacement) => {
+    const { make } = await import("./orchestration-workspace-fixture");
+    let replaced = false;
+    deps.worktrees.launchIdentity = (_repository, checkout) =>
+      Promise.resolve(
+        `${checkout}:${replaced && ((replacement === "repository" && checkout === repo.path) || (replacement === "worktree" && checkout === child.path)) ? "replacement" : "original"}`,
+      );
+    let saved: readonly StoredSession[] = [];
+    deps.sessions = {
+      load: () => Promise.resolve([...saved]),
+      save: (entries) => {
+        saved = entries;
+        return Promise.resolve();
+      },
+      flush: async () => {},
+    };
+    launch.mockImplementation((request) =>
+      Promise.resolve({
+        id: request.terminalId ?? "parent",
+        attention: "evaluator",
+        conversationId: "saved-linked",
+      }),
+    );
+    const workspace = createWorkspace(deps);
+    await workspace.sidebarCommand(
+      { kind: "launch", repository: repo.path, worktree: child.path, run: "claude" },
+      confirm,
+    );
+    await make(workspace);
+    await workspace.prepareQuit();
+    await workspace.dispose();
+    replaced = true;
+    launch.mockClear();
+    const restored = createWorkspace(deps);
+    await restored.restore();
+    await restored.restartSaved();
+    if (replacement === "unchanged") {
+      expect(launch).toHaveBeenCalledOnce();
+      expect(launch.mock.calls[0]?.[0]).toMatchObject({
+        worktree: child.path,
+        terminalId: "parent",
+        control: { role: "orchestrator" },
+      });
+      expect(restored.orchestration.active(repo.path)).toBe("parent");
+    } else {
+      expect(restored.orchestration.active(repo.path)).toBeUndefined();
+      expect(launch.mock.calls.every(([request]) => request.control === undefined)).toBe(true);
+    }
   },
 );

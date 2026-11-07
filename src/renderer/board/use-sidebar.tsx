@@ -471,6 +471,14 @@ export function useSidebar(props: SidebarProps) {
       row.exited ?? (row.kind === "sample" && (row.state === "done" || row.state === "failed"));
     const items: (RowAction | null)[] = exited
       ? [
+          ...(row.orchestration?.role === "orchestrator" && row.orchestration.restoreOnResume
+            ? [
+                {
+                  label: "Revoke orchestrator",
+                  run: () => command({ kind: "revoke-orchestrator", id: row.id }),
+                },
+              ]
+            : []),
           ...(row.review && !["clean", "escalated"].includes(row.review.phase)
             ? [
                 {

@@ -384,6 +384,17 @@ export class RemoteTransport extends EventEmitter {
             }
             if (
               this.management?.type === "manage" &&
+              (this.management.operation === "create-folder" ||
+                (this.management.operation === "inspect" && this.management.target)) &&
+              value.build !== artifact.sha256 &&
+              value.hostRowCheck !== 1
+            ) {
+              this.managementFailure = "facts-unavailable";
+              this.kill();
+              return;
+            }
+            if (
+              this.management?.type === "manage" &&
               (this.management.operation === "origin" ||
                 this.management.operation === "create-folder" ||
                 (this.management.operation === "inspect" && this.management.partial)) &&

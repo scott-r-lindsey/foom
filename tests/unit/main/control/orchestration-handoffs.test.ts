@@ -224,12 +224,12 @@ describe("child handoff ownership and waits", () => {
     await expect(h.call("read_handoff", { id: child.id })).rejects.toThrow();
     expect(h.orchestration.handoffs.latest(child.id)?.summary).toBe("CI failed");
   });
-  it("restores access only after ownership is restored and deletes reports on close", async () => {
+  it("restores prior handoffs on same-session re-grant and deletes reports on close", async () => {
     const { h, child, report } = await setup();
     await report();
     h.orchestration.revoke("parent");
     const next = h.launchParent("parent");
-    await expect(next.call("read_handoff", { id: child.id })).rejects.toThrow("not_found");
+    expect(await next.call("read_handoff", { id: child.id })).toMatchObject({ seq: 1 });
     const row = h.rows.get(child.id);
     if (!row) throw new Error("missing child");
     await h.orchestration.restoreChild("parent", row);

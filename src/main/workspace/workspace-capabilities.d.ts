@@ -1,6 +1,6 @@
 import type { AgentId } from "../../shared/agents";
 import type { Settings } from "../../shared/setup";
-import type { WorkspaceSnapshot, WorkspaceTerminal } from "../../shared/workspace";
+import type { AgentReport, WorkspaceSnapshot, WorkspaceTerminal } from "../../shared/workspace";
 import type { AgyPlugin } from "../agents/agy-plugin";
 import type { AgentProbes } from "../agents/probes";
 import type { ProbeHttp } from "../agents/probe-http";
@@ -17,6 +17,7 @@ import type { Agents, WorkspaceDependencies, WorkspaceMethods } from "./workspac
 /** Independent feature contracts. Shared mutable state remains owned by the composer. */
 export interface WorktreeLaunchContext {
   readonly closed: boolean;
+  readonly control: Promise<Partial<Pick<ControlRuntime, "setRole">>> | undefined;
   readonly addWorktree: WorkspaceMethods["addWorktree"];
   readonly agents: Pick<Agents, "launch">;
   readonly busyWorktrees: Set<string>;
@@ -34,7 +35,16 @@ export interface WorktreeLaunchContext {
   readonly now: () => number;
   readonly orchestration: Pick<
     Orchestration,
-    "relaunched" | "view" | "exited" | "remoteParentGuard" | "remoteCheckout" | "worktreeHost"
+    | "relaunched"
+    | "view"
+    | "exited"
+    | "remoteParentGuard"
+    | "remoteCheckout"
+    | "worktreeHost"
+    | "identity"
+    | "resumeGuard"
+    | "observeParentResume"
+    | "reserve"
   >;
   readonly persist: () => void;
   readonly queues: Map<string, Promise<void>>;
@@ -42,7 +52,7 @@ export interface WorktreeLaunchContext {
   readonly replacementVersion: WorkspaceMethods["replacementVersion"];
   readonly resumeStarts: Map<string, Promise<void>>;
   readonly scanAgents: WorkspaceMethods["scanAgents"];
-  readonly sessions: Pick<SessionOwner, "rememberIdentity" | "rememberRemote">;
+  readonly sessions: Pick<SessionOwner, "rememberRemote">;
   readonly shellEnvironment: WorkspaceMethods["shellEnvironment"];
   readonly startExisting: WorkspaceMethods["startExisting"];
   readonly startShell: WorkspaceMethods["startShell"];
@@ -72,6 +82,7 @@ export interface AgentSetupContext {
   readonly hooksEnabled: boolean;
   readonly launchAbort: AbortController;
   readonly scanAgents: WorkspaceMethods["scanAgents"];
+  agentReport: AgentReport | undefined;
   scanned: ReturnType<Agents["scan"]> | undefined;
   scannedProviders: number;
   readonly deps: {
@@ -206,6 +217,8 @@ export interface RepositoryOperationsContext {
 }
 
 export interface OrchestrationCommandsContext {
+  readonly agentReport: AgentReport | undefined;
+  readonly scanAgents: WorkspaceMethods["scanAgents"];
   readonly auditHuman: WorkspaceMethods["auditHuman"];
   readonly busyWorktrees: Set<string>;
   readonly control:
@@ -218,12 +231,12 @@ export interface OrchestrationCommandsContext {
   readonly location: "root" | "adjacent";
   readonly orchestration: Pick<
     Orchestration,
-    "active" | "handoffs" | "reserve" | "reviews" | "revoke" | "view"
+    "active" | "checkRecovery" | "handoffs" | "reserve" | "reviews" | "revoke" | "view"
   >;
   readonly queues: Map<string, Promise<void>>;
   readonly refresh: () => void;
   readonly revokeOrchestrator: WorkspaceMethods["revokeOrchestrator"];
-  readonly sessions: Pick<SessionOwner, "isRestoring" | "rememberIdentity">;
+  readonly sessions: Pick<SessionOwner, "isRestoring">;
   readonly withRepository: <T>(repository: string, work: () => Promise<T>) => Promise<T>;
   readonly worktrees: WorkspaceMethods["worktrees"];
   readonly deps: {

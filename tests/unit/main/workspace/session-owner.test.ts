@@ -23,7 +23,7 @@ const row = (id: string, extra: Partial<StoredSession> = {}): StoredSession => (
 });
 const parent = (extra: Partial<StoredSession> = {}) =>
   row("parent", {
-    orchestrator: { identity: "identity", history: [] },
+    orchestrator: { identity: "identity", worktreeIdentity: "identity", history: [] },
     ...extra,
   });
 function fixture(entries: StoredSession[] = []) {
@@ -36,6 +36,7 @@ function fixture(entries: StoredSession[] = []) {
   const bind = vi.fn();
   const release = vi.fn();
   const orchestration = {
+    identity: vi.fn<SessionOwnerDependencies["orchestration"]["identity"]>(),
     handoffs: new Handoffs(),
     view: vi.fn<SessionOwnerDependencies["orchestration"]["view"]>(),
     ownedWorktrees: vi.fn(() => []),
@@ -166,7 +167,7 @@ it("persists current provenance only for active parents with identity and childr
   );
   await f.owner.save();
   expect(f.store.save.mock.lastCall?.[0][0]).not.toHaveProperty("orchestrator");
-  f.owner.rememberIdentity("/repo", "identity");
+  f.orchestration.identity.mockReturnValue({ repository: "identity", worktree: "identity" });
   await f.owner.save();
   expect(f.store.save.mock.lastCall?.[0]).toMatchObject([
     {
@@ -434,3 +435,16 @@ it.each(["/home/fixture", "/home/fixture/foom"])(
     expect(f.deps.launch).toHaveBeenCalledWith(machine);
   },
 );
+
+it("does not infer a linked parent's checkout identity from legacy repository-only provenance", async () => {
+  const f = fixture([row("parent", { orchestrator: { identity: "identity", history: [] } })]);
+  await f.owner.restore();
+  await f.owner.restartSaved();
+  expect(f.deps.launch).toHaveBeenCalledWith(
+    expect.objectContaining({ id: "parent" }),
+    undefined,
+    undefined,
+  );
+  expect(f.orchestration.reserve).not.toHaveBeenCalled();
+  expect(f.owner.roleNotRestored("parent")).toBe(true);
+});

@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-import { harness } from "./orchestration-helpers";
+import { harness, repo } from "./orchestration-helpers";
 import { launchRemoteChild } from "../../../../src/main/agents/remote-launch";
 import type { TerminalSpec } from "../../../../src/shared/desktop";
 
@@ -82,7 +82,12 @@ it.each(["exit", "revoke", "replace", "grant", "operation"])(
     if (event === "revoke") h.orchestration.revoke("parent");
     if (event === "replace") {
       h.orchestration.revoke("parent");
-      replacement = h.launchParent("parent");
+      const slot = h.orchestration.reserve(repo);
+      if ("existing" in slot) throw new Error("slot taken");
+      expect(() => {
+        slot.bind("parent");
+      }).toThrow("conflict");
+      slot.release();
     }
     if (event === "grant") h.grant.dispose();
     if (event === "operation") {
@@ -94,6 +99,7 @@ it.each(["exit", "revoke", "replace", "grant", "operation"])(
     expect(spawn).not.toHaveBeenCalled();
     expect(bind).not.toHaveBeenCalled();
     expect(dispose).toHaveBeenCalledOnce();
+    if (event === "replace") replacement = h.launchParent("parent");
     if (replacement)
       expect(await replacement.mutate("create_worktree", { branch: "replacement" })).toMatchObject({
         status: "succeeded",

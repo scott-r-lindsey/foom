@@ -43,7 +43,8 @@ orchestrator** on the active one (#303). There is no orchestrator launch. Main c
 the session is a running, non-config agent that is not an un-taken-over child, then
 asks through the trusted dialog, which discloses the output path and names any
 orchestrator it would replace. After the dialog it rechecks the session and the
-current orchestrator, revokes the old one, reserves the repository's slot, swaps
+current orchestrator, checks that the recipient has no unsettled launch or creation
+effects, revokes the old one, reserves the repository's slot, swaps
 the grant's principal (`ControlService.setRole`) and binds the slot. Every
 orchestrator has the CLI fallback; Antigravity can be elevated without interactive
 prompt support. Child worktree creation with `branch` requires a new local branch, refuses
@@ -73,6 +74,58 @@ sends no placement event. `close` accepts only owned, exited children and delega
 to the normal sidebar close path; the final screen is discarded while the checkout,
 branch and review state remain for ordinary worktrees. Foom-created detached
 review checkouts instead use the narrow #843 removal exception above.
+
+## Same-session resume and re-grant (#1081)
+
+A provider pause inside a live process leaves the grant and role intact. Host exit
+revokes its credentials and retires authority; previously the tile's Resume path
+created an ordinary grant, and re-grant retained only history, stranding children.
+MCP reinitialization alone does not replace a control principal or revoke its role.
+
+Resume of the same main-owned tile may restore the role with fresh credentials
+when its human grant accepted the current Resume disclosure in this app lifetime,
+it held the role at exit, and its own recorded repository-root and checkout identities still match,
+the installed agent passes the shared restart/Resume provider gate (per-launch MCP,
+restore control and no config-origin provider using a built-in ID), and no intervening
+grant, explicit revoke, removal or new conversation invalidated that provenance. Main reserves the repository slot and
+rechecks the captured provenance before spawn and after the host returns. Revoke also cancels recovery
+for an exited parent; if it wins while spawn completes, the new process stays
+live with an ordinary grant. A pasted conversation or a different
+tile never establishes this authority. The recorded conversation ID selects the
+provider conversation; it is not independent authority provenance. A failed launch
+releases its reservation. An exit during spawn retires the new authority and frees
+the slot even when the terminal ID still has a retired parent record. Parent exits
+are observed only within that tile’s specific Resume invocation and discarded when
+it finishes; an unrelated retired parent’s exit cannot poison a later grant.
+
+For a supported provider, the trusted Make orchestrator disclosure distinguishes
+two cases: a role running at quit is restored on launch without asking when
+**Restore sessions on launch** is on (the default); an exited tile’s Resume can
+recover its role and children without asking again only until Foom restarts,
+and Revoke cancels that recovery. Unsupported providers receive no Resume promise.
+Restart persists both identities separately and compares each with the same
+path, so a parent in a linked worktree restores too. Replaced repositories or
+parent checkouts grant no recovered authority. Legacy repository-only records
+can prove the main checkout; linked tiles without a saved checkout identity
+resume ordinarily until explicitly granted again.
+Consent is main-owned, transient state set only by this trusted grant; neither a
+saved role nor a renderer projection creates it. A role restored at restart may
+continue under the established restart contract, but its later manual Resume is
+ordinary until the human revokes and re-grants with the current disclosure. An exited parent with pending recovery offers **Revoke
+orchestrator** in its menu; after revocation Resume starts ordinarily. Agents
+without MCP or restore control also resume ordinarily.
+
+The trusted Make orchestrator disclosure limits re-grant recovery to the same tile
+and repository before Foom restarts. Each parent retains its own immutable
+repository-root and checkout identities; another tile’s interim grant cannot
+replace that proof. Re-grant validates both before the dialog and again before
+revoking a current orchestrator, and binding refuses mismatched records. It restores its retained prior children, retained handoffs and created
+worktrees. Main carries those records into a new authority object, retaining host
+placement and takeover flags and resetting handoff read cursors. Old capabilities,
+waits, operations and confirmations remain invalid. Existing checkout identity and
+removal checks still apply. Taken-over children stay under human control; transfer
+to another session grants none of the former parent's children. Ended review loops
+stay ended; recovery never restarts automation or replays actions.
 
 ## Optional child build/review loop (#690)
 

@@ -196,7 +196,11 @@ const agentNames: Readonly<Record<string, string>> = {
 };
 
 /** Granting orchestration widens permissions, so it always uses the trusted dialog. */
-export function orchestratorDisclosure(id: string, replacing?: string): DialogContent {
+export function orchestratorDisclosure(
+  id: string,
+  replacing?: string,
+  restoreOnResume = false,
+): DialogContent {
   return {
     title: `Make ${agentNames[id] ?? id} the Foom orchestrator?`,
     accept: "Make orchestrator",
@@ -208,6 +212,13 @@ export function orchestratorDisclosure(id: string, replacing?: string): DialogCo
         items: [
           "Create worktrees and run child agents in this repository up to the limit in Settings → General.",
           "Stop them, and ask you to remove worktrees it created.",
+          ...(restoreOnResume
+            ? [
+                "A role running at quit is restored on launch without asking when “Restore sessions on launch” is on (the default).",
+                "Until Foom restarts, Resume in this exited tile can restore its role and children without asking again. Revoke cancels this.",
+              ]
+            : []),
+          "Re-granting this tile before Foom restarts recovers its previous children, handoffs and worktrees in this repository, except children you took over. Another tile inherits none.",
           "Send prompts and keys to its own children without asking you, including answering permission, credential and provider prompts.",
           "Close its exited children, discarding their final screens; their worktrees and branches remain.",
           "Keep its own launch flags; children do not inherit them and cannot orchestrate.",
@@ -228,7 +239,9 @@ export function orchestratorDisclosure(id: string, replacing?: string): DialogCo
         items: [
           "Its actions appear in its panel.",
           "Take over returns a child to you.",
-          "Revoke orchestrator ends its access.",
+          restoreOnResume
+            ? "Revoke orchestrator ends its access and cancels automatic recovery."
+            : "Revoke orchestrator ends its access.",
         ],
       },
     ],
@@ -305,7 +318,7 @@ export function attachWorkspace(
           return Promise.resolve(false);
         contents.send("confirmation:dialog");
         return requestDialog({
-          ...orchestratorDisclosure(request.agent, request.replacing),
+          ...orchestratorDisclosure(request.agent, request.replacing, request.restoreOnResume),
           ...(request.subject !== undefined ? { subject: request.subject } : {}),
         });
       }

@@ -249,6 +249,10 @@ function readOrchestrator(value: unknown): StoredSession["orchestrator"] {
     typeof data["identity"] !== "string" ||
     !data["identity"] ||
     data["identity"].length > 4096 ||
+    (data["worktreeIdentity"] !== undefined &&
+      (typeof data["worktreeIdentity"] !== "string" ||
+        !data["worktreeIdentity"] ||
+        data["worktreeIdentity"].length > 4096)) ||
     !Array.isArray(data["history"]) ||
     data["history"].length > 20
   )
@@ -372,6 +376,9 @@ function readOrchestrator(value: unknown): StoredSession["orchestrator"] {
   }
   return {
     identity: data["identity"],
+    ...(typeof data["worktreeIdentity"] === "string"
+      ? { worktreeIdentity: data["worktreeIdentity"] }
+      : {}),
     history,
     ...(owned === undefined ? {} : { worktrees: owned }),
     ...(typeof uncertain === "number" ? { uncertain } : {}),

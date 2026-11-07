@@ -128,7 +128,7 @@ export function harness(
     board,
   );
   const launchParent = (terminalId: string, repository = repo) => {
-    const slot = orchestration.reserve(repository);
+    const slot = orchestration.reserve(repository, undefined, true);
     if ("existing" in slot) throw new Error("slot taken");
     const grant = service.prepare(repository, repository, "orchestrator");
     grant.bind(terminalId);

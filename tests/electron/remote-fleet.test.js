@@ -506,7 +506,14 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
     });
     assert.equal(tree.status, "succeeded", JSON.stringify(tree));
     await rename(path.join(remoteBin, "codex"), path.join(remoteBin, "codex-hidden"));
-    await page.evaluate(() => window.desktop.hosts({ action: "refresh", host: "fleet-worker" }));
+    // Refresh facts only reads resources; explicitly reload the changed agent row.
+    await page.evaluate(() =>
+      window.desktop.hosts({
+        action: "reload",
+        host: "fleet-worker",
+        target: { kind: "tool", tool: "codex" },
+      }),
+    );
     // Background forge inspections may use SSH; refused launch must send no
     // agent preparation/start frame. Record types only, never credentials or prompts.
     const before = await readFile(launchCalls, "utf8");
@@ -520,7 +527,13 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
     assert.equal(missing.reason, "remote_agent_unavailable");
     assert.equal(await readFile(launchCalls, "utf8"), before);
     await rename(path.join(remoteBin, "codex-hidden"), path.join(remoteBin, "codex"));
-    await page.evaluate(() => window.desktop.hosts({ action: "refresh", host: "fleet-worker" }));
+    await page.evaluate(() =>
+      window.desktop.hosts({
+        action: "reload",
+        host: "fleet-worker",
+        target: { kind: "tool", tool: "codex" },
+      }),
+    );
   }
   for (const agent of agents) {
     const checkout =
@@ -720,6 +733,46 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
     await expect
       .poll(async () => (await call("read_handoff", { id: launched.resultId })).summary)
       .toBe(`${agent} fixture complete`);
+    if (!reviewLoop && !restart && !attentionCase && agent === "codex") {
+      await page.evaluate(
+        (id) => window.desktop.sidebarCommand({ kind: "revoke-orchestrator", id }),
+        parentId,
+      );
+      const regrant = page.evaluate(
+        (id) => window.desktop.sidebarCommand({ kind: "make-orchestrator", id }),
+        parentId,
+      );
+      const recovery = await confirmationPage(app);
+      await expect(recovery.getByText(/Re-granting this tile before Foom restarts/)).toBeVisible();
+      await recovery.getByRole("button", { name: "Make orchestrator" }).click();
+      await regrant;
+      assert.ok((await call("tail", { id: launched.resultId })).lines.length > 0);
+      assert.equal(
+        (await call("read_handoff", { id: launched.resultId })).summary,
+        `${agent} fixture complete`,
+      );
+      assert.equal(
+        (
+          await call("prompt", {
+            id: launched.resultId,
+            text: "Continue",
+            idempotencyKey: "regrant-prompt",
+          })
+        ).status,
+        "succeeded",
+      );
+      assert.equal(
+        (
+          await call("send_keys", {
+            id: launched.resultId,
+            keys: ["esc"],
+            idempotencyKey: "regrant-keys",
+          })
+        ).status,
+        "succeeded",
+      );
+      // Subsequent stop, close and confirmed worktree removal use recovered ownership.
+    }
     if (reviewLoop) {
       await verifiedCompletion(initialSnapshots);
       await expect

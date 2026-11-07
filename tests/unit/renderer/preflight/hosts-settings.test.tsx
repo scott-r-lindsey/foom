@@ -1,3 +1,4 @@
+import { chmod } from "node:fs/promises";
 // @vitest-environment jsdom
 import { restartedBrewHost } from "../../main/setup/hosts-saved-fixture";
 import { createRef } from "react";
@@ -1160,6 +1161,58 @@ test("the name and OS appear once in both compact and expanded host headers", as
   expect(screen.getAllByText("macOS")).toHaveLength(1);
 });
 
+test("row reload keeps other rows usable and does not run a full preflight", async () => {
+  const { api } = await mount();
+  let finish: ((state: HostsState) => void) | undefined;
+  api.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const button = screen.getByRole("button", { name: "Reload git" });
+  fireEvent.click(button);
+  expect(button.closest(".host-check-row")?.textContent).toContain("Checking…");
+  expect(screen.getByRole<HTMLButtonElement>("button", { name: "Reload SSH" }).disabled).toBe(
+    false,
+  );
+  expect(screen.getByRole<HTMLButtonElement>("button", { name: "Change folder" }).disabled).toBe(
+    false,
+  );
+  expect(api.mock.lastCall?.[0]).toEqual({
+    action: "reload",
+    host: "worker",
+    target: { kind: "tool", tool: "git" },
+  });
+  await act(async () => {
+    finish?.(saved(initial));
+    await Promise.resolve();
+  });
+  expect(api.mock.calls.some(([action]) => action.action === "preflight")).toBe(false);
+  api.mockRejectedValue(new Error("offline"));
+  fireEvent.click(button);
+  await waitFor(() => {
+    expect(button.closest(".host-check-row")?.textContent).toContain("Unable to check");
+  });
+  expect(screen.queryByText("Unable to reload host row")).toBeNull();
+  api.mockResolvedValue(saved(initial));
+  fireEvent.click(button);
+  await waitFor(() => {
+    expect(button.closest(".host-check-row")?.textContent).not.toContain("Unable to check");
+  });
+});
+
+test("failed resource refresh reports its failure without replacing checklist results", async () => {
+  const { api } = await mount();
+  api.mockResolvedValue(
+    saved({ ...initial, hosts: [{ ...host, result: { ok: false, reason: "unreachable" } }] }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Refresh facts" }));
+  await screen.findByText("Host unreachable");
+  expect(screen.getByText("Pass · Host key trusted")).toBeTruthy();
+  expect(api.mock.calls.some(([action]) => action.action === "preflight")).toBe(false);
+});
+
 test("Add nickname validates inline, preserves invalid or failed input and submits valid names", async () => {
   const { api } = await mount();
   fireEvent.click(screen.getByRole("button", { name: "Add host" }));
@@ -1251,5 +1304,89 @@ test.each(["Build box", ""])(
       await Promise.resolve();
     });
     expect(screen.getByRole("button", { name: `Rename ${finalName || "worker"}` })).toBeTruthy();
+  },
+);
+
+test("an unrepresentable row failure names Check capabilities only in that row", async () => {
+  const failed: HostPreflight = { ...preflight, result: { ok: false, reason: "unreachable" } };
+  const { api } = await mount({
+    ...initial,
+    preflight: failed,
+    hosts: [{ ...host, result: failed.result }],
+  });
+  api.mockRejectedValue(new Error("Unable to display host row without a full check"));
+  const button = screen.getByRole("button", { name: "Reload Code folder" });
+  fireEvent.click(button);
+  await waitFor(() => {
+    expect(button.closest(".host-check-row")?.textContent).toContain("Check capabilities required");
+  });
+  expect(screen.queryByText("Unable to reload host row")).toBeNull();
+  expect(screen.getByRole<HTMLButtonElement>("button", { name: "Reload SSH" }).disabled).toBe(
+    false,
+  );
+  expect(screen.getByText(/Last checked/u).textContent).toContain("Last checked");
+});
+
+test("a later live folder reply replaces a transient reload checklist", async () => {
+  const raw: HostsState = { hosts: [host], locations: [] };
+  const missing = {
+    ok: true as const,
+    facts: {
+      ...facts,
+      codeFolder: "/home/worker/new",
+      folder: { state: "fail" as const, reason: "folder-missing" as const },
+    },
+  };
+  const api = vi.fn(
+    (action: HostsAction): Promise<HostsState> =>
+      Promise.resolve(
+        action.action === "reload"
+          ? { ...raw, preflight: { ...preflight, repositories: [] } }
+          : action.action === "change-folder"
+            ? {
+                hosts: [{ ...host, codeFolder: missing.facts.codeFolder, result: missing }],
+                locations: [],
+                result: missing,
+              }
+            : raw,
+      ),
+  );
+  render(<HostsSettings source={{ hosts: api }} headingRef={createRef()} />);
+  await screen.findByRole("region", { name: "worker" });
+  expandHosts();
+  fireEvent.click(screen.getByRole("button", { name: "Reload Code folder" }));
+  await screen.findByText("Pass · Valid");
+  fireEvent.click(screen.getByRole("button", { name: "Change folder" }));
+  fireEvent.change(screen.getByLabelText("Code folder"), {
+    target: { value: missing.facts.codeFolder },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  await screen.findByRole("button", { name: "Create" });
+  expect(screen.getByText("Code folder does not exist · folder-missing")).toBeTruthy();
+  expect(screen.queryByText("Pass · Valid")).toBeNull();
+  expect(screen.queryByText(/Last checked/u)).toBeNull();
+});
+
+test.skipIf(process.platform === "win32")(
+  "Hosts remains readable while queued row saves keep failing",
+  async () => {
+    const fixture = await restartedBrewHost();
+    try {
+      await fixture.hosts.action(
+        { action: "recipe", host: "mac-fixture", tool: "gh", operation: "install" },
+        undefined,
+        () => Promise.resolve(),
+      );
+      await chmod(fixture.root, 0o555);
+      const api = (action: HostsAction) => fixture.hosts.action(action);
+      render(<HostsSettings source={{ hosts: api }} headingRef={createRef()} />);
+      const card = await screen.findByRole("region", { name: "mac-fixture" });
+      expandHosts();
+      expect(within(card).getAllByText("Unable to save")).toHaveLength(2);
+      expect(screen.queryByText("Unable to load hosts")).toBeNull();
+    } finally {
+      await chmod(fixture.root, 0o700);
+      await fixture.dispose();
+    }
   },
 );

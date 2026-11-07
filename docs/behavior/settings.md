@@ -299,7 +299,9 @@ See the [channel and privacy policy](../product.md#updates-603).
 
 ## Hosts and repository locations (#757 PR 1)
 
-Opening Hosts makes no SSH connections. It shows the last saved results, including
+Ordinary opening of Hosts makes no SSH connections. Returning after a foreground
+Install, Sign in or Trust host key action refreshes only its affected rows.
+Hosts shows the last saved results, including
 session and worktree inventory even when stale, with Last checked and a timestamp,
 or Not checked. Check capabilities refreshes the full checklist and remote
 inventory. Saved observations persist across restarts and are display only;
@@ -349,3 +351,24 @@ the last session closes or a create reply is lost. Recovery launches nothing and
 grants no orchestrator control. Hosts counts other-profile and untagged worktrees
 as **other worktrees**; these are never listed or adopted. See [Hosts](../areas/hosts.md)
 for the profile and cleanup rules.
+
+### Hosts checklist refresh (#1061)
+
+**Check capabilities** checks the whole host; Add performs its first check.
+Other Hosts actions never start a full check. Rename is local. Folder actions
+refresh the folder from their successful reply and mark affected repositories **Not checked**.
+A failed replacement reports the attempted change and preserves the registered folder's result.
+Clone/Trust origin update that repository; returning from Install/Sign in refreshes
+only the affected tool and sign-in rows. **Last checked** records full checks only.
+Each checklist row has a reload icon on hover and keyboard focus, with a name
+that identifies the row. Reload shows a spinner only on that row, preserves other
+results and leaves other rows usable. A row that cannot display its result without
+a full check shows Check capabilities required in that row, with no helper copy. Stale queued
+recipe rows are dropped independently when Hosts reopens. Failed profile writes
+leave saved hosts visible, show Unable to save only in affected rows, and retain
+known observations for retry without repeating remote checks. An explicit reload
+supersedes its older queued result, even when saving fails; the next open then
+checks that row again. Multiple recipes on
+one host merge their pending rows. A newer action reply replaces transient checklist results. Use reload to inspect changes made outside Foom;
+use Check capabilities to check everything. Sign-in and origin reloads may use
+the host's own network access.

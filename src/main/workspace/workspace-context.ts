@@ -15,7 +15,12 @@ import type { AgentHooks, AgentId, AgentLaunch } from "../../shared/agents";
 import type { ConfirmWorkspace } from "../../shared/confirmation";
 import type { ExecutionTransition } from "../../shared/execution";
 import type { Settings } from "../../shared/setup";
-import type { McpConnection, WorkspaceSnapshot, WorkspaceTerminal } from "../../shared/workspace";
+import type {
+  AgentReport,
+  McpConnection,
+  WorkspaceSnapshot,
+  WorkspaceTerminal,
+} from "../../shared/workspace";
 import type { BranchInventory, Repository, Worktree } from "../../shared/worktrees";
 import { AgentService } from "../agents/agents";
 import { AgyPlugin } from "../agents/agy-plugin";
@@ -68,6 +73,7 @@ export class WorkspaceContext {
     | undefined;
   receiver: ReturnType<WorkspaceDependencies["receiver"]> | undefined;
   scanned: ReturnType<Agents["scan"]> | undefined;
+  agentReport: AgentReport | undefined;
   closed = false;
   readonly launchAbort = new AbortController();
   location: "root" | "adjacent" = "root";
