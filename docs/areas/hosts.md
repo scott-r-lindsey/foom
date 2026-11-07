@@ -99,14 +99,14 @@ owned, non-writable by other users, canonical directories with matching origin
 and Git top level. Settings shows only read-only lists of existing checkouts, without clone controls, absent rows or per-repository clone status. A checkout must have
 a valid HEAD commit; an initialized repository with an unborn HEAD is refused.
 
-First-use repository launch and worktree creation prepare a missing checkout automatically. Main shares concurrent preparation for the same registered host, folder and origin; existing valid checkouts are reused. Preparation runs Git with an argument array on the host, with the host's own login
+First-use repository launch and worktree creation prepare a missing checkout automatically. Main shares concurrent preparation for the same registered host, folder and origin; existing valid checkouts are reused. Clone authorization rechecks the current host, approved folder and repository membership after origin reads and provider preparation, synchronously immediately before remote dispatch. A changed registration refuses without a remote mutation. Preparation runs Git with an argument array on the host, with the host's own login
 PATH and Git configuration/access. No local files, credentials, SSH keys or agent
 sockets are copied/forwarded. Clone, fetch and ls-remote disable terminal prompts and both Git/SSH askpass.
 They run in a detached process group with ignored stdin and no controlling terminal.
 Git resolves its own SSH command and variant, including conditional configuration
 in the clone target context, `ssh.variant`, `GIT_SSH_VARIANT` and auto-detection.
 Foom does not add variant-specific SSH options;
-SSH configuration and keys remain owned by Git's transport. If SSH fails with an authentication, host-key, connectivity or timeout reason and the host has a signed-in gh for the origin hostname, Foom retries in fresh staging using HTTPS. Clone-local URL rewriting and a host-scoped `gh auth git-credential` helper preserve `remote.origin.url` exactly and are inherited by linked worktrees. No global Git or gh configuration is written. Local checkout failures do not trigger transport fallback. Terminal/askpass and
+SSH configuration and keys remain owned by Git's transport. If SSH fails with an authentication, host-key, connectivity or timeout reason and the host has a signed-in gh for the origin hostname, Foom retries in fresh staging using HTTPS. Clone-local URL rewriting and a host-scoped `gh auth git-credential` helper preserve `remote.origin.url` exactly and are inherited by linked worktrees. No global Git or gh configuration is written. SCP-style origins treat everything after the colon as the repository path, including numeric first segments; only `ssh://` origins parse a port. Fallback preserves the complete path. Absolute SCP paths, home-relative paths and empty/dot path segments refuse HTTPS fallback with the original closed failure rather than guessing a fetch target. Local checkout failures do not trigger transport fallback. Terminal/askpass and
 GCM interaction are disabled for every variant. Diagnostics
 are bounded and classified on the host, under the C locale, into `origin-auth`,
 `origin-host-key`, `origin-unreachable`, `timed-out` or `checkout-invalid`. A refused

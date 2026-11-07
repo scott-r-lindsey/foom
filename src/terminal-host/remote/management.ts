@@ -411,10 +411,12 @@ export async function manageHost(
           );
         } catch (error) {
           // A signed-in host gh can supply HTTPS credentials without changing global Git config.
-          const ssh =
-            /^(?:ssh:\/\/)?(?:[^@/:]+@)?([a-zA-Z0-9.-]+)(?::[0-9]+)?[:/]([a-zA-Z0-9_./~-]+)$/u.exec(
-              request.origin,
-            );
+          // SCP's colon starts the repository path; only ssh:// has a port.
+          const ssh = request.origin.startsWith("ssh://")
+            ? /^ssh:\/\/(?:[^@/:]+@)?([a-zA-Z0-9.-]+)(?::[0-9]+)?\/([a-zA-Z0-9_./~-]+)$/u.exec(
+                request.origin,
+              )
+            : /^(?:[^@/:]+@)?([a-zA-Z0-9.-]+):([a-zA-Z0-9_./~-]+)$/u.exec(request.origin);
           if (
             !ssh ||
             request.origin.startsWith("https://") ||
@@ -426,7 +428,14 @@ export async function manageHost(
             throw error;
           const hostname = ssh[1];
           const repository = ssh[2];
-          if (!hostname || !repository) throw error;
+          if (
+            !hostname ||
+            !repository ||
+            repository
+              .split("/")
+              .some((part) => !part || part === "." || part === ".." || part.startsWith("~"))
+          )
+            throw error;
           try {
             await hostProbe(
               "gh",

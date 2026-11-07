@@ -1350,6 +1350,7 @@ export class Hosts {
     host: string,
     request: HostManagement,
     currentObservation: () => boolean = () => true,
+    beforeDispatch: () => boolean = () => true,
   ): Promise<HostResult> {
     const failed = (
       reason: HostFailure,
@@ -1389,6 +1390,8 @@ export class Hosts {
         executables: provider.executableNames,
       }));
       let result: unknown;
+      // Provider preparation can await. Revoke stale mutation authority before dispatch.
+      if (!beforeDispatch()) return failed("checkout-refused", "configuration");
       try {
         result = await this.execute(host, { ...request, agents: probes });
       } catch {
@@ -1584,13 +1587,14 @@ export class Hosts {
       pending = this.repository(host, folder, repository, false)
         .then(async (result) => {
           if (!result.ok || result.checkout?.state !== "absent") return result;
+          const currentOrigin = await this.origin(repository);
           this.registered(host, folder);
           if (
             !this.repositories().some((entry) => entry.path === repository) ||
-            (await this.origin(repository)) !== origin
+            currentOrigin !== origin
           )
             throw new LaunchFailure("remote_worktree_unavailable");
-          const cloned = await this.repository(host, folder, repository, true);
+          const cloned = await this.repository(host, folder, repository, true, origin);
           console.info(`Host clone attempt: reason=${cloned.ok ? "completed" : cloned.reason}`);
           return cloned;
         })
@@ -1601,11 +1605,9 @@ export class Hosts {
       this.preparingRepositories.set(key, pending);
     }
     const result = await pending;
+    const currentOrigin = await this.origin(repository);
     this.registered(host, folder);
-    if (
-      !this.repositories().some((entry) => entry.path === repository) ||
-      (await this.origin(repository)) !== origin
-    )
+    if (!this.repositories().some((entry) => entry.path === repository) || currentOrigin !== origin)
       throw new LaunchFailure("remote_worktree_unavailable");
     if (!result.ok)
       throw new LaunchFailure(
@@ -1618,6 +1620,7 @@ export class Hosts {
     codeFolder: string,
     repository: string,
     clone: boolean,
+    expectedOrigin?: string,
   ): Promise<HostResult> {
     let origin: string;
     try {
@@ -1625,14 +1628,29 @@ export class Hosts {
     } catch {
       return { ok: false, reason: "origin-unavailable" };
     }
+    const authorized = () =>
+      this.store
+        .get()
+        .registeredHosts?.some(
+          (entry) => entry.host === host && entry.codeFolder === codeFolder,
+        ) === true &&
+      this.repositories().some((entry) => entry.path === repository) &&
+      this.repositoryOrigins.get(repository) === origin &&
+      (expectedOrigin === undefined || origin === expectedOrigin);
+    if (clone && !authorized()) return { ok: false, reason: "checkout-refused" };
     const directory = `repository-${createHash("sha256").update(origin).digest("hex").slice(0, 24)}`;
-    const result = await this.run(host, {
-      type: "manage",
-      operation: clone ? "clone" : "repository",
-      codeFolder,
-      origin,
-      directory,
-    });
+    const result = await this.run(
+      host,
+      {
+        type: "manage",
+        operation: clone ? "clone" : "repository",
+        codeFolder,
+        origin,
+        directory,
+      },
+      undefined,
+      clone ? authorized : undefined,
+    );
     if (result.ok && (!result.checkout || result.checkout.path !== `${codeFolder}/${directory}`))
       return { ok: false, reason: "checkout-refused" };
     return result;

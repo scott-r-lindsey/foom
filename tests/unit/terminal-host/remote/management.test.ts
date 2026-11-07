@@ -1690,3 +1690,93 @@ test
     ).toBe(true);
   },
 );
+
+test.skipIf(process.platform === "win32").each([
+  ["git@forge.test:1234/project.git", "https://forge.test/1234/project.git"],
+  ["git@forge.test:1234/team/project.git", "https://forge.test/1234/team/project.git"],
+  ["ssh://git@forge.test/team/project.git", "https://forge.test/team/project.git"],
+  ["ssh://forge.test/1234/team/project.git", "https://forge.test/1234/team/project.git"],
+  ["ssh://git@forge.test:2222/team/project.git", "https://forge.test/team/project.git"],
+] as const)("HTTPS fallback preserves the effective fetch path of %s", async (origin, expected) => {
+  let clones = 0;
+  let rewrite: string | undefined;
+  mock.probe.mockImplementation((command: string, args: string[]) => {
+    if (command === "gh") return Promise.resolve("");
+    if (!args.includes("clone")) throw new Error("Unexpected probe");
+    clones++;
+    if (clones === 2) rewrite = args.find((argument) => argument.startsWith("url.https://"));
+    return Promise.reject(new HostGitFailure(clones === 1 ? "origin-auth" : "origin-unreachable"));
+  });
+  expect(
+    await manageHost(
+      {
+        type: "manage",
+        operation: "clone",
+        codeFolder: "~/code",
+        directory: "repo",
+        origin,
+        agents: [],
+      },
+      0,
+      "/fixture",
+      "0.1.0",
+      home,
+    ),
+  ).toEqual({ ok: false, reason: "origin-unreachable" });
+  if (!rewrite) throw new Error("Missing rewrite");
+  const fixture = join(home, "effective-url");
+  await mkdir(fixture, { mode: 0o700 });
+  gitSync(["init", "-q"], { cwd: fixture });
+  gitSync(["remote", "add", "origin", origin], { cwd: fixture });
+  const equals = rewrite.indexOf("=");
+  gitSync(["config", "--local", rewrite.slice(0, equals), rewrite.slice(equals + 1)], {
+    cwd: fixture,
+  });
+  expect(gitSync(["remote", "get-url", "origin"], { cwd: fixture }).toString().trim()).toBe(
+    expected,
+  );
+  expect(
+    gitSync(["config", "--local", "--get", "remote.origin.url"], { cwd: fixture })
+      .toString()
+      .trim(),
+  ).toBe(origin);
+  expect(await readdir(join(home, "code"))).toEqual([]);
+});
+
+test
+  .skipIf(process.platform === "win32")
+  .each([
+    "git@forge.test:/team/project.git",
+    "git@forge.test:~/team/project.git",
+    "ssh://git@forge.test/team/../project.git",
+    "ssh://git@forge.test/team/./project.git",
+  ] as const)(
+  "ambiguous SSH origin %s retains the closed failure without HTTPS fallback",
+  async (origin) => {
+    mock.probe.mockImplementation((command: string) =>
+      command === "gh" ? Promise.resolve("") : Promise.reject(new HostGitFailure("origin-auth")),
+    );
+    expect(
+      await manageHost(
+        {
+          type: "manage",
+          operation: "clone",
+          codeFolder: "~/code",
+          directory: "repo",
+          origin,
+          agents: [],
+        },
+        0,
+        "/fixture",
+        "0.1.0",
+        home,
+      ),
+    ).toEqual({ ok: false, reason: "origin-auth" });
+    expect(
+      mock.probe.mock.calls.filter(
+        ([, args]: unknown[]) => Array.isArray(args) && args.includes("clone"),
+      ),
+    ).toHaveLength(1);
+    expect(await readdir(join(home, "code"))).toEqual([]);
+  },
+);
