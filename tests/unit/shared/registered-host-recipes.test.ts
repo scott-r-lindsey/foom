@@ -39,7 +39,7 @@ test("selects each checked-in package-manager recipe and stops unsupported hosts
                 : distro === "rhel"
                   ? "/usr/bin/dnf"
                   : "/usr/bin/pacman",
-              distro === "arch" ? "-Syu" : "install",
+              distro === "arch" ? "-S" : "install",
               distro === "arch" ? "--noconfirm" : "-y",
               tool === "gh" && distro === "arch" ? "github-cli" : tool,
             ],
@@ -154,7 +154,7 @@ test("Debian refreshes apt lists before git and before gh repository preparation
   ]);
 });
 
-test("manifest package installs receive distro preparation without changing source argv", () => {
+test("manifest package installs refresh only Debian and preserve Arch argv", () => {
   for (const distro of ["debian", "arch"] as const) {
     const argv =
       distro === "debian"
@@ -169,7 +169,7 @@ test("manifest package installs receive distro preparation without changing sour
     expect(recipe?.steps).toEqual(
       distro === "debian"
         ? [["/usr/bin/sudo", "/usr/bin/apt-get", "update"], original]
-        : [["/usr/bin/sudo", "/usr/bin/pacman", "-Syu", "--noconfirm", "custom"]],
+        : [["/usr/bin/sudo", "/usr/bin/pacman", "-S", "--noconfirm", "custom"]],
     );
     expect(argv).toEqual(original);
   }

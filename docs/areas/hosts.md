@@ -332,10 +332,11 @@ on that host. Foreground tile placement waits for the refreshed row before closi
 source or typing into an existing tile. Multi-step package repository preparation
 stops on the first failure. Every Debian install starts with fixed
 `/usr/bin/sudo /usr/bin/apt-get update`, including manifest-provided package
-installs. gh refreshes again after enabling its repository. Arch installs use
-`pacman -Syu --noconfirm PACKAGE` to refresh databases and upgrade together;
-this can upgrade already-installed packages and avoids unsupported partial upgrades
-([Arch guidance](https://wiki.archlinux.org/title/System_maintenance#Partial_upgrades_are_unsupported)).
+installs. gh refreshes again after enabling its repository. Arch recipes retain
+`pacman -S --noconfirm PACKAGE` and do not refresh package databases. `-Sy` alone
+would create an unsupported partial upgrade
+([Arch guidance](https://wiki.archlinux.org/title/System_maintenance#Partial_upgrades_are_unsupported)),
+so a new image with missing or stale databases may fail until the user updates it.
 DNF install already synchronizes missing or expired metadata
 ([DNF metadata synchronization](https://dnf.readthedocs.io/en/stable/command_ref.html#metadata-synchronization)),
 so it needs no separate refresh step. Prompts and sudo remain in the tile. Recipe processes
@@ -449,7 +450,8 @@ unreachable replies reconcile through a read-only location/preflight check.
 
 The sidebar projects registration order, bounded agent facts and checked repository
 locations. Location reads share a one-minute on-demand cache, invalidated by
-explicit checks, registration changes and clone mutations; there is no timer. Agent availability never comes from the
+explicit checks, host or repository registration changes and clone mutations; there is no timer.
+Repository names and registration order do not affect the location cache key. Agent availability never comes from the
 hub's installation when launching remotely. Host display labels are presentation
 only and do not replace registration keys.
 

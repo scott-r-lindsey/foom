@@ -10,7 +10,7 @@ const sudo = (...argv: string[]) => ["/usr/bin/sudo", ...argv];
 const git = {
   debian: [sudo("/usr/bin/apt-get", "install", "-y", "git")],
   rhel: [sudo("/usr/bin/dnf", "install", "-y", "git")],
-  arch: [sudo("/usr/bin/pacman", "-Syu", "--noconfirm", "git")],
+  arch: [sudo("/usr/bin/pacman", "-S", "--noconfirm", "git")],
   darwin: [["brew", "install", "git"]],
 };
 const gh = {
@@ -37,7 +37,7 @@ const gh = {
     ),
     sudo("/usr/bin/dnf", "install", "-y", "gh"),
   ],
-  arch: [sudo("/usr/bin/pacman", "-Syu", "--noconfirm", "github-cli")],
+  arch: [sudo("/usr/bin/pacman", "-S", "--noconfirm", "github-cli")],
   darwin: [["brew", "install", "gh"]],
 };
 export function recipeRequest(value: unknown): value is HostRecipeRequest {
@@ -86,7 +86,7 @@ export function selectHostRecipe(
       : request.tool === "gh"
         ? gh[distro]
         : argv
-          ? [distro === "arch" ? [...argv.slice(0, 2), "-Syu", ...argv.slice(3)] : argv]
+          ? [argv]
           : undefined;
   if (!steps) return undefined;
   // Refresh empty apt lists before any install, including manifest-provided recipes.
