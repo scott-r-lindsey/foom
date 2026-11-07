@@ -10,6 +10,8 @@ import type { BoardSource } from "./board-source.d";
 import type { BoardRow } from "./board.d";
 import {
   fitLayout,
+  MIN_TILE_COLUMNS,
+  splitReason,
   closeTile,
   closeSpace,
   growTile,
@@ -125,16 +127,18 @@ export function useBoardTiles({
           ? {
               width: area?.width ?? 0,
               height: area?.height ?? 0,
-              minWidth: 60 * cell,
+              minWidth: MIN_TILE_COLUMNS * cell,
               minHeight: 38 + 3 * fontSizeRef.current * 1.2,
             }
           : undefined,
     };
   }, [soundSetup]);
+  const [splitRefusal, setSplitRefusal] = useState("");
   const [focusRequest, setFocusRequest] = useState(0);
   const changeLayout = useCallback(
     (next: TileLayout, background = false, transient = false) => {
       if (movePendingRef.current) return;
+      setSplitRefusal("");
       next = fitLayout(next, measureTiles().metrics, !transient);
       next = {
         ...next,
@@ -404,8 +408,22 @@ export function useBoardTiles({
   }, [source, rows, previews, previewIds, layout, changeLayout, clear, report]);
   const tileAction = useCallback(
     (tile: string, action: Exclude<TileAction, "popout" | "new-shell">) => {
-      setFocusRequest((value) => value + 1);
       const current = { ...layoutRef.current, focused: tile };
+      if (
+        action === "right" ||
+        action === "left" ||
+        action === "up" ||
+        action === "down" ||
+        action === "horizontal" ||
+        action === "vertical"
+      ) {
+        const reason = splitReason(current, action, measureTiles().metrics);
+        if (reason) {
+          setSplitRefusal(reason);
+          return;
+        }
+      }
+      setFocusRequest((value) => value + 1);
       const session = sessionId(leaves(current.tree).find((item) => item.id === tile));
       const content = leaves(current.tree).find((item) => item.id === tile)?.content;
       if (action === "maximize" && !content) return;
@@ -453,7 +471,10 @@ export function useBoardTiles({
               action === "up" ||
               action === "horizontal" ||
               action === "vertical"
-            ? { ...splitTile(current, action), focused: layoutRef.current.focused }
+            ? {
+                ...splitTile(current, action, measureTiles().metrics),
+                focused: layoutRef.current.focused,
+              }
             : action === "close-space"
               ? closeSpace(layoutRef.current, tile)
               : action === "close"
@@ -463,10 +484,11 @@ export function useBoardTiles({
                   : { ...current, maximized: current.maximized === tile ? null : tile },
       );
     },
-    [changeLayout, source],
+    [changeLayout, source, measureTiles, setRemoveError],
   );
   return {
     otherViews,
+    splitRefusal,
     layout,
     boardRef,
     fontSizeRef,

@@ -159,3 +159,30 @@ test("empty-space placement marks only the drag target and clears on leave, end,
   expect(landing.dataset["empty"]).toBe("true");
   vi.unstubAllGlobals();
 });
+
+test("an impossible edge drop shows its reason and preserves the source and destination", async () => {
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    return DOMRect.fromRect({
+      width: this.tagName === "SPAN" ? 8.4 : 180,
+      height: 200,
+    });
+  });
+  vi.stubGlobal("DragEvent", MouseEvent);
+  const { screen, click, row } = setup();
+  click(0);
+  await act(async () => {});
+  const target = screen.container.querySelector<HTMLElement>('[data-empty="false"]');
+  if (!target) throw new Error("Missing tile");
+  const saved = localStorage.getItem(TILE_STORAGE);
+  const transfer = { setData: vi.fn(), effectAllowed: "", dropEffect: "" };
+  fireEvent.dragStart(row(2), { dataTransfer: transfer });
+  fireEvent.dragOver(target, { dataTransfer: transfer, clientX: 10, clientY: 100 });
+  expect(transfer.dropEffect).toBe("none");
+  expect(screen.container.querySelector(".tile-drop-preview")?.textContent).toBe(
+    "Too narrow to split",
+  );
+  fireEvent.drop(target, { dataTransfer: transfer, clientX: 10, clientY: 100 });
+  expect(localStorage.getItem(TILE_STORAGE)).toBe(saved);
+});

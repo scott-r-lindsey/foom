@@ -19,6 +19,7 @@ export function tileRemovalAction(row: BoardRow | undefined, preview = false): "
     ? "close"
     : "hide";
 }
+export const MIN_TILE_COLUMNS = 12;
 const id = () => crypto.randomUUID();
 export const newTile = (): TileLeaf => ({ kind: "tile", id: id(), content: null });
 export const initialLayout = (): TileLayout => {
@@ -44,7 +45,11 @@ function split(
 ): TileSplit {
   return { kind: "split", id: id(), direction, ratio, first, second };
 }
-export function splitReason(layout: TileLayout): string | undefined {
+export function splitReason(
+  layout: TileLayout,
+  direction?: TileDirection | TileSplit["direction"],
+  metrics?: TileMetrics,
+): string | undefined {
   const depth = (node: TileNode, level = 0): number =>
     node.id === layout.focused
       ? level
@@ -56,14 +61,36 @@ export function splitReason(layout: TileLayout): string | undefined {
   if (targetDepth < 0) return "Space no longer available";
   if (targetDepth >= 64) return "Split depth limit reached";
   if (leaves(layout.tree).length >= 256) return "Tile limit reached";
+  if (direction && metrics) {
+    const candidate = createSplit(layout, direction);
+    const repaired = fitLayout(candidate, metrics);
+    const retained = leaves(repaired.tree);
+    if (
+      !retained.some((tile) => tile.id === candidate.landing) ||
+      !retained.some((tile) => tile.id === layout.focused)
+    ) {
+      const rect = rectangles(candidate.tree, { x: 0, y: 0, ...metrics }).tiles.find(
+        ({ tile }) => tile.id === candidate.landing,
+      )?.rect;
+      return rect && rect.width + 0.01 < Math.min(metrics.minWidth, metrics.width)
+        ? "Too narrow to split"
+        : "Too short to split";
+    }
+  }
   return undefined;
 }
 /** Arrows name the retained tile’s side; axes split empty space without a direction. */
 export function splitTile(
   layout: TileLayout,
   direction: TileDirection | TileSplit["direction"],
+  metrics?: TileMetrics,
 ): TileLayout {
-  if (splitReason(layout)) return layout;
+  return splitReason(layout, direction, metrics) ? layout : createSplit(layout, direction);
+}
+function createSplit(
+  layout: TileLayout,
+  direction: TileDirection | TileSplit["direction"],
+): TileLayout {
   const next = newTile();
   return {
     ...layout,
@@ -414,7 +441,7 @@ export function placeContent(
     const fits =
       Math.min(1 / (cols.length + 1), ...cols.map((col) => col.width * scale)) *
         placement.columns >=
-      60;
+      MIN_TILE_COLUMNS;
     const depth = (node: TileNode): number =>
       node.kind === "tile" ? 0 : 1 + Math.max(depth(node.first), depth(node.second));
     const canGrow = tiles.length < 256 && depth(layout.tree) < 64;
@@ -719,12 +746,31 @@ export function swapTiles(layout: TileLayout, from: string, to: string): TileLay
   return { ...layout, tree: fitRatios(swap(layout.tree)), focused: from, maximized: null };
 }
 
+/** Moving a whole leaf frees its old area before testing the destination split. */
+export function dropReason(
+  layout: TileLayout,
+  drag: TileDrag | undefined,
+  target: string,
+  zone: DropZone,
+  metrics?: TileMetrics,
+): string | undefined {
+  if (zone === "center" || !leaves(layout.tree).find((tile) => tile.id === target)?.content)
+    return undefined;
+  const base = drag?.kind === "tile" ? removeTile({ ...layout, focused: drag.id }) : layout;
+  return splitReason(
+    { ...base, focused: target },
+    zone === "left" || zone === "right" ? "horizontal" : "vertical",
+    metrics,
+  );
+}
+
 /** Drops are atomic: refused splits never remove their source. */
 export function dropTile(
   layout: TileLayout,
   drag: TileDrag,
   target: string,
   zone: DropZone,
+  metrics?: TileMetrics,
 ): TileLayout {
   const tiles = leaves(layout.tree);
   const destination = tiles.find((tile) => tile.id === target);
@@ -752,6 +798,7 @@ export function dropTile(
   const added = splitTile(
     { ...base, focused: target },
     zone === "left" || zone === "right" ? "horizontal" : "vertical",
+    metrics,
   );
   if (added.tree === base.tree) return layout;
   const fresh = leaves(added.tree).find((tile) => tile.id === added.landing);

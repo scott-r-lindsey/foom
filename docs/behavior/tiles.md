@@ -24,7 +24,7 @@ Otherwise, placement fills the landing spot, then the first empty space in tree
 order, after removing spaces below the measured minimum described below. A full board adds a column at the far right. Columns are the children of
 the root's horizontal split chain; any other root is one column. With N columns,
 existing widths scale by N/(N+1), the new column gets 1/(N+1), and nested row ratios
-stay unchanged. If any resulting column would have fewer than about 60 terminal
+stay unchanged. If any resulting column would have fewer than 12 terminal
 cells at the current font size, replace the least recently focused non-Needs-you
 tile, excluding the focused tile. If none qualifies, human placement uses the
 oldest-focused non-Needs-you tile, even if focused. Background arrivals never
@@ -70,7 +70,10 @@ accessibility navigation. Empty spaces have no landing marking at rest.
 Right-click opens a menu with two buttons: Split horizontal creates side-by-side
 panes with a vertical divider; Split vertical creates stacked panes with a horizontal
 divider. Each shows its divider icon above a centered label on two lines (Split /
-horizontal or vertical). Depth and leaf limits are unchanged: refused buttons stay
+horizontal or vertical). Splits below the measured floor report “Too narrow to split” or “Too short to split”.
+Keyboard splits show the same reason in the neutral board status message without changing layout.
+Edge drops show the reason in their drop preview and preserve the source and destination.
+Grow only expands geometry and needs no size refusal. Depth and leaf limits are unchanged: refused buttons stay
 focusable, dimmed and dashed, with a reason on hover/focus. New shell here (using the
 existing home-shell directory) and Close space (giving its area to its sibling)
 follow. Tab visits the two buttons, then the commands. Escape, outside clicks and
@@ -142,7 +145,8 @@ reduced motion). It applies only to the focused window, from View → Tidy tiles
 When resizing between two occupied sides, gutters stay between 15% and 85%
 where those limits allow the occupied subtrees to fit. Geometry additionally uses
 an absolute minimum of
-60 terminal-cell widths at the current font and three terminal rows plus 38 CSS
+12 terminal-cell widths at the current font (a small practical floor for title-bar
+controls and terminal text, shared with automatic column placement) and three terminal rows plus 38 CSS
 pixels for chrome (rows are estimated at 1.2 times the font size). These pixel
 minimums apply to every nested leaf, measured against the available board area,
 including after splits, window or sidebar resizing, font changes, Tidy, evening a gutter,

@@ -1197,11 +1197,13 @@ for (const shrink of ["ancestor drag", "window resize", "sidebar resize", "resto
       }, width);
       await expect.poll(() => page.evaluate(() => innerWidth)).toBe(width);
     };
-    await size(shrink === "sidebar resize" ? 2250 : 2400);
+    if (shrink === "sidebar resize")
+      await page.evaluate(() => window.desktop.saveSetup({ terminalFontSize: 16 }));
+    await size(shrink === "sidebar resize" ? 750 : 2400);
     if (shrink === "sidebar resize")
       await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
     // Two nested horizontal splits leave a landing space inside a mixed side.
-    // At this size each quarter of the board has room for about 60 cells.
+    // Both splits initially fit the shared small width floor.
     await page.getByRole("button", { name: "Tile 1 menu", exact: true }).click();
     await page.getByRole("menuitem", { name: "Split terminal left", exact: true }).click();
     await expect(page.locator(".terminal-tile")).toHaveCount(2);
@@ -1222,7 +1224,7 @@ for (const shrink of ["ancestor drag", "window resize", "sidebar resize", "resto
       await page.mouse.move(area.x + area.width * 0.15, gutter.y + gutter.height / 2, { steps: 8 });
       await page.mouse.up();
     } else if (shrink === "window resize") {
-      await size(900);
+      await size(450);
     } else if (shrink === "sidebar resize") {
       await page.getByRole("button", { name: "Expand sidebar", exact: true }).click();
     } else {
@@ -1284,4 +1286,80 @@ test("startup preserves usable landing space while loading a saved small termina
   assert.equal(saved.tree.kind, "split");
   assert.equal(saved.tree.ratio, 0.5);
   assert.equal(saved.landing, "font-space");
+});
+
+test("small tile splits refuse visibly in both menus and keyboard commands", async (context) => {
+  const app = await launchApp(context, { fixture: "running-shell" });
+  const page = await boardPage(app);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await sizeTileBoard(app, page);
+  const occupied = page.locator('.terminal-tile[data-empty="false"]');
+  const tiles = page.locator(".terminal-tile");
+  const openTileMenu = () => occupied.locator(".tile-title").click({ button: "right" });
+  // A quarter-width tile is already below the former 120-cell split requirement.
+  // Keep splitting until the shared 12-cell floor refuses it.
+  let count = 1;
+  for (; count < 8; count++) {
+    await openTileMenu();
+    const left = page.getByRole("menuitem", { name: "Split terminal left", exact: true });
+    if ((await left.getAttribute("aria-disabled")) === "true") break;
+    await left.click();
+    await expect(tiles).toHaveCount(count + 1);
+  }
+  assert.ok(count > 2 && count < 8);
+  const before = await page.evaluate(() =>
+    localStorage.getItem(`foom.tiles.v1.${window.desktop.windows.id}`),
+  );
+  for (const base of ["light", "dark"]) {
+    await page.keyboard.press("Escape");
+    await page.evaluate(
+      (base) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${base}` }),
+      base,
+    );
+    await openTileMenu();
+    for (const direction of ["left", "right"]) {
+      const button = page.getByRole("menuitem", {
+        name: `Split terminal ${direction}`,
+        exact: true,
+      });
+      await expect(button).toHaveAttribute("aria-disabled", "true");
+      await button.focus();
+      await expect(button).toBeFocused();
+      await expect(button).toHaveAccessibleDescription(/Too narrow to split/);
+      await button.click({ force: true });
+      await expect(tiles).toHaveCount(count);
+    }
+    await page.screenshot({ path: evidencePath(`tiles-1069-refused-${base}.png`) });
+  }
+  await page.keyboard.press("Escape");
+  await page.evaluate(() => window.desktop.appMenu.execute("split-right"));
+  await expect(page.locator(".board-terminal > [role=status]")).toHaveText("Too narrow to split");
+  assert.equal(
+    await page.evaluate(() => localStorage.getItem(`foom.tiles.v1.${window.desktop.windows.id}`)),
+    before,
+  );
+  // The real terminal context menu shares the same measured refusal.
+  await occupied.locator(".tile-terminal").click({ button: "right" });
+  const terminalMenu = page.getByRole("dialog", { name: "Terminal menu", exact: true });
+  await expect(
+    terminalMenu.getByRole("menuitem", { name: "Split terminal left", exact: true }),
+  ).toHaveAttribute("aria-disabled", "true");
+  await page.keyboard.press("Escape");
+  const space = page.locator('.terminal-tile[data-empty="true"]').first();
+  await space.click({ button: "right" });
+  const horizontal = page.getByRole("menuitem", { name: "Split horizontal", exact: true });
+  await expect(horizontal).toHaveAttribute("aria-disabled", "true");
+  await horizontal.focus();
+  await expect(horizontal).toHaveAccessibleDescription("Too narrow to split");
+  await horizontal.click({ force: true });
+  await expect(tiles).toHaveCount(count);
+  await expect(page.getByRole("menuitem", { name: "Split vertical", exact: true })).toHaveAttribute(
+    "aria-disabled",
+    "false",
+  );
+  await page.keyboard.press("Escape");
+  // Width refusal must not prevent a fitting vertical split.
+  await page.evaluate(() => window.desktop.appMenu.execute("split-down"));
+  await expect(tiles).toHaveCount(count + 1);
+  await expect(page.locator(".board-terminal > [role=status]")).toHaveCount(0);
 });

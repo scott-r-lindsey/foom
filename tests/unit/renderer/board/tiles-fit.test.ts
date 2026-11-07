@@ -1,6 +1,11 @@
 import { expect, test } from "vitest";
 import {
   fitLayout,
+  splitReason,
+  dropReason,
+  dropTile,
+  growTile,
+  MIN_TILE_COLUMNS,
   initialLayout,
   leaves,
   placeAgentPreview,
@@ -161,4 +166,81 @@ test("pointer previews clamp nested occupants while retaining zero-size collapse
   const zero = resizeSplit(empty, empty.tree.id, 0);
   expect(fitLayout(zero, metrics, false)).toBe(zero);
   expect(leaves(fitLayout(zero, metrics).tree)).toHaveLength(1);
+});
+
+test.each(["left", "right", "up", "down", "horizontal", "vertical"] as const)(
+  "measured %s splits agree with repair at the size boundary",
+  (direction) => {
+    const horizontal = direction === "left" || direction === "right" || direction === "horizontal";
+    const start = placeSession(initialLayout(), "a");
+    if (!start) throw new Error("fixture");
+    for (const occupied of [true, false]) {
+      const base = occupied ? start : initialLayout();
+      for (const offset of [-1, 0, 1]) {
+        const size = { width: 2 * 12 * 8, height: 2 * 90, minWidth: 12 * 8, minHeight: 90 };
+        if (horizontal) size.width += offset;
+        else size.height += offset;
+        const candidate = splitTile(base, direction);
+        const repaired = fitLayout(candidate, size);
+        const survives = leaves(repaired.tree).length === 2;
+        expect(survives).toBe(offset >= 0);
+        expect(splitReason(base, direction, size)).toBe(
+          survives ? undefined : horizontal ? "Too narrow to split" : "Too short to split",
+        );
+        const next = splitTile(base, direction, size);
+        if (survives) expect(leaves(fitLayout(next, size).tree)).toHaveLength(2);
+        else expect(next).toBe(base);
+      }
+    }
+  },
+);
+
+test("splits use unmaximized nested geometry and refuse a perpendicular shortage", () => {
+  const size = { width: 240, height: 180, minWidth: 96, minHeight: 90 };
+  const pair = splitTile(initialLayout(), "right");
+  expect(splitReason({ ...pair, maximized: pair.focused }, "left", size)).toBe(
+    "Too narrow to split",
+  );
+  expect(splitReason(pair, "up", size)).toBeUndefined();
+  const short = { ...size, height: 80 };
+  expect(splitReason(pair, "left", short)).toBe("Too narrow to split");
+  const wide = { ...short, width: 800 };
+  expect(splitReason(pair, "left", wide)).toBeUndefined();
+  expect(splitReason(pair, "down", wide)).toBe("Too short to split");
+});
+
+test("edge drops refuse atomically, but whole-leaf moves test the space freed at their origin", () => {
+  const start = placeSession(initialLayout(), "a");
+  if (!start) throw new Error("fixture");
+  const small = { width: 190, height: 180, minWidth: 96, minHeight: 90 };
+  const drag = { kind: "session" as const, id: "b" };
+  expect(dropReason(start, drag, start.focused, "right", small)).toBe("Too narrow to split");
+  expect(dropTile(start, drag, start.focused, "right", small)).toBe(start);
+  expect(dropReason(start, drag, start.focused, "center", small)).toBeUndefined();
+  const pair = splitTile(start, "left");
+  const space = leaves(pair.tree).find((tile) => !tile.content);
+  if (!space) throw new Error("fixture");
+  const occupied = placeSession({ ...pair, focused: space.id }, "b", true);
+  if (!occupied) throw new Error("fixture");
+  const move = { kind: "tile" as const, id: space.id };
+  const size = { ...small, width: 200 };
+  expect(dropReason(occupied, move, start.focused, "left", size)).toBeUndefined();
+  const next = dropTile(occupied, move, start.focused, "left", size);
+  expect(leaves(next.tree)).toHaveLength(2);
+  expect(growTile(pair, "right").tree).toEqual(start.tree);
+});
+
+test("automatic columns share the small manual floor and only replace below it", () => {
+  const start = placeSession(initialLayout(), "a");
+  if (!start) throw new Error("fixture");
+  for (const columns of [MIN_TILE_COLUMNS * 2 - 1, MIN_TILE_COLUMNS * 2, 100]) {
+    const next = placeSession(start, "b", false, { columns });
+    expect(next && leaves(next.tree)).toHaveLength(columns < MIN_TILE_COLUMNS * 2 ? 1 : 2);
+  }
+});
+
+test("saved spaces allowed by the old width minimum keep their identities and ratios", () => {
+  const start = nested();
+  const saved = restoreLayout(JSON.stringify({ version: 2, ...start }));
+  expect(fitLayout(saved, { ...metrics, minWidth: 12 * 8 })).toBe(saved);
 });
