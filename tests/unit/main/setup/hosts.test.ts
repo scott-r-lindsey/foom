@@ -981,79 +981,85 @@ test.each([
   },
 );
 
-test("recipe clicks select main-owned data, recheck registrations, and return fixed unavailability", async () => {
-  hosts = new Hosts(store, () => repositories, "0.1.0", run, "f".repeat(32));
-  const enriched = {
-    ...facts,
-    requirements: {
-      distro: "debian" as const,
-      libc: "supported" as const,
-      packageManager: "apt" as const,
-    },
-  };
-  run.mockResolvedValue({ ok: true, facts: enriched });
-  await hosts.action({ action: "add", host: "worker", codeFolder: "~/code" });
-  const launch = vi.fn(() => Promise.resolve());
-  const state = await hosts.action(
-    { action: "recipe", host: "worker", tool: "git", operation: "install" },
-    undefined,
-    launch,
-  );
-  expect(state.hosts[0]?.recipes).toContainEqual({ tool: "git", install: true, signIn: false });
-  expect(launch).toHaveBeenCalledExactlyOnceWith({
-    host: "worker",
-    profile: "f".repeat(32),
-    human: true,
-    recipe: {
-      tool: "git",
-      distro: "debian",
-      action: "install",
-      digest: "ade67c0afec628cd6fba950e3f32b1160240445f9d486751b938e694fee2d3c2",
-    },
-  });
-  expect(run).toHaveBeenLastCalledWith("worker", expect.objectContaining({ readOnly: true }));
-  expect(
-    (
-      await hosts.action(
-        { action: "recipe", host: "worker", tool: "codex", operation: "install" },
-        undefined,
-        launch,
-      )
-    ).recipeFailure,
-  ).toBe("recipe-unavailable");
-  expect(
-    (await hosts.action({ action: "recipe", host: "worker", tool: "gh", operation: "sign-in" }))
-      .recipeFailure,
-  ).toBe("recipe-unavailable");
-  settings.agents = { ...settings.agents, codex: false };
-  expect(
-    (
-      await hosts.action(
-        { action: "recipe", host: "worker", tool: "codex", operation: "sign-in" },
-        undefined,
-        launch,
-      )
-    ).recipeFailure,
-  ).toBe("recipe-unavailable");
-  await expect(
-    hosts.action(
-      { action: "recipe", host: "worker", tool: "git", operation: "install", argv: ["id"] },
+test.each([
+  ["debian", "apt", "7e3bc2e59909c5227052034b2fc31f21ebc7f18456b44955a725f02f72f72a8e"],
+  ["arch", "pacman", "4dd9fb838dadc95e6373ef1798490c89a1c877c1febfe2b2e3f79679f553cbf6"],
+] as const)(
+  "%s recipe clicks select pinned main-owned data and recheck registrations",
+  async (distro, packageManager, digest) => {
+    hosts = new Hosts(store, () => repositories, "0.1.0", run, "f".repeat(32));
+    const enriched = {
+      ...facts,
+      requirements: {
+        distro,
+        libc: "supported" as const,
+        packageManager,
+      },
+    };
+    run.mockResolvedValue({ ok: true, facts: enriched });
+    await hosts.action({ action: "add", host: "worker", codeFolder: "~/code" });
+    const launch = vi.fn(() => Promise.resolve());
+    const state = await hosts.action(
+      { action: "recipe", host: "worker", tool: "git", operation: "install" },
       undefined,
       launch,
-    ),
-  ).rejects.toThrow("Invalid");
-  run.mockResolvedValue({ ok: false, reason: "unreachable" });
-  expect(
-    (
-      await hosts.action(
-        { action: "recipe", host: "worker", tool: "git", operation: "install" },
+    );
+    expect(state.hosts[0]?.recipes).toContainEqual({ tool: "git", install: true, signIn: false });
+    expect(launch).toHaveBeenCalledExactlyOnceWith({
+      host: "worker",
+      profile: "f".repeat(32),
+      human: true,
+      recipe: {
+        tool: "git",
+        distro,
+        action: "install",
+        digest,
+      },
+    });
+    expect(run).toHaveBeenLastCalledWith("worker", expect.objectContaining({ readOnly: true }));
+    expect(
+      (
+        await hosts.action(
+          { action: "recipe", host: "worker", tool: "codex", operation: "install" },
+          undefined,
+          launch,
+        )
+      ).recipeFailure,
+    ).toBe("recipe-unavailable");
+    expect(
+      (await hosts.action({ action: "recipe", host: "worker", tool: "gh", operation: "sign-in" }))
+        .recipeFailure,
+    ).toBe("recipe-unavailable");
+    settings.agents = { ...settings.agents, codex: false };
+    expect(
+      (
+        await hosts.action(
+          { action: "recipe", host: "worker", tool: "codex", operation: "sign-in" },
+          undefined,
+          launch,
+        )
+      ).recipeFailure,
+    ).toBe("recipe-unavailable");
+    await expect(
+      hosts.action(
+        { action: "recipe", host: "worker", tool: "git", operation: "install", argv: ["id"] },
         undefined,
         launch,
-      )
-    ).recipeFailure,
-  ).toBe("recipe-unavailable");
-  expect(launch).toHaveBeenCalledTimes(1);
-});
+      ),
+    ).rejects.toThrow("Invalid");
+    run.mockResolvedValue({ ok: false, reason: "unreachable" });
+    expect(
+      (
+        await hosts.action(
+          { action: "recipe", host: "worker", tool: "git", operation: "install" },
+          undefined,
+          launch,
+        )
+      ).recipeFailure,
+    ).toBe("recipe-unavailable");
+    expect(launch).toHaveBeenCalledTimes(1);
+  },
+);
 
 test.each([
   ["facts-unavailable", "remote_host_facts_unavailable"],

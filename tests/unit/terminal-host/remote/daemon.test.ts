@@ -1,3 +1,4 @@
+import { terminalThemes } from "../../../../src/shared/terminal-themes";
 import type { HostResult } from "../../../../src/shared/registered-hosts.d";
 import { LaunchFailure } from "../../../../src/shared/launch-failure";
 import { hostDiscovery } from "../../../../src/terminal-host/remote/agent-discovery";
@@ -168,6 +169,7 @@ test.skipIf(process.platform === "win32")(
         rows: 24,
       },
       "one",
+      false,
     );
     mock.attach.mockImplementation((_id: string, send: (token: string, data: string) => void) => {
       send("token", "snapshot");
@@ -378,6 +380,7 @@ test.skipIf(process.platform === "win32").each(["close", "takeover"])(
         hostPreflight: 1,
         hostRowCheck: 1,
         originTrust: 1,
+        startupTheme: 1,
         humanMachines: 1,
         machineHome: root,
       });
@@ -871,6 +874,7 @@ test.skipIf(process.platform === "win32")(
     await start();
     const c = await client();
     const id = "agent-secret-terminal";
+    const theme = terminalThemes["foom-dark"];
     c.send({ type: "hello", build });
     await c.wait(1);
     c.send({
@@ -880,6 +884,8 @@ test.skipIf(process.platform === "win32")(
       request: 1,
       cols: 80,
       rows: 24,
+      dark: true,
+      theme,
       spec: {
         agent: "claude",
         repository: "/remote/repo",
@@ -895,6 +901,7 @@ test.skipIf(process.platform === "win32")(
     c.send({ type: "agent-start", id });
     await c.wait(4);
     expect(mock.create).toHaveBeenCalledOnce();
+    expect(mock.create.mock.calls[0]?.[2]).toEqual(theme);
     const created: unknown = mock.create.mock.calls[0]?.[0];
     if (!record(created) || !record(created["env"]))
       throw new Error("Missing agent process environment");
@@ -1440,6 +1447,7 @@ test.skipIf(process.platform === "win32")(
       hostPreflight: 1,
       hostRowCheck: 1,
       originTrust: 1,
+      startupTheme: 1,
       humanMachines: 1,
       machineHome: root,
     });
@@ -1818,6 +1826,7 @@ test.skipIf(process.platform === "win32")(
         hostPreflight: 1,
         hostRowCheck: 1,
         originTrust: 1,
+        startupTheme: 1,
         humanMachines: 1,
         machineHome: root,
       });
@@ -2423,6 +2432,7 @@ test.skipIf(process.platform === "win32")(
     expect(mock.create).toHaveBeenCalledWith(
       expect.objectContaining({ cwd: checkout.path }),
       "human",
+      false,
     );
     const read = await client();
     read.send({ type: "hello", build });
@@ -2477,6 +2487,7 @@ test.skipIf(process.platform === "win32")(
         ]),
       }),
       "recipe",
+      false,
     );
     c.socket.destroy();
     const next = await client();
@@ -2634,6 +2645,7 @@ test.skipIf(process.platform === "win32")(
         replaceEnvironment: true,
       }),
       "machine",
+      false,
     );
     expect(mock.owner).not.toHaveBeenCalled();
     const inventory = await client();
@@ -2715,6 +2727,7 @@ test.skipIf(process.platform === "win32")(
     expect(mock.create).toHaveBeenCalledWith(
       expect.objectContaining({ cwd: root, args: terminalArgs("/bin/sh", ["-i", "-l"]) }),
       "shell-machine",
+      false,
     );
     mock.create.mockClear();
     for (const agent of ["unknown-agent", undefined]) {
@@ -2787,6 +2800,7 @@ test.skipIf(process.platform === "win32")(
             args: terminalArgs("/fixture/claude", []),
           }),
           "clone-clean",
+          false,
         );
         c.socket.destroy();
         await closed;
@@ -2873,6 +2887,36 @@ test.skipIf(process.platform === "win32")(
         args: terminalArgs(process.execPath, ["--trust-origin", "git@forge.test:team/repo.git"]),
       }),
       "trust",
+      false,
     );
+  },
+);
+
+test.skipIf(process.platform === "win32").each([true, false])(
+  "initializes shell palette before spawn and preserves existing colors on reattach (dark=%s)",
+  async (dark) => {
+    await start();
+    const theme = terminalThemes[dark ? "foom-dark" : "foom-light"];
+    const c = await client();
+    c.send({ type: "hello", build });
+    await c.wait(1);
+    c.send({
+      type: "open",
+      id: "palette",
+      request: 1,
+      profile: "f".repeat(32),
+      reattach: false,
+      cols: 80,
+      rows: 24,
+      dark,
+      theme,
+    });
+    await c.wait(2);
+    expect(mock.create.mock.calls[0]?.[2]).toEqual(theme);
+    await disconnect(c);
+    const restored = await open("palette", true);
+    expect(restored.messages[1]).toMatchObject({ type: "open-result", state: "live" });
+    expect(mock.create).toHaveBeenCalledOnce();
+    expect(mock.setTheme).not.toHaveBeenCalled();
   },
 );

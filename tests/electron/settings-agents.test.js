@@ -326,7 +326,7 @@ test("footer config gear opens Settings and launches two independent docked Shel
   await expect(panel.getByRole("menuitem", { name: /^Shell/ })).not.toContainText("running");
   await panel.getByRole("menuitem", { name: /^Shell/ }).click();
   await expect(dock.locator(".board-row")).toHaveCount(2);
-  await expect(page.locator(".terminal-tile[data-empty=false]")).toHaveCount(1);
+  await expect(page.locator(".terminal-tile[data-empty=false]")).toHaveCount(2);
   const shells = (await page.evaluate(() => window.desktop.workspace())).terminals.filter(
     (row) => row.config,
   );

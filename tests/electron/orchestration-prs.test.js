@@ -173,7 +173,7 @@ for (const scenario of [
           async () => (await page.evaluate(() => window.desktop.windows.audio.state())).focusedId,
         )
         .toBe(child.resultId);
-      await expect(page.locator('.terminal-tile[data-empty="false"]')).toHaveCount(1);
+      await expect(page.locator('.terminal-tile[data-empty="false"]')).toHaveCount(2);
       await page.locator(`[data-drag-session="${parentId}"]`).click();
     }
     await expect(focusedTile).toHaveAttribute("data-tile", tileId);

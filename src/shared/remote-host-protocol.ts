@@ -36,6 +36,7 @@ function hello(value: object): boolean {
   return (
     "type" in value &&
     value.type === "hello" &&
+    (!("startupTheme" in value) || value.startupTheme === 1) &&
     (!("originTrust" in value) || value.originTrust === 1) &&
     (!("hostRowCheck" in value) || value.hostRowCheck === 1) &&
     (!("hostPreflight" in value) || value.hostPreflight === 1) &&
@@ -127,7 +128,18 @@ export function remoteRequest(value: unknown): value is RemoteRequest {
   if (value["type"] === "agent-open")
     return (
       record(value) &&
-      keys(value, ["type", "id", "request", "cols", "rows", "spec", "profile", "context"]) &&
+      keys(value, [
+        "type",
+        "id",
+        "request",
+        "cols",
+        "rows",
+        "spec",
+        "profile",
+        "context",
+        "dark",
+        "theme",
+      ]) &&
       remoteAgentSpec(value["spec"]) &&
       remoteRequest({ ...value, type: "open", reattach: false })
     );

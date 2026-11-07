@@ -8,6 +8,7 @@ import type {
   RemoteControlResult,
 } from "./remote-agent";
 import type { HookSignal } from "./hooks";
+import type { TerminalTheme } from "./terminal-theme";
 import type { HostRequest, HostResponse } from "./terminal-host";
 /** Main/daemon metadata only; never supplied to the PTY or remote launch files. */
 export interface RemoteSessionContext {
@@ -78,6 +79,8 @@ export type RemoteRequest =
       id: string;
       cols: number;
       rows: number;
+      dark?: boolean;
+      theme?: TerminalTheme;
       reattach: boolean;
       checkout?: { repository: string; path: string; identity: string };
       profile?: string;
@@ -90,6 +93,8 @@ export type RemoteRequest =
       id: string;
       cols: number;
       rows: number;
+      dark?: boolean;
+      theme?: TerminalTheme;
       spec: RemoteAgentSpec;
       profile?: string;
       context?: RemoteSessionContext;
@@ -128,6 +133,7 @@ export type RemoteResponse =
       /** Home cwd semantics for new machine launches; absent on older daemons. */
       machineHome?: string;
       originTrust?: 1;
+      startupTheme?: 1;
     }
   | HostResponse
   | RemoteFragment

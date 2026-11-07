@@ -179,6 +179,7 @@ function BoardContents({
   const [sidebarCompact, setSidebarCompact] = useState(false);
   const {
     otherViews,
+    splitRefusal,
     layout,
     boardRef,
     layoutRef,
@@ -777,7 +778,13 @@ function BoardContents({
           tabIndex={-1}
           ref={terminalRef}
         >
+          {splitRefusal && (
+            <div className="tile-paste-result" role="status">
+              {splitRefusal}
+            </div>
+          )}
           <TileArea
+            measure={() => placementOptions().metrics}
             dropLayout={(next) => {
               changeLayout(next);
               setFocusRequest((value) => value + 1);

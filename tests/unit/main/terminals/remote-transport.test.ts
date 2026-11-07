@@ -1,3 +1,4 @@
+import { terminalThemes } from "../../../../src/shared/terminal-themes";
 import { ApplicationError } from "../../../../src/shared/application-errors";
 import { LaunchFailure } from "../../../../src/shared/launch-failure";
 import { UnsupportedRemotePlatform } from "../../../../src/main/terminals/remote-bootstrap";
@@ -138,6 +139,7 @@ test("reconnect opens the same ID, restores view state, resets snapshot and neve
     { type: "write", data: "do-once" },
   ] as const)
     transport.postMessage({ ...message, id: "one", request: 10 + child.messages.length });
+  child.message({ type: "result", id: "one", request: requestOf(child, "theme"), lines: [] });
   child.emit("close");
   expect(events).toContainEqual(expect.objectContaining({ type: "error" }));
   transport.postMessage({ type: "write", id: "one", request: 99, data: "offline" });
@@ -158,6 +160,8 @@ test("reconnect opens the same ID, restores view state, resets snapshot and neve
   )
     throw new Error("Missing reopen");
   second.message({ type: "open-result", id: "one", request: open.request, state: "live" });
+  expect(second.messages).toContainEqual(expect.objectContaining({ type: "open", dark: true }));
+  expect(second.messages).not.toContainEqual(expect.objectContaining({ type: "theme" }));
   expect(JSON.stringify(second.messages)).not.toContain("do-once");
   expect(JSON.stringify(second.messages)).not.toContain("offline");
   expect(second.messages).toContainEqual(expect.objectContaining({ type: "resize", cols: 100 }));
@@ -251,6 +255,8 @@ test.each(["partial", "complete"])(
   "open acknowledgements and %s replay without attach completion exhaust exactly five reconnect attempts",
   async (kind) => {
     await ready();
+    transport.postMessage({ type: "resize", id: "one", request: 3, cols: 100, rows: 30 });
+    child.message({ type: "result", id: "one", request: 3, lines: [] });
     transport.postMessage({ type: "attach", id: "one", request: 2, view: "v" });
     const exit = vi.fn();
     transport.on("exit", exit);
@@ -266,7 +272,7 @@ test.each(["partial", "complete"])(
         request: requestOf(child, "open"),
         state: "live",
       });
-      child.message({ type: "result", id: "one", request: requestOf(child, "theme"), lines: [] });
+      child.message({ type: "result", id: "one", request: requestOf(child, "resize"), lines: [] });
       const replay = {
         type: "data",
         id: "one",
@@ -295,6 +301,8 @@ test.each(["partial", "complete"])(
 
 test("a complete fragmented replay and attach result restore the retry allowance", async () => {
   await ready();
+  transport.postMessage({ type: "resize", id: "one", request: 3, cols: 100, rows: 30 });
+  child.message({ type: "result", id: "one", request: 3, lines: [] });
   transport.postMessage({ type: "attach", id: "one", request: 2, view: "v" });
   for (let attempt = 0; attempt < 6; attempt++) {
     child.emit("close");
@@ -308,7 +316,7 @@ test("a complete fragmented replay and attach result restore the retry allowance
       request: requestOf(child, "open"),
       state: "live",
     });
-    child.message({ type: "result", id: "one", request: requestOf(child, "theme"), lines: [] });
+    child.message({ type: "result", id: "one", request: requestOf(child, "resize"), lines: [] });
     const replay = {
       type: "data",
       id: "one",
@@ -327,10 +335,12 @@ test("a complete fragmented replay and attach result restore the retry allowance
   expect(transport.kill()).toBe(true);
 });
 
-test.each(["open", "theme", "attach"])(
+test.each(["open", "resize", "attach"])(
   "an unanswered reconnect %s expires the whole restoration deadline and exhausts retries",
   async (stalled) => {
     await ready();
+    transport.postMessage({ type: "resize", id: "one", request: 3, cols: 100, rows: 30 });
+    child.message({ type: "result", id: "one", request: 3, lines: [] });
     transport.postMessage({ type: "attach", id: "one", request: 2, view: "v" });
     child.message({ type: "result", id: "one", request: 2, lines: [] });
     const exit = vi.fn();
@@ -353,7 +363,12 @@ test.each(["open", "theme", "attach"])(
           state: "live",
         });
       if (stalled === "attach")
-        child.message({ type: "result", id: "one", request: requestOf(child, "theme"), lines: [] });
+        child.message({
+          type: "result",
+          id: "one",
+          request: requestOf(child, "resize"),
+          lines: [],
+        });
       await vi.advanceTimersByTimeAsync(119999);
       expect(child.kill).not.toHaveBeenCalled();
       await vi.advanceTimersByTimeAsync(1);
@@ -369,6 +384,8 @@ test.each(["open", "theme", "attach"])(
 
 test("replies buffered after restoration expiry cannot renew the retry budget", async () => {
   await ready();
+  transport.postMessage({ type: "resize", id: "one", request: 3, cols: 100, rows: 30 });
+  child.message({ type: "result", id: "one", request: 3, lines: [] });
   transport.postMessage({ type: "attach", id: "one", request: 2, view: "v" });
   child.message({ type: "result", id: "one", request: 2, lines: [] });
   const exit = vi.fn();
@@ -385,7 +402,7 @@ test("replies buffered after restoration expiry cannot renew the retry budget", 
       request: requestOf(child, "open"),
       state: "live",
     });
-    child.message({ type: "result", id: "one", request: requestOf(child, "theme"), lines: [] });
+    child.message({ type: "result", id: "one", request: requestOf(child, "resize"), lines: [] });
     await vi.advanceTimersByTimeAsync(120000);
     expect(child.kill).toHaveBeenCalledOnce();
     const before = [...events];
@@ -406,6 +423,8 @@ test.each(["deadline", "protocol"])(
   "%s retirement ignores buffered replies and exhausts retries even when SSH never closes",
   async (cause) => {
     await ready();
+    transport.postMessage({ type: "resize", id: "one", request: 3, cols: 100, rows: 30 });
+    child.message({ type: "result", id: "one", request: 3, lines: [] });
     transport.postMessage({ type: "attach", id: "one", request: 2, view: "v" });
     child.message({ type: "result", id: "one", request: 2, lines: [] });
     const exit = vi.fn();
@@ -423,7 +442,7 @@ test.each(["deadline", "protocol"])(
         request: requestOf(child, "open"),
         state: "live",
       });
-      child.message({ type: "result", id: "one", request: requestOf(child, "theme"), lines: [] });
+      child.message({ type: "result", id: "one", request: requestOf(child, "resize"), lines: [] });
       const before = [...events];
       if (cause === "deadline") await vi.advanceTimersByTimeAsync(120000);
       else child.message({ type: "fragment", id: "foreign", offset: 0, total: 1, data: "x" });
@@ -566,6 +585,9 @@ test("process exit with inherited pipes open retires once and still releases std
 
 test("foreign fragments and failed restoration responses terminate the SSH stream", async () => {
   await ready();
+  transport.postMessage({ type: "resize", id: "one", request: 3, cols: 100, rows: 30 });
+  child.message({ type: "result", id: "one", request: 3, lines: [] });
+  transport.postMessage({ type: "attach", id: "one", request: 2, view: "v" });
   child.stdout.write(
     remoteFrame({ type: "fragment", id: "other", offset: 0, total: 1, data: "x" }),
   );
@@ -581,7 +603,7 @@ test("foreign fragments and failed restoration responses terminate the SSH strea
     request: requestOf(child, "open"),
     state: "live",
   });
-  child.message({ type: "error", id: "one", request: requestOf(child, "theme") });
+  child.message({ type: "error", id: "one", request: requestOf(child, "resize") });
   expect(child.kill).toHaveBeenCalled();
 });
 
@@ -649,7 +671,7 @@ test.each(["legacy", "foreign-request", "ended-first-open"])(
   },
 );
 
-async function remoteAgent() {
+async function remoteAgent(palette: Pick<typeof create, "dark" | "theme"> = {}) {
   transport.kill();
   child = new Child();
   mock.spawn.mockReturnValue(child);
@@ -672,7 +694,7 @@ async function remoteAgent() {
   const target: RemoteTarget = { host: "fixture", artifact: "/artifact", agent };
   transport = new RemoteTransport(target, "0.1.0");
   transport.on("message", (message) => events.push(message));
-  transport.postMessage(create);
+  transport.postMessage({ ...create, ...palette });
   await Promise.resolve();
   child.greet();
   return {
@@ -922,7 +944,7 @@ test("new hubs negotiate a compatible busy build; idle upgrade retries are bound
   mock.spawn.mockReturnValue(replacement);
   await vi.advanceTimersByTimeAsync(1000);
   replacement.header();
-  replacement.message({ type: "hello", build: "b".repeat(64), compatible: 2 });
+  replacement.message({ type: "hello", build: "b".repeat(64), startupTheme: 1, compatible: 2 });
   expect(replacement.messages).toContainEqual(
     expect.objectContaining({ type: "open", reattach: false }),
   );
@@ -1189,6 +1211,7 @@ test("recipe reconnect reattaches the same PTY and never repeats its recipe sele
     request: 1,
     cols: 80,
     rows: 24,
+    dark: false,
     reattach: false,
     profile,
     human: true,
@@ -1232,6 +1255,7 @@ test.each([false, true])(
     child.message({
       type: "hello",
       build: "b".repeat(64),
+      startupTheme: 1,
       compatible: 2,
       ...(supported ? { hostFacts: 1 as const } : {}),
     });
@@ -1357,6 +1381,7 @@ test.each([false, true].flatMap((supported) => ["a", "b"].map((build) => ({ supp
     child.message({
       type: "hello",
       build: build.repeat(64),
+      startupTheme: 1,
       compatible: 2,
       humanMachines: 1,
       ...(supported ? { machineHome: "/home/remote-user" } : {}),
@@ -1411,6 +1436,7 @@ test.each([true, false])(
     child.message({
       type: "hello",
       build: "b".repeat(64),
+      startupTheme: 1,
       compatible: 2,
       ...(supported ? { originTrust: 1 } : {}),
     });
@@ -1460,7 +1486,13 @@ test.each(["repository", "checkout", "reattach"] as const)(
     transport.postMessage(create);
     await Promise.resolve();
     child.header();
-    child.message({ type: "hello", build: "b".repeat(64), compatible: 2, humanMachines: 1 });
+    child.message({
+      type: "hello",
+      build: "b".repeat(64),
+      startupTheme: 1,
+      compatible: 2,
+      humanMachines: 1,
+    });
     expect(child.messages).toContainEqual(
       expect.objectContaining({ type: "open", reattach: kind === "reattach" }),
     );
@@ -1507,3 +1539,299 @@ test.each([false, true])(
     }
   },
 );
+
+test.each([true, false])(
+  "shell open carries the resolved startup palette (dark=%s)",
+  async (dark) => {
+    const theme = terminalThemes[dark ? "foom-dark" : "foom-light"];
+    transport.postMessage({ ...create, dark, theme });
+    await Promise.resolve();
+    child.greet();
+    expect(child.messages).toContainEqual(expect.objectContaining({ type: "open", dark, theme }));
+    child.message({ type: "open-result", id: "one", request: 1, state: "live" });
+    expect(child.messages).not.toContainEqual(expect.objectContaining({ type: "theme" }));
+  },
+);
+test.each([undefined, 1] as const)(
+  "fresh launches require startup palettes from a compatible older daemon (%s)",
+  async (startupTheme) => {
+    transport.postMessage(create);
+    await Promise.resolve();
+    child.header();
+    child.message({
+      type: "hello",
+      build: "b".repeat(64),
+      compatible: 2,
+      ...(startupTheme ? { startupTheme } : {}),
+    });
+    expect(
+      child.messages.some(
+        (value) =>
+          typeof value === "object" && value !== null && "type" in value && value.type === "open",
+      ),
+    ).toBe(startupTheme === 1);
+    if (!startupTheme)
+      expect(transport.launchFailure?.reason).toBe("remote_host_facts_unavailable");
+  },
+);
+
+test.each([true, false])(
+  "agent-open carries the resolved startup palette (dark=%s)",
+  async (dark) => {
+    const theme = terminalThemes[dark ? "foom-dark" : "foom-light"];
+    await remoteAgent({ dark, theme });
+    expect(child.messages).toContainEqual(
+      expect.objectContaining({ type: "agent-open", dark, theme }),
+    );
+  },
+);
+
+test("hub restart reattaches an older compatible daemon without replacing retained colors", async () => {
+  transport.kill();
+  transport = new RemoteTransport(
+    { host: "fixture", artifact: "/artifact", reattach: true },
+    "0.1.0",
+  );
+  transport.postMessage({ ...create, dark: true, theme: terminalThemes["foom-dark"] });
+  await Promise.resolve();
+  child.header();
+  child.message({ type: "hello", build: "b".repeat(64), compatible: 2 });
+  expect(child.messages).toContainEqual(expect.objectContaining({ type: "open", reattach: true }));
+  child.message({ type: "open-result", id: "one", request: 1, state: "live" });
+  expect(child.messages).not.toContainEqual(expect.objectContaining({ type: "theme" }));
+  expect(transport.launchFailure).toBeUndefined();
+});
+
+test("initial reattach delivers a theme changed before hello and preserves it after acknowledgement", async () => {
+  transport.kill();
+  transport = new RemoteTransport(
+    { host: "fixture", artifact: "/artifact", reattach: true },
+    "0.1.0",
+  );
+  transport.postMessage({ ...create, dark: false, theme: terminalThemes["foom-light"] });
+  transport.postMessage({
+    type: "theme",
+    id: "one",
+    request: 2,
+    dark: true,
+    theme: terminalThemes["foom-dark"],
+  });
+  await Promise.resolve();
+  child.greet();
+  expect(child.messages).not.toContainEqual(expect.objectContaining({ type: "theme" }));
+  const atCreateResult: unknown[][] = [];
+  transport.on("message", (message: { type: string; request?: number }) => {
+    if (message.type === "result" && message.request === 1)
+      atCreateResult.push([...child.messages]);
+  });
+  child.message({ type: "open-result", id: "one", request: 1, state: "live" });
+  expect(atCreateResult).toEqual([
+    [
+      expect.objectContaining({ type: "hello" }),
+      expect.objectContaining({ type: "open", reattach: true }),
+      expect.objectContaining({ type: "theme", dark: true, theme: terminalThemes["foom-dark"] }),
+    ],
+  ]);
+  expect(child.messages).toContainEqual(
+    expect.objectContaining({ type: "theme", dark: true, theme: terminalThemes["foom-dark"] }),
+  );
+  child.message({ type: "result", id: "one", request: requestOf(child, "theme"), lines: [] });
+  await reconnectLive();
+  expect(child.messages).not.toContainEqual(expect.objectContaining({ type: "theme" }));
+  expect(child.messages).not.toContainEqual(expect.objectContaining({ type: "resize" }));
+  await vi.advanceTimersByTimeAsync(120_001);
+  expect(child.kill).not.toHaveBeenCalled();
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+test("initial reattach does not repeat an in-flight theme on the same connection", async () => {
+  transport.kill();
+  transport = new RemoteTransport(
+    { host: "fixture", artifact: "/artifact", reattach: true },
+    "0.1.0",
+  );
+  transport.postMessage({ ...create, dark: false, theme: terminalThemes["foom-light"] });
+  await Promise.resolve();
+  child.greet();
+  transport.postMessage({
+    type: "theme",
+    id: "one",
+    request: 2,
+    dark: true,
+    theme: terminalThemes["foom-dark"],
+  });
+  const sent = [
+    expect.objectContaining({ type: "hello" }),
+    expect.objectContaining({ type: "open", reattach: true }),
+    expect.objectContaining({ type: "theme", dark: true, theme: terminalThemes["foom-dark"] }),
+  ];
+  expect(child.messages).toEqual(sent);
+  const atCreateResult: unknown[][] = [];
+  transport.on("message", (message: { type: string; request?: number }) => {
+    if (message.type === "result" && message.request === 1)
+      atCreateResult.push([...child.messages]);
+  });
+  child.message({ type: "open-result", id: "one", request: 1, state: "live" });
+  expect(atCreateResult).toEqual([sent]);
+  expect(child.messages).toEqual(sent);
+  // Losing the acknowledgement still requires a replacement on the next stream.
+  await reconnectLive();
+  expect(child.messages).toEqual(sent);
+  child.message({ type: "result", id: "one", request: requestOf(child, "theme"), lines: [] });
+  await reconnectLive();
+  expect(child.messages).toEqual(sent.slice(0, 2));
+});
+
+test.each(["offline", "in-flight"])(
+  "replays a %s theme update after reconnect, then preserves colors after acknowledgement",
+  async (loss) => {
+    const light = terminalThemes["foom-light"];
+    const dark = terminalThemes["foom-dark"];
+    transport.postMessage({ ...create, dark: false, theme: light });
+    await Promise.resolve();
+    child.greet();
+    child.message({ type: "open-result", id: "one", request: 1, state: "live" });
+    transport.postMessage({ type: "attach", id: "one", request: 2, view: "v" });
+    child.message({ type: "result", id: "one", request: 2, lines: [] });
+    const update = { type: "theme", id: "one", request: 3, dark: true, theme: dark } as const;
+    if (loss === "offline") child.emit("close");
+    transport.postMessage(update);
+    if (loss === "in-flight") child.emit("close");
+    expect(events).toContainEqual({ type: "error", id: "one", request: 3 });
+    child = new Child();
+    mock.spawn.mockReturnValue(child);
+    await vi.advanceTimersByTimeAsync(1000);
+    child.greet();
+    child.message({
+      type: "open-result",
+      id: "one",
+      request: requestOf(child, "open"),
+      state: "live",
+    });
+    expect(child.messages).toContainEqual(
+      expect.objectContaining({ type: "theme", dark: true, theme: dark }),
+    );
+    expect(child.messages).not.toContainEqual(expect.objectContaining({ type: "resize" }));
+    child.message({ type: "result", id: "one", request: requestOf(child, "theme"), lines: [] });
+    child.message({ type: "result", id: "one", request: requestOf(child, "attach"), lines: [] });
+    // A subsequent disconnect must not reset application-set colors again.
+    child.emit("close");
+    child = new Child();
+    mock.spawn.mockReturnValue(child);
+    await vi.advanceTimersByTimeAsync(1000);
+    child.greet();
+    child.message({
+      type: "open-result",
+      id: "one",
+      request: requestOf(child, "open"),
+      state: "live",
+    });
+    expect(child.messages).not.toContainEqual(expect.objectContaining({ type: "theme" }));
+    child.message({ type: "result", id: "one", request: requestOf(child, "attach"), lines: [] });
+    await vi.advanceTimersByTimeAsync(120001);
+    expect(child.kill).not.toHaveBeenCalled();
+  },
+);
+
+test("reattaches a hidden restored session without inventing an 80x24 resize or retaining a deadline", async () => {
+  transport.kill();
+  transport = new RemoteTransport(
+    { host: "fixture", artifact: "/artifact", reattach: true },
+    "0.1.0",
+  );
+  transport.postMessage(create);
+  await Promise.resolve();
+  child.greet();
+  child.message({ type: "open-result", id: "one", request: 1, state: "live" });
+  const initialConnections = mock.spawn.mock.calls.length;
+  // There is no view and no reported size. Each successful open completes the
+  // restoration and renews the retry allowance without touching the remote PTY.
+  for (let attempt = 0; attempt < 6; attempt++) {
+    child.emit("close");
+    child = new Child();
+    mock.spawn.mockReturnValue(child);
+    await vi.advanceTimersByTimeAsync(1000);
+    child.greet();
+    child.message({
+      type: "open-result",
+      id: "one",
+      request: requestOf(child, "open"),
+      state: "live",
+    });
+    expect(child.messages).not.toContainEqual(expect.objectContaining({ type: "resize" }));
+    expect(child.messages).not.toContainEqual(expect.objectContaining({ type: "theme" }));
+    await vi.advanceTimersByTimeAsync(120001);
+    expect(child.kill).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  }
+  expect(mock.spawn).toHaveBeenCalledTimes(initialConnections + 6);
+});
+
+async function reconnectLive() {
+  child.emit("close");
+  child = new Child();
+  mock.spawn.mockReturnValue(child);
+  await vi.advanceTimersByTimeAsync(1000);
+  child.greet();
+  child.message({
+    type: "open-result",
+    id: "one",
+    request: requestOf(child, "open"),
+    state: "live",
+  });
+}
+
+test("a connected theme acknowledgement preserves application colors on reconnect", async () => {
+  await ready();
+  transport.postMessage({ type: "theme", id: "one", request: 2, dark: true });
+  child.message({ type: "result", id: "one", request: 2, lines: [] });
+  await reconnectLive();
+  expect(child.messages).not.toContainEqual(expect.objectContaining({ type: "theme" }));
+});
+
+test("returning to the confirmed palette while offline does not replace application colors", async () => {
+  await ready();
+  child.emit("close");
+  transport.postMessage({ type: "theme", id: "one", request: 2, dark: true });
+  transport.postMessage({ type: "theme", id: "one", request: 3, dark: false });
+  child = new Child();
+  mock.spawn.mockReturnValue(child);
+  await vi.advanceTimersByTimeAsync(1000);
+  child.greet();
+  child.message({
+    type: "open-result",
+    id: "one",
+    request: requestOf(child, "open"),
+    state: "live",
+  });
+  expect(child.messages).not.toContainEqual(expect.objectContaining({ type: "theme" }));
+});
+
+test.each(["error", "disconnect"])(
+  "a theme %s leaves the latest replacement pending until confirmed",
+  async (outcome) => {
+    await ready();
+    transport.postMessage({ type: "theme", id: "one", request: 2, dark: true });
+    if (outcome === "error") child.message({ type: "error", id: "one", request: 2 });
+    await reconnectLive();
+    const missed = requestOf(child, "theme");
+    // A newer update is sent while the first restoration reply is outstanding.
+    transport.postMessage({ type: "theme", id: "one", request: 3, dark: false });
+    child.message({ type: "result", id: "one", request: missed, lines: [] });
+    await reconnectLive();
+    expect(child.messages).toContainEqual(expect.objectContaining({ type: "theme", dark: false }));
+    child.message({ type: "result", id: "one", request: requestOf(child, "theme"), lines: [] });
+    await reconnectLive();
+    expect(child.messages).not.toContainEqual(expect.objectContaining({ type: "theme" }));
+  },
+);
+
+test("an older delayed theme acknowledgement cannot roll back a newer confirmed palette", async () => {
+  await ready();
+  transport.postMessage({ type: "theme", id: "one", request: 2, dark: true });
+  transport.postMessage({ type: "theme", id: "one", request: 3, dark: false });
+  child.message({ type: "result", id: "one", request: 3, lines: [] });
+  child.message({ type: "result", id: "one", request: 2, lines: [] });
+  await reconnectLive();
+  expect(child.messages).not.toContainEqual(expect.objectContaining({ type: "theme" }));
+});

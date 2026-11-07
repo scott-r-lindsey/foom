@@ -46,6 +46,7 @@ type Connection = {
   closed: boolean;
   deadline: ReturnType<typeof setTimeout> | undefined;
   grace: ReturnType<typeof setTimeout> | undefined;
+  sentThemeKey: string | undefined;
 };
 
 const imageHosts = new Set<string>();
@@ -78,6 +79,11 @@ export class RemoteTransport extends EventEmitter {
   private attachment: Extract<HostRequest, { type: "attach" }> | undefined;
   private dimensions: Extract<HostRequest, { type: "resize" }> | undefined;
   private theme: Extract<HostRequest, { type: "theme" }> | undefined;
+  private confirmedThemeKey: string | undefined;
+  private openingThemeKey: string | undefined;
+  private themeSequence = 0;
+  private confirmedThemeSequence = 0;
+  private themeRequests = new Map<number, { key: string; sequence: number }>();
   private pending = new Map<number, string>();
   private internal = Number.MAX_SAFE_INTEGER;
   private restoring: number | undefined;
@@ -143,7 +149,10 @@ export class RemoteTransport extends EventEmitter {
       return this.target.profile
         ? { type: "session-close", id: session.id, request, profile: this.target.profile }
         : { type: "agent-close", id: session.id, request };
+    if (!reattach && !this.target.reattach) this.openingThemeKey = this.themeKey();
     const metadata = {
+      dark: this.theme?.dark ?? false,
+      ...(this.theme?.theme ? { theme: this.theme.theme } : {}),
       ...(this.target.profile ? { profile: this.target.profile } : {}),
       ...(this.target.context ? { context: this.target.context } : {}),
     };
@@ -172,11 +181,39 @@ export class RemoteTransport extends EventEmitter {
           ...(this.target.checkout ? { checkout: this.target.checkout } : {}),
         };
   }
+  private themeKey(): string {
+    return JSON.stringify(this.theme?.theme ?? this.theme?.dark ?? false);
+  }
+  private restoreState(restoreView: boolean): void {
+    // Only replay a changed palette or a replacement whose reply was lost.
+    // Reapplying an acknowledged theme erases application colors.
+    const themeKey = this.themeKey();
+    const missedTheme =
+      themeKey !== this.connection?.sentThemeKey &&
+      (themeKey !== this.confirmedThemeKey || this.themeSequence > this.confirmedThemeSequence);
+    for (const command of [
+      missedTheme ? this.theme : undefined,
+      restoreView ? this.dimensions : undefined,
+      restoreView ? this.attachment : undefined,
+    ])
+      if (command) {
+        const request = --this.internal;
+        this.restoration.add(request);
+        this.send({ ...command, request });
+      }
+  }
   private send(message: RemoteRequest): void {
     const connection = this.connection;
     try {
       if (!remoteRequest(message) || !connection?.child.stdin?.writable)
         throw new Error("Remote unavailable");
+      if (message.type === "theme") {
+        connection.sentThemeKey = JSON.stringify(message.theme ?? message.dark);
+        this.themeRequests.set(message.request, {
+          key: connection.sentThemeKey,
+          sequence: ++this.themeSequence,
+        });
+      }
       connection.child.stdin.write(remoteFrame(message));
     } catch {
       if (connection) this.retireConnection(connection, "failure");
@@ -198,6 +235,7 @@ export class RemoteTransport extends EventEmitter {
     this.ready = false;
     this.restoring = undefined;
     this.restoration.clear();
+    this.themeRequests.clear();
     const pending = reason === "upgrade" ? [] : [...this.pending];
     if (reason !== "upgrade") this.pending.clear();
     const signal = (name: NodeJS.Signals) => {
@@ -262,6 +300,7 @@ export class RemoteTransport extends EventEmitter {
       closed: false,
       deadline: undefined,
       grace: undefined,
+      sentThemeKey: undefined,
     };
     this.connection = connection;
     let header = Buffer.alloc(0);
@@ -371,6 +410,12 @@ export class RemoteTransport extends EventEmitter {
               return;
             }
             if (
+              (!this.management &&
+                !this.target.cleanup &&
+                !this.opened &&
+                !this.target.reattach &&
+                value.build !== artifact.sha256 &&
+                value.startupTheme !== 1) ||
               (this.target.machine &&
                 !this.opened &&
                 !this.target.reattach &&
@@ -557,12 +602,13 @@ export class RemoteTransport extends EventEmitter {
                 return;
               }
               this.restoring = undefined;
-              for (const command of [this.theme, this.dimensions, this.attachment])
-                if (command) {
-                  const request = --this.internal;
-                  this.restoration.add(request);
-                  this.send({ ...command, request });
-                }
+              this.restoreState(true);
+              // A hidden restored session may have neither a view nor a
+              // reported size. Its open reply alone completes restoration.
+              if (this.restoration.size === 0) {
+                clearTimeout(deadline);
+                this.retries = 0;
+              }
               return;
             }
             if (
@@ -587,7 +633,8 @@ export class RemoteTransport extends EventEmitter {
               throw new Error("Unexpected open result");
             clearTimeout(deadline);
             this.opened = true;
-            if (this.theme) this.send({ ...this.theme, request: --this.internal });
+            if (this.openingThemeKey !== undefined) this.confirmedThemeKey = this.openingThemeKey;
+            if (this.target.reattach) this.restoreState(false);
             this.emit("message", {
               type: "result",
               id: value.id,
@@ -597,6 +644,12 @@ export class RemoteTransport extends EventEmitter {
             return;
           }
           if (value.type === "result" || value.type === "error") {
+            const theme = this.themeRequests.get(value.request);
+            this.themeRequests.delete(value.request);
+            if (theme && value.type === "result" && theme.sequence > this.confirmedThemeSequence) {
+              this.confirmedThemeKey = theme.key;
+              this.confirmedThemeSequence = theme.sequence;
+            }
             if (value.request === this.restoring) throw new Error("Invalid open result");
             if (this.restoration.delete(value.request)) {
               if (value.type === "error") throw new Error("View restoration failed");
@@ -731,6 +784,9 @@ export class RemoteTransport extends EventEmitter {
         dark: message.dark ?? false,
         ...(message.theme ? { theme: message.theme } : {}),
       };
+      // A restore's create palette is a baseline, not an explicit theme change.
+      // The daemon keeps the actual session colors until a later update.
+      this.confirmedThemeKey = this.themeKey();
     } else {
       if (message.id !== this.session?.id || (message.type === "child-input" && !this.target.agent))
         throw new Error("Unsupported remote operation");

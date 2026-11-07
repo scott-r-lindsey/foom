@@ -93,7 +93,11 @@ export function serveHost(
 ) {
   // Change only the forked PTY's mask. Temporarily relaxing the daemon's mask
   // could expose files created by concurrent filesystem work in libuv threads.
-  const createTerminal = (spec: TerminalSpec, id: string) =>
+  const createTerminal = (
+    spec: TerminalSpec,
+    id: string,
+    palette: Pick<Extract<RemoteRequest, { type: "open" }>, "dark" | "theme">,
+  ) =>
     manager.create(
       {
         ...spec,
@@ -108,6 +112,7 @@ export function serveHost(
         ],
       },
       id,
+      palette.theme ?? palette.dark ?? false,
     );
   const path = hostSocket(home);
   let startImages: (() => void) | undefined;
@@ -403,6 +408,7 @@ export function serveHost(
           humanMachines: 1,
           machineHome: home,
           originTrust: 1,
+          startupTheme: 1,
         });
         return;
       }
@@ -644,7 +650,11 @@ export function serveHost(
         await agent.validate();
         if (disconnected() || prepared !== pending || isShuttingDown())
           throw new Error("Launch cancelled");
-        createTerminal({ ...agent.spec, cols: pending.open.cols, rows: pending.open.rows }, id);
+        createTerminal(
+          { ...agent.spec, cols: pending.open.cols, rows: pending.open.rows },
+          id,
+          pending.open,
+        );
         clearTimeout(pending.timer);
         prepared = undefined;
         sessions.set(id, pending.session);
@@ -937,6 +947,7 @@ export function serveHost(
                       rows: message.rows,
                     },
               id,
+              message,
             );
           } catch (error) {
             revoke(id, owned);

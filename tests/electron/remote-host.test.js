@@ -1,3 +1,4 @@
+const { colorQueryFixture, oscColor } = require("./color-query-fixture.js");
 const { evidencePath } = require("../helpers/evidence.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
@@ -82,7 +83,23 @@ test("remote shell fixture uploads a pinned headless host and replays the same P
   // A fixture executable accepts the daemon's login flags without loading
   // system/user login profiles or changing the controlled PATH.
   const shell = path.join(bin, "remote-shell");
-  await writeFile(shell, "#!/bin/sh\nexec /bin/sh -i\n", { mode: 0o700 });
+  const colorRecord = path.join(root, "shell-colors.json");
+  const colorProbe = path.join(bin, "color-probe");
+  await writeFile(
+    colorProbe,
+    `#!${process.execPath}
+(async () => { ${colorQueryFixture(colorRecord)} })().catch(() => process.exit(1));
+`,
+    { mode: 0o700 },
+  );
+  await writeFile(
+    shell,
+    `#!/bin/sh
+if [ -t 0 ]; then "${colorProbe}"; fi
+exec /bin/sh -i
+`,
+    { mode: 0o700 },
+  );
   const ssh = path.join(bin, "ssh");
   await writeFile(
     ssh,
@@ -235,6 +252,7 @@ child.on('close', code => { appendFileSync(${JSON.stringify(sshLog)}, 'fixture s
       window.remoteReplayTokens.add(token),
     );
   });
+  await page.evaluate(() => window.desktop.saveSetup({ terminalTheme: "foom-dark" }));
   // Await the launch capability's completion before asserting its UI. Bootstrap
   // transfers a full runtime and is an asynchronous operation, unlike a local PTY.
   await page.evaluate(() => window.desktop.sidebarCommand({ kind: "home-shell" }));
@@ -250,6 +268,9 @@ child.on('close', code => { appendFileSync(${JSON.stringify(sshLog)}, 'fixture s
   const tail = () =>
     page.evaluate(async (id) => (await window.desktop.tail(id, 40)).join("\n"), id);
   await expect.poll(tail).toMatch(/[$#>]\s*$/);
+  const darkColors = JSON.parse(await readFile(colorRecord, "utf8"));
+  assert.ok(darkColors.includes(oscColor(10, "#f4efff")));
+  assert.ok(darkColors.includes(oscColor(11, "#05040a")));
   // A shell variable and PID prove process continuity, not merely replayed text.
   await page.keyboard.type(
     'persist=STILL_ALIVE; printf \'REMOTE_READY:%s:%s\\n\' "$persist" "$$"; pwd',
@@ -265,6 +286,9 @@ child.on('close', code => { appendFileSync(${JSON.stringify(sshLog)}, 'fixture s
   await expect.poll(tail).toMatch(/(?:^|\n)MASK_FILES_READY(?:\n|$)/);
   assert.equal((await stat(path.join(remoteHome, "terminal-file"))).mode & 0o777, 0o664);
   assert.equal((await stat(path.join(remoteHome, "terminal-dir"))).mode & 0o777, 0o775);
+  // Application-set background must survive transport and hub reattachment.
+  await page.keyboard.type("printf '\\033]11;#123456\\007'");
+  await page.keyboard.press("Enter");
   const before = await tail();
   const pid = before.match(/REMOTE_READY:STILL_ALIVE:(\d+)/)?.[1];
   assert.ok(pid);
@@ -309,6 +333,11 @@ child.on('close', code => { appendFileSync(${JSON.stringify(sshLog)}, 'fixture s
   await page.keyboard.type("printf 'REATTACHED_MASK:'; umask");
   await page.keyboard.press("Enter");
   await expect.poll(tail).toMatch(/REATTACHED_MASK:0*27(?:\n|\r|$)/);
+  await page.keyboard.type(`'${colorProbe}'`);
+  await page.keyboard.press("Enter");
+  await expect
+    .poll(async () => JSON.parse(await readFile(colorRecord, "utf8")))
+    .toContain(oscColor(11, "#123456"));
   assert.equal(daemon.exitCode, null);
   await mkdir("test-results", { recursive: true });
   await writeFile(
@@ -387,6 +416,20 @@ child.on('close', code => { appendFileSync(${JSON.stringify(sshLog)}, 'fixture s
         .sort(),
     )
     .toEqual([id, "lost-profile-write"].sort());
+  await expect(
+    restored
+      .locator(".terminal-tile")
+      .filter({ hasText: "AFTER_HUB_QUIT:STILL_ALIVE:" })
+      .locator(".xterm-helper-textarea"),
+  ).toBeEditable();
+  await writeFile(colorRecord, JSON.stringify("pending"));
+  await restored.evaluate(({ id, command }) => window.desktop.input(id, command), {
+    id,
+    command: `'${colorProbe}'\r`,
+  });
+  await expect
+    .poll(async () => JSON.parse(await readFile(colorRecord, "utf8")))
+    .toContain(oscColor(11, "#123456"));
   const recoveredRow = (await restored.evaluate(() => window.desktop.workspace())).terminals.find(
     (row) => row.id === "lost-profile-write",
   );
@@ -448,6 +491,31 @@ child.on('close', code => { appendFileSync(${JSON.stringify(sshLog)}, 'fixture s
       .getByRole("button", { name: "Stop all and quit" })
       .click();
   });
+  // No hub/theme-update round trip: first-action queries must use open's
+  // palette even when the acknowledgement has not reached any hub yet.
+  const { terminalThemes } = require("../../build/shared/terminal-themes.js");
+  for (const name of ["foom-dark", "foom-light"]) {
+    const theme = terminalThemes[name];
+    await writeFile(colorRecord, JSON.stringify("pending"));
+    const peer = await hostChannel(
+      socket,
+      manifest.sha256,
+      `startup-${name}`,
+      cleanup,
+      80,
+      24,
+      false,
+      "f".repeat(32),
+      { dark: name === "foom-dark", theme },
+    );
+    await expect
+      .poll(async () => JSON.parse(await readFile(colorRecord, "utf8")))
+      .toContain(oscColor(11, theme.background));
+    const colors = JSON.parse(await readFile(colorRecord, "utf8"));
+    assert.ok(colors.includes(oscColor(10, theme.foreground)));
+    await peer.ask({ type: "kill" });
+    peer.close();
+  }
   await wideReplay(root, socket, manifest.sha256, cleanup);
   const gone = await hostChannel(socket, manifest.sha256, "never-created", cleanup, 80, 24, true);
   assert.equal(gone.opened.state, "gone");
@@ -463,6 +531,7 @@ async function hostChannel(
   rows = 24,
   reattach = false,
   profile = "f".repeat(32),
+  palette = {},
 ) {
   const { RemoteFrames, RemoteMessages, remoteFrame, remoteResponse } =
     require("../../build/shared/remote-host-protocol.js");
@@ -507,7 +576,18 @@ async function hostChannel(
       pending.set(number, { resolve, reject });
       channel.write(remoteFrame({ ...message, id, request: number }));
     });
-  const opened = await ask({ type: "open", cols, rows, reattach, ...(profile ? { profile } : {}) });
+  const opened = await ask({
+    type: "open",
+    cols,
+    rows,
+    reattach,
+    ...palette,
+    ...(profile ? { profile } : {}),
+  });
+  if (!reattach && opened.state === "live")
+    await expect
+      .poll(async () => (await ask({ type: "tail", lines: 4 })).lines.join("\n"))
+      .toMatch(/[$#>]\s*$/);
   return { ask, events, opened, close: () => channel.destroy() };
 }
 
