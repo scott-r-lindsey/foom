@@ -8,7 +8,8 @@ the host expands it; canonical absolute observations are required before checkou
 confer no later fleet authority. Host-aware orchestration (#756) uses the same registration and management service.
 
 Each registration may have a profile-only nickname (#1027). Click its title in
-Settings → Hosts to edit; Save name or Enter commits, Cancel or Escape discards,
+Settings → Hosts to edit; expanded editable titles show a pencil, while collapsed
+titles expand the row. Renaming remains available during remote checks; Save name or Enter commits, Cancel or Escape discards,
 and an empty name restores the default unless another host has claimed it as a
 nickname. A refused reset preserves the saved name and profile. Nicknames use 1–40 Unicode letters,
 numbers, spaces, dots, hyphens or underscores, without surrounding whitespace.
@@ -22,7 +23,9 @@ remains visible and copyable on the card.
 chips and tile title bars; board launch options also expose registered host labels. Labels never
 replace registration keys or enter remote requests, SSH, environment, argv or
 agent projections. Rename only updates the local profile and performs no remote
-inspection. Folder changes and canonical expansion preserve nicknames.
+inspection. Check replies preserve a name saved while the check was running.
+Add host accepts an optional nickname with the same validation and inline errors;
+main validates it again and saves it only together with a successful enrollment. Folder changes and canonical expansion preserve nicknames.
 
 `setup:hosts` accepts one closed action from the registered board main frame:
 list, progress, test, add, rename, preflight, create-folder, change-folder, refresh, remove, locations, clone, trust-origin, end or recipe. Main selects enabled agent

@@ -20,10 +20,10 @@ import {
   hostResult,
   hostRequirements,
   hostNicknameError,
-  hostDisplayName,
   originSshArgs,
 } from "../../shared/registered-hosts";
 import type {
+  RegisteredHost,
   HostFailure,
   HostCheck,
   HostCheckProgress,
@@ -639,6 +639,21 @@ export class Hosts {
       ...(this.progress ? { progress: this.progress } : {}),
     };
   }
+  private profilePending: Promise<void> = Promise.resolve();
+  /** Re-read registrations after earlier profile writes, independently of remote checks. */
+  private updateRegistrations(
+    change: (hosts: readonly RegisteredHost[]) => readonly RegisteredHost[],
+  ): Promise<void> {
+    const work = this.profilePending
+      .catch(() => undefined)
+      .then(async () => {
+        await this.store.update({
+          registeredHosts: change(this.store.get().registeredHosts ?? []),
+        });
+      });
+    this.profilePending = work;
+    return work;
+  }
   action(
     input: unknown,
     confirm?: (content: DialogContent) => Promise<boolean>,
@@ -647,6 +662,18 @@ export class Hosts {
     if (!hostsAction(input)) return Promise.reject(new Error("Invalid host action"));
     if (input.action === "progress" || input.action === "list")
       return Promise.resolve(this.state(undefined, input.action === "list"));
+    if (input.action === "rename")
+      return this.updateRegistrations((hosts) => {
+        this.registered(input.host);
+        const error = hostNicknameError(hosts, input.host, input.nickname);
+        if (error) throw new Error(error);
+        return hosts.map((entry) => {
+          if (entry.host !== input.host) return entry;
+          const registration = { ...entry };
+          delete registration.nickname;
+          return input.nickname ? { ...registration, nickname: input.nickname } : registration;
+        });
+      }).then(() => this.state());
     if (
       [
         "add",
@@ -664,23 +691,6 @@ export class Hosts {
       .catch(() => undefined)
       .then(async () => {
         const hosts = this.store.get().registeredHosts ?? [];
-        if (input.action === "rename") {
-          this.registered(input.host);
-          const error = hostNicknameError(hosts, input.host, input.nickname);
-          if (error) throw new Error(error);
-          await this.store.update({
-            registeredHosts: hosts.map((entry) => {
-              if (entry.host !== input.host) return entry;
-              const registration = {
-                host: entry.host,
-                codeFolder: entry.codeFolder,
-                ...(entry.observation ? { observation: entry.observation } : {}),
-              };
-              return input.nickname ? { ...registration, nickname: input.nickname } : registration;
-            }),
-          });
-          return this.state();
-        }
         if (input.action === "trust-origin") {
           const registration = this.registered(input.host);
           if (!this.repositories().some((repo) => repo.path === input.repository))
@@ -776,8 +786,8 @@ export class Hosts {
                 await this.readWorktrees(input.host, true);
               }
               const row = this.state().hosts.find((entry) => entry.host === input.host);
-              await this.store.update({
-                registeredHosts: (this.store.get().registeredHosts ?? []).map((entry) =>
+              await this.updateRegistrations((hosts) =>
+                hosts.map((entry) =>
                   entry.host === input.host
                     ? {
                         ...entry,
@@ -794,7 +804,7 @@ export class Hosts {
                       }
                     : entry,
                 ),
-              });
+              );
             }
             this.progress = undefined;
             return { ...this.state(), preflight };
@@ -813,13 +823,13 @@ export class Hosts {
               : { type: "manage", operation: "inspect", readOnly: true, partial: true, codeFolder },
           );
           if (result.ok) {
-            await this.store.update({
-              registeredHosts: hosts.map((entry) =>
+            await this.updateRegistrations((hosts) =>
+              hosts.map((entry) =>
                 entry.host === input.host
                   ? { ...entry, codeFolder: result.facts.codeFolder }
                   : entry,
               ),
-            });
+            );
             this.locations = this.locations.filter((entry) => entry.host !== input.host);
             this.invalidateWorktrees(input.host);
           }
@@ -829,14 +839,12 @@ export class Hosts {
         if (input.action === "add" || input.action === "test") {
           if (hosts.length >= 32 || hosts.some((host) => host.host === input.host))
             throw new Error("Host already registered or limit reached");
-          if (
-            hosts.some(
-              (entry) =>
-                entry.nickname?.toLowerCase() ===
-                hostDisplayName({ host: input.host }).toLowerCase(),
-            )
-          )
-            throw new Error("Name already used");
+          const nickname = input.action === "add" ? (input.nickname ?? "") : "";
+          const validateName = (hosts: readonly RegisteredHost[]) => {
+            const error = hostNicknameError(hosts, input.host, nickname);
+            if (error) throw new Error(error);
+          };
+          validateName(hosts);
           const result = await this.run(input.host, {
             type: "manage",
             operation: "inspect",
@@ -853,14 +861,16 @@ export class Hosts {
               )
             )
           ) {
-            await this.store.update({
-              registeredHosts: [
+            await this.updateRegistrations((hosts) => {
+              validateName(hosts);
+              return [
                 ...hosts,
                 {
                   host: input.host,
                   codeFolder: result.ok ? result.facts.codeFolder : input.codeFolder,
+                  ...(nickname ? { nickname } : {}),
                 },
-              ],
+              ];
             });
             this.results.set(input.host, result);
           }
@@ -881,9 +891,9 @@ export class Hosts {
         if (!host) throw new Error("Host is not registered");
         if (input.action === "remove") {
           // Forget only. Never send stop/kill or close a remote session connection.
-          await this.store.update({
-            registeredHosts: hosts.filter((entry) => entry.host !== host.host),
-          });
+          await this.updateRegistrations((hosts) =>
+            hosts.filter((entry) => entry.host !== host.host),
+          );
           this.locations = this.locations.filter((entry) => entry.host !== host.host);
           this.results.delete(host.host);
           this.sessionInventories.delete(host.host);
@@ -1014,11 +1024,11 @@ export class Hosts {
     const registration = this.registered(host);
     const result = this.results.get(host);
     if (!registration.codeFolder.startsWith("~/") || !result?.ok) return;
-    await this.store.update({
-      registeredHosts: (this.store.get().registeredHosts ?? []).map((entry) =>
+    await this.updateRegistrations((hosts) =>
+      hosts.map((entry) =>
         entry.host === host ? { ...entry, codeFolder: result.facts.codeFolder } : entry,
       ),
-    });
+    );
     this.locations = this.locations.filter((entry) => entry.host !== host);
     this.invalidateWorktrees(host);
   }
