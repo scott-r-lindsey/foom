@@ -245,12 +245,34 @@ present menu whose facts do not stack. Neither earlier macOS nor Linux CI artifa
 recorded those final values; the original bare predicate timeout does not itself
 establish an incorrect grid layout.
 
-## Quit ordering diagnostics (#1056)
+## Quit acknowledgement ordering (#1056)
+
+The harness cancels an unprevented native `will-quit` after Foom's save, PTY
+shutdown and service-disposal barrier. It publishes readiness on the following
+event-loop turn, after the cancelled native quit has unwound. Electron keeps its
+native quitting flag set while notifying `will-quit` observers and ignores a
+reentrant `app.quit` in that interval. Publishing readiness inside the observer
+can let Playwright issue its final quit too early, detach its inspector and wait
+for a process exit that was never requested. The existing final `before-quit`
+guard still lets Playwright's evaluation return before actual native shutdown.
+
+A natural Linux failure recorded native `will-quit` and acknowledgement at 196 ms,
+then the harness entered `app.close()` before the recorded next event-loop turn
+at 341 ms. No final `before-quit` guard fired, and Electron stayed alive through
+the unchanged ten-second deadline with no windows. The native regression proves
+that readiness inside `will-quit` authorizes a quit which Electron ignores; it
+fails before the fix and requires readiness to remain false in that event after
+the fix. The real reattachment fixture also exited normally in 623 ms with the
+Node inspector detached at final native quit, retaining normal confirmation and
+production cleanup. The captured failure stalls after Foom's cleanup barrier;
+its frequency has not been attributed to #1083, and the same signature occurred
+on main before that change.
 
 The harness retains a bounded stderr lifecycle trace and prints it only when
 app teardown fails. It records native quit events, acknowledgement delivery and
 the next event-loop turn, together with harness phases, the final window list,
-and connection/process closure. These are fixed lifecycle
+and connection/process closure. Main and harness records include a common wall
+clock, with main's monotonic elapsed time retained. These are fixed lifecycle
 facts; terminal output, paths, credentials and message payloads are excluded.
 The trace starts in the existing acknowledgement evaluation before requesting
 quit and survives inspector disconnection. It neither wraps `app.quit` nor adds
