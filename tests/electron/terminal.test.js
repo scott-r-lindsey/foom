@@ -488,6 +488,8 @@ test("terminal runs an interactive shell behind an isolated bridge", {
           "panelFacts",
           "onFocusWorktree",
           "sidebarInventory",
+          "cancelSidebarLaunch",
+          "onSidebarLaunchStarted",
           "sidebarCommand",
           "workspace",
           "addRepository",
@@ -1434,6 +1436,7 @@ test("shell fixture starts through keyboard while startup layout moves", {
 }, async (context) => {
   const app = await launchApp(context, { fixture: "empty-board" });
   const page = await boardPage(app);
+  await sizeTileBoard(app, page, 2200);
   await page.evaluate(() => {
     window.fixtureMoving = true;
     let frame = 0;
@@ -1448,8 +1451,14 @@ test("shell fixture starts through keyboard while startup layout moves", {
   try {
     await launchCheckoutShell(app, page);
     await expect(page.locator(".board-row[data-kind='shell']")).toBeVisible();
+    await expect(page.locator(".tile-startup")).toHaveCount(0);
+    const occupied = page.locator('.terminal-tile[data-empty="false"]');
+    await expect(occupied).toHaveCount(1);
+    await expect
+      .poll(() => page.locator('.terminal-tile[data-empty="true"]').count())
+      .toBeGreaterThan(0);
     await page.locator(".board-row[data-kind='shell']").press("Enter");
-    await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+    await expect(occupied.locator(".xterm-helper-textarea")).toBeFocused();
   } finally {
     await page.evaluate(() => {
       window.fixtureMoving = false;

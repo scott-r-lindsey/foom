@@ -182,6 +182,32 @@ optional fourth registered-host selector, retaining the existing local location
 parameter; remote creation uses the registered repository origin and approved
 folder and confers no orchestration role.
 
+### Launch presentation (#1044)
+
+`workspace:sidebar-command` optionally takes a second, bounded operation ID for
+`launch`, `machine-launch`, `repository-launch` and `home-shell`. This is a
+window-local correlation token, never a terminal creation ID. Main retains at
+most 32 pending operations per board and rejects duplicate tokens. Sharing
+confirmation precedes `workspace:launch-started`; late sharing discoveries refuse
+rather than inherit unacknowledged consent. Successful launches return only their
+request-specific terminal ID, validated and projected by preload.
+
+`workspace:cancel-launch` takes that operation ID from the registered requesting
+board main frame. It aborts only that board's pending launch. Navigation, renderer
+loss and disposal also abort pending launches. Cancellation is checked before
+spawn. A main-only signal stops SSH bootstrap until a session-open request may
+have been sent; signals are stripped before terminal-host serialization. Once
+open may have been sent, completion after cancellation closes the new terminal
+through the existing host-bound cleanup path, preserving its checkout. The source also closes a late result if cancellation
+races the command reply and inventory refresh. Startup labels and reserved tile
+placement are renderer view state and do not authorize attachment or input.
+
+A declined sharing warning returns no terminal ID and emits no
+`workspace:launch-started`; a refusal after that event retains its failure tile.
+A failed cleanup of a terminal created after cancellation returns the fixed
+`launch-cancel-incomplete` code. Its action error remains visible after the startup
+reservation is closed; ordinary pre-spawn aborts remain silent.
+
 ## Terminal clipboard writes (#1073)
 
 `terminal:write-clipboard` accepts a terminal ID and raw OSC 52 body from a

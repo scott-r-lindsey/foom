@@ -1507,6 +1507,33 @@ test.each(["repository", "checkout", "reattach"] as const)(
   },
 );
 
+test("startup cancellation before open stops SSH and ignores buffered negotiation", async () => {
+  transport.postMessage(create);
+  await Promise.resolve();
+  expect(transport.cancelStartup()).toBe(true);
+  expect(child.kill).toHaveBeenCalledWith("SIGTERM");
+  child.greet();
+  expect(
+    child.messages.some(
+      (message) =>
+        typeof message === "object" &&
+        message !== null &&
+        "type" in message &&
+        message.type === "open",
+    ),
+  ).toBe(false);
+});
+
+test("startup cancellation after open was sent requires the owner to settle and close the session", async () => {
+  transport.postMessage(create);
+  await Promise.resolve();
+  child.greet();
+  expect(transport.cancelStartup()).toBe(false);
+  expect(child.kill).not.toHaveBeenCalled();
+  child.message({ type: "open-result", request: 1, id: "one", state: "live" });
+  expect(events).toContainEqual(expect.objectContaining({ type: "result", id: "one", request: 1 }));
+});
+
 test.each([false, true])(
   "row inspection capability refuses old daemons without falling back (%s)",
   async (supported) => {

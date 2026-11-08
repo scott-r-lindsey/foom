@@ -6,6 +6,14 @@ import type { ExecutionSnapshot } from "../../shared/execution";
 import type { OrchestrationView } from "../../shared/workspace";
 export type BoardState = "waiting" | "working" | "needs_input" | "done" | "failed" | "quiet_ok";
 export interface BoardRow {
+  /** Window-local launch presentation; it grants no terminal capability. */
+  startup?: {
+    label: string;
+    remote: boolean;
+    since: number;
+    error?: string;
+    pending?: boolean;
+  };
   waitingOn?: number | undefined;
   /** Host-observed foreground process name; never persisted. */
   foregroundProgram?: string;

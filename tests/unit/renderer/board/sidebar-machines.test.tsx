@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { SidebarMachineRow } from "../../../../src/renderer/board/sidebar-machine-row";
 
@@ -225,4 +225,31 @@ test("loose sessions belong to their machine while forgotten hosts remain reacha
   expect(view.container.querySelector('[data-drag-session="remote-machine"]')).toBeTruthy();
   fireEvent.click(view.getByRole("button", { name: "Collapse sidebar" }));
   expect(view.container.querySelectorAll(".machine-section .board-row")).toHaveLength(2);
+});
+
+test("machine launch dismisses its menu before a slow command completes", async () => {
+  let finish = () => {};
+  const command = vi.fn(
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const view = render(
+    <SidebarMachineRow
+      machine={{ host: "dozer", name: "Dozer", available: true, agents: [] }}
+      compact={false}
+      command={command}
+    >
+      <span />
+    </SidebarMachineRow>,
+  );
+  fireEvent.click(view.getByRole("button", { name: "Actions for Dozer" }));
+  fireEvent.click(view.getByRole("menuitem", { name: "New shell" }));
+  expect(view.queryByRole("menu")).toBeNull();
+  expect(command).toHaveBeenCalledOnce();
+  await act(async () => {
+    finish();
+    await Promise.resolve();
+  });
 });

@@ -1,6 +1,8 @@
+import { projectStartupLayout } from "./startup-layout";
 import type { BoardRow } from "./board.d";
 import { conversationId } from "../../shared/conversation";
 import type {
+  TileStartupReservation,
   TileMetrics,
   TileDirection,
   TileContent,
@@ -15,7 +17,9 @@ import type {
 } from "./tiles.d";
 /** Tile removal preserves sessions whose conversations can be resumed. */
 export function tileRemovalAction(row: BoardRow | undefined, preview = false): "hide" | "close" {
-  return preview || (row?.exited && !(row.kind === "agent" && conversationId(row.conversationId)))
+  return preview ||
+    row?.startup ||
+    (row?.exited && !(row.kind === "agent" && conversationId(row.conversationId)))
     ? "close"
     : "hide";
 }
@@ -722,7 +726,27 @@ export function saveLayout(
   storage: Pick<Storage, "setItem">,
   layout: TileLayout,
   key = TILE_STORAGE,
+  reservations: readonly TileStartupReservation[] = [],
 ): void {
+  layout = projectStartupLayout(layout, reservations);
+  let tree = layout.tree;
+  // Stale or untracked view-only assignments cannot become stored terminal IDs.
+  for (const tile of leaves(tree))
+    if (sessionId(tile)?.startsWith("launch_"))
+      tree = update(tree, tile.id, (node) => ({ ...node, content: null }));
+  if (tree !== layout.tree) {
+    const tiles = leaves(tree);
+    layout = {
+      ...layout,
+      tree,
+      focused: tiles.some((tile) => tile.id === layout.focused)
+        ? layout.focused
+        : (tiles[0]?.id ?? tree.id),
+      landing: tiles.some((tile) => tile.id === layout.landing && tile.content === null)
+        ? layout.landing
+        : undefined,
+    };
+  }
   storage.setItem(
     key,
     JSON.stringify({

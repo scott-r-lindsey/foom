@@ -47,3 +47,8 @@ from that catalog. Raw exception text and arbitrary renderer strings cannot be
 copied. Every fixed action-dialog sentence, including local validation failures,
 needs a catalog ID when introduced. Menu execution failures use the fixed `Unable to run this command.`
 sentence so dynamic menu labels never become clipboard input.
+
+A failed late-terminal cleanup after cancelling startup selects
+`launch-cancel-incomplete`. The existing action dialog says **Terminal may still be
+running.**, including when the startup tile has already closed. Host diagnostics
+remain private, and an ordinary cancellation before spawn raises no cleanup error.
