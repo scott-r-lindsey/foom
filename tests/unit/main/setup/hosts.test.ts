@@ -1105,7 +1105,11 @@ test("preflight collects repository origin and checkout observations despite a m
         : { ok: false, reason: request.operation === "origin" ? "origin-auth" : "folder-refused" },
     ),
   );
-  const state = await hosts.action({ action: "preflight", host: "worker", codeFolder: "~/code" });
+  const state = await hosts.action({
+    action: "draft-preflight",
+    host: "worker",
+    codeFolder: "~/code",
+  });
   expect(state.preflight).toMatchObject({
     ssh: { state: "pass" },
     platform: { state: "pass" },
@@ -1168,7 +1172,11 @@ test("preflight preserves independent bootstrap observations and local origin re
     },
   });
   mock.execute.mockRejectedValue(new Error("raw local origin"));
-  const state = await hosts.action({ action: "preflight", host: "worker", codeFolder: "~/code" });
+  const state = await hosts.action({
+    action: "draft-preflight",
+    host: "worker",
+    codeFolder: "~/code",
+  });
   expect(state.preflight).toMatchObject({
     ssh: { state: "pass" },
     platform: { state: "fail", reason: "libc-too-old" },
@@ -2355,4 +2363,23 @@ test("remote plugin mutation requires its own trusted confirmation and never ins
   expect(launch.mock.calls).toMatchObject([
     [{ host: "worker", recipe: { tool: "agy", action: "install-plugin" } }],
   ]);
+});
+
+test("registered preflight refuses removed hosts at dispatch without remote inspection", async () => {
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  await hosts.action({ action: "remove", host: "worker" });
+  run.mockClear();
+  await expect(
+    hosts.action({ action: "preflight", host: "worker", codeFolder: facts.codeFolder }),
+  ).rejects.toMatchObject({ code: "not_found" });
+  expect(run).not.toHaveBeenCalled();
+});
+
+test("a queued registered preflight rechecks registration after removal", async () => {
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  const removal = hosts.action({ action: "remove", host: "worker" });
+  const check = hosts.action({ action: "preflight", host: "worker", codeFolder: facts.codeFolder });
+  await expect(check).rejects.toMatchObject({ code: "not_found" });
+  await removal;
+  expect(run).not.toHaveBeenCalled();
 });

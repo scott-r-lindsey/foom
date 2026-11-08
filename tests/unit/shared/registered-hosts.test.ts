@@ -773,3 +773,14 @@ test("agent detail fields and retained observations are bounded data; plugin act
       ]),
     ).toBe(false);
 });
+
+test.each(["preflight", "draft-preflight"])(
+  "%s retains a closed selector and folder payload",
+  (action) => {
+    const request = { action, host: "worker", codeFolder: "~/code" };
+    expect(hostsAction(request)).toBe(true);
+    expect(hostsAction({ ...request, codeFolder: "relative" })).toBe(false);
+    expect(hostsAction({ ...request, registered: false })).toBe(false);
+    expect(hostsAction({ ...request, host: "-worker" })).toBe(false);
+  },
+);

@@ -1107,8 +1107,11 @@ export class Hosts {
           this.sessionInventories.set(input.host, result);
           return this.state();
         }
-        if (input.action === "preflight") {
-          const registration = hosts.find((entry) => entry.host === input.host);
+        if (input.action === "preflight" || input.action === "draft-preflight") {
+          const registration =
+            input.action === "preflight"
+              ? this.registered(input.host, input.codeFolder)
+              : hosts.find((entry) => entry.host === input.host);
           if (registration && registration.codeFolder !== input.codeFolder)
             throw new Error("Folder changed");
           this.progress = {

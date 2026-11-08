@@ -39,10 +39,30 @@ export function AgentsScopes(
     selectScope: (scope: string) => void;
   },
 ) {
-  const { scope, selectScope, headingRef, ...cardProps } = props;
+  const { scope: requestedScope, selectScope, headingRef, ...cardProps } = props;
   const { state, report, source, scanning, scan, save, saveArguments } = cardProps;
   const [lastMachine, setLastMachine] = useState("local");
-  const [hosts, setHosts] = useState<readonly HostRow[]>([]);
+  const registrations = state.settings.registeredHosts;
+  const api = source?.hosts;
+  const [hostList, setHostList] = useState<{
+    registrations: typeof registrations;
+    api: typeof api;
+    rows: readonly HostRow[];
+  }>();
+  const hostsReady =
+    !api || (!!hostList && hostList.registrations === registrations && hostList.api === api);
+  const hosts: readonly HostRow[] = (registrations ?? []).map(
+    (registration) => hostList?.rows.find((row) => row.host === registration.host) ?? registration,
+  );
+  const scope =
+    requestedScope === "global" ||
+    requestedScope === "local" ||
+    registrations?.some((entry) => `host:${entry.host}` === requestedScope)
+      ? requestedScope
+      : "local";
+  useEffect(() => {
+    if (scope !== requestedScope) selectScope(scope);
+  }, [scope, requestedScope, selectScope]);
   const [pending, setPending] = useState<ReadonlySet<string>>(() => new Set());
   const [error, setError] = useState("");
   const [localRevision, setLocalRevision] = useState(0);
@@ -70,13 +90,12 @@ export function AgentsScopes(
       dispose();
     };
   }, [configSource, scan]);
-  const api = source?.hosts;
   useEffect(() => {
     let active = true;
     if (api)
       void api({ action: "list" }).then(
         (next) => {
-          if (active) setHosts(next.hosts);
+          if (active) setHostList({ registrations, api, rows: next.hosts });
         },
         () => {
           if (active) setError("Unable to load hosts");
@@ -85,20 +104,25 @@ export function AgentsScopes(
     return () => {
       active = false;
     };
-  }, [api, state.settings.registeredHosts]);
+  }, [api, registrations]);
   const act = async (request: HostsAction | readonly HostsAction[], key: string) => {
+    if (!hostsReady) return;
     setPending((previous) => new Set(previous).add(key));
     setError("");
     try {
       for (const action of "action" in request ? [request] : request) {
         const next = await api?.(action);
         if (next) {
-          setHosts((previous) =>
-            previous.map((entry) =>
-              "host" in action && entry.host === action.host
-                ? (next.hosts.find((row) => row.host === entry.host) ?? entry)
-                : entry,
-            ),
+          setHostList(
+            (previous) =>
+              previous && {
+                ...previous,
+                rows: previous.rows.map((entry) =>
+                  "host" in action && entry.host === action.host
+                    ? (next.hosts.find((row) => row.host === entry.host) ?? entry)
+                    : entry,
+                ),
+              },
           );
           if (next.recipeFailure) setError("Recipe unavailable for this host");
         }
@@ -292,13 +316,19 @@ export function AgentsScopes(
                       ? `Last checked ${new Date(report.checkedAt).toLocaleString()}`
                       : "Not checked"}
                   </span>
-                  <AgentReload name="This computer" busy={scanning} reload={reloadLocal} />
+                  <AgentReload
+                    name="This computer"
+                    busy={scanning}
+                    disabled={!hostsReady}
+                    reload={reloadLocal}
+                  />
                 </div>
                 <AgentsStep
                   {...cardProps}
                   receiptEpoch={localRevision}
                   headingRef={headingRef}
                   machine
+                  actionsDisabled={!hostsReady}
                 />
               </>
             ) : selected ? (
@@ -314,7 +344,7 @@ export function AgentsScopes(
                   <AgentReload
                     name={hostDisplayName(selected)}
                     busy={pending.has(selected.host)}
-                    disabled={offline(selected)}
+                    disabled={!hostsReady || offline(selected)}
                     reload={() => {
                       reloadHost(selected);
                     }}
@@ -350,7 +380,7 @@ export function AgentsScopes(
                             <AgentReload
                               name={choice.name}
                               busy={busy}
-                              disabled={offline(selected)}
+                              disabled={!hostsReady || offline(selected)}
                               reload={() => {
                                 void act(
                                   [
@@ -423,7 +453,7 @@ export function AgentsScopes(
                                   (recipe?.pluginInstall || offline(selected)) && (
                                     <button
                                       type="button"
-                                      disabled={busy || offline(selected)}
+                                      disabled={!hostsReady || busy || offline(selected)}
                                       onClick={() => {
                                         void act(
                                           {
@@ -445,7 +475,7 @@ export function AgentsScopes(
                           {agent?.state === "missing" && recipe?.install && (
                             <button
                               type="button"
-                              disabled={busy || offline(selected)}
+                              disabled={!hostsReady || busy || offline(selected)}
                               onClick={() => {
                                 void act(
                                   {
@@ -466,7 +496,7 @@ export function AgentsScopes(
                             recipe?.signIn && (
                               <button
                                 type="button"
-                                disabled={busy || offline(selected)}
+                                disabled={!hostsReady || busy || offline(selected)}
                                 onClick={() => {
                                   void act(
                                     {

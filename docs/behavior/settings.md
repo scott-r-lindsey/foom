@@ -76,7 +76,10 @@ say **Not found** in the same text size as other card facts. Signed-out states
 use an outlined status icon and words. Offline machines retain dimmed last-known
 facts with actions disabled. Opening or changing views never checks a machine;
 **Last checked** changes only after an explicit check. Returning from Global keeps
-the selected machine. Hosts **Open** selects its machine directly.
+the selected machine. Hosts **Open** selects its machine directly. When registrations
+change, a removed selection immediately falls back to This computer. Machine
+actions remain disabled until the corresponding host list refresh succeeds;
+removed hosts cannot be restored by a stale list reply.
 
 First-run Agents keeps the shared local card view. Manifest changes refresh discovery.
 To customize a built-in agent, copy its bundled manifest into the config folder's

@@ -191,6 +191,7 @@ export type HostsAction =
       operation: "install" | "sign-in" | "install-plugin";
     }
   | { action: "preflight"; host: string; codeFolder: string }
+  | { action: "draft-preflight"; host: string; codeFolder: string }
   | { action: "create-folder"; host: string }
   | { action: "change-folder"; host: string; codeFolder: string }
   | { action: "list" }

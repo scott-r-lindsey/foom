@@ -1367,7 +1367,7 @@ test("Agents scopes use saved host observations and Global enablement without ch
   skip: process.platform === "win32",
   timeout: deadline(60000),
 }, async (context) => {
-  const { app, page, card, navigation, calls, updateScenario } = await hostsFixture(context);
+  const { app, page, card, calls, updateScenario } = await hostsFixture(context);
   await updateScenario({
     facts: {
       agents: [
@@ -1456,8 +1456,32 @@ test("Agents scopes use saved host observations and Global enablement without ch
   await expect(page.getByRole("region", { name: "Claude Code", exact: true })).toContainText(
     "Signed in",
   );
-  await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
-  await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
+  const folder = await page.evaluate(
+    async () => (await window.desktop.setupState()).settings.registeredHosts[0].codeFolder,
+  );
+  await page.evaluate(() => window.desktop.hosts({ action: "remove", host: "fixture-cloud" }));
+  // Replay the old machine request even if this window still holds its old snapshot.
+  const beforeRemovedCheck = await readFile(calls, "utf8");
+  const refused = await page.evaluate(
+    (codeFolder) =>
+      window.desktop.hosts({ action: "preflight", host: "fixture-cloud", codeFolder }).then(
+        () => false,
+        () => true,
+      ),
+    folder,
+  );
+  assert.equal(refused, true);
+  assert.equal(await readFile(calls, "utf8"), beforeRemovedCheck);
+  await updateScenario({});
+  const draft = await page.evaluate(() =>
+    window.desktop.hosts({
+      action: "draft-preflight",
+      host: "fixture-cloud",
+      codeFolder: "~/foom",
+    }),
+  );
+  assert.equal(draft.preflight.result.ok, true);
+  assert.deepEqual(draft.hosts, []);
   assert.ok(app);
 });
 

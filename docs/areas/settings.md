@@ -178,7 +178,11 @@ Machines uses one picker, initially This computer, followed by every registered
 host. Hosts Open selects its host in that picker. There are no per-machine tabs.
 Lists scroll vertically at desktop and narrow widths. Returning from Global
 retains the selected machine. Switching views or machines reads saved observations
-without starting a check or renewing Last checked. Machine cards retain versions,
+without starting a check or renewing Last checked. Registration changes immediately
+filter cached hosts and fall back to This computer if the selection was removed.
+Machine actions stay disabled until the list for the current registrations arrives;
+a failed refresh leaves them disabled. Older list replies cannot restore removed
+hosts. Machine cards retain versions,
 paths, sign-in, capabilities and available plugin actions, with explicit machine
 reload and hover/focus agent reload controls. Missing and signed-out states use
 consistent status icons and card-sized text; status never relies on color alone.

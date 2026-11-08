@@ -19,6 +19,7 @@ import { message } from "./message";
 
 export function AgentsStep({
   machine = false,
+  actionsDisabled = false,
   receiptEpoch = 0,
   headingRef,
   state,
@@ -32,6 +33,7 @@ export function AgentsStep({
 }: StepHeading &
   StepActions & {
     machine?: boolean;
+    actionsDisabled?: boolean;
     receiptEpoch?: number;
     changePlugin: (action: AgyPluginAction) => Promise<void>;
     state: SetupState;
@@ -192,6 +194,7 @@ export function AgentsStep({
                   <AgentReload
                     name={name}
                     busy={scanning}
+                    disabled={actionsDisabled}
                     reload={() => {
                       setResults((current) =>
                         Object.fromEntries(Object.entries(current).filter(([key]) => key !== id)),
@@ -304,7 +307,7 @@ export function AgentsStep({
                             {agent.setup.state === "unavailable" && (
                               <button
                                 type="button"
-                                disabled={reviewing || scanning}
+                                disabled={actionsDisabled || reviewing || scanning}
                                 onClick={() => {
                                   setResults({});
                                   void scan(true);
@@ -327,7 +330,7 @@ export function AgentsStep({
                               <button
                                 type="button"
                                 key={action.id}
-                                disabled={reviewing || scanning}
+                                disabled={actionsDisabled || reviewing || scanning}
                                 onClick={() => {
                                   setReviewing(true);
                                   setError("");
@@ -362,7 +365,7 @@ export function AgentsStep({
                         {agent?.agyPlugin && (
                           <AgyPluginControl
                             status={agent.agyPlugin}
-                            busy={scanning}
+                            busy={actionsDisabled || scanning}
                             change={changePlugin}
                           />
                         )}

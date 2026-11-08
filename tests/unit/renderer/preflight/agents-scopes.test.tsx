@@ -5,7 +5,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { renderWithErrors as render } from "../../../fixtures/render-with-errors";
 import { AgentsScopes } from "../../../../src/renderer/preflight/agents-scopes";
 import type { HostRow, HostsAction, HostsState } from "../../../../src/shared/registered-hosts.d";
-import type { SettingsPatch } from "../../../../src/shared/setup";
+import type { Settings, SettingsPatch } from "../../../../src/shared/setup";
 import type { ConfigStatus } from "../../../../src/shared/foom-config";
 import type { SetupSource } from "../../../../src/renderer/preflight/setup-source.d";
 import { installation, report, setupState } from "../../../fixtures/setup";
@@ -111,13 +111,23 @@ function fixture(initial = "global", initialHosts?: readonly HostRow[]) {
     subscribe: () => () => {},
     openThemesFolder: () => Promise.resolve(),
   };
+  let registrationsChanged:
+    | ((registrations: NonNullable<Settings["registeredHosts"]>) => void)
+    | undefined;
   function View() {
     const [scope, setScope] = useState(initial);
     const [state, setState] = useState(() =>
       setupState({
+        registeredHosts: rows,
         agents: { claude: true, codex: true, agy: true, pi: true, opencode: true, copilot: false },
       }),
     );
+    registrationsChanged = (registeredHosts) => {
+      setState((previous) => ({
+        ...previous,
+        settings: { ...previous.settings, registeredHosts },
+      }));
+    };
     return (
       <AgentsScopes
         scope={scope}
@@ -142,6 +152,9 @@ function fixture(initial = "global", initialHosts?: readonly HostRow[]) {
   }
   return {
     View,
+    registrations: (registrations: NonNullable<Settings["registeredHosts"]>) =>
+      registrationsChanged?.(registrations),
+    rows,
     api,
     scan,
     save,
@@ -310,7 +323,7 @@ test("removed scope and list/config failures remain reviewable", async () => {
   f.config.status.mockRejectedValueOnce(new Error("fixture"));
   render(<f.View />);
   await screen.findByText("Unable to load hosts");
-  expect(screen.getByText("Host no longer registered.")).toBeTruthy();
+  expect(screen.getByRole("combobox", { name: "Machine" })).toHaveProperty("value", "local");
 });
 
 test("a disposed catalog subscription cannot start a scan and folder failures remain actionable", async () => {
@@ -349,4 +362,64 @@ test("machine picker scales to twelve registered hosts and keeps navigation read
   expect(screen.queryByRole("combobox")).toBeNull();
   fireEvent.click(screen.getByRole("tab", { name: "Machines" }));
   expect(screen.getByRole("combobox")).toHaveProperty("value", "host:machine-11");
+});
+
+test.each(["resolve", "reject"] as const)(
+  "removed registrations immediately retire controls while list will %s",
+  async (outcome) => {
+    const f = fixture("host:worker");
+    render(<f.View />);
+    await screen.findByRole("region", { name: "Claude Code" });
+    let resolve: ((value: HostsState) => void) | undefined;
+    let reject: ((error: Error) => void) | undefined;
+    f.api.mockImplementationOnce(
+      () =>
+        new Promise((yes, no) => {
+          resolve = yes;
+          reject = no;
+        }),
+    );
+    act(() => f.registrations([]));
+    expect(screen.getByRole("combobox", { name: "Machine" })).toHaveProperty("value", "local");
+    expect(screen.queryByRole("option", { name: "Build" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Re-check Build" })).toBeNull();
+    const localReload = screen.getByRole("button", { name: "Re-check This computer" });
+    expect(localReload).toHaveProperty("disabled", true);
+    fireEvent.click(localReload);
+    expect(f.scan).not.toHaveBeenCalled();
+    expect(f.api.mock.calls.map(([request]) => request.action)).toEqual(["list", "list"]);
+    await act(async () => {
+      if (outcome === "resolve") resolve?.({ hosts: f.rows, locations: [] });
+      else reject?.(new Error("fixture list failure"));
+      await Promise.resolve();
+    });
+    expect(screen.queryByRole("option", { name: "Build" })).toBeNull();
+    expect(screen.getByRole("combobox", { name: "Machine" })).toHaveProperty("value", "local");
+    expect(localReload).toHaveProperty("disabled", outcome === "reject");
+  },
+);
+
+test("retained machine actions stay disabled until the matching registration list arrives", async () => {
+  const f = fixture("host:worker");
+  render(<f.View />);
+  await screen.findByRole("region", { name: "Codex" });
+  let finish: ((value: HostsState) => void) | undefined;
+  f.api.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  act(() => f.registrations([...f.rows]));
+  const reload = screen.getByRole("button", { name: "Re-check Build" });
+  expect(reload).toHaveProperty("disabled", true);
+  expect(screen.getByRole("button", { name: "Sign in" })).toHaveProperty("disabled", true);
+  expect(screen.getByRole("button", { name: "Install plugin" })).toHaveProperty("disabled", true);
+  fireEvent.click(reload);
+  expect(f.api.mock.calls.map(([request]) => request.action)).toEqual(["list", "list"]);
+  await act(async () => {
+    finish?.({ hosts: f.rows, locations: [] });
+    await Promise.resolve();
+  });
+  expect(reload).toHaveProperty("disabled", false);
 });

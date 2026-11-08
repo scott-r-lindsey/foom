@@ -559,6 +559,7 @@ export function hostsAction(value: unknown): value is HostsAction {
   if (
     value["action"] === "test" ||
     value["action"] === "preflight" ||
+    value["action"] === "draft-preflight" ||
     value["action"] === "change-folder"
   )
     return keys(value, ["action", "host", "codeFolder"]) && codeFolder(value["codeFolder"]);

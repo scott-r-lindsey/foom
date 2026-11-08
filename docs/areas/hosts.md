@@ -373,7 +373,11 @@ provides facts and recipes. Same-build peers are known to implement the capabili
 
 ## Partial onboarding preflight (#1005)
 
-`preflight` accepts an SSH selector and proposed folder, including before enrollment.
+`draft-preflight` accepts an explicit Add host SSH selector and proposed folder before
+enrollment, without granting registration. `preflight` is a registered-machine
+reload: main requires the current host and matching folder when the queued action
+dispatches, before any remote inspection. A removed host refuses with `not_found`;
+it never falls back to draft inspection.
 It returns independent SSH, platform and bundled-artifact checks, the existing
 requirements/tools/agents/sign-in facts, a folder check, and origin-access and
 checkout observations for every registered repository. A row that cannot run is
