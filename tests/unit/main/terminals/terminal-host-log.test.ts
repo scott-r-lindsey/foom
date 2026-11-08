@@ -5,6 +5,7 @@ import { expect, test, vi } from "vitest";
 import {
   recordHostExit,
   recordHostTimeout,
+  recordHostNearMiss,
   initializeHostLog,
   flushHostExits,
 } from "../../../../src/main/terminals/terminal-host-log";
@@ -126,7 +127,7 @@ test("timeout storms have a separate bounded reserve and cannot erase exits or p
   const raw = await readFile(join(profile, "terminal-host-diagnostics", "exits.json"), "utf8");
   const value: unknown = JSON.parse(raw);
   expect(value).toMatchObject({
-    version: 2,
+    version: 3,
     exits: [expect.stringContaining('"reason":"crashed"')],
   });
   expect(raw.match(/elapsedMs/g)).toHaveLength(16);
@@ -157,7 +158,7 @@ test("startup sanitizes old stderr records without adding an exit or timeout", a
   expect(raw).not.toContain("TERMINAL_MARKER");
   expect(raw).not.toContain("stderr");
   expect(JSON.parse(raw)).toMatchObject({
-    version: 2,
+    version: 3,
     exits: [expect.stringContaining('"exitCode":9')],
     timeouts: [],
   });
@@ -175,4 +176,216 @@ test("invalid fixed timeout metadata is ignored and missing startup history stay
   await expect(
     readFile(join(profile, "terminal-host-diagnostics", "exits.json")),
   ).rejects.toThrow();
+});
+
+test("near-miss reserve is bounded independently, sanitized and retained on restart", async () => {
+  const profile = await mkdtemp(join(tmpdir(), "foom-near-miss-log-"));
+  const path = join(profile, "terminal-host-diagnostics", "exits.json");
+  recordHostExit(profile, {
+    ...diagnostic,
+    cause: "watchdog-kill",
+    snapshot: {
+      liveTerminals: 2,
+      hostMemoryKB: null,
+      lastMessageAgeMs: 15000,
+      mainLagMs: 120,
+    },
+  });
+  for (let i = 0; i < 50; i++)
+    recordHostNearMiss(profile, {
+      kind: "late-drain",
+      replyLatencyMs: null,
+      probeElapsedMs: 5000 + i,
+      lateCycles: i,
+      mainLagMs: 100,
+      ...{ terminal: "PRIVATE_CONTENT" },
+    });
+  await flushHostExits();
+  vi.resetModules();
+  const restarted = await import("../../../../src/main/terminals/terminal-host-log");
+  restarted.initializeHostLog(profile);
+  await restarted.flushHostExits();
+  const raw = await readFile(path, "utf8");
+  const history: unknown = JSON.parse(raw);
+  if (
+    typeof history !== "object" ||
+    history === null ||
+    !("nearMisses" in history) ||
+    !("exits" in history) ||
+    !Array.isArray(history.nearMisses) ||
+    !Array.isArray(history.exits)
+  )
+    throw new Error("Missing history");
+  expect(history.nearMisses).toHaveLength(16);
+  expect(history.exits).toHaveLength(1);
+  const exit: unknown = history.exits[0];
+  if (typeof exit !== "string") throw new Error("Missing exit");
+  expect(JSON.parse(exit)).toMatchObject({
+    cause: "watchdog-kill",
+    snapshot: {
+      liveTerminals: 2,
+      hostMemoryKB: null,
+      lastMessageAgeMs: 15000,
+      mainLagMs: 120,
+    },
+  });
+  const nearMiss: unknown = history.nearMisses[15];
+  if (typeof nearMiss !== "string") throw new Error("Missing near miss");
+  expect(JSON.parse(nearMiss)).toMatchObject({ probeElapsedMs: 5049 });
+  expect(raw).not.toContain("PRIVATE_CONTENT");
+});
+
+test("version-two migration strips extra snapshot fields and rejects nonnumeric metadata", async () => {
+  const profile = await mkdtemp(join(tmpdir(), "foom-v2-host-log-"));
+  const directory = join(profile, "terminal-host-diagnostics");
+  await mkdir(directory, { mode: 0o700 });
+  const path = join(directory, "exits.json");
+  await writeFile(
+    path,
+    JSON.stringify({
+      version: 2,
+      timeouts: [],
+      exits: [
+        JSON.stringify({
+          ...diagnostic,
+          cause: ["watchdog-kill"],
+          snapshot: {
+            liveTerminals: "PRIVATE_CONTENT",
+            hostMemoryKB: -1,
+            lastMessageAgeMs: 1.5,
+            mainLagMs: null,
+            extra: "PRIVATE_CONTENT",
+          },
+        }),
+      ],
+    }),
+    { mode: 0o600 },
+  );
+  initializeHostLog(profile);
+  recordHostNearMiss(profile, {
+    kind: "late-reply",
+    replyLatencyMs: -1,
+    probeElapsedMs: 1.5,
+    lateCycles: NaN,
+    mainLagMs: Infinity,
+  });
+  await flushHostExits();
+  const raw = await readFile(path, "utf8");
+  expect(raw).not.toContain("PRIVATE_CONTENT");
+  expect(raw).not.toContain("watchdog-kill");
+  expect(JSON.parse(raw)).toMatchObject({
+    version: 3,
+    exits: [expect.stringContaining('"liveTerminals":null')],
+    nearMisses: [expect.stringContaining('"replyLatencyMs":null')],
+  });
+});
+
+const persistedNearMiss = {
+  time: "2026-11-07T12:34:56.789Z",
+  kind: "late-drain",
+  replyLatencyMs: null,
+  probeElapsedMs: 6000,
+  lateCycles: 1,
+  mainLagMs: 120,
+};
+
+test("malformed persisted near misses cannot disable later exit and timeout writes", async () => {
+  const profile = await mkdtemp(join(tmpdir(), "foom-damaged-near-miss-"));
+  const directory = join(profile, "terminal-host-diagnostics");
+  await mkdir(directory, { mode: 0o700 });
+  const path = join(directory, "exits.json");
+  await writeFile(
+    path,
+    JSON.stringify({
+      version: 3,
+      exits: [],
+      timeouts: [],
+      nearMisses: [
+        "not-json",
+        "null",
+        "{}",
+        ...[{}, ["late-drain"], "PRIVATE_CONTENT"].map((kind) =>
+          JSON.stringify({ ...persistedNearMiss, kind }),
+        ),
+        JSON.stringify(persistedNearMiss),
+      ],
+    }),
+    { mode: 0o600 },
+  );
+  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  try {
+    recordHostExit(profile, diagnostic);
+    recordHostTimeout(profile, "attach", 10000);
+    await flushHostExits();
+    expect(JSON.parse(await readFile(path, "utf8"))).toMatchObject({
+      exits: [expect.stringContaining('"reason":"crashed"')],
+      timeouts: [expect.stringContaining('"command":"attach"')],
+      nearMisses: [JSON.stringify(persistedNearMiss)],
+    });
+    recordHostExit(profile, { ...diagnostic, reason: "liveness-timeout" });
+    recordHostTimeout(profile, "tail", 10001);
+    await flushHostExits();
+    expect(JSON.parse(await readFile(path, "utf8"))).toMatchObject({
+      exits: [expect.any(String), expect.stringContaining('"reason":"liveness-timeout"')],
+      timeouts: [expect.any(String), expect.stringContaining('"command":"tail"')],
+      nearMisses: [JSON.stringify(persistedNearMiss)],
+    });
+    expect(error).not.toHaveBeenCalled();
+  } finally {
+    error.mockRestore();
+  }
+});
+
+test("persisted near misses retain only bounded valid timestamps and safe metadata", async () => {
+  const profile = await mkdtemp(join(tmpdir(), "foom-near-miss-timestamp-"));
+  const directory = join(profile, "terminal-host-diagnostics");
+  await mkdir(directory, { mode: 0o700 });
+  const path = join(directory, "exits.json");
+  const invalidTimes = [
+    { content: "PRIVATE_CONTENT" },
+    ["PRIVATE_CONTENT"],
+    null,
+    123,
+    "PRIVATE_CONTENT",
+    "2026-02-30T12:34:56.789Z",
+    "2026-11-07T25:34:56.789Z",
+    "2026-11-07T12:34:56.789Z" + "PRIVATE_CONTENT".repeat(100),
+  ];
+  await writeFile(
+    path,
+    JSON.stringify({
+      version: 3,
+      exits: [],
+      timeouts: [],
+      nearMisses: [
+        ...invalidTimes.map((time) => JSON.stringify({ ...persistedNearMiss, time })),
+        JSON.stringify({
+          ...persistedNearMiss,
+          replyLatencyMs: { content: "PRIVATE_CONTENT" },
+          probeElapsedMs: ["PRIVATE_CONTENT"],
+          lateCycles: "PRIVATE_CONTENT",
+          mainLagMs: { content: "PRIVATE_CONTENT" },
+          extra: "PRIVATE_CONTENT",
+        }),
+        JSON.stringify(persistedNearMiss),
+      ],
+    }),
+    { mode: 0o600 },
+  );
+  initializeHostLog(profile);
+  await flushHostExits();
+  const raw = await readFile(path, "utf8");
+  expect(raw).not.toContain("PRIVATE_CONTENT");
+  expect(JSON.parse(raw)).toMatchObject({
+    nearMisses: [
+      JSON.stringify({
+        ...persistedNearMiss,
+        replyLatencyMs: null,
+        probeElapsedMs: null,
+        lateCycles: null,
+        mainLagMs: null,
+      }),
+      JSON.stringify(persistedNearMiss),
+    ],
+  });
 });

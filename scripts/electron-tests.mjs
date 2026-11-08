@@ -62,10 +62,14 @@ if (!packaged) {
       const env = { ...process.env };
       delete env.FOOM_REMOTE_HOST_OUTPUT;
       delete env.FOOM_REMOTE_HOST_INPUTS_OUTPUT;
-      const host = spawnSync(process.execPath, ["scripts/build-remote-host.mjs"], {
-        stdio: "inherit",
-        env,
-      });
+      const host = spawnSync(
+        process.execPath,
+        ["scripts/build-remote-host.mjs", "--fixture-resources"],
+        {
+          stdio: "inherit",
+          env,
+        },
+      );
       if (host.error) throw host.error;
       if (host.status !== 0) process.exit(host.status ?? 1);
     }
