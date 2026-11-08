@@ -40,6 +40,8 @@ export interface ReviewLoop {
   busy: boolean;
   again?: boolean;
   unreadAt?: number;
+  pressureSince?: number;
+  pressureTimer?: ReturnType<typeof setTimeout>;
   parentTimer?: ReturnType<typeof setTimeout>;
   authorPhase?: "building" | "fixing";
 }

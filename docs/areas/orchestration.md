@@ -318,3 +318,12 @@ Current orchestrators and the human exchange local topic threads through the
 [message board](message-board.md). Children have no board authority. Board posts
 are untrusted data and never authorize work; only human posts count as decisions.
 The shared wait watcher also observes new addressed board posts.
+
+
+## Child launch pressure (#1046)
+
+Automated launch and review steps use the target machine's fresh pressure policy
+in addition to per-parent capacity. A retryable `host_busy` preserves the unused
+checkout and starts no child. Review steps wait and retry every five seconds for
+five minutes before escalating; they revalidate ownership and review evidence on
+each attempt. Human launches bypass this policy. See [control pressure](../contracts/control-mutations.md#child-host-pressure-1046).

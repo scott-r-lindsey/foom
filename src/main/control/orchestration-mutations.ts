@@ -45,6 +45,7 @@ function publicOperation(operation: Operation): Operation {
     reason,
     detail,
     placement,
+    pressure,
   } = operation;
   return {
     operationId,
@@ -57,6 +58,7 @@ function publicOperation(operation: Operation): Operation {
     reason,
     ...(detail ? { detail } : {}),
     ...(placement ? { placement } : {}),
+    ...(pressure ? { pressure } : {}),
   };
 }
 
@@ -227,6 +229,19 @@ export class OrchestrationMutations extends OrchestrationAuthority {
         operations,
         true,
       );
+      if (launched.reason === "host_busy") {
+        const record = await operations.finish(
+          actor,
+          operation.operationId,
+          "failed",
+          "host_busy",
+          null,
+          undefined,
+          launched.pressure,
+        );
+        this.note(parent, this.entry(record, label));
+        return record;
+      }
       if (launched.status !== "succeeded" && launched.status !== "indeterminate")
         throw new ControlError("unavailable");
       return await this.finish(
@@ -340,6 +355,7 @@ export class OrchestrationMutations extends OrchestrationAuthority {
     parent.starting++;
     this.note(parent, this.entry(operation, label));
     let launchedId: string | undefined;
+    let pressure: Operation["pressure"] = { measured: false };
     try {
       await this.board?.flushChildren();
       const parentCurrent = this.remoteParentGuard(actor.terminalId);
@@ -368,6 +384,9 @@ export class OrchestrationMutations extends OrchestrationAuthority {
         agent,
         review ? `${AUTHOR_REVIEW_BRIEF}\n\n${prompt ?? "Await your assigned task."}` : prompt,
         {
+          pressure: (value) => {
+            pressure = value;
+          },
           selection,
           ...(review ? { loop: review } : {}),
           ...(snapshot
@@ -435,6 +454,7 @@ export class OrchestrationMutations extends OrchestrationAuthority {
         "completed",
         id,
         placement,
+        pressure,
       );
       this.note(parent, this.entry(record, label));
       return record;
@@ -462,7 +482,15 @@ export class OrchestrationMutations extends OrchestrationAuthority {
           return await this.refuse(actor, parent, operations, operation, label, error.code);
         throw error;
       }
-      const record = await operations.finish(actor, operation.operationId, "failed", reason);
+      const record = await operations.finish(
+        actor,
+        operation.operationId,
+        "failed",
+        reason,
+        null,
+        undefined,
+        error instanceof LaunchFailure ? error.pressure : pressure,
+      );
       this.note(parent, this.entry(record, label));
       return record;
     } finally {

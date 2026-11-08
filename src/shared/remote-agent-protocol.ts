@@ -52,7 +52,9 @@ export function remoteAgentSpec(value: unknown): value is RemoteAgentSpec {
       "hooks",
       "checkoutIdentity",
       "reviewSnapshot",
+      "childPressure",
     ]) &&
+    (value["childPressure"] === undefined || value["childPressure"] === true) &&
     (value["checkoutIdentity"] === undefined ||
       (typeof value["checkoutIdentity"] === "string" &&
         /^[a-f0-9]{64}$/u.test(value["checkoutIdentity"]))) &&

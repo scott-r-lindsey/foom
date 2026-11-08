@@ -1,3 +1,4 @@
+import type { HostPressure } from "../../shared/host-pressure.d";
 import type { LaunchReason } from "../../shared/launch-failure";
 import type { WorkspaceTerminal } from "../../shared/workspace";
 import type { RemoteControlResult } from "../../shared/remote-agent";
@@ -63,6 +64,7 @@ export interface Operation {
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly reason: Reason;
+  readonly pressure?: HostPressure;
   readonly placement?: WorkspaceTerminal["placement"];
   readonly detail?: string;
   readonly proposal?: string;
