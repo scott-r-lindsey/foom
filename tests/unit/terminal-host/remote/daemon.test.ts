@@ -2896,6 +2896,63 @@ test.skipIf(process.platform === "win32")(
   },
 );
 
+test.skipIf(process.platform === "win32")(
+  "daemon replay forwards the restored OSC pen before subsequent live data",
+  async () => {
+    const { Terminal } = await import("@xterm/headless");
+    const { SerializeAddon } = await import("@xterm/addon-serialize");
+    const { terminalSnapshot } = await import("../../../../src/terminal-host/terminal-snapshot");
+    const { linksOnRow } = await import("../../../../src/renderer/terminal/link-lookup");
+    const screen = new Terminal({ cols: 80, rows: 24, allowProposedApi: true });
+    const view = new Terminal({ cols: 80, rows: 24, allowProposedApi: true });
+    const addon = new SerializeAddon();
+    screen.loadAddon(addon);
+    const write = (terminal: InstanceType<typeof Terminal>, data: string) =>
+      new Promise<void>((resolve) => {
+        terminal.write(data, resolve);
+      });
+    try {
+      await write(
+        screen,
+        `\x1b]8;;https://budget.test/${"x".repeat(16000)}\x1b\\https://label.test/\x1b]8;;\x1b\\\r\n`,
+      );
+      await start();
+      const c = await open();
+      mock.attach.mockImplementationOnce(
+        (
+          _id: string,
+          send: (token: string, data: string) => void,
+          reset: boolean,
+          fits: (token: string, data: string) => boolean,
+        ) => {
+          expect(reset).toBe(true);
+          const prefix = "\x1bc";
+          const replay =
+            prefix +
+            terminalSnapshot(
+              screen,
+              addon,
+              (data) => data.length < 500 && fits("t", prefix + data),
+            );
+          expect(fits("t", replay)).toBe(true);
+          send("t", replay);
+          send("t", "https://after.test/");
+          return Promise.resolve();
+        },
+      );
+      c.send({ type: "attach", id: "one", view: "v", request: 2 });
+      await c.wait(5);
+      for (const message of c.messages)
+        if (remoteResponse(message) && message.type === "data") await write(view, message.data);
+      expect(linksOnRow(view, 0)).toEqual([]);
+      expect(linksOnRow(view, 1)[0]?.url).toBe("https://after.test/");
+    } finally {
+      screen.dispose();
+      view.dispose();
+    }
+  },
+);
+
 test.skipIf(process.platform === "win32").each([true, false])(
   "initializes shell palette before spawn and preserves existing colors on reattach (dark=%s)",
   async (dark) => {

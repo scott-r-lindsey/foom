@@ -5,12 +5,16 @@ Decided implementation and security rules for this area. Read the [file map](../
 ## Tile renderer measurement
 
 After `pnpm run make`, run
-`xvfb-run -a node tests/electron/tiles-measurement.js` on Linux (omit Xvfb on
+`xvfb-run -a -s "-screen 0 2000x1400x24" node tests/electron/tiles-measurement.js` on Linux (omit Xvfb on
 other platforms). It starts the packaged app with a private profile and temporary
 repository, opens six real terminal tiles, and floods two of them for 12 seconds.
 It records ten seconds of animation-frame intervals, browser long tasks, and ten
 input-to-render probes on another terminal, plus final flood byte counts. The
-fixture uses the DOM renderer and retains sandboxing. Measurements are machine-
+fixture uses an isolated login shell/PATH and process audit, explicitly selects
+the board CDP page, seeds a native 1800×1200 window in the disposable profile, places a session in each new
+split and waits for shell-ready output before starting. GPU acceleration is
+disabled for this DOM/software-compositor fixture; sandboxing stays enabled.
+The JSON report and screenshot are saved under `test-results/`. Measurements are machine-
 and workload-specific; record the report and interpretation in the PR rather
 than treating frame timings as portable pass/fail thresholds.
 

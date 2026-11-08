@@ -247,11 +247,12 @@ import type { DialogContent } from "../../../src/shared/confirmation";
 vi.mock("../../../src/main/confirmations/trusted-dialog", () => ({
   TrustedDialog: class {
     refresh = vi.fn();
-    request: (content: unknown) => Promise<boolean>;
+    request: (content: unknown, signal?: AbortSignal) => Promise<boolean>;
     constructor(parent: unknown, _session: unknown, theme: () => unknown) {
       theme();
-      this.request = async (content: unknown) => {
+      this.request = async (content: unknown, signal?: AbortSignal) => {
         mock.confirmParent(parent);
+        mock.confirmSignal(signal);
         return (await mock.message(content)).response === 1;
       };
     }
@@ -540,6 +541,13 @@ const mock = vi.hoisted(() => {
       onExit: vi.fn<(listener: (id: string, code: number) => void) => () => void>(() => () => {}),
       dispose: vi.fn(() => Promise.resolve()),
       addWindow: vi.fn(),
+      setLinkConfirmation:
+        vi.fn<
+          (
+            contents: unknown,
+            confirm: (content: DialogContent, signal: AbortSignal) => Promise<boolean>,
+          ) => void
+        >(),
       detachView: vi.fn(),
       runningSessions: () => [
         { id: "t1", command: "claude", cwd: "/tree" },
@@ -631,6 +639,7 @@ const mock = vi.hoisted(() => {
       removeListener: vi.fn(),
     },
     confirmParent: vi.fn(),
+    confirmSignal: vi.fn(),
     message: vi.fn<(content?: unknown) => Promise<{ response: number }>>(),
     errorBox: vi.fn(),
     openDialog: vi.fn<() => Promise<{ canceled: boolean; filePaths: string[] }>>(),

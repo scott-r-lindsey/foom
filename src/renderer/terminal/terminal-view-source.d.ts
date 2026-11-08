@@ -7,6 +7,7 @@ export interface TerminalContextMenu {
   id: string;
   anchor: HTMLElement;
   point: { x: number; y: number };
+  link?: { url: string; copy: () => Promise<void>; open: () => void } | undefined;
   copy: (() => void | Promise<void>) | undefined;
   paste: () => void | Promise<void>;
   selectAll: () => void;

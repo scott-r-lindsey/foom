@@ -1820,6 +1820,8 @@ const desktop: DesktopApi = {
     await ipcRenderer.invoke("terminal:kill", id);
   },
   copyTerminalSelection: (id, text) => invokeVoid("terminal:copy-selection", id, text),
+  openTerminalLink: (id, url) => invokeVoid("terminal:open-link", id, url),
+  copyTerminalLink: (id, url) => invokeVoid("terminal:copy-link", id, url),
   pasteTerminal: async (id) => {
     const value: unknown = await ipcRenderer.invoke("terminal:paste", id);
     if (!object(value)) throw new Error("Invalid paste reply");

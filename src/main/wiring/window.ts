@@ -206,6 +206,9 @@ export async function buildWindow(
     process.platform,
     wiring.removalPresentations,
   );
+  wiring.terminals.setLinkConfirmation(window.webContents, (content, signal) =>
+    confirmations.request(content, signal),
+  );
   void wiring.workspace.initializeControl().catch(() => {
     console.warn("Foom CLI discovery is unavailable.");
   });
