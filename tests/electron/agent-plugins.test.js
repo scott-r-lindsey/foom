@@ -616,6 +616,9 @@ if (fs.existsSync(gate)) {
     await copyFile(process.execPath, executable);
     await chmod(executable, 0o755);
   };
+  // The new manifest can render its missing card before its discovery finishes.
+  // Settle that scan before installing, so reopening cannot observe its late reply.
+  await waitForDiscovery();
   await page.keyboard.press("Escape");
   await install();
   await openAgents();
