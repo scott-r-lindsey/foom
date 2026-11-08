@@ -1,3 +1,4 @@
+import type { HostNearMiss } from "./terminal-host-diagnostics";
 import { performance } from "node:perf_hooks";
 
 const RESPONSE_MS = 5000;
@@ -9,12 +10,25 @@ const MAX_LATE_DRAIN_RETRIES = 3;
  * response window, clamped to that cap. Always drain messages before deciding.
  * Late drain cycles retry, with at most three extra cycles past the cap.
  */
-export function watchHostLiveness(unresponsive: () => void): () => void {
+export function watchHostLiveness(
+  unresponsive: () => void,
+  observe: (record: HostNearMiss) => void = () => {},
+): () => void {
   const started = performance.now();
   const limit = started + MAX_PROBE_MS;
   let deadline = started + RESPONSE_MS;
   let stopped = false;
   let lateDrainRetries = 0;
+  let lateCycles = 0;
+  const report = (kind: "late-drain" | "late-turn", now: number, lag: number) => {
+    observe({
+      kind,
+      replyLatencyMs: null,
+      probeElapsedMs: Math.round(now - started),
+      lateCycles,
+      mainLagMs: Math.round(lag),
+    });
+  };
   let timer: ReturnType<typeof setTimeout>;
   let drain: ReturnType<typeof setTimeout> | undefined;
   let final: ReturnType<typeof setImmediate> | undefined;
@@ -35,6 +49,10 @@ export function watchHostLiveness(unresponsive: () => void): () => void {
         final = undefined;
         if (stopped) return;
         const now = performance.now();
+        if (now - drainStarted >= LATE_TURN_MS) {
+          lateCycles++;
+          report("late-drain", now, now - drainStarted);
+        }
         // Earlier check-phase work can stall after poll, leaving newer pongs
         // queued. Retry the whole cycle, without renewing the probe deadline.
         if (
@@ -46,6 +64,7 @@ export function watchHostLiveness(unresponsive: () => void): () => void {
           return;
         }
         if (now < limit && now > deadline + LATE_TURN_MS) {
+          report("late-turn", now, now - deadline);
           deadline = Math.min(now + RESPONSE_MS, limit);
           timer = setTimeout(expired, deadline - now);
         } else {
