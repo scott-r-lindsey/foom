@@ -8,8 +8,8 @@ companion job per platform, alongside the Electron shards and static checks.
 The Quality gate requires all fifteen Electron jobs and all three companion jobs.
 Failed, cancelled or skipped required jobs fail the gate; documentation-only runs
 permit skipping both desktop matrices together. Native hook probes stay serial.
-Electron steps allow ten minutes on Linux and fourteen minutes on Windows and
-macOS. Per-test deadlines and the worker watchdog are unchanged.
+Electron steps allow fourteen minutes on Linux, Windows and macOS. Per-test
+deadlines and the worker watchdog are unchanged.
 
 ## Feature suites and local runs
 
