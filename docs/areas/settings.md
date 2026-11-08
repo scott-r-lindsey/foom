@@ -37,6 +37,7 @@ Theme IDs are checked syntactically, without opening any other file or profile.
 | --- | --- |
 | `agentBypassAcknowledged`, `agentBypassIdentities` | Records main-owned human consent and its provider/disclosure identity |
 | `setupComplete` | Records human setup progress |
+| `terminalClipboardWrites` | Allows untrusted terminal output to replace the clipboard; Settings only |
 | `registeredHosts` | Main-owned Settings → Hosts authorizations; never agent-editable |
 | `codeFolder`, `worktreeLocation` | Select filesystem paths or placement |
 | `environment` | Variables reach every agent launch, like `agentArguments`, and may hold secrets; set only through Settings (#215) |
@@ -163,3 +164,12 @@ checks, and a failed save can be retried without caching its failed availability
 Settings → Hosts and Repositories locations follow the [host contract](hosts.md).
 Host registration is profile-only and may retain incomplete preflight checks. Folder
 creation is explicit; checkout operations still require a canonical approved folder.
+
+## Terminal clipboard writes (#1073)
+
+`terminalClipboardWrites` is a profile-only boolean, default false, excluded from
+agent-editable config. Settings → Terminal presents **Allow terminal clipboard
+writes (OSC 52)** on every platform with a disclosure that any local or remote
+terminal program can replace the clipboard without a click and the user could
+paste that content elsewhere. Clipboard reads are always refused. Only the
+preference persists; terminal output cannot enable it.

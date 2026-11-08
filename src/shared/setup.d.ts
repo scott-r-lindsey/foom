@@ -37,6 +37,8 @@ export interface Settings {
   /** macOS-only, profile preference; selection text remains in renderer memory. */
   middleClickPaste: boolean;
   copyOnSelect: boolean;
+  /** Profile-only OSC 52 write consent; off by default. Reads are always refused. */
+  terminalClipboardWrites: boolean;
   /** Profile-only forge preferences; consumed by a future provider migration. */
   forges: Readonly<Record<string, boolean>>;
   forgeHosts: Readonly<Record<string, string>>;

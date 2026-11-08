@@ -73,7 +73,7 @@ const mock = vi.hoisted(() => {
     rows: 24,
     fitCols: 80,
     fitRows: 24,
-    osc: vi.fn<(code: number, callback: (data: string) => boolean) => void>(),
+    osc: vi.fn<(code: number, callback: (data: string) => boolean) => { dispose(): void }>(),
     change: vi.fn<(event: string, callback: () => void) => void>(),
     removeChange: vi.fn(),
     fonts: vi.fn<() => Promise<FontFace[]>>(),
@@ -167,6 +167,7 @@ vi.mock("@xterm/addon-fit", () => ({
 }));
 afterEach(cleanup);
 beforeEach(() => {
+  mock.osc.mockReturnValue({ dispose: vi.fn() });
   vi.clearAllMocks();
   document.body.replaceChildren();
   Object.defineProperty(window, "desktop", { configurable: true, value: mock });
@@ -1720,3 +1721,27 @@ test.each([
     }
   },
 );
+
+test("OSC 52 renderer bounds and validates writes, ignores queries and revokes on hide", async () => {
+  const write = vi.fn().mockResolvedValue(undefined);
+  Object.assign(mock, { writeTerminalClipboard: write });
+  const controller = createShell(document.createElement("div"), vi.fn(), false, undefined, false);
+  await controller.open("a");
+  const handle = mock.osc.mock.calls.find(([code]) => code === 52)?.[1];
+  expect(handle?.("c;aGk=")).toBe(true);
+  expect(write).not.toHaveBeenCalled();
+  mock.onSetupChange.mock.calls[0]?.[0](setupState({ terminalClipboardWrites: true }));
+  for (const payload of ["c;?", "p;aGk=", "c;!", "c;/w==", `c;${"a".repeat(90_000)}`])
+    expect(handle?.(payload)).toBe(true);
+  expect(write).not.toHaveBeenCalled();
+  handle?.("c;aGk=");
+  expect(write).toHaveBeenCalledExactlyOnceWith("a", "c;aGk=");
+  write.mockRejectedValueOnce(new Error("detached"));
+  handle?.(";aGk=");
+  await controller.hide();
+  handle?.("c;aGk=");
+  expect(write).toHaveBeenCalledTimes(2);
+  controller.dispose();
+  handle?.("c;aGk=");
+  expect(write).toHaveBeenCalledTimes(2);
+});

@@ -1321,3 +1321,17 @@ test.each([30, 1])(
     expect(setCode).not.toHaveBeenCalled();
   },
 );
+
+test("Terminal discloses and saves profile-only OSC 52 consent", async () => {
+  const initial = setupState();
+  const source = fake(initial);
+  render(<Preflight source={source} initial={initial} settingsMode onLaunched={vi.fn()} />);
+  fireEvent.click(button("Terminal"));
+  const toggle = screen.getByRole("checkbox", { name: "Allow terminal clipboard writes (OSC 52)" });
+  expect(toggle).toHaveProperty("checked", false);
+  expect(screen.getByText(/Any program in a local or remote terminal can replace/)).toBeTruthy();
+  fireEvent.click(toggle);
+  await waitFor(() => {
+    expect(source.save).toHaveBeenCalledWith({ terminalClipboardWrites: true });
+  });
+});
