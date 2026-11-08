@@ -378,6 +378,17 @@ export class RemoteTransport extends EventEmitter {
               throw new Error("Host version mismatch");
             }
             this.childPressure = value.childPressure === 1;
+            // This recipe stages assets from the daemon's own executable. Protocol
+            // compatibility alone cannot bind those bytes to the desktop's approval.
+            if (
+              this.target.recipe?.action === "install-plugin" &&
+              value.build !== artifact.sha256
+            ) {
+              this.managementFailure = "version-mismatch";
+              this.launchFailure = new LaunchFailure("remote_artifact_mismatch");
+              this.kill();
+              return;
+            }
             if (
               ((this.management?.type === "manage" &&
                 this.management.operation === "inspect" &&

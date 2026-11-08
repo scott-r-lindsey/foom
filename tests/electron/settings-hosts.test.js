@@ -158,7 +158,7 @@ process.stdin.on('data', bytes => {
     continue;
   }
   assert.equal('id' in message,false); appendFileSync(${JSON.stringify(calls)},JSON.stringify({host,message})+'\\n');
-  if(message.type==='hello') { send({type:'hello',agentSettings:1,build:host==='version-cloud'?'b'.repeat(64):${JSON.stringify(manifest.sha256)}}); continue; }
+  if(message.type==='hello') { const settings=JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8')); send({type:'hello',agentSettings:1,...(settings.compatibleBuild?{build:'b'.repeat(64),compatible:2,startupTheme:1,hostFacts:1,hostPreflight:1,hostRowCheck:1}:{build:host==='version-cloud'?'b'.repeat(64):${JSON.stringify(manifest.sha256)}})}); continue; }
   if(message.type==='inventory') {send({type:'inventory-result',own:[],foreign:[]}); continue;}
   assert.equal(message.type,'manage');
   const scenario=require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8'); const settings=JSON.parse(scenario);
@@ -1519,6 +1519,20 @@ test("Agents scopes use trusted consent and fixed recipes for host plugin instal
   await disclosure.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(page.getByRole("button", { name: "Install plugin", exact: true })).toBeEnabled();
   assert.equal(await readFile(recipeCalls, "utf8"), "");
+  // A live compatible daemon can still serve observations, but its bundled
+  // plugin must not be installed under this desktop's approval.
+  await updateScenario({
+    compatibleBuild: true,
+    facts: { agents: [agent] },
+  });
+  await page.getByRole("button", { name: "Install plugin", exact: true }).click();
+  disclosure = await confirmationPage(app);
+  await disclosure.getByRole("button", { name: "Install plugin", exact: true }).click();
+  const failure = page.getByRole("dialog", { name: "Action failed", exact: true });
+  await expect(failure).toBeVisible();
+  assert.equal(await readFile(recipeCalls, "utf8"), "");
+  await failure.getByRole("button", { name: "Dismiss", exact: true }).click();
+  await updateScenario({ facts: { agents: [agent] } });
   await page.getByRole("button", { name: "Install plugin", exact: true }).click();
   disclosure = await confirmationPage(app);
   await disclosure.getByRole("button", { name: "Install plugin", exact: true }).click();

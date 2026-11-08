@@ -596,6 +596,15 @@ path, shell source, other plugin or manifest can select it. The host rechecks CL
 inventory and refuses unless Foom is absent; present or unrecognized inventories
 must be managed in agy. Staging alone does not install. No global configuration
 file is written directly. Older daemons lacking agentSettings refuse this recipe.
+Plugin installation additionally requires the daemon's exact build SHA-256 to
+match the verified host artifact shipped by the approving desktop. Compatibility
+flags alone never authorize staging another build's bundled assets. Main refuses
+with the closed `remote_artifact_mismatch` launch reason (`version-mismatch` for
+management) before sending the recipe or opening its PTY. The daemon runs the
+recipe through its own `process.execPath`, so matching the artifact binds the
+staged assets to this desktop build. A busy older daemon and its sessions remain
+running; finish them and let the normal idle upgrade complete before retrying.
+Read-only observations and other recipes retain their existing compatibility.
 
 
 ## Child pressure admission (#1046)

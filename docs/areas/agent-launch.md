@@ -286,3 +286,8 @@ printed directory. It refuses a present or unknown plugin inventory, runs only
 in a human-owned recipe terminal, and adds no hub credentials or control authority.
 This extends the opt-in Settings exception to registered hosts; it permits no
 direct agent-config writes or silent installation.
+This action requires exact daemon/artifact build equality with the approving
+desktop, rather than accepting a different protocol-compatible build. A mismatch
+refuses with `remote_artifact_mismatch` before recipe dispatch. This binds the
+daemon's bundled plugin assets (staged by its own executable) to the reviewed
+desktop build; the fixed recipe-step digest alone does not bind asset contents.

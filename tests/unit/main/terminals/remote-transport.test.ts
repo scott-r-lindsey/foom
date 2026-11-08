@@ -1877,6 +1877,38 @@ test.each([false, true])(
   },
 );
 
+test.each(
+  (["install-plugin", "sign-in"] as const).flatMap((action) =>
+    ["a", "b"].map((build) => ({ action, build })),
+  ),
+)("plugin installation binds the desktop artifact ($action, $build)", async ({ action, build }) => {
+  transport.kill();
+  const recipe = { tool: "agy", action, distro: "debian" as const, digest: "c".repeat(64) };
+  transport = new RemoteTransport(
+    { host: "fixture", artifact: "/artifact", human: true, recipe },
+    "0.1.0",
+  );
+  transport.postMessage(create);
+  await Promise.resolve();
+  child.header();
+  child.message({
+    type: "hello",
+    build: build.repeat(64),
+    compatible: 2,
+    agentSettings: 1,
+    startupTheme: 1,
+  });
+  if (action === "install-plugin" && build !== "a") {
+    expect(child.messages).not.toContainEqual(expect.objectContaining({ type: "open" }));
+    expect(transport.launchFailure?.reason).toBe("remote_artifact_mismatch");
+    expect(transport.managementFailure).toBe("version-mismatch");
+    expect(child.kill).toHaveBeenCalled();
+  } else {
+    expect(child.messages).toContainEqual(expect.objectContaining({ type: "open", recipe }));
+    expect(transport.launchFailure).toBeUndefined();
+  }
+});
+
 test.each([true, false])(
   "child pressure capability %s gates request fields and reports older daemons unmeasured",
   async (capable) => {
