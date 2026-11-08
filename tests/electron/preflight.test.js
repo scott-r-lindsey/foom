@@ -584,6 +584,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     "setupComplete",
     "showNestedRepositoryNames",
     "showPullRequests",
+    "terminalClipboardWrites",
     "unreadChildMinutes",
     "worktreeLocation",
   ]);
