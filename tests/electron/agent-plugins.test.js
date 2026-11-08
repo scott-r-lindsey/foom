@@ -77,7 +77,7 @@ process.stdin.resume();`,
     .getByRole("navigation", { name: "Settings sections" })
     .getByRole("button", { name: "Agents", exact: true })
     .click();
-  await page.getByRole("tab", { name: "This computer", exact: true }).click();
+  await page.getByRole("tab", { name: "Machines", exact: true }).click();
   const file = path.join(home, ".foom/config/agents/foom-test-agent.json");
   const v2 = JSON.parse(
     await readFile(path.join(__dirname, "../fixtures/agent-plugin-v2.json"), "utf8"),
@@ -193,7 +193,7 @@ process.stdin.resume();`,
     .toBe(true);
   await page.getByRole("tab", { name: "Global", exact: true }).click();
   await expect(page.getByLabel("Fixture agent default arguments")).toBeVisible();
-  await page.getByRole("tab", { name: "This computer", exact: true }).click();
+  await page.getByRole("tab", { name: "Machines", exact: true }).click();
   await expect(card.getByLabel("New Fixture agent variable name")).toBeVisible();
   await expect(card.getByText("Hooks", { exact: true })).toBeVisible();
   await assertAccessible(page);
@@ -363,7 +363,7 @@ else process.exit(2);
     .getByRole("navigation", { name: "Settings sections" })
     .getByRole("button", { name: "Agents", exact: true })
     .click();
-  await page.getByRole("tab", { name: "This computer", exact: true }).click();
+  await page.getByRole("tab", { name: "Machines", exact: true }).click();
   const base = JSON.parse(
     await readFile(path.join(__dirname, "../fixtures/agent-plugin-v2.json"), "utf8"),
   );
@@ -594,7 +594,7 @@ if (fs.existsSync(gate)) {
       .getByRole("navigation", { name: "Settings sections" })
       .getByRole("button", { name: "Agents", exact: true })
       .click();
-    await page.getByRole("tab", { name: "This computer", exact: true }).click();
+    await page.getByRole("tab", { name: "Machines", exact: true }).click();
   };
   await openAgents();
   const file = path.join(home, ".foom/config/agents/late-agent.json");

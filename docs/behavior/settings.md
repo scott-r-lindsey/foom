@@ -61,19 +61,30 @@ never run. Requests resolve native executables through the main-owned lifecycle.
 General offers Foom’s folder or a location next to each repository for new worktrees, with an example
 destination. Changes apply to future creation; existing worktrees stay where they are.
 
-Agents and Repositories use the same controls as preflight. Agents shows one central-column card per provider, including config
-plugins, and plugins rejected by validation. A missing installation is one
-line with a disabled Off switch and “Not found”; its saved preference is retained.
-Opening Agents or loading or reloading a manifest refreshes discovery. Once the
-executable is found, the switch follows the saved preference. Every installed
-agent has an On/Off switch. Off removes the agent from launch menus
-and CLI discovery probes while retaining its defaults, environment and attention preferences.
+Settings → Agents opens on **Global**, alongside **Machines**. Global lists each
+agent with enable/disable and default arguments, custom manifest paths, **Open
+config folder**, and **Attach hooks**. It shows no machine status. Enablement does
+not require an installation on this computer. Off removes an agent from launch
+menus and discovery probes, retaining its arguments, environment and attention
+preferences. There is no Off summary below machine cards.
+
+**Machines** has one picker defaulting to **This computer** and listing every
+registered host. Selecting a machine shows its enabled-agent cards: version,
+executable path, sign-in, plugin status/actions, capabilities and explicit reloads.
+The lists scroll vertically, including at narrow widths. Missing installations
+say **Not found** in the same text size as other card facts. Signed-out states
+use an outlined status icon and words. Offline machines retain dimmed last-known
+facts with actions disabled. Opening or changing views never checks a machine;
+**Last checked** changes only after an explicit check. Returning from Global keeps
+the selected machine. Hosts **Open** selects its machine directly.
+
+First-run Agents keeps the shared local card view. Manifest changes refresh discovery.
 To customize a built-in agent, copy its bundled manifest into the config folder's
 `agents/` folder with a new ID and name (see [agent plugins](../contracts/agent-trust.md#customizing-a-built-in-agent)).
 Settings offers no action for it. Like any valid config plugin, the copy loads as
 soon as Foom reads it. Both built-in and copy can remain on, or the built-in can be turned off.
-Each installed agent's card groups attention, capability chips, default
-arguments and its environment editor. Hooks/Screen rules
+Local machine cards retain attention, capability chips and their environment editor;
+Settings default arguments live in Global. Hooks/Screen rules
 appears only for agents with hook support; the global Attach hooks switch still
 wins. Per-agent attention preferences apply to future launches. Changes apply immediately and persist. A repository scan in Settings
 starts with the already-added repositories checked; toggling a selection saves it

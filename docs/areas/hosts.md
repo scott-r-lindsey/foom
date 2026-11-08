@@ -575,7 +575,8 @@ failure under Host facts while retaining the checklist observations.
 ## Settings agent scopes (#1070)
 
 Hosts shows an enabled-agent readiness count and Open, which selects that host in
-Settings → Agents. Agents controls and recipes live in that machine scope. Reading
+Settings → Agents → Machines, selecting the host in its picker. Agent controls and
+recipes live below that picker; Global contains preferences only. Reading
 the saved host list or selecting a scope starts no full check. The explicit machine
 reload in Agents runs the full preflight and advances Last checked; individual
 agent reloads use the existing scoped tool/sign-in requests.

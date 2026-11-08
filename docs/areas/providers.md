@@ -196,7 +196,9 @@ manifests and foreground output cannot grant it. See [image paste](terminals.md#
 
 ## Scoped agent presentation (#1070)
 
-Global owns enablement, defaults and the custom-manifest catalog. Machine cards
+Global lists agents only and owns enablement, defaults and the custom-manifest catalog.
+Machines uses one picker for This computer and all registered hosts; there are no
+per-machine tabs or Global status columns. Machine cards
 show only enabled providers. Opening or changing scopes does not refresh discovery;
 config registry changes still invalidate it. Explicit local card reload passes a
 validated provider ID through agents:scan and probes only that provider, retaining

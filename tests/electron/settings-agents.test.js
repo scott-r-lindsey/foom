@@ -122,7 +122,9 @@ test("Settings persists literal agent defaults and discloses bypass once per age
   await expect(input).toBeVisible();
   await input.fill("--settings={}");
   await input.blur();
-  await expect(page.locator(".agent-card [role=alert]")).toHaveText("Unable to update settings.");
+  await expect(page.locator(".agent-global-row [role=alert]")).toHaveText(
+    "Unable to update settings.",
+  );
   const args = [
     "--eval",
     'require("node:fs").writeFileSync(process.env.TEST_ARGV, JSON.stringify([...process.execArgv, ...process.argv.slice(1)])); setInterval(() => {}, 1000)',
@@ -144,7 +146,9 @@ test("Settings persists literal agent defaults and discloses bypass once per age
   const disclosureScan = await new AxeBuilder({ page: disclosure }).setLegacyMode().analyze();
   assert.deepEqual(disclosureScan.violations, []);
   await disclosure.keyboard.press("Enter");
-  await expect(page.locator(".agent-card [role=alert]")).toHaveText("Unable to update settings.");
+  await expect(page.locator(".agent-global-row [role=alert]")).toHaveText(
+    "Unable to update settings.",
+  );
   assert.deepEqual(
     (await page.evaluate(() => window.desktop.setupState())).settings.agentArguments.claude,
     [],
@@ -155,9 +159,9 @@ test("Settings persists literal agent defaults and discloses bypass once per age
   // Errors clear and the disclosure closes before saving finishes. The field stays
   // disabled until saveSetup settles, including both config and profile writes.
   await expect(input).toBeEnabled();
-  await expect(page.locator(".agent-card [role=alert]")).toHaveCount(0);
+  await expect(page.locator(".agent-global-row [role=alert]")).toHaveCount(0);
   await input.blur();
-  await expect(page.locator(".agent-card [role=alert]")).toHaveCount(0);
+  await expect(page.locator(".agent-global-row [role=alert]")).toHaveCount(0);
   await expect(disclosure.getByRole("alertdialog")).toHaveCount(0);
   const persisted = JSON.parse(
     await readFile(path.join(profile, "settings.json"), "utf8"),
@@ -401,6 +405,6 @@ test("Pi Settings card discloses project trust bypass and keeps MCP roles unavai
   );
   await expect(
     page.getByRole("button", { name: "Re-check This computer", exact: true }),
-  ).toBeEnabled();
+  ).toHaveCount(0);
   await page.screenshot({ path: "test-results/pi-agent-settings.png", animations: "disabled" });
 });

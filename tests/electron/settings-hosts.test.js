@@ -1392,7 +1392,7 @@ test("Agents scopes use saved host observations and Global enablement without ch
   await page.evaluate(() => window.desktop.sidebarInventory());
   const before = (await readFile(calls, "utf8")).split("\n").filter(Boolean).length;
   await card.getByRole("button", { name: "Open", exact: true }).click();
-  await expect(page.getByRole("tab", { name: "fixture-cloud", exact: true })).toHaveAttribute(
+  await expect(page.getByRole("tab", { name: "Machines", exact: true })).toHaveAttribute(
     "aria-selected",
     "true",
   );
@@ -1407,48 +1407,20 @@ test("Agents scopes use saved host observations and Global enablement without ch
       }),
     );
   assert.equal(afterNavigation.length, before);
-  const reloadSize = await page
-    .getByRole("button", { name: "Re-check This computer", exact: true })
-    .locator("svg")
-    .evaluate((icon) => ({
-      width: icon.getBoundingClientRect().width,
-      label: parseFloat(getComputedStyle(icon.closest("th")).fontSize),
-    }));
-  assert.ok(
-    reloadSize.width >= 17 && reloadSize.width > reloadSize.label,
-    JSON.stringify(reloadSize),
-  );
-  for (const mode of ["light", "dark"]) {
-    await page.evaluate(
-      (mode) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${mode}` }),
-      mode,
-    );
-    await expect
-      .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
-      .toBe(mode === "dark");
-    await page
-      .locator(".agents-page")
-      .first()
-      .screenshot({ path: evidencePath(`1070/global-${mode}.png`) });
-    await page.getByRole("tab", { name: "fixture-cloud", exact: true }).click();
-    await page
-      .locator(".agents-page")
-      .first()
-      .screenshot({ path: evidencePath(`1070/host-${mode}.png`) });
-    await page.getByRole("tab", { name: "This computer", exact: true }).click();
-    await page
-      .locator(".agents-page")
-      .first()
-      .screenshot({ path: evidencePath(`1070/local-${mode}.png`) });
-    await page.getByRole("tab", { name: "Global", exact: true }).click();
-  }
+  await expect(page.locator(".agent-global-row")).toHaveCount(6);
+  await expect(page.locator(".agent-global-row .agent-status")).toHaveCount(0);
+  await expect(page.getByRole("combobox", { name: "Machine", exact: true })).toHaveCount(0);
   await assertAccessible(page);
   await page.getByRole("checkbox", { name: "Enable Codex", exact: true }).uncheck();
-  await page.getByRole("tab", { name: "fixture-cloud", exact: true }).click();
+  await page.getByRole("tab", { name: "Machines", exact: true }).click();
+  await page
+    .getByRole("combobox", { name: "Machine", exact: true })
+    .selectOption("host:fixture-cloud");
   await expect(page.getByRole("region", { name: "Codex", exact: true })).toHaveCount(0);
   await page.getByRole("tab", { name: "Global", exact: true }).click();
   await page.getByRole("checkbox", { name: "Enable Codex", exact: true }).check();
-  await page.getByRole("tab", { name: "This computer", exact: true }).click();
+  await page.getByRole("tab", { name: "Machines", exact: true }).click();
+  await page.getByRole("combobox", { name: "Machine", exact: true }).selectOption("local");
   await expect(page.getByRole("region", { name: "Codex", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Re-check Codex", exact: true }).click();
   await expect(page.getByRole("button", { name: "Re-check Codex", exact: true })).toBeEnabled();
@@ -1461,7 +1433,10 @@ test("Agents scopes use saved host observations and Global enablement without ch
     ),
     true,
   );
-  await page.getByRole("tab", { name: "fixture-cloud", exact: true }).click();
+  await page.getByRole("tab", { name: "Machines", exact: true }).click();
+  await page
+    .getByRole("combobox", { name: "Machine", exact: true })
+    .selectOption("host:fixture-cloud");
   await page.getByRole("button", { name: "Re-check Claude Code", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "Re-check Claude Code", exact: true }),
@@ -1507,7 +1482,10 @@ test("Agents scopes use trusted consent and fixed recipes for host plugin instal
   await card.getByRole("button", { name: "Open", exact: true }).click();
   await page.getByRole("tab", { name: "Global", exact: true }).click();
   await page.getByRole("checkbox", { name: "Enable Antigravity", exact: true }).check();
-  await page.getByRole("tab", { name: "fixture-cloud", exact: true }).click();
+  await page.getByRole("tab", { name: "Machines", exact: true }).click();
+  await page
+    .getByRole("combobox", { name: "Machine", exact: true })
+    .selectOption("host:fixture-cloud");
   await page.getByRole("button", { name: "Re-check fixture-cloud", exact: true }).click();
   await page.getByRole("button", { name: "Install plugin", exact: true }).click();
   let disclosure = await confirmationPage(app);
@@ -1567,7 +1545,10 @@ test("Agents scopes use trusted consent and fixed recipes for host plugin instal
     .getByRole("navigation", { name: "Settings sections" })
     .getByRole("button", { name: "Agents", exact: true })
     .click();
-  await page.getByRole("tab", { name: "fixture-cloud", exact: true }).click();
+  await page.getByRole("tab", { name: "Machines", exact: true }).click();
+  await page
+    .getByRole("combobox", { name: "Machine", exact: true })
+    .selectOption("host:fixture-cloud");
   await expect(page.getByText("Present · use agy to manage", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Install plugin", exact: true })).toHaveCount(0);
   const inspected = (await readFile(calls, "utf8"))
@@ -1583,4 +1564,192 @@ test("Agents scopes use trusted consent and fixed recipes for host plugin instal
       { kind: "sign-in", tool: "agy" },
     ],
   );
+});
+
+test("Agents Global list and machine picker scale to twelve agents and twelve saved hosts", {
+  timeout: deadline(60000),
+}, async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "agents-picker-"));
+  removeAfterApps(context, root);
+  const home = path.join(root, "home");
+  const profile = path.join(root, "profile");
+  const bin = path.join(root, "bin");
+  const manifests = path.join(home, ".foom", "config", "agents");
+  await Promise.all([mkdir(manifests, { recursive: true }), mkdir(profile), mkdir(bin)]);
+  const template = JSON.parse(
+    await readFile(path.join(__dirname, "../fixtures/agent-plugin-v2.json"), "utf8"),
+  );
+  for (const [index, name] of [
+    "Review",
+    "Research",
+    "Docs",
+    "Infra",
+    "Tests",
+    "Release",
+  ].entries()) {
+    const id = `sample-${index}`;
+    await writeFile(
+      path.join(manifests, `${id}.json`),
+      JSON.stringify({ ...template, id, name, executables: [id] }),
+    );
+  }
+  const agents = [
+    {
+      id: "claude",
+      state: "ready",
+      signIn: "signed-in",
+      details: {
+        path: "/usr/local/bin/claude",
+        version: "2.3.1",
+        capabilities: ["Hooks", "MCP", "Resume"],
+      },
+    },
+    { id: "codex", state: "missing" },
+    {
+      id: "agy",
+      state: "ready",
+      signIn: "signed-in",
+      details: {
+        path: "/usr/local/bin/agy",
+        version: "1.4.12",
+        capabilities: ["Resume"],
+        plugin: "not-installed",
+      },
+    },
+    {
+      id: "copilot",
+      state: "ready",
+      signIn: "signed-out",
+      details: { path: "/usr/local/bin/copilot", version: "0.0.351", capabilities: ["MCP"] },
+    },
+  ];
+  const facts = {
+    codeFolder: "/remote/code",
+    version: "0.1.0",
+    sessions: 0,
+    cores: 8,
+    load: [0, 0, 0],
+    memoryTotal: 8000,
+    memoryAvailable: 4000,
+    requirements: { distro: "debian", libc: "supported", packageManager: "apt" },
+    agents,
+  };
+  const result = { ok: true, facts };
+  const registeredHosts = Array.from({ length: 12 }, (_, index) => ({
+    host: `saved-machine-${index + 1}`,
+    nickname: index === 11 ? "Archive" : `Build ${index + 1}`,
+    codeFolder: "/remote/code",
+    observation: {
+      checkedAt: 1700000000000,
+      lastAgents: { checkedAt: 1700000000000, result },
+      preflight: {
+        ssh: { state: "pass" },
+        platform: { state: "pass" },
+        artifact: { state: "pass" },
+        repositories: [],
+        result: index === 11 ? { ok: false, reason: "unreachable" } : result,
+      },
+    },
+  }));
+  await writeFile(
+    path.join(profile, "settings.json"),
+    JSON.stringify({
+      version: 1,
+      settings: {
+        setupComplete: true,
+        checkForUpdates: false,
+        restoreSessions: false,
+        registeredHosts,
+        agents: { claude: true, codex: true, agy: true, copilot: true, opencode: true, pi: true },
+      },
+    }),
+  );
+  const app = await launchApp(context, {
+    fixture: "empty-board",
+    args: [`--user-data-dir=${profile}`],
+    env: { HOME: home, PATH: bin },
+  });
+  const page = await boardPage(app);
+  await openSettingsScreen(page);
+  await page
+    .getByRole("navigation", { name: "Settings sections" })
+    .getByRole("button", { name: "Agents", exact: true })
+    .click();
+  await expect(page.locator(".agent-global-row")).toHaveCount(12);
+  await expect(page.getByRole("tab")).toHaveCount(2);
+  await expect(page.locator(".agent-global-row textarea")).toHaveCount(12);
+  await expect(page.locator(".agent-manifest")).toHaveCount(6);
+  await expect(page.getByRole("combobox", { name: "Machine" })).toHaveCount(0);
+  await expect(page.getByRole("checkbox", { name: "Attach hooks" })).toBeVisible();
+  const resize = async (width) => {
+    await app.evaluate(({ BrowserWindow }, width) => {
+      const window = BrowserWindow.getAllWindows().find(
+        (window) => window.webContents.getURL() === "app://bundle/index.html",
+      );
+      window.setMinimumSize(320, 400);
+      window.setContentSize(width, 960);
+    }, width);
+    await expect.poll(() => page.evaluate(() => innerWidth)).toBe(width);
+  };
+  const capture = async (name, mode, width) => {
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
+      .toBe(true);
+    await page.screenshot({ path: evidencePath(`1070-step2/${name}-${mode}-${width}.png`) });
+  };
+  for (const width of [1280, 480]) {
+    await resize(width);
+    for (const mode of ["light", "dark"]) {
+      await page.evaluate(
+        (mode) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${mode}` }),
+        mode,
+      );
+      await expect
+        .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
+        .toBe(mode === "dark");
+      await page.getByRole("tab", { name: "Global", exact: true }).click();
+      await capture("global", mode, width);
+      await page.getByRole("tab", { name: "Machines", exact: true }).click();
+      const picker = page.getByRole("combobox", { name: "Machine", exact: true });
+      await expect(picker.locator("option")).toHaveCount(13);
+      if (width === 1280 && mode === "light") await expect(picker).toHaveValue("local");
+      await expect(page.getByRole("checkbox", { name: "Attach hooks" })).toHaveCount(0);
+      await picker.selectOption("local");
+      await capture("machines", mode, width);
+      await picker.selectOption("host:saved-machine-1");
+      await expect(page.getByRole("region", { name: "Claude Code", exact: true })).toContainText(
+        "2.3.1",
+      );
+      const codex = page.getByRole("region", { name: "Codex", exact: true });
+      assert.equal(
+        await codex
+          .locator(".agent-status")
+          .evaluate((element) => getComputedStyle(element).fontSize),
+        "13px",
+      );
+      const signedOut = page
+        .getByRole("region", { name: "GitHub Copilot", exact: true })
+        .locator(".agent-status");
+      await expect(signedOut).toHaveText("Signed out");
+      await expect(signedOut.locator("svg circle")).toHaveCount(1);
+      await expect(page.getByRole("button", { name: "Install plugin", exact: true })).toBeEnabled();
+      await capture("remote-plugin", mode, width);
+      await picker.selectOption("host:saved-machine-12");
+      await expect(page.getByText(/Offline · Last checked/)).toBeVisible();
+      await expect(page.getByRole("region", { name: "Claude Code", exact: true })).toContainText(
+        "2.3.1",
+      );
+      assert.equal(await page.locator(".agents-panel button:not(:disabled)").count(), 0);
+      const list = page.getByRole("region", { name: "Machine agents", exact: true });
+      await list.focus();
+      await expect(list).toBeFocused();
+      await page.keyboard.press("End");
+      await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+      await page.keyboard.press("Home");
+      await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBe(0);
+      await expect(page.getByText(/^Off:/)).toHaveCount(0);
+      await capture("offline", mode, width);
+    }
+  }
+  await assertAccessible(page);
 });

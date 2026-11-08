@@ -161,19 +161,27 @@ function fixture(initial = "global", initialHosts?: readonly HostRow[]) {
 test("Global owns enablement and defaults; navigation and cached machine reads never check", async () => {
   const f = fixture();
   render(<f.View />);
-  await screen.findByRole("tab", { name: "Build" });
+  await screen.findByText("agents/bad.json");
   expect(f.api).toHaveBeenCalledExactlyOnceWith({ action: "list" });
   expect(f.scan).not.toHaveBeenCalled();
-  expect(screen.getByText(/Bad · agents\/bad.json · rejected · invalid/)).toBeTruthy();
+  expect(screen.getByText(/Rejected · launch blocked · invalid/)).toBeTruthy();
+  expect(screen.getAllByRole("tab")).toHaveLength(2);
+  expect(screen.queryByRole("combobox")).toBeNull();
+  expect(screen.queryByText("Ready")).toBeNull();
   fireEvent.click(screen.getByRole("checkbox", { name: "Attach hooks" }));
   expect(f.save).toHaveBeenCalledWith({ hooks: false });
   fireEvent.click(screen.getByRole("checkbox", { name: "Enable Claude Code" }));
   expect(f.save.mock.lastCall?.[0]).toMatchObject({ agents: { claude: false } });
-  fireEvent.click(screen.getByRole("button", { name: "Claude Code on Build: Off" }));
+  fireEvent.keyDown(screen.getByRole("tab", { name: "Global" }), { key: "Enter" });
+  fireEvent.keyDown(screen.getByRole("tab", { name: "Global" }), { key: "ArrowRight" });
+  expect(screen.getByRole("combobox", { name: "Machine" })).toHaveProperty("value", "local");
+  fireEvent.change(screen.getByRole("combobox", { name: "Machine" }), {
+    target: { value: "host:worker" },
+  });
   expect(screen.queryByRole("region", { name: "Claude Code" })).toBeNull();
-  expect(screen.getByText(/Off: Claude Code, GitHub Copilot/)).toBeTruthy();
+  expect(screen.queryByText(/Off:/)).toBeNull();
   expect(f.api).toHaveBeenCalledTimes(1);
-  fireEvent.click(screen.getByRole("button", { name: "Global" }));
+  fireEvent.click(screen.getByRole("tab", { name: "Global" }));
   fireEvent.click(screen.getByRole("checkbox", { name: "Enable Claude Code" }));
   const input = screen.getByLabelText("Claude Code default arguments");
   fireEvent.change(input, { target: { value: "--model=example" } });
@@ -183,8 +191,15 @@ test("Global owns enablement and defaults; navigation and cached machine reads n
   });
   fireEvent.click(screen.getByRole("button", { name: "Open config folder" }));
   expect(f.openFolder).toHaveBeenCalledOnce();
+  fireEvent.click(screen.getByRole("tab", { name: "Machines" }));
+  fireEvent.change(screen.getByRole("combobox", { name: "Machine" }), {
+    target: { value: "local" },
+  });
   fireEvent.click(screen.getByRole("button", { name: "Re-check This computer" }));
   expect(f.scan).toHaveBeenCalledWith(true);
+  fireEvent.change(screen.getByRole("combobox", { name: "Machine" }), {
+    target: { value: "host:worker" },
+  });
   fireEvent.click(screen.getByRole("button", { name: "Re-check Build" }));
   await waitFor(() => {
     expect(f.api).toHaveBeenCalledWith({
@@ -193,7 +208,9 @@ test("Global owns enablement and defaults; navigation and cached machine reads n
       codeFolder: "/code",
     });
   });
-  fireEvent.click(screen.getByRole("tab", { name: "This computer" }));
+  fireEvent.change(screen.getByRole("combobox", { name: "Machine" }), {
+    target: { value: "local" },
+  });
   expect(screen.queryByLabelText("Claude Code default arguments")).toBeNull();
   expect(screen.getByRole("region", { name: "Claude Code" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Re-check Claude Code" }));
@@ -261,14 +278,16 @@ test("offline and never-checked hosts expose cached state with disabled actions"
     { host: "new", codeFolder: "/code" },
   ]);
   render(<f.View />);
-  await screen.findByRole("tab", { name: "offline" });
+  await screen.findByRole("option", { name: "offline · Offline" });
   expect(screen.getByText("Offline · Not checked")).toBeTruthy();
   expect(screen.getByRole("button", { name: "Re-check offline" })).toHaveProperty("disabled", true);
   for (const button of screen.getAllByRole("button", {
     name: /Re-check (Claude|Codex|Antigravity|Pi|OpenCode)/,
   }))
     expect(button).toHaveProperty("disabled", true);
-  fireEvent.click(screen.getByRole("tab", { name: "new" }));
+  fireEvent.change(screen.getByRole("combobox", { name: "Machine" }), {
+    target: { value: "host:new" },
+  });
   expect(screen.getAllByText("Not checked").length).toBeGreaterThan(1);
   expect(f.api).toHaveBeenCalledTimes(1);
 });
@@ -297,7 +316,7 @@ test("removed scope and list/config failures remain reviewable", async () => {
 test("a disposed catalog subscription cannot start a scan and folder failures remain actionable", async () => {
   const f = fixture();
   const view = render(<f.View />);
-  await screen.findByRole("tab", { name: "Build" });
+  await screen.findByText("agents/bad.json");
   f.openFolder.mockRejectedValueOnce(new Error("fixture"));
   fireEvent.click(screen.getByRole("button", { name: "Open config folder" }));
   await screen.findByText("Unable to open config folder");
@@ -306,4 +325,28 @@ test("a disposed catalog subscription cannot start a scan and folder failures re
     f.changed();
   });
   expect(f.scan).not.toHaveBeenCalled();
+});
+
+test("machine picker scales to twelve registered hosts and keeps navigation read-only", async () => {
+  const f = fixture(
+    "local",
+    Array.from({ length: 12 }, (_, index) => ({
+      host: `machine-${String(index)}`,
+      codeFolder: "/code",
+    })),
+  );
+  render(<f.View />);
+  await screen.findByRole("option", { name: "machine-11" });
+  expect(screen.getAllByRole("tab")).toHaveLength(2);
+  expect(screen.getAllByRole("option")).toHaveLength(13);
+  fireEvent.change(screen.getByRole("combobox", { name: "Machine" }), {
+    target: { value: "host:machine-11" },
+  });
+  expect(screen.getAllByText("machine-11")).toHaveLength(2);
+  expect(f.api).toHaveBeenCalledExactlyOnceWith({ action: "list" });
+  expect(f.scan).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("tab", { name: "Global" }));
+  expect(screen.queryByRole("combobox")).toBeNull();
+  fireEvent.click(screen.getByRole("tab", { name: "Machines" }));
+  expect(screen.getByRole("combobox")).toHaveProperty("value", "host:machine-11");
 });

@@ -131,7 +131,7 @@ if(process.argv.includes('--help')){console.log('--standalone --session --prompt
   await assert.rejects(readFile(report));
   await openSettingsScreen(page);
   await page.getByRole("button", { name: "Agents", exact: true }).click();
-  await page.getByRole("tab", { name: "This computer", exact: true }).click();
+  await page.getByRole("tab", { name: "Machines", exact: true }).click();
   const card = page.locator("#agent-card-opencode");
   await expect(card).toContainText("OpenCode");
   await expect(card).toContainText("2.0.32");
@@ -140,7 +140,7 @@ if(process.argv.includes('--help')){console.log('--standalone --session --prompt
   await expect(defaults).toHaveValue("--auto");
   await defaults.fill("--auto\n--model\nreviewed");
   await expect(
-    page.locator(".agent-setting").filter({ has: defaults }).locator(".agent-bypass"),
+    page.locator(".agent-global-row").filter({ has: defaults }).locator(".agent-bypass"),
   ).toContainText("Bypass approvals");
   await defaults.blur();
   const disclosure = await confirmationPage(app);

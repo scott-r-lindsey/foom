@@ -337,7 +337,7 @@ for (const firstRun of [false, true]) {
     else {
       await openSettingsScreen(page);
       await page.getByRole("button", { name: "Agents", exact: true }).click();
-      await page.getByRole("tab", { name: "This computer", exact: true }).click();
+      await page.getByRole("tab", { name: "Machines", exact: true }).click();
       await expect(page.getByText("Plugin available", { exact: true })).toBeVisible();
     }
     const agyRow = page
@@ -608,7 +608,7 @@ test("Antigravity plugin MCP inherits an owned child's read-only role", {
   };
   await openSettingsScreen(page);
   await page.getByRole("button", { name: "Agents", exact: true }).click();
-  await page.getByRole("tab", { name: "This computer", exact: true }).click();
+  await page.getByRole("tab", { name: "Machines", exact: true }).click();
   const agyRow = page
     .locator(".agent-card")
     .filter({ has: page.getByText("Antigravity", { exact: true }) });
@@ -686,7 +686,7 @@ for (const mode of ["light", "dark"]) {
     const page = await boardPage(app);
     await openSettingsScreen(page);
     await page.getByRole("button", { name: "Agents", exact: true }).click();
-    await page.getByRole("tab", { name: "This computer", exact: true }).click();
+    await page.getByRole("tab", { name: "Machines", exact: true }).click();
     const row = page
       .locator(".agent-card")
       .filter({ has: page.getByText("Antigravity", { exact: true }) });

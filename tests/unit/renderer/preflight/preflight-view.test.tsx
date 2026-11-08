@@ -888,7 +888,7 @@ test.each([
     );
     render(<Preflight source={source} initial={initial} onLaunched={vi.fn()} settingsMode />);
     fireEvent.click(button("Agents"));
-    fireEvent.click(screen.getByRole("tab", { name: "This computer" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Machines" }));
     await waitFor(() => {
       expect(source.scanAgents).toHaveBeenCalled();
     });

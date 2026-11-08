@@ -1,3 +1,4 @@
+import { AgentStatus } from "./agent-status";
 import { AgentReload } from "./agent-reload";
 import { PluginSourceIcon } from "./plugin-source-icon";
 import { ActionError, useBackgroundErrors } from "../board/error-presentation";
@@ -174,7 +175,9 @@ export function AgentsStep({
                     }
                   />
                   <h3>{name}</h3>
-                  <span className="agent-version">
+                  <span
+                    className={`agent-version${machine && missing ? " agent-missing-status" : ""}`}
+                  >
                     {versionNumber(agent?.version ?? null) ??
                       (missing
                         ? scanning || !report
@@ -221,7 +224,7 @@ export function AgentsStep({
                 {machine && installed && (
                   <div className="agent-setting">
                     <span className="agent-label">Sign-in</span>
-                    <span>Sign-in unknown</span>
+                    <AgentStatus text="Sign-in unknown" />
                   </div>
                 )}
                 {!missing && (
