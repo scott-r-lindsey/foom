@@ -1991,6 +1991,12 @@ test("terminal context menu targets the clicked shell and preserves tracked righ
   await writeFile(marker, "");
   const app = await launchApp(context, { fixture: "running-shell" });
   const page = await boardPage(app);
+  await app.evaluate(({ shell }) => {
+    globalThis.contextMenuOpenedLinks = [];
+    shell.openExternal = async (url) => {
+      globalThis.contextMenuOpenedLinks.push(url);
+    };
+  });
   await app.evaluate(({ BrowserWindow }) => {
     BrowserWindow.getAllWindows()
       .find((window) => window.webContents.getURL() === "app://bundle/index.html")
@@ -2010,10 +2016,67 @@ test("terminal context menu targets the clicked shell and preserves tracked righ
   await page.keyboard.type("echo CONTEXT_COPY_A_936");
   await page.keyboard.press("Enter");
   await expect(shellA.locator(".xterm-rows")).toContainText("CONTEXT_COPY_A_936");
+  const url = "https://menu.example.test/path";
+  await page.keyboard.type(`echo ${url}`);
+  await page.keyboard.press("Enter");
+  await expect(
+    shellA
+      .locator(".xterm-rows > div")
+      .filter({ hasText: /^https:\/\/menu\.example\.test\/path\s*$/ }),
+  ).toBeVisible();
+  const link = shellA.getByRole("link", { name: url, exact: true }).last();
+  await expect(link.locator(":scope > span").first()).toBeVisible();
   const menu = page.getByRole("menu", { name: "Terminal menu", exact: true });
-  const openA = () => screenA.click({ button: "right", position: { x: 90, y: 40 } });
+  const clickBlankA = async (button = "right") => {
+    const bounds = await screenA.boundingBox();
+    assert.ok(bounds);
+    await screenA.click({ button, position: { x: 90, y: bounds.height - 20 } });
+  };
+  const openA = () => clickBlankA();
+  const openLink = async () => {
+    const bounds = await link.locator(":scope > span").first().boundingBox();
+    assert.ok(bounds);
+    await page.mouse.click(bounds.x + 15, bounds.y + bounds.height / 2, { button: "right" });
+  };
+  await openLink();
+  await expect(menu.getByRole("menuitem")).toHaveText(["Copy link", "Open link"]);
+  await expect(menu.locator(".tile-pads, hr")).toHaveCount(0);
+  await expect(menu.getByRole("menuitem", { name: "Copy link", exact: true })).toBeFocused();
+  await page.keyboard.press("Enter");
+  assert.equal(await app.evaluate(({ clipboard }) => clipboard.readText()), url);
+  await expect(shellA.locator(".xterm-helper-textarea")).toBeFocused();
+  const dialog = await confirmationPage(app);
+  const heading = dialog.getByRole("heading", { name: "Open this link?" });
+  await expect(heading).toHaveCount(0);
+  await openLink();
+  await page.keyboard.press("ArrowDown");
+  await expect(menu.getByRole("menuitem", { name: "Open link", exact: true })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(heading).toBeVisible();
+  await expect(dialog.locator(".facts")).toContainText(url);
+  assert.deepEqual(await app.evaluate(() => globalThis.contextMenuOpenedLinks), []);
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(shellA.locator(".xterm-helper-textarea")).toBeFocused();
   await openA();
   await expect(menu).toBeVisible();
+  await expect(menu.getByRole("menuitem")).toHaveCount(12);
+  for (const name of [
+    "Copy",
+    "Paste",
+    "Select all",
+    "Clear",
+    "Split terminal right",
+    "Split terminal up",
+    "Split terminal left",
+    "Split terminal down",
+    "Grow right",
+    "Grow up",
+    "Grow left",
+    "Grow down",
+  ])
+    await expect(menu.getByRole("menuitem", { name, exact: true })).toHaveCount(1);
+  await expect(menu.getByRole("group", { name: "Split", exact: true })).toHaveCount(1);
+  await expect(menu.getByRole("group", { name: "Grow", exact: true })).toHaveCount(1);
   await expect(menu.getByRole("menuitem", { name: "Copy", exact: true })).toBeDisabled();
   await page.keyboard.press("Escape");
   await expect(shellA.locator(".xterm-helper-textarea")).toBeFocused();
@@ -2044,7 +2107,7 @@ test("terminal context menu targets the clicked shell and preserves tracked righ
       .poll(() => app.evaluate(({ clipboard }) => clipboard.readText()))
       .toMatch(/CONTEXT_COPY_A_936/);
     // A normal left click clears the selection before the next plain-shell capture.
-    await screenA.click({ position: { x: 20, y: 40 } });
+    await clickBlankA("left");
   }
   // An outside click retains its newer focus choice instead of restoring A.
   await openA();

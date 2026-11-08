@@ -27,6 +27,25 @@ test("commands and reused pads close and act; Copy requires a selection", () => 
   );
   fireEvent.scroll(anchor);
   expect(close).not.toHaveBeenCalled();
+  expect(
+    screen
+      .getAllByRole("menuitem")
+      .map((item) => item.getAttribute("aria-label") ?? item.textContent),
+  ).toEqual([
+    "Copy",
+    "Paste",
+    "Select all",
+    "Clear",
+    "Split terminal right",
+    "Split terminal up",
+    "Split terminal left",
+    "Split terminal down",
+    "Grow right",
+    "Grow up",
+    "Grow left",
+    "Grow down",
+  ]);
+  expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "Paste" }));
   expect(screen.getByRole("menuitem", { name: "Copy" }).hasAttribute("disabled")).toBe(true);
   result.rerender(
     <TerminalMenu
@@ -47,39 +66,60 @@ test("commands and reused pads close and act; Copy requires a selection", () => 
   anchor.remove();
 });
 
-test("link commands remain available without a selection and show the exact target", async () => {
-  const anchor = document.body.appendChild(document.createElement("textarea"));
-  const close = vi.fn(),
-    copy = vi.fn().mockResolvedValue(undefined),
-    open = vi.fn();
-  render(
-    <TerminalMenu
-      menu={{
-        id: "a",
-        anchor,
-        point: { x: 10, y: 10 },
-        copy: undefined,
-        paste: vi.fn(),
-        clear: vi.fn(),
-        selectAll: vi.fn(),
-        link: { url: "https://example.com/Case", copy, open },
-      }}
-      layout={initialLayout()}
-      close={close}
-      action={vi.fn()}
-    />,
-  );
-  expect(screen.getByRole("menuitem", { name: "Copy" }).hasAttribute("disabled")).toBe(true);
-  expect(screen.getByRole("menuitem", { name: "Copy link" }).title).toBe(
-    "https://example.com/Case",
-  );
-  fireEvent.click(screen.getByRole("menuitem", { name: "Copy link" }));
-  fireEvent.click(screen.getByRole("menuitem", { name: "Open link" }));
-  expect(copy).toHaveBeenCalledOnce();
-  expect(open).toHaveBeenCalledOnce();
-  copy.mockRejectedValue(new Error("clipboard unavailable"));
-  fireEvent.click(screen.getByRole("menuitem", { name: "Copy link" }));
-  await Promise.resolve();
-  expect(close).toHaveBeenCalledTimes(3);
-  anchor.remove();
-});
+test.each([false, true])(
+  "link menus contain only link commands and retain keyboard focus (selection=%s)",
+  async (selected) => {
+    const anchor = document.body.appendChild(document.createElement("textarea"));
+    const close = vi.fn(),
+      copy = vi.fn().mockResolvedValue(undefined),
+      open = vi.fn();
+    render(
+      <TerminalMenu
+        menu={{
+          id: "a",
+          anchor,
+          point: { x: 10, y: 10 },
+          copy: selected ? vi.fn() : undefined,
+          paste: vi.fn(),
+          clear: vi.fn(),
+          selectAll: vi.fn(),
+          link: { url: "https://example.com/Case", copy, open },
+        }}
+        layout={initialLayout()}
+        close={close}
+        action={vi.fn()}
+      />,
+    );
+    expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
+      "Copy link",
+      "Open link",
+    ]);
+    expect(screen.getByRole("menu").querySelector(".tile-pads, hr")).toBeNull();
+    const copyItem = screen.getByRole("menuitem", { name: "Copy link" });
+    const openItem = screen.getByRole("menuitem", { name: "Open link" });
+    expect(document.activeElement).toBe(copyItem);
+    fireEvent.keyDown(copyItem, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(openItem);
+    fireEvent.keyDown(openItem, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(copyItem);
+    fireEvent.keyDown(copyItem, { key: "End" });
+    expect(document.activeElement).toBe(openItem);
+    fireEvent.keyDown(openItem, { key: "Home" });
+    expect(document.activeElement).toBe(copyItem);
+    expect(screen.getByRole("menuitem", { name: "Copy link" }).title).toBe(
+      "https://example.com/Case",
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: "Copy link" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Open link" }));
+    expect(copy).toHaveBeenCalledOnce();
+    expect(open).toHaveBeenCalledOnce();
+    copy.mockRejectedValue(new Error("clipboard unavailable"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Copy link" }));
+    await Promise.resolve();
+    expect(close).toHaveBeenCalledTimes(3);
+    fireEvent.keyDown(copyItem, { key: "Escape" });
+    expect(close).toHaveBeenCalledTimes(4);
+    expect(document.activeElement).toBe(anchor);
+    anchor.remove();
+  },
+);

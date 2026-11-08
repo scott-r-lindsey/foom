@@ -114,6 +114,14 @@ test("terminal links open and copy complete targets with trusted confirmation, w
     await page.mouse.click(position.x, position.y, { button });
     for (const key of modifiers.reverse()) await page.keyboard.up(key);
   };
+  const nonLinkMenu = async () => {
+    const bounds = await page
+      .locator(".xterm-rows > div")
+      .filter({ hasText: "LINK_FIXTURE_READY" })
+      .boundingBox();
+    assert.ok(bounds);
+    await page.mouse.click(bounds.x + 15, bounds.y + bounds.height / 2, { button: "right" });
+  };
   const menu = page.getByRole("menu", { name: "Terminal menu", exact: true });
   const dialog = await confirmationPage(app);
   const heading = dialog.getByRole("heading", { name: "Open this link?" });
@@ -123,10 +131,11 @@ test("terminal links open and copy complete targets with trusted confirmation, w
     await dialog.getByRole("button", { name: "Open in browser", exact: true }).click();
   };
 
-  // No earlier hover is required for Copy link, and Copy still reflects selection.
+  // A link-specific menu needs no earlier hover or selection.
   await click(target, "right");
   await expect(menu.getByRole("menuitem", { name: "Copy link", exact: true })).toBeEnabled();
-  await expect(menu.getByRole("menuitem", { name: "Copy", exact: true })).toBeDisabled();
+  await expect(menu.getByRole("menuitem")).toHaveText(["Copy link", "Open link"]);
+  await expect(menu.locator(".tile-pads, hr")).toHaveCount(0);
   await menu.getByRole("menuitem", { name: "Copy link", exact: true }).click();
   assert.equal(await app.evaluate(({ clipboard }) => clipboard.readText()), target);
   await expect(heading).toHaveCount(0);
@@ -217,23 +226,38 @@ test("terminal links open and copy complete targets with trusted confirmation, w
   await expect(keyboardLink).toBeFocused();
 
   // Native selection remains selected when a link's right-click is captured.
-  await click(plain, "right");
+  await nonLinkMenu();
   await menu.getByRole("menuitem", { name: "Select all", exact: true }).click();
   for (const theme of ["light", "dark"]) {
     await page.evaluate(
       (theme) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${theme}` }),
       theme,
     );
+    await expect
+      .poll(() => page.locator("html").evaluate((element) => getComputedStyle(element).colorScheme))
+      .toContain(theme);
     await click(plain, "right");
-    await expect(menu.getByRole("menuitem", { name: "Copy", exact: true })).toBeEnabled();
+    await expect(menu.getByRole("menuitem")).toHaveText(["Copy link", "Open link"]);
+    await expect(menu.locator(".tile-pads, hr")).toHaveCount(0);
     await expect(menu.getByRole("menuitem", { name: "Copy link", exact: true })).toBeEnabled();
     await page.screenshot({
       path: evidencePath(`screenshots-1065/${theme}-menu.png`),
       animations: "disabled",
     });
     await page.keyboard.press("Escape");
+    await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+    await nonLinkMenu();
+    await expect(menu.getByRole("menuitem")).toHaveCount(12);
+    await expect(menu.getByRole("menuitem", { name: "Copy", exact: true })).toBeEnabled();
+    await expect(menu.getByRole("group", { name: "Split", exact: true })).toHaveCount(1);
+    await expect(menu.getByRole("group", { name: "Grow", exact: true })).toHaveCount(1);
+    await page.screenshot({
+      path: evidencePath(`screenshots-1065/${theme}-non-link-menu.png`),
+      animations: "disabled",
+    });
+    await page.keyboard.press("Escape");
   }
-  await click(plain, "right");
+  await nonLinkMenu();
   await menu.getByRole("menuitem", { name: "Copy", exact: true }).click();
   assert.match(await app.evaluate(({ clipboard }) => clipboard.readText()), /LINK_FIXTURE_READY/);
   // Clear selection with an ordinary click away from links.

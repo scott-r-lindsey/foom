@@ -234,8 +234,12 @@ still naming that parent, including exited children.
 HTTP and HTTPS links open in your browser on a primary click, or Enter when the
 link has keyboard focus. Tab reaches visible links before the terminal input;
 Shift+F10 on a focused link opens its menu for keyboard copying. Hover shows the full destination and highlights all rows
-of a wrapped link. Right-click adds **Copy link** and **Open link**, even without
-selected text; **Copy** still copies only the selection. Mouse-tracking programs
+of a wrapped link. Right-clicking a link opens a menu containing only **Copy link**
+and **Open link**, even without selected text. Right-clicking elsewhere keeps
+**Copy**, **Paste**, **Select all**, **Clear** and the Split/Grow arrows. Selection
+is preserved when opening either menu; **Copy** in the non-link menu still copies
+only the selection. Keyboard access and focus restoration are the same for both
+menus. Mouse-tracking programs
 keep their right-click; hold Shift to open Foom's menu. Middle-click never opens a
 link.
 
