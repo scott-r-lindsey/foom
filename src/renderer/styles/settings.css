@@ -812,7 +812,7 @@
 }
 .host-repository-row {
   display: grid;
-  grid-template-columns: minmax(100px, 1fr) minmax(0, 2fr) minmax(130px, 1.3fr) 100px;
+  grid-template-columns: minmax(100px, 1fr) minmax(0, 3fr);
   align-items: center;
   gap: 16px;
   padding: 9px 20px;

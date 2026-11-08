@@ -15,6 +15,7 @@ Every channel checks the sender (a registered app window, its main frame, `app:/
 | `terminal:attach` / `terminal:detach` | renderer → main | `id` → snapshot via `terminal:data` on attach |
 | `terminal:kill` | renderer → main (invoke) | `id` |
 | `terminal:input` | renderer → main | `id`, `data` (≤ 64 KB; chunked on code-point boundaries) |
+| `terminal:write-clipboard` | renderer → main (invoke) | owned attached `id`, bounded OSC 52 body; main validates base64/UTF-8 and profile consent before writing at most 65,536 bytes of text; no reads |
 | `terminal:copy-selection` | renderer → main (invoke) | owned attached `id`, nonempty text ≤65,536 UTF-16 units; writes clipboard only on macOS/Windows while Copy on select is enabled; no read capability |
 | `terminal:copy-link` | renderer → main (invoke) | owned attached `id`, exact canonical printable-ASCII HTTP(S) target without userinfo, ≤16,384 UTF-16 units; main parses and validates it before a write-only clipboard operation |
 | `terminal:open-link` | renderer → main (invoke) | owned attached `id`, canonical printable-ASCII HTTP(S) target without userinfo (≤16,384 UTF-16 units); every activation requires the owning board's trusted confirmation showing the actual host and full URL; attachment is rechecked after approval |
@@ -212,3 +213,12 @@ A declined sharing warning returns no terminal ID and emits no
 A failed cleanup of a terminal created after cancellation returns the fixed
 `launch-cancel-incomplete` code. Its action error remains visible after the startup
 reservation is closed; ordinary pre-spawn aborts remain silent.
+
+## Terminal clipboard writes (#1073)
+
+`terminal:write-clipboard` accepts a terminal ID and raw OSC 52 body from a
+registered board main frame at the exact app URL. Main verifies owned ID and
+exclusive attachment, bounds and decodes the body independently of the renderer,
+and checks the current profile-only `terminalClipboardWrites` preference before
+writing text through Electron's main-owned clipboard API. The bridge returns void;
+it exposes no reads or query replies. See [terminal policy](terminals.md#osc-52-clipboard-writes-1073).

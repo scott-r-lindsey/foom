@@ -1,5 +1,9 @@
 import { LaunchFailure } from "../../shared/launch-failure";
-import { isCopyableErrorId, ApplicationError } from "../../shared/application-errors";
+import {
+  isCopyableErrorId,
+  capabilityError,
+  ApplicationError,
+} from "../../shared/application-errors";
 import { knownAgentId } from "../agents/providers/registry";
 import type { PreviewOpenAction, PreviewRecord } from "../../shared/previews";
 import { conversationId } from "../../shared/conversation";
@@ -703,7 +707,7 @@ export function attachWorkspace(
   for (const [channel, handler] of handlers)
     ipc.handle(channel, (event, ...args: unknown[]) => {
       const reject = (error: unknown): never => {
-        throw error instanceof ApplicationError ? error : new ApplicationError("operation-failed");
+        throw capabilityError(error);
       };
       try {
         if (!trusted(event)) throw new Error("Untrusted IPC sender");

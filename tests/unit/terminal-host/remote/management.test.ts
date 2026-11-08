@@ -282,10 +282,10 @@ test.skipIf(process.platform === "win32")(
       ok: true,
       checkout: { path, state: "absent" },
     });
-    mock.probe.mockRejectedValueOnce(new Error("host denied credentials secret"));
+    mock.probe.mockRejectedValueOnce(new HostGitFailure("origin-auth"));
     expect(
       await manageHost({ ...request, operation: "clone" }, 0, "/fixture", "0.1.0", home),
-    ).toEqual({ ok: false, reason: "origin-unreachable" });
+    ).toEqual({ ok: false, reason: "origin-auth" });
     mock.probe.mockImplementation((_cmd: string, args: string[], cwd: string) => {
       if (args.includes("clone")) {
         return Promise.resolve("");
@@ -1272,6 +1272,19 @@ for (const command of ["clone", "fetch", "ls-remote"] as const) {
         cancellation.signal,
       );
       expect(result).toEqual({ ok: false, reason });
+      if (command === "clone")
+        expect(mock.probe.mock.calls.map(([name, args]: unknown[]) => ({ name, args }))).toEqual([
+          {
+            name: "git",
+            args: [
+              "--no-optional-locks",
+              "clone",
+              "--",
+              origin,
+              expect.stringContaining(join(folder, ".foom-clone-")),
+            ],
+          },
+        ]);
       expect(await readdir(folder)).toEqual(command === "clone" ? [] : ["repo"]);
     },
   );

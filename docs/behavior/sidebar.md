@@ -208,9 +208,7 @@ host chip replaces the host suffix on their branch names and appears in their ti
 bars too, with a machine icon in tile bars only to keep sidebar rows compact.
 An unavailable chip has a broken-link mark and says Unavailable;
 sessions are dormant, never labelled Worktree removed because a host is offline.
-Repository New worktree and New agent menus offer a machine choice when that
-repository has a checked-out location on a registered host. Localhost remains an
-option; unavailable locations cannot launch. New agent uses the chosen machine's
+Repository New worktree and New agent menus offer every registered host, including hosts without a checkout yet. Foom prepares the checkout automatically on first use. Localhost remains an option; unavailable hosts cannot launch. New agent uses the chosen machine's
 main checkout. Creating a worktree launches nothing.
 
 Remote main-checkout agent launches, including new conversations,

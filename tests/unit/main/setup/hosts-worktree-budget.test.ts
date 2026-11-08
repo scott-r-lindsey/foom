@@ -60,6 +60,8 @@ test.each([
             facts,
             checkout: { path: repository, state: checkedOut ? "clean" : "absent" },
           });
+        if (request.operation === "clone")
+          return Promise.resolve({ ok: false, reason: "origin-auth" });
         if (request.operation === "create-worktree") {
           if (uncertain) return Promise.resolve({ ok: false, reason: "unreachable" });
           return Promise.resolve({
@@ -135,7 +137,7 @@ test.each([
         execute.mock.calls
           .filter(([, request]) => request.operation !== "list-worktrees")
           .map(([, request]) => request.operation),
-      ).toEqual(["repository", "repository", "repository", "repository"]);
+      ).toEqual(Array.from({ length: 4 }, () => ["repository", "clone"]).flat());
       expect(await create("local-after-refusals", false)).toMatchObject({ status: "succeeded" });
       checkedOut = true;
       const recovered = object(await create("remote-after-checkout"));

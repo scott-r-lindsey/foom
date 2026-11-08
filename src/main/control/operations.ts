@@ -4,7 +4,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { ControlError, exact, identifier } from "../../shared/control-validation";
 import type { Action, Operation, Principal, Reason, Status, StoredOperation } from "./types";
 
-function removalDetail(reason: Reason): { detail?: string } {
+function failureDetail(reason: Reason): { detail?: string } {
+  if (reason === "origin-auth") return { detail: launchReasons[reason] };
   const entry = Object.entries(removalReasons).find(([code]) => code === reason);
   return entry ? { detail: entry[1] } : {};
 }
@@ -147,7 +148,7 @@ export class Operations {
         ...prior.operation,
         status,
         reason,
-        ...removalDetail(reason),
+        ...failureDetail(reason),
         ...(placement ? { placement } : {}),
         ...(pressure ? { pressure } : {}),
         resultId,

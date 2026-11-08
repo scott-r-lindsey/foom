@@ -132,6 +132,7 @@ it.each(Object.keys(launchReasons))(
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     const failed = await h.mutate("launch", { worktreeId: tree.resultId, agent: "claude" });
     expect(failed).toMatchObject({ status: "failed", reason });
+    if (reason === "origin-auth") expect(failed.detail).toBe(launchReasons[reason]);
     expect(log).toHaveBeenCalledWith(`Agent launch failed: ${reason}`);
     expect(await h.call("operation_status", { operationId: failed.operationId })).toEqual(failed);
     expect(await h.mutate("launch", { worktreeId: tree.resultId, agent: "claude" })).toMatchObject({
@@ -175,4 +176,24 @@ it("keeps a remote child when close cannot reach the saved host", async () => {
     resultId: id,
   });
   expect(h.rows.has(id)).toBe(true);
+});
+
+it.each([
+  "origin-auth",
+  "origin-host-key",
+  "origin-unreachable",
+  "timed-out",
+  "checkout-invalid",
+] as const)("creation exposes %s without consuming a worktree slot", async (reason) => {
+  const h = harness();
+  h.host.createWorktree.mockRejectedValueOnce(new LaunchFailure(reason));
+  const failed = await h.mutate("create_worktree", { branch: "first-use" });
+  expect(failed).toMatchObject({
+    status: "failed",
+    reason,
+  });
+  if (reason === "origin-auth") expect(failed.detail).toBe(launchReasons[reason]);
+  for (const branch of ["a", "b", "c", "d"]) {
+    expect(await h.mutate("create_worktree", { branch })).toMatchObject({ status: "succeeded" });
+  }
 });

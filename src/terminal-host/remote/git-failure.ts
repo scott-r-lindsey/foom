@@ -29,5 +29,11 @@ export function gitFailureReason(stderr: string): HostGitFailureReason {
     )
   )
     return "checkout-invalid";
-  return "origin-unreachable";
+  if (
+    /could not resolve|failed to connect|connection refused|network is unreachable|no route to host|connection reset|remote end hung up|connection closed/iu.test(
+      stderr,
+    )
+  )
+    return "origin-unreachable";
+  return "checkout-invalid";
 }

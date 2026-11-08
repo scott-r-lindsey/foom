@@ -614,6 +614,7 @@ const validSettings: Validator<Settings> = shape({
   showNestedRepositoryNames: boolean,
   middleClickPaste: boolean,
   copyOnSelect: boolean,
+  terminalClipboardWrites: boolean,
   forges: dictionary(boolean),
   forgeHosts: dictionary(text),
   agents: both(
@@ -1825,6 +1826,7 @@ const desktop: DesktopApi = {
   async kill(id) {
     await ipcRenderer.invoke("terminal:kill", id);
   },
+  writeTerminalClipboard: (id, payload) => invokeVoid("terminal:write-clipboard", id, payload),
   copyTerminalSelection: (id, text) => invokeVoid("terminal:copy-selection", id, text),
   openTerminalLink: (id, url) => invokeVoid("terminal:open-link", id, url),
   copyTerminalLink: (id, url) => invokeVoid("terminal:copy-link", id, url),

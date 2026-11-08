@@ -174,3 +174,12 @@ Orchestrator host inventory still projects only agent ID/state, omitting these
 new display details. Installing the host plugin requires a disclosed click,
 main-owned confirmation and a human-owned recipe terminal; it copies no hub
 credentials and writes no global agent config directly.
+
+## Terminal clipboard writes (#1073)
+
+The profile-only OSC 52 preference is off by default. When enabled, untrusted
+program output in an attached local or remote tile can replace the local clipboard
+without a click; the user could paste that content elsewhere. Reads are always
+refused, including queries from SSH programs. There are no clipboard watchers,
+network requests, stored clipboard contents or clipboard diagnostics. Replay and
+reattachment cannot repeat writes; see [terminal policy](terminals.md#osc-52-clipboard-writes-1073).

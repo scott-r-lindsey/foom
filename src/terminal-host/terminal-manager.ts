@@ -149,6 +149,9 @@ export class TerminalManager {
         }
         return true;
       }),
+      // Never answer clipboard queries or retain clipboard commands in screen state.
+      // Only the live browser parser may request a main-owned clipboard write.
+      screen.parser.registerOscHandler(52, () => true),
       // The host is the response owner, whether or not a renderer is attached.
       screen.onData((data) => {
         if (this.nativeAvailable(session)) pty.write(data);
