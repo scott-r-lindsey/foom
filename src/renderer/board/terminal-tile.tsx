@@ -54,6 +54,22 @@ export function TileLight({
   );
 }
 
+function StartupSurface({ startup }: { startup: NonNullable<BoardRow["startup"]> }) {
+  const [delay] = useState(() => Math.max(0, 200 - (Date.now() - startup.since)));
+  return (
+    <div
+      className="tile-startup"
+      data-remote={startup.remote}
+      data-failed={Boolean(startup.error)}
+      role="status"
+      style={{ animationDelay: `${String(delay)}ms` }}
+    >
+      <span>{startup.error ?? startup.label}</span>
+      {!startup.error && <span className="tile-startup-orbit" aria-hidden="true" />}
+    </div>
+  );
+}
+
 function TerminalView({
   view,
   session,
@@ -61,7 +77,11 @@ function TerminalView({
   launchVersion,
   row,
   name,
+  startup,
+  startupReady,
 }: {
+  startupReady: (() => void) | undefined;
+  startup: BoardRow["startup"];
   row: BoardRow | undefined;
   name: string;
   view: TerminalViewSource;
@@ -70,14 +90,26 @@ function TerminalView({
   launchVersion: number;
 }) {
   const status = useSyncExternalStore(view.subscribe, view.getSnapshot);
+  const [opened, setOpened] = useState<string>();
   const mount = useCallback(
     (element: HTMLDivElement | null) => (element ? view.mount(element) : undefined),
     [view],
   );
   useEffect(() => {
-    void (active && session ? view.open(session) : view.hide());
+    let current = true;
+    if (active && session)
+      void Promise.resolve(view.open(session)).then(() => {
+        if (current) setOpened(session);
+      });
+    else void view.hide();
+    return () => {
+      current = false;
+    };
     // A relaunch keeps its row ID but needs a fresh host attachment.
   }, [view, session, active, launchVersion]);
+  useEffect(() => {
+    if (startup?.pending === false && opened === session && status.firstFrame) startupReady?.();
+  }, [startup, opened, session, status.firstFrame, startupReady]);
   return (
     <>
       <span className="tile-status visually-hidden" role="status">
@@ -89,7 +121,12 @@ function TerminalView({
           {status.pasteResult}
         </div>
       )}
-      {row && (row.dormant || status.attaching) && (
+      {row && startup?.pending === false && (opened !== session || !status.firstFrame) && (
+        <StartupSurface
+          startup={status.state === "failed" ? { ...startup, error: status.status } : startup}
+        />
+      )}
+      {row && !startup && (row.dormant || status.attaching) && (
         <div
           className="tile-restoring"
           aria-label={row.unavailable ? `${name} · Unavailable` : `Restoring ${name}`}
@@ -137,6 +174,7 @@ export function Tile({
   collapsing,
   arrived,
   acknowledgePreview,
+  startupReady,
 }: {
   layout: TileLayout;
   measure?: (() => TileMetrics | undefined) | undefined;
@@ -144,6 +182,7 @@ export function Tile({
   arrived: boolean;
   acknowledgePreview: () => void;
   rows: readonly BoardRow[];
+  startupReady?: ((id: string) => void) | undefined;
   tile: TileLeaf;
   rect: TileRect;
   number: number;
@@ -271,8 +310,8 @@ export function Tile({
     if (!explicit && restoreFocusRequest === lastRestoreFocusRef.current) return;
     lastFocusRef.current = focusRequest;
     lastRestoreFocusRef.current = restoreFocusRequest;
-    if (focused && !inactive) {
-      if (view && row?.kind !== "sample" && row)
+    if (focused && !inactive && (!row?.startup || row.startup.pending === false)) {
+      if (view && row?.kind !== "sample" && row && (!row.startup || row.startup.pending === false))
         view.focus(explicit ? undefined : restoreFocusRequest);
       else elementRef.current?.focus();
     }
@@ -318,7 +357,7 @@ export function Tile({
           !event.target.closest("button") &&
           !event.target.closest(".xterm")
         ) {
-          if (view && row) view.focus();
+          if (view && row && (!row.startup || row.startup.pending === false)) view.focus();
           else elementRef.current?.focus();
         }
       }}
@@ -326,7 +365,7 @@ export function Tile({
       {occupied && (
         <header
           className="tile-title"
-          draggable
+          draggable={!row?.startup}
           onDoubleClick={(event) => {
             if (event.target instanceof Element && !event.target.closest("button"))
               action("maximize");
@@ -416,6 +455,7 @@ export function Tile({
             ref={menuRef}
             type="button"
             className="tile-number"
+            disabled={Boolean(row?.startup)}
             aria-label={`Tile ${String(number)} menu`}
             aria-haspopup="dialog"
             aria-expanded={Boolean(menu)}
@@ -486,7 +526,7 @@ export function Tile({
           action={action}
         />
       )}
-      {occupied && menu && !inactive && !behind && (
+      {occupied && menu && !inactive && !behind && !row?.startup && (
         <TileMenu
           copyPath={
             preview
@@ -581,14 +621,32 @@ export function Tile({
           }}
         />
       )}
+      {row?.startup && row.startup.pending !== false && <StartupSurface startup={row.startup} />}
       {view && (
-        <div className="tile-shell" hidden={!row || row.kind === "sample"}>
+        <div
+          className="tile-shell"
+          hidden={
+            !row || row.kind === "sample" || Boolean(row.startup && row.startup.pending !== false)
+          }
+        >
           <TerminalView
             view={view}
+            startup={row?.startup}
+            startupReady={
+              row && startupReady
+                ? () => {
+                    startupReady(row.id);
+                  }
+                : undefined
+            }
             row={row}
             name={name}
-            session={row?.kind === "sample" ? undefined : row?.id}
-            active={!inactive}
+            session={
+              row?.kind === "sample" || (row?.startup && row.startup.pending !== false)
+                ? undefined
+                : row?.id
+            }
+            active={!inactive && (!row?.startup || row.startup.pending === false)}
             launchVersion={row?.launchVersion ?? 0}
           />
         </div>

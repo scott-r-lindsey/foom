@@ -444,6 +444,7 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
         document.querySelector(".tile-status")?.textContent &&
         !document.querySelector(".tile-status").textContent.includes("Starting"),
     );
+    await expect(page.locator(".tile-startup")).toHaveCount(0);
     assert.doesNotMatch(await page.locator(".tile-status").innerText(), /Unable/);
     await page.locator('.board-row[data-kind="shell"]').press("Enter");
     await expect(page.getByRole("navigation", { name: "Terminal sidebar" })).toBeVisible();

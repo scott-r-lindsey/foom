@@ -143,7 +143,15 @@ export class RemoteTransport extends EventEmitter {
         this.kill();
       });
   }
+  private startupSent = false;
+
+  /** Before open, disconnecting cannot strand a PTY. After open, the owner must close it. */
+  cancelStartup(): boolean {
+    return this.startupSent ? false : this.kill();
+  }
+
   private openRequest(request: number, reattach: boolean): RemoteRequest {
+    this.startupSent = true;
     const session = this.session;
     if (!session) throw new Error("Remote session unavailable");
     if (this.target.cleanup)

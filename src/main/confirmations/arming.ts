@@ -48,7 +48,8 @@ export class ConfirmationArming {
     this.finish(true);
     return true;
   }
-  cancel(): void {
+  cancel(expectedGeneration?: number): void {
+    if (expectedGeneration !== undefined && expectedGeneration !== this.generation) return;
     this.generation++;
     this.finish(false);
   }

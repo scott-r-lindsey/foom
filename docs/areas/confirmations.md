@@ -19,7 +19,8 @@ three seconds later, and come from the board's top frame. A monotonic clock chec
 the deadline independently of the expiry timer. Acceptance consumes the nonce
 before resuming the operation; forged, mismatched, early and replayed answers do
 not approve anything. `confirmation:cancel`, expiry, replacement, navigation and
-renderer loss revoke pending arming. Generation checks reject delayed preparation
+renderer loss revoke pending arming. Startup cancellation revokes only its own
+confirmation generation, so an older launch cannot disarm a newer action. Generation checks reject delayed preparation
 after cancellation. Existing workspace locks, identity/status rechecks and launch
 validation remain in force while an operation awaits confirmation.
 
@@ -32,6 +33,9 @@ main-only `TrustedDialog` API, preserves the full disclosure text and focuses
 Cancel by default; it never uses click-again.
 
 The board receives arm/end events through its source's `ConfirmationClient`.
+Sharing-capable launch menus remain mounted until main emits launch-started or
+settles the command. They never infer the absence of sharing from renderer rows,
+which may be stale or belong to another registered clone of the same origin.
 Menus and launch buttons keep only view state; pointer exit, focus movement and
 unmount disarm main. A trusted-dialog notification closes a menu and restores its
 anchor before the separate window takes focus. Main-originated end events reset
