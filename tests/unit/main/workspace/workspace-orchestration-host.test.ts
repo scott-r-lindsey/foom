@@ -1,3 +1,4 @@
+import { CheckoutHolds } from "../../../../src/main/workspace/worktree-reservations";
 import type { Hosts } from "../../../../src/main/setup/hosts";
 import { localResources } from "../../../../src/main/setup/local-host";
 import { describe, expect, it, vi } from "vitest";
@@ -19,6 +20,7 @@ vi.mock("../../../../src/main/setup/local-host", () => ({
 function hostFixture() {
   const capabilities: OrchestrationHostContext = {
     busyWorktrees: new Set(),
+    checkoutHolds: new CheckoutHolds(),
     cleanup: { removeOwnedTree: vi.fn() },
     closed: false,
     control: undefined,
@@ -556,3 +558,59 @@ it.each(["before inspection", "during confirmation"])(
     ).toBe(true);
   },
 );
+
+it("remote removal retains its canonical lease through review and its own post-delete Close", async () => {
+  const { caps, host } = fleetFixture();
+  const created = await host.createWorktree("/local/repo", "feature", "worker");
+  caps.snapshot = () => ({
+    repositories: [],
+    terminals: [
+      {
+        id: "remote-child",
+        repository: "/local/repo",
+        worktree: created.path,
+        branch: "old-name",
+        kind: "agent",
+        agent: "claude",
+        attention: "evaluator",
+        state: null,
+        exited: true,
+        remote: true,
+        placement: { kind: "remote", host: "worker" },
+      },
+    ],
+  });
+  const answer = Promise.withResolvers<boolean>();
+  const teardown = Promise.withResolvers<undefined>();
+  const confirm = vi.fn(() => answer.promise);
+  const close = vi.fn<NonNullable<typeof caps.sidebarCommand>>(async (...args) => {
+    const borrowed = caps.checkoutHolds.acquire(created.path, args[7]);
+    if (!borrowed) throw new Error("Removal could not authorize its Close");
+    try {
+      await teardown.promise;
+    } finally {
+      borrowed.release();
+    }
+  });
+  caps.sidebarCommand = close;
+  const removing = host.remove("/local/repo", created.path, created.identity, confirm, () => {});
+  try {
+    await vi.waitFor(() => {
+      expect(confirm).toHaveBeenCalledOnce();
+    });
+    expect(caps.checkoutHolds.acquire(created.path)).toBeUndefined();
+    expect(() =>
+      host.launch("parent", "/local/repo", created.path, created.identity, "codex", undefined),
+    ).toThrow("conflict");
+    answer.resolve(true);
+    await vi.waitFor(() => {
+      expect(close).toHaveBeenCalledOnce();
+    });
+    expect(caps.checkoutHolds.acquire(created.path)).toBeUndefined();
+  } finally {
+    answer.resolve(false);
+    teardown.resolve(undefined);
+  }
+  expect(await removing).toBe(true);
+  expect(caps.checkoutHolds.busy(created.path)).toBe(false);
+});

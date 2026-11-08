@@ -1,4 +1,5 @@
-import { closingWorktree, worktreeReservation } from "./worktree-reservations";
+import type { CheckoutHold } from "./worktree-reservations";
+import { checkoutBusy, worktreeReservation } from "./worktree-reservations";
 import type { ParentIdentity } from "../control/orchestration.d";
 import { canRestoreControl } from "./session-restore";
 import { locationId } from "../control/metadata";
@@ -54,9 +55,11 @@ export async function launch(
     const key = worktreeReservation(request.repository, request.worktree, tree?.branch);
     if (
       this.busyWorktrees.has(key) ||
-      closingWorktree(this.launched.values(), key, request.worktree)
+      checkoutBusy(this.checkoutHolds, this.launched.values(), key, request.worktree)
     )
       throw new Error("This worktree is busy");
+    const hold = this.checkoutHolds.acquire(request.worktree);
+    if (!hold) throw new Error("This worktree is busy");
     this.busyWorktrees.add(key);
     try {
       const identity = await this.deps.worktrees.launchIdentity(
@@ -64,9 +67,10 @@ export async function launch(
         request.worktree,
       );
       if (!(await this.confirmAgentLaunch(request.worktree, confirm))) return null;
-      return await this.launchAgent(request, false, true, identity);
+      return await this.launchAgent(request, false, true, identity, undefined, {}, hold);
     } finally {
       this.busyWorktrees.delete(key);
+      hold.release();
     }
   });
 }
@@ -91,104 +95,113 @@ export async function launchAgent(
     | "selection"
     | "remoteCheckout"
   > = {},
+  parentHold?: CheckoutHold,
 ): Promise<{ id: string; attention: "hooks" | "evaluator" }> {
   return this.withRepository(request.repository, async () => {
-    if (this.enabled[request.agent] === false) throw new LaunchFailure("agent_disabled");
-    // Scan once so launches don't each probe the login shell.
-    if (!extra.remoteCheckout && !remoteAgentTarget(process.argv, request.worktree))
-      await this.scanAgents(false);
-    // Look up the branch before spawning, so nothing can fail between spawn and tracking.
-    const tree = extra.remoteCheckout
-      ? {
-          branch: `${extra.remoteCheckout.branch === "HEAD" ? "Detached HEAD" : extra.remoteCheckout.branch} · ${extra.remoteCheckout.target.host}`,
-        }
-      : (await this.deps.worktrees.listWorktrees(request.repository)).find(
-          (entry) => entry.path === request.worktree,
-        );
-    const checkClosing = () => {
-      if (
-        closingWorktree(
-          this.launched.values(),
-          worktreeReservation(request.repository, request.worktree, tree?.branch),
-          request.worktree,
+    const hold = this.checkoutHolds.acquire(request.worktree, parentHold);
+    if (!hold) throw new Error("This worktree is busy");
+    try {
+      if (this.enabled[request.agent] === false) throw new LaunchFailure("agent_disabled");
+      // Scan once so launches don't each probe the login shell.
+      if (!extra.remoteCheckout && !remoteAgentTarget(process.argv, request.worktree))
+        await this.scanAgents(false);
+      // Look up the branch before spawning, so nothing can fail between spawn and tracking.
+      const tree = extra.remoteCheckout
+        ? {
+            branch: `${extra.remoteCheckout.branch === "HEAD" ? "Detached HEAD" : extra.remoteCheckout.branch} · ${extra.remoteCheckout.target.host}`,
+          }
+        : (await this.deps.worktrees.listWorktrees(request.repository)).find(
+            (entry) => entry.path === request.worktree,
+          );
+      const checkClosing = () => {
+        if (
+          checkoutBusy(
+            this.checkoutHolds,
+            this.launched.values(),
+            worktreeReservation(request.repository, request.worktree, tree?.branch),
+            request.worktree,
+            hold,
+          )
         )
-      )
-        throw new Error("This worktree is busy");
-    };
-    checkClosing();
-    // Children use the user's defaults as written, but never bypass: an orchestrator
-    // cannot pass on the user's acknowledgement for manual launches.
-    const child = extra.control !== undefined && "parentId" in extra.control;
-    const defaultArguments = this.defaultArguments[request.agent] ?? [];
-    if (child && hasBypassArgument(request.agent, defaultArguments))
-      throw new ControlError("forbidden");
-    const result = await this.agents.launch({
-      ...request,
-      ...extra,
-      beforeSpawn: () => {
-        checkClosing();
-        extra.beforeSpawn?.();
-      },
-      ...(replacement && !this.launched.get(replacement.id)?.remote ? { localOnly: true } : {}),
-      defaultArguments,
-      ...(replacement
-        ? {
-            terminalId: replacement.id,
-            ...(replacement.conversationId === undefined
-              ? {}
-              : { conversationId: replacement.conversationId }),
-          }
-        : {}),
-      mainCheckout,
-      sharedCheckout,
-      ...(checkoutIdentity !== undefined ? { checkoutIdentity } : {}),
-      ...(this.deps.environment ? { environment: this.deps.environment(request.agent) } : {}),
-    });
-    const launchVersion = replacement
-      ? (this.launched.get(replacement.id)?.launchVersion ?? 0) + 1
-      : undefined;
-    this.launched.set(result.id, {
-      ...(launchVersion === undefined ? {} : { launchVersion }),
-      id: result.id,
-      ...(extra.loop
-        ? {
-            review:
-              "authorId" in extra.loop
-                ? extra.loop
-                : { ...extra.loop, authorId: result.id, round: 0, phase: "building" as const },
-          }
-        : {}),
-      ...(result.remote ? { remote: true } : {}),
-      placement: result.placement ?? { kind: "local" },
-      ...(result.providerOrigin ? { providerOrigin: result.providerOrigin } : {}),
-      startedAt: this.now(),
-      launchFlags: [...(result.launchFlags ?? defaultArguments)],
-      ...(extra.selection ? { selection: extra.selection } : {}),
-      ...(result.environment?.length ? { environment: [...result.environment] } : {}),
-      kind: "agent",
-      agent: request.agent,
-      repository: request.repository,
-      worktree: request.worktree,
-      branch: tree?.branch ?? null,
-      attention: result.attention,
-      ...((replacement?.conversationId ?? extra.conversationId) === undefined
-        ? {}
-        : { conversationId: replacement?.conversationId ?? extra.conversationId }),
-      ...(result.conversationId ? { conversationId: result.conversationId } : {}),
-      bypass: result.bypass ?? hasBypassArgument(request.agent, defaultArguments),
-      state: null,
-    });
-    if (extra.remoteCheckout)
-      this.sessions.rememberRemote(result.id, {
-        repository: extra.remoteCheckout.repository,
-        path: extra.remoteCheckout.worktree,
-        branch: extra.remoteCheckout.branch,
-        identity: extra.remoteCheckout.identity,
+          throw new Error("This worktree is busy");
+      };
+      checkClosing();
+      // Children use the user's defaults as written, but never bypass: an orchestrator
+      // cannot pass on the user's acknowledgement for manual launches.
+      const child = extra.control !== undefined && "parentId" in extra.control;
+      const defaultArguments = this.defaultArguments[request.agent] ?? [];
+      if (child && hasBypassArgument(request.agent, defaultArguments))
+        throw new ControlError("forbidden");
+      const result = await this.agents.launch({
+        ...request,
+        ...extra,
+        beforeSpawn: () => {
+          checkClosing();
+          extra.beforeSpawn?.();
+        },
+        ...(replacement && !this.launched.get(replacement.id)?.remote ? { localOnly: true } : {}),
+        defaultArguments,
+        ...(replacement
+          ? {
+              terminalId: replacement.id,
+              ...(replacement.conversationId === undefined
+                ? {}
+                : { conversationId: replacement.conversationId }),
+            }
+          : {}),
+        mainCheckout,
+        sharedCheckout,
+        ...(checkoutIdentity !== undefined ? { checkoutIdentity } : {}),
+        ...(this.deps.environment ? { environment: this.deps.environment(request.agent) } : {}),
       });
-    this.executionOwner.launched(result.id);
-    this.persist();
-    this.refresh();
-    return { id: result.id, attention: result.attention };
+      const launchVersion = replacement
+        ? (this.launched.get(replacement.id)?.launchVersion ?? 0) + 1
+        : undefined;
+      this.launched.set(result.id, {
+        ...(launchVersion === undefined ? {} : { launchVersion }),
+        id: result.id,
+        ...(extra.loop
+          ? {
+              review:
+                "authorId" in extra.loop
+                  ? extra.loop
+                  : { ...extra.loop, authorId: result.id, round: 0, phase: "building" as const },
+            }
+          : {}),
+        ...(result.remote ? { remote: true } : {}),
+        placement: result.placement ?? { kind: "local" },
+        ...(result.providerOrigin ? { providerOrigin: result.providerOrigin } : {}),
+        startedAt: this.now(),
+        launchFlags: [...(result.launchFlags ?? defaultArguments)],
+        ...(extra.selection ? { selection: extra.selection } : {}),
+        ...(result.environment?.length ? { environment: [...result.environment] } : {}),
+        kind: "agent",
+        agent: request.agent,
+        repository: request.repository,
+        worktree: request.worktree,
+        branch: tree?.branch ?? null,
+        attention: result.attention,
+        ...((replacement?.conversationId ?? extra.conversationId) === undefined
+          ? {}
+          : { conversationId: replacement?.conversationId ?? extra.conversationId }),
+        ...(result.conversationId ? { conversationId: result.conversationId } : {}),
+        bypass: result.bypass ?? hasBypassArgument(request.agent, defaultArguments),
+        state: null,
+      });
+      if (extra.remoteCheckout)
+        this.sessions.rememberRemote(result.id, {
+          repository: extra.remoteCheckout.repository,
+          path: extra.remoteCheckout.worktree,
+          branch: extra.remoteCheckout.branch,
+          identity: extra.remoteCheckout.identity,
+        });
+      this.executionOwner.launched(result.id);
+      this.persist();
+      this.refresh();
+      return { id: result.id, attention: result.attention };
+    } finally {
+      hold.release();
+    }
   });
 }
 
@@ -200,9 +213,13 @@ export async function startWorktree(
   return this.withRepository(request.repository, async () => {
     // Lock the logical branch before any async operation, including creation.
     const key = `${request.repository}\0${request.branch}`;
-    if (this.busyWorktrees.has(key) || closingWorktree(this.launched.values(), key, undefined))
+    if (
+      this.busyWorktrees.has(key) ||
+      checkoutBusy(this.checkoutHolds, this.launched.values(), key, undefined)
+    )
       throw new Error("This worktree is busy");
     this.busyWorktrees.add(key);
+    let hold: CheckoutHold | undefined;
     try {
       await this.deps.worktrees.validateBranch(request.repository, request.branch);
       const trees = await this.worktrees(request.repository);
@@ -210,8 +227,10 @@ export async function startWorktree(
       const tree =
         existing ?? (await this.addWorktree(request.repository, request.branch, this.location));
       if (tree.bare || tree.locked || tree.prunable) throw new Error("Worktree is unavailable");
-      if (closingWorktree(this.launched.values(), key, tree.path))
+      if (checkoutBusy(this.checkoutHolds, this.launched.values(), key, tree.path))
         throw new Error("This worktree is busy");
+      hold = this.checkoutHolds.acquire(tree.path);
+      if (!hold) throw new Error("This worktree is busy");
       const identity = await this.deps.worktrees.launchIdentity(request.repository, tree.path);
       if (request.run !== "shell") {
         if (!(await this.confirmAgentLaunch(tree.path, confirm))) return null;
@@ -227,18 +246,32 @@ export async function startWorktree(
             false,
             true,
             identity,
+            undefined,
+            {},
+            hold,
           )
         ).id;
       }
       if ((await this.deps.worktrees.launchIdentity(request.repository, tree.path)) !== identity)
         throw new Error("Worktree has changed. Select it and try again.");
-      return await this.startShell({
-        repository: request.repository,
-        worktree: tree.path,
-        branch: tree.branch,
-      });
+      return await this.startShell(
+        {
+          repository: request.repository,
+          worktree: tree.path,
+          branch: tree.branch,
+        },
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        hold,
+      );
     } finally {
       this.busyWorktrees.delete(key);
+      hold?.release();
     }
   });
 }
@@ -262,87 +295,102 @@ export async function startShell(
   remoteOverride?: RemoteTarget,
   validateLaunch?: () => void,
   signal?: AbortSignal,
+  parentHold?: CheckoutHold,
 ): Promise<string> {
-  const remote =
-    remoteOverride ??
-    (checkout
-      ? {
-          ...checkout.target,
-          checkout: {
-            repository: checkout.repository,
-            path: checkout.worktree,
-            identity: checkout.identity,
-          },
-        }
-      : location.home
-        ? remoteSpikeTarget(process.argv)
-        : undefined);
-  const environment = remote ? { env: {}, names: [] } : await this.shellEnvironment(pathFirst);
-  if (restoreId !== undefined) this.executionOwner.reset(restoreId);
-  await checkout?.validate();
-  validateLaunch?.();
-  if (
-    !location.home &&
-    closingWorktree(
-      this.launched.values(),
-      worktreeReservation(location.repository, location.worktree, location.branch),
-      location.worktree,
+  const hold =
+    location.home || location.config
+      ? undefined
+      : this.checkoutHolds.acquire(location.worktree, parentHold);
+  if (!location.home && !location.config && !hold) throw new Error("This worktree is busy");
+  try {
+    const remote =
+      remoteOverride ??
+      (checkout
+        ? {
+            ...checkout.target,
+            checkout: {
+              repository: checkout.repository,
+              path: checkout.worktree,
+              identity: checkout.identity,
+            },
+          }
+        : location.home
+          ? remoteSpikeTarget(process.argv)
+          : undefined);
+    const environment = remote ? { env: {}, names: [] } : await this.shellEnvironment(pathFirst);
+    if (restoreId !== undefined) this.executionOwner.reset(restoreId);
+    await checkout?.validate();
+    validateLaunch?.();
+    if (
+      !location.home &&
+      !location.config &&
+      checkoutBusy(
+        this.checkoutHolds,
+        this.launched.values(),
+        worktreeReservation(location.repository, location.worktree, location.branch),
+        location.worktree,
+        hold,
+      )
     )
-  )
-    throw new Error("This worktree is busy");
-  const id = await this.deps.terminals.create({
-    ...(signal ? { signal } : {}),
-    ...(restoreId === undefined ? {} : { id: restoreId }),
-    ...(remote
-      ? {
-          remote: {
-            ...remote,
-            ...(checkout
-              ? {
-                  context: {
-                    repository: location.repository,
-                    worktree: location.worktree,
-                    branch: checkout.branch,
-                    agent: "shell",
-                  },
-                }
-              : {}),
-          },
-        }
-      : {}),
-    command: remote ? `ssh ${remote.host}` : shellPath(),
-    args: process.platform === "win32" ? ["-NoLogo"] : ["-l"],
-    shellIntegration: true,
-    env: { ...environment.env, ...configEnvironment },
-    cwd: checkout?.worktree ?? location.worktree,
-    cols: 80,
-    rows: 24,
-  });
-  this.launched.set(id, {
-    ...this.replacementVersion(restoreId),
-    id,
-    kind: "shell",
-    agent: "shell",
-    ...location,
-    ...(remote ? { remote: true, placement: { kind: "remote" as const, host: remote.host } } : {}),
-    ...(remote?.recipe ? { recipe: true } : {}),
-    ...(checkout ? { branch: `${checkout.branch} · ${checkout.target.host}` } : {}),
-    ...(environment.names.length ? { environment: environment.names } : {}),
-    attention: "evaluator",
-    state: null,
-    startedAt: this.now(),
-  });
-  this.executionOwner.ensure(id);
-  if (checkout)
-    this.sessions.rememberRemote(id, {
-      repository: checkout.repository,
-      path: checkout.worktree,
-      identity: checkout.identity,
-      branch: checkout.branch,
+      throw new Error("This worktree is busy");
+    const id = await this.deps.terminals.create({
+      ...(signal ? { signal } : {}),
+      ...(restoreId === undefined ? {} : { id: restoreId }),
+      ...(remote
+        ? {
+            remote: {
+              ...remote,
+              ...(checkout
+                ? {
+                    context: {
+                      repository: location.repository,
+                      worktree: location.worktree,
+                      branch: checkout.branch,
+                      agent: "shell",
+                    },
+                  }
+                : {}),
+            },
+          }
+        : {}),
+      command: remote ? `ssh ${remote.host}` : shellPath(),
+      args: process.platform === "win32" ? ["-NoLogo"] : ["-l"],
+      shellIntegration: true,
+      env: { ...environment.env, ...configEnvironment },
+      cwd: checkout?.worktree ?? location.worktree,
+      cols: 80,
+      rows: 24,
     });
-  this.persist();
-  this.refresh();
-  return id;
+    this.launched.set(id, {
+      ...this.replacementVersion(restoreId),
+      id,
+      kind: "shell",
+      agent: "shell",
+      ...location,
+      ...(remote
+        ? { remote: true, placement: { kind: "remote" as const, host: remote.host } }
+        : {}),
+      ...(remote?.recipe ? { recipe: true } : {}),
+      ...(checkout ? { branch: `${checkout.branch} · ${checkout.target.host}` } : {}),
+      ...(environment.names.length ? { environment: environment.names } : {}),
+      attention: "evaluator",
+      state: null,
+      startedAt: this.now(),
+    });
+    this.executionOwner.ensure(id);
+    if (checkout)
+      this.sessions.rememberRemote(id, {
+        repository: checkout.repository,
+        path: checkout.worktree,
+        identity: checkout.identity,
+        branch: checkout.branch,
+      });
+    this.persist();
+    this.refresh();
+    return id;
+  } finally {
+    hold?.release();
+  }
 }
 
 /** Human-owned sessions outside repository control, with the user's ordinary CLI defaults. */
@@ -357,8 +405,10 @@ export async function startMachine(
   validateLaunch?: () => void,
   signal?: AbortSignal,
   heldReservation?: string,
+  parentHold?: CheckoutHold,
 ): Promise<string | undefined> {
   let reservation: string | undefined;
+  let hold: CheckoutHold | undefined;
   const perform = async (): Promise<string | undefined> => {
     const ensureOpen = () => {
       validateLaunch?.();
@@ -445,6 +495,10 @@ export async function startMachine(
       if (!installation?.path) throw new LaunchFailure("agent_unavailable");
       command = installation.path;
     }
+    if (trackedLocation) {
+      hold = this.checkoutHolds.acquire(trackedLocation.worktree, parentHold);
+      if (!hold) throw new Error("This worktree is busy");
+    }
     // startExisting already holds the linked-checkout lock and confirmation.
     // Direct human launches supply confirm; main clones always require this gate.
     if (trackedLocation && (confirm || trackedLocation.branch === "Main checkout")) {
@@ -453,7 +507,13 @@ export async function startMachine(
           ? `remote-main\0${trackedLocation.worktree}`
           : `${trackedLocation.repository}\0:remote:${trackedLocation.worktree}`;
       if (
-        closingWorktree(this.launched.values(), key, trackedLocation.worktree) ||
+        checkoutBusy(
+          this.checkoutHolds,
+          this.launched.values(),
+          key,
+          trackedLocation.worktree,
+          hold,
+        ) ||
         (this.busyWorktrees.has(key) && key !== heldReservation)
       )
         throw new Error("This worktree is busy");
@@ -494,7 +554,8 @@ export async function startMachine(
     if (host !== null) hosts?.registered(host, remote?.machine?.codeFolder);
     if (
       trackedLocation &&
-      closingWorktree(
+      checkoutBusy(
+        this.checkoutHolds,
         this.launched.values(),
         worktreeReservation(
           trackedLocation.repository,
@@ -502,6 +563,7 @@ export async function startMachine(
           trackedLocation.branch,
         ),
         trackedLocation.worktree,
+        hold,
       )
     )
       throw new Error("This worktree is busy");
@@ -578,6 +640,7 @@ export async function startMachine(
   } finally {
     if (reservation !== undefined && reservation !== heldReservation)
       this.busyWorktrees.delete(reservation);
+    hold?.release();
   }
 }
 
@@ -667,227 +730,240 @@ export async function startExisting(
   validateLaunch?: () => void,
   signal?: AbortSignal,
   heldReservation?: string,
+  parentHold?: CheckoutHold,
 ): Promise<string | undefined> {
   return this.withRepository(repository, async () => {
-    let reservation: string | undefined;
-    let resumeSlot:
-      | Exclude<ReturnType<WorktreeLaunchContext["orchestration"]["reserve"]>, { existing: string }>
-      | undefined;
-    let finishResume: (() => void) | undefined;
-    let resumeRuntime: Awaited<WorktreeLaunchContext["control"]> = undefined;
-    const oldParent = replacement ? this.launched.get(replacement.id) : undefined;
-    let resumeGuard =
-      !restoring &&
-      !control &&
-      replacement?.conversationId &&
-      oldParent?.agent === run &&
-      oldParent.repository === repository &&
-      oldParent.worktree === worktree &&
-      !oldParent.remote
-        ? this.orchestration.resumeGuard(oldParent.id, repository)
-        : undefined;
+    const hold = this.checkoutHolds.acquire(worktree, parentHold);
+    if (!hold) throw new Error("This worktree is busy");
     try {
-      const registeredHost = this.orchestration.worktreeHost(worktree);
-      if (registeredHost !== undefined) {
-        const candidate = `${repository}\0:remote:${worktree}`;
-        if (
-          closingWorktree(this.launched.values(), candidate, worktree) ||
-          (this.busyWorktrees.has(candidate) && candidate !== heldReservation)
-        )
-          throw new Error("This worktree is busy");
-        if (candidate !== heldReservation) this.busyWorktrees.add(candidate);
-        reservation = candidate;
-      }
-      const mappedRemote =
-        registeredHost !== undefined || remoteAgentTarget(process.argv, worktree) !== undefined;
-      // Capture the live parent before inventory probes; a later re-grant cannot authorize this resume.
-      const remoteParentGuard =
-        mappedRemote && control && "parentId" in control
-          ? this.orchestration.remoteParentGuard(control.parentId)
+      let reservation: string | undefined;
+      let resumeSlot:
+        | Exclude<
+            ReturnType<WorktreeLaunchContext["orchestration"]["reserve"]>,
+            { existing: string }
+          >
+        | undefined;
+      let finishResume: (() => void) | undefined;
+      let resumeRuntime: Awaited<WorktreeLaunchContext["control"]> = undefined;
+      const oldParent = replacement ? this.launched.get(replacement.id) : undefined;
+      let resumeGuard =
+        !restoring &&
+        !control &&
+        replacement?.conversationId &&
+        oldParent?.agent === run &&
+        oldParent.repository === repository &&
+        oldParent.worktree === worktree &&
+        !oldParent.remote
+          ? this.orchestration.resumeGuard(oldParent.id, repository)
           : undefined;
-      const registeredRemote = await this.orchestration.remoteCheckout(worktree, run);
-      const isRemote = registeredRemote !== undefined || mappedRemote;
-      const tree = (await this.worktrees(repository)).find((item) => item.path === worktree);
-      if (!tree) throw new Error("Worktree was removed. Choose another checkout.");
-      if (tree.bare || tree.prunable || tree.locked) throw new Error("Worktree is unavailable");
-      if (reservation === undefined) {
-        const candidate = worktreeReservation(repository, worktree, tree.branch);
+      try {
+        const registeredHost = this.orchestration.worktreeHost(worktree);
+        if (registeredHost !== undefined) {
+          const candidate = `${repository}\0:remote:${worktree}`;
+          if (
+            checkoutBusy(this.checkoutHolds, this.launched.values(), candidate, worktree, hold) ||
+            (this.busyWorktrees.has(candidate) && candidate !== heldReservation)
+          )
+            throw new Error("This worktree is busy");
+          if (candidate !== heldReservation) this.busyWorktrees.add(candidate);
+          reservation = candidate;
+        }
+        const mappedRemote =
+          registeredHost !== undefined || remoteAgentTarget(process.argv, worktree) !== undefined;
+        // Capture the live parent before inventory probes; a later re-grant cannot authorize this resume.
+        const remoteParentGuard =
+          mappedRemote && control && "parentId" in control
+            ? this.orchestration.remoteParentGuard(control.parentId)
+            : undefined;
+        const registeredRemote = await this.orchestration.remoteCheckout(worktree, run);
+        const isRemote = registeredRemote !== undefined || mappedRemote;
+        const tree = (await this.worktrees(repository)).find((item) => item.path === worktree);
+        if (!tree) throw new Error("Worktree was removed. Choose another checkout.");
+        if (tree.bare || tree.prunable || tree.locked) throw new Error("Worktree is unavailable");
+        if (reservation === undefined) {
+          const candidate = worktreeReservation(repository, worktree, tree.branch);
+          if (
+            checkoutBusy(this.checkoutHolds, this.launched.values(), candidate, worktree, hold) ||
+            (this.busyWorktrees.has(candidate) && candidate !== heldReservation)
+          )
+            throw new Error("This worktree is busy");
+          if (candidate !== heldReservation) this.busyWorktrees.add(candidate);
+          reservation = candidate;
+        }
+        const identity =
+          registeredRemote?.identity ??
+          (await this.deps.worktrees.launchIdentity(repository, worktree));
         if (
-          closingWorktree(this.launched.values(), candidate, worktree) ||
-          (this.busyWorktrees.has(candidate) && candidate !== heldReservation)
+          authorityIdentity !== undefined &&
+          (identity !== authorityIdentity.worktree ||
+            (await this.deps.worktrees.launchIdentity(repository, repository)) !==
+              authorityIdentity.repository)
         )
-          throw new Error("This worktree is busy");
-        if (candidate !== heldReservation) this.busyWorktrees.add(candidate);
-        reservation = candidate;
-      }
-      const identity =
-        registeredRemote?.identity ??
-        (await this.deps.worktrees.launchIdentity(repository, worktree));
-      if (
-        authorityIdentity !== undefined &&
-        (identity !== authorityIdentity.worktree ||
-          (await this.deps.worktrees.launchIdentity(repository, repository)) !==
-            authorityIdentity.repository)
-      )
-        throw new Error("Repository identity changed during restore");
-      if (run !== "shell" && !restoring && !(await this.confirmAgentLaunch(worktree, confirm)))
-        return;
-      if (registeredRemote && !control && run !== "shell") {
-        const location = {
-          repository,
-          worktree,
-          branch: tree.branch,
-        };
-        return await this.startMachine(
-          registeredRemote.target.host,
-          run,
-          replacement?.id,
-          location,
-          undefined,
-          undefined,
-          validateLaunch,
-          signal,
-          heldReservation,
-        );
-      }
-      validateLaunch?.();
-      if (run !== "shell") {
-        const report = !isRemote ? await this.scanAgents(false) : undefined;
-        const agent = report?.agents.find((entry) => entry.id === run);
-        if (resumeGuard && !canRestoreControl(oldParent, agent)) resumeGuard = undefined;
-        if (resumeGuard && replacement) {
-          const rootIdentity = await this.deps.worktrees.launchIdentity(repository, repository);
-          const parentIdentity = this.orchestration.identity(replacement.id);
-          if (rootIdentity !== parentIdentity?.repository || identity !== parentIdentity.worktree)
-            throw new Error("Repository identity changed during resume");
-          resumeRuntime = await this.control;
-          resumeGuard();
-          const slot = this.orchestration.reserve(repository, undefined, true, parentIdentity);
-          if ("existing" in slot) throw new Error("The orchestrator changed. Try again.");
-          resumeSlot = slot;
-          control = { role: "orchestrator" };
-        }
-        if (replacement) {
-          const old = this.launched.get(replacement.id);
-          if (old?.remote && !isRemote)
-            throw new Error("Remote mapping is required to resume this child");
-          if (!old || this.executionOwner.view(old.id).exitCode === undefined)
-            throw new Error("Session is no longer exited");
-          if (!restoring)
-            this.orchestration.relaunched(
-              replacement.id,
-              old.remote && control && "parentId" in control ? control.parentId : undefined,
-              resumeGuard !== undefined,
-            );
-          await this.queues.get(old.id);
-          if (old.remote && old.placement?.kind === "remote")
-            await this.deps.terminals.kill(old.id, old.placement.host);
-          else if (!old.dormant) await this.deps.terminals.kill(old.id);
-          old.dormant = true;
-          this.executionOwner.reset(old.id);
-          this.deps.verdicts.forget(old.id);
-        }
-        if (resumeGuard && replacement)
-          finishResume = this.orchestration.observeParentResume(replacement.id);
-        const childParentId = control && "parentId" in control ? control.parentId : undefined;
-        try {
-          const resumed = await this.launchAgent(
-            {
-              agent: run,
-              repository,
-              worktree,
-              cols: 80,
-              rows: 24,
-            },
-            worktree === repository,
-            true,
-            identity,
-            replacement,
-            {
-              ...(registeredRemote ? { remoteCheckout: registeredRemote } : {}),
-              ...(validateLaunch || resumeGuard
-                ? {
-                    beforeSpawn: () => {
-                      validateLaunch?.();
-                      resumeGuard?.();
-                    },
-                  }
-                : {}),
-              ...(isRemote && childParentId !== undefined
-                ? {
-                    beforeSpawn: () => {
-                      validateLaunch?.();
-                      remoteParentGuard?.();
-                      const parent = this.orchestration.view(childParentId);
-                      const child = replacement
-                        ? this.orchestration.view(replacement.id)
-                        : undefined;
-                      if (
-                        parent?.role !== "orchestrator" ||
-                        !parent.active ||
-                        (replacement &&
-                          (child?.role !== "child" ||
-                            child.parentId !== childParentId ||
-                            child.takenOver))
-                      )
-                        throw new Error("Remote child ownership changed");
-                    },
-                  }
-                : {}),
-              ...(pastedId === undefined
-                ? {}
-                : { conversationId: pastedId, pinConversation: true }),
-              ...(control === undefined
-                ? {}
-                : {
-                    control,
-                    ...("parentId" in control ? { prompt: "Resume your previous task." } : {}),
-                  }),
-            },
+          throw new Error("Repository identity changed during restore");
+        if (run !== "shell" && !restoring && !(await this.confirmAgentLaunch(worktree, confirm)))
+          return;
+        if (registeredRemote && !control && run !== "shell") {
+          const location = {
+            repository,
+            worktree,
+            branch: tree.branch,
+          };
+          return await this.startMachine(
+            registeredRemote.target.host,
+            run,
+            replacement?.id,
+            location,
+            undefined,
+            undefined,
+            validateLaunch,
+            signal,
+            heldReservation,
+            hold,
           );
-          // A human revoke may finish while the host is spawning. Keep the new
-          // process ordinary and live rather than restoring cancelled authority.
-          if (resumeGuard) {
-            try {
-              resumeGuard();
-            } catch {
-              resumeRuntime?.setRole?.(resumed.id, "agent");
-              return resumed.id;
-            }
-          }
-          resumeSlot?.bind(resumed.id);
-          return resumed.id;
-        } catch (error) {
-          if (replacement) {
-            this.executionOwner.markExited(replacement.id, -1);
-            if (this.launched.get(replacement.id)?.remote)
-              this.orchestration.exited(replacement.id);
-          }
-          this.deps.onChange?.();
-          throw error;
         }
-      } else {
-        if (
-          !registeredRemote &&
-          (await this.deps.worktrees.launchIdentity(repository, worktree)) !== identity
-        )
-          throw new Error("Worktree has changed. Select it and try again.");
-        return await this.startShell(
-          { repository, worktree, branch: tree.branch },
-          replacement?.id,
-          undefined,
-          undefined,
-          registeredRemote,
-          undefined,
-          validateLaunch,
-          signal,
-        );
+        validateLaunch?.();
+        if (run !== "shell") {
+          const report = !isRemote ? await this.scanAgents(false) : undefined;
+          const agent = report?.agents.find((entry) => entry.id === run);
+          if (resumeGuard && !canRestoreControl(oldParent, agent)) resumeGuard = undefined;
+          if (resumeGuard && replacement) {
+            const rootIdentity = await this.deps.worktrees.launchIdentity(repository, repository);
+            const parentIdentity = this.orchestration.identity(replacement.id);
+            if (rootIdentity !== parentIdentity?.repository || identity !== parentIdentity.worktree)
+              throw new Error("Repository identity changed during resume");
+            resumeRuntime = await this.control;
+            resumeGuard();
+            const slot = this.orchestration.reserve(repository, undefined, true, parentIdentity);
+            if ("existing" in slot) throw new Error("The orchestrator changed. Try again.");
+            resumeSlot = slot;
+            control = { role: "orchestrator" };
+          }
+          if (replacement) {
+            const old = this.launched.get(replacement.id);
+            if (old?.remote && !isRemote)
+              throw new Error("Remote mapping is required to resume this child");
+            if (!old || this.executionOwner.view(old.id).exitCode === undefined)
+              throw new Error("Session is no longer exited");
+            if (!restoring)
+              this.orchestration.relaunched(
+                replacement.id,
+                old.remote && control && "parentId" in control ? control.parentId : undefined,
+                resumeGuard !== undefined,
+              );
+            await this.queues.get(old.id);
+            if (old.remote && old.placement?.kind === "remote")
+              await this.deps.terminals.kill(old.id, old.placement.host);
+            else if (!old.dormant) await this.deps.terminals.kill(old.id);
+            old.dormant = true;
+            this.executionOwner.reset(old.id);
+            this.deps.verdicts.forget(old.id);
+          }
+          if (resumeGuard && replacement)
+            finishResume = this.orchestration.observeParentResume(replacement.id);
+          const childParentId = control && "parentId" in control ? control.parentId : undefined;
+          try {
+            const resumed = await this.launchAgent(
+              {
+                agent: run,
+                repository,
+                worktree,
+                cols: 80,
+                rows: 24,
+              },
+              worktree === repository,
+              true,
+              identity,
+              replacement,
+              {
+                ...(registeredRemote ? { remoteCheckout: registeredRemote } : {}),
+                ...(validateLaunch || resumeGuard
+                  ? {
+                      beforeSpawn: () => {
+                        validateLaunch?.();
+                        resumeGuard?.();
+                      },
+                    }
+                  : {}),
+                ...(isRemote && childParentId !== undefined
+                  ? {
+                      beforeSpawn: () => {
+                        validateLaunch?.();
+                        remoteParentGuard?.();
+                        const parent = this.orchestration.view(childParentId);
+                        const child = replacement
+                          ? this.orchestration.view(replacement.id)
+                          : undefined;
+                        if (
+                          parent?.role !== "orchestrator" ||
+                          !parent.active ||
+                          (replacement &&
+                            (child?.role !== "child" ||
+                              child.parentId !== childParentId ||
+                              child.takenOver))
+                        )
+                          throw new Error("Remote child ownership changed");
+                      },
+                    }
+                  : {}),
+                ...(pastedId === undefined
+                  ? {}
+                  : { conversationId: pastedId, pinConversation: true }),
+                ...(control === undefined
+                  ? {}
+                  : {
+                      control,
+                      ...("parentId" in control ? { prompt: "Resume your previous task." } : {}),
+                    }),
+              },
+              hold,
+            );
+            // A human revoke may finish while the host is spawning. Keep the new
+            // process ordinary and live rather than restoring cancelled authority.
+            if (resumeGuard) {
+              try {
+                resumeGuard();
+              } catch {
+                resumeRuntime?.setRole?.(resumed.id, "agent");
+                return resumed.id;
+              }
+            }
+            resumeSlot?.bind(resumed.id);
+            return resumed.id;
+          } catch (error) {
+            if (replacement) {
+              this.executionOwner.markExited(replacement.id, -1);
+              if (this.launched.get(replacement.id)?.remote)
+                this.orchestration.exited(replacement.id);
+            }
+            this.deps.onChange?.();
+            throw error;
+          }
+        } else {
+          if (
+            !registeredRemote &&
+            (await this.deps.worktrees.launchIdentity(repository, worktree)) !== identity
+          )
+            throw new Error("Worktree has changed. Select it and try again.");
+          return await this.startShell(
+            { repository, worktree, branch: tree.branch },
+            replacement?.id,
+            undefined,
+            undefined,
+            registeredRemote,
+            undefined,
+            validateLaunch,
+            signal,
+            hold,
+          );
+        }
+      } finally {
+        finishResume?.();
+        resumeSlot?.release();
+        if (reservation !== undefined && reservation !== heldReservation)
+          this.busyWorktrees.delete(reservation);
       }
     } finally {
-      finishResume?.();
-      resumeSlot?.release();
-      if (reservation !== undefined && reservation !== heldReservation)
-        this.busyWorktrees.delete(reservation);
+      hold.release();
     }
   });
 }

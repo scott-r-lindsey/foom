@@ -1277,6 +1277,45 @@ test("ordinary Close refuses a second owned or sidebar removal until terminal te
   await page.evaluate((id) => window.desktop.input(id, "exit\r"), id);
   await expect(page.locator(`[data-drag-session="${id}"]`)).toHaveAttribute("data-exited", "true");
   isolatedGit(["checkout", "-b", "changed-ordinary-close"], { cwd: tree.path });
+  const keptFile = path.join(tree.path, "held-removal.txt");
+  await writeFile(keptFile, "kept until removal is approved");
+  for (const detached of [false, true]) {
+    if (detached) isolatedGit(["checkout", "--detach"], { cwd: tree.path });
+    await page.evaluate(
+      ({ repo, tree }) => {
+        globalThis.pendingIdleRemoval = window.desktop.sidebarCommand({
+          kind: "remove-worktree",
+          repository: repo,
+          worktree: tree,
+        });
+      },
+      { repo, tree: tree.path },
+    );
+    const review = await confirmationPage(app);
+    await expect(review.getByText("held-removal.txt", { exact: true })).toBeVisible();
+    try {
+      const closeRefused = await page.evaluate(async (id) => {
+        try {
+          await window.desktop.sidebarCommand({ kind: "close", id });
+          return false;
+        } catch {
+          return true;
+        }
+      }, id);
+      assert.equal(closeRefused, true);
+      assert.equal(await app.evaluate(() => globalThis.ordinaryCloseKills), 0);
+      const entry = await page.evaluate(
+        async (id) => (await window.desktop.workspace()).terminals.find((row) => row.id === id),
+        id,
+      );
+      assert.equal(entry.closeState, undefined);
+      assert.equal(await readFile(keptFile, "utf8"), "kept until removal is approved");
+    } finally {
+      await review.getByRole("button", { name: "Cancel", exact: true }).click();
+      await page.evaluate(() => globalThis.pendingIdleRemoval);
+    }
+  }
+  isolatedGit(["checkout", "changed-ordinary-close"], { cwd: tree.path });
   await page.evaluate((id) => {
     globalThis.pendingOrdinaryClose = window.desktop.sidebarCommand({ kind: "close", id });
   }, id);

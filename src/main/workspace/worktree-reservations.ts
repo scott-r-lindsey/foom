@@ -27,3 +27,50 @@ export function closingWorktree(
         `remote-main\0${entry.worktree}` === key),
   );
 }
+
+/** Main-only capability. Only a live holder may borrow its checkout reservation. */
+export interface CheckoutHold {
+  readonly path: string;
+  readonly release: () => void;
+}
+
+/** Canonical paths, independent of mutable Git branch names and filesystem identity. */
+export class CheckoutHolds {
+  private readonly paths = new Map<string, Set<CheckoutHold>>();
+
+  busy(path: string, parent?: CheckoutHold): boolean {
+    const holders = this.paths.get(path);
+    return holders !== undefined && !(parent?.path === path && holders.has(parent));
+  }
+
+  acquire(path: string, parent?: CheckoutHold): CheckoutHold | undefined {
+    const current = this.paths.get(path);
+    if (parent && (parent.path !== path || !current?.has(parent))) return;
+    if (current && !parent) return;
+    const holders = current ?? new Set<CheckoutHold>();
+    const hold: CheckoutHold = {
+      path,
+      release: () => {
+        if (!holders.delete(hold)) return;
+        if (holders.size === 0 && this.paths.get(path) === holders) this.paths.delete(path);
+      },
+    };
+    holders.add(hold);
+    this.paths.set(path, holders);
+    return hold;
+  }
+}
+
+/** Branch reservations protect creation; path leases protect every known checkout. */
+export function checkoutBusy(
+  holds: CheckoutHolds,
+  sessions: Iterable<WorkspaceTerminal>,
+  key: string,
+  checkout: string | undefined,
+  parent?: CheckoutHold,
+): boolean {
+  return (
+    (checkout !== undefined && holds.busy(checkout, parent)) ||
+    closingWorktree(sessions, key, checkout)
+  );
+}

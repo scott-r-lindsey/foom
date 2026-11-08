@@ -252,37 +252,88 @@ test.each([
   },
 );
 
-test("a prepared provider launch rechecks the canonical checkout immediately before spawn", async () => {
+test("a preparing provider launch holds the canonical path against Close and removal", async () => {
   const workspace = await launched();
   await workspace.exited("t1", 0);
   vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([
     { ...tree, branch: "changed-branch" },
   ]);
   const prepare = held<undefined>();
+  const kill = vi.spyOn(deps.terminals, "kill");
   agents.launch.mockImplementationOnce(async (request) => {
     await prepare.promise;
     request.beforeSpawn?.();
-    return { id: "must-not-spawn", attention: "evaluator" };
+    return { id: "prepared-child", attention: "evaluator" };
   });
   const launching = workspace.sidebarCommand(
     { kind: "launch", repository: repo.path, worktree: tree.path, run: "claude" },
     confirm,
   );
-  const outcome = launching.catch((error: unknown) => error);
-  await vi.waitFor(() => {
-    expect(agents.launch).toHaveBeenCalledTimes(2);
-  });
-  const cleanup = held<undefined>();
-  vi.spyOn(deps.terminals, "kill").mockReturnValueOnce(cleanup.promise);
-  const pending = workspace.sidebarCommand(close, confirm);
-  expect(workspace.snapshot().terminals[0]?.closeState).toBe("closing");
-  prepare.resolve(undefined);
   try {
-    expect(await outcome).toBeInstanceOf(Error);
-    expect(workspace.snapshot().terminals.some((row) => row.id === "must-not-spawn")).toBe(false);
+    await vi.waitFor(() => {
+      expect(agents.launch).toHaveBeenCalledTimes(2);
+    });
+    await expect(workspace.sidebarCommand(close, confirm)).rejects.toMatchObject({
+      code: "session-busy",
+    });
+    await expect(
+      workspace.sidebarCommand(
+        { kind: "remove-worktree", repository: repo.path, worktree: tree.path },
+        confirm,
+      ),
+    ).rejects.toThrow("busy");
+    expect(workspace.snapshot().terminals[0]?.closeState).toBeUndefined();
+    expect(kill).not.toHaveBeenCalled();
   } finally {
-    cleanup.resolve(undefined);
-    await pending;
-    await workspace.dispose();
+    prepare.resolve(undefined);
+    await launching;
   }
+  expect(workspace.snapshot().terminals.some((row) => row.id === "prepared-child")).toBe(true);
+  await workspace.sidebarCommand(close, confirm);
+  await workspace.dispose();
 });
+
+test.each(["renamed", null])(
+  "pending idle removal holds the path against Close after branch %s",
+  async (branch) => {
+    const workspace = await launched();
+    await workspace.exited("t1", 0);
+    vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([{ ...tree, branch }]);
+    const answer = held<boolean>();
+    const confirmRemoval = vi.fn(() => answer.promise);
+    const cleanup = held<undefined>();
+    const kill = vi.spyOn(deps.terminals, "kill").mockReturnValueOnce(cleanup.promise);
+    const removing = workspace.sidebarCommand(
+      { kind: "remove-worktree", repository: repo.path, worktree: tree.path },
+      confirmRemoval,
+    );
+    let closing: Promise<unknown> | undefined;
+    try {
+      await vi.waitFor(() => {
+        expect(confirmRemoval).toHaveBeenCalledOnce();
+      });
+      vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([
+        { ...tree, branch: "changed-again" },
+      ]);
+      closing = workspace.sidebarCommand(close, confirm).catch((error: unknown) => error);
+      expect(workspace.snapshot().terminals[0]?.closeState).toBeUndefined();
+      expect(await closing).toMatchObject({ code: "session-busy" });
+      await expect(
+        workspace.sidebarCommand(
+          { kind: "launch", repository: repo.path, worktree: tree.path, run: "shell" },
+          confirm,
+        ),
+      ).rejects.toThrow("busy");
+      expect(kill).not.toHaveBeenCalled();
+      expect(deps.worktrees.removeWorktree).not.toHaveBeenCalled();
+    } finally {
+      cleanup.resolve(undefined);
+      answer.resolve(false);
+      await removing;
+      await closing;
+    }
+    await workspace.sidebarCommand(close, confirm);
+    expect(kill).toHaveBeenCalledOnce();
+    await workspace.dispose();
+  },
+);

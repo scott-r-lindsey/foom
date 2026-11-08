@@ -1,4 +1,5 @@
-import { closingWorktree, worktreeReservation } from "./worktree-reservations";
+import { checkoutBusy, worktreeReservation } from "./worktree-reservations";
+import type { CheckoutHold } from "./worktree-reservations";
 import { hostDisplayName } from "../../shared/registered-hosts";
 import type { RegisteredHost } from "../../shared/registered-hosts.d";
 import { locationId } from "../control/metadata";
@@ -184,6 +185,7 @@ export async function sidebarCommand(
   startup?: SidebarStartup,
   heldReservation?: string,
   onCloseReview?: (pending: boolean) => Promise<void>,
+  heldCheckout?: CheckoutHold,
 ): Promise<SidebarCommandResult> {
   validateClose?.();
   if (this.closed) throw new Error("Workspace is closed");
@@ -231,7 +233,7 @@ export async function sidebarCommand(
             }
             if (
               this.busyWorktrees.has(key) ||
-              closingWorktree(this.launched.values(), key, worktree)
+              checkoutBusy(this.checkoutHolds, this.launched.values(), key, worktree)
             )
               throw new Error("This worktree is busy");
             this.busyWorktrees.add(key);
@@ -606,6 +608,8 @@ export async function sidebarCommand(
         ? this.deps.worktrees.reviewIdentity(entry.repository, entry.worktree)
         : undefined;
     if (command.kind === "close" && entry) {
+      if (!entry.home && !entry.config && this.checkoutHolds.busy(entry.worktree, heldCheckout))
+        throw new ApplicationError("session-busy");
       const key = worktreeReservation(entry.repository, entry.worktree, entry.branch);
       if (
         [
@@ -622,7 +626,7 @@ export async function sidebarCommand(
       )
         throw new ApplicationError("session-running");
     }
-    const cleanup = async () => {
+    const cleanup = async (hold?: CheckoutHold) => {
       validateClose?.();
       if (
         command.kind === "close" &&
@@ -654,6 +658,7 @@ export async function sidebarCommand(
           },
           command.id,
           onCloseReview,
+          hold,
         );
         return;
       }
@@ -671,7 +676,7 @@ export async function sidebarCommand(
       } else if (!entry?.dormant) await this.deps.terminals.kill(command.id);
       this.removed(command.id);
     };
-    if (command.kind === "close" && entry) await this.closeSession(entry, cleanup);
+    if (command.kind === "close" && entry) await this.closeSession(entry, cleanup, heldCheckout);
     else await cleanup();
     return;
   }
@@ -686,9 +691,11 @@ export async function sidebarCommand(
       const key = worktreeReservation(command.repository, command.worktree, tree?.branch);
       if (
         this.busyWorktrees.has(key) ||
-        closingWorktree(this.launched.values(), key, command.worktree)
+        checkoutBusy(this.checkoutHolds, this.launched.values(), key, command.worktree)
       )
         throw new Error("This worktree is busy");
+      const hold = this.checkoutHolds.acquire(command.worktree);
+      if (!hold) throw new Error("This worktree is busy");
       this.busyWorktrees.add(key);
       try {
         if (command.kind === "cleanup-worktree")
@@ -697,6 +704,7 @@ export async function sidebarCommand(
         this.refresh();
       } finally {
         this.busyWorktrees.delete(key);
+        hold.release();
       }
     });
     return;
@@ -989,7 +997,10 @@ export async function createWorktree(
 ): Promise<Worktree & { outcome: CreateOutcome }> {
   return this.withRepository(repository, async () => {
     const key = `${repository}\0${branch}`;
-    if (this.busyWorktrees.has(key) || closingWorktree(this.launched.values(), key, undefined))
+    if (
+      this.busyWorktrees.has(key) ||
+      checkoutBusy(this.checkoutHolds, this.launched.values(), key, undefined)
+    )
       throw new Error("This worktree is busy");
     this.busyWorktrees.add(key);
     try {
@@ -1002,7 +1013,7 @@ export async function createWorktree(
           branch,
         });
         const path = `/foom-remote/${locationId(JSON.stringify([host, created.path]))}`;
-        if (closingWorktree(this.launched.values(), key, path))
+        if (checkoutBusy(this.checkoutHolds, this.launched.values(), key, path))
           throw new Error("This worktree is busy");
         hosts.rememberPlacement?.(repository, path, host, {
           repository: created.repository,
@@ -1046,7 +1057,8 @@ export async function addWorktree(
   );
   if (!created) throw new Error("Created worktree is missing");
   if (
-    closingWorktree(
+    checkoutBusy(
+      this.checkoutHolds,
       this.launched.values(),
       worktreeReservation(repository, path, created.branch),
       path,

@@ -1,3 +1,4 @@
+import { CheckoutHolds } from "../../../../src/main/workspace/worktree-reservations";
 import { expect, it, vi } from "vitest";
 import { CleanupOwner } from "../../../../src/main/workspace/cleanup-owner";
 import type { CleanupOwnerDependencies } from "../../../../src/main/workspace/cleanup-owner";
@@ -88,6 +89,7 @@ function fixture() {
     };
   });
   const deps = {
+    checkoutHolds: new CheckoutHolds(),
     worktrees,
     inventory: vi.fn(() => Promise.resolve(trees)),
     known: vi.fn(),
@@ -813,6 +815,7 @@ it("joins owned removals before review, rejects another identity, and releases f
   const confirm = vi.fn(() => answer.promise);
   const reviewing = vi.fn(async () => {});
   const first = f.owner.removeOwnedTree(repository, tree().path, "identity", confirm, () => {});
+  expect(f.deps.checkoutHolds.busy(tree().path)).toBe(true);
   const joined = f.owner.removeOwnedTree(
     repository,
     tree().path,
@@ -834,9 +837,48 @@ it("joins owned removals before review, rejects another identity, and releases f
   const results = Promise.allSettled([first, joined]);
   answer.resolve(true);
   expect((await results).map((result) => result.status)).toEqual(["rejected", "rejected"]);
+  expect(f.deps.checkoutHolds.busy(tree().path)).toBe(false);
   expect(f.worktrees.removeWorktree).toHaveBeenCalledOnce();
   expect(await f.owner.removeOwnedTree(repository, tree().path, "identity", accept, () => {})).toBe(
     true,
   );
   expect(f.worktrees.removeWorktree).toHaveBeenCalledTimes(2);
 });
+
+it.each(["confirmation", "post-confirmation", "final deletion"])(
+  "idle removal rechecks closing state at %s",
+  async (stage) => {
+    const f = fixture();
+    const entry = row();
+    f.rows([entry]);
+    const close = () => {
+      entry.closeState = "closing";
+    };
+    const effect = vi.fn();
+    f.worktrees.removeWorktree.mockImplementation(
+      async (_repo, _path, _force, _identity, validate) => {
+        await validate?.();
+        effect();
+      },
+    );
+    if (stage === "confirmation")
+      f.worktrees.changes.mockImplementationOnce(() => {
+        close();
+        return Promise.resolve("");
+      });
+    if (stage === "final deletion")
+      f.deps.prepareWorktreeRemoval.mockImplementationOnce(() => {
+        close();
+        return Promise.resolve(() => {});
+      });
+    const confirm = vi.fn(() => {
+      if (stage === "post-confirmation") close();
+      return Promise.resolve(true);
+    });
+    await expect(
+      f.owner.removeIdleTree(repository, tree().path, tree().branch, confirm),
+    ).rejects.toMatchObject({ reason: "busy" });
+    expect(effect).not.toHaveBeenCalled();
+    if (stage === "confirmation") expect(confirm).not.toHaveBeenCalled();
+  },
+);

@@ -35,6 +35,9 @@ export function workspaceFeatureWiring(owner: WorkspaceContext): {
       get agents() {
         return owner.agents;
       },
+      get checkoutHolds() {
+        return owner.checkoutHolds;
+      },
       get busyWorktrees() {
         return owner.busyWorktrees;
       },
@@ -210,6 +213,9 @@ export function workspaceFeatureWiring(owner: WorkspaceContext): {
       },
       get busySessions() {
         return owner.busySessions;
+      },
+      get checkoutHolds() {
+        return owner.checkoutHolds;
       },
       get busyWorktrees() {
         return owner.busyWorktrees;
@@ -455,6 +461,9 @@ export function workspaceFeatureWiring(owner: WorkspaceContext): {
       get addWorktree() {
         return owner.addWorktree.bind(owner);
       },
+      get checkoutHolds() {
+        return owner.checkoutHolds;
+      },
       get busyWorktrees() {
         return owner.busyWorktrees;
       },
@@ -499,6 +508,9 @@ export function workspaceFeatureWiring(owner: WorkspaceContext): {
       },
       get auditHuman() {
         return owner.auditHuman.bind(owner);
+      },
+      get checkoutHolds() {
+        return owner.checkoutHolds;
       },
       get busyWorktrees() {
         return owner.busyWorktrees;
@@ -621,6 +633,9 @@ export function workspaceFeatureWiring(owner: WorkspaceContext): {
     orchestrationHost: {
       get launchAgent() {
         return owner.launchAgent.bind(owner);
+      },
+      get checkoutHolds() {
+        return owner.checkoutHolds;
       },
       get busyWorktrees() {
         return owner.busyWorktrees;

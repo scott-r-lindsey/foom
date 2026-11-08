@@ -395,9 +395,23 @@ or deletion when a session is closing, and rechecks after confirmation. Only a
 matching join to an already-running owned removal shares that operation; the
 review Close that owns the removal may retain its own closing session.
 
-Closing holds use main's canonical checkout path independently of the session's
-launch-time branch. Renaming the branch, detaching HEAD or replacing its filesystem
-identity cannot release that hold. Branch-only launch routes check again after
-resolving inventory to a path; resume/restart and remote routes use the same hold,
-including when they already own a branch reservation. Existing launch identity
-checks remain required, and provider launches recheck closing state before spawn.
+`WorkspaceContext` owns `CheckoutHolds`, the shared canonical-path lease registry.
+Close, idle/owned/merged removal, remote removal, prune/broken-cleanup retries and
+known-checkout launch/resume/restart preparation acquire a lease before awaiting
+confirmation or effects. A pending removal refuses Close before its row is hidden;
+a closing session refuses removal at confirmation, post-confirmation and final
+service revalidation. Renaming a branch, detaching HEAD or replacing filesystem
+identity cannot release a path lease. Existing identity authorization remains.
+
+Nested preparation and cleanup borrow only a live, main-only lease capability.
+Each borrow retains the path independently until released; stale capabilities and
+independent operations cannot borrow it. An owned review Close passes its lease
+into its own removal, and remote removal passes its lease to its post-delete Close.
+Identity-matched owned-removal joins share the existing operation and consent.
+Success, decline and failure release every lease; a retained merged-branch cleanup
+also retains its path lease until its existing release callback runs.
+
+Branch reservations remain secondary locks for branch creation/adoption before a
+path is known and for branch cleanup. Every resolved path also checks the shared
+registry; an already-held branch key cannot waive a path hold. Home/config sessions
+retain their independent lifecycle and grant no managed-checkout deletion authority.

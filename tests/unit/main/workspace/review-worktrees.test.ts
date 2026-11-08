@@ -1,3 +1,4 @@
+import { CheckoutHolds } from "../../../../src/main/workspace/worktree-reservations";
 import { writeFileSync } from "node:fs";
 import { UncertainEffect } from "../../../../src/main/workspace/worktree-outcome";
 import { CleanupOwner } from "../../../../src/main/workspace/cleanup-owner";
@@ -201,6 +202,7 @@ it.each([
         break;
     }
     const ownerDeps: CleanupOwnerDependencies = {
+      checkoutHolds: new CheckoutHolds(),
       worktrees: service,
       inventory: (repository) => service.listWorktrees(repository),
       known: () => {},

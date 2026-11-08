@@ -1,6 +1,8 @@
 import { expect, it, test } from "vitest";
 import {
   closingWorktree,
+  CheckoutHolds,
+  checkoutBusy,
   worktreeReservation,
 } from "../../../../src/main/workspace/worktree-reservations";
 import type { WorkspaceTerminal } from "../../../../src/shared/workspace";
@@ -62,3 +64,36 @@ test.each(["renamed", null])(
     expect(closingWorktree([{ ...session, closeState: "failed" }], key, "/tree")).toBe(false);
   },
 );
+
+test("canonical checkout leases exclude independent owners and safely borrow live capabilities", () => {
+  const holds = new CheckoutHolds();
+  const first = holds.acquire("/tree");
+  if (!first) throw new Error("Missing initial hold");
+  expect(holds.busy("/tree")).toBe(true);
+  expect(holds.busy("/tree", first)).toBe(false);
+  expect(holds.acquire("/tree")).toBeUndefined();
+  expect(holds.acquire("/other", first)).toBeUndefined();
+  expect(holds.acquire("/tree", { path: "/tree", release: () => {} })).toBeUndefined();
+  const nested = holds.acquire("/tree", first);
+  if (!nested) throw new Error("Missing borrowed hold");
+  first.release();
+  expect(holds.busy("/tree")).toBe(true);
+  expect(holds.acquire("/tree", first)).toBeUndefined();
+  expect(checkoutBusy(holds, [], worktreeReservation("/repo", "/tree", "renamed"), "/tree")).toBe(
+    true,
+  );
+  nested.release();
+  const next = holds.acquire("/tree");
+  if (!next) throw new Error("Hold was not released");
+  first.release();
+  expect(holds.busy("/tree")).toBe(true);
+  next.release();
+  expect(holds.busy("/tree")).toBe(false);
+  expect(holds.acquire("/tree", first)).toBeUndefined();
+  expect(checkoutBusy(holds, [], worktreeReservation("/repo", "/tree", "renamed"), "/tree")).toBe(
+    false,
+  );
+  expect(
+    checkoutBusy(holds, [session], worktreeReservation("/repo", "/tree", "feature"), undefined),
+  ).toBe(true);
+});
