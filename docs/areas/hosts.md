@@ -668,7 +668,8 @@ never offer trust. Daemon replies cannot supply local SSH classifications or
 connection observations. Legacy saved unreachable observations still load.
 
 Only a registered host whose latest SSH observation is host-key-unknown can
-request trust-host-key. Main checks OpenSSH >= 8.4 and the bundled console helper;
+request trust-host-key. Main checks OpenSSH >= 8.4 and the bundled console helper
+using detached, bounded reads that share cancellation with the requesting run;
 Windows and unsupported clients show a copyable `ssh HOST` fallback. No other
 SSH call receives askpass variables or changes its environment allowlist.
 

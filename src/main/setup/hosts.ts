@@ -699,6 +699,7 @@ export class Hosts {
           : (this.resourceResults.get(host.host) ?? this.results.get(host.host));
         return {
           ...host,
+          ...(this.hostKeyTrust ? { hostKeyTrust: this.hostKeyTrust } : {}),
           ...(rowFailures.length ? { rowFailures } : {}),
           ...(host.observation
             ? {
@@ -748,6 +749,7 @@ export class Hosts {
       ...(this.output ? { output: this.output } : {}),
     };
   }
+  private hostKeyTrust: "askpass" | "manual" | undefined;
   private readonly pendingRows = new Map<string, PendingHostRow[]>();
   private pendingRecipeRefreshes = 0;
   private queueRows(host: string, targets: readonly HostCheckTarget[]) {
@@ -1004,8 +1006,12 @@ export class Hosts {
         .then(async () => {
           const registration = this.registered(host);
           const latest = this.results.get(host) ?? registration.observation?.preflight.result;
-          if (signal.aborted || !unknownHostKey(latest) || !confirm || !(await askpassSupported()))
-            return false;
+          const cancelled = () => signal.aborted;
+          if (cancelled() || !unknownHostKey(latest) || !confirm) return false;
+          const supported = await askpassSupported(undefined, signal);
+          if (cancelled()) return false;
+          this.hostKeyTrust = supported ? "askpass" : "manual";
+          if (!supported) return false;
           this.registered(host, registration.codeFolder);
           return trustHostKey(host, (content, signal) => confirm(content, signal), signal);
         });
@@ -1021,7 +1027,7 @@ export class Hosts {
           !observation?.lastAgents
         )
           return this.action({ action: "preflight", host, codeFolder: registration.codeFolder });
-        return this.trustState(this.state());
+        return this.state();
       });
     }
     if (input.action === "dismiss-output") {
@@ -1030,7 +1036,7 @@ export class Hosts {
     }
     if (input.action === "progress") return Promise.resolve(this.state());
     if (input.action === "list" && !this.pendingRows.size && !this.pendingRecipeRefreshes)
-      return this.trustState(this.state(undefined, true));
+      return this.trustState(this.state(undefined, true), trustSignal);
     if (input.action === "rename")
       return this.updateRegistrations((hosts) => {
         this.registered(input.host);
@@ -1515,11 +1521,17 @@ export class Hosts {
       })
       .then((state) => ({ ...state, ...(this.output ? { output: this.output } : {}) }));
     this.pending = work;
-    return work.then((state) => this.trustState(state));
+    return work.then((state) => this.trustState(state, trustSignal));
   }
-  private async trustState(state: HostsState): Promise<HostsState> {
-    if (!state.hosts.some((row) => unknownHostKey(row.result))) return state;
-    const supported = await askpassSupported();
+  private async trustState(state: HostsState, signal?: AbortSignal): Promise<HostsState> {
+    const cancellation = signal
+      ? AbortSignal.any([this.cancellation.signal, signal])
+      : this.cancellation.signal;
+    const cancelled = () => cancellation.aborted;
+    if (cancelled() || !state.hosts.some((row) => unknownHostKey(row.result))) return state;
+    const supported = await askpassSupported(undefined, cancellation);
+    if (cancelled()) return state;
+    this.hostKeyTrust = supported ? "askpass" : "manual";
     return {
       ...state,
       hosts: state.hosts.map((row) => ({ ...row, hostKeyTrust: supported ? "askpass" : "manual" })),

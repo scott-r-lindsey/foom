@@ -1,5 +1,5 @@
 import { readLoginShell } from "../login-shell";
-import { execFile, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { access, chmod, rm } from "node:fs/promises";
 import { constants, mkdtempSync, rmSync } from "node:fs";
@@ -7,7 +7,6 @@ import { createServer } from "node:net";
 import type { Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { promisify } from "node:util";
 import { hostKeyPrompt } from "../../node-common/ssh-askpass";
 import type { DialogContent } from "../../shared/confirmation";
 import { hostAlias } from "../../shared/registered-hosts";
@@ -18,18 +17,28 @@ export const askpassExecutable = join(__dirname, "../../console/foom").replace(
   "app.asar.unpacked",
 );
 
-export async function askpassSupported(executable = askpassExecutable): Promise<boolean> {
+export async function askpassSupported(
+  executable = askpassExecutable,
+  signal?: AbortSignal,
+): Promise<boolean> {
   if (process.platform === "win32") return false;
   try {
     await access(executable, constants.X_OK);
-    const options = { env: { ...sshEnvironment(), LC_ALL: "C" }, timeout: 5000, maxBuffer: 16384 };
-    const version = await promisify(execFile)("ssh", ["-V"], options);
+    const options: Parameters<typeof readLoginShell>[2] = {
+      env: { ...sshEnvironment(), LC_ALL: "C" },
+      timeout: 5000,
+      maxBuffer: 16384,
+      encoding: "utf8",
+      cwd: tmpdir(),
+      ...(signal ? { signal } : {}),
+    };
+    const version = await readLoginShell("ssh", ["-V"], options);
     const match = /^OpenSSH_(\d+)\.(\d+)(?:p\d+)?(?:[, _]|$)/u.exec(
       version.stderr || version.stdout,
     );
     if (!match || Number(match[1]) < 8 || (Number(match[1]) === 8 && Number(match[2]) < 4))
       return false;
-    await promisify(execFile)(executable, ["ssh-askpass", "--probe"], options);
+    await readLoginShell(executable, ["ssh-askpass", "--probe"], options);
     return true;
   } catch {
     return false;

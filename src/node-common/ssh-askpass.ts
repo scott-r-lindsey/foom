@@ -65,7 +65,7 @@ export function sshFailure(
   stderr: unknown,
 ): "unreachable" | "host-key-unknown" | "host-key-changed" | "login-rejected" {
   if (typeof stderr !== "string" || Buffer.byteLength(stderr) > 16384) return "unreachable";
-  if (/(?:^|\n)@\s+WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!\s+@(?:\n|$)/u.test(stderr))
+  if (/(?:^|\n)@\s+WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!\s+@(?:\r?\n|$)/u.test(stderr))
     return "host-key-changed";
   // A generic verification failure is deliberately insufficient to offer trust.
   if (

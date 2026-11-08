@@ -79,7 +79,9 @@ test("decline, unsupported helpers and cancellation perform no recheck", async (
   await enroll();
   run.mockClear();
   mock.trust.mockResolvedValueOnce(false);
+  mock.supported.mockClear();
   await trust();
+  expect(mock.supported).toHaveBeenCalledOnce();
   expect(run).not.toHaveBeenCalled();
   mock.supported.mockResolvedValue(false);
   expect((await trust()).hosts[0]?.hostKeyTrust).toBe("manual");
@@ -169,4 +171,38 @@ test("an explicit SSH row reload offers trust while preserving the successful fu
   await trust();
   expect(mock.trust).toHaveBeenCalledOnce();
   expect(run).not.toHaveBeenCalled();
+});
+
+test("a cancelled trust request cannot start another capability read while building its reply", async () => {
+  await enroll();
+  mock.supported.mockClear();
+  const ready = Promise.withResolvers<undefined>();
+  const abort = new AbortController();
+  mock.supported.mockImplementationOnce((_executable: string | undefined, signal: AbortSignal) => {
+    ready.resolve(undefined);
+    return new Promise<boolean>((resolve) => {
+      signal.addEventListener(
+        "abort",
+        () => {
+          resolve(false);
+        },
+        { once: true },
+      );
+    });
+  });
+  const work = trust(abort.signal);
+  await ready.promise;
+  abort.abort();
+  await work;
+  expect(mock.supported).toHaveBeenCalledOnce();
+  expect(mock.trust).not.toHaveBeenCalled();
+});
+
+test("local renaming retains the observed trust capability without starting another probe or persisting it", async () => {
+  await enroll();
+  mock.supported.mockClear();
+  const state = await hosts.action({ action: "rename", host: "box", nickname: "Build box" });
+  expect(state.hosts[0]?.hostKeyTrust).toBe("askpass");
+  expect(settings.registeredHosts?.[0]).not.toHaveProperty("hostKeyTrust");
+  expect(mock.supported).not.toHaveBeenCalled();
 });

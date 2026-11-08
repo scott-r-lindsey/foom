@@ -87,6 +87,9 @@ test("classifies bounded OpenSSH stderr without trusting generic verification er
     "host-key-changed",
   );
   expect(sshFailure("me@box: Permission denied (publickey,password).\n")).toBe("login-rejected");
+  expect(sshFailure("@ WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED! @\r\n")).toBe(
+    "host-key-changed",
+  );
   for (const value of [
     undefined,
     {},
@@ -413,4 +416,38 @@ unixTest("a failed trusted dialog revokes a waiting helper and never answers yes
     ),
   ).toBe(false);
   expect(out).not.toHaveBeenCalledWith("yes\n");
+});
+
+test("cancelling capability detection cancels its detached version/helper read", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ask-support-cancel-"));
+  roots.push(root);
+  const executable = join(root, "foom");
+  await writeFile(executable, "fixture", { mode: 0o700 });
+  vi.spyOn(process, "platform", "get").mockReturnValue("linux");
+  const abort = new AbortController();
+  const ready = Promise.withResolvers<undefined>();
+  mock.execute.mockImplementationOnce((_file, _args, options) => {
+    if (
+      !options ||
+      typeof options !== "object" ||
+      !("signal" in options) ||
+      !(options.signal instanceof AbortSignal)
+    )
+      throw new Error("Missing cancellation");
+    const signal = options.signal;
+    ready.resolve(undefined);
+    return new Promise((_resolve, reject) => {
+      signal.addEventListener(
+        "abort",
+        () => {
+          reject(new Error("cancelled"));
+        },
+        { once: true },
+      );
+    });
+  });
+  const work = askpassSupported(executable, abort.signal);
+  await ready.promise;
+  abort.abort();
+  expect(await work).toBe(false);
 });
