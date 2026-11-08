@@ -2,7 +2,12 @@ import { checkRemovalRetry, RetryRefusal } from "./worktree-removal-retry";
 import type { PendingRemoval } from "./worktree-state.d";
 import { ControlError } from "../../shared/control-validation";
 import { forgeBranch } from "../control/forge";
-import { reviewRefs, unchangedReview } from "./review-worktrees";
+import {
+  reviewRefs,
+  unchangedReview,
+  reviewExclusions,
+  assertReviewRules,
+} from "./review-worktrees";
 import type { ReviewCheckout } from "./review-worktrees";
 import { RemovalError } from "./worktree-outcome";
 import { lstat, opendir, readFile, readdir, realpath, rm, rmdir } from "node:fs/promises";
@@ -609,6 +614,7 @@ export class WorktreeService {
     head?: string | null,
     inspectReflogs = false,
     historyHead?: string,
+    reviewRules?: string,
   ): Promise<string> {
     const expected = identity ?? (await this.removalIdentity(repository, path));
     const read = (args: string[]) => cleanupGit(path, args);
@@ -626,6 +632,7 @@ export class WorktreeService {
     await this.checkCleanupEvidence(path, undefined, inspectReflogs, historyHead);
     const readStatus = () =>
       read([
+        ...(reviewRules ? ["-c", "core.excludesFile="] : []),
         "status",
         "--porcelain=v1",
         "-z",
@@ -633,6 +640,7 @@ export class WorktreeService {
         "--ignored=matching",
         "--ignore-submodules=none",
       ]);
+    if (reviewRules) await assertReviewRules(path, reviewRules);
     const inspectedStatus = await readStatus();
     const ignored = new Map<string, boolean>();
     const statusRecords = inspectedStatus.split("\0");
@@ -678,6 +686,7 @@ export class WorktreeService {
       throw new Error("HEAD changed during cleanup checks");
     // Keep status last: a tracked save during any preceding validation await
     // must be visible to the approved-snapshot comparison next to Git removal.
+    if (reviewRules) await assertReviewRules(path, reviewRules);
     const changes = await readStatus();
     if (changes !== inspectedStatus) throw new Error("Status changed during cleanup checks");
     const records = changes.split("\0").filter(Boolean);
@@ -979,7 +988,13 @@ export class WorktreeService {
     if (options.detachedHead && refs !== undefined) {
       const record = this.managed.get(result.path);
       if (!record) throw new Error("Missing creation record");
-      record.review = { head: options.detachedHead, branch: options.reviewBranch ?? branch, refs };
+      const exclusions = await reviewExclusions(result.path).catch(() => undefined);
+      record.review = {
+        head: options.detachedHead,
+        branch: options.reviewBranch ?? branch,
+        refs,
+        ...(exclusions ? { exclusions } : {}),
+      };
       await this.save();
     }
     return result;

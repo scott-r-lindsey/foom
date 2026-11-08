@@ -319,8 +319,10 @@ No forge writes occur unless `--post-findings true` is explicit.
 ### Review checkout cleanup (#1115)
 
 Closing a reviewer uses the profile's recorded creation identity, including when
-an earlier orchestrator grant launched it. Git-ignored dependencies and build/test
-output do not block the detached review checkout's automatic removal. Tracked and
+an earlier orchestrator grant launched it. Only ignored output under the fixed
+root directories `node_modules/`, `build/`, `out/`, `.cache/`, `test-results/`, `.husky/_/` and `coverage/` is disposable automatically. Other ignored files,
+modified/untracked `.gitignore` files and changed creation-time exclusion settings
+require confirmation. Old records without exclusion evidence also require confirmation. Tracked and
 non-ignored untracked changes, changed HEAD/history, and every other existing
 proof still require the ordinary trusted review or refuse unsafe deletion.
 With board PR tracking enabled, idle retained review checkouts are offered together

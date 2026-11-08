@@ -35,8 +35,14 @@ still-detached HEAD at the exact fetched and recorded PR head, no tracked or
 non-ignored untracked changes or local refs/commits beyond that head, and no other
 session or operation using it. Reflogs protect commits reset away; unavailable evidence
 and every failed proof fall back to trusted confirmation. For these review
-checkouts only, Git-ignored content (including installed dependencies and build or
-test output) does not block removal; non-ignored untracked files still do. All
+checkouts only, ignored output under the fixed root directories `node_modules/`, `build/`, `out/`, `.cache/`, `test-results/`, `.husky/_/` and `coverage/`
+does not block removal. Other ignored paths and all non-ignored untracked files
+require confirmation. Modified or untracked `.gitignore` files (even inside ignored
+outputs) refuse automatic deletion. Main pins the creation-time resolved
+`info/exclude` bytes and checkout `core.excludesFile` setting in a SHA-256 digest,
+rechecks it alongside both status reads, and disables `core.excludesFile` during
+those reads. It never reads the file named by that setting. Missing/old baselines
+require confirmation. Tracked files remain changes even under ignored output roots. All
 existing membership, identity, active-session, reservation and final-snapshot
 guards remain required even after approval. Ordinary worktrees are unchanged.
 

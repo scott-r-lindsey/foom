@@ -145,6 +145,13 @@ for (const scenario of [
         encoding: "utf8",
       });
     git("init", "-q", "-b", "main");
+    await writeFile(
+      path.join(repo, ".gitignore"),
+      ["node_modules/", "build/", "out/", ".cache/", "test-results/", ".husky/_/", "coverage/"]
+        .map((name) => "/" + name)
+        .join("\n"),
+    );
+    git("add", ".gitignore");
     git("commit", "-q", "--allow-empty", "-m", "init");
     const headSha = git("rev-parse", "HEAD").trim();
     git("branch", "child-one");
@@ -509,12 +516,7 @@ for (const scenario of [
       assert.equal(git("-C", worktree, "rev-parse", "HEAD").trim(), headSha);
       assert.equal(git("-C", worktree, "rev-parse", "--abbrev-ref", "HEAD").trim(), "HEAD");
       // A real review leaves ignored dependencies and build/test output behind.
-      git("-C", worktree, "config", "core.excludesFile", path.join(root, "review-ignore"));
       const outputs = ["node_modules", "build", ".cache", ".husky/_", "test-results"];
-      await writeFile(
-        path.join(root, "review-ignore"),
-        outputs.map((name) => name + "/").join("\n"),
-      );
       for (const name of outputs) {
         await mkdir(path.join(worktree, name), { recursive: true });
         await writeFile(path.join(worktree, name, "output"), "review output");

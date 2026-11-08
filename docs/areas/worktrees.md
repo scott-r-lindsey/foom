@@ -280,19 +280,35 @@ four-unused-worktree limit until launch succeeds. Review is read-only by intent:
 reviewers report findings; editing or pushing requires a deliberate decision.
 
 Creation metadata stores the fetched head, checkout identity and the initial local
-ref inventory. These records persist with managed worktree history and are claims
+ref inventory and a SHA-256 exclusion baseline. These records persist with managed worktree history and are claims
 that must be validated again against Git and the filesystem. Closing a session in
 such a checkout uses the existing removal lock and trusted removal path. A narrow
 exception permits confirmation-free removal independently of the merged-worktree
 setting and PR state: the identity must match, HEAD must remain detached at the
 captured commit, config-neutral status must show no tracked or non-ignored
-untracked changes (Git-ignored install/build/test output is disposable), and local
+untracked changes (only the fixed ignored output roots below are disposable), and local
 refs and worktree reflogs must contain no new history beyond that head. Unchanged pre-existing shared refs are not reviewer work. Private root refs such as `ORIG_HEAD` are checked too. HEAD reflogs
 protect commits followed by reset; missing, malformed or unreadable evidence fails
 closed. Index concealment, in-progress Git operations and unsafe configuration also
 refuse automatic removal. No other session may occupy it; launch/removal operations
 share the existing reservations. The closing exited session is released by removal.
 The proof is repeated before deletion, including after checkout resources close.
+
+Disposable ignored output is limited to these root directories: `node_modules/`, `build/`, `out/`, `.cache/`, `test-results/`, `.husky/_/` and `coverage/`.
+Prefix lookalikes, nested copies and other ignored paths require confirmation.
+Any untracked `.gitignore`, including one hidden inside an ignored output directory,
+or a modified tracked `.gitignore` refuses automatic cleanup. Tracked files under
+an ignored output directory still participate in tracked-change checks.
+The exclusion baseline pins the resolved Git `info/exclude` path and bytes plus
+the checkout's effective local/worktree `core.excludesFile` setting (global/system
+configuration is disabled). The fixed metadata file is read without following
+symlinks and with a 64 KiB cap; only its digest is persisted. A missing metadata
+file has a distinct digest. `core.excludesFile` is disabled for review status reads;
+the referenced file's contents are never read for this proof. The baseline and
+untracked `.gitignore` check run before both status reads, including the final
+before-remove proof after resource shutdown. Unavailable/changed evidence, legacy
+records without the digest and malformed digests require confirmation. Existing
+membership/identity checks still gate the metadata read.
 
 Every unsuccessful proof falls back to trusted confirmation; identity/membership,
 locks, active sessions and changed-snapshot guards still forbid unsafe deletion
