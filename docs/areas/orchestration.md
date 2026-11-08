@@ -330,7 +330,8 @@ each attempt. Human launches bypass this policy. See [control pressure](../contr
 
 ## Background Close recovery (#1048)
 
-The finished-child closer skips sessions marked closing or failed cleanup, including
-restored interrupted closes. It must not consume another automatic close attempt
-or repeat deletion while the user is reviewing a retained failure row. Manual Close
+The finished-child closer starts no new attempt for sessions marked closing or failed
+cleanup, including restored interrupted closes. Its own in-flight close may still
+revalidate the closing record it retains. It must not consume another automatic
+close attempt or repeat deletion while the user reviews a retained failure row. Manual Close
 and the original removal authority checks still own explicit retries.

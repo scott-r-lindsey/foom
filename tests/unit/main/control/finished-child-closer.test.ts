@@ -184,3 +184,15 @@ it.each(["closing", "failed"] as const)(
     expect(h.host.close).toHaveBeenCalledOnce();
   },
 );
+
+it("revalidates its own accepted close while main retains the closing record", async () => {
+  const h = fixture();
+  h.host.close.mockImplementation((_id, validate) => {
+    h.row.closeState = "closing";
+    validate?.();
+    return Promise.resolve(true);
+  });
+  await h.sync();
+  expect(h.host.close).toHaveBeenCalledOnce();
+  expect(h.owned.note).toHaveBeenCalledWith(expect.objectContaining({ status: "succeeded" }));
+});
