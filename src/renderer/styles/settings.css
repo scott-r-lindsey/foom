@@ -1281,3 +1281,8 @@
 .agents-scoped input[type="checkbox"] {
   accent-color: var(--accent);
 }
+
+.agents-panel > .agent-cards:focus-visible {
+  outline: 2px solid var(--highlight);
+  outline-offset: -2px;
+}
