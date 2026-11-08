@@ -58,6 +58,7 @@ describe("close exited children", () => {
       id,
       expect.any(Function),
       expect.any(AbortSignal),
+      expect.any(Function),
     );
     expect(h.orchestration.ownedWorktrees("parent")).toHaveLength(1);
     expect(h.host.remove).not.toHaveBeenCalled();

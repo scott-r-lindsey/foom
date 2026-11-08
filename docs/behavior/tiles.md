@@ -227,3 +227,28 @@ conversation and previews offer **Close**. The session sidebar menu retains Clos
 A refused Close keeps the tile and shows a fixed reason. Parents with child rows
 show “Close its N children first” (singular “child” for one), counting all rows
 still naming that parent, including exited children.
+
+
+## Terminal links (#1065)
+
+HTTP and HTTPS links open in your browser on a primary click, or Enter when the
+link has keyboard focus. Tab reaches visible links before the terminal input;
+Shift+F10 on a focused link opens its menu for keyboard copying. Hover shows the full destination and highlights all rows
+of a wrapped link. Right-clicking a link opens a menu containing only **Copy link**
+and **Open link**, even without selected text. Right-clicking elsewhere keeps
+**Copy**, **Paste**, **Select all**, **Clear** and the Split/Grow arrows. Selection
+is preserved when opening either menu; **Copy** in the non-link menu still copies
+only the selection. Keyboard access and focus restoration are the same for both
+menus. Mouse-tracking programs
+keep their right-click; hold Shift to open Foom's menu. Middle-click never opens a
+link.
+
+Every activation asks **Open this link?** in Foom's separate trusted window,
+showing the actual host and full wrapped, scrollable destination. This includes
+matching link text and long sign-in URLs. Cancel is focused initially; Enter
+cancels until you deliberately focus **Open in browser**. Copy link needs no
+confirmation. Only canonical printable-ASCII HTTP(S) targets without userinfo are
+available; control and bidi characters are refused. OSC 8 hyperlinks keep their full target across rows. Plain URLs
+join soft wraps only; application-authored newlines remain separate. If excessive
+OSC metadata is omitted during replay, the text stays visible and selectable, but
+affected links are unavailable in that replay.

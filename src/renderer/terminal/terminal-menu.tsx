@@ -31,30 +31,50 @@ export function TerminalMenu({
       tabWithin
       close={close}
       leading={
-        <>
-          {(["Copy", "Paste", "Select all", "Clear"] as const).map((label, index) => {
-            const command = [menu.copy, menu.paste, menu.selectAll, menu.clear][index];
-            return (
+        menu.link ? (
+          <>
+            {(["Copy link", "Open link"] as const).map((label) => (
               <button
                 key={label}
                 type="button"
                 role="menuitem"
-                disabled={!command}
+                title={menu.link?.url}
                 onClick={() => {
                   close();
-                  void command?.();
+                  if (label === "Copy link") void menu.link?.copy().catch(() => {});
+                  else menu.link?.open();
                 }}
               >
                 {label}
               </button>
-            );
-          })}
-          <hr />
-          <div className="tile-pads">
-            <DirectionPad kind="Split" layout={layout} metrics={metrics} run={run} />
-            <DirectionPad kind="Grow" layout={layout} run={run} />
-          </div>
-        </>
+            ))}
+          </>
+        ) : (
+          <>
+            {(["Copy", "Paste", "Select all", "Clear"] as const).map((label, index) => {
+              const command = [menu.copy, menu.paste, menu.selectAll, menu.clear][index];
+              return (
+                <button
+                  key={label}
+                  type="button"
+                  role="menuitem"
+                  disabled={!command}
+                  onClick={() => {
+                    close();
+                    void command?.();
+                  }}
+                >
+                  {label}
+                </button>
+              );
+            })}
+            <hr />
+            <div className="tile-pads">
+              <DirectionPad kind="Split" layout={layout} metrics={metrics} run={run} />
+              <DirectionPad kind="Grow" layout={layout} run={run} />
+            </div>
+          </>
+        )
       }
       actions={[]}
     />

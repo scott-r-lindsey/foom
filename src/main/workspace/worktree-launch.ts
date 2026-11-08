@@ -1,3 +1,4 @@
+import { worktreeReservation } from "./worktree-reservations";
 import type { ParentIdentity } from "../control/orchestration.d";
 import { canRestoreControl } from "./session-restore";
 import { locationId } from "../control/metadata";
@@ -50,7 +51,7 @@ export async function launch(
     const tree = (await this.worktrees(request.repository)).find(
       (item) => item.path === request.worktree,
     );
-    const key = `${request.repository}\0${tree?.branch ?? ""}`;
+    const key = worktreeReservation(request.repository, request.worktree, tree?.branch);
     if (this.busyWorktrees.has(key)) throw new Error("This worktree is busy");
     this.busyWorktrees.add(key);
     try {
@@ -642,7 +643,7 @@ export async function startExisting(
       if (!tree) throw new Error("Worktree was removed. Choose another checkout.");
       if (tree.bare || tree.prunable || tree.locked) throw new Error("Worktree is unavailable");
       if (reservation === undefined) {
-        const candidate = `${repository}\0${tree.branch ?? ""}`;
+        const candidate = worktreeReservation(repository, worktree, tree.branch);
         if (this.busyWorktrees.has(candidate)) throw new Error("This worktree is busy");
         this.busyWorktrees.add(candidate);
         reservation = candidate;

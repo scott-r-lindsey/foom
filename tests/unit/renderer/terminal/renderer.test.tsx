@@ -135,6 +135,9 @@ vi.mock("@xterm/xterm", () => ({
     focus = mock.focus;
     dispose = mock.dispose;
     onData = mock.onInput;
+    onWriteParsed = () => ({ dispose: () => {} });
+    onScroll = () => ({ dispose: () => {} });
+    onResize = () => ({ dispose: () => {} });
     onRender = mock.onRender;
     onSelectionChange = mock.onSelectionChange;
     getSelection = mock.getSelection;
@@ -1343,7 +1346,7 @@ test("first frame follows parsed attachment data and a render without loading ag
     expect.objectContaining({ firstFrame: false, attaching: true }),
   );
   shell.dispose();
-  expect(mock.offRender).toHaveBeenCalledOnce();
+  expect(mock.offRender).toHaveBeenCalledTimes(2);
 });
 
 test.each([false, true])(
