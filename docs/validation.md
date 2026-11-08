@@ -129,7 +129,7 @@ Replace the example IDs with recent runs covering every current case on all thre
 platforms. The script rejects failed cases, missing reports and unmeasured current
 cases. It takes each case's maximum duration per platform and includes hash
 assignments for previously unplanned cases in the before projection. Review balance
-and headroom under the 600s Linux / 840s Windows and macOS step limits.
+and headroom under the 840s Linux, Windows and macOS step limits.
 The examples select historical four-shard inputs with `--source-shards=4`. Omit
 that option for current runs with four Linux, five Windows and six macOS shards. Each source run must have the expected report count per platform.
 When combining old and current matrices, specify per-run counts explicitly. For
