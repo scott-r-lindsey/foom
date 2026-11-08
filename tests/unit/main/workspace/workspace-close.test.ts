@@ -337,3 +337,42 @@ test.each(["renamed", null])(
     await workspace.dispose();
   },
 );
+
+test("shared-agent startup confirmation holds the path against an exited sibling Close", async () => {
+  const workspace = await launched();
+  vi.spyOn(deps.terminals, "create").mockResolvedValueOnce("t2");
+  await workspace.startWorktree(
+    { repository: repo.path, branch: "feature", run: "shell" },
+    confirm,
+  );
+  await workspace.exited("t2", 0);
+  vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([{ ...tree, branch: "renamed" }]);
+  agents.launch.mockResolvedValueOnce({ id: "t3", attention: "evaluator" });
+  const answer = held<boolean>();
+  const shared = vi.fn(() => answer.promise);
+  const started = vi.fn();
+  const starting = workspace.sidebarCommand(
+    { kind: "launch", repository: repo.path, worktree: tree.path, run: "claude" },
+    shared,
+    { signal: new AbortController().signal, started },
+  );
+  try {
+    await vi.waitFor(() => {
+      expect(shared).toHaveBeenCalledOnce();
+    });
+    await expect(
+      workspace.sidebarCommand({ kind: "close", id: "t2" }, confirm),
+    ).rejects.toMatchObject({ code: "session-busy" });
+    expect(
+      workspace.snapshot().terminals.find((row) => row.id === "t2")?.closeState,
+    ).toBeUndefined();
+    expect(started).not.toHaveBeenCalled();
+  } finally {
+    answer.resolve(true);
+    await starting;
+  }
+  expect(started).toHaveBeenCalledOnce();
+  expect(workspace.snapshot().terminals.some((row) => row.id === "t3")).toBe(true);
+  await workspace.sidebarCommand({ kind: "close", id: "t2" }, confirm);
+  await workspace.dispose();
+});

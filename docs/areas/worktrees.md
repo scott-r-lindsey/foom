@@ -397,7 +397,8 @@ review Close that owns the removal may retain its own closing session.
 
 `WorkspaceContext` owns `CheckoutHolds`, the shared canonical-path lease registry.
 Close, idle/owned/merged removal, remote removal, prune/broken-cleanup retries and
-known-checkout launch/resume/restart preparation acquire a lease before awaiting
+known-checkout launch/resume/restart preparation, including shared-agent startup
+confirmation, acquire a lease before awaiting
 confirmation or effects. A pending removal refuses Close before its row is hidden;
 a closing session refuses removal at confirmation, post-confirmation and final
 service revalidation. Renaming a branch, detaching HEAD or replacing filesystem

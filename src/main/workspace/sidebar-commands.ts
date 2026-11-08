@@ -195,6 +195,7 @@ export async function sidebarCommand(
   if (startup) {
     const begin = async () => {
       let reservation: string | undefined;
+      let pathHold: CheckoutHold | undefined;
       try {
         startup.signal.throwIfAborted();
         let sharedAcknowledged = false;
@@ -236,6 +237,8 @@ export async function sidebarCommand(
               checkoutBusy(this.checkoutHolds, this.launched.values(), key, worktree)
             )
               throw new Error("This worktree is busy");
+            pathHold = this.checkoutHolds.acquire(worktree);
+            if (!pathHold) throw new Error("This worktree is busy");
             this.busyWorktrees.add(key);
             reservation = key;
           }
@@ -266,9 +269,11 @@ export async function sidebarCommand(
           undefined,
           reservation,
           onCloseReview,
+          pathHold,
         );
       } finally {
         if (reservation !== undefined) this.busyWorktrees.delete(reservation);
+        pathHold?.release();
       }
     };
     return "repository" in command ? this.withRepository(command.repository, begin) : begin();
@@ -305,6 +310,7 @@ export async function sidebarCommand(
         validateClose,
         closeSignal,
         heldReservation,
+        heldCheckout,
       );
       return id ? { terminalId: id } : undefined;
     }
@@ -319,6 +325,7 @@ export async function sidebarCommand(
       validateClose,
       closeSignal,
       heldReservation,
+      heldCheckout,
     );
     return id ? { terminalId: id } : undefined;
   }
@@ -333,6 +340,7 @@ export async function sidebarCommand(
       validateClose,
       closeSignal,
       heldReservation,
+      heldCheckout,
     );
     return id ? { terminalId: id } : undefined;
   }
@@ -740,6 +748,7 @@ export async function sidebarCommand(
         validateClose,
         closeSignal,
         heldReservation,
+        heldCheckout,
       );
       return id ? { terminalId: id } : undefined;
     }
@@ -756,6 +765,7 @@ export async function sidebarCommand(
       validateClose,
       closeSignal,
       heldReservation,
+      heldCheckout,
     );
     return id ? { terminalId: id } : undefined;
   }
