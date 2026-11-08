@@ -1,3 +1,5 @@
+import * as fs from "node:fs";
+import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { createHash } from "node:crypto";
 import { access, mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
@@ -8,6 +10,7 @@ import { afterEach, expect, test, vi } from "vitest";
 const mock = vi.hoisted(() => ({
   output: "Linux\nx86_64\n",
   failure: false,
+  spawn: vi.fn(),
   execFile:
     vi.fn<
       (
@@ -18,7 +21,11 @@ const mock = vi.hoisted(() => ({
       ) => void
     >(),
 }));
-vi.mock("node:child_process", () => ({ execFile: mock.execFile }));
+vi.mock("node:fs", async (original) => {
+  const actual = await original<typeof fs>();
+  return { ...actual, fstatSync: vi.fn(actual.fstatSync) };
+});
+vi.mock("node:child_process", () => ({ execFile: mock.execFile, spawn: mock.spawn }));
 import {
   selectHostArtifact,
   sshEnvironment,
@@ -26,14 +33,34 @@ import {
 const roots: string[] = [];
 afterEach(async () => {
   vi.unstubAllEnvs();
+  vi.restoreAllMocks();
+  vi.useRealTimers();
   Reflect.deleteProperty(mock.execFile, Symbol.for("nodejs.util.promisify.custom"));
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
 });
+function probeChild() {
+  return Object.assign(new EventEmitter(), {
+    stdout: new PassThrough(),
+    stderr: new PassThrough(),
+    kill: vi.fn(),
+  });
+}
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "host-selection-"));
   roots.push(root);
   mock.output = "Linux\nx86_64\n";
   mock.failure = false;
+  mock.spawn.mockReset().mockImplementation((file: string, args: string[], options: unknown) => {
+    const child = probeChild();
+    queueMicrotask(() => {
+      mock.execFile(file, args, options, (error, result) => {
+        if (result.stdout) child.stdout.write(result.stdout);
+        child.emit("exit", error ? 1 : 0);
+        child.emit("close", error ? 1 : 0);
+      });
+    });
+    return child;
+  });
   mock.execFile.mockImplementation((_file, _args, _options, callback) => {
     callback(mock.failure ? new Error("probe failed") : null, { stdout: mock.output });
   });
@@ -70,15 +97,14 @@ test("uses bounded SSH discovery and a fixed catalog path, validates version and
   vi.stubEnv("SSH_AUTH_SOCK", "/fixture/agent");
   const target = { host: "fixture" };
   expect((await selectHostArtifact(target, "0.1.0", f.root, f.metadata)).platform).toBe("linux");
-  expect(mock.execFile).toHaveBeenLastCalledWith(
+  expect(mock.spawn).toHaveBeenLastCalledWith(
     "ssh",
     expect.arrayContaining(["--", "fixture", "uname -s; uname -m"]),
     expect.objectContaining({
-      timeout: 10000,
-      maxBuffer: 16384,
+      detached: process.platform !== "win32",
+      stdio: ["ignore", "pipe", "pipe"],
       shell: false,
     }),
-    expect.any(Function),
   );
   expect(sshEnvironment()).not.toHaveProperty("FOOM_CONTROL_TOKEN");
   expect(sshEnvironment()).toHaveProperty("SSH_AUTH_SOCK", "/fixture/agent");
@@ -261,20 +287,15 @@ test("a disconnected libc probe does not invent an unsupported platform; mismatc
 
 test("explicit setup output streams SSH stdout and stderr as inert display text", async () => {
   const f = await fixture();
-  const custom = Symbol.for("nodejs.util.promisify.custom");
-  Object.assign(mock.execFile, {
-    [custom]: () => {
-      const stdout = new PassThrough();
-      const stderr = new PassThrough();
-      const promise = new Promise<{ stdout: string }>((resolve) => {
-        queueMicrotask(() => {
-          stdout.write(mock.output);
-          stderr.write("SSH diagnostic\n");
-          resolve({ stdout: mock.output });
-        });
-      });
-      return Object.assign(promise, { child: { stdout, stderr } });
-    },
+  mock.spawn.mockImplementation(() => {
+    const child = probeChild();
+    queueMicrotask(() => {
+      child.stdout.write(mock.output);
+      child.stderr.write("SSH diagnostic\n");
+      child.emit("exit", 0);
+      child.emit("close", 0);
+    });
+    return child;
   });
   const output = vi.fn();
   await selectHostArtifact(
@@ -288,8 +309,8 @@ test("explicit setup output streams SSH stdout and stderr as inert display text"
   );
   expect(output.mock.calls).toEqual([
     ["Connecting…\nPlatform\n", true],
-    [Buffer.from("Linux\nx86_64\n")],
-    [Buffer.from("SSH diagnostic\n")],
+    ["Linux\nx86_64\n"],
+    ["SSH diagnostic\n"],
     ["Verifying daemon artifact…\n", true],
   ]);
 });
@@ -309,23 +330,20 @@ test.each([
     const text =
       "No ED25519 host key is known for box and you have requested strict checking.\nHost key verification failed.\n";
     let diagnostic = "";
-    Object.assign(mock.execFile, {
-      [Symbol.for("nodejs.util.promisify.custom")]: (_file: string, args: string[]) => {
-        expect(args).toContain("LogLevel=ERROR");
-        expect(args).toContain("StrictHostKeyChecking=yes");
-        diagnostic = args[args.indexOf("-E") + 1] ?? "";
-        const work = (async () => {
-          if (process.platform !== "win32")
-            expect((await stat(diagnostic)).mode & 0o777).toBe(0o600);
-          if (source !== "remote")
-            await writeFile(diagnostic, source === "client" ? text : "x".repeat(16385));
-          throw Object.assign(new Error("fixture SSH failure"), {
-            code,
-            stderr: source === "remote" ? text : "",
-          });
-        })();
-        return Object.assign(work, { child: {} });
-      },
+    mock.spawn.mockImplementation((_file: string, args: string[]) => {
+      expect(args).toContain("LogLevel=ERROR");
+      expect(args).toContain("StrictHostKeyChecking=yes");
+      diagnostic = args[args.indexOf("-E") + 1] ?? "";
+      const child = probeChild();
+      void (async () => {
+        if (process.platform !== "win32") expect((await stat(diagnostic)).mode & 0o777).toBe(0o600);
+        if (source !== "remote")
+          await writeFile(diagnostic, source === "client" ? text : "x".repeat(16385));
+        else child.stderr.write(text);
+        child.emit("exit", code);
+        child.emit("close", code);
+      })();
+      return child;
     });
     await expect(
       selectHostArtifact(
@@ -343,3 +361,149 @@ test.each([
     await expect(access(diagnostic)).rejects.toThrow();
   },
 );
+
+test("a live diagnostic overflow kills the owned SSH group and cannot become trust eligible", async () => {
+  const f = await fixture();
+  vi.spyOn(process, "platform", "get").mockReturnValue("linux");
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout"] });
+  const ready = Promise.withResolvers<undefined>();
+  const child = Object.assign(probeChild(), { pid: 12345 });
+  let diagnostic = "";
+  const kill = vi.spyOn(process, "kill").mockImplementation(() => {
+    // Even a smaller, syntactically valid diagnostic after overflow cannot
+    // undo the failed-probe latch.
+    fs.writeFileSync(
+      diagnostic,
+      "No ED25519 host key is known for box and you have requested strict checking.\nHost key verification failed.\n",
+    );
+    queueMicrotask(() => {
+      child.emit("exit", 255);
+      child.emit("close", 255);
+    });
+    return true;
+  });
+  mock.spawn.mockImplementation((_file: string, args: string[], options: { detached: boolean }) => {
+    expect(options.detached).toBe(true);
+    diagnostic = args[args.indexOf("-E") + 1] ?? "";
+    void writeFile(diagnostic, Buffer.alloc(16385)).then(() => {
+      ready.resolve(undefined);
+    });
+    return child;
+  });
+  const work = expect(
+    selectHostArtifact({ host: "fixture" }, "0.1.0", f.root, f.metadata),
+  ).rejects.toMatchObject({ failure: "unreachable" });
+  await ready.promise;
+  expect(kill).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(10);
+  await work;
+  expect(kill).toHaveBeenCalledWith(-12345, "SIGKILL");
+  await expect(access(diagnostic)).rejects.toThrow();
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+test("a successful probe that overflows before the first monitor tick still fails closed", async () => {
+  const f = await fixture();
+  let diagnostic = "";
+  mock.spawn.mockImplementation((_file: string, args: string[]) => {
+    const child = probeChild();
+    diagnostic = args[args.indexOf("-E") + 1] ?? "";
+    void writeFile(diagnostic, Buffer.alloc(16385)).then(() => {
+      child.stdout.write("Linux\nx86_64\n");
+      child.emit("exit", 0);
+      child.emit("close", 0);
+    });
+    return child;
+  });
+  await expect(
+    selectHostArtifact({ host: "fixture" }, "0.1.0", f.root, f.metadata),
+  ).rejects.toMatchObject({ failure: "unreachable" });
+  await expect(access(diagnostic)).rejects.toThrow();
+});
+
+test.each(["stdout", "stderr", "abort", "timeout", "spawn", "stat"])(
+  "bounded SSH probe stops and cleans up on %s",
+  async (mode) => {
+    const f = await fixture();
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout"] });
+    const ready = Promise.withResolvers<undefined>();
+    const child = probeChild();
+    let diagnostic = "";
+    child.kill.mockImplementation(() => {
+      queueMicrotask(() => {
+        child.emit("exit", null);
+        child.emit("close", null);
+      });
+      return true;
+    });
+    mock.spawn.mockImplementation((_file: string, args: string[]) => {
+      diagnostic = args[args.indexOf("-E") + 1] ?? "";
+      ready.resolve(undefined);
+      return child;
+    });
+    const abort = new AbortController();
+    const work = expect(
+      selectHostArtifact({ host: "fixture" }, "0.1.0", f.root, f.metadata, abort.signal),
+    ).rejects.toMatchObject({ failure: "unreachable" });
+    await ready.promise;
+    if (mode === "abort") abort.abort();
+    else if (mode === "timeout") await vi.advanceTimersByTimeAsync(10000);
+    else if (mode === "spawn") child.emit("error", new Error("fixture spawn failure"));
+    else if (mode === "stat") {
+      vi.mocked(fs.fstatSync).mockImplementationOnce(() => {
+        throw new Error("fixture stat failure");
+      });
+      await vi.advanceTimersByTimeAsync(10);
+    } else child[mode === "stdout" ? "stdout" : "stderr"].write(Buffer.alloc(16385));
+    await work;
+    expect(child.kill).toHaveBeenCalledWith("SIGKILL");
+    await expect(access(diagnostic)).rejects.toThrow();
+    expect(vi.getTimerCount()).toBe(0);
+  },
+);
+
+test("Windows overflow uses the fixed OS tree terminator before removing the file", async () => {
+  const f = await fixture();
+  vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+  const systemRoot = join(tmpdir(), "fixture-windows");
+  vi.stubEnv("SystemRoot", systemRoot);
+  const child = Object.assign(probeChild(), { pid: 12345 });
+  let diagnostic = "";
+  mock.spawn.mockImplementation((_file: string, args: string[]) => {
+    diagnostic = args[args.indexOf("-E") + 1] ?? "";
+    void writeFile(diagnostic, Buffer.alloc(16385));
+    return child;
+  });
+  child.kill.mockImplementation(() => {
+    queueMicrotask(() => {
+      child.emit("exit", null);
+      child.emit("close", null);
+    });
+    return true;
+  });
+  mock.execFile.mockImplementation((file, args, _options, callback) => {
+    expect(file).toBe(join(systemRoot, "System32", "taskkill.exe"));
+    expect(args).toEqual(["/pid", "12345", "/T", "/F"]);
+    callback(null, { stdout: "" });
+  });
+  await expect(
+    selectHostArtifact({ host: "fixture" }, "0.1.0", f.root, f.metadata),
+  ).rejects.toMatchObject({ failure: "unreachable" });
+  expect(child.kill).toHaveBeenCalledWith("SIGKILL");
+  await expect(access(diagnostic)).rejects.toThrow();
+});
+
+test("cancelled probes and Windows without a trusted OS root never spawn SSH", async () => {
+  const f = await fixture();
+  const abort = new AbortController();
+  abort.abort();
+  await expect(
+    selectHostArtifact({ host: "fixture" }, "0.1.0", f.root, f.metadata, abort.signal),
+  ).rejects.toMatchObject({ failure: "unreachable" });
+  vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+  vi.stubEnv("SystemRoot", "");
+  await expect(
+    selectHostArtifact({ host: "fixture" }, "0.1.0", f.root, f.metadata),
+  ).rejects.toMatchObject({ failure: "unreachable" });
+  expect(mock.spawn).not.toHaveBeenCalled();
+});

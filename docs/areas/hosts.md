@@ -664,6 +664,12 @@ Add and Check capabilities retain BatchMode=yes. The bounded platform probe uses
 StrictHostKeyChecking=yes and the C locale so OpenSSH reports an unknown key
 explicitly. OpenSSH's local diagnostics go through `-E` into a private per-run
 0600 file beneath a 0700 temporary directory, removed on completion or failure.
+The open file's size is checked every 10 ms while SSH runs and again on exit,
+including successful exits. Exceeding 16 KiB kills the detached SSH process group
+(Windows uses the fixed OS tree terminator) and permanently fails the probe;
+overflowed text can never enable trust. Polling can allow a burst between checks,
+but never waits for the connection deadline to enforce the limit. The monitor,
+file handle and directory are removed on completion, failure or cancellation.
 LogLevel=ERROR overrides user verbosity. Only exit status 255 and at most 16 KiB
 from that client-owned channel can classify host-key-unknown, host-key-changed or
 login-rejected. Remote command/login-shell stderr remains display-only, including

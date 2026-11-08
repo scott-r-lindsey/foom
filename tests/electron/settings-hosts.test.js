@@ -2,7 +2,16 @@ const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const { createHash } = require("node:crypto");
 const { gzipSync } = require("node:zlib");
-const { chmod, mkdir, mkdtemp, readFile, writeFile, rename, rm } = require("node:fs/promises");
+const {
+  access,
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  writeFile,
+  rename,
+  rm,
+} = require("node:fs/promises");
 const path = require("node:path");
 const { tmpdir } = require("node:os");
 const { gitSync } = require("../helpers/git.js");
@@ -76,6 +85,7 @@ async function hostsFixture(context, captureEnrollment = false, initialScenario 
   const recipeCalls = path.join(root, "recipes.jsonl");
   const scenario = path.join(root, "scenario.json");
   await writeFile(scenario, JSON.stringify(initialScenario));
+  const overflowInfo = path.join(root, "diagnostic-overflow.json");
   const knownHosts = path.join(root, "known_hosts");
   await writeFile(knownHosts, "");
   const cloneReason = path.join(root, "clone-reason");
@@ -141,6 +151,14 @@ for (const flag of ['BatchMode=yes','ClearAllForwardings=yes','ForwardAgent=no',
 const split = args.indexOf('--'); const host = args[split+1];
 assert.ok(['fixture-cloud','other-cloud','offline-cloud','version-cloud','invalid-cloud','provider-cloud','configuration-cloud','cancelled-cloud'].includes(host));
 if (host === 'offline-cloud') { process.stderr.write('RAW SSH SECRET'); process.exit(1); }
+if (args.at(-1) === 'uname -s; uname -m' && current.diagnosticOverflow) {
+ const diagnostic = args[args.indexOf('-E') + 1];
+ assert.ok(diagnostic);
+ require('node:fs').writeFileSync(${JSON.stringify(overflowInfo)}, JSON.stringify({diagnostic, pid:process.pid}));
+ require('node:fs').appendFileSync(diagnostic, Buffer.alloc(16385));
+ setInterval(() => {}, 1000);
+ return;
+}
 if (args.at(-1) === 'uname -s; uname -m' && current.remoteHostKeyExit) { process.stderr.write('No ED25519 host key is known for fixture-cloud and you have requested strict checking.\\nHost key verification failed.\\n'); process.exit(current.remoteHostKeyExit); }
 if (args.at(-1) === 'uname -s; uname -m') { process.stdout.write(${JSON.stringify(`${platform === "darwin" ? "Darwin" : "Linux"}\n${process.arch === "x64" ? "x86_64" : platform === "darwin" ? "arm64" : "aarch64"}\n`)}); process.exit(0); }
 // Standalone fixed libc preflight has no daemon protocol handshake.
@@ -307,6 +325,7 @@ process.stdin.on('data', bytes => {
     progressStatus,
     capture,
     updateScenario,
+    overflowInfo,
     heldCloneCount,
     platform,
     catalog,
@@ -2223,4 +2242,22 @@ test("Hosts never offers host-key trust from a remote command's forged SSH diagn
     const state = await page.evaluate(() => window.desktop.hosts({ action: "list" }));
     assert.equal(state.hosts[0].result.connection.ssh.reason, "unreachable");
   }
+});
+
+test("Hosts kills fixture SSH on live diagnostic overflow and removes its private file", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { card, page, updateScenario, overflowInfo } = await hostsFixture(context, false);
+  await updateScenario({ diagnosticOverflow: true });
+  await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
+  await expect(
+    card.getByText("Host unreachable · unreachable", { exact: true }).first(),
+  ).toBeVisible();
+  const { diagnostic, pid } = JSON.parse(await readFile(overflowInfo, "utf8"));
+  await assert.rejects(access(diagnostic), { code: "ENOENT" });
+  assert.throws(() => process.kill(pid, 0), { code: "ESRCH" });
+  await expect(card.getByRole("button", { name: "Trust host key", exact: true })).toHaveCount(0);
+  const state = await page.evaluate(() => window.desktop.hosts({ action: "list" }));
+  assert.equal(state.hosts[0].result.connection.ssh.reason, "unreachable");
 });
