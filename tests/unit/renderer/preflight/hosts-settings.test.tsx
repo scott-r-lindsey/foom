@@ -222,6 +222,9 @@ test("partial facts retain passes and expose Create plus available Install and S
   await screen.findByText("Pass · Host key trusted");
   expect(screen.getByText(/Code folder does not exist · folder-missing/u)).toBeTruthy();
   expect(screen.getByLabelText("Git access fixes").textContent).toContain("Use HTTPS through gh");
+  expect(screen.getByText("Use HTTPS through gh").getAttribute("title")).toBe(
+    "Configure the host's Git to use HTTPS through gh",
+  );
   expect(screen.queryByRole("button", { name: "Install codex" })).toBeNull();
   expect(screen.getByText("Unable to check")).toBeTruthy();
   for (const [button, action] of [

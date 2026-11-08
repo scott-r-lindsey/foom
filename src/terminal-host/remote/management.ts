@@ -401,89 +401,13 @@ export async function manageHost(
     if (!exists) {
       const temporary = await mkdtemp(join(folder, ".foom-clone-"));
       try {
-        try {
-          await networkGit(
-            ["clone", "--", request.origin, temporary],
-            folder,
-            env,
-            HOST_CLONE_TIMEOUT_MS,
-            signal,
-          );
-        } catch (error) {
-          // A signed-in host gh can supply HTTPS credentials without changing global Git config.
-          // SCP's colon starts the repository path; only ssh:// has a port.
-          const ssh = request.origin.startsWith("ssh://")
-            ? /^ssh:\/\/(?:[^@/:]+@)?([a-zA-Z0-9.-]+)(?::[0-9]+)?\/([a-zA-Z0-9_./~-]+)$/u.exec(
-                request.origin,
-              )
-            : /^(?:[^@/:]+@)?([a-zA-Z0-9.-]+):([a-zA-Z0-9_./~-]+)$/u.exec(request.origin);
-          if (
-            !ssh ||
-            request.origin.startsWith("https://") ||
-            !(error instanceof HostGitFailure) ||
-            !["origin-auth", "origin-host-key", "origin-unreachable", "timed-out"].includes(
-              error.reason,
-            )
-          )
-            throw error;
-          const hostname = ssh[1];
-          const repository = ssh[2];
-          if (
-            !hostname ||
-            !repository ||
-            repository
-              .split("/")
-              .some((part) => !part || part === "." || part === ".." || part.startsWith("~"))
-          )
-            throw error;
-          try {
-            // Resolve in clone's Git context, even after Git removes a failed
-            // partial repository. Never override a host insteadOf route.
-            const effective = await git(
-              [
-                `--git-dir=${join(temporary, ".git")}`,
-                "ls-remote",
-                "--get-url",
-                "--",
-                request.origin,
-              ],
-              folder,
-            );
-            if (effective.replace(/\n$/u, "") !== request.origin) throw error;
-            await hostProbe(
-              "gh",
-              ["auth", "status", "--hostname", hostname],
-              home,
-              env,
-              true,
-              5000,
-              signal,
-              "status",
-            );
-          } catch {
-            throw error;
-          }
-          signal?.throwIfAborted();
-          await rm(temporary, { recursive: true, force: true });
-          await networkGit(
-            [
-              "clone",
-              "--config",
-              `url.https://${hostname}/${repository}.insteadOf=${request.origin}`,
-              "--config",
-              `credential.https://${hostname}.helper=`,
-              "--config",
-              `credential.https://${hostname}.helper=!gh auth git-credential`,
-              "--",
-              request.origin,
-              temporary,
-            ],
-            folder,
-            env,
-            HOST_CLONE_TIMEOUT_MS,
-            signal,
-          );
-        }
+        await networkGit(
+          ["clone", "--", request.origin, temporary],
+          folder,
+          env,
+          HOST_CLONE_TIMEOUT_MS,
+          signal,
+        );
         try {
           status = await checkout(temporary, request.origin, HOST_CLONE_TIMEOUT_MS);
         } catch (error) {

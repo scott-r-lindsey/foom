@@ -306,6 +306,28 @@ test("first-use repository launch exposes each fixed clone failure and Settings 
       .toBe(mode === "dark");
     await page.screenshot({ path: evidencePath(`1074/sidebar-first-use-${mode}.png`) });
   }
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  await writeFile(cloneReason, "origin-auth");
+  await page.getByRole("button", { name: "Actions for shell-fixture", exact: true }).click();
+  await page.getByRole("menuitem", { name: "New agent", exact: true }).click();
+  await page.getByRole("menuitem", { name: "fixture-cloud", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Claude Code", exact: true }).click();
+  const failure = page.getByRole("dialog", { name: "Action failed", exact: true });
+  await expect(failure).toContainText(
+    "Configure Git access on the host: HTTPS through gh, a deploy key, or ssh-agent.",
+  );
+  await expect(failure).not.toContainText("RAW GIT SECRET");
+  for (const mode of ["light", "dark"]) {
+    await page.evaluate(
+      (mode) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${mode}` }),
+      mode,
+    );
+    await expect
+      .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
+      .toBe(mode === "dark");
+    await page.screenshot({ path: evidencePath(`1074/origin-auth-hints-${mode}.png`) });
+  }
 });
 
 test("Hosts edits names during checks and enrolls optional nicknames", {

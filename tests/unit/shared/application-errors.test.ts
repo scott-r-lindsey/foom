@@ -8,6 +8,10 @@ import {
 
 test("only the closed codes select fixed messages, with or without Electron's wrapper", () => {
   const cases = [
+    [
+      "origin-auth",
+      "Origin authentication failed. Configure Git access on the host: HTTPS through gh, a deploy key, or ssh-agent.",
+    ],
     ["remote-host-unavailable", "Remote host artifact unavailable in this local build."],
     ["session-busy", "This session is busy. Try again when its current action finishes."],
     ["session-running", "Stop this session before closing it."],

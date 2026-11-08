@@ -393,7 +393,7 @@ function Checklist({
             />
             {repo.origin?.state === "fail" && repo.origin.reason === "origin-auth" && (
               <div className="host-origin-fixes" aria-label="Git access fixes">
-                <span title={"Foom uses the host's gh login for HTTPS when SSH access fails"}>
+                <span title={"Configure the host's Git to use HTTPS through gh"}>
                   Use HTTPS through gh
                 </span>
                 <span title="Add a passphrase-less deploy key on this host">deploy key</span>

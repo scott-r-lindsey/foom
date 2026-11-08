@@ -106,7 +106,7 @@ They run in a detached process group with ignored stdin and no controlling termi
 Git resolves its own SSH command and variant, including conditional configuration
 in the clone target context, `ssh.variant`, `GIT_SSH_VARIANT` and auto-detection.
 Foom does not add variant-specific SSH options;
-SSH configuration and keys remain owned by Git's transport. If SSH fails with an authentication, host-key, connectivity or timeout reason and the host has a signed-in gh for the origin hostname, Foom retries in fresh staging using HTTPS. Clone-local URL rewriting and a host-scoped `gh auth git-credential` helper preserve `remote.origin.url` exactly and are inherited by linked worktrees. No global Git or gh configuration is written. SCP-style origins treat everything after the colon as the repository path, including numeric first segments; only `ssh://` origins parse a port. Fallback preserves the complete path. Before using it, Git resolves the effective fetch URL without network access in the clone destination’s Git context, including host includes and conditional includes. Fallback is refused with the original closed failure unless that URL exactly matches the configured origin; it never overrides host `insteadOf` routing. An unavailable or invalid URL resolution also refuses fallback. Absolute SCP paths, home-relative paths and empty/dot path segments refuse HTTPS fallback with the original closed failure rather than guessing a fetch target. Local checkout failures do not trigger transport fallback. Terminal/askpass and
+SSH configuration and keys remain owned by Git's transport. Each missing checkout gets one clone attempt using the registered origin exactly as the host's Git resolves it, including host rewrites and conditional configuration. There is no automatic HTTPS or authentication fallback: Foom adds no URL rewrite or credential helper, performs no alternate-URL probe and does not retry the clone. An `origin-auth` failure shows fixed hints for HTTPS through gh, a deploy key or ssh-agent on the host wherever work started; the user configures access and Foom does not act on those hints. Terminal/askpass and
 GCM interaction are disabled for every variant. Diagnostics
 are bounded and classified on the host, under the C locale, into `origin-auth`,
 `origin-host-key`, `origin-unreachable`, `timed-out` or `checkout-invalid`. A refused
@@ -432,7 +432,7 @@ Create explicitly creates the approved folder. Change folder edits its approved
 path and rechecks without creating it. Install and Sign in use the existing
 main-selected recipes and foreground tile placement; Settings closes once that
 tile is visible. No background install, recipe replay or terminal typing is added.
-Missing recipes show no Install button. Git access to origin and explicit Trust host key remain in each repository’s Git-access group. Origin-auth hints explain the automatic host-gh HTTPS fallback, deploy keys and ssh-agent; they never instruct global URL rewrites. Host facts,
+Missing recipes show no Install button. Git access to origin and explicit Trust host key remain in each repository’s Git-access group. Origin-auth hints identify HTTPS through gh, a deploy key and ssh-agent as user-configured access options; Foom never applies them or instructs global URL rewrites. Host facts,
 foreign session End and foreign worktree counts remain under Host facts.
 
 Repositories → Locations groups existing checkouts beneath Local and each registered host,

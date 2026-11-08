@@ -158,7 +158,7 @@ and [CLI flags](console.md).
 ### Launch failure reasons
 
 `whoami.launchReasons` publishes these fixed codes and descriptions, alongside
-`removalReasons`. Failed launch operations record one of the following; main logs
+`removalReasons`. Failed `origin-auth` operations also include fixed authentication hints in `detail` (HTTPS through gh, deploy key, ssh-agent); these are guidance, not actions Foom performs. Failed launch operations record one of the following; main logs
 one bounded code-only line. No remote text, host output or stderr is returned or
 logged. Ownership/grant refusals retain their existing control error semantics.
 
