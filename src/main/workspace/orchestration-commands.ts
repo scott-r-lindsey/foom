@@ -1,3 +1,5 @@
+import { HostAdmission } from "../../shared/host-pressure";
+import { localResources } from "../setup/local-host";
 import { canRestoreControl } from "./session-restore";
 import type { ReviewSnapshot } from "../control/review-loops.d";
 import { remoteAgentTarget } from "../terminals/remote-bootstrap";
@@ -17,6 +19,8 @@ import type {
   ExecutionEventsContext,
   OrchestrationCommandsContext,
 } from "./workspace-capabilities";
+
+const localAdmission = new HostAdmission();
 
 export async function auditHuman(
   this: OrchestrationCommandsContext,
@@ -208,6 +212,7 @@ export async function launchChild(
   agent: AgentId,
   prompt: string | undefined,
   step?: {
+    pressure?: AgentLaunch["pressure"];
     selection?: AgentLaunch["selection"];
     resume?: { id: string; conversationId: string };
     loop?: AgentLaunch["loop"];
@@ -233,19 +238,34 @@ export async function launchChild(
       if (identity !== created) throw new Error("Worktree has changed");
       step?.validate();
       const replacement = step?.resume;
-      if (replacement) {
-        const old = this.launched.get(replacement.id);
-        if (old?.remote && !remote && !remoteAgentTarget(process.argv, worktree))
-          throw new Error("Remote mapping is required to resume this child");
-        if (!old || this.executionOwner.view(old.id).exitCode === undefined)
-          throw new Error("Author is still running");
-        await this.queues.get(old.id);
-        if (!old.dormant) await this.deps.terminals.kill(old.id);
-        old.dormant = true;
-        this.executionOwner.reset(old.id);
-        this.deps.verdicts.forget(old.id);
-      }
+      const isRemote = remote || remoteAgentTarget(process.argv, worktree);
+      const admission = isRemote
+        ? undefined
+        : await localAdmission.reserve(
+            localResources,
+            () =>
+              [...this.launched.values()].filter(
+                (row) =>
+                  row.kind === "agent" &&
+                  !row.dormant &&
+                  !row.remote &&
+                  this.executionOwner.view(row.id).exitCode === undefined,
+              ).length,
+          );
+      if (admission) step?.pressure?.(admission.pressure);
       try {
+        if (replacement) {
+          const old = this.launched.get(replacement.id);
+          if (old?.remote && !remote && !remoteAgentTarget(process.argv, worktree))
+            throw new Error("Remote mapping is required to resume this child");
+          if (!old || this.executionOwner.view(old.id).exitCode === undefined)
+            throw new Error("Author is still running");
+          await this.queues.get(old.id);
+          if (!old.dormant) await this.deps.terminals.kill(old.id);
+          old.dormant = true;
+          this.executionOwner.reset(old.id);
+          this.deps.verdicts.forget(old.id);
+        }
         const launched = await this.launchAgent(
           {
             agent,
@@ -262,6 +282,7 @@ export async function launchChild(
             ...(step?.selection ? { selection: step.selection } : {}),
             ...(step?.validateSnapshot ? { prepareSpawn: step.validateSnapshot } : {}),
             ...(remote ? { remoteCheckout: remote } : {}),
+            pressure: step?.pressure ?? (() => {}),
             control: { parentId },
             prompt: prompt ?? "Await your assigned task.",
             ...(step
@@ -279,6 +300,8 @@ export async function launchChild(
         if (replacement) this.executionOwner.markExited(replacement.id, -1);
         this.refresh();
         throw error;
+      } finally {
+        admission?.release();
       }
     } finally {
       this.busyWorktrees.delete(key);

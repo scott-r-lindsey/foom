@@ -80,8 +80,8 @@ Check capabilities or their own row reload. Linux uses
 `MemAvailable` from `/proc/meminfo`. macOS available is the sum of free, inactive
 and speculative page counts from fixed `/usr/bin/vm_stat`, multiplied by its page
 size; wired/compressed pages are excluded. [Apple’s vm_stat snapshot](https://github.com/apple-oss-distributions/system_cmds/blob/main/vm_stat/vm_stat.c#L122-L141) prints free pages with speculative pages removed, so this adds speculative pages once. This measures reclaimable memory and
-is not a promise that an allocation will succeed. There are no busy warnings or
-idle resource polling timers.
+is not a promise that an allocation will succeed. There are no human busy warnings or idle resource polling timers. Automated
+child starts use fresh launch-time pressure admission; see [child pressure](../contracts/control-mutations.md#child-host-pressure-1046).
 
 Ready means installed and probeable, using only the existing `--version` and
 `--help` probes over the account's login PATH. Missing executables show Not found;
@@ -596,3 +596,13 @@ path, shell source, other plugin or manifest can select it. The host rechecks CL
 inventory and refuses unless Foom is absent; present or unrecognized inventories
 must be managed in agy. Staging alone does not install. No global configuration
 file is written directly. Older daemons lacking agentSettings refuse this recipe.
+
+
+## Child pressure admission (#1046)
+
+Main applies the same resource-derived budget locally that the SSH daemon applies
+remotely. Running Foom agents (including human agents) and pending automated starts
+share the machine budget. Fresh measurements and reservations are separate from
+cached host checks and inventory. Humans remain unrestricted. Older daemons and
+unreadable measurements allow unmeasured starts. See the [wire facts, thresholds
+and retry rules](../contracts/control-mutations.md#child-host-pressure-1046).

@@ -1,3 +1,4 @@
+import type { HostPressure } from "./host-pressure.d";
 import type { RemoteReviewSnapshot } from "./remote-agent";
 import type { ReviewOptions, ReviewState } from "./review";
 import type { V2Binding } from "./v2-hooks";
@@ -58,6 +59,8 @@ export interface LaunchSelection {
 }
 
 export interface AgentLaunch {
+  /** Main-only child admission; human launches omit this capability. */
+  readonly pressure?: (value: HostPressure) => void;
   /** Main-only human home launch; grants no repository or orchestration authority. */
   readonly humanHome?: true;
   /** Main-only registered-host capability. Never accepted from IPC. */

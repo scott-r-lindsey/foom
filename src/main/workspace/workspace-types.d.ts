@@ -73,6 +73,7 @@ export interface WorkspaceMethods {
       | "beforeSpawn"
       | "prepareSpawn"
       | "loop"
+      | "pressure"
       | "selection"
       | "remoteCheckout"
     >,
@@ -147,6 +148,7 @@ export interface WorkspaceMethods {
     agent: AgentId,
     prompt: string | undefined,
     step?: {
+      pressure?: AgentLaunch["pressure"];
       selection?: AgentLaunch["selection"];
       resume?: { id: string; conversationId: string };
       loop?: AgentLaunch["loop"];

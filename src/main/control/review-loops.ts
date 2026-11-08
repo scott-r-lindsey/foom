@@ -1,3 +1,4 @@
+import { LaunchFailure } from "../../shared/launch-failure";
 import type { ReviewOptions, ReviewReason, ReviewState, ReviewVerdict } from "../../shared/review";
 import type { ReviewLoop, ReviewLoopHost, ReviewSnapshot } from "./review-loops.d";
 import type { PullRequest } from "./forge.d";
@@ -40,7 +41,10 @@ export class ReviewLoops {
 
   start(authorId: string, options: ReviewOptions, number?: number): void {
     const previous = this.loops.get(authorId);
-    if (previous) clearTimeout(previous.parentTimer);
+    if (previous) {
+      clearTimeout(previous.parentTimer);
+      clearTimeout(previous.pressureTimer);
+    }
     this.loops.set(authorId, {
       state: {
         ...options,
@@ -88,6 +92,7 @@ export class ReviewLoops {
     this.participants.delete(id);
     if (author !== undefined && ![...this.participants.values()].includes(author)) {
       clearTimeout(this.loops.get(author)?.parentTimer);
+      clearTimeout(this.loops.get(author)?.pressureTimer);
       this.loops.delete(author);
     }
   }
@@ -206,18 +211,35 @@ export class ReviewLoops {
   }
 
   private syncLoop(loop: ReviewLoop): void {
-    if (this.finished(loop)) return;
+    if (this.finished(loop) || loop.pressureTimer) return;
     if (loop.busy) {
       loop.again = true;
       return;
     }
     loop.busy = true;
     void this.advance(loop)
-      .catch(() => {
-        if (!this.finished(loop)) this.finish(loop, "launch failed");
+      .catch((error: unknown) => {
+        if (this.finished(loop)) return;
+        if (error instanceof LaunchFailure && error.reason === "host_busy") {
+          loop.pressureSince ??= this.now();
+          if (this.now() - loop.pressureSince < 5 * 60_000) {
+            this.retryPressure(loop);
+            loop.state = { ...loop.state, waiting: true };
+            this.host.changed();
+            return;
+          }
+        }
+        this.finish(loop, "launch failed");
       })
       .finally(() => {
         loop.busy = false;
+        if (
+          !this.finished(loop) &&
+          loop.prompt &&
+          loop.pressureSince !== undefined &&
+          !loop.pressureTimer
+        )
+          this.retryPressure(loop);
         if (loop.again) {
           delete loop.again;
           // Only replay this loop's pending invalidation. A global sync here
@@ -228,12 +250,22 @@ export class ReviewLoops {
       });
   }
 
+  private retryPressure(loop: ReviewLoop): void {
+    loop.pressureTimer = setTimeout(() => {
+      delete loop.pressureTimer;
+      this.syncLoop(loop);
+    }, 5000);
+    loop.pressureTimer.unref();
+  }
+
   private finished(loop: ReviewLoop): boolean {
     return loop.state.phase === "clean" || loop.state.phase === "escalated";
   }
 
   private finish(loop: ReviewLoop, reason?: ReviewReason): void {
     clearTimeout(loop.parentTimer);
+    clearTimeout(loop.pressureTimer);
+    delete loop.pressureTimer;
     delete loop.parentTimer;
     loop.state = {
       ...loop.state,
@@ -249,6 +281,10 @@ export class ReviewLoops {
 
   private async launch(loop: ReviewLoop): Promise<void> {
     if (!loop.prompt || this.finished(loop)) return;
+    if (loop.pressureSince !== undefined && this.now() - loop.pressureSince >= 5 * 60_000) {
+      this.finish(loop, "launch failed");
+      return;
+    }
     // Persist the boundary before launch. Restore always escalates saved loops.
     await this.host.save();
     if (this.finished(loop)) return;
@@ -266,6 +302,7 @@ export class ReviewLoops {
       this.host.changed();
       return;
     }
+    delete loop.pressureSince;
     loop.currentId = id;
     delete loop.stoppingId;
     delete loop.awaitingExitId;

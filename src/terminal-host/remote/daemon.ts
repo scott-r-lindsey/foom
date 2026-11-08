@@ -1,3 +1,6 @@
+import { HostAdmission } from "../../shared/host-pressure";
+import type { HostPressure } from "../../shared/host-pressure.d";
+import { launchResources } from "./resources";
 import type { TerminalSpec } from "../../shared/desktop";
 import { legacyDaemon, endLegacyDaemon } from "./legacy";
 import type { LegacyDaemon } from "./legacy";
@@ -68,6 +71,7 @@ export function remoteShell(shell = process.env["SHELL"], accountShell = () => u
 type Expiry = { timer?: ReturnType<typeof setTimeout>; expired?: boolean };
 type Tombstone = { code: number; expiry: Expiry; profile?: string };
 type Session = {
+  admission?: { pressure: HostPressure; release(): void };
   generation: string;
   connection?: Socket;
   profile?: string;
@@ -128,6 +132,7 @@ export function serveHost(
   });
   let imageBusy = false;
   const sessions = new Map<string, Session>();
+  const admission = new HostAdmission();
   const worktrees = new Set<Session>();
   const removingWorktrees = new Set<string>();
   const tombstones = new Map<string, Tombstone>();
@@ -150,6 +155,8 @@ export function serveHost(
     }
   >();
   const revoke = (id: string, session: Session, stopping = false) => {
+    session.admission?.release();
+    delete session.admission;
     if (!stopping) recipeSessions.delete(id);
     if (!stopping) worktrees.delete(session);
     delete session.imageOwner;
@@ -402,6 +409,7 @@ export function serveHost(
           type: "hello",
           build,
           compatible: 2,
+          childPressure: 1,
           hostFacts: 1,
           hostPreflight: 1,
           hostRowCheck: 1,
@@ -659,6 +667,8 @@ export function serveHost(
         clearTimeout(pending.timer);
         prepared = undefined;
         sessions.set(id, pending.session);
+        pending.session.admission?.release();
+        delete pending.session.admission;
         await opened(pending.session, id, pending.open.request);
         return;
       }
@@ -714,6 +724,21 @@ export function serveHost(
             worktrees.add(owned);
             owned.hooks = [];
             try {
+              if (message.spec.childPressure) {
+                owned.admission = await admission.reserve(
+                  () => launchResources(cancellation.signal),
+                  () =>
+                    [...sessions.values()].filter(
+                      (entry) =>
+                        entry.exited === undefined &&
+                        (entry.agent || (entry.context && entry.context.agent !== "shell")),
+                    ).length,
+                );
+                if (disconnected()) {
+                  revoke(sessionId, owned);
+                  return;
+                }
+              }
               const preparation = prepareRemoteAgent(
                 message.spec,
                 remoteShell(),
@@ -781,7 +806,11 @@ export function serveHost(
               open: message,
               timer: setTimeout(() => socket.destroy(), HOST_PREPARATION_TIMEOUT_MS),
             };
-            await send(socket, { type: "agent-prepared", id });
+            await send(socket, {
+              type: "agent-prepared",
+              id,
+              ...(owned.admission ? { pressure: owned.admission.pressure } : {}),
+            });
             return;
           }
           try {
@@ -1071,6 +1100,9 @@ export function serveHost(
                 await send(socket, {
                   type: "agent-failed",
                   id: value.id,
+                  ...(error instanceof LaunchFailure && error.pressure
+                    ? { pressure: error.pressure }
+                    : {}),
                   reason:
                     error instanceof LaunchFailure
                       ? error.reason

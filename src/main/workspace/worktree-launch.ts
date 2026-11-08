@@ -82,6 +82,7 @@ export async function launchAgent(
     | "beforeSpawn"
     | "prepareSpawn"
     | "loop"
+    | "pressure"
     | "selection"
     | "remoteCheckout"
   > = {},

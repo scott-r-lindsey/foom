@@ -1,3 +1,4 @@
+import type { HostPressure } from "./host-pressure.d";
 import type { ImagePut, ImagePutResult } from "./image-paste.d";
 import type { HostManagement, HostResult, HostRecipeLaunch } from "./registered-hosts.d";
 import type { LaunchReason } from "./launch-failure";
@@ -121,11 +122,17 @@ export type RemoteResponse =
   | { type: "upgrade"; build: string }
   | ImagePutResult
   | { type: "managed"; result: HostResult }
-  | { type: "agent-failed"; id: string; reason: LaunchReason }
+  | {
+      type: "agent-failed";
+      id: string;
+      reason: LaunchReason;
+      pressure?: HostPressure;
+    }
   | {
       type: "hello";
       build: string;
       compatible?: 2;
+      childPressure?: 1;
       hostFacts?: 1;
       hostPreflight?: 1;
       hostRowCheck?: 1;
@@ -139,7 +146,7 @@ export type RemoteResponse =
   | HostResponse
   | RemoteFragment
   | RemoteOpenResult
-  | { type: "agent-prepared"; id: string }
+  | { type: "agent-prepared"; id: string; pressure?: HostPressure }
   | { type: "agent-ready"; id: string; ready: RemoteAgentReady; imageOwner?: string }
   | { type: "agent-hook"; id: string; signal: HookSignal }
   | {
