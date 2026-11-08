@@ -1,3 +1,4 @@
+import { BUILTIN_AGENTS } from "../../shared/providers/catalog";
 import { HostTerminal } from "./host-terminal";
 import { hostDisplayName, hostNicknameError } from "../../shared/registered-hosts";
 import { Fragment, createContext, use, useCallback, useEffect, useRef, useState } from "react";
@@ -193,7 +194,11 @@ function Checklist({
   disabled,
   act,
   changeFolder,
+  openAgents,
+  enabledAgents,
 }: {
+  openAgents?: ((host: string) => void) | undefined;
+  enabledAgents?: Readonly<Record<string, boolean>> | undefined;
   entry: HostRow;
   preflight: HostPreflight | undefined;
   checking: boolean;
@@ -368,7 +373,27 @@ function Checklist({
         <Row name="git / gh" tone="neutral" text="Not checked" />
       )}
       <Group>Agents</Group>
-      {facts ? tools(facts.agents) : <Row name="Agents" tone="neutral" text="Not checked" />}
+      {openAgents ? (
+        <Row
+          name="Agents"
+          tone="neutral"
+          text={`${String(facts?.agents.filter((agent) => enabledAgents?.[agent.id] !== false && agent.state === "ready" && agent.signIn !== "signed-out").length ?? 0)} of ${String([...new Set([...BUILTIN_AGENTS.map((agent) => agent.id), ...Object.keys(enabledAgents ?? {})])].filter((id) => enabledAgents?.[id] !== false).length)} ready`}
+          action={
+            <button
+              type="button"
+              onClick={() => {
+                openAgents(entry.host);
+              }}
+            >
+              Open
+            </button>
+          }
+        />
+      ) : facts ? (
+        tools(facts.agents)
+      ) : (
+        <Row name="Agents" tone="neutral" text="Not checked" />
+      )}
       {repositories.length > 0 && (
         <button
           type="button"
@@ -558,9 +583,13 @@ function HostName({
   );
 }
 export function HostsSettings({
+  agents,
+  openAgents,
   source,
   headingRef,
 }: {
+  agents?: Readonly<Record<string, boolean>>;
+  openAgents?: (host: string) => void;
   source: Pick<SetupSource, "hosts" | "copyHost" | "hostTerminal" | "installs">;
   headingRef: RefObject<HTMLHeadingElement | null>;
 }) {
@@ -1059,6 +1088,8 @@ export function HostsSettings({
                 }}
               >
                 <Checklist
+                  enabledAgents={agents}
+                  openAgents={openAgents}
                   entry={entry}
                   preflight={preflight}
                   progress={progress?.host === entry.host ? progress : undefined}
@@ -1129,8 +1160,21 @@ export function HostsSettings({
                       codeFolder: entry.codeFolder,
                     });
                   }}
+                  className="agent-reload"
+                  aria-label="Check capabilities"
+                  title={`Re-check ${hostDisplayName(entry)}`}
                 >
-                  Check capabilities
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.2"
+                    aria-hidden="true"
+                  >
+                    <path d="M20 12a8 8 0 1 1-2.6-5.9M20 3v5h-5" />
+                  </svg>
                 </button>
               </footer>
               <details className="host-details">

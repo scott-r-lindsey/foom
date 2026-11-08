@@ -28,7 +28,7 @@ Add host accepts an optional nickname with the same validation and inline errors
 main validates it again and saves it only together with a successful enrollment. Folder changes and canonical expansion preserve nicknames.
 
 `setup:hosts` accepts one closed action from the registered board main frame:
-list, progress, dismiss-output, test, add, rename, preflight, create-folder, change-folder, refresh, remove, locations, clone, trust-origin, end, recipe or reload. Main selects enabled agent
+list, progress, dismiss-output, test, add, rename, preflight, draft-preflight, create-folder, change-folder, refresh, remove, locations, clone, trust-origin, end, recipe or reload. Main selects enabled agent
 executables from its validated manifest catalog. Renderer inputs cannot choose
 remote commands, probe arguments, origins or checkout destinations. Replies are
 validated in preload and rebuilt from declared fields. Failures retain fixed states/reasons. Explicit Add and check actions additionally
@@ -317,8 +317,9 @@ Alpine/musl and glibc below 2.28 are unsupported. Distro, libc and package-manag
 observations are closed values. Linux parses bounded `/etc/os-release` as data
 (ID first, then ID_LIKE), never sources it. macOS reports only booleans for Command
 Line Tools (missing CLT suppresses the system git shim probe and git installation actions), disabled idle sleep and code folders under Documents, Desktop or
-Downloads. Failed sleep observations conservatively warn. Raw OS/probe output
-stays on the host. Burstable cloud instances can show low load while CPU credits
+Downloads. Failed sleep observations conservatively warn. Raw OS/status-probe output
+stays on the host; explicitly requested bounded agent version/path display facts
+follow the Settings agent-scopes contract below. Burstable cloud instances can show low load while CPU credits
 or other quotas throttle them; the resource numbers are not a readiness guarantee.
 
 `gh auth status` and optional bundled manifest `hostSetup.status` probes use ignored
@@ -372,7 +373,13 @@ provides facts and recipes. Same-build peers are known to implement the capabili
 
 ## Partial onboarding preflight (#1005)
 
-`preflight` accepts an SSH selector and proposed folder, including before enrollment.
+`draft-preflight` accepts an explicit Add host SSH selector and proposed folder before
+enrollment, without granting registration. The disposable host-qualification hub
+uses this action for its pre-enrollment checks too; only its later `add` enrolls the
+host. Origin checks before `add` use the same draft action.
+`preflight` is a registered-machine reload: main requires the current host and matching folder when the queued action
+dispatches, before any remote inspection. A removed host refuses with `not_found`;
+it never falls back to draft inspection.
 It returns independent SSH, platform and bundled-artifact checks, the existing
 requirements/tools/agents/sign-in facts, a folder check, and origin-access and
 checkout observations for every registered repository. A row that cannot run is
@@ -564,6 +571,45 @@ inventory, without renewing its freshness; saved observations never populate it.
 Resource refresh replies remain separate from the launch inventory when no live
 inventory exists or a full read is pending. A failed resource refresh reports its
 failure under Host facts while retaining the checklist observations.
+
+## Settings agent scopes (#1070)
+
+Hosts shows an enabled-agent readiness count and Open, which selects that host in
+Settings → Agents → Machines, selecting the host in its picker. Agent controls and
+recipes live below that picker; Global contains preferences only. Reading
+the saved host list or selecting a scope starts no full check. The explicit machine
+reload in Agents runs the full preflight and advances Last checked; individual
+agent reloads use the existing scoped tool/sign-in requests. The selected machine
+also reattaches its Settings-owned tool install terminal, sharing the same install
+exit guard as Hosts. Global and machine changes hide the view without ending the
+install; returning to that machine reattaches it. The separately confirmed plugin
+installation and sign-in recipes retain their human-owned foreground tiles.
+
+Protocol-3 hello advertises `agentSettings: 1`. Read-only inspect may request
+`agentDetails: true`; only then does each agent include bounded display-only path,
+version, closed capabilities and Antigravity plugin-inventory state. A compatible
+older daemon lacking the capability refuses with facts-unavailable before dispatch.
+These observations grant no launch authority and saved observations remain stale
+until explicitly refreshed.
+
+Antigravity's Install plugin is opt-in and separately confirmed in main, naming the
+host, two fixed steps and global CLI effect. Its digest-bound recipe runs the
+`foom-host --stage-plugin agy` handler, prints the staged directory, then runs
+resolved `agy plugin install DIRECTORY` with an argument array in a human-owned
+recipe tile. Both hub and daemon select only the bundled agy action; no supplied
+path, shell source, other plugin or manifest can select it. The host rechecks CLI
+inventory and refuses unless Foom is absent; present or unrecognized inventories
+must be managed in agy. Staging alone does not install. No global configuration
+file is written directly. Older daemons lacking agentSettings refuse this recipe.
+Plugin installation additionally requires the daemon's exact build SHA-256 to
+match the verified host artifact shipped by the approving desktop. Compatibility
+flags alone never authorize staging another build's bundled assets. Main refuses
+with the closed `remote_artifact_mismatch` launch reason (`version-mismatch` for
+management) before sending the recipe or opening its PTY. The daemon runs the
+recipe through its own `process.execPath`, so matching the artifact binds the
+staged assets to this desktop build. A busy older daemon and its sessions remain
+running; finish them and let the normal idle upgrade complete before retrying.
+Read-only observations and other recipes retain their existing compatibility.
 
 ## Embedded host terminals (#1062)
 

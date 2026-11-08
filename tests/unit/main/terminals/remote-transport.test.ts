@@ -1870,6 +1870,72 @@ test("an older delayed theme acknowledgement cannot roll back a newer confirmed 
   expect(child.messages).not.toContainEqual(expect.objectContaining({ type: "theme" }));
 });
 
+test.each([false, true])(
+  "agent details require an explicit compatible capability (%s)",
+  async (supported) => {
+    transport.kill();
+    child = new Child();
+    mock.spawn.mockReturnValue(child);
+    const request = {
+      type: "manage",
+      operation: "inspect",
+      codeFolder: "/remote/code",
+      readOnly: true,
+      agentDetails: true,
+    } as const;
+    const pending = remoteManagement({ host: "fixture" }, "0.1.0", request);
+    await Promise.resolve();
+    child.header();
+    child.message({
+      type: "hello",
+      build: "b".repeat(64),
+      compatible: 2,
+      hostFacts: 1,
+      ...(supported ? { agentSettings: 1 as const } : {}),
+    });
+    if (supported) {
+      expect(child.messages).toContainEqual(request);
+      child.message({ type: "managed", result: { ok: false, reason: "folder-refused" } });
+    } else expect(child.messages).not.toContainEqual(request);
+    await expect(pending).resolves.toMatchObject({
+      ok: false,
+      reason: supported ? "folder-refused" : "facts-unavailable",
+    });
+  },
+);
+
+test.each(
+  (["install-plugin", "sign-in"] as const).flatMap((action) =>
+    ["a", "b"].map((build) => ({ action, build })),
+  ),
+)("plugin installation binds the desktop artifact ($action, $build)", async ({ action, build }) => {
+  transport.kill();
+  const recipe = { tool: "agy", action, distro: "debian" as const, digest: "c".repeat(64) };
+  transport = new RemoteTransport(
+    { host: "fixture", artifact: "/artifact", human: true, recipe },
+    "0.1.0",
+  );
+  transport.postMessage(create);
+  await Promise.resolve();
+  child.header();
+  child.message({
+    type: "hello",
+    build: build.repeat(64),
+    compatible: 2,
+    agentSettings: 1,
+    startupTheme: 1,
+  });
+  if (action === "install-plugin" && build !== "a") {
+    expect(child.messages).not.toContainEqual(expect.objectContaining({ type: "open" }));
+    expect(transport.launchFailure?.reason).toBe("remote_artifact_mismatch");
+    expect(transport.managementFailure).toBe("version-mismatch");
+    expect(child.kill).toHaveBeenCalled();
+  } else {
+    expect(child.messages).toContainEqual(expect.objectContaining({ type: "open", recipe }));
+    expect(transport.launchFailure).toBeUndefined();
+  }
+});
+
 test("explicit management output observes upload steps and stderr without exposing protocol frames", async () => {
   transport.kill();
   const output = vi.fn();

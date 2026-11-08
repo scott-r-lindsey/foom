@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agents — Global and Machines</title>
+<style>
+@font-face { font-family:Geist; src:url("../../src/renderer/fonts/geist.ttf"); font-weight:100 900; }
+@font-face { font-family:"Geist Mono"; src:url("../../src/renderer/fonts/geist-mono.ttf"); font-weight:100 900; }
+:root {
+  --bg:#f3f0fa; --surface:#e9e4f5; --line:#ddd6ee; --ink:#14101f; --muted:#625a7a;
+  --accent:#5b2bd9; --done:#0e6b3c; --badge:#d6cfe9; --badge-ink:#14101f;
+  --ui:Geist,system-ui,sans-serif; --mono:"Geist Mono",ui-monospace,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark) { :root:not([data-theme="light"]) {
+  --bg:#05040a; --surface:#0d0a17; --line:#251d3f; --ink:#f4efff; --muted:#9d93bd;
+  --accent:#9b6bff; --done:#6fe0a3; --badge:#1c1632; --badge-ink:#f4efff; color-scheme:dark;
+} }
+:root[data-theme="dark"] {
+  --bg:#05040a; --surface:#0d0a17; --line:#251d3f; --ink:#f4efff; --muted:#9d93bd;
+  --accent:#9b6bff; --done:#6fe0a3; --badge:#1c1632; --badge-ink:#f4efff; color-scheme:dark;
+}
+* { box-sizing:border-box; }
+body { margin:0; padding:24px; background:var(--bg); color:var(--ink); font:13px/1.45 var(--ui); }
+button,input,select { font:inherit; color:inherit; }
+button,select,input[type="text"] { border:1px solid var(--line); border-radius:6px; background:transparent; }
+button { padding:5px 11px; cursor:pointer; white-space:nowrap; }
+button:hover:not(:disabled),select:hover { border-color:var(--accent); }
+button:disabled { cursor:default; opacity:.5; }
+button:focus-visible,input:focus-visible,select:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+input[type="checkbox"] { accent-color:var(--accent); width:15px; height:15px; flex:none; margin:0; }
+code { font-family:var(--mono); }
+.app { max-width:1120px; height:calc(100dvh - 48px); margin:auto; display:grid; grid-template-columns:152px minmax(0,1fr); gap:28px; }
+.settings-nav { display:flex; flex-direction:column; gap:2px; align-items:stretch; }
+.settings-nav strong { padding:8px 10px; font:600 11px var(--mono); text-transform:uppercase; letter-spacing:.07em; color:var(--muted); }
+.settings-nav button { text-align:left; border:0; color:var(--muted); }
+.settings-nav button[aria-current] { background:var(--surface); color:var(--ink); font-weight:600; }
+.settings-nav button:disabled { opacity:1; }
+main { display:flex; flex-direction:column; min-width:0; min-height:0; }
+.head { display:flex; gap:16px; justify-content:space-between; align-items:center; min-height:40px; margin-bottom:12px; }
+h2 { margin:0; font-size:20px; font-weight:650; }
+.hooks { display:flex; gap:8px; align-items:center; white-space:nowrap; }
+.views { display:flex; border-bottom:1px solid var(--line); margin-bottom:16px; gap:4px; flex:none; }
+.views button { border:0; border-bottom:2px solid transparent; border-radius:0; color:var(--muted); padding:8px 14px; margin-bottom:-1px; }
+.views button[aria-selected="true"] { border-bottom-color:var(--accent); color:var(--ink); font-weight:600; }
+.panel { display:flex; flex-direction:column; flex:1; min-height:0; min-width:0; }
+.global-head { display:grid; grid-template-columns:245px minmax(0,1fr); gap:18px; padding:0 12px 8px; color:var(--muted); font:500 11px var(--mono); }
+.agent-list,.cards { overflow-y:auto; min-height:0; flex:1; scrollbar-gutter:stable; scrollbar-width:thin; scrollbar-color:var(--line) var(--bg); }
+.global-agent { display:grid; grid-template-columns:245px minmax(0,1fr); gap:18px; align-items:center; border-top:1px solid var(--line); padding:10px 12px; min-height:53px; }
+.agent-identity { display:flex; gap:10px; align-items:center; min-width:0; }
+.agent-identity label { display:flex; gap:9px; align-items:center; cursor:pointer; min-width:0; }
+.agent-name { display:block; font-size:13px; font-weight:550; }
+.manifest { display:block; font:10px/1.4 var(--mono); color:var(--muted); overflow-wrap:anywhere; margin-top:2px; }
+.badge { display:inline-flex; align-items:center; justify-content:center; background:var(--badge); color:var(--badge-ink); border-radius:4px; width:25px; height:23px; font:600 10px var(--mono); flex:none; }
+.arguments { width:100%; min-width:0; padding:7px 9px; font:12px var(--mono); background:var(--surface)!important; }
+.arguments::placeholder { color:var(--muted); }
+.global-agent.off .agent-name { color:var(--muted); }
+.arguments:disabled { opacity:.5; }
+.global-footer { border-top:1px solid var(--line); padding:14px 0 0; flex:none; }
+.machine-tools { display:flex; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:14px; flex:none; }
+.machine-tools select { padding:7px 32px 7px 10px; width:280px; max-width:100%; background:var(--surface); height:36px; }
+.checked { color:var(--muted); font-size:12px; }
+.location { width:100%; color:var(--muted); font-size:11px; }
+.reload { padding:0; width:30px; height:30px; display:inline-flex; align-items:center; justify-content:center; border:0; color:var(--muted); flex:none; }
+.reload svg { width:18px; height:18px; flex:none; }
+.reload:hover:not(:disabled) { background:var(--surface); color:var(--accent); }
+.cards { display:flex; flex-direction:column; gap:12px; padding-right:6px; }
+.card { flex:none; padding:13px 15px; border:1px solid var(--line); border-radius:8px; background:var(--surface); min-width:0; }
+.card-head { display:flex; gap:9px; align-items:center; min-height:28px; }
+h3 { font-size:14px; font-weight:600; margin:0; }
+.version { font:11px var(--mono); color:var(--muted); }
+.card-head .reload { margin-left:auto; opacity:0; }
+.card:hover .reload,.card:focus-within .reload { opacity:1; }
+.path { display:block; font:11px/1.5 var(--mono); color:var(--muted); overflow-wrap:anywhere; margin:5px 0 7px; }
+.fact { display:grid; grid-template-columns:100px minmax(0,1fr) auto; gap:10px; align-items:center; min-height:31px; font-size:13px; }
+.fact-label { color:var(--muted); }
+.status { display:flex; gap:7px; align-items:center; font-size:13px; }
+.pass { color:var(--done); }
+.glyph { display:inline-flex; width:13px; justify-content:center; flex:none; }
+.chips { display:flex; gap:5px; flex-wrap:wrap; }
+.chip { border-radius:4px; padding:4px 6px; background:var(--badge); color:var(--badge-ink); font:10px/1 var(--mono); }
+.card[data-offline="true"],.card[data-offline="true"] .pass { color:var(--muted); }
+@media (hover:none) { .card-head .reload { opacity:1; } }
+@media (max-width:680px) {
+  body { padding:14px; }
+  .app { height:calc(100dvh - 28px); grid-template-columns:minmax(0,1fr); grid-template-rows:35px minmax(0,1fr); gap:18px; }
+  .settings-nav { flex-direction:row; overflow-x:auto; white-space:nowrap; scrollbar-width:none; border-bottom:1px solid var(--line); }
+  .settings-nav strong { display:none; }
+  .settings-nav button { border-radius:0; padding:5px 10px; }
+  .global-head { display:none; }
+  .global-agent { grid-template-columns:minmax(0,1fr); gap:9px; padding:12px 2px; }
+  .arguments { font-size:12px; }
+  .machine-tools { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px; }
+  .machine-tools select { width:100%; grid-column:1/-1; }
+  .location { grid-column:1/-1; }
+  .card { padding:12px; }
+  .card-head { flex-wrap:wrap; }
+  .version { margin-left:auto; }
+  .card-head .reload { margin-left:0; }
+  .fact { grid-template-columns:78px minmax(0,1fr) auto; gap:8px; }
+  .fact button { padding:4px 7px; font-size:12px; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <nav class="settings-nav" aria-label="Settings sections">
+    <strong>Settings</strong>
+    <button disabled>General</button><button aria-current="page">Agents</button>
+    <button disabled>Environment</button><button disabled>Hosts</button>
+    <button disabled>Repositories</button><button disabled>Appearance</button>
+    <button disabled>Terminal</button><button disabled>Sound</button>
+  </nav>
+  <main id="main"></main>
+</div>
+<script>
+const query = new URLSearchParams(location.search);
+if (["light","dark"].includes(query.get("theme"))) document.documentElement.dataset.theme = query.get("theme");
+const AGENTS = [
+  {id:"claude",name:"Claude Code",badge:"CC",version:"2.3.1",caps:["Hooks","MCP","Resume"]},
+  {id:"codex",name:"Codex",badge:"CX",version:"0.61.0",caps:["Hooks","MCP","Resume"]},
+  {id:"agy",name:"Antigravity",badge:"AG",version:"1.4.12",caps:["Resume"],plugin:true},
+  {id:"copilot",name:"GitHub Copilot",badge:"CP",version:"0.0.351",caps:["Hooks","Resume"]},
+  {id:"opencode",name:"OpenCode",badge:"OC",version:"2.0.32",caps:["Hooks","MCP","Resume"]},
+  {id:"pi",name:"Pi",badge:"PI",version:"0.44.0",caps:["Extension","Resume"]},
+  {id:"review",name:"Review",badge:"RV",version:"1.2.0",caps:["MCP","Resume"],file:"agents/review.json"},
+  {id:"research",name:"Research",badge:"RS",version:"1.0.4",caps:["MCP"],file:"agents/research.json"},
+  {id:"docs",name:"Docs",badge:"DC",version:"1.1.0",caps:["MCP","Resume"],file:"agents/docs.json"},
+  {id:"infra",name:"Infra",badge:"IF",version:"2.0.1",caps:["MCP"],file:"agents/infra.json"},
+  {id:"tests",name:"Tests",badge:"TS",version:"1.3.0",caps:["MCP","Resume"],file:"agents/tests.json"},
+  {id:"release",name:"Release",badge:"RL",version:"1.0.0",caps:["MCP"],file:"agents/release.json"},
+];
+const MACHINES = [
+  {id:"local",label:"This computer",up:true,checked:"Last checked 2 min ago"},
+  ...["dozer","build-east","build-west","mac-mini","linux-arm","staging","qa-lab","design-lab","ci-bench","travel","archive","old-box"].map((id) => ({
+    id,label:id,where:`dev@${id}`,up:id!=="old-box",checked:id==="old-box"?"Offline · Last checked Nov 3, 14:22":"Last checked 4 min ago",
+  })),
+];
+const enabled = Object.fromEntries(AGENTS.map((a) => [a.id,true]));
+const args = {codex:"--sandbox workspace-write",review:"--model review",research:"--model research"};
+const observations = Object.fromEntries(MACHINES.map((m) => [m.id,Object.fromEntries(AGENTS.map((a) => [a.id,{
+  found:!(m.id==="local" && a.id==="codex"),
+  signed:a.id!=="copilot",version:m.id==="old-box"?"1.0.0":a.version,
+  path:`${m.id==="local"?"/usr/local/bin":"/home/dev/.local/bin"}/${a.id}`,
+  plugin:"missing",
+}]))]));
+let view = query.get("view")==="machines"?"machines":"global";
+let selected = MACHINES.some((m) => m.id===query.get("machine"))?query.get("machine"):"local";
+let hooks = true;
+const busy = new Set();
+const escape = (value) => String(value??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#39;");
+const icon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.6-5.9M20 3v5h-5"/></svg>';
+function reload(id,label,disabled=false) {
+  return `<button type="button" class="reload" data-reload="${id}" aria-label="Re-check ${label}" title="Re-check ${label}" ${disabled||busy.has(id)?"disabled":""}>${busy.has(id)?"…":icon}</button>`;
+}
+function globalView() {
+  return `<div class="global-head" aria-hidden="true"><span>Agent</span><span>Default arguments</span></div>
+    <div class="agent-list" aria-label="Global agents">${AGENTS.map((a) => `<div class="global-agent ${enabled[a.id]?"":"off"}">
+      <div class="agent-identity"><input type="checkbox" id="enable-${a.id}" data-enable="${a.id}" ${enabled[a.id]?"checked":""} aria-label="Enable ${a.name}">
+        <label for="enable-${a.id}"><span class="badge">${a.badge}</span><span><span class="agent-name">${a.name}</span>${a.file?`<code class="manifest">${a.file}</code>`:""}</span></label></div>
+      <input class="arguments" type="text" data-args="${a.id}" aria-label="${a.name} default arguments" placeholder="Default arguments" value="${escape(args[a.id])}" spellcheck="false" ${enabled[a.id]?"":"disabled"}>
+    </div>`).join("")}</div><div class="global-footer"><button type="button">Open config folder</button></div>`;
+}
+function card(m,a) {
+  const s=observations[m.id][a.id], disabled=!m.up, key=`${m.id}:${a.id}`;
+  const action=(kind,label) => `<button type="button" data-action="${kind}" data-agent="${a.id}" ${disabled||busy.has(key)?"disabled":""}>${busy.has(key)?"Working…":label}</button>`;
+  const row=(label,status,button="") => `<div class="fact"><span class="fact-label">${label}</span>${status}<span>${button}</span></div>`;
+  const signed=`<span class="status ${s.signed?"pass":""}"><span class="glyph" aria-hidden="true">${s.signed?"✓":"◐"}</span>${s.signed?"Signed in":"Signed out"}</span>`;
+  return `<article class="card" aria-label="${a.name}" data-offline="${disabled}">
+    <div class="card-head"><span class="badge">${a.badge}</span><h3>${a.name}</h3>${s.found?`<span class="version">${s.version}</span>`:""}${reload(key,a.name,disabled)}</div>
+    ${s.found?`<code class="path">${s.path}</code>${row("Sign-in",signed,s.signed?"":action("signin","Sign in"))}
+      ${a.plugin?row("Foom plugin",`<span class="status ${s.plugin==="installed"?"pass":""}"><span class="glyph" aria-hidden="true">${s.plugin==="installed"?"✓":"○"}</span>${s.plugin==="installed"?"Installed · v4":"Not installed"}</span>`,s.plugin==="installed"?"":action("plugin","Install plugin")):""}
+      ${row("Capabilities",`<span class="chips">${a.caps.map((c) => `<span class="chip">${c}</span>`).join("")}</span>`)}`:
+      row("Installed",'<span class="status"><span class="glyph" aria-hidden="true">○</span>Not found</span>')}
+  </article>`;
+}
+function machineView() {
+  const m=MACHINES.find((m) => m.id===selected);
+  return `<div class="machine-tools"><select id="machine-picker" aria-label="Machine">${MACHINES.map((entry) => `<option value="${entry.id}" ${entry.id===selected?"selected":""}>${entry.label}${entry.up?"":" · Offline"}</option>`).join("")}</select>
+    <span class="checked">${m.checked}</span>${reload(m.id,m.label,!m.up)}${m.where?`<code class="location">${m.where}</code>`:""}</div>
+    <div class="cards" aria-label="${m.label} agents">${AGENTS.filter((a) => enabled[a.id]).map((a) => card(m,a)).join("")}</div>`;
+}
+function render() {
+  document.getElementById("main").innerHTML=`<header class="head"><h2>Agents</h2>${view==="global"?`<label class="hooks"><input id="hooks" type="checkbox" ${hooks?"checked":""}>Attach hooks</label>`:""}</header>
+    <div class="views" role="tablist" aria-label="Agents view">${["global","machines"].map((id) => `<button type="button" id="view-${id}" role="tab" data-view="${id}" aria-controls="agents-panel" aria-selected="${view===id}" tabindex="${view===id?0:-1}">${id==="global"?"Global":"Machines"}</button>`).join("")}</div>
+    <section id="agents-panel" class="panel" role="tabpanel" aria-labelledby="view-${view}">${view==="global"?globalView():machineView()}</section>`;
+}
+function job(key,done) {
+  busy.add(key); render();
+  setTimeout(() => { busy.delete(key); done(); render(); },700);
+}
+document.getElementById("main").addEventListener("click",(event) => {
+  const button=event.target.closest("button");
+  if (!button || button.disabled) return;
+  if (button.dataset.view) { view=button.dataset.view; render(); document.getElementById(`view-${view}`).focus(); }
+  if (button.dataset.reload) {
+    const id=button.dataset.reload;
+    job(id,() => { const m=MACHINES.find((m) => m.id===id); if(m) m.checked="Last checked just now"; });
+  }
+  if (button.dataset.action) {
+    const id=button.dataset.agent, machine=selected, kind=button.dataset.action;
+    job(`${machine}:${id}`,() => { if(kind==="signin") observations[machine][id].signed=true; else observations[machine][id].plugin="installed"; });
+  }
+});
+document.getElementById("main").addEventListener("change",(event) => {
+  const input=event.target;
+  if (input.id==="machine-picker") { selected=input.value; render(); }
+  if (input.dataset.enable) {
+    enabled[input.dataset.enable]=input.checked;
+    const row=input.closest(".global-agent"); row.classList.toggle("off",!input.checked); row.querySelector(".arguments").disabled=!input.checked;
+  }
+  if(input.id==="hooks") hooks=input.checked;
+});
+document.getElementById("main").addEventListener("input",(event) => { if(event.target.dataset.args) args[event.target.dataset.args]=event.target.value; });
+document.getElementById("main").addEventListener("keydown",(event) => {
+  if(event.target.getAttribute("role")!=="tab" || !["ArrowLeft","ArrowRight"].includes(event.key)) return;
+  event.preventDefault(); view=view==="global"?"machines":"global"; render(); document.getElementById(`view-${view}`).focus();
+});
+render();
+</script>
+</body>
+</html>

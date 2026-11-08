@@ -95,7 +95,7 @@ export function registeredHosts(value: unknown): value is RegisteredHost[] {
 export function hostObservation(value: unknown): value is HostObservation {
   if (
     !record(value) ||
-    !keys(value, ["checkedAt", "preflight", "foreignSessions", "foreignWorktrees"])
+    !keys(value, ["checkedAt", "preflight", "foreignSessions", "foreignWorktrees", "lastAgents"])
   )
     return false;
   const preflight = value["preflight"];
@@ -109,6 +109,15 @@ export function hostObservation(value: unknown): value is HostObservation {
     [value["foreignSessions"], value["foreignWorktrees"]].every(
       (count) => count === undefined || (Number.isSafeInteger(count) && Number(count) >= 0),
     ) &&
+    (value["lastAgents"] === undefined ||
+      (record(value["lastAgents"]) &&
+        keys(value["lastAgents"], ["checkedAt", "result"]) &&
+        Number.isSafeInteger(value["lastAgents"]["checkedAt"]) &&
+        Number(value["lastAgents"]["checkedAt"]) >= 0 &&
+        Number(value["lastAgents"]["checkedAt"]) <= 8640000000000000 &&
+        displayResult(value["lastAgents"]["result"]) &&
+        record(value["lastAgents"]["result"]) &&
+        value["lastAgents"]["result"]["ok"] === true)) &&
     record(preflight) &&
     keys(preflight, ["ssh", "platform", "artifact", "result", "repositories"]) &&
     hostCheck(preflight["ssh"]) &&
@@ -243,7 +252,18 @@ export function hostManagement(value: unknown): value is HostManagement {
     return keys(value, ["type", "operation", "codeFolder", "agents"]);
   if (value["operation"] === "inspect")
     return (
-      keys(value, ["type", "operation", "codeFolder", "agents", "readOnly", "partial", "target"]) &&
+      keys(value, [
+        "type",
+        "operation",
+        "codeFolder",
+        "agents",
+        "readOnly",
+        "partial",
+        "target",
+        "agentDetails",
+      ]) &&
+      (value["agentDetails"] === undefined ||
+        (value["agentDetails"] === true && value["readOnly"] === true)) &&
       (value["target"] === undefined ||
         (((hostCheckTarget(value["target"]) && !("repository" in value["target"])) ||
           (record(value["target"]) &&
@@ -468,7 +488,22 @@ export function hostResult(value: unknown): value is HostResult {
     facts["agents"].every(
       (agent: unknown) =>
         record(agent) &&
-        keys(agent, ["id", "state", "signIn"]) &&
+        keys(agent, ["id", "state", "signIn", "details"]) &&
+        (agent["details"] === undefined ||
+          (record(agent["details"]) &&
+            keys(agent["details"], ["path", "version", "capabilities", "plugin"]) &&
+            (agent["details"]["plugin"] === undefined ||
+              closed(agent["details"]["plugin"], ["present", "not-installed", "unavailable"])) &&
+            remotePath(agent["details"]["path"]) &&
+            typeof agent["details"]["version"] === "string" &&
+            agent["details"]["version"].length <= 128 &&
+            !/[\p{Cc}\p{Cf}]/u.test(agent["details"]["version"]) &&
+            Array.isArray(agent["details"]["capabilities"]) &&
+            agent["details"]["capabilities"].length <= 4 &&
+            agent["details"]["capabilities"].every(
+              (item: unknown) =>
+                typeof item === "string" && ["Hooks", "MCP", "Resume", "Inline"].includes(item),
+            ))) &&
         (agent["signIn"] === undefined || hostSignIn(agent["signIn"])) &&
         agentId(agent["id"]) &&
         typeof agent["state"] === "string" &&
@@ -503,7 +538,9 @@ export function hostsAction(value: unknown): value is HostsAction {
     return (
       keys(value, ["action", "host", "tool", "operation"]) &&
       agentId(value["tool"]) &&
-      (value["operation"] === "install" || value["operation"] === "sign-in")
+      (value["operation"] === "install" ||
+        value["operation"] === "sign-in" ||
+        (value["operation"] === "install-plugin" && value["tool"] === "agy"))
     );
   if (
     value["action"] === "refresh" ||
@@ -523,6 +560,7 @@ export function hostsAction(value: unknown): value is HostsAction {
   if (
     value["action"] === "test" ||
     value["action"] === "preflight" ||
+    value["action"] === "draft-preflight" ||
     value["action"] === "change-folder"
   )
     return keys(value, ["action", "host", "codeFolder"]) && codeFolder(value["codeFolder"]);

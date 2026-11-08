@@ -10,6 +10,7 @@ const { evidencePath } = require("../helpers/evidence.js");
 const { deadline, expect } = require("./test-policy.js");
 const {
   boardPage,
+  confirmationPage,
   boardCommand,
   fixtureCleanup,
   launchApp,
@@ -186,7 +187,7 @@ process.stdin.on('data', bytes => {
     continue;
   }
   assert.equal('id' in message,false); appendFileSync(${JSON.stringify(calls)},JSON.stringify({host,message})+'\\n');
-  if(message.type==='hello') { send({type:'hello',build:host==='version-cloud'?'b'.repeat(64):${JSON.stringify(manifest.sha256)}}); continue; }
+  if(message.type==='hello') { const settings=JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8')); send({type:'hello',agentSettings:1,...(settings.compatibleBuild?{build:'b'.repeat(64),compatible:2,startupTheme:1,hostFacts:1,hostPreflight:1,hostRowCheck:1}:{build:host==='version-cloud'?'b'.repeat(64):${JSON.stringify(manifest.sha256)}})}); continue; }
   if(message.type==='inventory') {send({type:'inventory-result',own:[],foreign:[]}); continue;}
   assert.equal(message.type,'manage');
   const scenario=require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8'); const settings=JSON.parse(scenario);
@@ -262,7 +263,7 @@ process.stdin.on('data', bytes => {
   const progressStatus = card.locator(".host-check-progress[role=status]");
   await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
   await expect(card.getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
-  await expect(card.getByText("Not found", { exact: true })).toHaveCount(2);
+  await expect(card.getByText("Not found", { exact: true })).toHaveCount(1);
   await expect(card.getByRole("button", { name: "Install codex", exact: true })).toHaveCount(0);
   await expect(card.getByText("Not checked", { exact: true })).toHaveCount(1);
   if (captureEnrollment) await capture("partial-facts");
@@ -1138,11 +1139,10 @@ test("Hosts reloads individual rows and actions never trigger full capability ch
       .map((line) => JSON.parse(line))
       .filter(
         ({ message, phase }) =>
+          // Sidebar checkout discovery is a separate read-only refresh after
+          // registration changes. Keep every capability/row action in this count.
           message.type === "manage" &&
-          message.operation !== "list-worktrees" &&
-          // Folder changes independently invalidate the sidebar's read-only locations.
-          // These reads are not capability checks and may overlap the next action.
-          message.operation !== "repository" &&
+          !["list-worktrees", "repository"].includes(message.operation) &&
           !phase,
       )
       .map(({ message }) => message);
@@ -1568,6 +1568,21 @@ test("Hosts confirms stopping a running install before Settings closes and close
     ),
     false,
   );
+  // Settings-owned installs survive navigation to the selected machine in Agents.
+  await page
+    .getByRole("navigation", { name: "Settings sections" })
+    .getByRole("button", { name: "Agents", exact: true })
+    .click();
+  await page.getByRole("tab", { name: "Machines", exact: true }).click();
+  await page
+    .getByRole("combobox", { name: "Machine", exact: true })
+    .selectOption("host:fixture-cloud");
+  const machineTerminal = page.getByRole("region", { name: "Install terminal", exact: true });
+  await expect(machineTerminal.locator(".xterm-screen")).toContainText("[sudo] password:");
+  await page.getByRole("tab", { name: "Global", exact: true }).click();
+  await expect(machineTerminal).toHaveCount(0);
+  await page.getByRole("tab", { name: "Machines", exact: true }).click();
+  await expect(machineTerminal.locator(".xterm-screen")).toContainText("[sudo] password:");
   await page.keyboard.press("Escape");
   await expect(dialog).toBeVisible();
   await page.keyboard.press("Escape");
@@ -1651,4 +1666,444 @@ test("Hosts reports recipes that exit in the creation frame and refreshes their 
     )
     .toBe(1);
   await expect(terminal.locator(".xterm-screen")).toContainText("FIXTURE_RECIPE_COMPLETE");
+});
+
+test("Agents scopes use saved host observations and Global enablement without checks on navigation", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, calls, updateScenario } = await hostsFixture(context);
+  await updateScenario({
+    facts: {
+      agents: [
+        {
+          id: "claude",
+          state: "ready",
+          signIn: "signed-in",
+          details: {
+            path: "/usr/local/bin/claude",
+            version: "2.3.1",
+            capabilities: ["Hooks", "MCP", "Resume"],
+          },
+        },
+        { id: "codex", state: "missing" },
+      ],
+    },
+  });
+  await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
+  await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
+  await expect(card.getByText("1 of 2 ready", { exact: true })).toBeVisible();
+  // Join the sidebar invalidation from the explicit check before observing navigation.
+  await page.evaluate(() => window.desktop.sidebarInventory());
+  const before = (await readFile(calls, "utf8")).split("\n").filter(Boolean).length;
+  await card.getByRole("button", { name: "Open", exact: true }).click();
+  await expect(page.getByRole("tab", { name: "Machines", exact: true })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await expect(page.getByRole("region", { name: "Claude Code", exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: "Global", exact: true }).click();
+  await expect(page.getByRole("checkbox", { name: "Enable Codex", exact: true })).toBeChecked();
+  const afterNavigation = (await readFile(calls, "utf8")).split("\n").filter(Boolean);
+  if (afterNavigation.length !== before)
+    context.diagnostic(
+      JSON.stringify({
+        navigationRequests: afterNavigation.slice(before).map((line) => JSON.parse(line)),
+      }),
+    );
+  assert.equal(afterNavigation.length, before);
+  await expect(page.locator(".agent-global-row")).toHaveCount(6);
+  await expect(page.locator(".agent-global-row .agent-status")).toHaveCount(0);
+  await expect(page.getByRole("combobox", { name: "Machine", exact: true })).toHaveCount(0);
+  await assertAccessible(page);
+  await page.getByRole("checkbox", { name: "Enable Codex", exact: true }).uncheck();
+  await page.getByRole("tab", { name: "Machines", exact: true }).click();
+  await page
+    .getByRole("combobox", { name: "Machine", exact: true })
+    .selectOption("host:fixture-cloud");
+  await expect(page.getByRole("region", { name: "Codex", exact: true })).toHaveCount(0);
+  await page.getByRole("tab", { name: "Global", exact: true }).click();
+  await page.getByRole("checkbox", { name: "Enable Codex", exact: true }).check();
+  await page.getByRole("tab", { name: "Machines", exact: true }).click();
+  await page.getByRole("combobox", { name: "Machine", exact: true }).selectOption("local");
+  await expect(page.getByRole("region", { name: "Codex", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Re-check Codex", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Re-check Codex", exact: true })).toBeEnabled();
+  assert.equal(
+    await page.evaluate(() =>
+      window.desktop.scanAgents(true, "unregistered-agent").then(
+        () => false,
+        () => true,
+      ),
+    ),
+    true,
+  );
+  await page.getByRole("tab", { name: "Machines", exact: true }).click();
+  await page
+    .getByRole("combobox", { name: "Machine", exact: true })
+    .selectOption("host:fixture-cloud");
+  await page.getByRole("button", { name: "Re-check Claude Code", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Re-check Claude Code", exact: true }),
+  ).toBeEnabled();
+  const requests = (await readFile(calls, "utf8"))
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
+  const latest = requests.filter(({ message }) => message.operation === "inspect").at(-1);
+  assert.deepEqual(latest.message.target, { kind: "sign-in", tool: "claude" });
+  await updateScenario({ inspectFailure: "unreachable" });
+  await page.getByRole("button", { name: "Re-check fixture-cloud", exact: true }).click();
+  await expect(page.getByText(/Offline · Last checked/)).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Re-check Claude Code", exact: true }),
+  ).toBeDisabled();
+  await expect(page.getByRole("region", { name: "Claude Code", exact: true })).toContainText(
+    "Signed in",
+  );
+  const folder = await page.evaluate(
+    async () => (await window.desktop.setupState()).settings.registeredHosts[0].codeFolder,
+  );
+  await page.evaluate(() => window.desktop.hosts({ action: "remove", host: "fixture-cloud" }));
+  // Replay the old machine request even if this window still holds its old snapshot.
+  const beforeRemovedCheck = (await readFile(calls, "utf8")).split("\n").filter(Boolean).length;
+  const refused = await page.evaluate(
+    (codeFolder) =>
+      window.desktop.hosts({ action: "preflight", host: "fixture-cloud", codeFolder }).then(
+        () => false,
+        () => true,
+      ),
+    folder,
+  );
+  assert.equal(refused, true);
+  const dispatched = (await readFile(calls, "utf8"))
+    .split("\n")
+    .filter(Boolean)
+    .slice(beforeRemovedCheck)
+    .map((line) => JSON.parse(line));
+  // A sidebar inspection already started before removal may still finish. It
+  // does not request agentDetails; a full machine preflight always does.
+  assert.deepEqual(
+    dispatched.filter(
+      ({ message }) =>
+        message.operation === "inspect" && message.agentDetails === true && !message.target,
+    ),
+    [],
+  );
+  await updateScenario({});
+  const draft = await page.evaluate(() =>
+    window.desktop.hosts({
+      action: "draft-preflight",
+      host: "fixture-cloud",
+      codeFolder: "~/foom",
+    }),
+  );
+  assert.equal(draft.preflight.result.ok, true);
+  assert.deepEqual(draft.hosts, []);
+  assert.ok(app);
+});
+
+test("Agents scopes use trusted consent and fixed recipes for host plugin installation", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, calls, recipeCalls, updateScenario } = await hostsFixture(context);
+  const agent = {
+    id: "agy",
+    state: "ready",
+    details: {
+      path: "/bin/agy",
+      version: "1.4.12",
+      capabilities: ["Resume"],
+      plugin: "not-installed",
+    },
+  };
+  await updateScenario({
+    facts: { agents: [{ id: "claude", state: "ready" }, { id: "codex", state: "missing" }, agent] },
+  });
+  await card.getByRole("button", { name: "Open", exact: true }).click();
+  await page.getByRole("tab", { name: "Global", exact: true }).click();
+  await page.getByRole("checkbox", { name: "Enable Antigravity", exact: true }).check();
+  await page.getByRole("tab", { name: "Machines", exact: true }).click();
+  await page
+    .getByRole("combobox", { name: "Machine", exact: true })
+    .selectOption("host:fixture-cloud");
+  await page.getByRole("button", { name: "Re-check fixture-cloud", exact: true }).click();
+  await page.getByRole("button", { name: "Install plugin", exact: true }).click();
+  let disclosure = await confirmationPage(app);
+  await expect(disclosure.getByRole("alertdialog")).toHaveAccessibleName(
+    "Install Foom plugin on host?",
+  );
+  await expect(disclosure.getByRole("alertdialog")).toContainText("foom-host --stage-plugin agy");
+  assert.equal(await readFile(recipeCalls, "utf8"), "");
+  await disclosure.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Install plugin", exact: true })).toBeEnabled();
+  assert.equal(await readFile(recipeCalls, "utf8"), "");
+  // A live compatible daemon can still serve observations, but its bundled
+  // plugin must not be installed under this desktop's approval.
+  await updateScenario({
+    compatibleBuild: true,
+    facts: { agents: [agent] },
+  });
+  await page.getByRole("button", { name: "Install plugin", exact: true }).click();
+  disclosure = await confirmationPage(app);
+  await disclosure.getByRole("button", { name: "Install plugin", exact: true }).click();
+  const failure = page.getByRole("dialog", { name: "Action failed", exact: true });
+  await expect(failure).toBeVisible();
+  assert.equal(await readFile(recipeCalls, "utf8"), "");
+  await failure.getByRole("button", { name: "Dismiss", exact: true }).click();
+  await updateScenario({ facts: { agents: [agent] } });
+  await page.getByRole("button", { name: "Install plugin", exact: true }).click();
+  disclosure = await confirmationPage(app);
+  await disclosure.getByRole("button", { name: "Install plugin", exact: true }).click();
+  await expect
+    .poll(
+      async () => (await readFile(recipeCalls, "utf8")).trim().split("\n").filter(Boolean).length,
+    )
+    .toBe(2);
+  assert.deepEqual(
+    (await readFile(recipeCalls, "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line)),
+    [
+      ["foom-host", "--stage-plugin", "agy"],
+      ["agy", "plugin", "install", "{stagedPlugin}"],
+    ],
+  );
+  await expect(page.getByRole("region", { name: "Settings", exact: true })).toHaveCount(0);
+  const checkpoint = (await readFile(calls, "utf8")).split("\n").filter(Boolean).length;
+  await updateScenario({
+    recipeExit: 0,
+    facts: {
+      agents: [
+        { id: "claude", state: "ready" },
+        { id: "codex", state: "missing" },
+        { ...agent, details: { ...agent.details, plugin: "present" } },
+      ],
+    },
+  });
+  // Row refresh follows the reported PTY exit, rather than recipe creation.
+  await expect
+    .poll(async () =>
+      (await page.evaluate(() => window.desktop.workspace())).terminals.some(
+        (row) => row.recipe && row.exited,
+      ),
+    )
+    .toBe(true);
+  await openSettingsScreen(page);
+  await page
+    .getByRole("navigation", { name: "Settings sections" })
+    .getByRole("button", { name: "Agents", exact: true })
+    .click();
+  await page.getByRole("tab", { name: "Machines", exact: true }).click();
+  await page
+    .getByRole("combobox", { name: "Machine", exact: true })
+    .selectOption("host:fixture-cloud");
+  await expect(page.getByText("Present · use agy to manage", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Install plugin", exact: true })).toHaveCount(0);
+  const inspected = (await readFile(calls, "utf8"))
+    .split("\n")
+    .filter(Boolean)
+    .slice(checkpoint)
+    .map((line) => JSON.parse(line))
+    .filter(({ message }) => message.operation === "inspect");
+  assert.deepEqual(
+    inspected.map(({ message }) => message.target),
+    [
+      { kind: "tool", tool: "agy" },
+      { kind: "sign-in", tool: "agy" },
+    ],
+  );
+});
+
+test("Agents Global list and machine picker scale to twelve agents and twelve saved hosts", {
+  timeout: deadline(60000),
+}, async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "agents-picker-"));
+  removeAfterApps(context, root);
+  const home = path.join(root, "home");
+  const profile = path.join(root, "profile");
+  const bin = path.join(root, "bin");
+  const manifests = path.join(home, ".foom", "config", "agents");
+  await Promise.all([mkdir(manifests, { recursive: true }), mkdir(profile), mkdir(bin)]);
+  const template = JSON.parse(
+    await readFile(path.join(__dirname, "../fixtures/agent-plugin-v2.json"), "utf8"),
+  );
+  for (const [index, name] of [
+    "Review",
+    "Research",
+    "Docs",
+    "Infra",
+    "Tests",
+    "Release",
+  ].entries()) {
+    const id = `sample-${index}`;
+    await writeFile(
+      path.join(manifests, `${id}.json`),
+      JSON.stringify({ ...template, id, name, executables: [id] }),
+    );
+  }
+  const agents = [
+    {
+      id: "claude",
+      state: "ready",
+      signIn: "signed-in",
+      details: {
+        path: "/usr/local/bin/claude",
+        version: "2.3.1",
+        capabilities: ["Hooks", "MCP", "Resume"],
+      },
+    },
+    { id: "codex", state: "missing" },
+    {
+      id: "agy",
+      state: "ready",
+      signIn: "signed-in",
+      details: {
+        path: "/usr/local/bin/agy",
+        version: "1.4.12",
+        capabilities: ["Resume"],
+        plugin: "not-installed",
+      },
+    },
+    {
+      id: "copilot",
+      state: "ready",
+      signIn: "signed-out",
+      details: { path: "/usr/local/bin/copilot", version: "0.0.351", capabilities: ["MCP"] },
+    },
+  ];
+  const facts = {
+    codeFolder: "/remote/code",
+    version: "0.1.0",
+    sessions: 0,
+    cores: 8,
+    load: [0, 0, 0],
+    memoryTotal: 8000,
+    memoryAvailable: 4000,
+    requirements: { distro: "debian", libc: "supported", packageManager: "apt" },
+    agents,
+  };
+  const result = { ok: true, facts };
+  const registeredHosts = Array.from({ length: 12 }, (_, index) => ({
+    host: `saved-machine-${index + 1}`,
+    nickname: index === 11 ? "Archive" : `Build ${index + 1}`,
+    codeFolder: "/remote/code",
+    observation: {
+      checkedAt: 1700000000000,
+      lastAgents: { checkedAt: 1700000000000, result },
+      preflight: {
+        ssh: { state: "pass" },
+        platform: { state: "pass" },
+        artifact: { state: "pass" },
+        repositories: [],
+        result: index === 11 ? { ok: false, reason: "unreachable" } : result,
+      },
+    },
+  }));
+  await writeFile(
+    path.join(profile, "settings.json"),
+    JSON.stringify({
+      version: 1,
+      settings: {
+        setupComplete: true,
+        checkForUpdates: false,
+        restoreSessions: false,
+        registeredHosts,
+        agents: { claude: true, codex: true, agy: true, copilot: true, opencode: true, pi: true },
+      },
+    }),
+  );
+  const app = await launchApp(context, {
+    fixture: "empty-board",
+    args: [`--user-data-dir=${profile}`],
+    env: { HOME: home, PATH: bin },
+  });
+  const page = await boardPage(app);
+  await openSettingsScreen(page);
+  await page
+    .getByRole("navigation", { name: "Settings sections" })
+    .getByRole("button", { name: "Agents", exact: true })
+    .click();
+  await expect(page.locator(".agent-global-row")).toHaveCount(12);
+  await expect(page.getByRole("tab")).toHaveCount(2);
+  await expect(page.locator(".agent-global-row textarea")).toHaveCount(12);
+  await expect(page.locator(".agent-manifest")).toHaveCount(6);
+  await expect(page.getByRole("combobox", { name: "Machine" })).toHaveCount(0);
+  await expect(page.getByRole("checkbox", { name: "Attach hooks" })).toBeVisible();
+  const resize = async (width) => {
+    await app.evaluate(({ BrowserWindow }, width) => {
+      const window = BrowserWindow.getAllWindows().find(
+        (window) => window.webContents.getURL() === "app://bundle/index.html",
+      );
+      window.setMinimumSize(320, 400);
+      window.setContentSize(width, 960);
+    }, width);
+    await expect.poll(() => page.evaluate(() => innerWidth)).toBe(width);
+  };
+  const capture = async (name, mode, width) => {
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
+      .toBe(true);
+    if (process.env.FOOM_AGENT_SCOPES_SCREENSHOTS === "1")
+      await page.screenshot({ path: evidencePath(`1070-step2/${name}-${mode}-${width}.png`) });
+  };
+  const reviewCaptures = process.env.FOOM_AGENT_SCOPES_SCREENSHOTS === "1";
+  for (const width of [1280, 480]) {
+    await resize(width);
+    const modes = reviewCaptures ? ["light", "dark"] : [width === 1280 ? "light" : "dark"];
+    for (const mode of modes) {
+      await page.evaluate(
+        (mode) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${mode}` }),
+        mode,
+      );
+      await expect
+        .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
+        .toBe(mode === "dark");
+      await page.getByRole("tab", { name: "Global", exact: true }).click();
+      await capture("global", mode, width);
+      await page.getByRole("tab", { name: "Machines", exact: true }).click();
+      const picker = page.getByRole("combobox", { name: "Machine", exact: true });
+      await expect(picker.locator("option")).toHaveCount(13);
+      if (width === 1280 && mode === "light") await expect(picker).toHaveValue("local");
+      await expect(page.getByRole("checkbox", { name: "Attach hooks" })).toHaveCount(0);
+      await picker.selectOption("local");
+      await capture("machines", mode, width);
+      await picker.selectOption("host:saved-machine-1");
+      await expect(page.getByRole("region", { name: "Claude Code", exact: true })).toContainText(
+        "2.3.1",
+      );
+      const codex = page.getByRole("region", { name: "Codex", exact: true });
+      assert.equal(
+        await codex
+          .locator(".agent-status")
+          .evaluate((element) => getComputedStyle(element).fontSize),
+        "13px",
+      );
+      const signedOut = page
+        .getByRole("region", { name: "GitHub Copilot", exact: true })
+        .locator(".agent-status");
+      await expect(signedOut).toHaveText("Signed out");
+      await expect(signedOut.locator("svg circle")).toHaveCount(1);
+      await expect(page.getByRole("button", { name: "Install plugin", exact: true })).toBeEnabled();
+      await capture("remote-plugin", mode, width);
+      await picker.selectOption("host:saved-machine-12");
+      await expect(page.getByText(/Offline · Last checked/)).toBeVisible();
+      await expect(page.getByRole("region", { name: "Claude Code", exact: true })).toContainText(
+        "2.3.1",
+      );
+      assert.equal(await page.locator(".agents-panel button:not(:disabled)").count(), 0);
+      const list = page.getByRole("region", { name: "Machine agents", exact: true });
+      await list.focus();
+      await expect(list).toBeFocused();
+      await page.keyboard.press("End");
+      await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+      await page.keyboard.press("Home");
+      await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBe(0);
+      await expect(page.getByText(/^Off:/)).toHaveCount(0);
+      await capture("offline", mode, width);
+    }
+  }
+  await assertAccessible(page);
 });

@@ -315,9 +315,9 @@ test("first run walks every step, saves each choice, and launches", async () => 
   fireEvent.click(screen.getByRole("checkbox", { name: "Attach hooks" }));
   // With hooks off, every found agent falls back to the rules, immediately.
   await screen.findAllByText("Screen rules active · hooks off");
-  fireEvent.click(button("Scan again"));
+  fireEvent.click(button("Re-check This computer"));
   expect(source.scanAgents).toHaveBeenLastCalledWith(true);
-  await screen.findByText("Scan again");
+  await screen.findByRole("button", { name: "Re-check This computer" });
 
   fireEvent.click(button("Continue"));
   expect(screen.getByText("Where do you keep your code?")).toBeTruthy();
@@ -595,7 +595,10 @@ test("Settings shares setup controls, saves immediately and exposes planned sect
   );
   fireEvent.click(button("Agents"));
   await waitFor(() => {
-    expect(screen.getByRole("switch", { name: "Claude Code" })).toHaveProperty("disabled", false);
+    expect(screen.getByRole("checkbox", { name: "Enable Claude Code" })).toHaveProperty(
+      "disabled",
+      false,
+    );
   });
   const closeControl = button("Close settings (Esc)");
   expect(closeControl.title).toBe("Close settings (Esc)");
@@ -885,6 +888,7 @@ test.each([
     );
     render(<Preflight source={source} initial={initial} onLaunched={vi.fn()} settingsMode />);
     fireEvent.click(button("Agents"));
+    fireEvent.click(screen.getByRole("tab", { name: "Machines" }));
     await waitFor(() => {
       expect(source.scanAgents).toHaveBeenCalled();
     });

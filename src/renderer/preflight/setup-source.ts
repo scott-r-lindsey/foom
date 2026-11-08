@@ -128,7 +128,8 @@ export function createSetupSource(
     save: (patch) => desktop.saveSetup(patch),
     changeAgentSetup: (id, action) => desktop.changeAgentSetup(id, action),
     changeAgyPlugin: (action) => desktop.changeAgyPlugin(action),
-    scanAgents: (refresh) => desktop.scanAgents(refresh),
+    scanAgents: (refresh, agent) =>
+      agent === undefined ? desktop.scanAgents(refresh) : desktop.scanAgents(refresh, agent),
     repositories: async () => (await desktop.workspace()).repositories,
     subscribe: (listener) => desktop.onSetupChange(listener),
     suggestions: () => desktop.codeSuggestions(),

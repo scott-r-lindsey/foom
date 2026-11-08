@@ -56,6 +56,8 @@ test("preflight reaches main only through the setup bridge", async () => {
   await expect(source.repositories()).resolves.toEqual([repository]);
   expect(desktop.saveSetup).toHaveBeenCalledWith({ hooks: false });
   expect(desktop.scanAgents).toHaveBeenCalledWith(true);
+  await expect(source.scanAgents(true, "claude")).resolves.toBe("scan");
+  expect(desktop.scanAgents).toHaveBeenLastCalledWith(true, "claude");
   const environment = source.environment;
   if (!environment) throw new Error("Missing environment");
   const change = { scope: "all", previous: null, name: "A", value: "1", secret: false } as const;

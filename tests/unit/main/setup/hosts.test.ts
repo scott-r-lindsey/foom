@@ -1110,7 +1110,11 @@ test("preflight collects repository origin and checkout observations despite a m
         : { ok: false, reason: request.operation === "origin" ? "origin-auth" : "folder-refused" },
     ),
   );
-  const state = await hosts.action({ action: "preflight", host: "worker", codeFolder: "~/code" });
+  const state = await hosts.action({
+    action: "draft-preflight",
+    host: "worker",
+    codeFolder: "~/code",
+  });
   expect(state.preflight).toMatchObject({
     ssh: { state: "pass" },
     platform: { state: "pass" },
@@ -1173,7 +1177,11 @@ test("preflight preserves independent bootstrap observations and local origin re
     },
   });
   mock.execute.mockRejectedValue(new Error("raw local origin"));
-  const state = await hosts.action({ action: "preflight", host: "worker", codeFolder: "~/code" });
+  const state = await hosts.action({
+    action: "draft-preflight",
+    host: "worker",
+    codeFolder: "~/code",
+  });
   expect(state.preflight).toMatchObject({
     ssh: { state: "pass" },
     platform: { state: "fail", reason: "libc-too-old" },
@@ -2309,6 +2317,77 @@ test.skipIf(process.platform === "win32")(
     }
   },
 );
+
+test("a failed explicit check preserves the last successful agent facts for display only", async () => {
+  await hosts.action({ action: "add", host: "worker", codeFolder: "~/code" });
+  await hosts.action({ action: "preflight", host: "worker", codeFolder: facts.codeFolder });
+  const previous = settings.registeredHosts?.[0]?.observation;
+  run.mockResolvedValue({ ok: false, reason: "unreachable" });
+  await hosts.action({ action: "preflight", host: "worker", codeFolder: facts.codeFolder });
+  expect(settings.registeredHosts?.[0]?.observation?.lastAgents).toEqual({
+    checkedAt: previous?.checkedAt,
+    result: previous?.preflight.result,
+  });
+  await hosts.action({ action: "preflight", host: "worker", codeFolder: facts.codeFolder });
+  expect(settings.registeredHosts?.[0]?.observation?.lastAgents?.checkedAt).toBe(
+    previous?.checkedAt,
+  );
+  run.mockResolvedValue({ ok: true, facts });
+  await hosts.action({ action: "preflight", host: "worker", codeFolder: facts.codeFolder });
+  expect(settings.registeredHosts?.[0]?.observation?.lastAgents).toBeUndefined();
+});
+
+test("remote plugin mutation requires its own trusted confirmation and never installs silently", async () => {
+  await hosts.action({ action: "add", host: "worker", codeFolder: "~/code" });
+  const launch = vi.fn();
+  const confirm = vi.fn(() => Promise.resolve(false));
+  const action = {
+    action: "recipe",
+    host: "worker",
+    tool: "agy",
+    operation: "install-plugin",
+  } as const;
+  const owner = new Hosts(store, () => repositories, "0.1.0", run, "profile");
+  await owner.action(action, confirm, launch);
+  expect(launch).not.toHaveBeenCalled();
+  expect(confirm).toHaveBeenCalledWith(
+    expect.objectContaining({ title: "Install Foom plugin on host?", subject: "worker" }),
+  );
+  confirm.mockResolvedValue(true);
+  run.mockResolvedValue({
+    ok: true,
+    facts: {
+      ...facts,
+      requirements: { distro: "debian", libc: "supported", packageManager: "apt" },
+    },
+  });
+  const installed = await owner.action(action, confirm, launch);
+  expect(installed.hosts[0]?.recipes?.find((recipe) => recipe.tool === "agy")?.pluginInstall).toBe(
+    true,
+  );
+  expect(launch.mock.calls).toMatchObject([
+    [{ host: "worker", recipe: { tool: "agy", action: "install-plugin" } }, expect.any(Function)],
+  ]);
+});
+
+test("registered preflight refuses removed hosts at dispatch without remote inspection", async () => {
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  await hosts.action({ action: "remove", host: "worker" });
+  run.mockClear();
+  await expect(
+    hosts.action({ action: "preflight", host: "worker", codeFolder: facts.codeFolder }),
+  ).rejects.toMatchObject({ code: "not_found" });
+  expect(run).not.toHaveBeenCalled();
+});
+
+test("a queued registered preflight rechecks registration after removal", async () => {
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  const removal = hosts.action({ action: "remove", host: "worker" });
+  const check = hosts.action({ action: "preflight", host: "worker", codeFolder: facts.codeFolder });
+  await expect(check).rejects.toMatchObject({ code: "not_found" });
+  await removal;
+  expect(run).not.toHaveBeenCalled();
+});
 
 test("host check output is live, bounded, inert and retained after failure", async () => {
   let finish: (result: HostResult) => void = () => {};

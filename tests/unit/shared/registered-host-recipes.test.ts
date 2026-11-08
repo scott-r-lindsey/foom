@@ -174,3 +174,14 @@ test("manifest package installs refresh only Debian and preserve Arch argv", () 
     expect(argv).toEqual(original);
   }
 });
+
+test("only agy's explicit install-plugin selector can choose the fixed two-step recipe", () => {
+  const request = { tool: "agy", action: "install-plugin", distro: "debian" } as const;
+  expect(recipeRequest(request)).toBe(true);
+  expect(recipeRequest({ ...request, tool: "other" })).toBe(false);
+  expect(selectHostRecipe(request, facts)?.steps).toEqual([
+    ["foom-host", "--stage-plugin", "agy"],
+    ["agy", "plugin", "install", "{stagedPlugin}"],
+  ]);
+  expect(selectHostRecipe({ ...request, tool: "other" }, facts)).toBeUndefined();
+});

@@ -51,7 +51,7 @@ export interface WorkspaceMethods {
   removed(id: string): void;
   input(id: string): void;
   feedback(id: string, verdictId: string | null, action: VerdictAction): Promise<void>;
-  scanAgents(refresh: boolean): Promise<AgentReport>;
+  scanAgents(refresh: boolean, agent?: string): Promise<AgentReport>;
   changeAgentSetup(
     id: string,
     action: string,

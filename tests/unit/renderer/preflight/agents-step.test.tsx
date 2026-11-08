@@ -221,7 +221,10 @@ test("registry-only agent cards save literal defaults and hook choices, with fac
   expect(missing.querySelectorAll(".agent-setting")).toHaveLength(0);
   view.rerender(<AgentsStep {...f.props} report={undefined} source={undefined} scanning />);
   expect(screen.getAllByText("Looking…")).toHaveLength(BUILTIN_AGENTS.length);
-  expect(screen.getByRole("button", { name: "Scanning…" })).toHaveProperty("disabled", true);
+  expect(screen.getByRole("button", { name: "Re-check This computer" })).toHaveProperty(
+    "disabled",
+    true,
+  );
 });
 
 test("setup controls request main's fixed action and refresh status, with failures inline", async () => {
@@ -262,7 +265,7 @@ test.each(["claude", "custom"])(
     expect(within(card).getByText("Off")).toBeTruthy();
     expect(within(card).getByText("Not found")).toBeTruthy();
     expect(f.save).not.toHaveBeenCalled();
-    expect(f.scan).toHaveBeenCalledWith(true);
+    expect(f.scan).not.toHaveBeenCalled();
     const installed = report({ ...agent, path: "/fixture/agent" });
     view.rerender(<AgentsStep {...props} report={installed} />);
     expect(within(card).getByRole("switch")).toHaveProperty("checked", true);
@@ -386,24 +389,40 @@ test("unavailable plugin status offers a bounded rescan from the row", () => {
   expect(f.scan).toHaveBeenCalledWith(true);
 });
 
-test("retains main's setup receipt until an explicit scan", async () => {
-  const f = fixture();
-  const installationWithSetup = {
-    ...installation("claude"),
-    setup: {
-      state: "not-installed" as const,
-      actions: [{ id: "install", label: "Install" }],
-      result: "Installed Foom observer v5 · enabled",
-    },
-  };
-  f.source.changeAgentSetup = vi.fn(() => Promise.resolve(report(installationWithSetup)));
-  f.props.report = report(installationWithSetup);
-  render(<AgentsStep {...f.props} />);
-  fireEvent.click(screen.getByRole("button", { name: "Install" }));
-  expect(await screen.findByRole("status")).toHaveProperty(
-    "textContent",
-    "Installed Foom observer v5 · enabled",
-  );
-  fireEvent.click(screen.getByRole("button", { name: "Scan again" }));
-  expect(screen.queryByRole("status")).toBeNull();
-});
+test.each([false, true])(
+  "retains main's setup receipt until an explicit scan (machine=%s)",
+  async (machine) => {
+    const f = fixture();
+    const installationWithSetup = {
+      ...installation("claude"),
+      setup: {
+        state: "not-installed" as const,
+        actions: [{ id: "install", label: "Install" }],
+        result: "Installed Foom observer v5 · enabled",
+      },
+    };
+    f.source.changeAgentSetup = vi.fn(() => Promise.resolve(report(installationWithSetup)));
+    f.props.report = report(installationWithSetup);
+    const view = render(<AgentsStep {...f.props} machine={machine} />);
+    fireEvent.click(screen.getByRole("button", { name: "Install" }));
+    expect(await screen.findByRole("status")).toHaveProperty(
+      "textContent",
+      "Installed Foom observer v5 · enabled",
+    );
+    if (machine) {
+      view.rerender(<AgentsStep {...f.props} machine receiptEpoch={1} />);
+      expect(screen.queryByRole("status")).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Install" }));
+      expect(await screen.findByRole("status")).toHaveProperty(
+        "textContent",
+        "Installed Foom observer v5 · enabled",
+      );
+    }
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: machine ? "Re-check Claude Code" : "Re-check This computer",
+      }),
+    );
+    expect(screen.queryByRole("status")).toBeNull();
+  },
+);

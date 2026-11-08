@@ -559,8 +559,9 @@ This replaces the covered #949 manual steps and is the automated prelude to the
 [manual qualification matrix](#manual-real-host-qualification-matrix-v1-943): record hub/host OS and architecture, build revision,
 command exit code and printed PASS/FAIL lines for each matrix row. A disposable
 windowless hub profile is created, persisted across an actual Electron process
-restart, then deleted. The driver reuses onboarding's `Hosts` preflight (#963,
-#1005) and fixed Git reasons (#1004). Failed or unrun SSH, platform, artifact,
+restart, then deleted. The driver reuses onboarding's explicit `Hosts` `draft-preflight` action (#963,
+#1005) before enrollment and fixed Git reasons (#1004). It never substitutes a draft
+check for a refused registered-machine reload. Failed or unrun SSH, platform, artifact,
 folder, Git or origin checks stop before enrollment. `origin-auth` means the host
 has no usable Git credentials for origin; `artifact-unavailable` means the remote
 daemon is not bundled in this build. Missing folders require explicit creation

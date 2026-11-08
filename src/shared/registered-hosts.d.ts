@@ -54,6 +54,7 @@ export interface HostPreflight extends HostConnectionChecks {
   repositories: readonly { repository: string; origin: HostCheck; checkout: HostResult }[];
 }
 export interface HostObservation {
+  lastAgents?: { checkedAt: number; result: HostResult };
   checkedAt: number;
   preflight: HostPreflight;
   foreignSessions?: number;
@@ -71,7 +72,17 @@ export interface HostFacts {
   load: readonly number[];
   memoryTotal: number;
   memoryAvailable: number;
-  agents: readonly { id: string; state: HostAgentState; signIn?: HostSignIn }[];
+  agents: readonly {
+    id: string;
+    state: HostAgentState;
+    signIn?: HostSignIn;
+    details?: {
+      path: string;
+      version: string;
+      capabilities: readonly string[];
+      plugin?: "present" | "not-installed" | "unavailable";
+    };
+  }[];
 }
 export type HostCheckTarget =
   | { kind: "ssh" | "platform" | "artifact" | "folder" | "command-line-tools" | "power" }
@@ -85,7 +96,13 @@ export type HostManagement = {
   codeFolder: string;
   agents?: readonly { id: string; executables: readonly string[] }[];
 } & (
-  | { operation: "inspect"; readOnly?: true; partial?: true; target?: HostInspectionTarget }
+  | {
+      operation: "inspect";
+      readOnly?: true;
+      partial?: true;
+      target?: HostInspectionTarget;
+      agentDetails?: true;
+    }
   | { operation: "create-folder" }
   | { operation: "list-worktrees"; profile: string }
   | { operation: "repository" | "clone" | "origin"; directory: string; origin: string }
@@ -131,6 +148,7 @@ export interface HostRow extends RegisteredHost {
     tool: string;
     install: boolean;
     signIn: boolean;
+    pluginInstall?: boolean;
     installReason?: "recipe-unavailable";
   }[];
   foreignSessions?: number;
@@ -174,8 +192,14 @@ export type HostsAction =
   | { action: "reload"; host: string; target: HostCheckTarget }
   | { action: "rename"; host: string; nickname: string }
   | { action: "trust-origin"; host: string; repository: string }
-  | { action: "recipe"; host: string; tool: string; operation: "install" | "sign-in" }
+  | {
+      action: "recipe";
+      host: string;
+      tool: string;
+      operation: "install" | "sign-in" | "install-plugin";
+    }
   | { action: "preflight"; host: string; codeFolder: string }
+  | { action: "draft-preflight"; host: string; codeFolder: string }
   | { action: "create-folder"; host: string }
   | { action: "change-folder"; host: string; codeFolder: string }
   | { action: "list" }
@@ -210,7 +234,7 @@ export interface RemoteWorktree {
 
 export interface HostRecipeRequest {
   tool: string;
-  action: "install" | "sign-in";
+  action: "install" | "sign-in" | "install-plugin";
   distro: "debian" | "rhel" | "arch" | "darwin";
 }
 export interface HostRecipe extends HostRecipeRequest {

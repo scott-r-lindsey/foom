@@ -111,10 +111,14 @@ function PreflightContents({
   }, [settingsMode, applying, onClose]);
 
   const scan = useCallback(
-    async (refresh: boolean) => {
+    async (refresh: boolean, agent?: string) => {
       setScanning(true);
       try {
-        setReport(await source.scanAgents(refresh));
+        setReport(
+          await (agent === undefined
+            ? source.scanAgents(refresh)
+            : source.scanAgents(refresh, agent)),
+        );
       } catch (caught) {
         setError(message(caught));
       } finally {

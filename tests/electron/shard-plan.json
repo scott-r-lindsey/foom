@@ -265,7 +265,7 @@
         "merged cleanup opens checking, continues hidden, reopens progress and stops unstarted worktrees": [
           10.186, 43.211, 21.508
         ],
-        "missing agent cards recover on Settings entry and manifest reload without toggling": [
+        "missing agent cards recover on explicit reload and manifest reload without toggling": [
           3.487, 14.573, 5.672
         ],
         "modal dismissal restores the same terminal input for cancel, approve, Escape, abort and Settings": [
@@ -906,7 +906,7 @@
         "merged cleanup opens checking, continues hidden, reopens progress and stops unstarted worktrees": [
           10.186, 43.211, 21.508
         ],
-        "missing agent cards recover on Settings entry and manifest reload without toggling": [
+        "missing agent cards recover on explicit reload and manifest reload without toggling": [
           3.487, 14.573, 5.672
         ],
         "moved HTML preview survives delayed destination placement": [9.057, 16.579, 13.228],
@@ -1845,7 +1845,7 @@
         "macOS quit from an inactive app activates trusted consent and keeps board close guarded": [
           0, 0, 7.143
         ],
-        "missing agent cards recover on Settings entry and manifest reload without toggling": [
+        "missing agent cards recover on explicit reload and manifest reload without toggling": [
           3.487, 14.573, 5.672
         ],
         "moved HTML preview survives never arriving destination placement": [8.902, 18.584, 11.927],

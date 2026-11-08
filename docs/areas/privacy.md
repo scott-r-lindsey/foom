@@ -166,6 +166,16 @@ embedded in Settings; sign-in retains its tile); Foom never
 types into it or performs background installs/sign-ins. Vendor-script installers
 are deferred; only fixed package-manager recipes ship.
 
+Settings agent scopes (#1070) explicitly request a bounded executable path and
+version string, closed capability labels and a reduced Antigravity plugin-inventory
+state from the user's own host over SSH. No help text, sign-in output or plugin
+metadata bytes cross that display surface. Saved host observations may retain the
+last successful display facts while offline; they confer no launch authority.
+Orchestrator host inventory still projects only agent ID/state, omitting these
+new display details. Installing the host plugin requires a disclosed click,
+main-owned confirmation and a human-owned recipe terminal; it copies no hub
+credentials and writes no global agent config directly.
+
 ## Terminal clipboard writes (#1073)
 
 The profile-only OSC 52 preference is off by default. When enabled, untrusted

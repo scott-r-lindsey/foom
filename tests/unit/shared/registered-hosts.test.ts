@@ -700,3 +700,87 @@ test("add accepts only optional valid nicknames on its closed payload", () => {
     }),
   ).toBe(false);
 });
+
+test("agent detail fields and retained observations are bounded data; plugin actions accept only agy", () => {
+  const details = {
+    path: "/bin/agy",
+    version: "1.4.12",
+    capabilities: ["Hooks", "Resume"],
+    plugin: "not-installed",
+  };
+  const result = {
+    ok: true,
+    facts: { ...facts, agents: [{ id: "agy", state: "ready", details }] },
+  };
+  expect(hostResult(result)).toBe(true);
+  for (const invalid of [
+    { ...details, path: "relative" },
+    { ...details, version: "x\n" },
+    { ...details, version: "x".repeat(129) },
+    { ...details, capabilities: ["Execute"] },
+    { ...details, plugin: "owned" },
+    { ...details, extra: true },
+  ])
+    expect(
+      hostResult({
+        ...result,
+        facts: { ...result.facts, agents: [{ id: "agy", state: "ready", details: invalid }] },
+      }),
+    ).toBe(false);
+  expect(
+    hostManagement({
+      type: "manage",
+      operation: "inspect",
+      codeFolder: "/code",
+      readOnly: true,
+      agentDetails: true,
+    }),
+  ).toBe(true);
+  expect(
+    hostManagement({
+      type: "manage",
+      operation: "inspect",
+      codeFolder: "/code",
+      agentDetails: true,
+    }),
+  ).toBe(false);
+  expect(
+    hostsAction({ action: "recipe", host: "worker", tool: "agy", operation: "install-plugin" }),
+  ).toBe(true);
+  expect(
+    hostsAction({ action: "recipe", host: "worker", tool: "codex", operation: "install-plugin" }),
+  ).toBe(false);
+  const observation = {
+    checkedAt: 2,
+    preflight: {
+      ssh: { state: "pass" },
+      platform: { state: "pass" },
+      artifact: { state: "pass" },
+      result: { ok: false, reason: "unreachable" },
+      repositories: [],
+    },
+    lastAgents: { checkedAt: 1, result },
+  };
+  expect(registeredHosts([{ host: "worker", codeFolder: "/code", observation }])).toBe(true);
+  for (const lastAgents of [
+    { checkedAt: -1, result },
+    { checkedAt: 1, result: { ok: false, reason: "unreachable" } },
+    { checkedAt: 1, result, extra: 1 },
+  ])
+    expect(
+      registeredHosts([
+        { host: "worker", codeFolder: "/code", observation: { ...observation, lastAgents } },
+      ]),
+    ).toBe(false);
+});
+
+test.each(["preflight", "draft-preflight"])(
+  "%s retains a closed selector and folder payload",
+  (action) => {
+    const request = { action, host: "worker", codeFolder: "~/code" };
+    expect(hostsAction(request)).toBe(true);
+    expect(hostsAction({ ...request, codeFolder: "relative" })).toBe(false);
+    expect(hostsAction({ ...request, registered: false })).toBe(false);
+    expect(hostsAction({ ...request, host: "-worker" })).toBe(false);
+  },
+);

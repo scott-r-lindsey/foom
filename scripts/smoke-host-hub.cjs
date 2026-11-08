@@ -111,7 +111,9 @@ globalThis.smokeHub = app.whenReady().then(async () => {
   const inventory = (tag = profile) =>
     remoteInventory({ host: config.host }, version, { type: "inventory", profile: tag });
   return {
-    preflight: async ({ codeFolder }) => (await action("preflight", { codeFolder })).preflight,
+    // Qualification checks the proposal before the explicit enrollment step.
+    preflight: async ({ codeFolder }) =>
+      (await action("draft-preflight", { codeFolder })).preflight,
     enroll: async ({ codeFolder }) => (await action("add", { codeFolder })).result,
     clone: async () =>
       (await action("clone", { repository: config.repository })).locations.find(

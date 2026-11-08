@@ -80,8 +80,7 @@ without notifier consent. Default arguments save on blur through the
 existing main-owned bypass disclosure and acknowledgement.
 
 Disabled agents remain configurable: discovery resolves their executable on PATH
-without running CLI discovery or setup probes. Agents cards refresh discovery on
-entry and config changes, keeping missing switches Off without saving a preference.
+without running CLI discovery or setup probes. Agent cards show last-known discovery; explicit reload and config changes refresh it. Global enablement is independent of local installation.
 Enablement changes invalidate workspace discovery caches.
 
 ### Bundled Antigravity plugin MCP (#855)
@@ -194,3 +193,15 @@ A build-owned measured recipient catalog grants image paste only to bundled agen
 whose exact interactive labeled-reference hand check passes. Main captures that
 capability at launch; terminal input routing uses the captured capability. Config
 manifests and foreground output cannot grant it. See [image paste](terminals.md#image-paste-937).
+
+## Scoped agent presentation (#1070)
+
+Global lists agents only and owns enablement, defaults and the custom-manifest catalog.
+Machines uses one picker for This computer and all registered hosts; there are no
+per-machine tabs or Global status columns. Machine cards
+show only enabled providers. Opening or changing scopes does not refresh discovery;
+config registry changes still invalidate it. Explicit local card reload passes a
+validated provider ID through agents:scan and probes only that provider, retaining
+other observations. First-run setup retains the local card view. Remote card facts
+contain bounded executable/version strings and a closed capability list. Unknown
+sign-in remains unknown and does not claim credential or hook trust.

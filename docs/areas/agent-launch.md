@@ -275,3 +275,19 @@ its own executable and login environment. These launches add no bypass flags, ch
 launches reuse ordinary per-launch hooks and bypass consent; the remote plain CLI
 launch attaches no MCP or hook assets. Evaluation remains local. Repository placement uses the selected machine's checked main checkout;
 existing remote worktree launches retain profile provenance and identity checks.
+
+### Settings installation on hosts (#1070)
+
+A registered host's Antigravity card may explicitly offer Install plugin. Main's
+trusted confirmation discloses the host, CLI-owned global plugin change and fixed
+staging/install steps. The host recipe uses the same reviewed stage handler as
+`foom-host --stage-plugin agy`, then invokes resolved `agy plugin install` with its
+printed directory. It refuses a present or unknown plugin inventory, runs only
+in a human-owned recipe terminal, and adds no hub credentials or control authority.
+This extends the opt-in Settings exception to registered hosts; it permits no
+direct agent-config writes or silent installation.
+This action requires exact daemon/artifact build equality with the approving
+desktop, rather than accepting a different protocol-compatible build. A mismatch
+refuses with `remote_artifact_mismatch` before recipe dispatch. This binds the
+daemon's bundled plugin assets (staged by its own executable) to the reviewed
+desktop build; the fixed recipe-step digest alone does not bind asset contents.

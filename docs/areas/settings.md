@@ -168,6 +168,35 @@ Settings → Hosts and Repositories locations follow the [host contract](hosts.m
 Host registration is profile-only and may retain incomplete preflight checks. Folder
 creation is explicit; checkout operations still require a canonical approved folder.
 
+## Agent scopes (#1070)
+
+Settings → Agents has exactly two views, Global and Machines. Global opens first
+and lists agents with enablement, default arguments and custom manifest paths,
+plus Open config folder and Attach hooks. It contains no machine observations,
+status columns or reload controls. Enablement is independent of installation.
+Disabled agents disappear from machine cards and launch menus and do not run probes.
+Default arguments reach both human remote launches and remote children;
+hub Environment settings remain local.
+
+Machines uses one picker, initially This computer, followed by every registered
+host. Hosts Open selects its host in that picker. There are no per-machine tabs.
+Lists scroll vertically at desktop and narrow widths. Returning from Global
+retains the selected machine. Switching views or machines reads saved observations
+without starting a check or renewing Last checked. Registration changes immediately
+filter cached hosts and fall back to This computer if the selection was removed.
+Machine actions stay disabled until the list for the current registrations arrives;
+a failed refresh leaves them disabled. Older list replies cannot restore removed
+hosts. Machine cards retain versions,
+paths, sign-in, capabilities and available plugin actions, with explicit machine
+reload and hover/focus agent reload controls. Missing and signed-out states use
+consistent status icons and card-sized text; status never relies on color alone.
+Offline observations are dimmed and actions are disabled; Hosts retains explicit
+connection recovery. There is no Off summary or Global shortcut below the cards.
+First-run setup keeps the shared local card view and does not enumerate hosts.
+Install and Sign in use existing recipes where available; vendor installers and
+their local execution remain #1071. Remote plugin installation retains its exact
+build and trusted-confirmation requirements in the [host contract](hosts.md#settings-agent-scopes-1070).
+
 ## Terminal clipboard writes (#1073)
 
 `terminalClipboardWrites` is a profile-only boolean, default false, excluded from

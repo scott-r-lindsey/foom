@@ -93,7 +93,7 @@ const frames=new RemoteFrames();const send=value=>{for(const frame of remoteResp
 let output='FIXTURE_MACHINE_READY\\r\\n';
 process.stdin.on('data',bytes=>frames.push(bytes,message=>{
  fs.appendFileSync(${JSON.stringify(calls)},JSON.stringify({host,message})+'\\n');
- if(message.type==='hello'){send({type:'hello',build:${JSON.stringify(manifest.sha256)},humanMachines:1,machineHome:'/remote/home'});return;}
+ if(message.type==='hello'){send({type:'hello',build:${JSON.stringify(manifest.sha256)},humanMachines:1,agentSettings:1,machineHome:'/remote/home'});return;}
  if(message.type==='inventory'){send({type:'inventory-result',own:[],foreign:[]});return;}
  if(message.type==='open'){
   assert.equal(message.human,true);assert.equal(message.agent,undefined);

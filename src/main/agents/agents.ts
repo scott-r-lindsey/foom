@@ -154,14 +154,23 @@ export class AgentService {
     this.bypassIdentities = { ...identities };
   }
 
-  async scan(enabled: Readonly<Record<string, boolean>> = {}): Promise<AgentScan> {
+  async scan(
+    enabled: Readonly<Record<string, boolean>> = {},
+    selected?: string,
+  ): Promise<AgentScan> {
     const resolved = await loginPath();
     const revision = providerRevision();
     const agents = await Promise.all(
       agentProviders().map(async (provider) =>
-        (enabled[provider.id] === false
-          ? detect(provider.id, resolved.path, false)
-          : provider.enrich(await detect(provider.id, resolved.path), this.agyPlugin)
+        (selected && provider.id !== selected
+          ? Promise.resolve(
+              (this.scannedRevision === revision
+                ? this.scanResult?.agents.find((agent) => agent.id === provider.id)
+                : undefined) ?? (await detect(provider.id, resolved.path, false)),
+            )
+          : enabled[provider.id] === false
+            ? detect(provider.id, resolved.path, false)
+            : provider.enrich(await detect(provider.id, resolved.path), this.agyPlugin)
         ).then((agent) => ({
           ...agent,
           name: provider.name,
@@ -182,6 +191,11 @@ export class AgentService {
       throw new Error("Agent plugins changed. Scan again.");
     }
     const result = Object.freeze({
+      ...(selected
+        ? this.scanResult?.checkedAt === undefined
+          ? {}
+          : { checkedAt: this.scanResult.checkedAt }
+        : { checkedAt: Date.now() }),
       ...resolved,
       agents: Object.freeze(agents.map((agent) => Object.freeze(agent))),
     });
