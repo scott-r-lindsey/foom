@@ -537,7 +537,9 @@ if (fs.existsSync(gate)) {
     const spawn = children.spawn;
     const scans = new Set();
     const reads = [];
+    const total = { count: 0 };
     AgentService.prototype.scan = function (...args) {
+      total.count++;
       const result = scan.apply(this, args);
       scans.add(result);
       void result.then(
@@ -573,7 +575,7 @@ if (fs.existsSync(gate)) {
       }
       return child;
     };
-    globalThis.missingAgentDiscovery = { scans, reads };
+    globalThis.missingAgentDiscovery = { scans, reads, total };
   }, preload);
   const discovery = () =>
     app.evaluate(() => ({
@@ -617,11 +619,9 @@ if (fs.existsSync(gate)) {
     await chmod(executable, 0o755);
   };
   // The new manifest can render its missing card before its discovery finishes.
-  // Settle that scan before installing, so reopening cannot observe its late reply.
+  // Settle that scan before installing, so its late reply cannot satisfy reload.
   await waitForDiscovery();
-  await page.keyboard.press("Escape");
   await install();
-  await openAgents();
   await expect(card.getByText("Not found", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Re-check Late agent", exact: true }).click();
   await expect(card.locator(".agent-path")).toHaveText(executable);
@@ -668,6 +668,12 @@ if (fs.existsSync(gate)) {
   await page.evaluate(() => globalThis.missingAgentRefresh);
   await waitForDiscovery();
   const afterHeldRead = await discovery();
+  const scanCount = () => app.evaluate(() => globalThis.missingAgentDiscovery.total.count);
+  const beforeNavigation = await scanCount();
+  await page.keyboard.press("Escape");
+  await openAgents();
+  await expect(card.locator(".agent-path")).toHaveText(executable);
+  assert.equal(await scanCount(), beforeNavigation, "reopening uses the settled discovery cache");
   context.diagnostic(
     JSON.stringify({ atCardReady, beforeRemove, holding, windowsImageLocked, afterHeldRead }),
   );
