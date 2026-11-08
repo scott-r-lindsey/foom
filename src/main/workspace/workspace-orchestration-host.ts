@@ -80,7 +80,11 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
     work: () => Promise<T>,
   ): Promise<T> => {
     const reservation = `${repository}\0:remote:${key}`;
-    if (caps.busyWorktrees.has(reservation)) throw new ControlError("conflict");
+    if (
+      caps.busyWorktrees.has(reservation) ||
+      closingWorktree(caps.snapshot().terminals, reservation)
+    )
+      throw new ControlError("conflict");
     caps.busyWorktrees.add(reservation);
     try {
       return await work();
@@ -369,7 +373,13 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
       return caps.withRepository(repository, () =>
         reserved(repository, worktree, async () => {
           revalidate();
-          if (caps.snapshot().terminals.some((row) => row.worktree === worktree && !row.exited))
+          if (
+            caps
+              .snapshot()
+              .terminals.some(
+                (row) => row.worktree === worktree && (!row.exited || row.closeState === "closing"),
+              )
+          )
             throw new ControlError("conflict");
           const current = await inspect(repository, tree);
           if (
@@ -380,7 +390,13 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
           )
             return false;
           revalidate();
-          if (caps.snapshot().terminals.some((row) => row.worktree === worktree && !row.exited))
+          if (
+            caps
+              .snapshot()
+              .terminals.some(
+                (row) => row.worktree === worktree && (!row.exited || row.closeState === "closing"),
+              )
+          )
             throw new ControlError("conflict");
           try {
             await hosts().worktree(tree.host, repository, {

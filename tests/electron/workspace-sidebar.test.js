@@ -970,6 +970,10 @@ test("Close removes the tile and sidebar before slow cleanup and restores a fail
   await expect(
     page.getByText("Close failed · cleanup may be incomplete", { exact: true }).last(),
   ).toBeVisible();
+  await expect(page.locator(".panel-chip").filter({ hasText: /^0$/ })).toHaveAttribute(
+    "data-tone",
+    "done",
+  );
   await page.screenshot({ animations: "disabled", path: evidencePath("1048-close-failed.png") });
   console.log(
     `1048 local fixture: tile+row hidden in ${hiddenMs}ms; cleanup remained gated until after screenshot; ${JSON.stringify(timing)}`,

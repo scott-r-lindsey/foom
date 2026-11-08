@@ -129,6 +129,7 @@ export class CleanupOwner {
       }
       return pending.result;
     }
+    this.requireNoClosingSession(worktree, closingId);
     const listeners = new Set<(pending: boolean) => Promise<void>>(onReview ? [onReview] : []);
     const entry = {
       identity,
@@ -183,6 +184,7 @@ export class CleanupOwner {
       if (tree.path === repository) throw new RemovalError("main_checkout");
       // removeTree holds the branch lock while it calls this, so no launch can slip in.
       const available = async () => {
+        this.requireNoClosingSession(worktree, closingId);
         this.requireIdleWorktree(worktree);
         if ((await this.deps.worktrees.launchIdentity(repository, worktree)) !== identity)
           throw new RemovalError("identity_changed", "Worktree has changed");
@@ -260,6 +262,18 @@ export class CleanupOwner {
     this.cleanupRuns.clear();
     this.mergeEligibility.clear();
   }
+  private requireNoClosingSession(worktree: string, closingId?: string): void {
+    if (
+      this.deps
+        .terminals()
+        .some(
+          (entry) =>
+            entry.worktree === worktree && entry.closeState === "closing" && entry.id !== closingId,
+        )
+    )
+      throw new RemovalError("busy", "A session is closing in this worktree");
+  }
+
   private requireIdleWorktree(worktree: string): void {
     if (
       this.deps

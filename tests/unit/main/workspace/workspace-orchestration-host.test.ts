@@ -491,3 +491,63 @@ it("branch changes retain checkout authority and use the current branch in launc
   );
   expect(confirm).toHaveBeenCalledWith("Detached HEAD · worker", "");
 });
+
+it.each(["before inspection", "during confirmation"])(
+  "remote owned removal refuses a closing session %s without losing its checkout",
+  async (phase) => {
+    const { caps, hosts, host } = fleetFixture();
+    const created = await host.createWorktree("/local/repo", "feature", "worker");
+    let closing = phase === "before inspection";
+    caps.snapshot = () => ({
+      repositories: [],
+      terminals: closing
+        ? [
+            {
+              id: "closing-child",
+              repository: "/local/repo",
+              worktree: created.path,
+              branch: "feature",
+              agent: "claude",
+              kind: "agent",
+              exited: true,
+              remote: true,
+              placement: { kind: "remote", host: "worker" },
+              closeState: "closing",
+              attention: "evaluator",
+              state: null,
+            },
+          ]
+        : [],
+    });
+    hosts.worktree.mockClear();
+    const confirm = vi.fn(() => {
+      closing = true;
+      return Promise.resolve(true);
+    });
+    await expect(
+      host.remove("/local/repo", created.path, created.identity, confirm, () => {}),
+    ).rejects.toMatchObject({ code: "conflict" });
+    expect(hosts.worktree).not.toHaveBeenCalledWith(
+      "worker",
+      "/local/repo",
+      expect.objectContaining({ operation: "remove-worktree" }),
+    );
+    expect(caps.sidebarCommand).not.toHaveBeenCalled();
+    expect(host.worktreeHost?.(created.path)).toBe("worker");
+    expect(caps.busyWorktrees.size).toBe(0);
+    if (phase === "before inspection") {
+      expect(confirm).not.toHaveBeenCalled();
+      expect(hosts.worktree).not.toHaveBeenCalled();
+    }
+    closing = false;
+    expect(
+      await host.remove(
+        "/local/repo",
+        created.path,
+        created.identity,
+        () => Promise.resolve(true),
+        () => {},
+      ),
+    ).toBe(true);
+  },
+);

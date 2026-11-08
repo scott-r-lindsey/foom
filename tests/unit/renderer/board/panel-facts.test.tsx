@@ -702,3 +702,30 @@ test("session relationship and handoff controls identify the selected session", 
     child: "child",
   });
 });
+
+test.each([0, 1])(
+  "cleanup failure keeps the actual exit code %s separate from its failure state",
+  (exitCode) => {
+    const view = render(
+      <PanelFacts
+        subject={{
+          kind: "session",
+          row: {
+            ...row,
+            exited: true,
+            exitCode,
+            closeFailed: true,
+            state: "failed",
+          },
+          tile: undefined,
+        }}
+        source={source}
+        options={undefined}
+      />,
+    );
+    const label = view.getByText("Exit code", { exact: true });
+    expect(label.nextElementSibling?.querySelector(".panel-chip")?.getAttribute("data-tone")).toBe(
+      exitCode === 0 ? "done" : "failed",
+    );
+  },
+);

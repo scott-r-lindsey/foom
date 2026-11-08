@@ -1209,3 +1209,114 @@ test("Close hides a review session before slow worktree removal finishes", {
   );
   assert.equal((await page.evaluate(() => window.desktop.workspace())).terminals.length, 0);
 });
+
+test("ordinary Close refuses a second owned or sidebar removal until terminal teardown settles", {
+  timeout: deadline(45000),
+}, async (context) => {
+  const app = await launchApp(context, { fixture: "repository" });
+  const page = await boardPage(app);
+  const repo = await page.evaluate(
+    async () => (await window.desktop.workspace()).repositories[0].path,
+  );
+  isolatedGit(
+    [
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "--allow-empty",
+      "-qm",
+      "init",
+    ],
+    { cwd: repo },
+  );
+  await app.evaluate(({ app }) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { Workspace } = load("./build/main/workspace/workspace.js");
+    const snapshot = Workspace.prototype.snapshot;
+    Workspace.prototype.snapshot = function (...args) {
+      globalThis.ordinaryCloseOwner = this.owner;
+      return snapshot.apply(this, args);
+    };
+  });
+  await page.evaluate(() => window.desktop.workspace());
+  const tree = await app.evaluate(async (_, repo) => {
+    const owner = globalThis.ordinaryCloseOwner;
+    const tree = await owner.deps.worktrees.createWorktree(repo, "ordinary-close-race");
+    const identity = await owner.deps.worktrees.launchIdentity(repo, tree.path);
+    const kill = owner.deps.terminals.kill.bind(owner.deps.terminals);
+    globalThis.ordinaryCloseKills = 0;
+    owner.deps.terminals.kill = async (...args) => {
+      globalThis.ordinaryCloseKills++;
+      await new Promise((resolve) => {
+        globalThis.releaseOrdinaryClose = resolve;
+      });
+      return kill(...args);
+    };
+    return { path: tree.path, identity };
+  }, repo);
+  context.after(async () => {
+    await app.evaluate(() => globalThis.releaseOrdinaryClose?.()).catch(() => {});
+  });
+  const launched = await page.evaluate(
+    ({ repo, tree }) =>
+      window.desktop.sidebarCommand({
+        kind: "launch",
+        repository: repo,
+        worktree: tree,
+        run: "shell",
+      }),
+    { repo, tree: tree.path },
+  );
+  const id = launched.terminalId;
+  await page.locator(`[data-drag-session="${id}"]`).press("Enter");
+  await expect(page.locator(".xterm-helper-textarea")).toBeEditable();
+  await page.evaluate((id) => window.desktop.input(id, "exit\r"), id);
+  await expect(page.locator(`[data-drag-session="${id}"]`)).toHaveAttribute("data-exited", "true");
+  await page.evaluate((id) => {
+    globalThis.pendingOrdinaryClose = window.desktop.sidebarCommand({ kind: "close", id });
+  }, id);
+  await expect.poll(() => app.evaluate(() => globalThis.ordinaryCloseKills)).toBe(1);
+  const reason = await app.evaluate(
+    async (_, { repo, tree }) => {
+      try {
+        await globalThis.ordinaryCloseOwner.cleanup.removeOwnedTree(
+          repo,
+          tree.path,
+          tree.identity,
+          () => Promise.resolve(true),
+          () => {},
+        );
+        return "unexpected success";
+      } catch (error) {
+        return error.reason;
+      }
+    },
+    { repo, tree },
+  );
+  assert.equal(reason, "busy");
+  const refused = await page.evaluate(
+    async ({ repo, tree }) => {
+      try {
+        await window.desktop.sidebarCommand({
+          kind: "remove-worktree",
+          repository: repo,
+          worktree: tree,
+        });
+        return false;
+      } catch {
+        return true;
+      }
+    },
+    { repo, tree: tree.path },
+  );
+  assert.equal(refused, true);
+  assert.equal(await app.evaluate(() => globalThis.ordinaryCloseKills), 1);
+  assert.equal(await readFile(path.join(tree.path, ".git"), "utf8").then(() => true), true);
+  await app.evaluate(() => globalThis.releaseOrdinaryClose());
+  await page.evaluate(() => globalThis.pendingOrdinaryClose);
+  await expect(page.locator(`[data-drag-session="${id}"]`)).toHaveCount(0);
+});

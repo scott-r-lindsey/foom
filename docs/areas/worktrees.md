@@ -388,3 +388,9 @@ branch lock. Idle removal refuses a closing checkout, and merged cleanup skips i
 explicit identity-matched owned removals can still join the original removal. Control inventory keeps those records until actual cleanup settles,
 so removal still conflicts with outstanding sessions. Interrupted cleanup surfaces
 as a failed saved row after restart and grants no new deletion authority.
+
+An ordinary Close also reserves its checkout against separately initiated owned
+removal, locally and remotely. Removal refuses with busy/conflict before inspection
+or deletion when a session is closing, and rechecks after confirmation. Only a
+matching join to an already-running owned removal shares that operation; the
+review Close that owns the removal may retain its own closing session.
