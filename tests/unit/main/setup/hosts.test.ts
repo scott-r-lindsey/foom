@@ -2343,6 +2343,37 @@ test("host check output is live, bounded, inert and retained after failure", asy
   expect((await hosts.action({ action: "dismiss-output" })).output).toBeUndefined();
 });
 
+test.each(["", "\n", "\r\n", "\r"])(
+  "Foom output lines stay separate after SSH chunks ending with %j",
+  async (ending) => {
+    for (const outcome of ["done", "failed", "thrown"] as const) {
+      const execute = vi.fn(
+        (
+          _host: string,
+          _request: HostManagement,
+          output?: (text: string, startLine?: boolean) => void,
+        ): Promise<HostResult> => {
+          output?.("SSH chunk");
+          output?.(ending);
+          output?.("Inspecting…\n", true);
+          output?.("last SSH chunk");
+          output?.(ending);
+          if (outcome === "thrown") throw new Error("fixture connection failed");
+          return Promise.resolve(
+            outcome === "done" ? { ok: true, facts } : { ok: false, reason: "unreachable" },
+          );
+        },
+      );
+      hosts = new Hosts(store, () => [], "0.1.0", execute);
+      const state = await hosts.action({ action: "test", host: "worker", codeFolder: "~/code" });
+      const lineEnd = ending.endsWith("\n") ? ending : `${ending}\n`;
+      expect(state.output?.text).toBe(
+        `SSH chunk${lineEnd}Inspecting…\nlast SSH chunk${lineEnd}${outcome === "done" ? "Done" : "Failed · unreachable"}\n`,
+      );
+    }
+  },
+);
+
 test("native recipe completion automatically rechecks only its tool", async () => {
   hosts = new Hosts(store, () => repositories, "0.1.0", run, "f".repeat(32));
   run.mockResolvedValue({

@@ -282,7 +282,10 @@ test("explicit setup output streams SSH stdout and stderr as inert display text"
     undefined,
     output,
   );
-  expect(output.mock.calls.flat().join("")).toBe(
-    "Connecting…\nPlatform\nLinux\nx86_64\nSSH diagnostic\nVerifying daemon artifact…\n",
-  );
+  expect(output.mock.calls).toEqual([
+    ["Connecting…\nPlatform\n", true],
+    [Buffer.from("Linux\nx86_64\n")],
+    [Buffer.from("SSH diagnostic\n")],
+    ["Verifying daemon artifact…\n", true],
+  ]);
 });

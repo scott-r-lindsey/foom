@@ -1852,7 +1852,9 @@ test("explicit management output observes upload steps and stderr without exposi
   child.message({ type: "hello", build: "a".repeat(64) });
   child.message({ type: "managed", result: { ok: false, reason: "folder-missing" } });
   await expect(managed).resolves.toMatchObject({ ok: false, reason: "folder-missing" });
-  expect(output.mock.calls.flat().join("")).toBe(
-    "SSH diagnostic\nUploading daemon…\nDaemon ready · Inspecting…\n",
-  );
+  expect(output.mock.calls).toEqual([
+    ["SSH diagnostic\n"],
+    ["Uploading daemon…\n", true],
+    ["Daemon ready · Inspecting…\n", true],
+  ]);
 });

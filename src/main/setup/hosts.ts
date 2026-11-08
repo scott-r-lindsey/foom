@@ -550,9 +550,16 @@ export class Hosts {
   private progress: HostCheckProgress | undefined;
   private output: HostOutput | undefined;
   private outputGeneration = 0;
-  private appendOutput(text: string): void {
+  private appendOutput(text: string, startLine = false): void {
     if (this.output)
-      this.output = { ...this.output, text: (this.output.text + text).slice(-65536) };
+      this.output = {
+        ...this.output,
+        text: (
+          this.output.text +
+          (startLine && this.output.text && !this.output.text.endsWith("\n") ? "\n" : "") +
+          text
+        ).slice(-65536),
+      };
   }
   private locations: RepositoryLocation[] = [];
   private pending: Promise<unknown> = Promise.resolve();
@@ -563,7 +570,7 @@ export class Hosts {
     private readonly execute: (
       host: string,
       request: HostManagement,
-      output?: (text: string) => void,
+      output?: (text: string, startLine?: boolean) => void,
     ) => Promise<HostResult> = (host, request, output) =>
       remoteManagement({ host }, version, request, this.cancellation.signal, output),
     private readonly profile?: string,
@@ -1426,7 +1433,7 @@ export class Hosts {
         !this.output.failed
       ) {
         this.output.failed = true;
-        this.appendOutput(`Failed · ${reason}\n`);
+        this.appendOutput(`Failed · ${reason}\n`, true);
       }
       console.warn(`Host check failed: reason=${reason} step=${step}`);
       return { ok: false, reason };
@@ -1469,15 +1476,15 @@ export class Hosts {
           this.output?.running &&
           this.output.host === host &&
           request.operation === "inspect"
-            ? (text: string) => {
-                if (this.outputGeneration === generation) this.appendOutput(text);
+            ? (text: string, startLine = false) => {
+                if (this.outputGeneration === generation) this.appendOutput(text, startLine);
               }
             : undefined;
         result = output
           ? await this.execute(host, { ...request, agents: probes }, output)
           : await this.execute(host, { ...request, agents: probes });
         if (output && hostResult(result)) {
-          output(result.ok ? "Done\n" : `Failed · ${result.reason}\n`);
+          output(result.ok ? "Done\n" : `Failed · ${result.reason}\n`, true);
           if (this.output && !result.ok) this.output.failed = true;
         }
       } catch {

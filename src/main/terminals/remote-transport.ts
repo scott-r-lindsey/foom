@@ -93,7 +93,7 @@ export class RemoteTransport extends EventEmitter {
     private readonly target: RemoteTarget,
     expectedVersion: string,
     private readonly management?: HostManagement | RemoteInventory | ImagePut,
-    private readonly output?: (text: string) => void,
+    private readonly output?: (text: string, startLine?: boolean) => void,
   ) {
     super();
     this.expectedVersion = expectedVersion;
@@ -332,7 +332,7 @@ export class RemoteTransport extends EventEmitter {
             const line = header.subarray(0, end).toString("ascii");
             header = header.subarray(end + 1);
             if (line === "FOOM-UPLOAD" && !uploading) {
-              this.output?.("Uploading daemon…\n");
+              this.output?.("Uploading daemon…\n", true);
               uploading = true;
               child.stdin.write(artifact.upload);
               continue;
@@ -348,7 +348,7 @@ export class RemoteTransport extends EventEmitter {
               throw new Error("Unsupported host libc");
             }
             if (line !== "FOOM-READY") throw new Error("Invalid bootstrap");
-            this.output?.("Daemon ready · Inspecting…\n");
+            this.output?.("Daemon ready · Inspecting…\n", true);
             bootstrapped = true;
             this.send({ type: "hello", build: artifact.sha256 });
             bytes = header;
@@ -826,7 +826,7 @@ export function remoteManagement(
   version: string,
   request: HostManagement,
   signal?: AbortSignal,
-  output?: (text: string) => void,
+  output?: (text: string, startLine?: boolean) => void,
 ): Promise<HostResult> {
   return new Promise((resolve) => {
     const transport = new RemoteTransport(target, version, request, output);

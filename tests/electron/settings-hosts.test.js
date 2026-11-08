@@ -1471,6 +1471,7 @@ test("Hosts retains failed Add stderr in a read-only panel", {
     .getByRole("region", { name: "Host check output" });
   await expect(output).toContainText("RAW SSH SECRET");
   await expect(output.getByRole("status")).toHaveText("Failed");
+  await expect(output.locator("pre")).toHaveText(/RAW SSH SECRET\nFailed · unreachable\n$/u);
   await captureHosts(app, page, "1062/add-failed");
   await output.getByRole("button", { name: "Dismiss" }).click();
   await expect(output).toHaveCount(0);

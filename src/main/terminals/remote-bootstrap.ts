@@ -285,7 +285,7 @@ export async function selectHostArtifact(
   metadata = join(__dirname, "../../build-metadata.json"),
   signal?: AbortSignal,
   observe?: (stage: keyof HostConnectionChecks, result: HostCheck) => void,
-  output?: (text: string) => void,
+  output?: (text: string, startLine?: boolean) => void,
 ) {
   let missingArtifact = false;
   let expectedSource: string | undefined;
@@ -309,7 +309,7 @@ export async function selectHostArtifact(
       missingArtifact = true;
     }
   }
-  output?.("Connecting…\nPlatform\n");
+  output?.("Connecting…\nPlatform\n", true);
   const probe = promisify(execFile)("ssh", [...sshArguments(target.host), "uname -s; uname -m"], {
     env: sshEnvironment(),
     shell: false,
@@ -372,7 +372,7 @@ export async function selectHostArtifact(
     if (libc) throw new UnsupportedRemotePlatform("Unsupported remote host platform");
   } else observe?.("platform", { state: "pass" });
   if (missingArtifact) throw new ApplicationError("remote-host-unavailable");
-  output?.("Verifying daemon artifact…\n");
+  output?.("Verifying daemon artifact…\n", true);
   const artifact = await hostArtifact(
     target.artifact ?? join(catalog, `${remote.platform}-${remote.arch}`, "foom-host.gz"),
     expectedSource,
