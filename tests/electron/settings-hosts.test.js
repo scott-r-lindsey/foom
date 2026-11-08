@@ -1695,11 +1695,14 @@ test("Agents Global list and machine picker scale to twelve agents and twelve sa
     await expect
       .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
       .toBe(true);
-    await page.screenshot({ path: evidencePath(`1070-step2/${name}-${mode}-${width}.png`) });
+    if (process.env.FOOM_AGENT_SCOPES_SCREENSHOTS === "1")
+      await page.screenshot({ path: evidencePath(`1070-step2/${name}-${mode}-${width}.png`) });
   };
+  const reviewCaptures = process.env.FOOM_AGENT_SCOPES_SCREENSHOTS === "1";
   for (const width of [1280, 480]) {
     await resize(width);
-    for (const mode of ["light", "dark"]) {
+    const modes = reviewCaptures ? ["light", "dark"] : [width === 1280 ? "light" : "dark"];
+    for (const mode of modes) {
       await page.evaluate(
         (mode) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${mode}` }),
         mode,

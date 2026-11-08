@@ -34,6 +34,15 @@ animation-frame assertion and startup diagnostics. The sandbox, controlled login
 shell/PATH, agent guard, process audit and quit-before-directory-removal ordering
 are unchanged.
 
+## Agents scope review captures (#1070)
+
+The twelve-agent/twelve-host case checks desktop/light and narrow/dark, including
+picker navigation, statuses, offline actions and keyboard scrolling; its offline
+accessibility check covers both themes. Set `FOOM_AGENT_SCOPES_SCREENSHOTS=1` to
+run the full width/theme review matrix and save Global, Machines, remote-plugin
+and offline images under `test-results/1070-step2/`. Ordinary CI retains every
+functional assertion without repeating the full review matrix or writing images.
+
 ## Remote host SEA fixture (#905)
 
 On Linux and macOS, the development Electron runner builds one native remote-host
