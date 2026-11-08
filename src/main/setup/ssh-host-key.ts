@@ -46,7 +46,7 @@ export async function askpassSupported(
 }
 
 /** Only OpenSSH resolves user-owned aliases/configuration. Foom never opens ~/.ssh. */
-export function configuredHost(output: string): string | undefined {
+export function configuredHost(output: string): { host: string; port: number } | undefined {
   const fields = (name: string) =>
     output
       .split("\n")
@@ -69,8 +69,9 @@ export function configuredHost(output: string): string | undefined {
     return undefined;
   const alias = aliases[0];
   if (alias !== undefined && !/^[a-zA-Z0-9_.:[\]-]+$/u.test(alias)) return undefined;
-  const target = alias ?? (port === "22" ? hostname : `[${hostname}]:${port}`);
-  return target.length <= 200 ? target : undefined;
+  const number = Number(port);
+  const target = alias ?? (number === 22 ? hostname : `[${hostname}]:${String(number)}`);
+  return target.length <= 200 ? { host: target, port: number } : undefined;
 }
 
 /** One detached SSH run, one authenticated local socket, one explicit answer. */

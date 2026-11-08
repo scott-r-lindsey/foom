@@ -5,9 +5,10 @@ import { ApplicationError } from "../../shared/application-errors";
 import type { HostCheck, HostConnectionChecks } from "../../shared/registered-hosts.d";
 import type { RemoteTarget } from "../../shared/remote-host";
 import { constants } from "node:fs";
-import { open } from "node:fs/promises";
+import { mkdtemp, open, rm, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { dirname, isAbsolute, join } from "node:path";
+import { tmpdir } from "node:os";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { gzip, gunzip } from "node:zlib";
@@ -266,6 +267,53 @@ export class SshConnectionFailure extends LaunchFailure {
   }
 }
 
+async function platformProbe(host: string, signal?: AbortSignal, output?: (text: string) => void) {
+  const directory = await mkdtemp(join(tmpdir(), "foom-ssh-probe-"));
+  const diagnostic = join(directory, "ssh.log");
+  try {
+    await writeFile(diagnostic, "", { mode: 0o600 });
+    // -E separates OpenSSH's local diagnostics from the remote command/login
+    // shell's stderr. Neither remote text nor a remote exit 255 can offer trust.
+    const probe = promisify(execFile)(
+      "ssh",
+      [
+        "-E",
+        diagnostic,
+        "-o",
+        "LogLevel=ERROR",
+        "-o",
+        "StrictHostKeyChecking=yes",
+        ...sshArguments(host),
+        "uname -s; uname -m",
+      ],
+      {
+        env: { ...sshEnvironment(), LC_ALL: "C" },
+        shell: false,
+        timeout: 10000,
+        maxBuffer: 16384,
+        encoding: "utf8",
+        ...(signal ? { signal } : {}),
+      },
+    );
+    if (output) {
+      probe.child.stdout?.on("data", (text: string) => {
+        output(text);
+      });
+      probe.child.stderr?.on("data", (text: string) => {
+        output(text);
+      });
+    }
+    return await probe.catch(async (error: unknown) => {
+      const text = await boundedFile(diagnostic, 16384).catch(() => undefined);
+      if (text) output?.(text.toString("utf8"));
+      const localFailure = error instanceof Error && "code" in error && error.code === 255;
+      throw new SshConnectionFailure(sshFailure(localFailure ? text?.toString("utf8") : undefined));
+    });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
 /** Strict uname output mapping; remote text is never used as a path or shell code. */
 export function remotePlatform(output: string) {
   switch (output) {
@@ -317,29 +365,8 @@ export async function selectHostArtifact(
     }
   }
   output?.("Connecting…\nPlatform\n", true);
-  const probe = promisify(execFile)(
-    "ssh",
-    ["-o", "StrictHostKeyChecking=yes", ...sshArguments(target.host), "uname -s; uname -m"],
-    {
-      env: { ...sshEnvironment(), LC_ALL: "C" },
-      shell: false,
-      timeout: 10000,
-      maxBuffer: 16384,
-      encoding: "utf8",
-      ...(signal ? { signal } : {}),
-    },
-  );
-  if (output) {
-    probe.child.stdout?.on("data", (text: string) => {
-      output(text);
-    });
-    probe.child.stderr?.on("data", (text: string) => {
-      output(text);
-    });
-  }
-  const { stdout } = await probe.catch((error: unknown) => {
-    const stderr = error instanceof Error && "stderr" in error ? error.stderr : undefined;
-    const failure = sshFailure(stderr);
+  const { stdout } = await platformProbe(target.host, signal, output).catch((error: unknown) => {
+    const failure = error instanceof SshConnectionFailure ? error.failure : "unreachable";
     observe?.("ssh", { state: "fail", reason: failure });
     throw new SshConnectionFailure(failure);
   });

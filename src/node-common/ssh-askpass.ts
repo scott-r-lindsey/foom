@@ -1,7 +1,19 @@
 import { connect, isIP } from "node:net";
 
+function promptTarget(value: string, address = false) {
+  const qualified = /^\[([a-zA-Z0-9_.:-]+)\]:([1-9][0-9]{0,4})$/u.exec(value);
+  const name = qualified?.[1] ?? value;
+  const port = qualified ? Number(qualified[2]) : undefined;
+  if (
+    (port !== undefined && port > 65535) ||
+    (!isIP(name) && (address || !/^[a-zA-Z0-9_.-]+$/u.test(name)))
+  )
+    return undefined;
+  return { port };
+}
+
 /** Closed OpenSSH unknown-host question. No prompt text is ever rendered. */
-export function hostKeyPrompt(prompt: string, expected?: string) {
+export function hostKeyPrompt(prompt: string, expected?: { host: string; port: number }) {
   if (prompt.length > 4096) return undefined;
   const match =
     /^The authenticity of host '([a-zA-Z0-9_.:[\]-]+) \(([^\n()]+)\)' can't be established\.\n(ED25519|RSA|ECDSA|DSA|ED25519-SK|ECDSA-SK) key fingerprint is:? (SHA256:[A-Za-z0-9+/]{43})\.?\n(?:This key is not known by any other names\.\n)?Are you sure you want to continue connecting \(yes\/no\/\[fingerprint\]\)\? $/u.exec(
@@ -14,8 +26,17 @@ export function hostKeyPrompt(prompt: string, expected?: string) {
     !address ||
     !type ||
     !fingerprint ||
-    (expected !== undefined && host !== expected) ||
-    (!isIP(address) && address !== "<no hostip for proxy command>")
+    (expected !== undefined && host !== expected.host)
+  )
+    return undefined;
+  const target = promptTarget(host);
+  const ip = address === "<no hostip for proxy command>" ? undefined : promptTarget(address, true);
+  const port = expected?.port ?? target?.port ?? ip?.port ?? 22;
+  if (
+    !target ||
+    (!ip && address !== "<no hostip for proxy command>") ||
+    (target.port !== undefined && target.port !== port) ||
+    (ip !== undefined && (ip.port ?? 22) !== port)
   )
     return undefined;
   return { host, type, fingerprint };

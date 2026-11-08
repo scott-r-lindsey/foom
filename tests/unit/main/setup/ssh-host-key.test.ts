@@ -46,16 +46,36 @@ afterEach(async () => {
 });
 
 test("parses only complete unknown-host questions with a matching target and inert facts", () => {
-  expect(hostKeyPrompt(question(), "box")).toEqual({ host: "box", type: "ED25519", fingerprint });
-  expect(hostKeyPrompt(question("[box]:2222", "2001:db8::1"), "[box]:2222")?.host).toBe(
-    "[box]:2222",
-  );
+  expect(hostKeyPrompt(question(), { host: "box", port: 22 })).toEqual({
+    host: "box",
+    type: "ED25519",
+    fingerprint,
+  });
+  for (const [host, address] of [
+    ["[box]:2222", "[192.0.2.1]:2222"],
+    ["[box]:2222", "[2001:db8::1]:2222"],
+    ["[192.0.2.1]:2222", "[192.0.2.1]:2222"],
+    ["[2001:db8::1]:2222", "[2001:db8::1]:2222"],
+    ["alias", "[2001:db8::1]:2222"],
+  ] as const) {
+    expect(hostKeyPrompt(question(host, address), { host, port: 2222 })?.host).toBe(host);
+    expect(hostKeyPrompt(question(host, address))?.host).toBe(host);
+  }
+  expect(hostKeyPrompt(question("box", "2001:db8::1"))?.host).toBe("box");
   expect(hostKeyPrompt(question("box", "<no hostip for proxy command>"))?.host).toBe("box");
   expect(
     hostKeyPrompt(question().replace("is ", "is: ").replace(`${fingerprint}.`, fingerprint))
       ?.fingerprint,
   ).toBe(fingerprint);
-  expect(hostKeyPrompt(question(), "imposter")).toBeUndefined();
+  expect(hostKeyPrompt(question(), { host: "imposter", port: 22 })).toBeUndefined();
+  expect(
+    hostKeyPrompt(question("[box]:2222", "[192.0.2.1]:2222"), { host: "[box]:2222", port: 2223 }),
+  ).toBeUndefined();
+  expect(
+    hostKeyPrompt(question("alias", "[192.0.2.1]:2222"), { host: "alias", port: 22 }),
+  ).toBeUndefined();
+  expect(hostKeyPrompt(question("[box]:65535", "[192.0.2.1]:65535"))?.host).toBe("[box]:65535");
+  expect(hostKeyPrompt(question("[box]:1", "[192.0.2.1]:1"))?.host).toBe("[box]:1");
   for (const text of [
     "Password:",
     "Enter passphrase for key 'key':",
@@ -67,6 +87,19 @@ test("parses only complete unknown-host questions with a matching target and ine
     `${question()}suffix`,
     question("box\u202e"),
     question("box", "evil.test"),
+    question("[box]:2222", "192.0.2.1"),
+    question("[box]:2222", "[192.0.2.1]:2223"),
+    question("[box]:2222", "[2001:db8::1]:2223"),
+    question("[box]:0", "[192.0.2.1]:0"),
+    question("[box]:65536", "[192.0.2.1]:65536"),
+    question("[box]:02222", "[192.0.2.1]:02222"),
+    question("[box]:2222", "192.0.2.1:2222"),
+    question("[box]:2222", "[192.0.2.999]:2222"),
+    question("[box]:2222", "[2001:db8::g]:2222"),
+    question("[box]:2222", "[evil.test]:2222"),
+    question("[box]:2222", "[192.0.2.1]2222"),
+    question("[[box]]:2222", "[192.0.2.1]:2222"),
+    question("[bad:host]:2222", "[192.0.2.1]:2222"),
     question().replace(fingerprint, "MD5:aa:bb"),
     question().replace("ED25519", "<script>"),
     question().replace(
@@ -102,9 +135,15 @@ test("classifies bounded OpenSSH stderr without trusting generic verification er
 });
 
 test("resolves aliases and ports only from a bounded single ssh configuration", () => {
-  expect(configuredHost("hostname box\nport 22\n")).toBe("box");
-  expect(configuredHost("hostname 2001:db8::1\nport 2222\n")).toBe("[2001:db8::1]:2222");
-  expect(configuredHost("hostname box\nport 2222\nhostkeyalias alias\n")).toBe("alias");
+  expect(configuredHost("hostname box\nport 22\n")).toEqual({ host: "box", port: 22 });
+  expect(configuredHost("hostname 2001:db8::1\nport 2222\n")).toEqual({
+    host: "[2001:db8::1]:2222",
+    port: 2222,
+  });
+  expect(configuredHost("hostname box\nport 2222\nhostkeyalias alias\n")).toEqual({
+    host: "alias",
+    port: 2222,
+  });
   for (const value of [
     "",
     "hostname box\n",
@@ -177,56 +216,64 @@ const unixTest = test.skipIf(process.platform === "win32");
 unixTest(
   "a detached SSH run authenticates one question, relays only a click, then removes all private files",
   async () => {
-    for (const answer of [true, false]) {
-      const out = vi.fn();
-      const confirm = vi.fn(() => Promise.resolve(answer));
-      let directory = "";
-      mock.spawn.mockImplementation(
-        (
-          _file: string,
-          args: string[],
-          options: { env: NodeJS.ProcessEnv; detached: boolean; stdio: string },
-        ) => {
-          expect(args).toContain("BatchMode=no");
-          expect(args).toContain("StrictHostKeyChecking=ask");
-          for (const setting of [
-            "PasswordAuthentication=no",
-            "KbdInteractiveAuthentication=no",
-            "ForwardAgent=no",
-            "ForwardX11=no",
-            "ClearAllForwardings=yes",
-            "ControlPath=none",
-          ])
-            expect(args).toContain(setting);
-          expect(args).toContain("-n");
-          expect(args).not.toContain("StdinNull=yes");
-          expect(args.at(-1)).toBe("true");
-          expect(options.detached).toBe(true);
-          expect(options.stdio).toBe("ignore");
-          expect(options.env["DISPLAY"]).toBeUndefined();
-          expect(options.env["SSH_ASKPASS_REQUIRE"]).toBe("force");
-          directory = dirname(options.env["FOOM_ASKPASS_SOCKET"] ?? "");
-          const child = new EventEmitter();
-          void (async () => {
-            expect((await stat(directory)).mode & 0o777).toBe(0o700);
-            await sshAskpass([question()], options.env, out);
-            child.emit("exit", 0);
-            child.emit("close", 0);
-          })();
-          return child;
-        },
-      );
-      expect(
-        await trustHostKey(
-          "user@alias",
-          confirm,
-          new AbortController().signal,
-          "/fixture console/foom",
-        ),
-      ).toBe(answer);
-      expect(confirm).toHaveBeenCalledOnce();
-      if (answer) expect(out).toHaveBeenCalledWith("yes\n");
-      await expect(access(directory)).rejects.toThrow();
+    for (const [host, address, config] of [
+      ["box", "192.0.2.1", "hostname box\nport 22\n"],
+      ["[box]:2222", "[192.0.2.1]:2222", "hostname box\nport 2222\n"],
+      ["[2001:db8::1]:2222", "[2001:db8::1]:2222", "hostname 2001:db8::1\nport 2222\n"],
+      ["alias", "[2001:db8::1]:2222", "hostname box\nport 2222\nhostkeyalias alias\n"],
+    ] as const) {
+      for (const answer of [true, false]) {
+        mock.execute.mockResolvedValueOnce({ stdout: config });
+        const out = vi.fn();
+        const confirm = vi.fn(() => Promise.resolve(answer));
+        let directory = "";
+        mock.spawn.mockImplementation(
+          (
+            _file: string,
+            args: string[],
+            options: { env: NodeJS.ProcessEnv; detached: boolean; stdio: string },
+          ) => {
+            expect(args).toContain("BatchMode=no");
+            expect(args).toContain("StrictHostKeyChecking=ask");
+            for (const setting of [
+              "PasswordAuthentication=no",
+              "KbdInteractiveAuthentication=no",
+              "ForwardAgent=no",
+              "ForwardX11=no",
+              "ClearAllForwardings=yes",
+              "ControlPath=none",
+            ])
+              expect(args).toContain(setting);
+            expect(args).toContain("-n");
+            expect(args).not.toContain("StdinNull=yes");
+            expect(args.at(-1)).toBe("true");
+            expect(options.detached).toBe(true);
+            expect(options.stdio).toBe("ignore");
+            expect(options.env["DISPLAY"]).toBeUndefined();
+            expect(options.env["SSH_ASKPASS_REQUIRE"]).toBe("force");
+            directory = dirname(options.env["FOOM_ASKPASS_SOCKET"] ?? "");
+            const child = new EventEmitter();
+            void (async () => {
+              expect((await stat(directory)).mode & 0o777).toBe(0o700);
+              await sshAskpass([question(host, address)], options.env, out);
+              child.emit("exit", 0);
+              child.emit("close", 0);
+            })();
+            return child;
+          },
+        );
+        expect(
+          await trustHostKey(
+            "user@alias",
+            confirm,
+            new AbortController().signal,
+            "/fixture console/foom",
+          ),
+        ).toBe(answer);
+        expect(confirm).toHaveBeenCalledOnce();
+        if (answer) expect(out).toHaveBeenCalledWith("yes\n");
+        await expect(access(directory)).rejects.toThrow();
+      }
     }
   },
 );

@@ -306,3 +306,10 @@ time. Production builds omit this flag and read real OS facts; there is no runti
 or profile switch. Ordinary app/package builds clear the disposable build tree.
 Daemon unit tests exercise the real admission path with fixture OS measurements,
 including reservations, refusals, disconnects and unreadable observations.
+
+## SSH host-key review captures (#1059)
+
+Set `FOOM_HOST_KEY_SCREENSHOTS=1` for the Settings Hosts askpass acceptance case
+to save the six light/dark unknown-key row, trusted dialog and accepted-key row
+captures under `test-results/1059/`. Ordinary regression runs retain all
+functional assertions without overwriting previously reviewed evidence.

@@ -662,8 +662,12 @@ and retry rules](../contracts/control-mutations.md#child-host-pressure-1046).
 
 Add and Check capabilities retain BatchMode=yes. The bounded platform probe uses
 StrictHostKeyChecking=yes and the C locale so OpenSSH reports an unknown key
-explicitly. At most 16 KiB of stderr is classified as host-key-unknown,
-host-key-changed, login-rejected, or unreachable; generic verification failures
+explicitly. OpenSSH's local diagnostics go through `-E` into a private per-run
+0600 file beneath a 0700 temporary directory, removed on completion or failure.
+LogLevel=ERROR overrides user verbosity. Only exit status 255 and at most 16 KiB
+from that client-owned channel can classify host-key-unknown, host-key-changed or
+login-rejected. Remote command/login-shell stderr remains display-only, including
+when the remote exits 255; it never offers trust. Generic verification failures
 never offer trust. Daemon replies cannot supply local SSH classifications or
 connection observations. Legacy saved unreachable observations still load.
 
@@ -685,7 +689,10 @@ SSH invokes that verified binary directly; the per-run environment selects its
 askpass adapter, without a temporary executable or shell launcher.
 A 0700 mkdtemp directory holds a Unix socket, authenticated
 by a random per-run credential. Both ends strictly parse the complete unknown-host
-question; main also matches its host to the resolved registered target. Only parsed
+question; main also matches its host and port to the resolved registered target.
+Nonstandard ports use OpenSSH's bracketed host and IP forms, including IPv6;
+address fields must contain a valid IP and any port must be 1–65535 and match the
+registered target. HostKeyAlias still retains the resolved port for this check. Only parsed
 host, key type and SHA256 fingerprint reach the trusted main-owned confirmation.
 Non-host-key, changed-key, secret, malformed and unmatched prompts fail closed.
 Unexpected OpenSSH question variants are refused rather than displayed verbatim.

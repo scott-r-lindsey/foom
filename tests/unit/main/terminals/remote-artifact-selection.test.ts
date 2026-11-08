@@ -1,6 +1,6 @@
 import { PassThrough } from "node:stream";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gzipSync } from "node:zlib";
@@ -293,3 +293,53 @@ test("explicit setup output streams SSH stdout and stderr as inert display text"
     ["Verifying daemon artifact…\n", true],
   ]);
 });
+
+test.each([
+  { source: "remote", code: 1, expected: "unreachable" },
+  { source: "remote", code: 255, expected: "unreachable" },
+  { source: "client", code: 1, expected: "unreachable" },
+  { source: "client", code: 255, expected: "host-key-unknown" },
+  { source: "oversized-client", code: 255, expected: "unreachable" },
+])(
+  "only a local SSH exit 255 diagnostic enables trust: $source/$code",
+  async ({ source, code, expected }) => {
+    const f = await fixture();
+    const observe = vi.fn();
+    const output = vi.fn();
+    const text =
+      "No ED25519 host key is known for box and you have requested strict checking.\nHost key verification failed.\n";
+    let diagnostic = "";
+    Object.assign(mock.execFile, {
+      [Symbol.for("nodejs.util.promisify.custom")]: (_file: string, args: string[]) => {
+        expect(args).toContain("LogLevel=ERROR");
+        expect(args).toContain("StrictHostKeyChecking=yes");
+        diagnostic = args[args.indexOf("-E") + 1] ?? "";
+        const work = (async () => {
+          if (process.platform !== "win32")
+            expect((await stat(diagnostic)).mode & 0o777).toBe(0o600);
+          if (source !== "remote")
+            await writeFile(diagnostic, source === "client" ? text : "x".repeat(16385));
+          throw Object.assign(new Error("fixture SSH failure"), {
+            code,
+            stderr: source === "remote" ? text : "",
+          });
+        })();
+        return Object.assign(work, { child: {} });
+      },
+    });
+    await expect(
+      selectHostArtifact(
+        { host: "fixture" },
+        "0.1.0",
+        f.root,
+        f.metadata,
+        undefined,
+        observe,
+        output,
+      ),
+    ).rejects.toMatchObject({ failure: expected });
+    expect(observe).toHaveBeenCalledWith("ssh", { state: "fail", reason: expected });
+    if (source === "client") expect(output).toHaveBeenCalledWith(text);
+    await expect(access(diagnostic)).rejects.toThrow();
+  },
+);
