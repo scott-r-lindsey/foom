@@ -1461,7 +1461,7 @@ test("Agents scopes use saved host observations and Global enablement without ch
   );
   await page.evaluate(() => window.desktop.hosts({ action: "remove", host: "fixture-cloud" }));
   // Replay the old machine request even if this window still holds its old snapshot.
-  const beforeRemovedCheck = await readFile(calls, "utf8");
+  const beforeRemovedCheck = (await readFile(calls, "utf8")).split("\n").filter(Boolean).length;
   const refused = await page.evaluate(
     (codeFolder) =>
       window.desktop.hosts({ action: "preflight", host: "fixture-cloud", codeFolder }).then(
@@ -1471,7 +1471,20 @@ test("Agents scopes use saved host observations and Global enablement without ch
     folder,
   );
   assert.equal(refused, true);
-  assert.equal(await readFile(calls, "utf8"), beforeRemovedCheck);
+  const dispatched = (await readFile(calls, "utf8"))
+    .split("\n")
+    .filter(Boolean)
+    .slice(beforeRemovedCheck)
+    .map((line) => JSON.parse(line));
+  // A sidebar inspection already started before removal may still finish. It
+  // does not request agentDetails; a full machine preflight always does.
+  assert.deepEqual(
+    dispatched.filter(
+      ({ message }) =>
+        message.operation === "inspect" && message.agentDetails === true && !message.target,
+    ),
+    [],
+  );
   await updateScenario({});
   const draft = await page.evaluate(() =>
     window.desktop.hosts({

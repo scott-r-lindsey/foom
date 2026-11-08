@@ -185,7 +185,8 @@ child.on('close', code => { appendFileSync(${JSON.stringify(sshLog)}, 'fixture s
     ...(process.platform === "linux" ? [["fixture-old-libc", "platform", "libc-too-old"]] : []),
   ]) {
     const checked = await page.evaluate(
-      ({ host, codeFolder }) => window.desktop.hosts({ action: "preflight", host, codeFolder }),
+      ({ host, codeFolder }) =>
+        window.desktop.hosts({ action: "draft-preflight", host, codeFolder }),
       { host, codeFolder: path.join(remoteHome, "code") },
     );
     assert.deepEqual(checked.preflight[row], { state: "fail", reason });
@@ -203,7 +204,7 @@ child.on('close', code => { appendFileSync(${JSON.stringify(sshLog)}, 'fixture s
   );
   const preflight = await page.evaluate(
     (codeFolder) =>
-      window.desktop.hosts({ action: "preflight", host: "fixture-cloud", codeFolder }),
+      window.desktop.hosts({ action: "draft-preflight", host: "fixture-cloud", codeFolder }),
     path.join(remoteHome, "code"),
   );
   assert.deepEqual(preflight.preflight.ssh, { state: "pass" });

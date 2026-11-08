@@ -423,3 +423,14 @@ test("retained machine actions stay disabled until the matching registration lis
   });
   expect(reload).toHaveProperty("disabled", false);
 });
+
+test("a fresh list cannot recreate a removed machine from an older settings snapshot", async () => {
+  const f = fixture("host:worker");
+  f.api.mockResolvedValueOnce({ hosts: [], locations: [] });
+  render(<f.View />);
+  await waitFor(() => {
+    expect(screen.getByRole("combobox", { name: "Machine" })).toHaveProperty("value", "local");
+  });
+  expect(screen.queryByRole("button", { name: "Re-check Build" })).toBeNull();
+  expect(screen.queryByRole("option", { name: "Build" })).toBeNull();
+});

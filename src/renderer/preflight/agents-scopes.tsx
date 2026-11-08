@@ -51,13 +51,14 @@ export function AgentsScopes(
   }>();
   const hostsReady =
     !api || (!!hostList && hostList.registrations === registrations && hostList.api === api);
-  const hosts: readonly HostRow[] = (registrations ?? []).map(
-    (registration) => hostList?.rows.find((row) => row.host === registration.host) ?? registration,
+  const hosts = (hostList?.rows ?? []).filter((row) =>
+    registrations?.some((registration) => registration.host === row.host),
   );
   const scope =
     requestedScope === "global" ||
     requestedScope === "local" ||
-    registrations?.some((entry) => `host:${entry.host}` === requestedScope)
+    (registrations?.some((entry) => `host:${entry.host}` === requestedScope) &&
+      (!hostsReady || hosts.some((entry) => `host:${entry.host}` === requestedScope)))
       ? requestedScope
       : "local";
   useEffect(() => {
