@@ -102,7 +102,7 @@ export interface SidebarCommandsContext {
   readonly busyWorktrees: Set<string>;
   readonly cleanup: Pick<
     CleanupOwner,
-    "deleteMerged" | "inventory" | "removeIdleTree" | "removeOwnedTree"
+    "deleteMerged" | "inventory" | "removeIdleTree" | "removeOwnedTree" | "offerClosedReviews"
   >;
   readonly closed: boolean;
   readonly control: Promise<Partial<Pick<ControlRuntime, "takeOver">>> | undefined;
@@ -148,6 +148,7 @@ export interface SidebarCommandsContext {
       | "listRepositories"
       | "pruneWorktree"
       | "reviewIdentity"
+      | "reviewBranch"
     >;
     readonly forge:
       | Pick<

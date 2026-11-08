@@ -6,6 +6,8 @@ export interface ReviewCheckout {
   branch: string;
   refs: string;
 }
+const onlyIgnored = (status: string) =>
+  status.split("\0").every((entry) => !entry || entry.startsWith("!! "));
 const oid = /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/u;
 
 /** Local refs, including per-worktree refs; remote tracking updates are not reviewer work. */
@@ -39,8 +41,9 @@ export async function unchangedReview(
     )
       return false;
     if (
-      (await service.cleanupStatus(repository, path, identity, review.head, true, review.head)) !==
-      ""
+      !onlyIgnored(
+        await service.cleanupStatus(repository, path, identity, review.head, true, review.head),
+      )
     )
       return false;
     const logging = await git(path, [
@@ -83,8 +86,9 @@ export async function unchangedReview(
       (await service.launchIdentity(repository, path)) === identity &&
       (await git(path, ["rev-parse", "--verify", "HEAD"])).trim() === review.head &&
       (await git(path, ["rev-parse", "--symbolic-full-name", "HEAD"])).trim() === "HEAD" &&
-      (await service.cleanupStatus(repository, path, identity, review.head, true, review.head)) ===
-        ""
+      onlyIgnored(
+        await service.cleanupStatus(repository, path, identity, review.head, true, review.head),
+      )
     );
   } catch {
     return false;

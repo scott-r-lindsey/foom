@@ -82,10 +82,31 @@ it(
   }),
 );
 
+it(
+  "removes ignored-only install, build and test output after restart without confirmation",
+  fixtures.usingFixture(async () => {
+    await run(repo, "config", "core.excludesFile", join(temporary, "ignore"));
+    const folders = ["node_modules", "build", ".cache", ".husky/_", "test-results"];
+    await writeFile(join(temporary, "ignore"), folders.map((folder) => `${folder}/`).join("\n"));
+    for (const folder of folders) {
+      await mkdir(join(path, folder), { recursive: true });
+      await writeFile(join(path, folder, "output"), "review output");
+    }
+    service = await WorktreeService.open(join(temporary, "profile"), root);
+    expect(await eligible()).toBe(true);
+    // Ignored output cannot conceal a non-ignored evidence file.
+    await writeFile(join(path, "review.png"), "keep");
+    expect(await eligible()).toBe(false);
+    await rm(join(path, "review.png"));
+    expect(await eligible()).toBe(true);
+    await service.removeWorktree(repo, path, false, identity);
+    await expect(readFile(join(path, "build", "output"))).rejects.toThrow();
+  }),
+);
+
 it.each([
   "tracked",
   "untracked",
-  "ignored",
   "index-hidden",
   "attached",
   "moved-head",
@@ -113,11 +134,6 @@ it.each([
         break;
       case "untracked":
         await writeFile(join(path, "new"), "keep");
-        break;
-      case "ignored":
-        await run(repo, "config", "core.excludesFile", join(temporary, "ignore"));
-        await writeFile(join(temporary, "ignore"), "ignored\n");
-        await writeFile(join(path, "ignored"), "keep");
         break;
       case "index-hidden":
         await run(path, "update-index", "--assume-unchanged", "tracked");
@@ -254,6 +270,8 @@ it(
 
 it("maps only the recorded detached head to its source PR branch", () => {
   expect(service.reviewBranch(repo, path, head)).toBe("feature");
+  expect(service.reviewBranch(repo, path)).toBe("feature");
+  expect(service.reviewBranch(repo, repo)).toBeUndefined();
   expect(service.reviewBranch(repo, path, "0".repeat(40))).toBeUndefined();
   expect(service.reviewBranch(repo, repo, head)).toBeUndefined();
 });

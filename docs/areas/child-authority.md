@@ -28,12 +28,15 @@ repository into the [strict merged-clean policy](../contracts/control-mutations.
 no API force flag bypasses identity or dirty-state checks.
 
 Detached PR review checkouts (#843) are the sole additional exception. On close,
-Foom may remove its own review checkout without confirmation independently of the
+Foom may remove its own profile-owned review checkout, including a session from
+an earlier orchestrator grant, without confirmation independently of the
 merged-worktree setting or an open PR, only with matching creation identity, a
 still-detached HEAD at the exact fetched and recorded PR head, no tracked or
-untracked changes or local refs/commits beyond that head, and no other session or
-operation using it. Reflogs protect commits reset away; unavailable evidence,
-ignored content and every failed proof fall back to trusted confirmation. All
+non-ignored untracked changes or local refs/commits beyond that head, and no other
+session or operation using it. Reflogs protect commits reset away; unavailable evidence
+and every failed proof fall back to trusted confirmation. For these review
+checkouts only, Git-ignored content (including installed dependencies and build or
+test output) does not block removal; non-ignored untracked files still do. All
 existing membership, identity, active-session, reservation and final-snapshot
 guards remain required even after approval. Ordinary worktrees are unchanged.
 

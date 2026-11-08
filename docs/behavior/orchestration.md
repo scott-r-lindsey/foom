@@ -315,3 +315,14 @@ creates one detached PR-head checkout and launches one read-only Claude reviewer
 It leaves the author's loop alone. The parent reads its structured handoff and
 stops/closes it. `--since` takes a full commit SHA; the reviewer checks ancestry.
 No forge writes occur unless `--post-findings true` is explicit.
+
+### Review checkout cleanup (#1115)
+
+Closing a reviewer uses the profile's recorded creation identity, including when
+an earlier orchestrator grant launched it. Git-ignored dependencies and build/test
+output do not block the detached review checkout's automatic removal. Tracked and
+non-ignored untracked changes, changed HEAD/history, and every other existing
+proof still require the ordinary trusted review or refuse unsafe deletion.
+With board PR tracking enabled, idle retained review checkouts are offered together
+once their PR is merged or closed. Offline evidence waits for later inventory;
+each identity is offered once per app lifetime. Cancel preserves the checkout.

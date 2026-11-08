@@ -117,7 +117,7 @@ export async function sidebarInventory(this: SidebarCommandsContext): Promise<Si
             worktrees
               .filter(
                 (tree) =>
-                  tree.branch &&
+                  (tree.branch || this.deps.worktrees.reviewBranch(repository.path, tree.path)) &&
                   !tree.bare &&
                   !tree.prunable &&
                   !tree.path.startsWith("/foom-remote/"),
@@ -126,12 +126,14 @@ export async function sidebarInventory(this: SidebarCommandsContext): Promise<Si
                 const identity = await this.deps.worktrees
                   .launchIdentity(repository.path, tree.path)
                   .catch(() => undefined);
-                return identity && tree.branch
+                const branch =
+                  this.deps.worktrees.reviewBranch(repository.path, tree.path) ?? tree.branch;
+                return identity && branch
                   ? {
                       repository: repository.path,
                       path: tree.path,
                       identity,
-                      branch: tree.branch,
+                      branch,
                     }
                   : undefined;
               }),
@@ -141,6 +143,15 @@ export async function sidebarInventory(this: SidebarCommandsContext): Promise<Si
             tracked.filter((tree) => tree !== undefined),
           );
         }
+        const forge = this.deps.forge;
+        const dialog = this.deps.dialog;
+        if (forge && dialog)
+          this.cleanup.offerClosedReviews(
+            repository.path,
+            worktrees,
+            (path) => forge.readBoard(repository.path, path),
+            dialog,
+          );
         const { removedWorktrees, ...eligibility } = this.cleanup.inventory(
           repository.path,
           worktrees,

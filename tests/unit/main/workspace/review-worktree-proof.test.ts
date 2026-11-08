@@ -172,3 +172,15 @@ it.each([
   }
   expect(await f.check()).toBe(false);
 });
+
+it("ignores only ignored status entries at both proof reads", async () => {
+  const f = fixture();
+  f.source.cleanupStatus
+    .mockResolvedValueOnce("!! node_modules/\0")
+    .mockResolvedValue("!! build/\0!! .cache/\0");
+  expect(await f.check()).toBe(true);
+  f.source.cleanupStatus
+    .mockResolvedValueOnce("!! node_modules/\0")
+    .mockResolvedValue("!! build/\0?? review.png\0");
+  expect(await f.check()).toBe(false);
+});

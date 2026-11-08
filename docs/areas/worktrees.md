@@ -285,9 +285,9 @@ that must be validated again against Git and the filesystem. Closing a session i
 such a checkout uses the existing removal lock and trusted removal path. A narrow
 exception permits confirmation-free removal independently of the merged-worktree
 setting and PR state: the identity must match, HEAD must remain detached at the
-captured commit, config-neutral status must show no tracked, untracked or ignored
-content, and local refs and worktree reflogs must contain no new history beyond
-that head. Unchanged pre-existing shared refs are not reviewer work. Private root refs such as `ORIG_HEAD` are checked too. HEAD reflogs
+captured commit, config-neutral status must show no tracked or non-ignored
+untracked changes (Git-ignored install/build/test output is disposable), and local
+refs and worktree reflogs must contain no new history beyond that head. Unchanged pre-existing shared refs are not reviewer work. Private root refs such as `ORIG_HEAD` are checked too. HEAD reflogs
 protect commits followed by reset; missing, malformed or unreadable evidence fails
 closed. Index concealment, in-progress Git operations and unsafe configuration also
 refuse automatic removal. No other session may occupy it; launch/removal operations
@@ -301,6 +301,19 @@ worktrees retain the existing merged-clean opt-in policy. Branches are never
 created for review or deleted by this path. This remains subject to the existing
 local concurrent-filesystem-mutation limitation.
 
+Closing uses profile-owned creation provenance, regardless of the orchestrator
+grant that launched the session. This does not transfer old child authority.
+With board PR tracking enabled, retained review checkouts
+continue tracking their recorded source PR branch even if their HEAD changed.
+The source branch without a HEAD argument is display/offer provenance only;
+restore and confirmation-free removal still require the exact captured head.
+When an available observation is CLOSED or MERGED, idle retained review
+checkouts are offered together in the existing trusted removal batch. Each
+identity is offered once per app lifetime; unavailable/offline evidence waits for
+later inventory. Running sessions are skipped. Approval retains identity,
+membership, session, reservation and final snapshot guards; it grants no new
+automatic deletion exception. Decline or a failed removal is never retried
+automatically in that app lifetime. No directory scan or new polling is added.
 
 ## Partial sidebar inventory (#890)
 

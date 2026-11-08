@@ -5,6 +5,8 @@ import { conversationId } from "../agents/conversation";
 import { CleanupRun, KeptWorktree } from "./cleanup-run";
 import type { CleanupCandidate } from "./cleanup-run";
 import type { CleanupReason } from "../../shared/cleanup";
+import type { BoardPullRequest } from "../../shared/forge";
+import type { DialogContent } from "../../shared/confirmation";
 import type { ConfirmWorkspace } from "../../shared/confirmation";
 import type { Worktree } from "../../shared/worktrees";
 import type { WorkspaceTerminal } from "../../shared/workspace";
@@ -62,6 +64,9 @@ export interface CleanupOwnerDependencies {
 /** Main-owned cleanup plans, scans, runs and safe removal coordination. */
 export class CleanupOwner {
   private autoRemoveMergedWorktrees = false;
+  private readonly reviewOffers = new Set<string>();
+  private readonly reviewOfferAbort = new AbortController();
+  private readonly reviewOfferRuns = new Set<Promise<void>>();
   private readonly ownedRemovals = new Map<
     string,
     {
@@ -89,6 +94,90 @@ export class CleanupOwner {
 
   configure(autoRemoveMergedWorktrees: boolean): void {
     this.autoRemoveMergedWorktrees = autoRemoveMergedWorktrees;
+  }
+
+  /** Existing forge observations offer leftovers once per identity in this app lifetime. */
+  offerClosedReviews(
+    repository: string,
+    trees: readonly Worktree[],
+    read: (path: string) => BoardPullRequest | undefined,
+    dialog: (content: DialogContent, signal: AbortSignal) => Promise<boolean>,
+  ): void {
+    if (this.deps.closed() || this.reviewOfferAbort.signal.aborted) return;
+    for (const tree of trees) {
+      const pr = read(tree.path);
+      const identity = this.deps.worktrees.reviewIdentity(repository, tree.path);
+      if (
+        !identity ||
+        !pr ||
+        pr.state === "OPEN" ||
+        tree.host ||
+        tree.path === repository ||
+        tree.bare ||
+        tree.locked ||
+        tree.prunable ||
+        this.deps
+          .terminals()
+          .some((entry) => entry.worktree === tree.path && this.deps.running(entry.id))
+      )
+        continue;
+      const key = JSON.stringify([repository, tree.path, identity]);
+      if (this.reviewOffers.has(key)) continue;
+      this.reviewOffers.add(key);
+      let offered = false;
+      const validate = async () => {
+        this.reviewOfferAbort.signal.throwIfAborted();
+        const current = read(tree.path);
+        if (
+          this.deps.closed() ||
+          !current ||
+          current.number !== pr.number ||
+          current.state === "OPEN" ||
+          this.deps
+            .terminals()
+            .some((entry) => entry.worktree === tree.path && this.deps.running(entry.id)) ||
+          this.deps.worktrees.reviewIdentity(repository, tree.path) !== identity ||
+          (await this.deps.worktrees.launchIdentity(repository, tree.path)) !== identity
+        )
+          throw new RemovalError("identity_changed");
+      };
+      const run = this.deps
+        .withWorktreeRemoval(
+          repository,
+          tree.path,
+          tree.branch,
+          async (branch, changes) => {
+            await validate();
+            offered = true;
+            return dialog(
+              {
+                title: "Remove review worktrees?",
+                accept: changes ? "Discard changes and remove" : "Remove worktree",
+                removal: {
+                  group: "retained-review-checkouts",
+                  item: { id: key, branch, path: tree.path, changes, pullRequest: pr },
+                },
+              },
+              this.reviewOfferAbort.signal,
+            );
+          },
+          validate,
+        )
+        .then(
+          () => {
+            this.deps.refresh();
+          },
+          () => {
+            // Retry inspection later if no offer could be made. Once presented,
+            // never retry a declined or failed removal automatically.
+            if (!offered) this.reviewOffers.delete(key);
+          },
+        )
+        .finally(() => {
+          this.reviewOfferRuns.delete(run);
+        });
+      this.reviewOfferRuns.add(run);
+    }
   }
 
   async removeRepository(repository: string, confirm?: () => Promise<boolean>): Promise<void> {
@@ -255,8 +344,12 @@ export class CleanupOwner {
   }
 
   async dispose(): Promise<void> {
+    this.reviewOfferAbort.abort();
     for (const run of this.cleanupRuns.values()) run.stop();
-    await Promise.all([...this.cleanupRuns.values()].map((run) => run.settled()));
+    await Promise.all([
+      ...this.reviewOfferRuns,
+      ...[...this.cleanupRuns.values()].map((run) => run.settled()),
+    ]);
     this.cleanupRuns.clear();
     this.mergeEligibility.clear();
   }

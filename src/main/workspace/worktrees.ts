@@ -65,10 +65,13 @@ export class WorktreeService {
     return record?.repository === repository && record.review ? record.identity : undefined;
   }
 
-  reviewBranch(repository: string, path: string, head: string | null): string | undefined {
+  /** Omit head only for PR tracking/offers; restoration must pin the recorded head. */
+  reviewBranch(repository: string, path: string, head?: string | null): string | undefined {
     this.repository(repository);
     const record = this.managed.get(path);
-    return record?.repository === repository && record.review?.head === head
+    return record?.repository === repository &&
+      record.review &&
+      (head === undefined || record.review.head === head)
       ? record.review.branch
       : undefined;
   }

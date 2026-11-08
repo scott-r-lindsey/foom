@@ -508,6 +508,17 @@ for (const scenario of [
       ).worktree;
       assert.equal(git("-C", worktree, "rev-parse", "HEAD").trim(), headSha);
       assert.equal(git("-C", worktree, "rev-parse", "--abbrev-ref", "HEAD").trim(), "HEAD");
+      // A real review leaves ignored dependencies and build/test output behind.
+      git("-C", worktree, "config", "core.excludesFile", path.join(root, "review-ignore"));
+      const outputs = ["node_modules", "build", ".cache", ".husky/_", "test-results"];
+      await writeFile(
+        path.join(root, "review-ignore"),
+        outputs.map((name) => name + "/").join("\n"),
+      );
+      for (const name of outputs) {
+        await mkdir(path.join(worktree, name), { recursive: true });
+        await writeFile(path.join(worktree, name, "output"), "review output");
+      }
       await go("review-1", { review: { verdict: "clean" } });
       await expect
         .poll(async () => (await call("session_state", { id: reviewed.resultId })).handoff?.status)
@@ -527,6 +538,43 @@ for (const scenario of [
       assert.equal(existsSync(worktree), false);
       await expect(page.locator(`[data-drag-session="${reviewed.resultId}"]`)).toHaveCount(0);
       assert.deepEqual(await state(), before);
+
+      // Retained checkouts from earlier reviews are offered together after closure.
+      const inventory = async () =>
+        (await page.evaluate(() => window.desktop.sidebarInventory())).repositories.flatMap(
+          (repository) => repository.worktrees,
+        );
+      const previous = new Set((await inventory()).map((checkout) => checkout.path));
+      for (const key of ["retained-one", "retained-two"]) {
+        assert.equal(
+          (await call("create_worktree", { pullRequest: 340, review: true, idempotencyKey: key }))
+            .status,
+          "succeeded",
+        );
+      }
+      const retained = (await inventory()).filter((checkout) => !previous.has(checkout.path));
+      assert.equal(retained.length, 2);
+      for (const checkout of retained)
+        await writeFile(path.join(checkout.path, "review.txt"), "retained review evidence");
+      await page.evaluate(() => window.desktop.saveSetup({ showPullRequests: false }));
+      await writeFile(
+        `${forgeState}.tmp`,
+        JSON.stringify({
+          pr: { headRefOid: headSha, state: "CLOSED" },
+          checks: [{ bucket: "pass" }],
+        }),
+      );
+      await rename(`${forgeState}.tmp`, forgeState);
+      await page.evaluate(() => window.desktop.saveSetup({ showPullRequests: true }));
+      const confirmation = await confirmationPage(app);
+      for (const checkout of retained)
+        await expect(confirmation.getByText(checkout.path, { exact: true }).first()).toBeVisible();
+      await expect(confirmation.getByText("review.txt", { exact: true })).toHaveCount(2);
+      await confirmation
+        .getByRole("button", { name: "Discard changes and remove all", exact: true })
+        .click();
+      await expect.poll(() => retained.every((checkout) => !existsSync(checkout.path))).toBe(true);
+      assert.equal(git("rev-parse", "--verify", "child-one").trim(), headSha);
       return;
     }
     await expect(row.locator('[data-review-phase="building"]')).toHaveText("Building");
