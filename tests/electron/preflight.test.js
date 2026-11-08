@@ -606,6 +606,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     showNestedRepositoryNames: false,
     middleClickPaste: false,
     copyOnSelect: false,
+    terminalClipboardWrites: false,
     agents: { claude: true, codex: true, agy: true },
     agentArguments: { claude: [], codex: [], agy: [] },
     agentBypassAcknowledged: { claude: false, codex: false, agy: false },

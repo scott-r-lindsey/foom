@@ -413,3 +413,18 @@ test("terminal link review uses its owning board's trusted dialog and attachment
     await expect(confirm(content, signal)).resolves.toBe(false);
   }
 });
+
+test("OSC 52 permission reads the live main-owned profile setting", async () => {
+  const settings = mock.settingsStore.get();
+  let enabled = false;
+  vi.spyOn(mock.settingsStore, "get").mockImplementation(() => ({
+    ...settings,
+    terminalClipboardWrites: enabled,
+  }));
+  await start();
+  expect(mock.clipboardWrites()).toBe(false);
+  enabled = true;
+  expect(mock.clipboardWrites()).toBe(true);
+  enabled = false;
+  expect(mock.clipboardWrites()).toBe(false);
+});

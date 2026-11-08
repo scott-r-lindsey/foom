@@ -19,6 +19,7 @@ export function setupState(
       showNestedRepositoryNames: false,
       middleClickPaste: false,
       copyOnSelect: false,
+      terminalClipboardWrites: false,
       concurrentChildren: 4,
       recentRepositoryDays: 30,
       unreadChildMinutes: 5,

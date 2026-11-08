@@ -37,6 +37,7 @@ export const DEFAULT_SETTINGS: Settings = Object.freeze({
   showNestedRepositoryNames: false,
   middleClickPaste: false,
   copyOnSelect: false,
+  terminalClipboardWrites: false,
   concurrentChildren: 4,
   recentRepositoryDays: 30,
   unreadChildMinutes: 5,
@@ -77,7 +78,8 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
         key === "showPullRequests" ||
         key === "showNestedRepositoryNames" ||
         key === "middleClickPaste" ||
-        key === "copyOnSelect") &&
+        key === "copyOnSelect" ||
+        key === "terminalClipboardWrites") &&
       typeof entry === "boolean"
     )
       patch[key] = entry;

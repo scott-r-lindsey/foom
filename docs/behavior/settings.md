@@ -372,3 +372,13 @@ checks that row again. Multiple recipes on
 one host merge their pending rows. A newer action reply replaces transient checklist results. Use reload to inspect changes made outside Foom;
 use Check capabilities to check everything. Sign-in and origin reloads may use
 the host's own network access.
+
+## Terminal clipboard writes (#1073)
+
+Terminal offers **Allow terminal clipboard writes (OSC 52)**, off by default.
+When enabled, any program in an attached local or remote terminal can replace the
+local clipboard without a click. You could then paste that content elsewhere.
+Clipboard reads are always refused. Only the default or explicit clipboard target
+is accepted; primary selection and other targets are ignored. Malformed or oversized
+writes are ignored. Showing a hidden terminal or reconnecting never repeats old
+clipboard writes. This preference is available only in Settings, not config files.

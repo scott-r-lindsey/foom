@@ -1,3 +1,4 @@
+import { terminalClipboardText } from "../../shared/terminal-clipboard";
 import { terminalLinks } from "./link-interaction";
 import { TerminalInputOrder } from "./input-order";
 import { copyOnSelect } from "./copy-on-select";
@@ -95,6 +96,20 @@ export function createShell(
   const inputOrder = new TerminalInputOrder();
   let attached = false;
   let selectionCopyEnabled = false;
+  let clipboardWritesEnabled = false;
+  // Attach/reconnect snapshots contain parsed cells and modes, never OSC 52.
+  const clipboardHandler = terminal.parser.registerOscHandler(52, (payload) => {
+    if (
+      clipboardWritesEnabled &&
+      activeId &&
+      attached &&
+      !isDisposed() &&
+      terminalClipboardText(payload) !== undefined
+    ) {
+      void window.desktop.writeTerminalClipboard(activeId, payload).catch(() => {});
+    }
+    return true;
+  });
   const offSelectionCopy = copyOnSelect(container, terminal, () =>
     selectionCopyEnabled && attached && !busy ? activeId : undefined,
   );
@@ -362,6 +377,7 @@ export function createShell(
   const offSetup = window.desktop.onSetupChange((state) => {
     settingsChanged = true;
     selectionCopyEnabled = state.settings.copyOnSelect;
+    clipboardWritesEnabled = state.settings.terminalClipboardWrites;
     applyFont(state.settings.terminalFontSize, state.settings.terminalFont);
     applyTheme(selectedTheme(state));
   });
@@ -369,6 +385,7 @@ export function createShell(
     (state) => {
       if (!settingsChanged) {
         selectionCopyEnabled = state.settings.copyOnSelect;
+        clipboardWritesEnabled = state.settings.terminalClipboardWrites;
         applyFont(state.settings.terminalFontSize, state.settings.terminalFont);
         applyTheme(selectedTheme(state));
       }
@@ -518,6 +535,7 @@ export function createShell(
     container.removeEventListener("paste", clipboardPaste, true);
     offSelectionPaste();
     offSelectionCopy();
+    clipboardHandler.dispose();
     if (activeId && attached && isAvailable(activeId))
       void window.desktop.detach(activeId).catch(() => {});
     links.dispose();

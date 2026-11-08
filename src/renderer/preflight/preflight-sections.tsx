@@ -157,6 +157,21 @@ export function PreflightSections({
             </label>
           )}
         </div>
+        <label className="check">
+          <input
+            type="checkbox"
+            aria-describedby="terminal-clipboard-disclosure"
+            checked={state.settings.terminalClipboardWrites}
+            onChange={(event) => {
+              save({ terminalClipboardWrites: event.target.checked });
+            }}
+          />
+          <span>Allow terminal clipboard writes (OSC 52)</span>
+        </label>
+        <p id="terminal-clipboard-disclosure" className="appearance-hint">
+          Any program in a local or remote terminal can replace your clipboard without a click. You
+          could then paste that content elsewhere. Clipboard reads are always refused.
+        </p>
         <TerminalThemePicker
           settings={state.settings}
           catalog={state.themes}
