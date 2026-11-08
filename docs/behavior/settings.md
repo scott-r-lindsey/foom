@@ -89,6 +89,7 @@ prints the fixed HTTPS address and accepts the user's input directly. It retains
 Done or Failed with the exit code, then only that agent is checked again. Leaving
 Settings while it runs keeps the existing Stop/Keep open decision. Vendor code
 may change shell startup files; custom manifests cannot declare installer addresses.
+Installers omit Foom-added Environment layers, including stored secrets.
 See [installer boundaries](../areas/hosts.md#vendor-agent-installers-1071).
 
 First-run Agents keeps the shared local card view. Manifest changes refresh discovery.

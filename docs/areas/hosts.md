@@ -379,7 +379,8 @@ hub credentials. No probe, check, manifest load, agent or orchestrator capabilit
 starts installation. Config manifests cannot declare script installers.
 
 Local installs use the bundled console helper's internal Settings mode with a
-complete scrubbed login environment, no control grant and no shell integration.
+scrubbed inherited environment and login PATH, no control grant and no shell
+integration. Foom-added Environment layers, including stored secrets, are omitted.
 They share the existing embedded terminal and Stop/Keep open lifetime rules.
 Completion rechecks only the selected agent. Remote completion retains its scoped
 tool/sign-in refresh. Settings chrome shows Done or Failed with the exit code.

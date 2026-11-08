@@ -345,7 +345,7 @@ for (const firstRun of [false, true]) {
       .filter({ has: page.getByText("Antigravity", { exact: true }) });
     await expect(agyRow.getByRole("button", { name: "Screen rules", exact: true })).toBeVisible();
     await expect(agyRow.getByText("Screen rules active", { exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "Install", exact: true }).click();
+    await agyRow.getByRole("button", { name: "Install", exact: true }).click();
     let disclosure = await confirmationPage(app);
     await checkCollapsedDisclosure(page, disclosure, "install", !firstRun);
     await expect(disclosure.locator("details").nth(1).locator("summary")).toContainText(
@@ -355,7 +355,7 @@ for (const firstRun of [false, true]) {
     await expect(disclosure.getByText(/agy plugin uninstall foom/u)).toBeVisible();
     await disclosure.getByRole("button", { name: "Cancel" }).click();
     await expect(page.getByText("Plugin available", { exact: true })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Install", exact: true })).toBeEnabled();
+    await expect(agyRow.getByRole("button", { name: "Install", exact: true })).toBeEnabled();
     await expect
       .poll(() =>
         page.evaluate(
@@ -365,7 +365,7 @@ for (const firstRun of [false, true]) {
         ),
       )
       .toBe(true);
-    await page.getByRole("button", { name: "Install", exact: true }).click();
+    await agyRow.getByRole("button", { name: "Install", exact: true }).click();
     disclosure = await confirmationPage(app);
     await disclosure.getByRole("button", { name: "Install", exact: true }).click();
     await disclosure.getByRole("button", { name: "Done", exact: true }).click();
@@ -540,7 +540,7 @@ for (const firstRun of [false, true]) {
     disclosure = await confirmationPage(app);
     await disclosure.getByRole("button", { name: "Remove", exact: true }).click();
     await disclosure.getByRole("button", { name: "Done", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Install", exact: true })).toBeEnabled();
+    await expect(agyRow.getByRole("button", { name: "Install", exact: true })).toBeEnabled();
     await page.evaluate((id) => window.desktop.input(id, "q"), id);
     await expect
       .poll(() =>

@@ -213,8 +213,12 @@ test("local installers use the bundled helper in a human recipe session without 
   const workspace = new Workspace(deps);
   await expect(workspace.startLocalAgentInstall("custom")).rejects.toThrow("unavailable");
   await expect(workspace.startLocalAgentInstall("codex")).rejects.toThrow("unavailable");
+  const environment = vi.fn(() => [
+    [{ name: "INSTALL_FIXTURE_SECRET_1071", value: "never-forward" }],
+  ]);
   const configured = new Workspace({
     ...deps,
+    environment,
     config: { ...configDep(), cliDirectory: "/fixture/console" },
   });
   configured.configure({ hooks: false, agents: { claude: false, codex: true, agy: true } });
@@ -225,6 +229,8 @@ test("local installers use the bundled helper in a human recipe session without 
   }
   const create = vi.spyOn(deps.terminals, "create");
   await configured.startLocalAgentInstall("codex");
+  expect(environment).not.toHaveBeenCalled();
+  expect(create.mock.calls.at(-1)?.[0].env).not.toHaveProperty("INSTALL_FIXTURE_SECRET_1071");
   expect(create).toHaveBeenLastCalledWith(
     expect.objectContaining({
       command: join("/fixture/console", "foom"),

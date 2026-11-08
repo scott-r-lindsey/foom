@@ -154,3 +154,16 @@ test("the previous settings schema remains refreshable after adding close finish
     ),
   ).toBe(true);
 });
+
+test("the previous agent schema remains refreshable after adding bundled-only installers", () => {
+  const file = "schemas/agent.schema.json";
+  const previous = themeRecord(JSON.parse(OWNED_FILES[file] ?? ""), "$");
+  const definitions = themeRecord(previous["$defs"], "$.$defs");
+  const setup = themeRecord(definitions["hostSetup"], "$.$defs.hostSetup");
+  delete themeRecord(setup["properties"], "$.$defs.hostSetup.properties")["script"];
+  delete definitions["vendorScript"];
+  const bytes = `${JSON.stringify(previous, null, 2)}\n`;
+  expect(digest(bytes)).toBe("33589cf5cebb4f3729bc03ca24e40b665238f16a1fad56ee6fe86c5d6ef11311");
+  expect(refreshable(file, new TextEncoder().encode(bytes))).toBe(true);
+  expect(refreshable(file, new TextEncoder().encode(`${bytes} `))).toBe(false);
+});

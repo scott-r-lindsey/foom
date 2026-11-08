@@ -257,7 +257,16 @@ export async function startShell(
         : location.home
           ? remoteSpikeTarget(process.argv)
           : undefined));
-  const environment = remote ? { env: {}, names: [] } : await this.shellEnvironment(pathFirst);
+  const environment = remote
+    ? { env: {}, names: [] }
+    : localRecipe
+      ? buildLaunchEnvironment({
+          layers: [],
+          base: inheritedEnvironment(),
+          pathFirst,
+          path: (await loginPath()).path,
+        })
+      : await this.shellEnvironment(pathFirst);
   if (restoreId !== undefined) this.executionOwner.reset(restoreId);
   await checkout?.validate();
   validateLaunch?.();

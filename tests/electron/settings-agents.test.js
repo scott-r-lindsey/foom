@@ -419,7 +419,7 @@ test("one-click local agent installers stay in Settings and refuse untrusted sel
   // The production click/IPC/session path runs a fixture helper, never a vendor download.
   await writeFile(
     path.join(root, "foom"),
-    '#!/bin/sh\nprintf "Download https://claude.ai/install.sh\\nFixture installer: waiting for input\\n"\nread answer\nexit 7\n',
+    '#!/bin/sh\n[ -z "$INSTALL_FIXTURE_SECRET_1071" ] || exit 99\nprintf "Download https://claude.ai/install.sh\\nFixture installer: waiting for input\\n"\nread answer\nexit 7\n',
     { mode: 0o755 },
   );
   const app = await launchApp(context, { fixture: "empty-board" });
@@ -442,6 +442,15 @@ test("one-click local agent installers stay in Settings and refuse untrusted sel
     { modulePath: path.resolve("build/main/workspace/workspace.js"), directory: root },
   );
   const page = await boardPage(app);
+  await page.evaluate(() =>
+    window.desktop.saveEnvironment({
+      scope: "all",
+      previous: null,
+      name: "INSTALL_FIXTURE_SECRET_1071",
+      value: "never-forward",
+      secret: false,
+    }),
+  );
   for (const value of ["unknown", "claude;id", { id: "claude", url: "https://untrusted.test" }]) {
     const refused = await page.evaluate(
       (id) =>

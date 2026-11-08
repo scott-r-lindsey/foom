@@ -505,6 +505,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
           "openConfigFolder",
           "onConfigChange",
           "copyHost",
+          "localAgentInstall",
           "hosts",
           "listTerminalFonts",
           "listThemes",
