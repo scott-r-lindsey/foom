@@ -267,6 +267,7 @@ export function attachWorkspace(
   dispose(): void;
 } {
   const contents = window.webContents;
+  const launches = new Map<string, AbortController>();
   // Display associations only. Preview opens and worktree actions still validate
   // fresh membership; a failed Git read cannot prove an owned preview was removed.
   const previewRepositories = new Map<string, string>();
@@ -290,8 +291,15 @@ export function attachWorkspace(
     >,
     string
   >;
-  const confirmation = (target: string): ConfirmWorkspace => {
+  const confirmation = (target: string, signal?: AbortSignal): ConfirmWorkspace => {
     const generation = arming.begin();
+    signal?.addEventListener(
+      "abort",
+      () => {
+        arming.cancel(generation);
+      },
+      { once: true },
+    );
     return (request): Promise<boolean> => {
       if (request.kind === "merged-worktrees") {
         if (contents.isDestroyed() || contents.mainFrame.url !== APP_URL)
@@ -348,8 +356,12 @@ export function attachWorkspace(
   const disarm = () => {
     arming.cancel();
   };
-  contents.on("did-start-navigation", disarm);
-  contents.on("render-process-gone", disarm);
+  const cancelLaunches = () => {
+    for (const launch of launches.values()) launch.abort();
+    disarm();
+  };
+  contents.on("did-start-navigation", cancelLaunches);
+  contents.on("render-process-gone", cancelLaunches);
   const handlers = new Map<string, (...args: unknown[]) => unknown>([
     [
       "confirmation:confirm",
@@ -449,10 +461,27 @@ export function attachWorkspace(
       },
     ],
     [
+      "workspace:cancel-launch",
+      (...args) => {
+        if (args.length !== 1 || !text(args[0], 200)) throw new Error("Invalid launch ID");
+        launches.get(args[0])?.abort();
+      },
+    ],
+    [
       "workspace:sidebar-command",
       (...args) => {
-        if (args.length !== 1) throw new Error("Invalid sidebar request");
+        if (args.length !== 1 && args.length !== 2) throw new Error("Invalid sidebar request");
         const command = sidebarCommand(args[0]);
+        const launch = args[1];
+        if (
+          launch !== undefined &&
+          (!text(launch, 200) ||
+            !/^[a-zA-Z0-9_-]+$/u.test(launch) ||
+            launches.has(launch) ||
+            launches.size >= 32 ||
+            !["launch", "machine-launch", "repository-launch", "home-shell"].includes(command.kind))
+        )
+          throw new Error("Invalid launch request");
         if (
           command.kind !== "resume-id" &&
           "id" in command &&
@@ -484,16 +513,47 @@ export function attachWorkspace(
               await shell.openExternal(url);
           });
         }
-        const confirm = confirmation(JSON.stringify(command));
-        return workspace.sidebarCommand(command, confirm).catch((error: unknown) => {
-          if (
-            command.kind === "close" &&
-            error instanceof LaunchFailure &&
-            error.reason === "remote_host_unreachable"
-          )
-            throw new ApplicationError("session-remote-unreachable");
-          throw error;
-        });
+        const controller = launch === undefined ? undefined : new AbortController();
+        const confirm = confirmation(JSON.stringify(command), controller?.signal);
+        if (controller && typeof launch === "string") launches.set(launch, controller);
+        const startup =
+          controller && typeof launch === "string"
+            ? {
+                signal: controller.signal,
+                started: () => {
+                  if (!contents.isDestroyed() && contents.mainFrame.url === APP_URL)
+                    contents.send("workspace:launch-started", launch);
+                },
+              }
+            : undefined;
+        return (
+          startup
+            ? workspace.sidebarCommand(command, confirm, startup)
+            : workspace.sidebarCommand(command, confirm)
+        )
+          .then(async (result) => {
+            if (controller?.signal.aborted && result) {
+              try {
+                await workspace.cancelStartup(result.terminalId);
+              } catch {
+                throw new ApplicationError("launch-cancel-incomplete");
+              }
+              return undefined;
+            }
+            return result;
+          })
+          .finally(() => {
+            if (typeof launch === "string") launches.delete(launch);
+          })
+          .catch((error: unknown) => {
+            if (
+              command.kind === "close" &&
+              error instanceof LaunchFailure &&
+              error.reason === "remote_host_unreachable"
+            )
+              throw new ApplicationError("session-remote-unreachable");
+            throw error;
+          });
       },
     ],
     [
@@ -666,9 +726,9 @@ export function attachWorkspace(
       contents.send("terminal:state", state);
     },
     dispose() {
-      disarm();
-      contents.removeListener("did-start-navigation", disarm);
-      contents.removeListener("render-process-gone", disarm);
+      cancelLaunches();
+      contents.removeListener("did-start-navigation", cancelLaunches);
+      contents.removeListener("render-process-gone", cancelLaunches);
       for (const channel of handlers.keys()) ipc.removeHandler(channel);
     },
   };

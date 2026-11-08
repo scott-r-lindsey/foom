@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 import { act, fireEvent } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
+import type { BoardSource } from "../../../../src/renderer/board/board-source.d";
 import type { PreviewApi } from "../../../../src/shared/previews";
 import type { WindowsApi, MoveContent, MovePlacement } from "../../../../src/shared/windows";
 import { registerTileAreaFixture, setup } from "./tile-area-fixture";
 registerTileAreaFixture();
 
-function fixture(withPreview = false) {
+function fixture(withPreview = false, overrides: Partial<BoardSource> = {}) {
   let place: Parameters<NonNullable<PreviewApi["onPlace"]>>[0] | undefined;
   let drag: ((token: string | null) => void) | undefined;
   let prepare: ((request: string, at: MovePlacement) => void) | undefined;
@@ -83,6 +84,7 @@ function fixture(withPreview = false) {
             },
           }
         : {}),
+      ...overrides,
     },
   );
   const tile = () => {
@@ -262,3 +264,34 @@ test("inventory closes remain reflected during a reservation and agent arrivals 
   expect(saved).not.toContain('"session":"permission"');
   expect(saved).toContain('"session":"check"');
 });
+
+test.each(["before", "after"] as const)(
+  "preview transfer preserves a startup that becomes ready %s transfer completion",
+  async (when) => {
+    const response = Promise.withResolvers<{ terminalId: string }>();
+    const f = fixture(true, { sidebarCommand: () => response.promise });
+    const tile = f.tile();
+    fireEvent.contextMenu(tile);
+    fireEvent.click(f.screen.getByRole("menuitem", { name: "New shell here" }));
+    expect(f.screen.getByText("Starting on Local…")).toBeTruthy();
+    f.prepare("incoming", { tile: tile.dataset["tile"] ?? "", zone: "right" });
+    expect(f.moves.ready).toHaveBeenCalledWith("incoming", true);
+    const ready = async () => {
+      await act(async () => {
+        response.resolve({ terminalId: "permission" });
+        await Promise.resolve();
+      });
+    };
+    if (when === "before") await ready();
+    f.finish("incoming", { kind: "preview", id: "p" });
+    if (when === "after") await ready();
+    expect(f.screen.container.querySelectorAll('.terminal-tile[data-empty="false"]')).toHaveLength(
+      2,
+    );
+    expect(f.screen.container.querySelector('[data-preview-id="p"]')).toBeTruthy();
+    expect(f.screen.queryByText("Starting on Local…")).toBeNull();
+    expect(f.views.some((view) => view.open.mock.calls.some(([id]) => id === "permission"))).toBe(
+      true,
+    );
+  },
+);

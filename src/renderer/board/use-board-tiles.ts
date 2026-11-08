@@ -2,7 +2,8 @@ import { readPreferences } from "./sidebar-preferences";
 import { errorMessage } from "../../shared/application-errors";
 import { prepareMove, finishMove } from "./move-placement";
 import { useBackgroundErrors } from "./error-presentation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { projectStartupLayout, splitsStartupTile } from "./startup-layout";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { TERMINAL_FONT_FALLBACK, terminalFontStack } from "../../shared/terminal-fonts";
 import type { PreviewSummary } from "../../shared/workspace";
 import type { SetupSource } from "../preflight/setup-source.d";
@@ -19,13 +20,14 @@ import {
   leaves,
   loadLayout,
   placeAgentPreview,
+  placeSession,
   pruneContent,
   restoreLayout,
   saveLayout,
   sessionId,
   splitTile,
 } from "./tiles";
-import type { TileAction, TileLayout } from "./tiles.d";
+import type { TileAction, TileLayout, TileStartupReservation } from "./tiles.d";
 
 import type { Dispatch, SetStateAction } from "react";
 export function useBoardTiles({
@@ -99,6 +101,11 @@ export function useBoardTiles({
     };
   }, [soundSetup]);
   const layoutRef = useRef(layout);
+  const startupLayoutsRef = useRef(new Map<string, TileStartupReservation>());
+  const startupIdsRef = useRef<ReadonlySet<string>>(new Set());
+  useLayoutEffect(() => {
+    startupIdsRef.current = new Set(rows.filter((row) => row.startup).map((row) => row.id));
+  }, [rows]);
   const movePendingRef = useRef<{ request: string; next: TileLayout } | undefined>(undefined);
   const previewIds = useCallback(
     (current: TileLayout) =>
@@ -176,17 +183,65 @@ export function useBoardTiles({
             });
         }
       }
+      const ids = new Set(leaves(next.tree).map(sessionId));
+      let placing = false;
+      for (const id of ids)
+        if (id?.startsWith("launch_") && !startupLayoutsRef.current.has(id)) {
+          placing = true;
+          startupLayoutsRef.current.set(id, {
+            id,
+            before: layoutRef.current.tree,
+            placed: next.tree,
+            pending: true,
+            preserveGeometry: false,
+          });
+        }
+      const history = [...startupLayoutsRef.current.values()];
+      if (!placing && splitsStartupTile(layoutRef.current.tree, next.tree, history))
+        for (const entry of history) entry.preserveGeometry = true;
+      const removed = history.filter((entry) => !ids.has(entry.id));
+      // Apply the history before retiring it, so later saves cannot revive its columns.
+      next = projectStartupLayout(next, removed);
+      for (const entry of removed) startupLayoutsRef.current.delete(entry.id);
       layoutRef.current = next;
       setLayout(next);
       if (transient) return;
       try {
-        saveLayout(localStorage, next, storageKey);
+        saveLayout(localStorage, next, storageKey, [...startupLayoutsRef.current.values()]);
         clear("tile-layout");
       } catch {
         report("tile-layout", "Unable to save tile layout.");
       }
     },
     [storageKey, source, clear, report, measureTiles],
+  );
+  const failStartup = useCallback(
+    (id: string) => {
+      const reservation = startupLayoutsRef.current.get(id);
+      if (reservation) reservation.pending = false;
+      changeLayout(layoutRef.current, true);
+    },
+    [changeLayout],
+  );
+  // A transfer reserves geometry, but a startup may gain its terminal ID meanwhile.
+  const completeStartup = useCallback(
+    (before: string, after: string) => {
+      // A real terminal adopts the placement; Close must instead project it away.
+      startupLayoutsRef.current.delete(before);
+      const bind = (current: TileLayout): TileLayout => {
+        const tile = leaves(current.tree).find((leaf) => sessionId(leaf) === before);
+        if (!tile) return current;
+        const next = placeSession({ ...current, focused: tile.id }, after, true);
+        return next ? { ...next, focused: current.focused, maximized: current.maximized } : current;
+      };
+      const pending = movePendingRef.current;
+      if (pending) {
+        pending.next = bind(pending.next);
+        layoutRef.current = bind(layoutRef.current);
+        setLayout(layoutRef.current);
+      } else changeLayout(bind(layoutRef.current));
+    },
+    [changeLayout],
   );
   const placementOptions = useCallback(() => {
     return {
@@ -251,6 +306,7 @@ export function useBoardTiles({
                 .filter((row) => !(row.dormant && row.exited))
                 .map((row) => row.id),
         );
+        for (const id of startupIdsRef.current) sessions.add(id);
         const knownPreviews = previewIds(next);
         if (content.kind === "terminal") sessions.add(content.id);
         else knownPreviews.add(content.id);
@@ -326,7 +382,7 @@ export function useBoardTiles({
       layoutRef.current = next;
       setLayout(next);
       try {
-        saveLayout(localStorage, next, storageKey);
+        saveLayout(localStorage, next, storageKey, [...startupLayoutsRef.current.values()]);
         clear("tile-layout");
       } catch {
         report("tile-layout", "Unable to save tile layout.");
@@ -375,7 +431,10 @@ export function useBoardTiles({
     if (movePendingRef.current || !source.windows || (source.isReady && !source.isReady())) return;
     const current = layout;
     const ids = leaves(current.tree).flatMap((tile) =>
-      sessionId(tile) && rows.some((row) => row.id === sessionId(tile))
+      sessionId(tile) &&
+      rows.some(
+        (row) => row.id === sessionId(tile) && (!row.startup || row.startup.pending === false),
+      )
         ? [sessionId(tile) ?? ""]
         : [],
     );
@@ -393,7 +452,12 @@ export function useBoardTiles({
         if (layoutRef.current === current && ids.some((id) => !accepted.includes(id)))
           changeLayout(
             pruneContent(current, {
-              sessions: new Set(accepted),
+              sessions: new Set([
+                ...accepted,
+                ...rows
+                  .filter((row) => row.startup && row.startup.pending !== false)
+                  .map((row) => row.id),
+              ]),
               previews: previewIds(current),
             }),
             true,
@@ -499,6 +563,8 @@ export function useBoardTiles({
     setFocusRequest,
     changeLayout,
     placementOptions,
+    completeStartup,
+    failStartup,
     tileAction,
   };
 }

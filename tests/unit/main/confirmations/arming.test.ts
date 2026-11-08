@@ -62,3 +62,16 @@ test("the production clock enforces the minimum interval", async () => {
   arming.cancel();
   await expect(pending).resolves.toBe(false);
 });
+
+test("cancellation of an older launch generation cannot disarm a newer action", async () => {
+  vi.useFakeTimers();
+  const publish = vi.fn<(arm: ArmedConfirmation | null) => void>();
+  const arms = new ConfirmationArming(publish);
+  const old = arms.begin();
+  const current = arms.begin();
+  const pending = arms.ask(current, "new-action", "Confirm");
+  arms.cancel(old);
+  expect(publish).not.toHaveBeenLastCalledWith(null, false);
+  arms.cancel(current);
+  await expect(pending).resolves.toBe(false);
+});

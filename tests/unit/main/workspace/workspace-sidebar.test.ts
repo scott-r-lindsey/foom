@@ -792,3 +792,47 @@ test("error text copies use only closed sentence IDs", async () => {
   ).rejects.toThrow("clipboard");
   await workspace.dispose();
 });
+
+test("startup sharing holds the detached checkout reservation without blocking another checkout", async () => {
+  const other = { ...tree, path: "/trees/app/other", branch: null };
+  vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([{ ...tree, branch: null }, other]);
+  const workspace = new Workspace(deps);
+  const command = {
+    kind: "launch",
+    repository: repo.path,
+    worktree: tree.path,
+    run: "claude",
+  } as const;
+  await workspace.sidebarCommand(command, () => Promise.resolve(true));
+  const confirmation = Promise.withResolvers<boolean>();
+  const asked = Promise.withResolvers<undefined>();
+  const started = vi.fn();
+  const pending = workspace.sidebarCommand(
+    command,
+    () => {
+      asked.resolve(undefined);
+      return confirmation.promise;
+    },
+    { signal: new AbortController().signal, started },
+  );
+  await asked.promise;
+  expect(started).not.toHaveBeenCalled();
+  await expect(
+    workspace.sidebarCommand({ ...command, run: "shell" }, () => Promise.resolve(true)),
+  ).rejects.toThrow("busy");
+  vi.spyOn(deps.terminals, "create").mockResolvedValueOnce("other-shell");
+  await expect(
+    workspace.sidebarCommand({ ...command, worktree: other.path, run: "shell" }, () =>
+      Promise.resolve(true),
+    ),
+  ).resolves.toEqual({ terminalId: "other-shell" });
+  agents.launch.mockResolvedValueOnce({ id: "second-agent", attention: "hooks" });
+  confirmation.resolve(true);
+  await expect(pending).resolves.toEqual({ terminalId: "second-agent" });
+  expect(started).toHaveBeenCalledOnce();
+  expect(workspace.snapshot().terminals.map((row) => row.id)).toEqual([
+    "t1",
+    "other-shell",
+    "second-agent",
+  ]);
+});

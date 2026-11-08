@@ -34,6 +34,11 @@ import type { InventoryWatch } from "./inventory-watch";
 import type { SessionStore } from "./session-store";
 import type { WorktreeService } from "./worktrees";
 
+export interface SidebarStartup {
+  readonly signal: AbortSignal;
+  started(): void;
+}
+
 export interface WorkspaceMethods {
   enqueue(id: string, work: () => Promise<void>): Promise<void>;
   foreground(id: string, name: string): void;
@@ -88,6 +93,8 @@ export interface WorkspaceMethods {
     configEnvironment?: Readonly<Record<string, string>>,
     checkout?: Awaited<ReturnType<Orchestration["remoteCheckout"]>>,
     remoteOverride?: RemoteTarget,
+    validateLaunch?: () => void,
+    signal?: AbortSignal,
   ): Promise<string>;
   startMachine(
     host: string | null,
@@ -96,8 +103,16 @@ export interface WorkspaceMethods {
     location?: Pick<WorkspaceTerminal, "repository" | "worktree" | "branch">,
     conversation?: string,
     confirm?: ConfirmWorkspace,
+    validateLaunch?: () => void,
+    signal?: AbortSignal,
+    heldReservation?: string,
   ): Promise<string | undefined>;
-  startHomeShell(restoreId?: string, remote?: RemoteTarget): Promise<string>;
+  startHomeShell(
+    restoreId?: string,
+    remote?: RemoteTarget,
+    validateLaunch?: () => void,
+    signal?: AbortSignal,
+  ): Promise<string>;
   resumeId(
     command: Extract<SidebarCommand, { kind: "resume-id" }>,
     confirm: ConfirmWorkspace,
@@ -112,6 +127,9 @@ export interface WorkspaceMethods {
     restoring?: boolean,
     authorityIdentity?: ParentIdentity,
     pastedId?: string,
+    validateLaunch?: () => void,
+    signal?: AbortSignal,
+    heldReservation?: string,
   ): Promise<string | undefined>;
   revokeConfig(id: string): void;
   bindConfig(id: string, token: string): void;
@@ -125,6 +143,8 @@ export interface WorkspaceMethods {
     confirm: ConfirmWorkspace,
     validateClose?: () => void,
     closeSignal?: AbortSignal,
+    startup?: SidebarStartup,
+    heldReservation?: string,
     onCloseReview?: (pending: boolean) => Promise<void>,
   ): Promise<SidebarCommandResult>;
   auditHuman(

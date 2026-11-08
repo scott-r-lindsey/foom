@@ -1,6 +1,7 @@
 import type { CopyableErrorId, ApplicationErrorCode } from "./application-error";
 
 const messages = {
+  "launch-cancel-incomplete": "Terminal may still be running.",
   "remote-host-unavailable": "Remote host artifact unavailable in this local build.",
   "session-has-children": "Close its children first.",
   "session-busy": "This session is busy. Try again when its current action finishes.",
