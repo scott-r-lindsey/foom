@@ -87,6 +87,10 @@ clamped reply window (`late-turn`). Each contains timestamp, fixed kind, reply
 latency (null for drain/turn observations), elapsed time since the first unanswered
 probe, total late drain cycles and observed main delay, all in monotonic milliseconds.
 Prompt replies add nothing; observations never change watchdog decisions or limits.
+On reload, malformed near-miss entries are dropped individually without blocking
+exit or timeout writes. Near-miss timestamps must be canonical 24-character UTC ISO
+strings with a valid calendar date; unknown fields are discarded and numeric
+metadata is restricted to nonnegative safe integers or null.
 Each new exit record includes a fixed cause: `watchdog-kill` for liveness expiry,
 `foom-kill` for other main-initiated retirement, or `host-exit` for independent exit.
 A snapshot frozen before failure cleanup records live local terminal count,

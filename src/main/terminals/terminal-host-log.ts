@@ -74,6 +74,10 @@ function safeNearMiss(line: string): string {
   const value: unknown = JSON.parse(line);
   if (
     !object(value) ||
+    typeof value["time"] !== "string" ||
+    value["time"].length !== 24 ||
+    !Number.isFinite(Date.parse(value["time"])) ||
+    new Date(value["time"]).toISOString() !== value["time"] ||
     typeof value["kind"] !== "string" ||
     !["late-reply", "late-drain", "late-turn"].includes(value["kind"])
   )
@@ -86,6 +90,14 @@ function safeNearMiss(line: string): string {
     lateCycles: number(value["lateCycles"]),
     mainLagMs: number(value["mainLagMs"]),
   });
+}
+/** A damaged optional reserve entry must not prevent exit or timeout persistence. */
+function persistedNearMiss(line: string): string[] {
+  try {
+    return [safeNearMiss(line)];
+  } catch {
+    return [];
+  }
 }
 async function persist(profile: string, batch: History): Promise<void> {
   try {
@@ -124,7 +136,9 @@ async function persist(profile: string, batch: History): Promise<void> {
       version: 3,
       exits: [...history.exits, ...batch.exits].slice(-32).map(safeExit),
       timeouts: [...history.timeouts, ...batch.timeouts].slice(-16),
-      nearMisses: [...history.nearMisses, ...batch.nearMisses].slice(-16).map(safeNearMiss),
+      nearMisses: [...history.nearMisses, ...batch.nearMisses]
+        .slice(-16)
+        .flatMap(persistedNearMiss),
     });
   } catch {
     console.error("Unable to persist terminal host diagnostics");
