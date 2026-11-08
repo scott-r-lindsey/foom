@@ -34,6 +34,17 @@ export function parseAgentManifest(
     (origin === "config" && builtinAgent(model.id))
   )
     throw new AgentManifestError("$.id", "reserved-id");
+  if (model.hostSetup?.script) {
+    if (origin !== "bundled") throw new AgentManifestError("$.hostSetup.script", "bundled-only");
+    let url: URL;
+    try {
+      url = new URL(model.hostSetup.script.url);
+    } catch {
+      throw new AgentManifestError("$.hostSetup.script.url", "https-only");
+    }
+    if (url.protocol !== "https:" || url.username || url.password || url.hash)
+      throw new AgentManifestError("$.hostSetup.script.url", "https-only");
+  }
   validateV2(model);
   return { version: 2, model, templateDialect: "v2", helpMatching: "option-boundary" };
 }

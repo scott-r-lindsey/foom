@@ -2012,3 +2012,20 @@ test("OSC 52 has a void terminal-ID-scoped bridge without reads", async () => {
   await api.writeTerminalClipboard("one", "c;aGk=");
   expect(mock.invoke).toHaveBeenCalledExactlyOnceWith("terminal:write-clipboard", "one", "c;aGk=");
 });
+
+test("local installer bridge validates availability and terminal IDs", async () => {
+  const api = await bridge();
+  mock.invoke.mockResolvedValue({ available: ["claude"] });
+  await expect(api.localAgentInstall()).resolves.toEqual({ available: ["claude"] });
+  expect(mock.invoke).toHaveBeenLastCalledWith("setup:local-agent-install", undefined);
+  mock.invoke.mockResolvedValue({ available: ["claude"], recipeSession: "fixture-install" });
+  await expect(api.localAgentInstall("claude")).resolves.toMatchObject({
+    recipeSession: "fixture-install",
+  });
+  mock.invoke.mockResolvedValue({ available: [], secret: "no" });
+  await expect(api.localAgentInstall()).resolves.toEqual({ available: [] });
+  for (const reply of [{}, { available: [3] }, { available: [], recipeSession: 3 }]) {
+    mock.invoke.mockResolvedValue(reply);
+    await expect(api.localAgentInstall()).rejects.toThrow();
+  }
+});

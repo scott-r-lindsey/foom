@@ -5,7 +5,7 @@ import type {
   HostRecipeLaunch,
 } from "./registered-hosts.d";
 
-/** Checked-in argv only. No shell source or executable downloads; staged plugin paths are host-owned. */
+/** Checked-in argv only. Bundled vendor scripts use an explicit download step; staged paths are host-owned. */
 const sudo = (...argv: string[]) => ["/usr/bin/sudo", ...argv];
 const git = {
   debian: [sudo("/usr/bin/apt-get", "install", "-y", "git")],
@@ -60,6 +60,7 @@ export function selectHostRecipe(
   request: HostRecipeRequest,
   facts: HostRequirements,
   setup?: {
+    script?: { url: string; interpreter: "sh" | "bash"; arguments: readonly string[] } | undefined;
     install?:
       | Partial<Record<"debian" | "rhel" | "arch" | "darwin", readonly string[] | undefined>>
       | undefined;
@@ -90,8 +91,22 @@ export function selectHostRecipe(
   }
   if (request.tool === "git" && facts.mac?.commandLineTools === false) return undefined;
   const manager = { debian: "apt", rhel: "dnf", arch: "pacman", darwin: "brew" };
-  if (facts.packageManager !== manager[distro]) return undefined;
-  const argv = setup?.install?.[distro];
+  const packageManagerAvailable = facts.packageManager === manager[distro];
+  const argv = packageManagerAvailable ? setup?.install?.[distro] : undefined;
+  if (!argv && setup?.script && request.tool !== "git" && request.tool !== "gh")
+    return {
+      ...request,
+      steps: [
+        [
+          "foom-host",
+          "--vendor-script",
+          setup.script.url,
+          setup.script.interpreter,
+          ...setup.script.arguments,
+        ],
+      ],
+    };
+  if (!packageManagerAvailable) return undefined;
   const steps =
     request.tool === "git"
       ? git[distro]

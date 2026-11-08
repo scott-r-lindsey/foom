@@ -408,3 +408,102 @@ test("Pi Settings card discloses project trust bypass and keeps MCP roles unavai
   ).toHaveCount(0);
   await page.screenshot({ path: "test-results/pi-agent-settings.png", animations: "disabled" });
 });
+
+test("one-click local agent installers stay in Settings and refuse untrusted selectors", {
+  timeout: deadline(45_000),
+  skip: process.platform === "win32",
+}, async (context) => {
+  const { writeFile } = require("node:fs/promises");
+  const root = await mkdtemp(path.join(tmpdir(), "foom-install-1071-"));
+  removeAfterApps(context, root);
+  // The production click/IPC/session path runs a fixture helper, never a vendor download.
+  await writeFile(
+    path.join(root, "foom"),
+    '#!/bin/sh\nprintf "Download https://claude.ai/install.sh\\nFixture installer: waiting for input\\n"\nread answer\nexit 7\n',
+    { mode: 0o755 },
+  );
+  const app = await launchApp(context, { fixture: "empty-board" });
+  await app.evaluate(
+    (_electron, { modulePath, directory }) => {
+      const load = process.getBuiltinModule("node:module").createRequire(modulePath);
+      const { Workspace } = load(modulePath);
+      const original = Workspace.prototype.startLocalAgentInstall;
+      Workspace.prototype.startLocalAgentInstall = async function (id) {
+        const config = this.owner.deps.config;
+        const previous = config.cliDirectory;
+        config.cliDirectory = directory;
+        try {
+          return await original.call(this, id);
+        } finally {
+          config.cliDirectory = previous;
+        }
+      };
+    },
+    { modulePath: path.resolve("build/main/workspace/workspace.js"), directory: root },
+  );
+  const page = await boardPage(app);
+  for (const value of ["unknown", "claude;id", { id: "claude", url: "https://untrusted.test" }]) {
+    const refused = await page.evaluate(
+      (id) =>
+        window.desktop.localAgentInstall(id).then(
+          () => false,
+          () => true,
+        ),
+      value,
+    );
+    assert.equal(refused, true);
+  }
+  await page.evaluate(() =>
+    window.desktop.saveSetup({ agents: { claude: false, codex: true, agy: true } }),
+  );
+  assert.equal(
+    await page.evaluate(() =>
+      window.desktop.localAgentInstall("claude").then(
+        () => false,
+        () => true,
+      ),
+    ),
+    true,
+  );
+  await page.evaluate(() =>
+    window.desktop.saveSetup({ agents: { claude: true, codex: true, agy: true } }),
+  );
+  await openSettingsScreen(page);
+  await page
+    .getByRole("navigation", { name: "Settings sections" })
+    .getByRole("button", { name: "Agents", exact: true })
+    .click();
+  await page.getByRole("tab", { name: "Machines", exact: true }).click();
+  const card = page.getByRole("region", { name: "Claude Code", exact: true });
+  await expect(card.getByRole("button", { name: "Install", exact: true })).toBeEnabled();
+  assert.equal((await page.evaluate(() => window.desktop.workspace())).terminals.length, 0);
+  await card.getByRole("button", { name: "Install", exact: true }).click();
+  await expect(card.getByRole("region", { name: "Install terminal" })).toBeVisible();
+  await expect(card.locator(".xterm-screen")).toContainText("Fixture installer");
+  const rows = (await page.evaluate(() => window.desktop.workspace())).terminals;
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].recipe, true);
+  assert.equal(rows[0].agent, "shell");
+  for (const mode of ["light", "dark"]) {
+    await page.evaluate(
+      (mode) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${mode}` }),
+      mode,
+    );
+    await expect
+      .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
+      .toBe(mode === "dark");
+    await page
+      .getByRole("region", { name: "Settings", exact: true })
+      .screenshot({ path: evidencePath(`1071/local-install-${mode}.png`) });
+  }
+  await page.getByRole("region", { name: "Settings", exact: true }).press("Escape");
+  await expect(page.getByRole("dialog", { name: "Stop the install?" })).toBeVisible();
+  await page.getByRole("button", { name: "Keep open", exact: true }).click();
+  await page.evaluate((id) => window.desktop.input(id, "finish\r"), rows[0].id);
+  await expect(card.getByText("Failed · exit code 7", { exact: true })).toBeVisible();
+  await assertAccessible(page);
+  await page.getByRole("region", { name: "Settings", exact: true }).press("Escape");
+  await expect
+    .poll(async () => (await page.evaluate(() => window.desktop.workspace())).terminals.length)
+    .toBe(0);
+});

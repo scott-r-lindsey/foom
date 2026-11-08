@@ -58,6 +58,13 @@ export function attachSetup(
     ],
     ["setup:state", () => setup.state()],
     [
+      "setup:local-agent-install",
+      (...args) => {
+        if (args.length !== 1) throw new Error("Invalid installer request");
+        return setup.localAgentInstall(args[0]);
+      },
+    ],
+    [
       "setup:hosts",
       (...args) => {
         if (args.length !== 1) throw new Error("Invalid hosts request");

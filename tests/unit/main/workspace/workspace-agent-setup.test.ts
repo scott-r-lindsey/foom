@@ -9,7 +9,7 @@ import { v2Provider } from "../../../../src/main/agents/providers/v2";
 import { Workspace } from "../../../../src/main/workspace/workspace";
 import { parseAgentManifest } from "../../../../src/shared/agent-plugin-parser";
 import setupFixture from "../../../fixtures/agent-plugins-v2/agy.json";
-import { agents, deps, repo, scan, tree } from "./workspace-fixture";
+import { agents, configDep, deps, repo, scan, tree } from "./workspace-fixture";
 
 test("caches agent scans until a refresh and retries after a failed scan", async () => {
   const workspace = new Workspace(deps);
@@ -207,4 +207,35 @@ test("agent switches invalidate cached discovery while preserving launch prefere
   workspace.configure({ ...preferences, agents: { ...preferences.agents, claude: true } });
   await workspace.scanAgents(false);
   expect(agents.scan).toHaveBeenCalledTimes(3);
+});
+
+test("local installers use the bundled helper in a human recipe session without shell integration or a grant", async () => {
+  const workspace = new Workspace(deps);
+  await expect(workspace.startLocalAgentInstall("custom")).rejects.toThrow("unavailable");
+  await expect(workspace.startLocalAgentInstall("codex")).rejects.toThrow("unavailable");
+  const configured = new Workspace({
+    ...deps,
+    config: { ...configDep(), cliDirectory: "/fixture/console" },
+  });
+  configured.configure({ hooks: false, agents: { claude: false, codex: true, agy: true } });
+  await expect(configured.startLocalAgentInstall("claude")).rejects.toThrow("unavailable");
+  if (process.platform === "win32") {
+    await expect(configured.startLocalAgentInstall("codex")).rejects.toThrow("unavailable");
+    return;
+  }
+  const create = vi.spyOn(deps.terminals, "create");
+  await configured.startLocalAgentInstall("codex");
+  expect(create).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      command: join("/fixture/console", "foom"),
+      args: ["--install-agent", "codex"],
+      replaceEnvironment: true,
+    }),
+  );
+  expect(create).toHaveBeenLastCalledWith(expect.not.objectContaining({ shellIntegration: true }));
+  expect(configured.snapshot().terminals.at(-1)).toMatchObject({
+    recipe: true,
+    kind: "shell",
+    agent: "shell",
+  });
 });

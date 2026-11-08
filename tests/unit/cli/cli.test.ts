@@ -45,3 +45,24 @@ describe("console entry", () => {
     }
   });
 });
+
+it("internal Settings installer rejects missing or unknown selectors without a network request", async () => {
+  const argv = process.argv;
+  const exitCode = process.exitCode;
+  try {
+    for (const args of [
+      ["--install-agent"],
+      ["--install-agent", "unknown"],
+      ["--install-agent", "claude", "extra"],
+    ]) {
+      vi.resetModules();
+      process.argv = ["foom", "foom", ...args];
+      await import("../../../src/cli/main");
+      await Promise.resolve();
+      expect(process.exitCode).toBe(2);
+    }
+  } finally {
+    process.argv = argv;
+    process.exitCode = exitCode;
+  }
+});

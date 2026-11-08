@@ -240,21 +240,23 @@ export async function startShell(
   remoteOverride?: RemoteTarget,
   validateLaunch?: () => void,
   signal?: AbortSignal,
+  localRecipe?: { command: string; args: readonly string[] },
 ): Promise<string> {
-  const remote =
-    remoteOverride ??
-    (checkout
-      ? {
-          ...checkout.target,
-          checkout: {
-            repository: checkout.repository,
-            path: checkout.worktree,
-            identity: checkout.identity,
-          },
-        }
-      : location.home
-        ? remoteSpikeTarget(process.argv)
-        : undefined);
+  const remote = localRecipe
+    ? undefined
+    : (remoteOverride ??
+      (checkout
+        ? {
+            ...checkout.target,
+            checkout: {
+              repository: checkout.repository,
+              path: checkout.worktree,
+              identity: checkout.identity,
+            },
+          }
+        : location.home
+          ? remoteSpikeTarget(process.argv)
+          : undefined));
   const environment = remote ? { env: {}, names: [] } : await this.shellEnvironment(pathFirst);
   if (restoreId !== undefined) this.executionOwner.reset(restoreId);
   await checkout?.validate();
@@ -279,9 +281,9 @@ export async function startShell(
           },
         }
       : {}),
-    command: remote ? `ssh ${remote.host}` : shellPath(),
-    args: process.platform === "win32" ? ["-NoLogo"] : ["-l"],
-    shellIntegration: true,
+    command: localRecipe?.command ?? (remote ? `ssh ${remote.host}` : shellPath()),
+    args: localRecipe?.args ?? (process.platform === "win32" ? ["-NoLogo"] : ["-l"]),
+    ...(localRecipe ? { replaceEnvironment: true } : { shellIntegration: true }),
     env: { ...environment.env, ...configEnvironment },
     cwd: checkout?.worktree ?? location.worktree,
     cols: 80,
@@ -294,7 +296,7 @@ export async function startShell(
     agent: "shell",
     ...location,
     ...(remote ? { remote: true, placement: { kind: "remote" as const, host: remote.host } } : {}),
-    ...(remote?.recipe ? { recipe: true } : {}),
+    ...(remote?.recipe || localRecipe ? { recipe: true } : {}),
     ...(checkout ? { branch: `${checkout.branch} · ${checkout.target.host}` } : {}),
     ...(environment.names.length ? { environment: environment.names } : {}),
     attention: "evaluator",

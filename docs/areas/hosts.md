@@ -350,19 +350,62 @@ reserve the daemon mutation slot until exit or completed session removal;
 disconnect does not release it. Removal releases the reservation even when stop
 times out or native disposal fails and no exit callback reaches the daemon.
 
-The interim #971 decision ships package-manager installs only: apt, dnf, pacman
-and brew. Vendor script installers (including pinned/checksummed scripts) are
-**deferred for a later user decision**. Missing manifests/platform recipes, unknown
-distros and absent package managers have no Install action and return the fixed
-`recipe-unavailable` reason. Sign-in commands may still be offered for an installed
-CLI. gh uses the repositories documented by GitHub: Debian's extrepo github-cli
-entry and the official RPM repository, plus Arch github-cli and Homebrew gh.
-See [GitHub's installation instructions](https://github.com/cli/cli/blob/trunk/docs/install_linux.md).
+### Vendor agent installers (#1071)
 
-Codex declares a non-interactive login-status probe, device-code sign-in and the
-[Homebrew cask](https://formulae.brew.sh/cask/codex) install recipe. Other bundled
-agents retain unknown sign-in state until they declare a measured status probe;
-missing install/sign-in declarations remain unavailable.
+An explicit Install click in Settings → Agents or first-run local cards can run
+one of the six bundled manifests' `hostSetup.script` installers on Linux/macOS,
+including registered hosts. A working package-manager recipe takes priority
+(Codex's macOS Homebrew cask); otherwise the bundled vendor script is used.
+Git and gh retain their package-manager recipes. Unknown remote distros and
+unsupported libc still refuse recipes; a missing package manager alone does not
+prevent a vendor script. Native Windows script recipes are unavailable.
+
+The recipe process prints the fixed HTTPS address, downloads at most 2 MiB with
+a 60-second deadline into a private temporary directory (0700) and file (0600),
+then invokes `/bin/sh` or `/bin/bash` with that file and manifest arguments.
+Foom's downloader follows at most five redirects, checking HTTPS and refusing
+URL credentials at every hop. It needs no curl or system Node. The script itself
+may require curl/wget or other system tools for its later downloads. Failure
+stops the recipe; a package-manager command failure does not fall back silently.
+The file and directory are removed on success, download/spawn/script failure and
+handled interruption; SIGKILL or machine failure cannot guarantee cleanup.
+
+The existing SHA-256 recipe-step digest binds the address, interpreter and
+arguments on hosts. The vendor's unversioned script content is **not** bound;
+this is the security tradeoff explicitly accepted in #1071. The HTTPS rule applies
+to Foom's download, not to arbitrary subsequent network operations performed by
+vendor code. Recipes still receive no terminal ID, orchestration authority or
+hub credentials. No probe, check, manifest load, agent or orchestrator capability
+starts installation. Config manifests cannot declare script installers.
+
+Local installs use the bundled console helper's internal Settings mode with a
+complete scrubbed login environment, no control grant and no shell integration.
+They share the existing embedded terminal and Stop/Keep open lifetime rules.
+Completion rechecks only the selected agent. Remote completion retains its scoped
+tool/sign-in refresh. Settings chrome shows Done or Failed with the exit code.
+
+Vendor documentation checked 2026-11-08:
+
+| Agent | Fixed script | Vendor documentation |
+| --- | --- | --- |
+| Claude Code | `https://claude.ai/install.sh` | [Setup](https://code.claude.com/docs/en/setup) |
+| Codex | `https://chatgpt.com/codex/install.sh` | [CLI](https://learn.chatgpt.com/docs/cli) |
+| Copilot | `https://gh.io/copilot-install` | [Installation](https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli) |
+| OpenCode | `https://opencode.ai/v2/install` | [Current v2 installation](https://opencode.ai/docs/) |
+| Pi | `https://pi.dev/install.sh` | [Quickstart](https://pi.dev/docs/latest/quickstart) |
+| Antigravity | `https://antigravity.google/cli/install.sh` | [Getting started](https://antigravity.google/docs/cli-getting-started) |
+
+The issue's original OpenCode address installs v1; the v2 address matches Foom's
+v2 adapter. Vendor scripts may modify shell startup files and install/update
+agent-owned files; Foom's ban on direct global agent-config writes still applies
+to Foom's own writes. Script output and prompts remain untrusted terminal content.
+Live qualification on disposable human-owned hosts remains required per script:
+record shell-file changes, discovery in a fresh login shell, sudo/prompts and
+Node requirements. Documentation/source inspection and fixture tests do not prove
+those real-host outcomes. No real installer or agent CLI runs in automated tests.
+
+Codex retains its non-interactive status probe and device-code sign-in. Other
+bundled agents keep unknown sign-in state until they declare a measured probe.
 
 Protocol-3 hello advertises `hostFacts: 1`. A compatible older build without this
 capability returns `facts-unavailable` for read-only facts, with a fixed needs-update

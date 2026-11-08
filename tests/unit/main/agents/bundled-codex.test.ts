@@ -199,7 +199,13 @@ it("keeps integrity and identity checks without a bundled Codex disclosure", asy
   expect(() => bundledProvider(data, "wrong", digest(data))).toThrow("identity");
   expect(() => parseAgentManifest(JSON.stringify(data))).toThrow("reserved-id");
   const copy = v2Provider(
-    parseAgentManifest(JSON.stringify({ ...data, id: "codex-custom" })).model,
+    parseAgentManifest(
+      JSON.stringify({
+        ...data,
+        hostSetup: { ...data.hostSetup, script: undefined },
+        id: "codex-custom",
+      }),
+    ).model,
     () => Promise.resolve(),
   );
   expect(copy.origin).toBe("config");
@@ -312,7 +318,13 @@ it("shares config-copy health with the launch engine while keeping its paths and
   const { prepareV2Hooks } = await import("../../../../src/main/agents/providers/v2-hook-launch");
   const profile = await directory();
   const copy = v2Provider(
-    parseAgentManifest(JSON.stringify({ ...data, id: "codex-copy" })).model,
+    parseAgentManifest(
+      JSON.stringify({
+        ...data,
+        hostSetup: { ...data.hostSetup, script: undefined },
+        id: "codex-copy",
+      }),
+    ).model,
     () => Promise.resolve(),
   );
   const hooks = await prepareV2Hooks(receiver, copy.model, vi.fn(), false, profile, profile);

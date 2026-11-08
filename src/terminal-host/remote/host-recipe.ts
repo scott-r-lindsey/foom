@@ -1,3 +1,4 @@
+import { runVendorScript } from "../../node-common/vendor-install";
 import { remotePluginState } from "./plugin-status";
 import { stageRemotePlugin } from "./agent-launch";
 import { originSshArgs } from "../../shared/registered-hosts";
@@ -29,6 +30,8 @@ export async function runHostRecipe(argv: readonly string[], home = homedir()): 
     const found = await hostDiscovery({ executables: ["agy"] }, remoteShell(), home);
     if ((await remotePluginState(found.command, home, env)) !== "not-installed") return 2;
   }
+  if (recipe.steps[0]?.[1] === "--vendor-script" && model?.hostSetup?.script)
+    return runVendorScript(model.hostSetup.script, home, env);
   let staged: string | undefined;
   for (const step of recipe.steps) {
     if (request.action === "install-plugin" && step[0] === "foom-host") {

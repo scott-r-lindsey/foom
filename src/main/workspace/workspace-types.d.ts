@@ -95,6 +95,7 @@ export interface WorkspaceMethods {
     remoteOverride?: RemoteTarget,
     validateLaunch?: () => void,
     signal?: AbortSignal,
+    localRecipe?: { command: string; args: readonly string[] },
   ): Promise<string>;
   startMachine(
     host: string | null,

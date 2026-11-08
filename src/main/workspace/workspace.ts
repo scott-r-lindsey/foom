@@ -1,3 +1,6 @@
+import { join } from "node:path";
+import { bundledAgentData } from "../../shared/bundled-agent-data";
+import { homeDirectory } from "./home-shell";
 import type { RemoteTarget } from "../../shared/remote-host";
 import type { SidebarCommandResult } from "../../shared/workspace";
 import type { ActionLogPage } from "../../shared/action-log";
@@ -30,6 +33,24 @@ export class Workspace {
   constructor(deps: WorkspaceDependencies) {
     this.owner = new WorkspaceContext(deps);
     this.orchestration = this.owner.orchestration;
+  }
+  async startLocalAgentInstall(id: string): Promise<string> {
+    if (!bundledAgentData.some((data) => data.id === id) || this.owner.enabled[id] === false)
+      throw new Error("Installer unavailable");
+    const directory = this.owner.deps.config?.cliDirectory;
+    if (!directory || (process.platform !== "linux" && process.platform !== "darwin"))
+      throw new Error("Installer unavailable");
+    return this.owner.startShell(
+      { home: true, repository: homeDirectory, worktree: homeDirectory, branch: null },
+      undefined,
+      directory,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { command: join(directory, "foom"), args: ["--install-agent", id] },
+    );
   }
   async startHostRecipe(target: RemoteTarget): Promise<string> {
     return this.owner.startHomeShell(undefined, target);

@@ -394,5 +394,12 @@
         }
       }
     ]
+  },
+  "hostSetup": {
+    "script": {
+      "url": "https://opencode.ai/v2/install",
+      "interpreter": "bash",
+      "arguments": []
+    }
   }
 }

@@ -164,7 +164,8 @@ files, Keychain entries or SSH material. Install/sign-in recipes require a user
 click and run in a visible human-owned terminal on that host (installs are
 embedded in Settings; sign-in retains its tile); Foom never
 types into it or performs background installs/sign-ins. Vendor-script installers
-are deferred; only fixed package-manager recipes ship.
+are allowed only for bundled agents after an explicit Install click (#1071); see
+[installer boundaries](hosts.md#vendor-agent-installers-1071).
 
 Settings agent scopes (#1070) explicitly request a bounded executable path and
 version string, closed capability labels and a reduced Antigravity plugin-inventory
@@ -184,3 +185,15 @@ without a click; the user could paste that content elsewhere. Reads are always
 refused, including queries from SSH programs. There are no clipboard watchers,
 network requests, stored clipboard contents or clipboard diagnostics. Replay and
 reattachment cannot repeat writes; see [terminal policy](terminals.md#osc-52-clipboard-writes-1073).
+
+## Vendor installer requests (#1071)
+
+Only a human's Install click starts a vendor-script request, on the selected
+computer. The vendor and HTTPS redirect destinations see that computer's IP and
+normal HTTPS request metadata. Foom sends no terminal content, repository identity,
+hub credentials or model requests. Fixed addresses live only in bundled manifests;
+config manifests cannot supply addresses. Download bytes stay in a private temp
+file and are removed after execution. Vendor code can make its own requests,
+change shell startup files and agent-owned state with the user's account rights;
+the recipe digest binds the address/arguments, not unversioned remote contents.
+No Foom control capability installs agents. See [host rules](hosts.md#vendor-agent-installers-1071).

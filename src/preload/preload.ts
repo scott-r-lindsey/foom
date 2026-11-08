@@ -1998,6 +1998,12 @@ const desktop: DesktopApi = {
     };
   },
   copyHost: (command) => invokeVoid("setup:copy-host", command),
+  localAgentInstall: (id) =>
+    reply(
+      "setup:local-agent-install",
+      shape({ available: array(text), recipeSession: either(absent, text) }),
+      id,
+    ),
   hosts: (action) => reply("setup:hosts", validHostsState, action),
   listTerminalFonts: (refresh = false) => reply("setup:terminal-fonts", array(text), refresh),
   listThemes: () => reply("theme:list", validThemeCatalog),

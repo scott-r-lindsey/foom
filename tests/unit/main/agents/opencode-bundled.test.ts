@@ -50,7 +50,13 @@ it("ships locked data with fixed discovery and no config identity collision", ()
   }
   expect(() => parseAgentManifest(JSON.stringify(data))).toThrow("reserved-id");
   const copy = v2Provider(
-    parseAgentManifest(JSON.stringify({ ...data, id: "opencode-custom" })).model,
+    parseAgentManifest(
+      JSON.stringify({
+        ...data,
+        hostSetup: { ...data.hostSetup, script: undefined },
+        id: "opencode-custom",
+      }),
+    ).model,
     () => Promise.resolve(),
   );
   expect(copy.origin).toBe("config");
@@ -225,7 +231,13 @@ it("retains former config conversations dormant without inheriting bundled resto
 });
 
 it("isolated verification receives only ping, and renamed copies retain the same module engine", async () => {
-  const parsed = parseAgentManifest(JSON.stringify({ ...data, id: "opencode-custom" }));
+  const parsed = parseAgentManifest(
+    JSON.stringify({
+      ...data,
+      hostSetup: { ...data.hostSetup, script: undefined },
+      id: "opencode-custom",
+    }),
+  );
   const copy = v2Provider(parsed.model, () => Promise.resolve(), true);
   const installation = copy.discover("/fixture/opencode", "opencode v2.0.32", help);
   const prepared = await copy.prepareLaunch(

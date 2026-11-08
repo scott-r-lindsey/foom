@@ -1000,7 +1000,7 @@ test.each([
     };
     run.mockResolvedValue({ ok: true, facts: enriched });
     await hosts.action({ action: "add", host: "worker", codeFolder: "~/code" });
-    const launch = vi.fn(() => Promise.resolve());
+    const launch = vi.fn(() => Promise.resolve("fixture-recipe"));
     const state = await hosts.action(
       { action: "recipe", host: "worker", tool: "git", operation: "install" },
       undefined,
@@ -1030,7 +1030,7 @@ test.each([
           launch,
         )
       ).recipeFailure,
-    ).toBe("recipe-unavailable");
+    ).toBeUndefined();
     expect(
       (await hosts.action({ action: "recipe", host: "worker", tool: "gh", operation: "sign-in" }))
         .recipeFailure,
@@ -1062,7 +1062,7 @@ test.each([
         )
       ).recipeFailure,
     ).toBe("recipe-unavailable");
-    expect(launch).toHaveBeenCalledTimes(1);
+    expect(launch).toHaveBeenCalledTimes(2);
   },
 );
 

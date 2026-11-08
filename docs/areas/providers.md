@@ -24,7 +24,8 @@ script, environment and network-reference fields. Manifest rules use the shared
 `boundedRegex` implementation used by built-in rules. Manifest argv uses fixed,
 field-specific substitutions and argument arrays; expanded values are never parsed
 again. Discovery probes are fixed and bounded. Executables use the existing PATH
-resolver and platform wrapper restrictions. Foom fetches nothing for plugins.
+resolver and platform wrapper restrictions. Foom fetches nothing for config plugins. Bundled manifests alone may declare the
+explicit-click vendor installers described in [Hosts](hosts.md#vendor-agent-installers-1071).
 
 The config service creates and watches `agents/`, resubscribing when it is replaced.
 It considers at most 50 matching direct JSON filenames per directory scan. Reads
@@ -205,3 +206,12 @@ validated provider ID through agents:scan and probes only that provider, retaini
 other observations. First-run setup retains the local card view. Remote card facts
 contain bounded executable/version strings and a closed capability list. Unknown
 sign-in remains unknown and does not claim credential or hook trust.
+
+## Bundled installer manifests (#1071)
+
+Optional `hostSetup.script` carries a fixed HTTPS URL, `sh`/`bash` interpreter and
+fixed argument list. The parser rejects it for config origin even under a new ID;
+JSON cannot self-declare bundled provenance. The application-owned manifest lock
+covers this data. Package-manager recipes retain their closed argv validation and
+priority. Adding a bundled agent needs manifest data, not a new installer branch.
+Loading or scanning never downloads or executes an installer.

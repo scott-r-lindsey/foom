@@ -590,3 +590,12 @@ test("successful nickname updates publish current profile settings; reads and fa
   expect(apply).not.toHaveBeenCalled();
   deps.hosts.dispose();
 });
+
+test("local install delegation has no fallback when the capability is absent", async () => {
+  const setup = new Setup(deps);
+  expect(() => setup.localAgentInstall(undefined)).toThrow("unavailable");
+  const install = vi.fn(() => Promise.resolve({ available: ["claude"] }));
+  const configured = new Setup({ ...deps, localAgentInstall: install });
+  await configured.localAgentInstall(undefined);
+  expect(install).toHaveBeenCalledExactlyOnceWith(undefined);
+});

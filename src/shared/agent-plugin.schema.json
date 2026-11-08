@@ -1672,6 +1672,9 @@
       "additionalProperties": false,
       "required": [],
       "properties": {
+        "script": {
+          "$ref": "#/$defs/vendorScript"
+        },
         "status": {
           "$ref": "#/$defs/hostStatusArgv"
         },
@@ -1680,6 +1683,27 @@
         },
         "signIn": {
           "$ref": "#/$defs/hostRecipeMap"
+        }
+      }
+    },
+    "vendorScript": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "interpreter", "arguments"],
+      "properties": {
+        "url": {
+          "$ref": "#/$defs/shortText"
+        },
+        "interpreter": {
+          "enum": ["sh", "bash"]
+        },
+        "arguments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/shortText"
+          },
+          "maxItems": 8,
+          "minItems": 0
         }
       }
     },

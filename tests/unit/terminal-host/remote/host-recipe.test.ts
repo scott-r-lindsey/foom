@@ -5,6 +5,7 @@ import codex from "../../../../src/shared/bundled-agents/codex.json";
 import { EventEmitter } from "node:events";
 import { beforeEach, expect, test, vi } from "vitest";
 const mock = vi.hoisted(() => ({
+  vendor: vi.fn(),
   stage: vi.fn(),
   plugin: vi.fn(),
   spawn: vi.fn(),
@@ -13,6 +14,7 @@ const mock = vi.hoisted(() => ({
   discovery: vi.fn(),
   login: vi.fn(),
 }));
+vi.mock("../../../../src/node-common/vendor-install", () => ({ runVendorScript: mock.vendor }));
 vi.mock("../../../../src/terminal-host/remote/agent-launch", () => ({
   stageRemotePlugin: mock.stage,
 }));
@@ -133,7 +135,7 @@ test("malformed, unsupported and missing recipes run nothing", async () => {
     [],
     ["git", "install", "debian", "extra"],
     ["git", "other", "debian"],
-    ["codex", "install", "debian"],
+
     ["git", "install", "rhel"],
   ])
     expect(await runHostRecipe(args, "/fixture/home")).toBe(2);
@@ -244,5 +246,36 @@ test("failed plugin staging never reaches the install command", async () => {
   await expect(runHostRecipe(["agy", "install-plugin", "debian"], "/fixture/home")).rejects.toThrow(
     "fixture staging failed",
   );
+  expect(mock.spawn).not.toHaveBeenCalled();
+});
+
+test("vendor scripts are selected from bundled data only after checking the complete recipe digest", async () => {
+  const setup = parseAgentManifest(JSON.stringify(codex), "bundled").model.hostSetup;
+  const recipe = selectHostRecipe(
+    { tool: "codex", action: "install", distro: "debian" },
+    { distro: "debian", libc: "supported", packageManager: "none" },
+    setup,
+  );
+  if (!recipe) throw new Error("Missing fixture recipe");
+  mock.requirements.mockResolvedValue({
+    distro: "debian",
+    libc: "supported",
+    packageManager: "none",
+  });
+  mock.vendor.mockResolvedValue(7);
+  expect(
+    await executeRecipe(
+      [
+        "codex",
+        "install",
+        "debian",
+        createHash("sha256").update(JSON.stringify(recipe.steps)).digest("hex"),
+      ],
+      "/fixture/home",
+    ),
+  ).toBe(7);
+  expect(mock.vendor).toHaveBeenCalledWith(setup?.script, "/fixture/home", {
+    PATH: "/fixture:/usr/local/bin",
+  });
   expect(mock.spawn).not.toHaveBeenCalled();
 });
