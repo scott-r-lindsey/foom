@@ -1,3 +1,5 @@
+import { terminalLink } from "../../shared/terminal-link";
+import type { DialogContent } from "../../shared/confirmation";
 import { randomUUID } from "node:crypto";
 import { readPaste } from "./image-clipboard";
 import { normalizeImage } from "./image-decoder";
@@ -7,7 +9,7 @@ import type { TerminalPaste } from "../../shared/image-paste.d";
 import { isChildInput, type ChildInput } from "../../shared/child-input";
 import type { AgentEvidence } from "../../shared/agent-detection";
 import { isTerminalSelection } from "../../shared/terminal-selection";
-import { app, clipboard, ipcMain } from "electron";
+import { app, clipboard, ipcMain, shell } from "electron";
 import type { BrowserWindow, WebContents, IpcMainEvent, IpcMainInvokeEvent, Event } from "electron";
 import { homedir } from "node:os";
 import { TerminalHostClient } from "./terminal-host-client";
@@ -53,6 +55,11 @@ export function attachTerminal(
     WebContents,
     { alive: boolean; dispose(): void; flush(ids: string[]): Promise<void> }
   >();
+  const linkConfirmations = new Map<
+    WebContents,
+    (content: DialogContent, signal: AbortSignal) => Promise<boolean>
+  >();
+  const pendingLinks = new Set<WebContents>();
   const attached = new Map<string, WebContents>();
   const leases = new Map<string, AbortController>();
   const pasteQueues = new Map<string, Promise<unknown>>();
@@ -103,6 +110,8 @@ export function attachTerminal(
   const manager = new TerminalHostClient(
     (id, code) => {
       closeImages(id);
+      // Exited output stays interactive; paste still refuses because it is no longer running.
+      if (code !== -1 && attached.has(id)) leases.set(id, new AbortController());
       running.delete(id);
       broadcast("terminal:exit", id, code);
       if (owned.has(id)) events.onExit?.(id, code);
@@ -262,6 +271,60 @@ export function attachTerminal(
     if (!isTerminalSelection(text)) throw new Error("Invalid terminal selection");
     if (process.platform !== "linux" && copyOnSelect()) await clipboard.writeText(text);
   });
+  for (const operation of ["open", "copy"] as const) {
+    handlers.set(`terminal:${operation}-link`, async (event, id, target) => {
+      if (!trusted(event)) throw new Error("Untrusted IPC sender");
+      if (!validId(id) || attached.get(id) !== event.sender)
+        throw new Error("Unknown or unattached terminal ID");
+      const parsed = terminalLink(target);
+      if (!parsed || typeof target !== "string") throw new Error("Invalid terminal link");
+      if (operation === "copy") {
+        await clipboard.writeText(target);
+        return;
+      }
+      const lease = leases.get(id);
+      if (!lease || pendingLinks.has(event.sender)) return;
+      const live = () =>
+        !lease.signal.aborted &&
+        leases.get(id) === lease &&
+        attached.get(id) === event.sender &&
+        windows.get(event.sender)?.alive === true &&
+        !event.sender.isDestroyed() &&
+        !event.sender.isCrashed();
+      pendingLinks.add(event.sender);
+      try {
+        const confirm = linkConfirmations.get(event.sender);
+        if (
+          !confirm ||
+          !(await confirm(
+            {
+              title: "Open this link?",
+              accept: "Open in browser",
+              glyph: "link",
+              subject: parsed.host,
+              detail:
+                "Check the destination before opening it. The terminal text may hide or disguise part of this URL.",
+              facts: [
+                { label: "Host", value: parsed.host, mono: true },
+                { label: "URL", value: target, mono: true },
+              ],
+            },
+            lease.signal,
+          ))
+        )
+          return;
+        if (live()) {
+          try {
+            await shell.openExternal(target);
+          } catch {
+            throw new Error("Unable to open terminal link");
+          }
+        }
+      } finally {
+        pendingLinks.delete(event.sender);
+      }
+    });
+  }
   handlers.set("terminal:tail", async (event, id, lines) => {
     if (!trusted(event)) throw new Error("Untrusted IPC sender");
     if (!validId(id)) throw new Error("Unknown or foreign terminal ID");
@@ -358,6 +421,7 @@ export function attachTerminal(
         }),
       dispose: () => {
         windows.delete(contents);
+        linkConfirmations.delete(contents);
         rendererGone();
         contents.removeListener("render-process-gone", rendererGone);
         contents.removeListener("did-finish-load", rendererLoaded);
@@ -416,6 +480,13 @@ export function attachTerminal(
       }
     },
     addWindow,
+    setLinkConfirmation: (
+      contents: WebContents,
+      confirm: (content: DialogContent, signal: AbortSignal) => Promise<boolean>,
+    ) => {
+      if (!windows.has(contents)) throw new Error("Unknown terminal window");
+      linkConfirmations.set(contents, confirm);
+    },
     dispose,
     runningSessions: () => [...running.values()],
     async create(spec: TerminalSpec) {

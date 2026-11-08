@@ -13,6 +13,7 @@ import {
   orchestrate,
   principal,
   createWorkspace,
+  launch,
 } from "./orchestration-workspace-fixture";
 
 it("removes an orchestrator worktree only through the trusted dialog", async () => {
@@ -554,5 +555,183 @@ it.each([false, true])(
         expect.any(Function),
       );
     else expect(deps.worktrees.removeWorktree).not.toHaveBeenCalled();
+  },
+);
+
+it.each([true, false])(
+  "joins duplicate detached removals and isolates other checkouts (approve: %s)",
+  async (approved) => {
+    const first = { ...child, branch: null };
+    const second = { ...first, path: "/trees/app/review-two" };
+    vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([main, first, second]);
+    vi.mocked(deps.worktrees.adoptWorktree).mockImplementation(
+      (_repo, number, _unused, validate) => {
+        const tree = number === 1 ? first : second;
+        validate(undefined);
+        return Promise.resolve({
+          path: tree.path,
+          branch: `review-${String(number)}`,
+          identity: "identity",
+        });
+      },
+    );
+    const pending = Promise.withResolvers<boolean>();
+    deps.dialog = vi.fn(() => pending.promise);
+    const workspace = createWorkspace(deps);
+    await orchestrate(workspace);
+    const actor = principal();
+    const operations = new Operations(
+      async () => {},
+      () => {},
+    );
+    const call = (method: string, key: string, params: Record<string, unknown>) =>
+      workspace.orchestration.call(
+        actor,
+        method,
+        { ...params, idempotencyKey: key },
+        operations,
+      ) as Promise<Operation>;
+    const one = await call("create_worktree", "one", { pullRequest: 1, review: true });
+    await call("remove_worktree", "remove-one", { worktreeId: one.resultId });
+    await vi.waitFor(() => {
+      expect(deps.dialog).toHaveBeenCalledOnce();
+    });
+    // A distinct key joins the same deletion; it never opens another review.
+    await call("remove_worktree", "duplicate", { worktreeId: one.resultId });
+    const two = await call("create_worktree", "two", { pullRequest: 2, review: true });
+    expect(two.status).toBe("succeeded");
+    launch.mockResolvedValueOnce({ id: "second-reviewer", attention: "evaluator" });
+    expect(
+      await call("launch", "launch-two", { worktreeId: two.resultId, agent: "claude" }),
+    ).toMatchObject({ status: "succeeded" });
+    await workspace.exited("second-reviewer", 0);
+    await workspace.sidebarCommand({ kind: "close", id: "second-reviewer" }, confirm);
+    // Human shell/legacy agent launches also use the same detached path reservation.
+    await workspace.sidebarCommand(
+      { kind: "launch", repository: repo.path, worktree: second.path, run: "shell" },
+      confirm,
+    );
+    await workspace.exited("shell", 0);
+    await workspace.sidebarCommand({ kind: "close", id: "shell" }, confirm);
+    await call("remove_worktree", "remove-two", { worktreeId: two.resultId });
+    await vi.waitFor(() => {
+      expect(deps.dialog).toHaveBeenCalledTimes(2);
+    });
+    expect(deps.worktrees.removeWorktree).not.toHaveBeenCalled();
+    pending.resolve(approved);
+    await vi.waitFor(() => {
+      for (const key of ["remove-one", "duplicate", "remove-two"])
+        expect(operations.lookup(actor, { idempotencyKey: key }).status).toBe(
+          approved ? "succeeded" : "declined",
+        );
+    });
+    expect(deps.worktrees.removeWorktree).toHaveBeenCalledTimes(approved ? 2 : 0);
+    expect(deps.dialog).toHaveBeenCalledTimes(2);
+  },
+);
+
+const joinedRemovalCases = [false, true].flatMap((automatic) =>
+  [false, true].flatMap((joinDuringDeletion) =>
+    (["success", "failure", "revoked"] as const).map((outcome) => ({
+      automatic,
+      joinDuringDeletion,
+      outcome,
+    })),
+  ),
+);
+
+it.each(joinedRemovalCases)(
+  "joined removal state: $outcome, automatic=$automatic, joinDuringDeletion=$joinDuringDeletion",
+  async ({ outcome, automatic, joinDuringDeletion }) => {
+    const workspace = createWorkspace(deps);
+    workspace.configure({
+      hooks: true,
+      agents: { claude: true, codex: true, agy: true },
+      autoRemoveMergedWorktrees: automatic,
+    });
+    await orchestrate(workspace);
+    const actor = principal();
+    const operations = new Operations(
+      async () => {},
+      () => {},
+    );
+    const tree = (await workspace.orchestration.call(
+      actor,
+      "create_worktree",
+      {
+        branch: "feature",
+        idempotencyKey: "joined-state-tree",
+      },
+      operations,
+    )) as Operation;
+    const approval = Promise.withResolvers<boolean>();
+    const policy = Promise.withResolvers<boolean>();
+    const deletion = Promise.withResolvers<undefined>();
+    const deletionSettled = Promise.withResolvers<undefined>();
+    let deletionCompleted = false;
+    deps.dialog = vi.fn(() => approval.promise);
+    vi.mocked(deps.worktrees.canAutoRemove).mockResolvedValue(automatic);
+    if (automatic) vi.mocked(deps.worktrees.canAutoRemove).mockReturnValueOnce(policy.promise);
+    vi.mocked(deps.worktrees.removeWorktree).mockImplementation(async () => {
+      try {
+        await deletion.promise;
+        if (outcome === "failure") throw new Error("fixture deletion failed");
+        deletionCompleted = true;
+      } finally {
+        deletionSettled.resolve(undefined);
+      }
+    });
+    const remove = (key: string) =>
+      workspace.orchestration.call(
+        actor,
+        "remove_worktree",
+        {
+          worktreeId: tree.resultId,
+          idempotencyKey: key,
+        },
+        operations,
+      );
+    const states = () =>
+      ["joined-state-original", "joined-state-duplicate"].map(
+        (idempotencyKey) => operations.lookup(actor, { idempotencyKey }).status,
+      );
+    await remove("joined-state-original");
+    await vi.waitFor(() => {
+      if (automatic) expect(deps.worktrees.canAutoRemove).toHaveBeenCalledOnce();
+      else expect(deps.dialog).toHaveBeenCalledOnce();
+    });
+    if (!joinDuringDeletion) await remove("joined-state-duplicate");
+    approval.resolve(true);
+    policy.resolve(automatic);
+    await vi.waitFor(() => {
+      expect(deps.worktrees.removeWorktree).toHaveBeenCalledOnce();
+    });
+    if (joinDuringDeletion) await remove("joined-state-duplicate");
+    try {
+      expect.soft(states()).toEqual(["running", "running"]);
+      if (outcome === "revoked") {
+        operations.revoke(actor);
+        workspace.orchestration.revoke("parent");
+        expect.soft(states()).toEqual(["indeterminate", "indeterminate"]);
+      }
+    } finally {
+      deletion.resolve(undefined);
+      await deletionSettled.promise;
+      await vi.waitFor(() => {
+        expect(
+          states().every((state) => !["running", "pending_confirmation"].includes(state)),
+        ).toBe(true);
+      });
+    }
+    expect(states()).toEqual(
+      outcome === "revoked"
+        ? ["indeterminate", "indeterminate"]
+        : outcome === "failure"
+          ? ["failed", "failed"]
+          : ["succeeded", "succeeded"],
+    );
+    expect(deletionCompleted).toBe(outcome !== "failure");
+    expect(deps.worktrees.removeWorktree).toHaveBeenCalledOnce();
+    expect(deps.dialog).toHaveBeenCalledTimes(automatic ? 0 : 1);
   },
 );

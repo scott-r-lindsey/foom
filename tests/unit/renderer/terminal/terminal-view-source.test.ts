@@ -393,7 +393,7 @@ test("context menu subscription uses only the attached session and is removed on
   let publish: ((state: ShellView) => void) | undefined;
   mock.create.mockImplementation((_element: HTMLElement, update: (state: ShellView) => void) => {
     publish = update;
-    return { open: vi.fn(), hide: vi.fn(), dispose: vi.fn(), terminal };
+    return { open: vi.fn(), hide: vi.fn(), dispose: vi.fn(), terminal, links: { menu: vi.fn() } };
   });
   const view = createTerminalView();
   const listener = vi.fn();

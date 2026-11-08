@@ -1,3 +1,4 @@
+import { worktreeReservation } from "./worktree-reservations";
 import { hostDisplayName } from "../../shared/registered-hosts";
 import type { RegisteredHost } from "../../shared/registered-hosts.d";
 import { locationId } from "../control/metadata";
@@ -182,6 +183,7 @@ export async function sidebarCommand(
   closeSignal?: AbortSignal,
   startup?: SidebarStartup,
   heldReservation?: string,
+  onCloseReview?: (pending: boolean) => Promise<void>,
 ): Promise<SidebarCommandResult> {
   validateClose?.();
   if (this.closed) throw new Error("Workspace is closed");
@@ -222,7 +224,7 @@ export async function sidebarCommand(
                 (entry) => entry.path === worktree,
               );
               if (!tree) throw new Error("Worktree was removed. Choose another checkout.");
-              key = `${command.repository}\0${tree.branch ?? ""}`;
+              key = worktreeReservation(command.repository, worktree, tree.branch);
             }
             if (this.busyWorktrees.has(key)) throw new Error("This worktree is busy");
             this.busyWorktrees.add(key);
@@ -254,6 +256,7 @@ export async function sidebarCommand(
           startup.signal,
           undefined,
           reservation,
+          onCloseReview,
         );
       } finally {
         if (reservation !== undefined) this.busyWorktrees.delete(reservation);
@@ -619,6 +622,7 @@ export async function sidebarCommand(
             throw new Error("Session changed");
         },
         command.id,
+        onCloseReview,
       );
       return;
     }
@@ -645,7 +649,7 @@ export async function sidebarCommand(
       const tree = (await this.worktrees(command.repository)).find(
         (tree) => tree.path === command.worktree,
       );
-      const key = `${command.repository}\0${tree?.branch ?? ""}`;
+      const key = worktreeReservation(command.repository, command.worktree, tree?.branch);
       if (this.busyWorktrees.has(key)) throw new Error("This worktree is busy");
       this.busyWorktrees.add(key);
       try {

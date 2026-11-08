@@ -1,3 +1,4 @@
+import { worktreeReservation } from "./worktree-reservations";
 import type { StoredSession } from "./session-restore.d";
 import {
   discoverRemoteSessions,
@@ -689,7 +690,7 @@ export class WorkspaceContext {
       if (removed) await this.orchestration.worktreeRemoved(worktree);
       return removed;
     }
-    const key = `${repository}\0${branch ?? ""}`;
+    const key = worktreeReservation(repository, worktree, branch);
     if (this.busyWorktrees.has(key)) throw new RemovalError("busy", "This worktree is busy");
     this.busyWorktrees.add(key);
     // This capability belongs to this acquisition, not to whichever operation

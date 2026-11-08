@@ -145,6 +145,7 @@ export interface WorkspaceMethods {
     closeSignal?: AbortSignal,
     startup?: SidebarStartup,
     heldReservation?: string,
+    onCloseReview?: (pending: boolean) => Promise<void>,
   ): Promise<SidebarCommandResult>;
   auditHuman(
     action: string,

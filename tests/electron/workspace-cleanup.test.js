@@ -996,3 +996,108 @@ test("closing a board declines its queued cleanup and releases its repository be
     false,
   );
 });
+
+test("detached removals share one review per checkout and approve independently", {
+  timeout: deadline(60_000),
+}, async (context) => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-detached-removals-")));
+  removeAfterApps(context, root);
+  const repo = path.join(root, "repo");
+  const home = path.join(root, "home");
+  await mkdir(repo);
+  await mkdir(home);
+  const git = (...args) =>
+    isolatedGit(["-c", "user.name=Test", "-c", "user.email=test@example.com", ...args], {
+      cwd: repo,
+    });
+  git("init", "-q", "-b", "main");
+  git("commit", "-q", "--allow-empty", "-m", "init");
+  const paths = [path.join(root, "review-one"), path.join(root, "review-two")];
+  for (const tree of paths) git("worktree", "add", "--detach", tree, "HEAD");
+  const app = await launchApp(context, { fixture: "empty-board", home });
+  fixtureCleanup(context).apps.unshift(async () => {
+    await app.evaluate(() => globalThis.detachedAbort?.abort()).catch(() => {});
+  });
+  const board = await boardPage(app);
+  await app.evaluate(({ app, dialog }, repo) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { Workspace } = load("./build/main/workspace/workspace.js");
+    const snapshot = Workspace.prototype.snapshot;
+    Workspace.prototype.snapshot = function (...args) {
+      globalThis.detachedOwner = this.owner;
+      return snapshot.apply(this, args);
+    };
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
+  }, repo);
+  await board.evaluate(() => window.desktop.addRepository());
+  await board.evaluate(() => window.desktop.workspace());
+  await app.evaluate((_, repo) => {
+    globalThis.detachedAbort = new AbortController();
+    globalThis.detachedAnswers = {};
+    globalThis.detachedReviews = [];
+    globalThis.startDetachedRemoval = (path, id) => {
+      const owner = globalThis.detachedOwner;
+      void (async () => {
+        const identity = await owner.deps.worktrees.launchIdentity(repo, path);
+        return owner.cleanup.removeOwnedTree(
+          repo,
+          path,
+          identity,
+          (branch, changes) => {
+            globalThis.detachedReviews.push(id);
+            return owner.deps.dialog(
+              {
+                title: "Remove worktrees?",
+                accept: "Approve all",
+                removal: {
+                  group: "detached-regression",
+                  item: { id, branch, path, changes },
+                },
+              },
+              globalThis.detachedAbort.signal,
+            );
+          },
+          () => {},
+        );
+      })().then(
+        (answer) => {
+          globalThis.detachedAnswers[id] = answer;
+        },
+        (error) => {
+          globalThis.detachedAnswers[id] = String(error);
+        },
+      );
+    };
+  }, repo);
+  await app.evaluate((_, tree) => globalThis.startDetachedRemoval(tree, "one"), paths[0]);
+  const dialog = await confirmationPage(app);
+  await expect(
+    dialog.getByRole("heading", { name: "Remove worktree?", exact: true }),
+  ).toBeVisible();
+  await app.evaluate((_, paths) => {
+    globalThis.startDetachedRemoval(paths[0], "duplicate");
+    globalThis.startDetachedRemoval(paths[1], "two");
+  }, paths);
+  await expect(
+    dialog.getByRole("heading", { name: "Remove worktrees?", exact: true }),
+  ).toBeVisible();
+  await expect(dialog.getByRole("checkbox")).toHaveCount(2);
+  await expect.poll(() => app.evaluate(() => globalThis.detachedReviews)).toEqual(["one", "two"]);
+  // A subset approval deletes the first checkout once and preserves the other.
+  await dialog.getByRole("checkbox").nth(0).check();
+  await dialog.getByRole("button", { name: "Approve selected", exact: true }).click();
+  await expect
+    .poll(() => app.evaluate(() => globalThis.detachedAnswers))
+    .toEqual({ one: true, duplicate: true, two: false });
+  assert.equal(require("node:fs").existsSync(paths[0]), false);
+  assert.equal(require("node:fs").existsSync(paths[1]), true);
+  // The declined checkout has released its reservation and can be reviewed again.
+  await app.evaluate((_, tree) => globalThis.startDetachedRemoval(tree, "retry"), paths[1]);
+  const retry = await confirmationPage(app);
+  await expect(retry.getByRole("heading", { name: "Remove worktree?", exact: true })).toBeVisible();
+  await retry.getByRole("button", { name: "Remove worktree", exact: true }).click();
+  await expect.poll(() => app.evaluate(() => globalThis.detachedAnswers.retry)).toBe(true);
+  assert.equal(require("node:fs").existsSync(paths[1]), false);
+});

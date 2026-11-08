@@ -251,7 +251,14 @@ for (const scenario of [
           ).toBeEnabled();
           await dialog.screenshot({ path: evidencePath("review-worktree-dirty-confirmation.png") });
           await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
-          await pendingClose;
+          const waiting = await pendingClose;
+          assert.equal(waiting.status, "pending_confirmation");
+          await expect
+            .poll(
+              async () =>
+                (await tool("operation_status", { operationId: waiting.operationId })).status,
+            )
+            .toBe("declined");
           assert.ok(existsSync(reviewRow.worktree));
           await expect(page.locator(`[data-drag-session="${reviewer.resultId}"]`)).toBeVisible();
           const approvedClose = tool("close", {
@@ -264,7 +271,14 @@ for (const scenario of [
           await dialog
             .getByRole("button", { name: "Discard changes and remove", exact: true })
             .click();
-          await approvedClose;
+          const approving = await approvedClose;
+          assert.equal(approving.status, "pending_confirmation");
+          await expect
+            .poll(
+              async () =>
+                (await tool("operation_status", { operationId: approving.operationId })).status,
+            )
+            .toBe("succeeded");
         } else {
           assert.equal(
             (await tool("close", { id: reviewer.resultId, idempotencyKey: "close-clean-review" }))

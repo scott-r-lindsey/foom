@@ -169,7 +169,7 @@ export class Operations {
     if (!entry) throw new ControlError("not_found");
     const [index, prior] = entry;
     if (
-      prior.operation.action !== "remove_worktree" ||
+      !["remove_worktree", "close"].includes(prior.operation.action) ||
       !["running", "pending_confirmation"].includes(prior.operation.status)
     )
       throw new ControlError("conflict");

@@ -143,6 +143,7 @@ export class FinishedChildCloser {
         this.closing.delete(id);
         return;
       }
+      const closeOperation = operation;
       const closed = await this.host.close(
         id,
         () => {
@@ -150,6 +151,13 @@ export class FinishedChildCloser {
             throw new Error("Child close eligibility changed");
         },
         scope.signal,
+        async (reviewing) => {
+          owned.note(
+            reviewing
+              ? await operations.reviewRemoval(actor, closeOperation.operationId)
+              : await operations.finish(actor, closeOperation.operationId, "running", "intent"),
+          );
+        },
       );
       await this.finish(
         owned,
