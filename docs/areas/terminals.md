@@ -138,7 +138,7 @@ chunk normal/alternate buffers, delayed ACKs, watermarks and ordered resize stag
 
 ## Terminal context menu (#936)
 
-Right-clicking a terminal opens a pointer-positioned menu: Copy (disabled without
+Right-clicking a terminal outside a link opens a pointer-positioned menu: Copy (disabled without
 an xterm selection), Paste, Select all and Clear, then a separator and the tile's
 existing Split/Grow pads. Clear removes the visible view's scrollback with xterm's
 clear operation; it does not send a command to the shell. Copy and Paste focus the clicked terminal, independently of Copy on select.
@@ -153,6 +153,99 @@ xterm can clear the selection or report them to the program. The menu remains op
 scroll events from focus changes or output. There is no helper copy. Escape and outside clicks dismiss; shared menu focus restoration returns
 to the originating terminal, preserving a newer outside focus choice (#903).
 The [board rules](board.md) own the unchanged directional controls.
+
+## Links in terminal output (#1065)
+
+OSC 8 targets and plain HTTP(S) URLs have a link-specific menu containing only
+Copy link and Open link, including from any row of a wrapped link and with no prior
+pointer movement. It has no selection commands or Split/Grow pads. Non-link targets
+keep the ordinary terminal menu. Right-click preserves the xterm selection, which
+can still be copied from the non-link menu. Both menus retain the existing keyboard
+navigation, dismissal and focus restoration. Links remain
+usable in attached output after a normal process exit.
+Only a trusted primary-button gesture or keyboard Enter on a focused link opens;
+right and middle clicks never activate, including after a preceding primary click.
+Mouse-reporting applications retain right-click; Shift opens Foom's menu as above.
+Hover and keyboard focus highlight every visible segment of a link; hover exposes
+the complete target URL. The link overlay never intercepts pointer selection or
+mouse reports. Parse, scroll and resize events only mark links dirty; the one
+viewport sweep runs from xterm's coalesced render event, never from per-line
+parser scroll callbacks. Cursor-only frames do no sweep when links are clean. Output parsing alone never opens or copies anything.
+
+OSC 8 uses its complete target even when its label differs or spans rows. Plain
+URLs join only rows xterm marks as soft-wrapped. Hard-newline plain URLs stay
+separate; Foom never guesses that the next row continues a URL. No real Claude
+Code sign-in capture was taken for this issue, so whether that screen uses OSC 8,
+soft wraps or hard wraps remains unknown. OSC 52 clipboard support is separate
+work in #1073.
+
+The renderer's pinned-xterm adapter reads OSC IDs from cells and resolves their
+registered target through xterm 6's OSC service, with runtime shape checks.
+The active extended-attributes flag is checked before reading its OSC ID; reused
+xterm cells retain stale extended values even when that flag is off. It
+never substitutes label text for an unavailable or refused OSC target. Lookup
+is bounded. Native xterm OSC
+activation is inert; Foom independently checks the gesture and pointer coordinates.
+Keyboard links precede xterm's input in Tab order and share the same lookup,
+highlighting and activation path. Shift+F10 or the Menu key opens the focused
+link's context menu, including while a program owns mouse reports.
+Headless snapshots retain OSC targets through a synchronous, scoped facade around
+the pinned serializer's buffer-range method. A read-only planning pass counts
+contiguous OSC runs over the ranges actually serialized (including cursor-row
+replays); a second pass adds metadata. Snapshots without linked cells use the
+first result directly. Wide-character width-zero placeholders and contiguous
+soft wraps do not split a run. The target-bearing opening/closing reservations
+are bounded to 4,194,304 UTF-16 units, including an open live pen. Every occurrence
+of an OSC ID is retained or degraded together. IDs touching visible rows in
+both buffers receive budget first, followed by history from newest to oldest.
+Excess IDs use
+fixed inert OSC markers; cells, SGR, widths, cursor accounting and wrapping stay
+intact. Fixed inert markers are outside the target reservation; the host retains
+its original metadata. Normal/alternate splitting uses the same serialized
+result's checked transition marker. No wrapper survives success or failure.
+
+The ordinary transport bound may reduce replayed history, then replay all visible
+cells in one opaque run if targets still prevent fitting. That run ends at the
+snapshot boundary: the actual host OSC pen (closed or open) is always restored
+before live output, independently of historical target degradation. The remote
+daemon uses this same manager snapshot, includes the restored pen in its counted
+payload and forwards live data afterward. Refused/degraded labels never become
+plain links, and later unlinked output remains unlinked. OSC targets must never
+make an otherwise fitting visible screen impossible to reattach.
+
+Pinned xterm limitation: ESC 8 or leaving the alternate screen can clear the
+active extended-attribute flag while retaining a dormant `urlId`. A later SGR
+underline operation can re-arm it on the host. Replay restores the active pen,
+not this dormant metadata, so that later cell remains unlinked in the view until
+an explicit OSC 8 open. Recreating an inactive ID through ESC 7/8 would overwrite
+the application's saved cursor and attributes; preserving those would require
+additional saved-state internals beyond the current adapter. This fails closed;
+replay never grants a stale inactive target link authority.
+
+Main revalidates the registered board main frame, owned attached terminal ID,
+URL type, length (at most 16,384 UTF-16 units), URL parse, HTTP(S) scheme and
+hostname length (at most 255 characters, keeping the host disclosure bounded). Targets
+must be printable ASCII, exactly equal to parsed `URL.href`, and contain no
+username or password (userinfo). Noncanonical forms, Unicode look-alikes and
+default-ignorable/format characters refuse. Control,
+whitespace and bidi presentation characters refuse. Copy uses main's clipboard
+write path and preserves the exact target. Open uses Electron's browser opener,
+never a shell command. Both capabilities are local; neither is exposed to the
+remote host or agent control tools. The window-open, navigation and CSP policies
+remain unchanged.
+
+**User decision (#1065): every link activation shows Foom's trusted confirmation
+with the full target URL. Nothing skips it.** This replaces the user's earlier
+matching-text skip rule. Plain URLs, matching or differing OSC 8 labels and long
+OAuth URLs all confirm, whether activated by primary click, Enter or Open link.
+
+The owning board's separate trusted window shows the parsed host and full wrapped,
+scrollable target. Cancel is focused by default, so Enter initially cancels;
+opening requires approval with Open in browser. The existing trusted-window
+presentation, input and approval guards remain in force. Only one open request
+per board can be pending. Detachment, view replacement or renderer loss cancels a
+pending request; main rechecks the attachment lease after approval before opening.
+Copy link writes the exact validated target without a confirmation.
 
 ## Image paste (#937)
 

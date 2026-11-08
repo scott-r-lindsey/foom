@@ -1,3 +1,4 @@
+import type { DialogContent } from "../../../src/shared/confirmation";
 import { previewMock, mock, start, quitting, invokeWindow, newWindow } from "./main-fixture";
 import type { Settings } from "../../../src/shared/setup";
 
@@ -386,4 +387,29 @@ test("terminal clipboard permission reads the current copy-on-select preference"
   expect(mock.copyOnSelect()).toBe(true);
   enabled = false;
   expect(mock.copyOnSelect()).toBe(false);
+});
+
+test("terminal link review uses its owning board's trusted dialog and attachment cancellation signal", async () => {
+  await start();
+  await newWindow();
+  await vi.waitFor(() => {
+    expect(mock.terminals.setLinkConfirmation).toHaveBeenCalledTimes(2);
+  });
+  const content: DialogContent = {
+    title: "Open this link?",
+    accept: "Open in browser",
+    subject: "actual.example.test",
+  };
+  const signal = new AbortController().signal;
+  for (const [contents, confirm] of mock.terminals.setLinkConfirmation.mock.calls) {
+    const owner = mock.instances.find((window) => window.webContents === contents);
+    if (!owner) throw new Error("Missing owning board");
+    mock.message.mockResolvedValueOnce({ response: 1 });
+    await expect(confirm(content, signal)).resolves.toBe(true);
+    expect(mock.confirmParent).toHaveBeenLastCalledWith(owner);
+    expect(mock.confirmSignal).toHaveBeenLastCalledWith(signal);
+    expect(mock.message).toHaveBeenLastCalledWith(content);
+    mock.message.mockResolvedValueOnce({ response: 0 });
+    await expect(confirm(content, signal)).resolves.toBe(false);
+  }
 });
