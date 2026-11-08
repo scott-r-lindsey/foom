@@ -73,7 +73,11 @@ test("uses bounded SSH discovery and a fixed catalog path, validates version and
   expect(mock.execFile).toHaveBeenLastCalledWith(
     "ssh",
     expect.arrayContaining(["--", "fixture", "uname -s; uname -m"]),
-    expect.objectContaining({ timeout: 10000, maxBuffer: 256, shell: false }),
+    expect.objectContaining({
+      timeout: 10000,
+      maxBuffer: 16384,
+      shell: false,
+    }),
     expect.any(Function),
   );
   expect(sshEnvironment()).not.toHaveProperty("FOOM_CONTROL_TOKEN");

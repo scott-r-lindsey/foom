@@ -1440,3 +1440,46 @@ test("returning to Hosts reattaches the window's install without starting anothe
   expect(disposed).toHaveBeenCalledOnce();
   expect(close).not.toHaveBeenCalled();
 });
+
+test("unknown SSH keys offer only the host-specific trust action or copyable fallback", async () => {
+  for (const supported of [true, false]) {
+    const copyHost = vi.fn(() => Promise.resolve());
+    const state: HostsState = {
+      ...initial,
+      hosts: [
+        {
+          ...host,
+          hostKeyTrust: supported ? "askpass" : "manual",
+          result: {
+            ok: false,
+            reason: "unreachable",
+            connection: {
+              ssh: { state: "fail", reason: "host-key-unknown" },
+              platform: { state: "not-checked" },
+              artifact: { state: "not-checked" },
+            },
+          },
+        },
+      ],
+    };
+    const api = vi.fn(() => Promise.resolve(state));
+    const view = render(
+      <HostsSettings source={{ hosts: api, copyHost }} headingRef={createRef()} />,
+    );
+    await screen.findByRole("region", { name: "worker" });
+    expandHosts();
+    await screen.findByText("Host key not trusted");
+    if (supported) {
+      fireEvent.click(screen.getByRole("button", { name: "Trust host key" }));
+      await waitFor(() => {
+        expect(api).toHaveBeenCalledWith({ action: "trust-host-key", host: "worker" });
+      });
+    } else {
+      expect(screen.queryByRole("button", { name: "Trust host key" })).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Copy SSH command" }));
+      expect(copyHost).toHaveBeenCalledWith({ kind: "copy-host-ssh-command", host: "worker" });
+    }
+    view.unmount();
+    expect(api).toHaveBeenCalledWith({ action: "cancel-trust" });
+  }
+});

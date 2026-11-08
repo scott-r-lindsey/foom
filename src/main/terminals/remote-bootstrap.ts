@@ -1,3 +1,4 @@
+import { sshFailure } from "../../node-common/ssh-askpass";
 import { LaunchFailure } from "../../shared/launch-failure";
 import { remotePath } from "../../shared/remote-agent-protocol";
 import { ApplicationError } from "../../shared/application-errors";
@@ -258,6 +259,12 @@ export function sshEnvironment(): NodeJS.ProcessEnv {
 }
 
 export class UnsupportedRemotePlatform extends Error {}
+/** A main-owned OpenSSH diagnostic, including checks without checklist observers. */
+export class SshConnectionFailure extends LaunchFailure {
+  constructor(readonly failure: ReturnType<typeof sshFailure>) {
+    super("remote_host_unreachable");
+  }
+}
 
 /** Strict uname output mapping; remote text is never used as a path or shell code. */
 export function remotePlatform(output: string) {
@@ -310,14 +317,18 @@ export async function selectHostArtifact(
     }
   }
   output?.("Connecting…\nPlatform\n", true);
-  const probe = promisify(execFile)("ssh", [...sshArguments(target.host), "uname -s; uname -m"], {
-    env: sshEnvironment(),
-    shell: false,
-    timeout: 10000,
-    maxBuffer: 256,
-    encoding: "utf8",
-    ...(signal ? { signal } : {}),
-  });
+  const probe = promisify(execFile)(
+    "ssh",
+    ["-o", "StrictHostKeyChecking=yes", ...sshArguments(target.host), "uname -s; uname -m"],
+    {
+      env: { ...sshEnvironment(), LC_ALL: "C" },
+      shell: false,
+      timeout: 10000,
+      maxBuffer: 16384,
+      encoding: "utf8",
+      ...(signal ? { signal } : {}),
+    },
+  );
   if (output) {
     probe.child.stdout?.on("data", (text: string) => {
       output(text);
@@ -326,9 +337,11 @@ export async function selectHostArtifact(
       output(text);
     });
   }
-  const { stdout } = await probe.catch(() => {
-    observe?.("ssh", { state: "fail", reason: "unreachable" });
-    throw new LaunchFailure("remote_host_unreachable");
+  const { stdout } = await probe.catch((error: unknown) => {
+    const stderr = error instanceof Error && "stderr" in error ? error.stderr : undefined;
+    const failure = sshFailure(stderr);
+    observe?.("ssh", { state: "fail", reason: failure });
+    throw new SshConnectionFailure(failure);
   });
   observe?.("ssh", { state: "pass" });
   let remote: ReturnType<typeof remotePlatform>;

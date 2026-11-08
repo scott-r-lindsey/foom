@@ -19,6 +19,9 @@ import type { SetupSource } from "./setup-source.d";
 import type { Repository } from "../../shared/worktrees";
 const reasons: Record<HostFailure, string> = {
   unreachable: "Host unreachable",
+  "host-key-unknown": "Host key not trusted",
+  "host-key-changed": "Host key changed",
+  "login-rejected": "Login rejected",
   "version-mismatch": "Host version mismatch",
   "provider-invalid": "Agent configuration unavailable",
   "configuration-changed": "Agent configuration changed",
@@ -152,7 +155,12 @@ function checkPresentation(
 ): { tone: Tone; text: string } {
   if (check?.state === "pass") return { tone: "pass", text: `Pass · ${pass}` };
   if (check?.state === "fail")
-    return { tone: "fail", text: `${reasons[check.reason]} · ${check.reason}` };
+    return {
+      tone: "fail",
+      text: ["host-key-unknown", "host-key-changed", "login-rejected"].includes(check.reason)
+        ? reasons[check.reason]
+        : `${reasons[check.reason]} · ${check.reason}`,
+    };
   return { tone: "neutral", text: "Not checked" };
 }
 export function hostProgressText(progress: HostCheckProgress | undefined): string {
@@ -196,7 +204,9 @@ function Checklist({
   changeFolder,
   openAgents,
   enabledAgents,
+  copySsh,
 }: {
+  copySsh: () => Promise<unknown>;
   openAgents?: ((host: string) => void) | undefined;
   enabledAgents?: Readonly<Record<string, boolean>> | undefined;
   entry: HostRow;
@@ -314,6 +324,23 @@ function Checklist({
         target={{ kind: "ssh" }}
         name="SSH"
         {...checkPresentation(connection?.ssh, "Host key trusted")}
+        action={
+          connection?.ssh.state === "fail" && connection.ssh.reason === "host-key-unknown" ? (
+            entry.hostKeyTrust === "askpass" ? (
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => {
+                  act({ action: "trust-host-key", host: entry.host });
+                }}
+              >
+                Trust host key
+              </button>
+            ) : (
+              <CopyValue value={`ssh ${entry.host}`} label="Copy SSH command" copy={copySsh} />
+            )
+          ) : undefined
+        }
       />
       <Row
         target={{ kind: "platform" }}
@@ -751,6 +778,7 @@ export function HostsSettings({
     })();
     return () => {
       active = false;
+      void Promise.resolve(api?.({ action: "cancel-trust" })).catch(() => undefined);
     };
   }, [api]);
   const act = async (action: HostsAction) => {
@@ -1088,6 +1116,10 @@ export function HostsSettings({
                 }}
               >
                 <Checklist
+                  copySsh={() =>
+                    source.copyHost?.({ kind: "copy-host-ssh-command", host: entry.host }) ??
+                    Promise.reject(new Error("Copy unavailable"))
+                  }
                   enabledAgents={agents}
                   openAgents={openAgents}
                   entry={entry}

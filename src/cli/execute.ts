@@ -1,3 +1,4 @@
+import { sshAskpass } from "../node-common/ssh-askpass";
 import { boardCommand } from "./message-board";
 import { mcpCommand } from "./mcp";
 import { hookCommand } from "./hook";
@@ -21,6 +22,11 @@ export async function execute(
   env: NodeJS.ProcessEnv,
   executable: string,
 ): Promise<number> {
+  if (env["FOOM_ASKPASS_SOCKET"] !== undefined) return sshAskpass(args, env, io.out);
+  if (args[0] === "ssh-askpass") {
+    if (args.length === 2 && args[1] === "--probe") return 0;
+    return sshAskpass(args.slice(1), env, io.out);
+  }
   if (args[0] === "mcp") return mcpCommand(args, io, env);
   if (args[0] === "hook") return hookCommand(args, io.input, env);
   const json = args.includes("--json");

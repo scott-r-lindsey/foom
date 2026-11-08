@@ -13,10 +13,17 @@ vi.mock("electron", () => ({
 import { attachSetup } from "../../../../src/main/setup/setup-ipc";
 
 const frame = { url: "app://bundle/index.html" };
-const contents = { mainFrame: frame, isDestroyed: vi.fn(() => false), send: vi.fn() };
+const contents = {
+  on: vi.fn<(event: string, listener: (...args: unknown[]) => void) => void>(),
+  removeListener: vi.fn(),
+  mainFrame: frame,
+  isDestroyed: vi.fn(() => false),
+  send: vi.fn(),
+};
 const window = { webContents: contents } as unknown as BrowserWindow;
 const trusted = { sender: contents, senderFrame: frame };
 const setup = {
+  cancelHostTrust: vi.fn(),
   copyHost: vi.fn(),
   hosts: vi.fn(() => "hosts"),
   restartToUpdate: vi.fn(() => Promise.resolve()),
@@ -181,4 +188,19 @@ test("host copy accepts exactly one validated command and routes no raw text", (
   expect(setup.copyHost).toHaveBeenCalledExactlyOnceWith(command);
   for (const args of [[], [command, "arbitrary"]])
     expect(() => invoke("setup:copy-host", args)).toThrow();
+});
+
+test("navigation, renderer loss and disposal cancel only the window's host trust run", () => {
+  for (const event of ["destroyed", "render-process-gone"]) {
+    const listener = contents.on.mock.calls.find(([name]) => name === event)?.[1];
+    listener?.();
+  }
+  const navigate = contents.on.mock.calls.find(([name]) => name === "did-start-navigation")?.[1];
+  navigate?.({}, "app://bundle/index.html", true, true);
+  navigate?.({}, "other", false, false);
+  expect(setup.cancelHostTrust).toHaveBeenCalledTimes(2);
+  navigate?.({}, "other", false, true);
+  expect(setup.cancelHostTrust).toHaveBeenCalledTimes(3);
+  attached.dispose();
+  expect(setup.cancelHostTrust).toHaveBeenCalledTimes(4);
 });

@@ -28,7 +28,7 @@ Add host accepts an optional nickname with the same validation and inline errors
 main validates it again and saves it only together with a successful enrollment. Folder changes and canonical expansion preserve nicknames.
 
 `setup:hosts` accepts one closed action from the registered board main frame:
-list, progress, dismiss-output, test, add, rename, preflight, draft-preflight, create-folder, change-folder, refresh, remove, locations, clone, trust-origin, end, recipe or reload. Main selects enabled agent
+list, progress, dismiss-output, test, add, rename, preflight, draft-preflight, create-folder, change-folder, refresh, remove, locations, clone, trust-origin, trust-host-key, cancel-trust, end, recipe or reload. Main selects enabled agent
 executables from its validated manifest catalog. Renderer inputs cannot choose
 remote commands, probe arguments, origins or checkout destinations. Replies are
 validated in preload and rebuilt from declared fields. Failures retain fixed states/reasons. Explicit Add and check actions additionally
@@ -55,8 +55,7 @@ for its private cache work. The daemon retains that mask before applying 077 to
 its own files. Every new remote shell or agent PTY, on a machine or in a repository,
 starts with the captured mask; login shell startup may then override it. Foom's
 cache, sockets, control files and other private artifacts remain 0700/0600.
-Reattachment retains the existing PTY and its current mask (#1047). A management request has no terminal ID and creates no PTY. Existing
-SSH host-key trust applies; Foom never accepts a key or prompts for credentials.
+Reattachment retains the existing PTY and its current mask (#1047). A management request has no terminal ID and creates no PTY. OpenSSH owns host-key trust. Foom relays only the user’s explicit answer to its unknown-host question and never reads or writes known_hosts itself; credential prompts are refused.
 Removing a registration only forgets it: it sends no stop, kill or session-close
 operation, including when the last observation reports live sessions.
 
@@ -658,3 +657,46 @@ share the machine budget. Fresh measurements and reservations are separate from
 cached host checks and inventory. Humans remain unrestricted. Older daemons and
 unreadable measurements allow unmeasured starts. See the [wire facts, thresholds
 and retry rules](../contracts/control-mutations.md#child-host-pressure-1046).
+
+## Accepting a new SSH host key (#1059)
+
+Add and Check capabilities retain BatchMode=yes. The bounded platform probe uses
+StrictHostKeyChecking=yes and the C locale so OpenSSH reports an unknown key
+explicitly. At most 16 KiB of stderr is classified as host-key-unknown,
+host-key-changed, login-rejected, or unreachable; generic verification failures
+never offer trust. Daemon replies cannot supply local SSH classifications or
+connection observations. Legacy saved unreachable observations still load.
+
+Only a registered host whose latest SSH observation is host-key-unknown can
+request trust-host-key. Main checks OpenSSH >= 8.4 and the bundled console helper;
+Windows and unsupported clients show a copyable `ssh HOST` fallback. No other
+SSH call receives askpass variables or changes its environment allowlist.
+
+Main resolves the host through bounded `ssh -G` output, including HostKeyAlias and
+nonstandard ports. One detached SSH process runs a fixed `true` command with
+BatchMode=no, StrictHostKeyChecking=ask, forced SSH_ASKPASS, password and
+keyboard-interactive authentication disabled, no forwarding, no control-master
+reuse, no local/remote configured command, no terminal and ignored stdio. Display
+and terminal variables are absent. OpenSSH fetches the key and writes known_hosts.
+
+The packaged Node SEA console dispatches ssh-askpass without Electron RunAsNode.
+SSH invokes that verified binary directly; the per-run environment selects its
+askpass adapter, without a temporary executable or shell launcher.
+A 0700 mkdtemp directory holds a Unix socket, authenticated
+by a random per-run credential. Both ends strictly parse the complete unknown-host
+question; main also matches its host to the resolved registered target. Only parsed
+host, key type and SHA256 fingerprint reach the trusted main-owned confirmation.
+Non-host-key, changed-key, secret, malformed and unmatched prompts fail closed.
+Unexpected OpenSSH question variants are refused rather than displayed verbatim.
+Only one question can receive an answer per run. Cancel is focused by default;
+Cancel, Escape and close decline. No renderer payload can provide the answer.
+
+The run expires after two minutes. Cancellation, Settings section exit, board
+navigation/loss, window disposal and quit abort the dialog and kill the detached
+SSH group, revoke its credential and remove its directory. Accepted first-time
+hosts rerun their first full check automatically, using the existing output panel.
+An earlier successful observation (including retained lastAgents) prevents an
+automatic full check; Check capabilities remains explicit for established hosts.
+Declining preserves the failed observation. Changed keys require manual repair.
+The human reviews light/dark row and dialog screenshots and merges; a real new
+host must be verified manually before merge because automated tests use fixtures.

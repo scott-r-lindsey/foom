@@ -26,7 +26,7 @@ export interface SetupDependencies {
   hostsChanged?: () => void;
   launchHostRecipe?: (target: RemoteTarget, finished?: () => void) => Promise<unknown>;
   copyText?: (value: string) => void | Promise<void>;
-  confirmRemoteSessions?: (content: DialogContent) => Promise<boolean>;
+  confirmRemoteSessions?: (content: DialogContent, signal?: AbortSignal) => Promise<boolean>;
   updates?: () => UpdateState;
   restartToUpdate?: () => Promise<void>;
   gitReadiness?: () => Promise<ReadinessReport>;
@@ -71,14 +71,27 @@ export class Setup {
     if (!this.deps.hosts || !this.deps.copyText) throw new Error("Copy unavailable");
     await this.deps.copyText(this.deps.hosts.copyValue(input));
   }
+  private hostTrust = new AbortController();
+  cancelHostTrust(): void {
+    this.hostTrust.abort();
+    this.hostTrust = new AbortController();
+  }
   hosts(input: unknown) {
+    if (hostsAction(input) && input.action === "cancel-trust") this.cancelHostTrust();
     if (!this.deps.hosts) throw new Error("Hosts unavailable");
     return this.deps.hosts
-      .action(input, this.deps.confirmRemoteSessions, this.deps.launchHostRecipe)
+      .action(
+        input,
+        this.deps.confirmRemoteSessions,
+        this.deps.launchHostRecipe,
+        this.hostTrust.signal,
+      )
       .then((state) => {
         if (hostsAction(input)) {
           if (input.action === "rename") this.refresh();
-          if (!["progress", "dismiss-output", "list", "reload"].includes(input.action))
+          if (
+            !["progress", "dismiss-output", "cancel-trust", "list", "reload"].includes(input.action)
+          )
             this.deps.hostsChanged?.();
         }
         return state;

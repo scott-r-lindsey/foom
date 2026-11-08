@@ -284,3 +284,12 @@ it("dispatches board text-file commands and permits the model's recipient and li
     2,
   );
 });
+
+it("dispatches the internal askpass adapter without profiles and refuses secret prompts", async () => {
+  expect(await execute(["ssh-askpass", "--probe"], "1", io(), {}, "/foom")).toBe(0);
+  expect(await execute(["ssh-askpass", "Password:"], "1", io(), {}, "/foom")).toBe(1);
+  expect(
+    await execute(["--probe"], "1", io(), { FOOM_ASKPASS_SOCKET: "/fixture/socket" }, "/foom"),
+  ).toBe(1);
+  expect(pair).not.toHaveBeenCalled();
+});

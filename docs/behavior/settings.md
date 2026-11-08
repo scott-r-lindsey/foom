@@ -369,7 +369,7 @@ for the profile and cleanup rules.
 ### Hosts checklist refresh (#1061)
 
 **Check capabilities** checks the whole host; Add performs its first check.
-Other Hosts actions never start a full check. Rename is local. Folder actions
+Accepting a new SSH key may rerun the first check only if the host has never had a successful check. Other Hosts actions never start a full check. Rename is local. Folder actions
 refresh the folder from their successful reply and mark affected repositories **Not checked**.
 A failed replacement reports the attempted change and preserves the registered folder's result.
 Clone/Trust origin update that repository. Install stays in Settings in an
@@ -405,3 +405,18 @@ Clipboard reads are always refused. Only the default or explicit clipboard targe
 is accepted; primary selection and other targets are ignored. Malformed or oversized
 writes are ignored. Showing a hidden terminal or reconnecting never repeats old
 clipboard writes. This preference is available only in Settings, not config files.
+
+### New SSH host keys (#1059)
+
+An unknown SSH key shows **Host key not trusted** and **Trust host key** in Hosts.
+The trusted confirmation shows the host, key type and fingerprint. Verify it
+against a trusted source before choosing **Trust host key**. Cancel is focused;
+Cancel, Escape and close decline. OpenSSH saves an accepted key, then Foom reruns
+the first check automatically for a host that has never passed. Check output
+appears in the existing read-only panel. Established hosts require an explicit
+Check capabilities after trust. Declining keeps the failed state.
+
+Changed keys show **Host key changed** with no trust action; repair those manually.
+Authentication failures show **Login rejected**; other failures show **Host
+unreachable**. On unsupported SSH clients or Windows, copy `ssh HOST` and verify
+the key in a terminal. Foom never handles passwords or writes known_hosts itself.

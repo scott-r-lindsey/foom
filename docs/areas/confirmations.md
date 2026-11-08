@@ -252,3 +252,13 @@ Long receipt commands use a main-authored middle-truncated line with the complet
 command retained in the tooltip and accessible name, alongside its exit and elapsed
 time. The preload applies the same bounded, control-free summary validation to
 both command forms.
+
+### SSH host-key trust (#1059)
+
+Settings → Hosts uses TrustedDialog for OpenSSH’s unknown-host question. Main
+supplies only the strictly parsed, registered-target-matched host, key type and
+SHA256 fingerprint. Cancel has default focus; Escape and native close decline.
+The board can request trust for an eligible registration but cannot supply an
+answer. Run cancellation aborts visible or queued confirmation via its signal.
+Foom relays only an explicit trusted-window answer; OpenSSH owns known_hosts.
+See [host-key lifetime and helper boundary](hosts.md#accepting-a-new-ssh-host-key-1059).

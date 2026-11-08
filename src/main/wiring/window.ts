@@ -323,7 +323,8 @@ export async function buildWindow(
       }
     },
     copyText: (text) => clipboard.writeText(text),
-    confirmRemoteSessions: (content) => confirmations.request(content),
+    confirmRemoteSessions: (content, signal) =>
+      confirmations.request(content, signal, { activate: true }),
     hosts: hostsForStore(
       wiring.settings,
       wiring.worktrees.listRepositories.bind(wiring.worktrees),

@@ -56,3 +56,8 @@ FLAC block and comment counts are checked before the parser can allocate tag arr
 with no file/network access. Missing duration is invalid.
 This checks container metadata, not sample decoding; playback still verifies that
 Chromium can decode the audio and checks its samples.
+
+The internal `ssh-askpass` entry point (#1059) runs only the bounded, per-run Unix
+socket exchange for [host-key confirmation](hosts.md#accepting-a-new-ssh-host-key-1059).
+It opens no profile/discovery files, accepts no secret prompts, and requires the
+private run credential. Its --probe mode verifies helper availability without SSH.

@@ -1,3 +1,4 @@
+import { askpassSupported, trustHostKey } from "./ssh-host-key";
 import type { HostOutput } from "../../shared/registered-hosts.d";
 import { selectHostRecipe } from "../../shared/registered-host-recipes";
 import type { RemoteTarget } from "../../shared/remote-host";
@@ -45,6 +46,14 @@ import type { RemoteSessionInfo, RemoteInventoryResult } from "../../shared/remo
 import { locationId } from "../control/metadata";
 import { remoteInventory, remoteManagement } from "../terminals/remote-transport";
 import { sshEnvironment } from "../terminals/remote-bootstrap";
+
+/** Background inspections carry the same main-classified failure without a checklist. */
+function unknownHostKey(result: HostResult | undefined): boolean {
+  const ssh = result?.connection?.ssh;
+  return ssh
+    ? ssh.state === "fail" && ssh.reason === "host-key-unknown"
+    : result?.ok === false && result.reason === "host-key-unknown";
+}
 
 /** Only the folder observation (including macOS's path warning) changes. */
 function folderObservation(facts: HostFacts, result: HostResult): HostFacts {
@@ -541,6 +550,7 @@ export class Hosts {
       throw new Error("Invalid host copy");
     const registered = this.registered(input.host);
     if (input.kind === "copy-host-alias") return registered.host;
+    if (input.kind === "copy-host-ssh-command") return `ssh ${registered.host}`;
     if (input.kind === "copy-host-code-folder") return registered.codeFolder;
     throw new Error("Invalid host copy");
   }
@@ -881,7 +891,22 @@ export class Hosts {
               : repo,
           ),
         };
-      if (target.kind === "ssh" || target.kind === "platform" || target.kind === "artifact")
+      if (target.kind === "ssh") {
+        const ssh = result.connection?.ssh ?? check;
+        return {
+          ...previous,
+          ssh,
+          result: {
+            ...previous.result,
+            connection: {
+              ssh,
+              platform: previous.platform,
+              artifact: previous.artifact,
+            },
+          },
+        };
+      }
+      if (target.kind === "platform" || target.kind === "artifact")
         return { ...previous, [target.kind]: result.connection?.[target.kind] ?? check };
       if (!previous.result.ok) return previous;
       const facts = previous.result.facts;
@@ -963,17 +988,49 @@ export class Hosts {
   }
   action(
     input: unknown,
-    confirm?: (content: DialogContent) => Promise<boolean>,
+    confirm?: (content: DialogContent, signal?: AbortSignal) => Promise<boolean>,
     launchRecipe?: (target: RemoteTarget, finished?: () => void) => Promise<unknown>,
+    trustSignal?: AbortSignal,
   ): Promise<HostsState> {
     if (!hostsAction(input)) return Promise.reject(new Error("Invalid host action"));
+    if (input.action === "cancel-trust") return Promise.resolve(this.state());
+    if (input.action === "trust-host-key") {
+      const host = input.host;
+      const signal = trustSignal
+        ? AbortSignal.any([this.cancellation.signal, trustSignal])
+        : this.cancellation.signal;
+      const work = this.pending
+        .catch(() => undefined)
+        .then(async () => {
+          const registration = this.registered(host);
+          const latest = this.results.get(host) ?? registration.observation?.preflight.result;
+          if (signal.aborted || !unknownHostKey(latest) || !confirm || !(await askpassSupported()))
+            return false;
+          this.registered(host, registration.codeFolder);
+          return trustHostKey(host, (content, signal) => confirm(content, signal), signal);
+        });
+      this.pending = work;
+      return work.then(async (accepted) => {
+        const registration = this.registered(host);
+        // Prior successes survive failed checks through lastAgents (#1061).
+        const observation = registration.observation;
+        if (
+          accepted &&
+          !signal.aborted &&
+          !observation?.preflight.result.ok &&
+          !observation?.lastAgents
+        )
+          return this.action({ action: "preflight", host, codeFolder: registration.codeFolder });
+        return this.trustState(this.state());
+      });
+    }
     if (input.action === "dismiss-output") {
       if (!this.output?.running) this.output = undefined;
       return Promise.resolve(this.state());
     }
     if (input.action === "progress") return Promise.resolve(this.state());
     if (input.action === "list" && !this.pendingRows.size && !this.pendingRecipeRefreshes)
-      return Promise.resolve(this.state(undefined, true));
+      return this.trustState(this.state(undefined, true));
     if (input.action === "rename")
       return this.updateRegistrations((hosts) => {
         this.registered(input.host);
@@ -1458,7 +1515,15 @@ export class Hosts {
       })
       .then((state) => ({ ...state, ...(this.output ? { output: this.output } : {}) }));
     this.pending = work;
-    return work;
+    return work.then((state) => this.trustState(state));
+  }
+  private async trustState(state: HostsState): Promise<HostsState> {
+    if (!state.hosts.some((row) => unknownHostKey(row.result))) return state;
+    const supported = await askpassSupported();
+    return {
+      ...state,
+      hosts: state.hosts.map((row) => ({ ...row, hostKeyTrust: supported ? "askpass" : "manual" })),
+    };
   }
   private async run(
     host: string,
