@@ -538,6 +538,11 @@ it.each(["before inspection", "during confirmation"])(
     if (phase === "before inspection") {
       expect(confirm).not.toHaveBeenCalled();
       expect(hosts.worktree).not.toHaveBeenCalled();
+      expect(() =>
+        host.launch("parent", "/local/repo", created.path, created.identity, "codex", undefined),
+      ).toThrow("conflict");
+      expect(caps.launchChild).not.toHaveBeenCalled();
+      expect(hosts.worktree).not.toHaveBeenCalled();
     }
     closing = false;
     expect(

@@ -82,7 +82,7 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
     const reservation = `${repository}\0:remote:${key}`;
     if (
       caps.busyWorktrees.has(reservation) ||
-      closingWorktree(caps.snapshot().terminals, reservation)
+      closingWorktree(caps.snapshot().terminals, reservation, key)
     )
       throw new ControlError("conflict");
     caps.busyWorktrees.add(reservation);
@@ -197,7 +197,10 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
           });
         }
         const key = `${repository}\0:adopt-pr-${String(number)}`;
-        if (caps.busyWorktrees.has(key) || closingWorktree(caps.snapshot().terminals, key))
+        if (
+          caps.busyWorktrees.has(key) ||
+          closingWorktree(caps.snapshot().terminals, key, undefined)
+        )
           throw new ControlError("branch_in_use");
         caps.busyWorktrees.add(key);
         let branchKey: string | undefined;
@@ -215,7 +218,7 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
                 );
                 if (
                   caps.busyWorktrees.has(candidate) ||
-                  closingWorktree(caps.snapshot().terminals, candidate)
+                  closingWorktree(caps.snapshot().terminals, candidate, path)
                 )
                   throw new ControlError("branch_in_use");
                 branchKey = candidate;
@@ -236,7 +239,9 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
       }),
     launch: (parentId, repository, worktree, identity, agent, prompt, step) => {
       const tree = remoteTree(worktree);
-      if (closingWorktree(caps.snapshot().terminals, `${repository}\0:remote:${worktree}`))
+      if (
+        closingWorktree(caps.snapshot().terminals, `${repository}\0:remote:${worktree}`, worktree)
+      )
         throw new ControlError("conflict");
       if (!tree)
         return caps.launchChild(parentId, repository, worktree, identity, agent, prompt, step);

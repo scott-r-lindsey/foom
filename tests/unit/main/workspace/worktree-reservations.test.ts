@@ -24,12 +24,18 @@ test("closing checkout reservations cover local, detached and remote launch rout
     "/repo\0/tree",
     "remote-main\0/tree",
   ])
-    expect(closingWorktree([session], key)).toBe(true);
+    expect(closingWorktree([session], key, undefined)).toBe(true);
   expect(
-    closingWorktree([{ ...session, branch: null }], worktreeReservation("/repo", "/tree", null)),
+    closingWorktree(
+      [{ ...session, branch: null }],
+      worktreeReservation("/repo", "/tree", null),
+      undefined,
+    ),
   ).toBe(true);
-  expect(closingWorktree([session], "/repo\0other")).toBe(false);
-  expect(closingWorktree([{ ...session, closeState: "failed" }], "/repo\0feature")).toBe(false);
+  expect(closingWorktree([session], "/repo\0other", undefined)).toBe(false);
+  expect(closingWorktree([{ ...session, closeState: "failed" }], "/repo\0feature", undefined)).toBe(
+    false,
+  );
 });
 
 it("reserves named branches together and detached paths independently", () => {
@@ -46,3 +52,13 @@ it("reserves named branches together and detached paths independently", () => {
     worktreeReservation("other", "one", null),
   );
 });
+
+test.each(["renamed", null])(
+  "canonical checkout holds survive branch %s independently of the old branch key",
+  (branch) => {
+    const key = worktreeReservation("/repo", "/tree", branch);
+    expect(closingWorktree([session], key, "/tree")).toBe(true);
+    expect(closingWorktree([session], key, "/unrelated")).toBe(false);
+    expect(closingWorktree([{ ...session, closeState: "failed" }], key, "/tree")).toBe(false);
+  },
+);

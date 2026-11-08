@@ -179,7 +179,7 @@ export async function createChildWorktree(
 ): Promise<{ path: string; branch: string; identity: string }> {
   return this.withRepository(repository, async () => {
     const key = `${repository}\0${branch}`;
-    if (this.busyWorktrees.has(key) || closingWorktree(this.launched.values(), key))
+    if (this.busyWorktrees.has(key) || closingWorktree(this.launched.values(), key, undefined))
       throw new Error("This worktree is busy");
     this.busyWorktrees.add(key);
     try {
@@ -189,6 +189,8 @@ export async function createChildWorktree(
           location: this.location,
           newBranch: true,
         });
+        if (closingWorktree(this.launched.values(), key, path))
+          throw new Error("This worktree is busy");
         const identity = await this.deps.worktrees.launchIdentity(repository, path);
         return { path, branch, identity };
       } catch (error) {
@@ -233,7 +235,7 @@ export async function launchChild(
     const key = remote
       ? `${repository}\0${worktree}`
       : worktreeReservation(repository, worktree, tree.branch);
-    if (this.busyWorktrees.has(key) || closingWorktree(this.launched.values(), key))
+    if (this.busyWorktrees.has(key) || closingWorktree(this.launched.values(), key, worktree))
       throw new Error("This worktree is busy");
     this.busyWorktrees.add(key);
     try {

@@ -1276,10 +1276,53 @@ test("ordinary Close refuses a second owned or sidebar removal until terminal te
   await expect(page.locator(".xterm-helper-textarea")).toBeEditable();
   await page.evaluate((id) => window.desktop.input(id, "exit\r"), id);
   await expect(page.locator(`[data-drag-session="${id}"]`)).toHaveAttribute("data-exited", "true");
+  isolatedGit(["checkout", "-b", "changed-ordinary-close"], { cwd: tree.path });
   await page.evaluate((id) => {
     globalThis.pendingOrdinaryClose = window.desktop.sidebarCommand({ kind: "close", id });
   }, id);
   await expect.poll(() => app.evaluate(() => globalThis.ordinaryCloseKills)).toBe(1);
+  for (const detached of [false, true]) {
+    if (detached) isolatedGit(["checkout", "--detach"], { cwd: tree.path });
+    const current = await page.evaluate(
+      async ({ repo, tree }) => {
+        const inventory = await window.desktop.sidebarInventory();
+        return inventory.repositories
+          .find((entry) => entry.path === repo)
+          .worktrees.find((entry) => entry.path === tree);
+      },
+      { repo, tree: tree.path },
+    );
+    assert.equal(current.branch, detached ? null : "changed-ordinary-close");
+    const launchRefused = await page.evaluate(
+      async ({ repo, tree }) => {
+        try {
+          await window.desktop.sidebarCommand({
+            kind: "launch",
+            repository: repo,
+            worktree: tree,
+            run: "shell",
+          });
+          return false;
+        } catch {
+          return true;
+        }
+      },
+      { repo, tree: tree.path },
+    );
+    assert.equal(launchRefused, true);
+    assert.equal(
+      await page.evaluate(async () => (await window.desktop.workspace()).terminals.length),
+      1,
+    );
+    assert.equal(
+      await app.evaluate(
+        async (_, { repo, tree }) =>
+          globalThis.ordinaryCloseOwner.deps.worktrees.launchIdentity(repo, tree.path),
+        { repo, tree },
+      ),
+      tree.identity,
+    );
+  }
   const reason = await app.evaluate(
     async (_, { repo, tree }) => {
       try {

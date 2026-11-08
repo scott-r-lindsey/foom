@@ -229,7 +229,10 @@ export async function sidebarCommand(
               if (!tree) throw new Error("Worktree was removed. Choose another checkout.");
               key = worktreeReservation(command.repository, worktree, tree.branch);
             }
-            if (this.busyWorktrees.has(key) || closingWorktree(this.launched.values(), key))
+            if (
+              this.busyWorktrees.has(key) ||
+              closingWorktree(this.launched.values(), key, worktree)
+            )
               throw new Error("This worktree is busy");
             this.busyWorktrees.add(key);
             reservation = key;
@@ -681,7 +684,10 @@ export async function sidebarCommand(
         (tree) => tree.path === command.worktree,
       );
       const key = worktreeReservation(command.repository, command.worktree, tree?.branch);
-      if (this.busyWorktrees.has(key) || closingWorktree(this.launched.values(), key))
+      if (
+        this.busyWorktrees.has(key) ||
+        closingWorktree(this.launched.values(), key, command.worktree)
+      )
         throw new Error("This worktree is busy");
       this.busyWorktrees.add(key);
       try {
@@ -983,7 +989,7 @@ export async function createWorktree(
 ): Promise<Worktree & { outcome: CreateOutcome }> {
   return this.withRepository(repository, async () => {
     const key = `${repository}\0${branch}`;
-    if (this.busyWorktrees.has(key) || closingWorktree(this.launched.values(), key))
+    if (this.busyWorktrees.has(key) || closingWorktree(this.launched.values(), key, undefined))
       throw new Error("This worktree is busy");
     this.busyWorktrees.add(key);
     try {
@@ -996,6 +1002,8 @@ export async function createWorktree(
           branch,
         });
         const path = `/foom-remote/${locationId(JSON.stringify([host, created.path]))}`;
+        if (closingWorktree(this.launched.values(), key, path))
+          throw new Error("This worktree is busy");
         hosts.rememberPlacement?.(repository, path, host, {
           repository: created.repository,
           path: created.path,
@@ -1037,6 +1045,14 @@ export async function addWorktree(
     (tree) => tree.path === path,
   );
   if (!created) throw new Error("Created worktree is missing");
+  if (
+    closingWorktree(
+      this.launched.values(),
+      worktreeReservation(repository, path, created.branch),
+      path,
+    )
+  )
+    throw new Error("This worktree is busy");
   return { ...created, outcome };
 }
 

@@ -394,3 +394,10 @@ removal, locally and remotely. Removal refuses with busy/conflict before inspect
 or deletion when a session is closing, and rechecks after confirmation. Only a
 matching join to an already-running owned removal shares that operation; the
 review Close that owns the removal may retain its own closing session.
+
+Closing holds use main's canonical checkout path independently of the session's
+launch-time branch. Renaming the branch, detaching HEAD or replacing its filesystem
+identity cannot release that hold. Branch-only launch routes check again after
+resolving inventory to a path; resume/restart and remote routes use the same hold,
+including when they already own a branch reservation. Existing launch identity
+checks remain required, and provider launches recheck closing state before spawn.

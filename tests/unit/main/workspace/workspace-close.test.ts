@@ -1,7 +1,7 @@
 import { expect, test, vi } from "vitest";
 import { Workspace } from "../../../../src/main/workspace/workspace";
 import { readSessions } from "../../../../src/main/workspace/session-store";
-import { deps, held, launched, repo, tree } from "./workspace-fixture";
+import { agents, deps, held, launched, repo, tree } from "./workspace-fixture";
 
 const close = { kind: "close", id: "t1" } as const;
 const confirm = () => Promise.resolve(true);
@@ -177,4 +177,112 @@ test("Close after quit freeze cannot overwrite saved running sessions", async ()
   workspace.cancelQuit();
   await workspace.sidebarCommand(close, confirm);
   await workspace.dispose();
+});
+
+test.each([
+  { branch: "changed-branch", identity: "identity" },
+  { branch: null, identity: "identity" },
+  { branch: "changed-branch", identity: "replacement-identity" },
+])(
+  "Close holds the canonical checkout across inventory changes: %j",
+  async ({ branch, identity }) => {
+    const workspace = await launched();
+    const create = vi
+      .spyOn(deps.terminals, "create")
+      .mockResolvedValueOnce("t2")
+      .mockResolvedValueOnce("t3");
+    await workspace.startWorktree(
+      { repository: repo.path, branch: "feature", run: "shell" },
+      confirm,
+    );
+    await workspace.exited("t1", 0);
+    await workspace.exited("t2", 0);
+    vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([{ ...tree, branch }]);
+    vi.mocked(deps.worktrees.launchIdentity).mockResolvedValue(identity);
+    const cleanup = held<undefined>();
+    const kill = vi.spyOn(deps.terminals, "kill").mockReturnValueOnce(cleanup.promise);
+    const pending = workspace.sidebarCommand(close, confirm);
+    try {
+      await vi.waitFor(() => {
+        expect(kill).toHaveBeenCalledOnce();
+      });
+      for (const run of ["shell", "claude"] as const)
+        await expect(
+          workspace.sidebarCommand(
+            { kind: "launch", repository: repo.path, worktree: tree.path, run },
+            confirm,
+          ),
+        ).rejects.toThrow("busy");
+      await expect(
+        workspace.launch(
+          { agent: "claude", repository: repo.path, worktree: tree.path, cols: 80, rows: 24 },
+          confirm,
+        ),
+      ).rejects.toThrow("busy");
+      await expect(
+        workspace.sidebarCommand({ kind: "restart", id: "t2" }, confirm),
+      ).rejects.toThrow("busy");
+      await expect(
+        workspace.sidebarCommand(
+          {
+            kind: "resume-id",
+            checkout: { repository: repo.path, worktree: tree.path },
+            agent: "claude",
+            id: "external-123",
+          },
+          confirm,
+        ),
+      ).rejects.toThrow("busy");
+      if (branch !== null)
+        await expect(
+          workspace.startWorktree({ repository: repo.path, branch, run: "shell" }, confirm),
+        ).rejects.toThrow("busy");
+      expect(create).toHaveBeenCalledOnce();
+      expect(kill).toHaveBeenCalledOnce();
+    } finally {
+      cleanup.resolve(undefined);
+      await pending;
+    }
+    await workspace.sidebarCommand(
+      { kind: "launch", repository: repo.path, worktree: tree.path, run: "shell" },
+      confirm,
+    );
+    expect(create).toHaveBeenCalledTimes(2);
+    await workspace.dispose();
+  },
+);
+
+test("a prepared provider launch rechecks the canonical checkout immediately before spawn", async () => {
+  const workspace = await launched();
+  await workspace.exited("t1", 0);
+  vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([
+    { ...tree, branch: "changed-branch" },
+  ]);
+  const prepare = held<undefined>();
+  agents.launch.mockImplementationOnce(async (request) => {
+    await prepare.promise;
+    request.beforeSpawn?.();
+    return { id: "must-not-spawn", attention: "evaluator" };
+  });
+  const launching = workspace.sidebarCommand(
+    { kind: "launch", repository: repo.path, worktree: tree.path, run: "claude" },
+    confirm,
+  );
+  const outcome = launching.catch((error: unknown) => error);
+  await vi.waitFor(() => {
+    expect(agents.launch).toHaveBeenCalledTimes(2);
+  });
+  const cleanup = held<undefined>();
+  vi.spyOn(deps.terminals, "kill").mockReturnValueOnce(cleanup.promise);
+  const pending = workspace.sidebarCommand(close, confirm);
+  expect(workspace.snapshot().terminals[0]?.closeState).toBe("closing");
+  prepare.resolve(undefined);
+  try {
+    expect(await outcome).toBeInstanceOf(Error);
+    expect(workspace.snapshot().terminals.some((row) => row.id === "must-not-spawn")).toBe(false);
+  } finally {
+    cleanup.resolve(undefined);
+    await pending;
+    await workspace.dispose();
+  }
 });
