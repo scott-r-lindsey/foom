@@ -20,6 +20,7 @@ afterEach(() => {
 });
 beforeEach(() => {
   machine("linux");
+  vi.stubEnv("FOOM_SETTINGS_INSTALL", "1");
   mocks.run.mockReset().mockResolvedValue(0);
   mocks.access.mockReset().mockResolvedValue(undefined);
   mocks.spawn.mockReset().mockImplementation(() => {
@@ -36,6 +37,7 @@ test("all six bundled agents select vendor scripts with no inherited Foom creden
     const call = mocks.run.mock.lastCall;
     expect(call?.[0].url).toMatch(/^https:/u);
     expect(call?.[0].arguments).toEqual([]);
+    expect(call?.[2]).not.toHaveProperty("FOOM_SETTINGS_INSTALL");
     expect(call?.[2]).not.toHaveProperty("FOOM_TOKEN");
     expect(call?.[2]).not.toHaveProperty("FOOM_CONTROL_URL");
   }
@@ -86,3 +88,10 @@ test.each([9, null, "error"])(
     expect(mocks.run).not.toHaveBeenCalled();
   },
 );
+
+test("ordinary launches cannot install even a valid bundled selector", async () => {
+  vi.stubEnv("FOOM_SETTINGS_INSTALL", undefined);
+  expect(await installLocalAgent("claude")).toBe(2);
+  expect(mocks.run).not.toHaveBeenCalled();
+  expect(mocks.spawn).not.toHaveBeenCalled();
+});

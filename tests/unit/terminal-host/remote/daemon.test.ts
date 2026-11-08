@@ -2492,6 +2492,7 @@ test.skipIf(process.platform === "win32")(
           "debian",
           "a".repeat(64),
         ]),
+        env: { FOOM_SETTINGS_INSTALL: "1" },
       }),
       "recipe",
       false,

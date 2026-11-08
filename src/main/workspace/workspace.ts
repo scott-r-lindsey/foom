@@ -44,7 +44,7 @@ export class Workspace {
       { home: true, repository: homeDirectory, worktree: homeDirectory, branch: null },
       undefined,
       directory,
-      undefined,
+      { FOOM_SETTINGS_INSTALL: "1" },
       undefined,
       undefined,
       undefined,

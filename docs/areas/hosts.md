@@ -360,6 +360,9 @@ Git and gh retain their package-manager recipes. Unknown remote distros and
 unsupported libc still refuse recipes; a missing package manager alone does not
 prevent a vendor script. Native Windows script recipes are unavailable.
 
+The Settings recipe launcher supplies an internal `FOOM_SETTINGS_INSTALL=1`
+marker; vendor helpers refuse ordinary launch contexts without it. The marker
+is not an OS security boundary and is removed from the vendor environment.
 The recipe process prints the fixed HTTPS address, downloads at most 2 MiB with
 a 60-second deadline into a private temporary directory (0700) and file (0600),
 then invokes `/bin/sh` or `/bin/bash` with that file and manifest arguments.

@@ -3,7 +3,7 @@ import { selectHostRecipe } from "../../../../src/shared/registered-host-recipes
 import { parseAgentManifest } from "../../../../src/shared/agent-plugin-parser";
 import codex from "../../../../src/shared/bundled-agents/codex.json";
 import { EventEmitter } from "node:events";
-import { beforeEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 const mock = vi.hoisted(() => ({
   vendor: vi.fn(),
   stage: vi.fn(),
@@ -61,7 +61,9 @@ async function runHostRecipe(args: readonly string[], home: string) {
     home,
   );
 }
+afterEach(() => vi.unstubAllEnvs());
 beforeEach(() => {
+  mock.vendor.mockReset();
   mock.stage.mockReset();
   mock.plugin.mockReset();
   mock.requirements
@@ -249,33 +251,41 @@ test("failed plugin staging never reaches the install command", async () => {
   expect(mock.spawn).not.toHaveBeenCalled();
 });
 
-test("vendor scripts are selected from bundled data only after checking the complete recipe digest", async () => {
-  const setup = parseAgentManifest(JSON.stringify(codex), "bundled").model.hostSetup;
-  const recipe = selectHostRecipe(
-    { tool: "codex", action: "install", distro: "debian" },
-    { distro: "debian", libc: "supported", packageManager: "none" },
-    setup,
-  );
-  if (!recipe) throw new Error("Missing fixture recipe");
-  mock.requirements.mockResolvedValue({
-    distro: "debian",
-    libc: "supported",
-    packageManager: "none",
-  });
-  mock.vendor.mockResolvedValue(7);
-  expect(
-    await executeRecipe(
-      [
-        "codex",
-        "install",
-        "debian",
-        createHash("sha256").update(JSON.stringify(recipe.steps)).digest("hex"),
-      ],
-      "/fixture/home",
-    ),
-  ).toBe(7);
-  expect(mock.vendor).toHaveBeenCalledWith(setup?.script, "/fixture/home", {
-    PATH: "/fixture:/usr/local/bin",
-  });
-  expect(mock.spawn).not.toHaveBeenCalled();
-});
+test.each([true, false])(
+  "vendor scripts require both the recipe digest and Settings context (%s)",
+  async (settings) => {
+    vi.stubEnv("FOOM_SETTINGS_INSTALL", settings ? "1" : undefined);
+    const setup = parseAgentManifest(JSON.stringify(codex), "bundled").model.hostSetup;
+    const recipe = selectHostRecipe(
+      { tool: "codex", action: "install", distro: "debian" },
+      { distro: "debian", libc: "supported", packageManager: "none" },
+      setup,
+    );
+    if (!recipe) throw new Error("Missing fixture recipe");
+    mock.requirements.mockResolvedValue({
+      distro: "debian",
+      libc: "supported",
+      packageManager: "none",
+    });
+    mock.vendor.mockResolvedValue(7);
+    expect(
+      await executeRecipe(
+        [
+          "codex",
+          "install",
+          "debian",
+          createHash("sha256").update(JSON.stringify(recipe.steps)).digest("hex"),
+        ],
+        "/fixture/home",
+      ),
+    ).toBe(settings ? 7 : 2);
+    if (!settings) {
+      expect(mock.vendor).not.toHaveBeenCalled();
+      return;
+    }
+    expect(mock.vendor).toHaveBeenCalledWith(setup?.script, "/fixture/home", {
+      PATH: "/fixture:/usr/local/bin",
+    });
+    expect(mock.spawn).not.toHaveBeenCalled();
+  },
+);

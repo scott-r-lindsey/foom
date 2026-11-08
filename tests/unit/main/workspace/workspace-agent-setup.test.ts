@@ -231,6 +231,7 @@ test("local installers use the bundled helper in a human recipe session without 
   await configured.startLocalAgentInstall("codex");
   expect(environment).not.toHaveBeenCalled();
   expect(create.mock.calls.at(-1)?.[0].env).not.toHaveProperty("INSTALL_FIXTURE_SECRET_1071");
+  expect(create.mock.calls.at(-1)?.[0].env).toMatchObject({ FOOM_SETTINGS_INSTALL: "1" });
   expect(create).toHaveBeenLastCalledWith(
     expect.objectContaining({
       command: join("/fixture/console", "foom"),

@@ -60,7 +60,9 @@ Chromium can decode the audio and checks its samples.
 ## Internal Settings installer (#1071)
 
 The bundled executable's private `--install-agent ID` entry point runs only a
-bundled manifest recipe selected by Settings. It does not pair, discover control
+bundled manifest recipe selected by Settings. It requires the internal
+`FOOM_SETTINGS_INSTALL=1` launch marker, which is removed before invoking a
+vendor script or package manager. It does not pair, discover control
 services or use inherited Foom credentials. It is not a control/MCP command and
 adds no agent or orchestrator capability. Linux/macOS execution uses the same
 [bounded vendor downloader](hosts.md#vendor-agent-installers-1071) as foom-host.
