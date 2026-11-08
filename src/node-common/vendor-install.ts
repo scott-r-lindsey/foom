@@ -149,8 +149,8 @@ export async function runVendorScript(
     if (!interrupted) process.stderr.write("Installer download or execution failed\n");
   } finally {
     try {
-      // On interruption, descendants may outlive an interpreter that accepted the signal.
-      if (interrupted) terminate("SIGKILL");
+      // A completed installer must not leave background workers running, even on success.
+      terminate("SIGKILL");
     } finally {
       try {
         if (directory) await rm(directory, { recursive: true, force: true });

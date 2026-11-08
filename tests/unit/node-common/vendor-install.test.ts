@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import { existsSync } from "node:fs";
 import { readFile, stat, access } from "node:fs/promises";
 import { dirname } from "node:path";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -368,3 +369,26 @@ test("an interruption during private-file cleanup still returns the signal statu
     vi.useRealTimers();
   }
 });
+
+test.skipIf(platform === "win32").each([0, 7])(
+  "interpreter exit %s kills remaining group members before removing the private file",
+  async (code) => {
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockResolvedValue(new Response("fixture script")));
+    let path: string | undefined;
+    const kill = vi.spyOn(process, "kill").mockImplementation(() => {
+      if (!path) throw new Error("Missing fixture script");
+      expect(existsSync(path)).toBe(true);
+      return true;
+    });
+    mocks.spawn.mockImplementation((_command: string, args: readonly string[]) => {
+      path = args[0];
+      const child = Object.assign(new EventEmitter(), { pid: 123456, kill: vi.fn() });
+      queueMicrotask(() => child.emit("close", code, null));
+      return child;
+    });
+    expect(await runVendorScript(script, "/fixture/home", {})).toBe(code);
+    expect(kill).toHaveBeenCalledWith(-123456, "SIGKILL");
+    if (!path) throw new Error("Missing fixture script");
+    await expect(access(dirname(path))).rejects.toThrow();
+  },
+);

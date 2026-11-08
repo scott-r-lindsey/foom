@@ -517,7 +517,7 @@ test("one-click local agent installers stay in Settings and refuse untrusted sel
     .toBe(0);
 });
 
-test("local and registered-host vendor helpers clean private files and descendants after default PTY hangup", {
+test("local and registered-host vendor helpers clean private files and descendants after exit and default PTY hangup", {
   timeout: deadline(60000),
   skip: process.platform === "win32",
 }, async (context) => {
@@ -538,13 +538,14 @@ test("local and registered-host vendor helpers clean private files and descendan
   );
   const bootstrap = path.join(root, "helper.cjs");
   const quote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
-  const body = `#!/bin/sh\ntrap '' HUP INT TERM\necho FIXTURE_SCRIPT:$0\n${quote(process.execPath)} ${quote(descendant)} &\nread answer\nprintf 'FIXTURE_INPUT:%s\\n' "$answer"\nwait\n`;
+  const body = `#!/bin/sh\ntrap '' HUP INT TERM\necho FIXTURE_SCRIPT:$0\n${quote(process.execPath)} ${quote(descendant)} &\nread answer\nprintf 'FIXTURE_INPUT:%s\\n' "$answer"\n`;
   await writeFile(
     bootstrap,
     `
 const {createRequire}=require('node:module');
 const load=createRequire(${JSON.stringify(path.resolve("build/main/main.js"))});
-globalThis.fetch=async()=>new Response(${JSON.stringify(body)});
+const bodies=${JSON.stringify({ hangup: `${body}wait\n`, 0: `${body}exit 0\n`, 7: `${body}exit 7\n` })};
+globalThis.fetch=async()=>new Response(bodies[process.argv[3]]);
 (async()=>{
  if(process.argv[2]==='local') return load('../node-common/local-agent-install.js').installLocalAgent('claude');
  const {hostLoginEnvironment}=load('../terminal-host/remote/agent-discovery.js');
@@ -562,24 +563,35 @@ globalThis.fetch=async()=>new Response(${JSON.stringify(body)});
   );
   const app = await launchApp(context, { fixture: "empty-board" });
   const page = await boardPage(app);
-  for (const mode of ["local", "host"]) {
+  for (const [mode, completion] of [
+    ["local", "hangup"],
+    ["host", "hangup"],
+    ["local", 0],
+    ["host", 0],
+    ["local", 7],
+    ["host", 7],
+  ]) {
     const result = await app.evaluate(
       async (_electron, fixture) => {
         const load = process.getBuiltinModule("node:module").createRequire(fixture.modulePath);
         const fs = load("node:fs/promises");
         const { dirname } = load("node:path");
         const { execFileSync } = load("node:child_process");
-        const pty = load("node-pty").spawn(process.execPath, [fixture.bootstrap, fixture.mode], {
-          cwd: fixture.root,
-          env: {
-            HOME: fixture.root,
-            TMPDIR: fixture.root,
-            PATH: fixture.root,
-            SHELL: fixture.shell,
-            FOOM_SETTINGS_INSTALL: "1",
-            ELECTRON_RUN_AS_NODE: "1",
+        const pty = load("node-pty").spawn(
+          process.execPath,
+          [fixture.bootstrap, fixture.mode, String(fixture.completion)],
+          {
+            cwd: fixture.root,
+            env: {
+              HOME: fixture.root,
+              TMPDIR: fixture.root,
+              PATH: fixture.root,
+              SHELL: fixture.shell,
+              FOOM_SETTINGS_INSTALL: "1",
+              ELECTRON_RUN_AS_NODE: "1",
+            },
           },
-        });
+        );
         let output = "";
         let killed = false;
         let replied = false;
@@ -591,7 +603,11 @@ globalThis.fetch=async()=>new Response(${JSON.stringify(body)});
               replied = true;
               pty.write("fixture-input\r");
             }
-            if (!killed && output.includes("FIXTURE_INPUT:fixture-input")) {
+            if (
+              fixture.completion === "hangup" &&
+              !killed &&
+              output.includes("FIXTURE_INPUT:fixture-input")
+            ) {
               killed = true;
               pty.kill(); // node-pty defaults to SIGHUP, as TerminalManager.terminate does.
             }
@@ -614,11 +630,23 @@ globalThis.fetch=async()=>new Response(${JSON.stringify(body)});
         } catch {
           /* exited processes have no ps row */
         }
+        // Preserve the failing observation but never leak the fixture worker on regression.
+        if (descendantState && !descendantState.startsWith("Z")) {
+          try {
+            process.kill(Number(pid), "SIGKILL");
+          } catch {
+            /* already exited */
+          }
+        }
         return { exit, directoryExists, descendantState };
       },
-      { modulePath: path.resolve("build/main/main.js"), root, bootstrap, shell, mode },
+      { modulePath: path.resolve("build/main/main.js"), root, bootstrap, shell, mode, completion },
     );
-    assert.equal(result.exit.exitCode, 129, mode);
+    assert.equal(
+      result.exit.exitCode,
+      completion === "hangup" ? 129 : completion,
+      `${mode}:${completion}`,
+    );
     assert.equal(result.directoryExists, false, mode);
     assert.ok(
       !result.descendantState || result.descendantState.startsWith("Z"),

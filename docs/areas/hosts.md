@@ -379,6 +379,10 @@ Foom's downloader follows at most five redirects, checking HTTPS and refusing
 URL credentials at every hop. It needs no curl or system Node. The script itself
 may require curl/wget or other system tools for its later downloads. Failure
 stops the recipe; a package-manager command failure does not fall back silently.
+Foom does not support installers leaving background processes running. On every
+interpreter completion, success or failure, Foom sends SIGKILL to any remaining
+members of the installer process group before deleting the private files. The
+interpreter's exit status is preserved.
 The file and directory are removed on success, download/spawn/script failure and
 handled HUP, INT, TERM or QUIT interruption. On interruption the helper signals
 the interpreter process group, escalates to SIGKILL after 250 ms if needed
