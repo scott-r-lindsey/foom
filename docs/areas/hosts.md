@@ -28,7 +28,7 @@ Add host accepts an optional nickname with the same validation and inline errors
 main validates it again and saves it only together with a successful enrollment. Folder changes and canonical expansion preserve nicknames.
 
 `setup:hosts` accepts one closed action from the registered board main frame:
-list, progress, test, add, rename, preflight, create-folder, change-folder, refresh, remove, locations, clone, trust-origin, end, recipe or reload. Main selects enabled agent
+list, progress, test, add, rename, preflight, draft-preflight, create-folder, change-folder, refresh, remove, locations, clone, trust-origin, end, recipe or reload. Main selects enabled agent
 executables from its validated manifest catalog. Renderer inputs cannot choose
 remote commands, probe arguments, origins or checkout destinations. Replies are
 validated in preload and rebuilt from declared fields. All failures are fixed
@@ -374,8 +374,10 @@ provides facts and recipes. Same-build peers are known to implement the capabili
 ## Partial onboarding preflight (#1005)
 
 `draft-preflight` accepts an explicit Add host SSH selector and proposed folder before
-enrollment, without granting registration. `preflight` is a registered-machine
-reload: main requires the current host and matching folder when the queued action
+enrollment, without granting registration. The disposable host-qualification hub
+uses this action for its pre-enrollment checks too; only its later `add` enrolls the
+host. Origin checks before `add` use the same draft action.
+`preflight` is a registered-machine reload: main requires the current host and matching folder when the queued action
 dispatches, before any remote inspection. A removed host refuses with `not_found`;
 it never falls back to draft inspection.
 It returns independent SSH, platform and bundled-artifact checks, the existing
