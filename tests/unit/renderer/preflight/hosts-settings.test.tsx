@@ -80,7 +80,10 @@ function expandHosts() {
     fireEvent.click(button);
   for (const summary of screen.queryAllByText("Host facts")) fireEvent.click(summary);
 }
-async function mount(state: HostsState = initial, extra: Pick<SetupSource, "hostTerminal"> = {}) {
+async function mount(
+  state: HostsState = initial,
+  extra: Pick<SetupSource, "hostTerminal" | "installs"> = {},
+) {
   state = saved(state);
   const api = vi.fn<(action: HostsAction) => Promise<HostsState>>().mockResolvedValue(state);
   const view = render(<HostsSettings source={{ hosts: api, ...extra }} headingRef={createRef()} />);
@@ -1514,4 +1517,47 @@ test("installs on different hosts keep their own terminal panels", async () => {
     await within(card).findByRole("region", { name: "Install terminal" });
   }
   expect(screen.getAllByRole("region", { name: "Install terminal" })).toHaveLength(2);
+});
+
+test("returning to Hosts reattaches the window's install without starting another process", async () => {
+  const open = vi.fn(() => Promise.resolve());
+  const disposed = vi.fn();
+  const close = vi.fn(() => Promise.resolve());
+  const { api, unmount } = await mount(initial, {
+    installs: {
+      sessions: () => new Map([["worker", "existing-install"]]),
+      hasSessions: () => true,
+      running: () => Promise.resolve(true),
+      close,
+      dispose: () => {},
+    },
+    hostTerminal: {
+      createView: () => ({
+        mount: () => disposed,
+        open,
+        hide: () => Promise.resolve(),
+        focus: () => {},
+        subscribe: () => () => {},
+        getSnapshot: () => ({
+          status: "",
+          state: "quiet_ok",
+          visible: true,
+          attaching: false,
+          toggleLabel: "",
+          toggleDisabled: false,
+          restartDisabled: false,
+        }),
+      }),
+      observe: (_id, listener) => {
+        listener({ exited: false });
+        return () => {};
+      },
+    },
+  });
+  await screen.findByRole("region", { name: "Install terminal" });
+  expect(open).toHaveBeenCalledWith("existing-install");
+  expect(api.mock.calls.some(([action]) => action.action === "recipe")).toBe(false);
+  unmount();
+  expect(disposed).toHaveBeenCalledOnce();
+  expect(close).not.toHaveBeenCalled();
 });

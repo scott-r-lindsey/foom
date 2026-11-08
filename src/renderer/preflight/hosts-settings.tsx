@@ -604,7 +604,7 @@ export function HostsSettings({
   source,
   headingRef,
 }: {
-  source: Pick<SetupSource, "hosts" | "copyHost" | "hostTerminal">;
+  source: Pick<SetupSource, "hosts" | "copyHost" | "hostTerminal" | "installs">;
   headingRef: RefObject<HTMLHeadingElement | null>;
 }) {
   const [state, setState] = useState<HostsState>({ hosts: [], locations: [] });
@@ -628,7 +628,13 @@ export function HostsSettings({
   const [rowPending, setRowPending] = useState<ReadonlySet<string>>(() => new Set());
   const [output, setOutput] = useState<HostOutput>();
   const [recipes, setRecipes] = useState<ReadonlyMap<string, { id: string; finished: boolean }>>(
-    () => new Map(),
+    () =>
+      new Map(
+        [...(source.installs?.sessions() ?? [])].map(([host, id]) => [
+          host,
+          { id, finished: false },
+        ]),
+      ),
   );
   const clearRecipe = (host: string, force = false) => {
     if (!force && !recipes.get(host)?.finished) return;

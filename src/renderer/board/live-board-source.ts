@@ -628,6 +628,11 @@ export function createAppSource(): BoardSource {
     },
     connect,
     createHostView: () => createTerminalView(scheduleView, owners),
+    closeHostSession: async (id) => {
+      await window.desktop.kill(id);
+      forget(id);
+      snapshot(await window.desktop.workspace());
+    },
     createView: () => {
       const view = createTerminalView(
         scheduleView,

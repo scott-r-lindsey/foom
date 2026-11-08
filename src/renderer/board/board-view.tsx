@@ -123,7 +123,7 @@ function BoardContents({
   inactive?: boolean;
   onSettings?: (section?: "config") => void;
   settingsView?: ReactNode;
-  onCloseSettings?: () => void;
+  onCloseSettings?: (proceed?: () => void) => void;
 }) {
   const configPanelRef = useRef<(() => void) | undefined>(undefined);
   const storageKey = source.windows ? `${TILE_STORAGE}.${source.windows.id}` : TILE_STORAGE;
@@ -397,19 +397,23 @@ function BoardContents({
         revealRef.current?.(row);
         // Selecting a row asks for terminal input focus, rather than Escape restoration.
         wasInactiveRef.current = false;
-        onCloseSettings?.();
         source.markSeen(row.id);
       };
-      if (source.windows && !background) {
-        void source.windows
-          .select(row.id)
-          .then((selected) => {
-            if (selected) present();
-          })
-          .catch(() => {
-            setRemoveError("Unable to select terminal window.");
-          });
-      } else present();
+      const navigate = () => {
+        if (row.recipe && !source.getSnapshot().some((current) => current.id === row.id)) return;
+        if (source.windows && !background) {
+          void source.windows
+            .select(row.id)
+            .then((selected) => {
+              if (selected) present();
+            })
+            .catch(() => {
+              setRemoveError("Unable to select terminal window.");
+            });
+        } else present();
+      };
+      if (!background && onCloseSettings) onCloseSettings(navigate);
+      else navigate();
     },
     [
       source,
@@ -536,7 +540,6 @@ function BoardContents({
       arrivalsRef.current.delete(id);
       if (background) open(row, false, undefined, true);
       else if (!inactive) {
-        onCloseSettings?.();
         const visible = leaves(layoutRef.current.tree).some((tile) => sessionId(tile) === row.id);
         open(row, !visible);
       }
@@ -731,9 +734,12 @@ function BoardContents({
                   aria-label="Open message board"
                   aria-pressed={boardShown}
                   onClick={() => {
-                    setLogOpen(false);
-                    onCloseSettings?.();
-                    setBoardOpen((value) => !value);
+                    const show = () => {
+                      setLogOpen(false);
+                      setBoardOpen((value) => !value);
+                    };
+                    if (onCloseSettings) onCloseSettings(show);
+                    else show();
                   }}
                 >
                   Board

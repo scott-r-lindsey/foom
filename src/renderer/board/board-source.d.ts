@@ -78,6 +78,8 @@ export interface BoardSource {
   createView?: () => TerminalViewSource;
   /** Settings/preflight recipe IDs come from main before board inventory exists. */
   createHostView?: () => TerminalViewSource;
+  /** Close a Settings install and reconcile rows before pending navigation resumes. */
+  closeHostSession?: (id: string) => Promise<void>;
   getMachines?: () => readonly SidebarMachine[];
   getSidebar?: () => SidebarRepository[] | readonly SidebarRepository[];
   sidebarCommand?: (command: SidebarCommand) => Promise<SidebarCommandResult> | Promise<void>;

@@ -10,6 +10,7 @@ const { evidencePath } = require("../helpers/evidence.js");
 const { deadline, expect } = require("./test-policy.js");
 const {
   boardPage,
+  boardCommand,
   fixtureCleanup,
   launchApp,
   openSettingsScreen,
@@ -160,6 +161,11 @@ process.stdin.on('data', bytes => {
     continue;
   }
   if('id' in message) {
+    if(message.type==='kill') {
+      appendFileSync(${JSON.stringify(calls)},JSON.stringify({host,message:{type:message.type,id:message.id},closed:message.id})+'\\n');
+      recipeEnded=true;clearInterval(finishTimer);
+      send({type:'exit',id:message.id,code:143});
+    }
     const recipeSettings=JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8'));
     if(message.type==='write' && recipeSettings.recipeInteractive && !recipeEnded) {
       recipeInput+=message.data;
@@ -1294,6 +1300,7 @@ test("Hosts loads saved rows and retries only persistence after queued profile w
     await updateScenario({ recipeExit: 0 });
     await expect(card.getByText("Unable to save", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
+    await expect(page.getByRole("region", { name: "Settings", exact: true })).toHaveCount(0);
     for (let attempt = 0; attempt < 3; attempt++) {
       await openSettingsScreen(page);
       await page
@@ -1306,6 +1313,7 @@ test("Hosts loads saved rows and retries only persistence after queued profile w
       await expect(page.getByText("Unable to load hosts", { exact: true })).toHaveCount(0);
       if (attempt === 0) await captureHosts(app, page, "1061/queued-save-failure");
       await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
+      await expect(page.getByRole("region", { name: "Settings", exact: true })).toHaveCount(0);
     }
     assert.equal(await inspectCount(), initial + 1);
   } finally {
@@ -1487,37 +1495,103 @@ test("Hosts retains failed Add stderr in a read-only panel", {
   await expect(page.getByRole("region", { name: "other-cloud", exact: true })).toBeVisible();
 });
 
-test("Hosts keeps a running install reachable after Settings closes", {
+test("Hosts confirms stopping a running install before Settings closes and closes exited installs directly", {
   skip: process.platform === "win32",
   timeout: deadline(60000),
 }, async (context) => {
-  const { page, card, calls, updateScenario } = await hostsFixture(context);
+  const { app, page, card, calls, updateScenario } = await hostsFixture(context);
+  const settings = page.getByRole("region", { name: "Settings", exact: true });
+  const dialog = page.getByRole("dialog", { name: "Stop the install?" });
   await updateScenario({ recipeInteractive: true });
   await card.getByRole("button", { name: "Install git", exact: true }).click();
   const terminal = card.getByRole("region", { name: "Install terminal" });
   await expect(terminal.locator(".xterm-screen")).toContainText("[sudo] password:");
-  await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
-  await expect(page.getByRole("region", { name: "Settings", exact: true })).toHaveCount(0);
-  // The human-owned session remains in the sidebar even without a board tile.
   const id = await page.evaluate(
     async () => (await window.desktop.workspace()).terminals.at(-1).id,
   );
+  await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Keep open" })).toBeFocused();
+  for (const mode of ["light", "dark"]) {
+    await page.evaluate(
+      (mode) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${mode}` }),
+      mode,
+    );
+    await expect
+      .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
+      .toBe(mode === "dark");
+    await page.screenshot({ path: evidencePath(`1062/stop-install-${mode}.png`) });
+  }
+  await assertAccessible(page);
+  await dialog.getByRole("button", { name: "Keep open" }).click();
+  await expect(settings).toBeVisible();
+  await expect(terminal.locator(".xterm-screen")).toContainText("[sudo] password:");
+  assert.equal(
+    await page.evaluate(
+      async (id) =>
+        (await window.desktop.workspace()).terminals.find((row) => row.id === id)?.exited === true,
+      id,
+    ),
+    false,
+  );
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(settings).toBeVisible();
+  // The Settings shortcut and navigation away use the same gate.
+  await boardCommand(app, ",", process.platform !== "darwin");
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Keep open" }).click();
+  await page.getByRole("button", { name: "Open message board", exact: true }).click();
+  await expect(dialog).toBeVisible();
+  await expect(page.getByRole("region", { name: "Message board", exact: true })).toHaveCount(0);
+  await dialog.getByRole("button", { name: "Keep open" }).click();
   await page.locator(`[data-drag-session="${id}"]`).click();
-  const tile = page.locator(".terminal-tile[data-kind='shell']").last();
-  await expect(tile.locator(".xterm-screen")).toContainText("[sudo] password:");
-  await page.screenshot({ path: evidencePath("1062/closed-settings.png") });
-  await tile.locator(".xterm-helper-textarea").focus();
-  await page.keyboard.type("fixture-password");
-  await page.keyboard.press("Enter");
-  await expect(tile.locator(".session-program")).toHaveText("Done");
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Stop", exact: true }).click();
+  await expect(settings).toHaveCount(0);
+  await expect(dialog).toHaveCount(0);
   await expect
-    .poll(
-      async () =>
-        (await readFile(calls, "utf8"))
-          .split("\n")
-          .filter((line) => line.includes('"target":{"kind":"tool","tool":"git"}')).length,
+    .poll(async () =>
+      (await page.evaluate(() => window.desktop.workspace())).terminals.some(
+        (row) => row.id === id,
+      ),
     )
-    .toBe(1);
+    .toBe(false);
+  await expect
+    .poll(async () =>
+      (await readFile(calls, "utf8"))
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => JSON.parse(line))
+        .some((entry) => entry.closed === id),
+    )
+    .toBe(true);
+  await expect(page.locator(`[data-drag-session="${id}"]`)).toHaveCount(0);
+  await expect(page.locator(".terminal-tile[data-kind='shell']")).toHaveCount(0);
+  // Already-exited installs close immediately, without a stop dialog.
+  await openSettingsScreen(page);
+  await page
+    .getByRole("navigation", { name: "Settings sections" })
+    .getByRole("button", { name: "Hosts", exact: true })
+    .click();
+  await updateScenario({ recipeImmediateExit: true });
+  await card.getByRole("button", { name: "Install git", exact: true }).click();
+  await expect(terminal.getByRole("status")).toHaveText("Done");
+  const exitedId = await page.evaluate(
+    async () => (await window.desktop.workspace()).terminals.at(-1).id,
+  );
+  await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
+  await expect(settings).toHaveCount(0);
+  await expect(dialog).toHaveCount(0);
+  await expect
+    .poll(async () =>
+      (await page.evaluate(() => window.desktop.workspace())).terminals.some(
+        (row) => row.id === exitedId,
+      ),
+    )
+    .toBe(false);
 });
 
 test("Hosts reports recipes that exit in the creation frame and refreshes their tool", {

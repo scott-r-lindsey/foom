@@ -13,6 +13,7 @@ import { Board } from "./board/board-view";
 import { createSampleSource } from "./board/sample-board-source";
 import { createAppSource } from "./board/live-board-source";
 import { Preflight } from "./preflight/preflight-view";
+import { useSettingsExit } from "./preflight/use-settings-exit";
 import { createSetupSource } from "./preflight/setup-source";
 
 function showConfirmationScrim(element: HTMLDivElement | null): void {
@@ -84,12 +85,24 @@ function AppContents({ source }: { source: BoardSource }) {
       showing = visible;
     });
   }, [source]);
-  const [setup] = useState(() => createSetupSource(source.createHostView));
+  const [setup] = useState(() => createSetupSource(source.createHostView, source.closeHostSession));
+  useEffect(() => () => setup.installs?.dispose(), [setup]);
   useEffect(() => attachInterfaceTheme(setup), [setup]);
   useEffect(() => attachTerminalSelectionBuffer(setup), [setup]);
   const [state, setState] = useState<SetupState>();
   const [preflight, setPreflight] = useState(false);
   const [settings, setSettings] = useState(false);
+  const settingsExit = useSettingsExit(setup.installs);
+  const closeSettings = (proceed?: () => void) => {
+    if (!settings) {
+      proceed?.();
+      return;
+    }
+    settingsExit.leave(() => {
+      setSettings(false);
+      proceed?.();
+    });
+  };
   const [section, setSection] = useState<{ name?: "config"; version: number }>({ version: 0 });
   const [board, setBoard] = useState(false);
   useEffect(() => {
@@ -160,11 +173,11 @@ function AppContents({ source }: { source: BoardSource }) {
           soundSetup={setup}
           inactive={preflight}
           onSettings={(name) => {
-            if (!settings || name) void reopen(name);
+            if (!settings) void reopen(name);
+            else if (name) void reopen(name);
+            else closeSettings();
           }}
-          onCloseSettings={() => {
-            setSettings(false);
-          }}
+          onCloseSettings={closeSettings}
           settingsView={
             settings && state ? (
               <Preflight
@@ -175,13 +188,14 @@ function AppContents({ source }: { source: BoardSource }) {
                 {...(section.name ? { initialSection: section.name } : {})}
                 onLaunched={setState}
                 onClose={() => {
-                  setSettings(false);
+                  closeSettings();
                 }}
               />
             ) : undefined
           }
         />
       )}
+      {settingsExit.dialog}
       {scrim.visible && (
         <div
           className="board-confirmation-scrim"

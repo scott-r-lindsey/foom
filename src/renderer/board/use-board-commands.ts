@@ -30,17 +30,23 @@ export function useBoardCommands({
     () =>
       source.subscribeCommands?.((command) => {
         if (inactive || command === "about") return;
+        const leave = (proceed: () => void) => {
+          if (onCloseSettings) onCloseSettings(proceed);
+          else proceed();
+        };
         if (command.startsWith("via-")) {
           void runSidebarCommand({ kind: "config-launch", run: command.slice(4) });
         } else if (command === "manual") {
-          onCloseSettings?.();
-          setLogOpen(false);
+          leave(() => {
+            setLogOpen(false);
+          });
         } else if (command === "toggle-sidebar") {
           toggleSidebarRef.current?.();
         } else if (command === "action-log") {
           if (source.actionLog) {
-            onCloseSettings?.();
-            setLogOpen(true);
+            leave(() => {
+              setLogOpen(true);
+            });
           }
         } else if (command === "settings") {
           setLogOpen(false);

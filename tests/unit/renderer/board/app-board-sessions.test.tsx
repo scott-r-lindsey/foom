@@ -497,3 +497,16 @@ test("live recipe exit retains the code before the next workspace snapshot", asy
   expect(source.getSnapshot()[0]).toMatchObject({ recipe: true, exited: true, exitCode: 0 });
   off?.();
 });
+
+test("closing a Settings install reconciles the removed row before navigation", async () => {
+  mock.workspace.mockResolvedValue({ repositories: [], terminals: [agent("recipe")] });
+  const source = createAppSource();
+  const off = source.connect?.();
+  await settle();
+  expect(source.getSnapshot().some((row) => row.id === "recipe")).toBe(true);
+  mock.workspace.mockResolvedValue({ repositories: [], terminals: [] });
+  await source.closeHostSession?.("recipe");
+  expect(mock.kill).toHaveBeenCalledWith("recipe");
+  expect(source.getSnapshot().some((row) => row.id === "recipe")).toBe(false);
+  off?.();
+});

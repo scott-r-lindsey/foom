@@ -18,6 +18,15 @@ import type { ConfigStatus } from "../../shared/foom-config";
 
 /** What preflight needs from main. Components use this, never the bridge directly. */
 export interface SetupSource {
+  /** Installs started in this Settings window; sign-in tiles are separate. */
+  installs?: {
+    sessions(): ReadonlyMap<string, string>;
+    hasSessions(): boolean;
+    running(): Promise<boolean>;
+    close(): Promise<void>;
+    /** Release observers on renderer teardown; native quit still owns process shutdown. */
+    dispose(): void;
+  };
   hostTerminal?: {
     createView(): TerminalViewSource;
     observe(id: string, listener: (exit: { exited: boolean; code?: number }) => void): () => void;

@@ -16,7 +16,7 @@ export interface BoardCommandContext
   selected: string | undefined;
   open: (row: BoardRow, replace?: boolean) => void;
   onSettings: ((section?: "config") => void) | undefined;
-  onCloseSettings: (() => void) | undefined;
+  onCloseSettings: ((proceed?: () => void) => void) | undefined;
   settingsOpen: boolean;
   toggleSidebarRef: RefObject<(() => void) | undefined>;
   newWorktreeRef: RefObject<((repository?: string) => boolean) | undefined>;

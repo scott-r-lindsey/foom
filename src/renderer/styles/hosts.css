@@ -27,3 +27,29 @@
   height: 240px;
   padding: 8px;
 }
+
+.stop-install-dialog {
+  width: min(360px, calc(100vw - 32px));
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--ink);
+  box-shadow: 0 20px 60px var(--raised-shadow);
+}
+.stop-install-dialog::backdrop {
+  background: color-mix(in srgb, var(--hole) 65%, transparent);
+}
+.stop-install-dialog h2 {
+  margin: 0 0 24px;
+  font-size: 18px;
+}
+.stop-install-dialog footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.stop-install-dialog button:focus {
+  outline: 2px solid var(--highlight);
+  outline-offset: 2px;
+}

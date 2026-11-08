@@ -585,10 +585,20 @@ protocol change is needed. Output and scrollback retain the existing terminal
 bounds; input goes directly through terminal IPC and is never copied into setup
 state, diagnostics or persistence. Foom never types into the process.
 
-Closing Settings, switching sections or leaving preflight detaches the view and
-keeps the recipe running. Its ordinary human-owned sidebar session remains
-visible and can be opened to answer prompts. Existing running-session quit
-confirmation still applies. The panel retains its screen until dismissed or a
+Install sessions belong to the Settings window that starts them. Closing Settings
+never transfers an install to the board or sidebar. With no live install process,
+closing Settings immediately disposes its install sessions and views. While any
+install process is running, every Settings exit (close button, Escape, Settings
+shortcut, sidebar terminal selection or other navigation away) first shows the
+in-app **Stop the install?** dialog, containing only **Stop** and **Keep open**.
+Keep open has default focus; Escape chooses Keep open. It preserves Settings and
+the PTY. Stop uses the existing ID-validated terminal kill/removal path, waits for
+it to finish, then closes Settings and disposes the views. Failed termination
+keeps Settings open. Installs still launching are included in the check. Section
+changes retain window ownership and reattach the install when Hosts is reopened.
+Closing the whole window or quitting uses the existing main-owned confirmation,
+without this additional Settings dialog. Sign-in tiles are unchanged.
+The panel retains its screen until dismissed or a
 new install replaces it. Its own header states Installing, Done, or Failed with
 the exit code; recipe tiles also state the final outcome in Foom chrome, never
 by adding text to process output. The main exit subscription starts before
