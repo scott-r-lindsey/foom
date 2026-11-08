@@ -1,4 +1,4 @@
-import { worktreeReservation } from "./worktree-reservations";
+import { closingWorktree, worktreeReservation } from "./worktree-reservations";
 import { hostDisplayName } from "../../shared/registered-hosts";
 import type { RegisteredHost } from "../../shared/registered-hosts.d";
 import { locationId } from "../control/metadata";
@@ -187,6 +187,9 @@ export async function sidebarCommand(
 ): Promise<SidebarCommandResult> {
   validateClose?.();
   if (this.closed) throw new Error("Workspace is closed");
+  if ("id" in command && this.launched.get(command.id)?.closeState === "closing")
+    throw new ApplicationError("session-busy");
+
   if (startup) {
     const begin = async () => {
       let reservation: string | undefined;
@@ -226,7 +229,8 @@ export async function sidebarCommand(
               if (!tree) throw new Error("Worktree was removed. Choose another checkout.");
               key = worktreeReservation(command.repository, worktree, tree.branch);
             }
-            if (this.busyWorktrees.has(key)) throw new Error("This worktree is busy");
+            if (this.busyWorktrees.has(key) || closingWorktree(this.launched.values(), key))
+              throw new Error("This worktree is busy");
             this.busyWorktrees.add(key);
             reservation = key;
           }
@@ -598,47 +602,74 @@ export async function sidebarCommand(
         this.deps.worktrees.listRepositories().some((repo) => repo.path === entry.repository))
         ? this.deps.worktrees.reviewIdentity(entry.repository, entry.worktree)
         : undefined;
-    if (entry && identity !== undefined) {
-      await this.cleanup.removeOwnedTree(
-        entry.repository,
-        entry.worktree,
-        identity,
-        async (branch, changes, automatic) =>
-          automatic === true ||
-          (await this.deps.dialog?.(
-            {
-              title: "Remove review worktree?",
-              accept: changes ? "Discard changes and remove" : "Remove worktree",
-              removal: {
-                group: `review-close-${command.id}`,
-                item: { id: command.id, branch, path: entry.worktree, changes },
-              },
-            },
-            closeSignal ?? new AbortController().signal,
-          )) === true,
-        () => {
-          validateClose?.();
-          if (this.closed || this.launched.get(command.id) !== entry)
-            throw new Error("Session changed");
-        },
-        command.id,
-        onCloseReview,
-      );
-      return;
+    if (command.kind === "close" && entry) {
+      const key = worktreeReservation(entry.repository, entry.worktree, entry.branch);
+      if (
+        [
+          key,
+          `${entry.repository}\0:remote:${entry.worktree}`,
+          `${entry.repository}\0${entry.worktree}`,
+          `remote-main\0${entry.worktree}`,
+        ].some((key) => key !== heldReservation && this.busyWorktrees.has(key))
+      )
+        throw new ApplicationError("session-busy");
+      if (
+        identity !== undefined &&
+        this.snapshot().terminals.some((row) => row.worktree === entry.worktree && !row.exited)
+      )
+        throw new ApplicationError("session-running");
     }
-    if (entry?.remote) {
-      const host = entry.placement?.kind === "remote" ? entry.placement.host : undefined;
-      if (!host) throw new Error("Remote host placement is unavailable");
-      try {
-        await this.deps.terminals.kill(command.id, host);
-      } catch {
-        entry.remoteCleanup = "unreachable";
-        this.refresh();
-        console.error("Remote child close failed: remote_host_unreachable");
-        throw new LaunchFailure("remote_host_unreachable");
+    const cleanup = async () => {
+      validateClose?.();
+      if (
+        command.kind === "close" &&
+        (this.closed || (entry && this.launched.get(command.id) !== entry))
+      )
+        throw new Error("Session changed");
+      if (entry && identity !== undefined) {
+        await this.cleanup.removeOwnedTree(
+          entry.repository,
+          entry.worktree,
+          identity,
+          async (branch, changes, automatic) =>
+            automatic === true ||
+            (await this.deps.dialog?.(
+              {
+                title: "Remove review worktree?",
+                accept: changes ? "Discard changes and remove" : "Remove worktree",
+                removal: {
+                  group: `review-close-${command.id}`,
+                  item: { id: command.id, branch, path: entry.worktree, changes },
+                },
+              },
+              closeSignal ?? new AbortController().signal,
+            )) === true,
+          () => {
+            validateClose?.();
+            if (this.closed || this.launched.get(command.id) !== entry)
+              throw new Error("Session changed");
+          },
+          command.id,
+          onCloseReview,
+        );
+        return;
       }
-    } else if (!entry?.dormant) await this.deps.terminals.kill(command.id);
-    this.removed(command.id);
+      if (entry?.remote) {
+        const host = entry.placement?.kind === "remote" ? entry.placement.host : undefined;
+        if (!host) throw new Error("Remote host placement is unavailable");
+        try {
+          await this.deps.terminals.kill(command.id, host);
+        } catch {
+          entry.remoteCleanup = "unreachable";
+          this.refresh();
+          console.error("Remote child close failed: remote_host_unreachable");
+          throw new LaunchFailure("remote_host_unreachable");
+        }
+      } else if (!entry?.dormant) await this.deps.terminals.kill(command.id);
+      this.removed(command.id);
+    };
+    if (command.kind === "close" && entry) await this.closeSession(entry, cleanup);
+    else await cleanup();
     return;
   }
   this.known(command.repository);
@@ -650,7 +681,8 @@ export async function sidebarCommand(
         (tree) => tree.path === command.worktree,
       );
       const key = worktreeReservation(command.repository, command.worktree, tree?.branch);
-      if (this.busyWorktrees.has(key)) throw new Error("This worktree is busy");
+      if (this.busyWorktrees.has(key) || closingWorktree(this.launched.values(), key))
+        throw new Error("This worktree is busy");
       this.busyWorktrees.add(key);
       try {
         if (command.kind === "cleanup-worktree")
@@ -951,7 +983,8 @@ export async function createWorktree(
 ): Promise<Worktree & { outcome: CreateOutcome }> {
   return this.withRepository(repository, async () => {
     const key = `${repository}\0${branch}`;
-    if (this.busyWorktrees.has(key)) throw new Error("This worktree is busy");
+    if (this.busyWorktrees.has(key) || closingWorktree(this.launched.values(), key))
+      throw new Error("This worktree is busy");
     this.busyWorktrees.add(key);
     try {
       if (host !== undefined) {

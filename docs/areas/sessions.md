@@ -54,7 +54,7 @@ creation so controllers discard old exit state. A launch version in the board
 snapshot reattaches surviving tile controllers without remounting xterm. Every
 launch that reuses an ID advances it, shells included, because the renderer
 advances its row on reset and ignores snapshots older than that row. Failed launches leave the saved
-record dormant and retryable. Close deletes the record, without touching Git.
+record dormant and retryable. Close deletes the record after cleanup. Owned review worktrees retain their existing trusted removal policy.
 All terminal-ID sidebar commands validate the sender and ownership in either the
 host or main's restored inventory. Copy uses main's clipboard capability and the
 stored ID, never caller-provided clipboard text. Shutdown drains pending writes.
@@ -115,3 +115,22 @@ restoration does not infer it from a saved role; after such a restored session e
 its manual Resume is ordinary until the human explicitly re-grants with the current
 disclosure. Re-grant ownership recovery promises are limited to retained records
 before Foom restarts. See [orchestration](orchestration.md#same-session-resume-and-re-grant-1081).
+
+## Background Close (#1048)
+
+`WorkspaceContext.closeSession` publishes `closeState: "closing"` before awaiting
+filesystem or SSH cleanup, then awaits session persistence before destructive work.
+The launched record remains in main's inventory and retains its remote placement;
+the board source alone omits it. Terminal input and attachment are blocked through
+the main-only `setClosing` capability. Busy-session and checkout reservations
+prevent duplicate actions and launch/removal races. The original Close promise
+settles only after cleanup; failures restore a `closeState: "failed"` row.
+
+SessionStore persists the close marker. Quit freezes it with the existing session
+records before terminal shutdown, without adding a cleanup wait to the shutdown
+budget. On restart either saved marker becomes a visible failed, dormant row; it
+never automatically relaunches or repeats deletion. Remote discovery cannot
+replace that recovery record. This retains the remote locator for explicit retry
+when its host is reachable. A cleanup that completes after the quit freeze may
+leave a conservative recovery row; retry still uses the original live membership,
+identity and deletion checks.

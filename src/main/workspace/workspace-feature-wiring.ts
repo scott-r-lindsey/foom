@@ -337,6 +337,9 @@ export function workspaceFeatureWiring(owner: WorkspaceContext): {
       get confirmAgentLaunch() {
         return owner.confirmAgentLaunch.bind(owner);
       },
+      get closeSession() {
+        return owner.closeSession.bind(owner);
+      },
     } satisfies SidebarCommandsContext,
     configLaunch: {
       get agents() {

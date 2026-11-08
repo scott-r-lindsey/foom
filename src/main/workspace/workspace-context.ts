@@ -719,6 +719,29 @@ export class WorkspaceContext {
     }
   }
 
+  /** Publish acceptance before filesystem or SSH work, retaining the session until settlement. */
+  async closeSession(entry: WorkspaceTerminal, cleanup: () => Promise<void>): Promise<void> {
+    if (this.sessions.isQuitting) throw new Error("Workspace is quitting");
+    this.busySessions.add(entry.id);
+    entry.closeState = "closing";
+    this.deps.terminals.setClosing?.(entry.id, true);
+    this.refresh();
+    try {
+      // Persist the interrupted-cleanup marker before any destructive effect.
+      await this.sessions.save();
+      await cleanup();
+      if (this.launched.get(entry.id) === entry) delete entry.closeState;
+    } catch (error) {
+      if (this.launched.get(entry.id) === entry) entry.closeState = "failed";
+      throw error;
+    } finally {
+      this.busySessions.delete(entry.id);
+      this.deps.terminals.setClosing?.(entry.id, false);
+      this.persist();
+      this.refresh();
+    }
+  }
+
   homeFacts: ReturnType<typeof homeShellFacts> | undefined;
   panelFacts(repository: string, worktree: string) {
     this.known(repository);

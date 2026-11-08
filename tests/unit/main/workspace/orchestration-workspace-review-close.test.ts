@@ -160,7 +160,7 @@ it.each(["takeover", "revocation"])(
   },
 );
 
-it("returns pending confirmation promptly and joins review close with explicit removal", async () => {
+it("returns pending confirmation promptly, refuses a second close and joins explicit removal", async () => {
   const workspace = createWorkspace(deps);
   await orchestrate(workspace);
   const actor = principal();
@@ -199,7 +199,7 @@ it("returns pending confirmation promptly and joins review close with explicit r
     { id: "reviewer", idempotencyKey: "duplicate-close" },
     operations,
   )) as Operation;
-  expect(duplicate.status).toBe("pending_confirmation");
+  expect(duplicate.status).toBe("failed");
   await workspace.orchestration.call(
     actor,
     "remove_worktree",
@@ -212,7 +212,7 @@ it("returns pending confirmation promptly and joins review close with explicit r
   expect(deps.worktrees.removeWorktree).not.toHaveBeenCalled();
   answer.resolve(true);
   await vi.waitFor(() => {
-    for (const key of ["close", "duplicate-close", "remove"])
+    for (const key of ["close", "remove"])
       expect(operations.lookup(actor, { idempotencyKey: key }).status).toBe("succeeded");
   });
   expect(deps.worktrees.removeWorktree).toHaveBeenCalledOnce();

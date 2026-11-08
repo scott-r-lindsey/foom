@@ -67,6 +67,7 @@ export class FinishedChildCloser {
       owned.active() &&
       owned.exited() &&
       row?.exited === true &&
+      row.closeState === undefined &&
       row.kind === "agent" &&
       !this.host.starting?.(id) &&
       row.state?.state !== "needs_input" &&

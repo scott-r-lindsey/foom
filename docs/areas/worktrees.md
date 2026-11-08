@@ -375,3 +375,16 @@ Removal failed state and a manual Clean up action; success removes the row and
 record, then prunes only recorded empty parent directories. Group retry requires
 no sessions in the directory and uses the repository operation reservation.
 Each refusal reason and restart recovery are covered with temporary fixtures.
+
+## Close presentation and retained cleanup (#1048)
+
+Accepted Close hides its session from board presentation before owned-review
+removal performs inventory, proofs, confirmation or deletion. Main retains the
+session and a persisted interrupted-close marker throughout; failures or declines
+restore the row. The original trusted review, automatic-removal policy, identity
+rechecks and refusal rules are unchanged. Closing records additionally reserve
+their checkout against launches before the removal owner acquires its ordinary
+branch lock. Idle removal refuses a closing checkout, and merged cleanup skips it;
+explicit identity-matched owned removals can still join the original removal. Control inventory keeps those records until actual cleanup settles,
+so removal still conflicts with outstanding sessions. Interrupted cleanup surfaces
+as a failed saved row after restart and grants no new deletion authority.

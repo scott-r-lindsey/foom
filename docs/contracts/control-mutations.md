@@ -344,3 +344,12 @@ no fresh start. Human launches omit admission, including human remote Resume.
 Review loops retry host_busy every five seconds for at most five minutes, then
 escalate as launch failed. Cancellation releases the retry timer. Other launch
 failures retain their existing behavior. No threshold setting is added.
+
+## Close cleanup visibility (#1048)
+
+`sessions`, `session_state` and wait observations retain an exited session during
+Close cleanup and add `closeState: "closing"`; cleanup failure exposes
+`closeState: "failed"`. This field participates in the session revision. The close
+operation cannot report success until worktree and terminal cleanup settle. Its
+existing pending-confirmation, conflict, declined, failed and indeterminate rules
+remain authoritative. A hidden board row is not proof of completed cleanup.

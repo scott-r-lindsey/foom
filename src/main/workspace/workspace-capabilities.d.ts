@@ -94,6 +94,7 @@ export interface AgentSetupContext {
 }
 
 export interface SidebarCommandsContext {
+  readonly closeSession: (entry: WorkspaceTerminal, cleanup: () => Promise<void>) => Promise<void>;
   readonly confirmAgentLaunch: WorkspaceMethods["confirmAgentLaunch"];
   readonly scanAgents: WorkspaceMethods["scanAgents"];
   readonly enabled: Readonly<Record<AgentId, boolean>>;

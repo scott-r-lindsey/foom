@@ -263,6 +263,7 @@ export interface WorkspaceDependencies {
   terminals: {
     create(spec: TerminalSpec): Promise<string>;
     kill(id: string, remoteHost?: string): Promise<void>;
+    setClosing?(id: string, closing: boolean): void;
     stop(id: string): Promise<boolean>;
     tail(id: string, lines: number): Promise<string[]>;
     childInput?(id: string, data: ChildInput): Promise<void>;

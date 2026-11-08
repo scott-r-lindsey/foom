@@ -1,4 +1,4 @@
-import { worktreeReservation } from "./worktree-reservations";
+import { closingWorktree, worktreeReservation } from "./worktree-reservations";
 import type { ParentIdentity } from "../control/orchestration.d";
 import { canRestoreControl } from "./session-restore";
 import { locationId } from "../control/metadata";
@@ -52,7 +52,8 @@ export async function launch(
       (item) => item.path === request.worktree,
     );
     const key = worktreeReservation(request.repository, request.worktree, tree?.branch);
-    if (this.busyWorktrees.has(key)) throw new Error("This worktree is busy");
+    if (this.busyWorktrees.has(key) || closingWorktree(this.launched.values(), key))
+      throw new Error("This worktree is busy");
     this.busyWorktrees.add(key);
     try {
       const identity = await this.deps.worktrees.launchIdentity(
@@ -181,7 +182,8 @@ export async function startWorktree(
   return this.withRepository(request.repository, async () => {
     // Lock the logical branch before any async operation, including creation.
     const key = `${request.repository}\0${request.branch}`;
-    if (this.busyWorktrees.has(key)) throw new Error("This worktree is busy");
+    if (this.busyWorktrees.has(key) || closingWorktree(this.launched.values(), key))
+      throw new Error("This worktree is busy");
     this.busyWorktrees.add(key);
     try {
       await this.deps.worktrees.validateBranch(request.repository, request.branch);
@@ -416,20 +418,20 @@ export async function startMachine(
     }
     // startExisting already holds the linked-checkout lock and confirmation.
     // Direct human launches supply confirm; main clones always require this gate.
-    if (
-      run !== "shell" &&
-      trackedLocation &&
-      (confirm || trackedLocation.branch === "Main checkout")
-    ) {
+    if (trackedLocation && (confirm || trackedLocation.branch === "Main checkout")) {
       const key =
         trackedLocation.branch === "Main checkout"
           ? `remote-main\0${trackedLocation.worktree}`
           : `${trackedLocation.repository}\0:remote:${trackedLocation.worktree}`;
-      if (this.busyWorktrees.has(key) && key !== heldReservation)
+      if (
+        (this.busyWorktrees.has(key) || closingWorktree(this.launched.values(), key)) &&
+        key !== heldReservation
+      )
         throw new Error("This worktree is busy");
       if (key !== heldReservation) this.busyWorktrees.add(key);
       reservation = key;
       if (
+        run !== "shell" &&
         !(await this.confirmAgentLaunch(
           trackedLocation.worktree,
           confirm ?? (() => Promise.resolve(false)),
@@ -646,7 +648,11 @@ export async function startExisting(
       const registeredHost = this.orchestration.worktreeHost(worktree);
       if (registeredHost !== undefined) {
         const candidate = `${repository}\0:remote:${worktree}`;
-        if (this.busyWorktrees.has(candidate) && candidate !== heldReservation)
+        if (
+          (this.busyWorktrees.has(candidate) ||
+            closingWorktree(this.launched.values(), candidate)) &&
+          candidate !== heldReservation
+        )
           throw new Error("This worktree is busy");
         if (candidate !== heldReservation) this.busyWorktrees.add(candidate);
         reservation = candidate;
@@ -665,7 +671,11 @@ export async function startExisting(
       if (tree.bare || tree.prunable || tree.locked) throw new Error("Worktree is unavailable");
       if (reservation === undefined) {
         const candidate = worktreeReservation(repository, worktree, tree.branch);
-        if (this.busyWorktrees.has(candidate) && candidate !== heldReservation)
+        if (
+          (this.busyWorktrees.has(candidate) ||
+            closingWorktree(this.launched.values(), candidate)) &&
+          candidate !== heldReservation
+        )
           throw new Error("This worktree is busy");
         if (candidate !== heldReservation) this.busyWorktrees.add(candidate);
         reservation = candidate;

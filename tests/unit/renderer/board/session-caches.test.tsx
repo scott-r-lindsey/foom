@@ -110,3 +110,33 @@ test("pre-inventory evidence stays bounded and survives delayed snapshots until 
   });
   off?.();
 });
+
+test("closing sessions disappear before command settlement and failed cleanup restores a labelled row", async () => {
+  const source = createAppSource();
+  const off = source.connect?.();
+  await settle();
+  const row = { ...agent("closing"), exited: true };
+  mock.workspace.mockResolvedValue({ repositories: [], terminals: [row] });
+  mock.changed?.();
+  await settle();
+  expect(source.getSnapshot().some((row) => row.id === "closing")).toBe(true);
+  mock.workspace.mockResolvedValue({
+    repositories: [],
+    terminals: [{ ...row, closeState: "closing" }],
+  });
+  mock.changed?.();
+  await settle();
+  expect(source.getSnapshot().some((row) => row.id === "closing")).toBe(false);
+  mock.workspace.mockResolvedValue({
+    repositories: [],
+    terminals: [{ ...row, closeState: "failed" }],
+  });
+  mock.changed?.();
+  await settle();
+  mock.state?.(verdict("closing", 300));
+  expect(source.getSnapshot().find((row) => row.id === "closing")).toMatchObject({
+    state: "failed",
+    reason: "Close failed · cleanup may be incomplete",
+  });
+  off?.();
+});

@@ -276,6 +276,12 @@ export class CleanupOwner {
     confirm: (branch: string, changes: string) => Promise<boolean>,
   ): Promise<boolean> {
     this.requireIdleWorktree(worktree);
+    if (
+      this.deps
+        .terminals()
+        .some((entry) => entry.worktree === worktree && entry.closeState === "closing")
+    )
+      throw new RemovalError("busy", "This worktree is busy");
     return this.deps.withWorktreeRemoval(
       repository,
       worktree,
@@ -381,6 +387,7 @@ export class CleanupOwner {
 
   private sessionSkip(worktree: string): CleanupReason | undefined {
     const sessions = this.deps.terminals().filter((item) => item.worktree === worktree);
+    if (sessions.some((item) => item.closeState === "closing")) return "unavailable";
     if (sessions.some((item) => this.deps.exitCode(item.id) === undefined)) return "running";
     if (sessions.some((item) => item.kind === "agent" && conversationId(item.conversationId)))
       return "resumable conversation";

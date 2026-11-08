@@ -54,6 +54,7 @@ export interface BoardRow {
   handoff?: Handoff | undefined;
   review?: ReviewState | undefined;
   roleNotRestored?: boolean | undefined;
+  closeFailed?: boolean | undefined;
   kind: "sample" | "shell" | "agent";
   repository: string;
   branch: string;

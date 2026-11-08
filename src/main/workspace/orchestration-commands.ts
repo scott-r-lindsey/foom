@@ -1,4 +1,4 @@
-import { worktreeReservation } from "./worktree-reservations";
+import { closingWorktree, worktreeReservation } from "./worktree-reservations";
 import { HostAdmission } from "../../shared/host-pressure";
 import { localResources } from "../setup/local-host";
 import { canRestoreControl } from "./session-restore";
@@ -179,7 +179,8 @@ export async function createChildWorktree(
 ): Promise<{ path: string; branch: string; identity: string }> {
   return this.withRepository(repository, async () => {
     const key = `${repository}\0${branch}`;
-    if (this.busyWorktrees.has(key)) throw new Error("This worktree is busy");
+    if (this.busyWorktrees.has(key) || closingWorktree(this.launched.values(), key))
+      throw new Error("This worktree is busy");
     this.busyWorktrees.add(key);
     try {
       await this.deps.worktrees.validateBranch(repository, branch);
@@ -232,7 +233,8 @@ export async function launchChild(
     const key = remote
       ? `${repository}\0${worktree}`
       : worktreeReservation(repository, worktree, tree.branch);
-    if (this.busyWorktrees.has(key)) throw new Error("This worktree is busy");
+    if (this.busyWorktrees.has(key) || closingWorktree(this.launched.values(), key))
+      throw new Error("This worktree is busy");
     this.busyWorktrees.add(key);
     try {
       // Only the checkout the orchestrator created, never a replacement at the same path.

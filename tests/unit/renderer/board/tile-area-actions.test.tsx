@@ -623,3 +623,34 @@ test.each([false, true])(
     );
   },
 );
+
+test("accepted Close moves focus before cleanup and settlement preserves a later focus choice", async () => {
+  const { screen, click, data, source, send, views } = setup();
+  click(0);
+  send("split-right");
+  click(1);
+  send("split-right");
+  click(2);
+  send("tile-3");
+  act(() => {
+    data.update("permission", { exited: true });
+  });
+  const cleanup = Promise.withResolvers<undefined>();
+  source.sidebarCommand = vi.fn(() => cleanup.promise);
+  fireEvent.click(screen.getByRole("button", { name: "Close" }));
+  await act(async () => {});
+  const focusedBefore = views[2]?.focus.mock.calls.length ?? 0;
+  act(() => {
+    data.update("permission", { id: "closed" });
+  });
+  expect(views[2]?.focus).toHaveBeenCalledTimes(focusedBefore + 1);
+  expect(document.activeElement).toBe(screen.getByRole("region", { name: /Tile 1:/ }));
+  send("tile-2");
+  const laterFocus = document.activeElement;
+  await act(async () => {
+    cleanup.resolve(undefined);
+    await cleanup.promise;
+  });
+  expect(document.activeElement).toBe(laterFocus);
+  expect(views[2]?.focus).toHaveBeenCalledTimes(focusedBefore + 1);
+});

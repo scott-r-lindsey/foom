@@ -1,4 +1,4 @@
-import { worktreeReservation } from "./worktree-reservations";
+import { closingWorktree, worktreeReservation } from "./worktree-reservations";
 import { agentProviders } from "../agents/providers/registry";
 import { localResources } from "../setup/local-host";
 import { prepareTail } from "../evaluator/terminal-tail";
@@ -193,7 +193,8 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
           });
         }
         const key = `${repository}\0:adopt-pr-${String(number)}`;
-        if (caps.busyWorktrees.has(key)) throw new ControlError("branch_in_use");
+        if (caps.busyWorktrees.has(key) || closingWorktree(caps.snapshot().terminals, key))
+          throw new ControlError("branch_in_use");
         caps.busyWorktrees.add(key);
         let branchKey: string | undefined;
         try {
@@ -208,7 +209,11 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
                   path ?? `:adopt-pr-${String(number)}`,
                   branch,
                 );
-                if (caps.busyWorktrees.has(candidate)) throw new ControlError("branch_in_use");
+                if (
+                  caps.busyWorktrees.has(candidate) ||
+                  closingWorktree(caps.snapshot().terminals, candidate)
+                )
+                  throw new ControlError("branch_in_use");
                 branchKey = candidate;
                 caps.busyWorktrees.add(candidate);
               }
@@ -227,6 +232,8 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
       }),
     launch: (parentId, repository, worktree, identity, agent, prompt, step) => {
       const tree = remoteTree(worktree);
+      if (closingWorktree(caps.snapshot().terminals, `${repository}\0:remote:${worktree}`))
+        throw new ControlError("conflict");
       if (!tree)
         return caps.launchChild(parentId, repository, worktree, identity, agent, prompt, step);
       return caps.withRepository(repository, () =>
@@ -391,7 +398,14 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
           // while the removal reservation still prevents a replacement launch.
           const entries = caps.snapshot().terminals.filter((row) => row.worktree === worktree);
           for (const entry of entries)
-            await caps.sidebarCommand({ kind: "close", id: entry.id }, () => Promise.resolve(true));
+            await caps.sidebarCommand(
+              { kind: "close", id: entry.id },
+              () => Promise.resolve(true),
+              undefined,
+              undefined,
+              undefined,
+              `${repository}\0:remote:${worktree}`,
+            );
           return true;
         }),
       );
