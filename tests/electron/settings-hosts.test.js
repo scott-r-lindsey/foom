@@ -11,6 +11,7 @@ const { deadline, expect } = require("./test-policy.js");
 const {
   boardPage,
   confirmationPage,
+  boardCommand,
   fixtureCleanup,
   launchApp,
   openSettingsScreen,
@@ -48,7 +49,9 @@ async function captureHosts(app, page, name) {
         .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
         .toBe(mode === "dark");
       await area.screenshot({
-        path: evidencePath(`${name.startsWith("1061/") ? name : `1074/${name}`}-${mode}.png`),
+        path: evidencePath(
+          `${/^(?:1061|1062|1074)\//u.test(name) ? name : `1074/${name}`}-${mode}.png`,
+        ),
       });
     }
   } finally {
@@ -124,10 +127,11 @@ if (args.at(-1) === 'uname -s; uname -m') { process.stdout.write(${JSON.stringif
 // Standalone fixed libc preflight has no daemon protocol handshake.
 if (args.at(-1).includes('FOOM-LIBC-UNSUPPORTED') && !args.at(-1).includes('FOOM-READY')) { if(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8').includes('musl')) { process.stdout.write('FOOM-LIBC-UNSUPPORTED'); process.exit(1); } process.exit(0); }
 process.stdout.write('FOOM-READY\\n');
-let input=Buffer.alloc(0), terminalOutput='';
+let input=Buffer.alloc(0), terminalOutput='', recipeInput='', recipeEnded=false, finishTimer;
 const {spawnSync}=require('node:child_process');
 const {selectHostRecipe}=require(${JSON.stringify(path.resolve("build/shared/registered-host-recipes.js"))});
-function send(message) { const data=Buffer.from(JSON.stringify({version:3,message})); const head=Buffer.alloc(4); head.writeUInt32BE(data.length); process.stdout.write(Buffer.concat([head,data])); }
+function frame(message) { const data=Buffer.from(JSON.stringify({version:3,message})); const head=Buffer.alloc(4); head.writeUInt32BE(data.length); return Buffer.concat([head,data]); }
+function send(message) { process.stdout.write(frame(message)); }
 process.stdin.on('data', bytes => {
  input=Buffer.concat([input,bytes]);
  while(input.length>=4 && input.length>=4+input.readUInt32BE(0)) {
@@ -150,10 +154,35 @@ process.stdin.on('data', bytes => {
       const child=spawnSync(${JSON.stringify(process.execPath)},[${JSON.stringify(recipeFixture)},...step],{env:{},encoding:'utf8'});
       assert.equal(child.status,0); terminalOutput=child.stdout;
     }
-    send({type:'open-result',id:message.id,request:message.request,state:'live'});continue;
+    const immediate=JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8'));
+    const opened={type:'open-result',id:message.id,request:message.request,state:'live'};
+    if(immediate.recipeImmediateExit) {
+      recipeEnded=true;
+      require('node:fs').writeFileSync(${JSON.stringify(scenario)},JSON.stringify({...immediate,facts:{...immediate.facts,tools:[{id:'git',state:'ready',signIn:'unknown'},{id:'gh',state:'ready',signIn:'signed-out'}]}}));
+      process.stdout.write(Buffer.concat([frame(opened),frame({type:'exit',id:message.id,code:0})]));
+    } else send(opened);
+    continue;
   }
   if('id' in message) {
-    if(message.type==='attach')send({type:'data',id:message.id,view:message.view,token:'fixture-recipe',data:terminalOutput});
+    if(message.type==='kill') {
+      appendFileSync(${JSON.stringify(calls)},JSON.stringify({host,message:{type:message.type,id:message.id},closed:message.id})+'\\n');
+      recipeEnded=true;clearInterval(finishTimer);
+      send({type:'exit',id:message.id,code:143});
+    }
+    const recipeSettings=JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8'));
+    if(message.type==='write' && recipeSettings.recipeInteractive && !recipeEnded) {
+      recipeInput+=message.data;
+      if(recipeInput.includes('fixture-password'+String.fromCharCode(13))) {
+        recipeEnded=true;
+        require('node:fs').writeFileSync(${JSON.stringify(scenario)},JSON.stringify({...recipeSettings,facts:{...recipeSettings.facts,tools:[{id:'git',state:'ready',signIn:'unknown'},{id:'gh',state:'ready',signIn:'signed-out'}]}}));
+        send({type:'exit',id:message.id,code:recipeSettings.recipeExit ?? 0});
+      }
+    }
+    if(message.type==='attach') {
+      if(!finishTimer) finishTimer=setInterval(()=>{ const next=JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8')); if(next.recipeExit !== undefined && !next.recipeInteractive && !recipeEnded) { recipeEnded=true;clearInterval(finishTimer);send({type:'exit',id:message.id,code:next.recipeExit}); } },20);
+      send({type:'data',id:message.id,view:message.view,token:'fixture-recipe',data:terminalOutput+(recipeSettings.recipeInteractive?'[sudo] password: ':'')});
+      if(recipeSettings.recipeExit !== undefined && !recipeSettings.recipeInteractive && !recipeEnded) {recipeEnded=true;send({type:'exit',id:message.id,code:recipeSettings.recipeExit});}
+    }
     send({type:'result',id:message.id,request:message.request,lines:terminalOutput.split('\\r\\n'),cols:80,rows:24,title:'Recipe'});
     continue;
   }
@@ -865,7 +894,7 @@ test("Repositories lists existing checkouts and opens fixed repair recipes witho
       async () => (await readFile(recipeCalls, "utf8")).trim().split("\n").filter(Boolean).length,
     )
     .toBe(2);
-  await expect(page.locator(".terminal-tile[data-kind='shell']").last()).toBeVisible();
+  await expect(card.getByRole("region", { name: "Install terminal" })).toBeVisible();
   await expect
     .poll(async () =>
       page.evaluate(async () => {
@@ -876,6 +905,7 @@ test("Repositories lists existing checkouts and opens fixed repair recipes witho
     .toContain("FIXTURE_RECIPE_COMPLETE");
   await capture("fix-install-tile");
   await updateScenario({
+    recipeExit: 0,
     facts: {
       tools: [
         { id: "git", state: "ready", signIn: "unknown" },
@@ -883,6 +913,11 @@ test("Repositories lists existing checkouts and opens fixed repair recipes witho
       ],
     },
   });
+  await expect(
+    card.getByRole("region", { name: "Install terminal" }).getByRole("status"),
+  ).toHaveText("Done");
+  await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Settings", exact: true })).toHaveCount(0);
   await openSettingsScreen(page);
   await page
     .getByRole("navigation", { name: "Settings sections" })
@@ -938,6 +973,8 @@ test("Repositories lists existing checkouts and opens fixed repair recipes witho
       ["gh", "auth", "login", "--web", "--git-protocol", "https", "--skip-ssh-key"],
     ],
   );
+  await expect(page.getByRole("region", { name: "Settings", exact: true })).toHaveCount(0);
+  await expect(page.locator(".terminal-tile[data-kind='shell']")).toBeVisible();
   await openSettingsScreen(page);
   await page
     .getByRole("navigation", { name: "Settings sections" })
@@ -1271,14 +1308,14 @@ test("Hosts loads saved rows and retries only persistence after queued profile w
   skip: process.platform === "win32",
   timeout: deadline(60000),
 }, async (context) => {
-  const { app, page, card, calls } = await hostsFixture(context);
+  const { app, page, card, calls, updateScenario } = await hostsFixture(context);
   const profile = await app.evaluate(({ app }) => app.getPath("userData"));
   const before = await page.evaluate(
     async () =>
       (await window.desktop.setupState()).settings.registeredHosts[0].observation.checkedAt,
   );
   await card.getByRole("button", { name: "Install git", exact: true }).click();
-  await expect(page.locator(".terminal-tile[data-kind='shell']").last()).toBeVisible();
+  await expect(card.getByRole("region", { name: "Install terminal" })).toBeVisible();
   const inspectCount = async () =>
     (await readFile(calls, "utf8"))
       .trim()
@@ -1294,6 +1331,10 @@ test("Hosts loads saved rows and retries only persistence after queued profile w
   const initial = await inspectCount();
   try {
     await chmod(profile, 0o555);
+    await updateScenario({ recipeExit: 0 });
+    await expect(card.getByText("Unable to save", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
+    await expect(page.getByRole("region", { name: "Settings", exact: true })).toHaveCount(0);
     for (let attempt = 0; attempt < 3; attempt++) {
       await openSettingsScreen(page);
       await page
@@ -1306,6 +1347,7 @@ test("Hosts loads saved rows and retries only persistence after queued profile w
       await expect(page.getByText("Unable to load hosts", { exact: true })).toHaveCount(0);
       if (attempt === 0) await captureHosts(app, page, "1061/queued-save-failure");
       await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
+      await expect(page.getByRole("region", { name: "Settings", exact: true })).toHaveCount(0);
     }
     assert.equal(await inspectCount(), initial + 1);
   } finally {
@@ -1333,7 +1375,7 @@ test("Hosts merges recipe rows with two Hosts windows already open", {
   skip: process.platform === "win32",
   timeout: deadline(60000),
 }, async (context) => {
-  const { app, page, card, calls } = await hostsFixture(context);
+  const { app, page, card, calls, updateScenario } = await hostsFixture(context);
   await page.evaluate(() => window.desktop.appMenu.execute("new-window"));
   await expect
     .poll(() => app.windows().filter((window) => window.url() === "app://bundle/index.html").length)
@@ -1355,6 +1397,13 @@ test("Hosts merges recipe rows with two Hosts windows already open", {
   await expect
     .poll(() => page.evaluate(async () => (await window.desktop.workspace()).terminals.length))
     .toBe(1);
+  await expect
+    .poll(
+      async () =>
+        (await page.locator(".terminal-tile[data-kind='shell']").last().isVisible()) ||
+        (await other.locator(".terminal-tile[data-kind='shell']").last().isVisible()),
+    )
+    .toBe(true);
   // Recipe reveal closes the receiving board's Settings. The other already-open
   // Hosts view can queue a second recipe without mounting/listing again.
   const remainingCard = (await card.isVisible()) ? card : otherCard;
@@ -1371,17 +1420,252 @@ test("Hosts merges recipe rows with two Hosts windows already open", {
     .map((line) => JSON.parse(line))
     .filter(({ message, phase }) => !phase && message.operation === "inspect" && message.target);
   assert.equal(beforeList.length, 0, "neither recipe remounted Hosts or refreshed queued rows");
-  await page.evaluate(() => window.desktop.hosts({ action: "list" }));
+  await expect(
+    remainingCard.getByRole("region", { name: "Install terminal" }).locator(".xterm-screen"),
+  ).toContainText("FIXTURE_RECIPE_COMPLETE");
+  await updateScenario({ recipeExit: 0 });
+  await expect
+    .poll(
+      async () =>
+        (await readFile(calls, "utf8")).split("\n").filter((line) => line.includes('"target"'))
+          .length,
+    )
+    .toBe(2);
   const targets = (await readFile(calls, "utf8"))
     .trim()
     .split("\n")
     .map((line) => JSON.parse(line))
     .filter(({ message, phase }) => !phase && message.operation === "inspect" && message.target)
     .map(({ message }) => message.target);
-  assert.deepEqual(targets, [
-    { kind: "sign-in", tool: "gh" },
-    { kind: "tool", tool: "git" },
-  ]);
+  assert.deepEqual(
+    targets.sort((a, b) => a.kind.localeCompare(b.kind)),
+    [
+      { kind: "sign-in", tool: "gh" },
+      { kind: "tool", tool: "git" },
+    ],
+  );
+});
+
+test("Hosts embeds interactive installs, retains outcomes, and refreshes only the installed tool", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, calls, updateScenario } = await hostsFixture(context);
+  await updateScenario({ recipeInteractive: true });
+  const initial = (await readFile(calls, "utf8")).trim().split("\n").length;
+  await card.getByRole("button", { name: "Install git", exact: true }).click();
+  const terminal = card.getByRole("region", { name: "Install terminal" });
+  await expect(terminal).toBeVisible();
+  await expect(page.getByRole("region", { name: "Settings", exact: true })).toBeVisible();
+  await expect(terminal.locator(".xterm-screen")).toContainText("[sudo] password:");
+  await assertAccessible(page);
+  await captureHosts(app, page, "1062/install-prompt");
+  await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .setContentSize(900, 760),
+  );
+  await expect.poll(() => page.evaluate(() => innerWidth)).toBe(900);
+  await captureHosts(app, page, "1062/install-narrow");
+  await terminal.locator(".xterm-helper-textarea").focus();
+  await page.keyboard.type("fixture-password");
+  await page.keyboard.press("Enter");
+  await expect(terminal.getByRole("status")).toHaveText("Done");
+  const gitRow = card
+    .locator(".host-check-row")
+    .filter({ has: page.getByRole("button", { name: "Reload git", exact: true }) });
+  await expect(gitRow).toContainText("Pass · Installed");
+  await expect(page.getByRole("region", { name: "Settings", exact: true })).toBeVisible();
+  await captureHosts(app, page, "1062/install-done");
+  const checks = (await readFile(calls, "utf8"))
+    .trim()
+    .split("\n")
+    .slice(initial)
+    .map((line) => JSON.parse(line))
+    .filter(({ message, phase }) => !phase && message.operation === "inspect")
+    .map(({ message }) => message.target ?? null);
+  assert.deepEqual(checks, [null, { kind: "tool", tool: "git" }]);
+  await terminal.getByRole("button", { name: "Dismiss" }).click();
+  await expect(terminal).toHaveCount(0);
+  await updateScenario({
+    recipeExit: 23,
+    facts: { tools: [{ id: "git", state: "missing", signIn: "unknown" }] },
+  });
+  await card.getByRole("button", { name: "Reload git", exact: true }).click();
+  await expect(card.getByRole("button", { name: "Install git", exact: true })).toBeEnabled();
+  await card.getByRole("button", { name: "Install git", exact: true }).click();
+  await expect(terminal.getByRole("status")).toHaveText("Failed · exit code 23");
+  await expect(gitRow).toContainText("Not found");
+  await captureHosts(app, page, "1062/install-failed");
+});
+
+test("Hosts retains failed Add stderr in a read-only panel", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, updateScenario } = await hostsFixture(context);
+  await page.getByRole("button", { name: "Add host", exact: true }).click();
+  const add = page.locator(".host-add");
+  await add.getByLabel("SSH host", { exact: true }).fill("offline-cloud");
+  await add.getByRole("button", { name: "Add host", exact: true }).click();
+  const output = page
+    .getByRole("region", { name: "offline-cloud", exact: true })
+    .getByRole("region", { name: "Host check output" });
+  await expect(output).toContainText("RAW SSH SECRET");
+  await expect(output.getByRole("status")).toHaveText("Failed");
+  await expect(output.locator("pre")).toHaveText(/RAW SSH SECRET\nFailed · unreachable\n$/u);
+  await captureHosts(app, page, "1062/add-failed");
+  await output.getByRole("button", { name: "Dismiss" }).click();
+  await expect(output).toHaveCount(0);
+  await updateScenario({ hold: "inspect" });
+  await page.getByRole("button", { name: "Add host", exact: true }).click();
+  await add.getByLabel("SSH host", { exact: true }).fill("other-cloud");
+  await add.getByRole("button", { name: "Add host", exact: true }).click();
+  const live = add.getByRole("region", { name: "Host check output" });
+  await expect(live).toContainText("Daemon ready · Inspecting…");
+  await expect(live.getByRole("status")).toHaveText("Checking…");
+  await captureHosts(app, page, "1062/add-live");
+  await updateScenario({});
+  await expect(page.getByRole("region", { name: "other-cloud", exact: true })).toBeVisible();
+});
+
+test("Hosts confirms stopping a running install before Settings closes and closes exited installs directly", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, calls, updateScenario } = await hostsFixture(context);
+  const settings = page.getByRole("region", { name: "Settings", exact: true });
+  const dialog = page.getByRole("dialog", { name: "Stop the install?" });
+  await updateScenario({ recipeInteractive: true });
+  await card.getByRole("button", { name: "Install git", exact: true }).click();
+  const terminal = card.getByRole("region", { name: "Install terminal" });
+  await expect(terminal.locator(".xterm-screen")).toContainText("[sudo] password:");
+  const id = await page.evaluate(
+    async () => (await window.desktop.workspace()).terminals.at(-1).id,
+  );
+  await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Keep open" })).toBeFocused();
+  for (const mode of ["light", "dark"]) {
+    await page.evaluate(
+      (mode) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${mode}` }),
+      mode,
+    );
+    await expect
+      .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
+      .toBe(mode === "dark");
+    await page.screenshot({ path: evidencePath(`1062/stop-install-${mode}.png`) });
+  }
+  await assertAccessible(page);
+  await dialog.getByRole("button", { name: "Keep open" }).click();
+  await expect(settings).toBeVisible();
+  await expect(terminal.locator(".xterm-screen")).toContainText("[sudo] password:");
+  assert.equal(
+    await page.evaluate(
+      async (id) =>
+        (await window.desktop.workspace()).terminals.find((row) => row.id === id)?.exited === true,
+      id,
+    ),
+    false,
+  );
+  // Settings-owned installs survive navigation to the selected machine in Agents.
+  await page
+    .getByRole("navigation", { name: "Settings sections" })
+    .getByRole("button", { name: "Agents", exact: true })
+    .click();
+  await page.getByRole("tab", { name: "Machines", exact: true }).click();
+  await page
+    .getByRole("combobox", { name: "Machine", exact: true })
+    .selectOption("host:fixture-cloud");
+  const machineTerminal = page.getByRole("region", { name: "Install terminal", exact: true });
+  await expect(machineTerminal.locator(".xterm-screen")).toContainText("[sudo] password:");
+  await page.getByRole("tab", { name: "Global", exact: true }).click();
+  await expect(machineTerminal).toHaveCount(0);
+  await page.getByRole("tab", { name: "Machines", exact: true }).click();
+  await expect(machineTerminal.locator(".xterm-screen")).toContainText("[sudo] password:");
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(settings).toBeVisible();
+  // The Settings shortcut and navigation away use the same gate.
+  await boardCommand(app, ",", process.platform !== "darwin");
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Keep open" }).click();
+  await page.getByRole("button", { name: "Open message board", exact: true }).click();
+  await expect(dialog).toBeVisible();
+  await expect(page.getByRole("region", { name: "Message board", exact: true })).toHaveCount(0);
+  await dialog.getByRole("button", { name: "Keep open" }).click();
+  await page.locator(`[data-drag-session="${id}"]`).click();
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Stop", exact: true }).click();
+  await expect(settings).toHaveCount(0);
+  await expect(dialog).toHaveCount(0);
+  await expect
+    .poll(async () =>
+      (await page.evaluate(() => window.desktop.workspace())).terminals.some(
+        (row) => row.id === id,
+      ),
+    )
+    .toBe(false);
+  await expect
+    .poll(async () =>
+      (await readFile(calls, "utf8"))
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => JSON.parse(line))
+        .some((entry) => entry.closed === id),
+    )
+    .toBe(true);
+  await expect(page.locator(`[data-drag-session="${id}"]`)).toHaveCount(0);
+  await expect(page.locator(".terminal-tile[data-kind='shell']")).toHaveCount(0);
+  // Already-exited installs close immediately, without a stop dialog.
+  await openSettingsScreen(page);
+  await page
+    .getByRole("navigation", { name: "Settings sections" })
+    .getByRole("button", { name: "Hosts", exact: true })
+    .click();
+  await updateScenario({ recipeImmediateExit: true });
+  await card.getByRole("button", { name: "Install git", exact: true }).click();
+  await expect(terminal.getByRole("status")).toHaveText("Done");
+  const exitedId = await page.evaluate(
+    async () => (await window.desktop.workspace()).terminals.at(-1).id,
+  );
+  await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
+  await expect(settings).toHaveCount(0);
+  await expect(dialog).toHaveCount(0);
+  await expect
+    .poll(async () =>
+      (await page.evaluate(() => window.desktop.workspace())).terminals.some(
+        (row) => row.id === exitedId,
+      ),
+    )
+    .toBe(false);
+});
+
+test("Hosts reports recipes that exit in the creation frame and refreshes their tool", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { page, card, calls, updateScenario } = await hostsFixture(context);
+  await updateScenario({ recipeImmediateExit: true });
+  await card.getByRole("button", { name: "Install git", exact: true }).click();
+  const terminal = card.getByRole("region", { name: "Install terminal" });
+  await expect(terminal.getByRole("status")).toHaveText("Done");
+  await expect(
+    card
+      .locator(".host-check-row")
+      .filter({ has: page.getByRole("button", { name: "Reload git", exact: true }) }),
+  ).toContainText("Pass · Installed");
+  await expect
+    .poll(
+      async () =>
+        (await readFile(calls, "utf8"))
+          .split("\n")
+          .filter((line) => line.includes('"target":{"kind":"tool","tool":"git"}')).length,
+    )
+    .toBe(1);
+  await expect(terminal.locator(".xterm-screen")).toContainText("FIXTURE_RECIPE_COMPLETE");
 });
 
 test("Agents scopes use saved host observations and Global enablement without checks on navigation", {
@@ -1590,6 +1874,7 @@ test("Agents scopes use trusted consent and fixed recipes for host plugin instal
   await expect(page.getByRole("region", { name: "Settings", exact: true })).toHaveCount(0);
   const checkpoint = (await readFile(calls, "utf8")).split("\n").filter(Boolean).length;
   await updateScenario({
+    recipeExit: 0,
     facts: {
       agents: [
         { id: "claude", state: "ready" },
@@ -1598,6 +1883,14 @@ test("Agents scopes use trusted consent and fixed recipes for host plugin instal
       ],
     },
   });
+  // Row refresh follows the reported PTY exit, rather than recipe creation.
+  await expect
+    .poll(async () =>
+      (await page.evaluate(() => window.desktop.workspace())).terminals.some(
+        (row) => row.recipe && row.exited,
+      ),
+    )
+    .toBe(true);
   await openSettingsScreen(page);
   await page
     .getByRole("navigation", { name: "Settings sections" })

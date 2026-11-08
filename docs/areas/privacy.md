@@ -161,7 +161,8 @@ is added. Retained history is readable by later repository orchestrators and exp
 OS files and status probe output are reduced on the host to closed states. Sign-in
 probes discard both output streams and use exit codes only. Foom never reads token
 files, Keychain entries or SSH material. Install/sign-in recipes require a user
-click and run in a visible human-owned terminal tile on that host; Foom never
+click and run in a visible human-owned terminal on that host (installs are
+embedded in Settings; sign-in retains its tile); Foom never
 types into it or performs background installs/sign-ins. Vendor-script installers
 are deferred; only fixed package-manager recipes ship.
 

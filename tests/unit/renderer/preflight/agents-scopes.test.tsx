@@ -10,6 +10,18 @@ import type { ConfigStatus } from "../../../../src/shared/foom-config";
 import type { SetupSource } from "../../../../src/renderer/preflight/setup-source.d";
 import { installation, report, setupState } from "../../../fixtures/setup";
 
+vi.mock("../../../../src/renderer/preflight/host-terminal", () => ({
+  HostTerminal: ({ id, finished }: { id: string; finished: (id: string) => void }) => (
+    <button
+      type="button"
+      onClick={() => {
+        finished(id);
+      }}
+    >
+      Finish install {id}
+    </button>
+  ),
+}));
 afterEach(cleanup);
 function fixture(initial = "global", initialHosts?: readonly HostRow[]) {
   const facts = {
@@ -152,6 +164,7 @@ function fixture(initial = "global", initialHosts?: readonly HostRow[]) {
   }
   return {
     View,
+    source,
     registrations: (registrations: NonNullable<Settings["registeredHosts"]>) =>
       registrationsChanged?.(registrations),
     rows,
@@ -311,7 +324,7 @@ test("reports failed reads and actions without discarding cached cards; pending 
   f.api.mockRejectedValueOnce(new Error("fixture"));
   fireEvent.click(screen.getByRole("button", { name: "Re-check Build" }));
   await screen.findByText("Unable to check agent settings");
-  fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Dismiss" }));
   f.api.mockResolvedValueOnce({ hosts: [], locations: [], recipeFailure: "recipe-unavailable" });
   fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
   await screen.findByText("Recipe unavailable for this host");
@@ -434,3 +447,36 @@ test("a fresh list cannot recreate a removed machine from an older settings snap
   expect(screen.queryByRole("button", { name: "Re-check Build" })).toBeNull();
   expect(screen.queryByRole("option", { name: "Build" })).toBeNull();
 });
+
+test.each([false, true])(
+  "selected machine retains its Settings install and refreshes after exit (failure %s)",
+  async (failed) => {
+    const f = fixture("host:worker");
+    f.source.installs = {
+      sessions: () => new Map([["worker", "install-one"]]),
+      hasSessions: () => true,
+      running: () => Promise.resolve(true),
+      close: () => Promise.resolve(),
+      dispose: () => {},
+    };
+    f.source.hostTerminal = {
+      createView: () => {
+        throw new Error("Mocked terminal");
+      },
+      observe: () => () => {},
+    };
+    render(<f.View />);
+    const finish = await screen.findByRole("button", { name: "Finish install install-one" });
+    f.api.mockClear();
+    if (failed) f.api.mockRejectedValueOnce(new Error("fixture refresh failed"));
+    fireEvent.click(finish);
+    await waitFor(() => {
+      expect(f.api).toHaveBeenCalledExactlyOnceWith({ action: "list" });
+    });
+    if (failed) await screen.findByText("Unable to load hosts");
+    fireEvent.click(screen.getByRole("tab", { name: "Global" }));
+    expect(screen.queryByRole("button", { name: "Finish install install-one" })).toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: "Machines" }));
+    await screen.findByRole("button", { name: "Finish install install-one" });
+  },
+);

@@ -559,6 +559,16 @@ const validHostsState: Validator<HostsState> = shape({
     }),
   ),
   preflight: either(absent, validHostPreflight),
+  recipeSession: either(absent, (value): value is string => nonempty(value) && value.length <= 200),
+  output: either(
+    absent,
+    shape({
+      host: hostAlias,
+      text: (value): value is string => typeof value === "string" && value.length <= 65536,
+      running: boolean,
+      failed: boolean,
+    }),
+  ),
   recipeFailure: either(absent, literal("recipe-unavailable")),
   hosts: array(
     shape({
@@ -899,6 +909,7 @@ const validWorkspaceTerminal: Validator<WorkspaceTerminal> = shape({
   machine: either(absent, boolean),
   config: either(absent, boolean),
   probe: either(absent, boolean),
+  recipe: either(absent, boolean),
   probeOwner: either(absent, text),
   probeNote: either(absent, boolean),
   startedAt: either(absent, finite),

@@ -1,6 +1,7 @@
 import { AgentStatus } from "./agent-status";
 import { AgentReload } from "./agent-reload";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { HostTerminal } from "./host-terminal";
 import type { ConfigStatus } from "../../shared/foom-config";
 import type { ComponentProps } from "react";
 import type { HostRow, HostsAction } from "../../shared/registered-hosts.d";
@@ -67,6 +68,10 @@ export function AgentsScopes(
   const [pending, setPending] = useState<ReadonlySet<string>>(() => new Set());
   const [error, setError] = useState("");
   const [localRevision, setLocalRevision] = useState(0);
+  const [hostRevision, setHostRevision] = useState(0);
+  const recipeFinished = useCallback(() => {
+    setHostRevision((previous) => previous + 1);
+  }, []);
   const [config, setConfig] = useState<ConfigStatus>();
   const configSource = source?.config;
   useEffect(() => {
@@ -105,7 +110,7 @@ export function AgentsScopes(
     return () => {
       active = false;
     };
-  }, [api, registrations]);
+  }, [api, registrations, hostRevision]);
   const act = async (request: HostsAction | readonly HostsAction[], key: string) => {
     if (!hostsReady) return;
     setPending((previous) => new Set(previous).add(key));
@@ -150,6 +155,7 @@ export function AgentsScopes(
     ...hosts.map((host) => ({ id: `host:${host.host}`, name: hostDisplayName(host), host })),
   ];
   const selected = hosts.find((host) => `host:${host.host}` === scope);
+  const installId = selected && source?.installs?.sessions().get(selected.host);
   const reloadHost = (host: HostRow) => {
     void act({ action: "preflight", host: host.host, codeFolder: host.codeFolder }, host.host);
   };
@@ -401,6 +407,7 @@ export function AgentsScopes(
                               }}
                             />
                           </div>
+
                           {agent?.details && (
                             <code className="agent-path agent-remote-path">
                               {agent.details.path}
@@ -517,6 +524,14 @@ export function AgentsScopes(
                       );
                     })}
                 </div>
+                {installId && source?.hostTerminal && (
+                  <HostTerminal
+                    key={installId}
+                    id={installId}
+                    source={source.hostTerminal}
+                    finished={recipeFinished}
+                  />
+                )}
               </>
             ) : (
               <p>Host no longer registered.</p>

@@ -192,7 +192,13 @@ child.on('close', code => { appendFileSync(${JSON.stringify(sshLog)}, 'fixture s
     assert.deepEqual(checked.preflight[row], { state: "fail", reason });
     if (row !== "ssh") assert.deepEqual(checked.preflight.ssh, { state: "pass" });
     if (row === "artifact") assert.deepEqual(checked.preflight.platform, { state: "pass" });
-    assert.ok(!JSON.stringify(checked).includes("private fixture"));
+    const { output, ...observations } = checked;
+    assert.ok(!JSON.stringify(observations).includes("private fixture"));
+    assert.equal(output.host, host);
+    assert.equal(output.running, false);
+    assert.equal(output.failed, true);
+    assert.ok(output.text.length <= 65536);
+    if (row === "ssh") assert.match(output.text, /private fixture SSH output/u);
   }
   const offline = await page.evaluate(() =>
     window.desktop.hosts({ action: "add", host: "fixture-unreachable", codeFolder: "~/pending" }),

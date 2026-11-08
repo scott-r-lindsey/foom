@@ -28,11 +28,12 @@ Add host accepts an optional nickname with the same validation and inline errors
 main validates it again and saves it only together with a successful enrollment. Folder changes and canonical expansion preserve nicknames.
 
 `setup:hosts` accepts one closed action from the registered board main frame:
-list, progress, test, add, rename, preflight, draft-preflight, create-folder, change-folder, refresh, remove, locations, clone, trust-origin, end, recipe or reload. Main selects enabled agent
+list, progress, dismiss-output, test, add, rename, preflight, draft-preflight, create-folder, change-folder, refresh, remove, locations, clone, trust-origin, end, recipe or reload. Main selects enabled agent
 executables from its validated manifest catalog. Renderer inputs cannot choose
 remote commands, probe arguments, origins or checkout destinations. Replies are
-validated in preload and rebuilt from declared fields. All failures are fixed
-states/reasons, with no raw SSH, Git or agent output. Artifact absence, version/handshake
+validated in preload and rebuilt from declared fields. Failures retain fixed states/reasons. Explicit Add and check actions additionally
+expose bounded, display-only SSH output as described below; Git and agent probe
+output remain private. Artifact absence, version/handshake
 mismatch, provider validation, changed agent configuration, invalid replies and
 cancellation have distinct reasons; only connection failures report unreachable.
 The local `progress` read bypasses the action queue and returns only the current
@@ -174,7 +175,8 @@ processes running as the account.
 Live sessions never expire automatically. Only bounded exit-code tombstones expire
 (after 24 hours from exit disposal, without renewal on reads); no live-detach timer
 or inventory polling loop runs. The daemon has no log files and is launched with
-stdio ignored. SSH stderr is drained, never retained or logged.
+stdio ignored. SSH stderr is drained and never logged. Explicit Settings checks may retain
+its bounded in-memory display described under [embedded terminals](#embedded-host-terminals-1062).
 
 The protocol-2 negotiation advertises compatibility independently of build identity.
 A newer hub can use a compatible old daemon while it has sessions, without killing
@@ -329,8 +331,9 @@ Mac whose login Keychain may be locked over SSH.
 
 Settings → Hosts uses the Add → Check → Fix checklist described below.
 Main selects checked-in recipes from the observed closed distro and the enabled
-bundled catalog. A user Install or Sign in click opens a human-owned visible tile
-on that host. Foreground tile placement waits for the refreshed row before closing Settings. The remote executable verifies a main-supplied SHA-256 digest of the fixed argv sequence before running it, without shell
+bundled catalog. Install opens the human-owned terminal inside its host card in
+Settings and the preflight rail. Sign in retains its foreground human-owned tile;
+foreground placement waits for the refreshed row before closing Settings. The remote executable verifies a main-supplied SHA-256 digest of the fixed argv sequence before running it, without shell
 source or typing into an existing tile. Multi-step package repository preparation
 stops on the first failure. Every Debian install starts with fixed
 `/usr/bin/sudo /usr/bin/apt-get update`, including manifest-provided package
@@ -341,7 +344,7 @@ would create an unsupported partial upgrade
 so a new image with missing or stale databases may fail until the user updates it.
 DNF install already synchronizes missing or expired metadata
 ([DNF metadata synchronization](https://dnf.readthedocs.io/en/stable/command_ref.html#metadata-synchronization)),
-so it needs no separate refresh step. Prompts and sudo remain in the tile. Recipe processes
+so it needs no separate refresh step. Prompts and sudo remain in the terminal. Recipe processes
 receive no terminal ID, orchestration authority or hub credentials. Restarting an exited recipe tile opens an ordinary shell on the same registered host, without replaying the install/sign-in. Recipe sessions
 reserve the daemon mutation slot until exit or completed session removal;
 disconnect does not release it. Removal releases the reservation even when stop
@@ -436,9 +439,9 @@ Keychain state from a connection/authentication failure. Platform details are
 limited to the existing closed observations; no OS version or CPU is invented.
 
 Create explicitly creates the approved folder. Change folder edits its approved
-path and rechecks without creating it. Install and Sign in use the existing
-main-selected recipes and foreground tile placement; Settings closes once that
-tile is visible. No background install, recipe replay or terminal typing is added.
+path and rechecks without creating it. Install uses the existing main-selected
+recipe in the host card; Settings stays open. Sign in retains foreground tile
+placement and closes Settings once the tile is visible. No background install, recipe replay or terminal typing is added.
 Missing recipes show no Install button. Git access to origin and explicit Trust host key remain in each repository’s Git-access group. Origin-auth hints identify HTTPS through gh, a deploy key and ssh-agent as user-configured access options; Foom never applies them or instructs global URL rewrites. Host facts,
 foreign session End and foreign worktree counts remain under Host facts.
 
@@ -523,8 +526,10 @@ A full check runs only for **Check capabilities** and the first check on Add
 **Last checked**. Rename contacts nothing remote. Create/Change folder use their
 own successful folder reply and invalidate affected repository rows to **Not checked**;
 there is no hidden repository check. Clone and Trust origin update only that
-repository. Install and Sign in refresh only their tool/sign-in rows when Hosts
-is reopened after the foreground recipe. Queued rows that become stale (disabled tools
+repository. Install and Sign in automatically refresh only their affected tool/sign-in rows
+on exit, including failures, without advancing the full-check timestamp. Hosts
+reads the updated rows after an embedded install finishes; queued persistence
+failures retain the existing retry behavior when Hosts is reopened. Queued rows that become stale (disabled tools
 or removed repositories) are dropped independently; they never prevent the page or
 other queued rows from loading. Queued failures never reject the list read: saved
 hosts remain visible, and failed profile writes show Unable to save in the affected
@@ -574,7 +579,11 @@ Settings → Agents → Machines, selecting the host in its picker. Agent contro
 recipes live below that picker; Global contains preferences only. Reading
 the saved host list or selecting a scope starts no full check. The explicit machine
 reload in Agents runs the full preflight and advances Last checked; individual
-agent reloads use the existing scoped tool/sign-in requests.
+agent reloads use the existing scoped tool/sign-in requests. The selected machine
+also reattaches its Settings-owned tool install terminal, sharing the same install
+exit guard as Hosts. Global and machine changes hide the view without ending the
+install; returning to that machine reattaches it. The separately confirmed plugin
+installation and sign-in recipes retain their human-owned foreground tiles.
 
 Protocol-3 hello advertises `agentSettings: 1`. Read-only inspect may request
 `agentDetails: true`; only then does each agent include bounded display-only path,
@@ -602,6 +611,44 @@ staged assets to this desktop build. A busy older daemon and its sessions remain
 running; finish them and let the normal idle upgrade complete before retrying.
 Read-only observations and other recipes retain their existing compatibility.
 
+## Embedded host terminals (#1062)
+
+Settings and preflight render in the registered board window. Install attaches
+the existing human-owned recipe PTY through that window's ID-scoped terminal
+capability and shared attachment queue. No cross-window attachment or remote
+protocol change is needed. Output and scrollback retain the existing terminal
+bounds; input goes directly through terminal IPC and is never copied into setup
+state, diagnostics or persistence. Foom never types into the process.
+
+Install sessions belong to the Settings window that starts them. Closing Settings
+never transfers an install to the board or sidebar. With no live install process,
+closing Settings immediately disposes its install sessions and views. While any
+install process is running, every Settings exit (close button, Escape, Settings
+shortcut, sidebar terminal selection or other navigation away) first shows the
+in-app **Stop the install?** dialog, containing only **Stop** and **Keep open**.
+Keep open has default focus; Escape chooses Keep open. It preserves Settings and
+the PTY. Stop uses the existing ID-validated terminal kill/removal path, waits for
+it to finish, then closes Settings and disposes the views. Failed termination
+keeps Settings open. Installs still launching are included in the check. Section
+changes retain window ownership and reattach the install when Hosts is reopened.
+Closing the whole window or quitting uses the existing main-owned confirmation,
+without this additional Settings dialog. Sign-in tiles are unchanged.
+The panel retains its screen until dismissed or a
+new install replaces it. Its own header states Installing, Done, or Failed with
+the exit code; recipe tiles also state the final outcome in Foom chrome, never
+by adding text to process output. The main exit subscription starts before
+creation; exits received while launch settles pass through the existing workspace
+exit lifecycle before the view is returned.
+
+Add and explicit checks show a read-only output panel inside Add host or the
+host card. Main retains the latest 65,536 UTF-16 units in memory, including
+connection/platform steps, artifact verification, daemon upload/readiness and
+OpenSSH stderr. Progress reads reuse the existing local progress channel during
+an action; no idle polling or remote request is added. Raw text is inert display
+content, never instructions, parsed facts, error diagnostics or a saved profile
+field. Background inventory and repository/agent probe output are excluded.
+Completion retains output until dismissed or the next check; failures retain
+the fixed failure state alongside the output.
 
 ## Child pressure admission (#1046)
 

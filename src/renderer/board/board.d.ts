@@ -6,6 +6,8 @@ import type { ExecutionSnapshot } from "../../shared/execution";
 import type { OrchestrationView } from "../../shared/workspace";
 export type BoardState = "waiting" | "working" | "needs_input" | "done" | "failed" | "quiet_ok";
 export interface BoardRow {
+  /** Transient human-owned setup recipe, never replayed. */
+  recipe?: boolean;
   /** Window-local launch presentation; it grants no terminal capability. */
   startup?: {
     label: string;

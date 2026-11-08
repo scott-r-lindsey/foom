@@ -92,3 +92,245 @@ test("Foom config reaches main only through the config bridge", async () => {
   expect(config.subscribe(listener)).toBe("off");
   expect(desktop.onConfigChange).toHaveBeenCalledWith(listener);
 });
+
+test("host recipe observations discard stale reads and release subscriptions", async () => {
+  const view = vi.fn();
+  const off = vi.fn();
+  let changed = () => {};
+  const workspace = vi
+    .fn()
+    .mockResolvedValue({ terminals: [{ id: "recipe", exited: true, exitCode: 0 }] });
+  Object.defineProperty(window, "desktop", {
+    configurable: true,
+    value: {
+      workspace,
+      onExit: () => () => {},
+      onWorkspaceChange: (listener: () => void) => {
+        changed = listener;
+        return off;
+      },
+    },
+  });
+  const source = createSetupSource(view);
+  source.hostTerminal?.createView();
+  expect(view).toHaveBeenCalledOnce();
+  const listener = vi.fn();
+  const dispose = source.hostTerminal?.observe("recipe", listener);
+  await vi.waitFor(() => {
+    expect(listener).toHaveBeenCalledWith({ exited: true, code: 0 });
+  });
+  workspace.mockResolvedValue({ terminals: [{ id: "recipe" }] });
+  changed();
+  await vi.waitFor(() => {
+    expect(listener).toHaveBeenCalledWith({ exited: false });
+  });
+  listener.mockClear();
+  changed();
+  changed();
+  dispose?.();
+  await Promise.resolve();
+  expect(listener).not.toHaveBeenCalled();
+  expect(off).toHaveBeenCalledOnce();
+});
+
+test("recipe exit events win over earlier workspace reads", async () => {
+  let exit = (_id: string, _code: number) => {};
+  const off = vi.fn();
+  let resolve: (value: unknown) => void = () => {};
+  Object.defineProperty(window, "desktop", {
+    configurable: true,
+    value: {
+      workspace: () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+      onWorkspaceChange: () => () => {},
+      onExit: (listener: typeof exit) => {
+        exit = listener;
+        return off;
+      },
+    },
+  });
+  const listener = vi.fn();
+  const dispose = createSetupSource().hostTerminal?.observe("recipe", listener);
+  exit("other", 1);
+  expect(listener).not.toHaveBeenCalled();
+  exit("recipe", 17);
+  expect(listener).toHaveBeenCalledExactlyOnceWith({ exited: true, code: 17 });
+  resolve({ terminals: [{ id: "recipe", exited: false }] });
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(listener).toHaveBeenCalledOnce();
+  dispose?.();
+  expect(off).toHaveBeenCalledOnce();
+});
+
+test("Settings tracks only its installs, waits for launch and disposes running or exited sessions", async () => {
+  let resolve = (_value: { hosts: []; locations: []; recipeSession: string }) => {};
+  const hosts = vi.fn(
+    () =>
+      new Promise<{ hosts: []; locations: []; recipeSession: string }>((done) => {
+        resolve = done;
+      }),
+  );
+  const workspace = vi
+    .fn()
+    .mockResolvedValue({ terminals: [{ id: "install" }, { id: "sign-in" }] });
+  const kill = vi.fn(() => Promise.resolve());
+  Object.defineProperty(window, "desktop", {
+    configurable: true,
+    value: { hosts, workspace, kill, onExit: () => () => {} },
+  });
+  const source = createSetupSource();
+  const installs = source.installs;
+  if (!installs || !source.hosts) throw new Error("Missing install owner");
+  expect(installs.hasSessions()).toBe(false);
+  const action = { action: "recipe", host: "cloud", tool: "git", operation: "install" } as const;
+  const launch = source.hosts(action);
+  expect(installs.hasSessions()).toBe(true);
+  const running = installs.running();
+  resolve({ hosts: [], locations: [], recipeSession: "install" });
+  await launch;
+  await expect(running).resolves.toBe(true);
+  expect(installs.sessions()).toEqual(new Map([["cloud", "install"]]));
+  workspace.mockResolvedValue({ terminals: [{ id: "install", exited: true }, { id: "sign-in" }] });
+  await expect(installs.running()).resolves.toBe(false);
+  await installs.close();
+  expect(kill).toHaveBeenCalledExactlyOnceWith("install");
+  expect(installs.hasSessions()).toBe(false);
+  const signIn = source.hosts({
+    action: "recipe",
+    host: "cloud",
+    tool: "gh",
+    operation: "sign-in",
+  });
+  resolve({ hosts: [], locations: [], recipeSession: "sign-in" });
+  await signIn;
+  expect(installs.hasSessions()).toBe(false);
+});
+
+test("Settings close waits for pending installs, refuses a new install while closing and retries failures", async () => {
+  let resolve = (_value: { hosts: []; locations: []; recipeSession?: string }) => {};
+  const hosts = vi.fn(
+    () =>
+      new Promise<{ hosts: []; locations: []; recipeSession?: string }>((done) => {
+        resolve = done;
+      }),
+  );
+  const workspace = vi.fn().mockResolvedValue({ terminals: [{ id: "install" }] });
+  const kill = vi.fn(() => Promise.resolve());
+  Object.defineProperty(window, "desktop", {
+    configurable: true,
+    value: { hosts, workspace, kill, onExit: () => () => {} },
+  });
+  const source = createSetupSource();
+  const installs = source.installs;
+  if (!installs || !source.hosts) throw new Error("Missing install owner");
+  const action = { action: "recipe", host: "cloud", tool: "git", operation: "install" } as const;
+  const launch = source.hosts(action);
+  const close = installs.close();
+  await expect(source.hosts(action)).rejects.toThrow("Settings is closing");
+  expect(kill).not.toHaveBeenCalled();
+  resolve({ hosts: [], locations: [], recipeSession: "install" });
+  await launch;
+  await close;
+  expect(kill).toHaveBeenCalledExactlyOnceWith("install");
+  const next = source.hosts(action);
+  resolve({ hosts: [], locations: [], recipeSession: "install" });
+  await next;
+  kill.mockRejectedValueOnce(new Error("unreachable"));
+  await expect(installs.close()).rejects.toThrow("unreachable");
+  expect(installs.hasSessions()).toBe(true);
+  workspace.mockResolvedValue({ terminals: [] });
+  await installs.close();
+  expect(installs.hasSessions()).toBe(false);
+  const unavailable = source.hosts(action);
+  resolve({ hosts: [], locations: [] });
+  await unavailable;
+  expect(installs.hasSessions()).toBe(false);
+});
+
+test("a new install invalidates an older exit check and closing reconciles through its source", async () => {
+  let read = (_value: { terminals: { id: string; exited?: boolean }[] }) => {};
+  const workspace = vi
+    .fn()
+    .mockImplementationOnce(
+      () =>
+        new Promise((done) => {
+          read = done;
+        }),
+    )
+    .mockResolvedValue({ terminals: [{ id: "first", exited: true }, { id: "second" }] });
+  const hosts = vi
+    .fn()
+    .mockResolvedValueOnce({ hosts: [], locations: [], recipeSession: "first" })
+    .mockResolvedValueOnce({ hosts: [], locations: [], recipeSession: "second" });
+  const close = vi.fn(() => Promise.resolve());
+  Object.defineProperty(window, "desktop", {
+    configurable: true,
+    value: { hosts, workspace, onExit: () => () => {} },
+  });
+  const source = createSetupSource(undefined, close);
+  if (!source.installs || !source.hosts) throw new Error("Missing install owner");
+  const action = {
+    action: "recipe",
+    host: "first-host",
+    tool: "git",
+    operation: "install",
+  } as const;
+  await source.hosts(action);
+  const running = source.installs.running();
+  await vi.waitFor(() => {
+    expect(workspace).toHaveBeenCalledOnce();
+  });
+  await source.hosts({ ...action, host: "second-host" });
+  read({ terminals: [{ id: "first", exited: true }] });
+  await expect(running).resolves.toBe(true);
+  expect(workspace).toHaveBeenCalledTimes(2);
+  await source.installs.close();
+  expect(close.mock.calls).toEqual([["first"], ["second"]]);
+  expect(source.installs.hasSessions()).toBe(false);
+});
+
+test("native install exits override delayed workspace metadata, including exits before the reply", async () => {
+  let exit = (_id: string, _code: number) => {};
+  const off = vi.fn();
+  const workspace = vi.fn().mockResolvedValue({ terminals: [{ id: "early" }, { id: "live" }] });
+  const hosts = vi
+    .fn()
+    .mockImplementationOnce(() => {
+      for (let i = 0; i < 260; i++) exit(`unrelated-${String(i)}`, 0);
+      exit("early", 0);
+      return Promise.resolve({ hosts: [], locations: [], recipeSession: "early" });
+    })
+    .mockResolvedValueOnce({ hosts: [], locations: [], recipeSession: "live" })
+    .mockRejectedValueOnce(new Error("launch failed"));
+  const kill = vi.fn(() => Promise.resolve());
+  Object.defineProperty(window, "desktop", {
+    configurable: true,
+    value: {
+      hosts,
+      workspace,
+      kill,
+      onExit: (listener: typeof exit) => {
+        exit = listener;
+        return off;
+      },
+    },
+  });
+  const source = createSetupSource();
+  if (!source.installs || !source.hosts) throw new Error("Missing install owner");
+  const action = { action: "recipe", host: "cloud", tool: "git", operation: "install" } as const;
+  await source.hosts(action);
+  await expect(source.installs.running()).resolves.toBe(false);
+  await source.hosts(action);
+  await expect(source.installs.running()).resolves.toBe(true);
+  exit("live", 0);
+  await expect(source.installs.running()).resolves.toBe(false);
+  await source.installs.close();
+  expect(off).toHaveBeenCalledOnce();
+  await expect(source.hosts(action)).rejects.toThrow("launch failed");
+  expect(source.installs.hasSessions()).toBe(false);
+  expect(off).toHaveBeenCalledTimes(2);
+  source.installs.dispose();
+});

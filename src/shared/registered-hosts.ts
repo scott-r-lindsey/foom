@@ -522,7 +522,8 @@ export function hostsAction(value: unknown): value is HostsAction {
   if (
     value["action"] === "list" ||
     value["action"] === "locations" ||
-    value["action"] === "progress"
+    value["action"] === "progress" ||
+    value["action"] === "dismiss-output"
   )
     return keys(value, ["action"]);
   if (!hostAlias(value["host"])) return false;

@@ -1936,6 +1936,29 @@ test.each(
   }
 });
 
+test("explicit management output observes upload steps and stderr without exposing protocol frames", async () => {
+  transport.kill();
+  const output = vi.fn();
+  const managed = remoteManagement(
+    { host: "fixture", artifact: "/artifact" },
+    "0.1.0",
+    { type: "manage", operation: "inspect", readOnly: true, partial: true, codeFolder: "~/code" },
+    undefined,
+    output,
+  );
+  await Promise.resolve();
+  child.stderr.write("SSH diagnostic\n");
+  child.header("FOOM-UPLOAD\nFOOM-READY\n");
+  child.message({ type: "hello", build: "a".repeat(64) });
+  child.message({ type: "managed", result: { ok: false, reason: "folder-missing" } });
+  await expect(managed).resolves.toMatchObject({ ok: false, reason: "folder-missing" });
+  expect(output.mock.calls).toEqual([
+    ["SSH diagnostic\n"],
+    ["Uploading daemon…\n", true],
+    ["Daemon ready · Inspecting…\n", true],
+  ]);
+});
+
 test.each([true, false])(
   "child pressure capability %s gates request fields and reports older daemons unmeasured",
   async (capable) => {

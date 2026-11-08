@@ -323,6 +323,23 @@ test("terminal context menu dismisses on commands, hiding and reassignment", () 
   anchor.remove();
 });
 
+test.each([0, 23, undefined])(
+  "recipe tile chrome reports exit %s without writing to the terminal",
+  (exitCode) => {
+    const { screen, click, data } = setup();
+    click(0);
+    act(() => {
+      data.update("permission", { recipe: true, exited: true, exitCode });
+    });
+    const tile = screen.getByRole("region", { name: /Tile 1:/ });
+    expect(
+      within(tile).getByText(
+        exitCode === 0 ? "Done" : `Failed · exit code ${String(exitCode ?? "unknown")}`,
+      ),
+    ).toBeTruthy();
+  },
+);
+
 test("startup stays in its tile until the first attachment frame and never remounts the terminal", async () => {
   const response = Promise.withResolvers<{ terminalId: string }>();
   const { screen, source, data, snapshot, views } = setup(

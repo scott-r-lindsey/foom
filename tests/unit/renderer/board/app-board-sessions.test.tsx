@@ -476,3 +476,37 @@ test("queued restores project Starting without the saved host's failure verdict"
   expect(mock.open).not.toHaveBeenCalled();
   disconnect?.();
 });
+
+test("host recipe view can attach before board inventory connects", async () => {
+  const source = createAppSource();
+  expect(source.getSnapshot()).toEqual([]);
+  const view = source.createHostView?.();
+  await view?.open("main-created-recipe");
+  expect(mock.open).toHaveBeenCalledWith("main-created-recipe");
+});
+
+test("live recipe exit retains the code before the next workspace snapshot", async () => {
+  mock.workspace.mockResolvedValue({
+    repositories: [],
+    terminals: [{ ...agent("recipe"), kind: "shell", agent: "shell", recipe: true }],
+  });
+  const source = createAppSource();
+  const off = source.connect?.();
+  await settle();
+  mock.exit?.("recipe", 0);
+  expect(source.getSnapshot()[0]).toMatchObject({ recipe: true, exited: true, exitCode: 0 });
+  off?.();
+});
+
+test("closing a Settings install reconciles the removed row before navigation", async () => {
+  mock.workspace.mockResolvedValue({ repositories: [], terminals: [agent("recipe")] });
+  const source = createAppSource();
+  const off = source.connect?.();
+  await settle();
+  expect(source.getSnapshot().some((row) => row.id === "recipe")).toBe(true);
+  mock.workspace.mockResolvedValue({ repositories: [], terminals: [] });
+  await source.closeHostSession?.("recipe");
+  expect(mock.kill).toHaveBeenCalledWith("recipe");
+  expect(source.getSnapshot().some((row) => row.id === "recipe")).toBe(false);
+  off?.();
+});

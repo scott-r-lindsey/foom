@@ -1,3 +1,4 @@
+import { PassThrough } from "node:stream";
 import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -25,6 +26,7 @@ import {
 const roots: string[] = [];
 afterEach(async () => {
   vi.unstubAllEnvs();
+  Reflect.deleteProperty(mock.execFile, Symbol.for("nodejs.util.promisify.custom"));
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
 });
 async function fixture() {
@@ -251,4 +253,39 @@ test("a disconnected libc probe does not invent an unsupported platform; mismatc
     state: "fail",
     reason: "version-mismatch",
   });
+});
+
+test("explicit setup output streams SSH stdout and stderr as inert display text", async () => {
+  const f = await fixture();
+  const custom = Symbol.for("nodejs.util.promisify.custom");
+  Object.assign(mock.execFile, {
+    [custom]: () => {
+      const stdout = new PassThrough();
+      const stderr = new PassThrough();
+      const promise = new Promise<{ stdout: string }>((resolve) => {
+        queueMicrotask(() => {
+          stdout.write(mock.output);
+          stderr.write("SSH diagnostic\n");
+          resolve({ stdout: mock.output });
+        });
+      });
+      return Object.assign(promise, { child: { stdout, stderr } });
+    },
+  });
+  const output = vi.fn();
+  await selectHostArtifact(
+    { host: "fixture" },
+    "0.1.0",
+    f.root,
+    f.metadata,
+    undefined,
+    undefined,
+    output,
+  );
+  expect(output.mock.calls).toEqual([
+    ["Connecting…\nPlatform\n", true],
+    [Buffer.from("Linux\nx86_64\n")],
+    [Buffer.from("SSH diagnostic\n")],
+    ["Verifying daemon artifact…\n", true],
+  ]);
 });
