@@ -749,6 +749,7 @@ async function launchApp(context, options = { fixture: "running-shell" }) {
               `const ProductionWorkspace = workspaceModule.Workspace;`,
               `workspaceModule.Workspace = class extends ProductionWorkspace { constructor(deps) { super({ ...deps, probeWaitingMs: ${JSON.stringify(options.probeWaitingMs)} }); } };`,
             ]),
+        `require(${JSON.stringify(path.join(entry, "build/main/setup/local-host.js"))}).localResources = async () => (${JSON.stringify(options.hostResources ?? { cores: 64, load: [0, 0, 0], memoryTotal: 256 * 1024 ** 3, memoryAvailable: 128 * 1024 ** 3 })});`,
         `app.setPath("home", ${JSON.stringify(options.home)});`,
         `app.setPath("sessionData", ${JSON.stringify(sessionData)});`,
         `app.setAppPath(${JSON.stringify(entry)});`,

@@ -149,7 +149,7 @@ const orchestration = (childLimit: number, agents: readonly string[]) =>
     {
       name: "launch",
       description:
-        "Launch a child in your own worktree after every earlier session there has exited and closed. PR binding and review settings survive continuation. Give it one task, acceptance criteria and limits in prompt. Optional pullRequest binds an open same-repository PR before spawn, even on a different branch; unresolved bindings refuse. Children cannot orchestrate. Review defaults to 3 rounds (max 5), Claude; reviewers share capacity. The 16 KiB prompt limit includes the author brief. You remain the merge gate. Returns child ID in resultId",
+        "Launch a child after earlier sessions in your worktree exit and close. Give it one task, acceptance criteria and limits. Children cannot orchestrate. PR/review settings persist; pullRequest binds an open same-repository PR before spawn. Review defaults: 3 rounds (max 5), Claude; shares capacity. The 16 KiB prompt includes the author brief. You remain the merge gate. resultId is the child ID. host_busy is retryable: wait, then use a new key or another host. Replies give pressure facts; older daemons allow unmeasured launches.",
       properties: {
         idempotencyKey: key,
         worktreeId: id,

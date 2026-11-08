@@ -1,5 +1,7 @@
+import type { HostPressure } from "./host-pressure.d";
 /** Fixed diagnostics only: never carry host output or provider text. */
 export const launchReasons = {
+  host_busy: "The host is busy. Wait and retry with a new idempotency key, or choose another host.",
   agent_disabled: "This agent is turned off in preflight.",
   agent_unavailable: "The local agent is not installed or discoverable.",
   remote_agent_unsupported: "This agent does not support remote launch attachments.",
@@ -19,7 +21,10 @@ export function isLaunchReason(value: unknown): value is LaunchReason {
   return typeof value === "string" && Object.hasOwn(launchReasons, value);
 }
 export class LaunchFailure extends Error {
-  constructor(readonly reason: LaunchReason) {
+  constructor(
+    readonly reason: LaunchReason,
+    readonly pressure?: HostPressure,
+  ) {
     super(launchReasons[reason]);
   }
 }

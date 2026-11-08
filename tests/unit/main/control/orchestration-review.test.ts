@@ -867,3 +867,18 @@ it.each([null, 0, "7", 1.5])(
     h.orchestration.disposeUnreadChildren();
   },
 );
+
+it("standalone review preserves host_busy facts on its outer launch operation", async () => {
+  const h = fixture();
+  const { LaunchFailure } = await import("../../../../src/shared/launch-failure");
+  h.host.launch.mockRejectedValueOnce(new LaunchFailure("host_busy", { measured: false }));
+  try {
+    await expect(h.mutate("review", { pullRequest: 7 })).resolves.toMatchObject({
+      status: "failed",
+      reason: "host_busy",
+      pressure: { measured: false },
+    });
+  } finally {
+    h.orchestration.disposeUnreadChildren();
+  }
+});
