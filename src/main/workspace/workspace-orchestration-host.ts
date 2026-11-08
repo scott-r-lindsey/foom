@@ -345,10 +345,18 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
     },
     reveal: (id) => caps.deps.reveal?.(id),
     tail: (id, lines) => caps.deps.terminals.tail(id, lines),
-    remove: async (repository, worktree, identity, confirm, revalidate) => {
+    remove: async (repository, worktree, identity, confirm, revalidate, onReview) => {
       const tree = remoteTree(worktree, repository);
       if (!tree)
-        return caps.cleanup.removeOwnedTree(repository, worktree, identity, confirm, revalidate);
+        return caps.cleanup.removeOwnedTree(
+          repository,
+          worktree,
+          identity,
+          confirm,
+          revalidate,
+          undefined,
+          onReview,
+        );
       return caps.withRepository(repository, () =>
         reserved(repository, worktree, async () => {
           revalidate();

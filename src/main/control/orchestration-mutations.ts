@@ -652,6 +652,18 @@ export class OrchestrationMutations extends OrchestrationAuthority {
             operations.lookup(actor, { operationId: operation.operationId });
             if (abort.signal.aborted) throw new ControlError("forbidden");
           },
+          async (pending) => {
+            // Joining shares the existing consent, but still needs its own
+            // durable effect state before deletion can proceed or be observed.
+            outcome.accepted = !pending;
+            const current = operations.lookup(actor, { operationId: operation.operationId });
+            const record = pending
+              ? await operations.reviewRemoval(actor, operation.operationId)
+              : current.status === "running"
+                ? current
+                : await operations.finish(actor, operation.operationId, "running", "intent");
+            this.note(parent, this.entry(record, label));
+          },
         );
         if (removed) {
           parent.worktrees.delete(worktreeId);

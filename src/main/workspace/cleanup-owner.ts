@@ -68,6 +68,7 @@ export class CleanupOwner {
       identity: string;
       result: Promise<boolean>;
       reviewing: boolean;
+      running: boolean;
       listeners: Set<(pending: boolean) => Promise<void>>;
     }
   >();
@@ -124,12 +125,18 @@ export class CleanupOwner {
       if (pending.identity !== identity) throw new RemovalError("identity_changed");
       if (onReview) {
         pending.listeners.add(onReview);
-        if (pending.reviewing) await onReview(true);
+        if (pending.reviewing || pending.running) await onReview(pending.reviewing);
       }
       return pending.result;
     }
     const listeners = new Set<(pending: boolean) => Promise<void>>(onReview ? [onReview] : []);
-    const entry = { identity, result: Promise.resolve(false), reviewing: false, listeners };
+    const entry = {
+      identity,
+      result: Promise.resolve(false),
+      reviewing: false,
+      running: false,
+      listeners,
+    };
     const result = this.removeOwnedTreeOnce(
       repository,
       worktree,
@@ -137,11 +144,13 @@ export class CleanupOwner {
       async (branch, changes, automatic) => {
         if (!automatic) {
           entry.reviewing = true;
+          entry.running = false;
           await Promise.all([...listeners].map((listener) => listener(true)));
         }
         const accepted = await confirm(branch, changes, automatic);
-        if (accepted && entry.reviewing) {
+        if (accepted) {
           entry.reviewing = false;
+          entry.running = true;
           await Promise.all([...listeners].map((listener) => listener(false)));
         }
         return accepted;

@@ -80,6 +80,7 @@ export interface OrchestrationHost {
     identity: string,
     confirm: (branch: string, changes: string, automatic?: boolean) => Promise<boolean>,
     revalidate: () => void,
+    onReview?: (pending: boolean) => Promise<void>,
   ): Promise<boolean>;
   /** The trusted app dialog; false when declined, closed or aborted. */
   dialog(content: DialogContent, signal: AbortSignal): Promise<boolean>;
