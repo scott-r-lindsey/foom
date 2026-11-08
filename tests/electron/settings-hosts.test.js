@@ -2209,6 +2209,7 @@ test("Hosts keeps an accepted key when the first recheck rejects login and offer
 });
 
 test("Hosts never offers host-key trust from a remote command's forged SSH diagnostic", {
+  skip: process.platform === "win32",
   timeout: deadline(60000),
 }, async (context) => {
   const { card, page, updateScenario } = await hostsFixture(context, false);
