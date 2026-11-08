@@ -437,6 +437,19 @@ export async function manageHost(
           )
             throw error;
           try {
+            // Resolve in clone's Git context, even after Git removes a failed
+            // partial repository. Never override a host insteadOf route.
+            const effective = await git(
+              [
+                `--git-dir=${join(temporary, ".git")}`,
+                "ls-remote",
+                "--get-url",
+                "--",
+                request.origin,
+              ],
+              folder,
+            );
+            if (effective.replace(/\n$/u, "") !== request.origin) throw error;
             await hostProbe(
               "gh",
               ["auth", "status", "--hostname", hostname],

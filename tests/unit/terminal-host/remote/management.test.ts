@@ -1702,6 +1702,7 @@ test.skipIf(process.platform === "win32").each([
   let rewrite: string | undefined;
   mock.probe.mockImplementation((command: string, args: string[]) => {
     if (command === "gh") return Promise.resolve("");
+    if (args.includes("--get-url")) return Promise.resolve(`${origin}\n`);
     if (!args.includes("clone")) throw new Error("Unexpected probe");
     clones++;
     if (clones === 2) rewrite = args.find((argument) => argument.startsWith("url.https://"));
@@ -1777,6 +1778,118 @@ test
         ([, args]: unknown[]) => Array.isArray(args) && args.includes("clone"),
       ),
     ).toHaveLength(1);
+    expect(await readdir(join(home, "code"))).toEqual([]);
+  },
+);
+
+test.skipIf(process.platform === "win32").each(["include", "conditional"] as const)(
+  "HTTPS fallback refuses host insteadOf routing from an isolated %s config",
+  async (mode) => {
+    const origin = "git@github.com:team/project.git";
+    const routed = "ssh://git@enterprise.example/team/project.git";
+    const included = join(home, "routing.config");
+    const config = join(home, "host.config");
+    await writeFile(
+      included,
+      '[url "ssh://git@enterprise.example/team/"]\n insteadOf = git@github.com:team/\n',
+    );
+    const effective: string[] = [];
+    let clones = 0;
+    mock.probe.mockImplementation(async (command: string, args: string[], cwd: string) => {
+      if (command === "gh") return "";
+      const git = (argv: string[], directory = cwd) =>
+        gitSync(["-c", `include.path=${config}`, ...argv], { cwd: directory })
+          .toString()
+          .trim();
+      if (!args.includes("clone")) return git(args);
+      clones++;
+      const staging = args.at(-1);
+      if (!staging) throw new Error("Missing staging");
+      await writeFile(
+        config,
+        mode === "include"
+          ? `[include]\n path = ${included}\n`
+          : `[includeIf "gitdir:${staging}/.git"]\n path = ${included}\n`,
+      );
+      await mkdir(staging, { recursive: true, mode: 0o700 });
+      git(["init", "-q"], staging);
+      git(["remote", "add", "origin", origin], staging);
+      for (let index = 0; index < args.length; index++) {
+        const value = args[index + 1];
+        if (args[index] !== "--config" || !value) continue;
+        const equals = value.indexOf("=");
+        git(
+          ["config", "--local", "--add", value.slice(0, equals), value.slice(equals + 1)],
+          staging,
+        );
+      }
+      effective.push(git(["remote", "get-url", "origin"], staging));
+      expect(git(["config", "--local", "--get", "remote.origin.url"], staging)).toBe(origin);
+      // Git removes its partial repository after a transport failure. The URL
+      // check must still evaluate conditional config for this clone destination.
+      await rm(join(staging, ".git"), { recursive: true, force: true });
+      throw new HostGitFailure("origin-host-key");
+    });
+    expect(
+      await manageHost(
+        {
+          type: "manage",
+          operation: "clone",
+          codeFolder: "~/code",
+          directory: "repo",
+          origin,
+          agents: [],
+        },
+        0,
+        "/fixture",
+        "0.1.0",
+        home,
+      ),
+    ).toEqual({ ok: false, reason: "origin-host-key" });
+    expect(effective).toEqual([routed]);
+    expect(clones).toBe(1);
+    expect(mock.probe.mock.calls.some(([command]: unknown[]) => command === "gh")).toBe(false);
+    expect(await readdir(join(home, "code"))).toEqual([]);
+  },
+);
+
+test
+  .skipIf(process.platform === "win32")
+  .each(["error", "empty", "whitespace", "carriage-return"] as const)(
+  "HTTPS fallback keeps the closed clone failure when URL resolution returns %s",
+  async (mode) => {
+    const origin = "git@github.com:team/project.git";
+    mock.probe.mockImplementation((command: string, args: string[]) => {
+      if (command === "gh") return Promise.resolve("");
+      if (args.includes("--get-url")) {
+        if (mode === "error") return Promise.reject(new Error("fixture URL lookup failed"));
+        if (mode === "carriage-return") return Promise.resolve(`${origin}\r\n`);
+        return Promise.resolve(mode === "empty" ? "" : ` ${origin}\n`);
+      }
+      return Promise.reject(new HostGitFailure("timed-out"));
+    });
+    expect(
+      await manageHost(
+        {
+          type: "manage",
+          operation: "clone",
+          codeFolder: "~/code",
+          directory: "repo",
+          origin,
+          agents: [],
+        },
+        0,
+        "/fixture",
+        "0.1.0",
+        home,
+      ),
+    ).toEqual({ ok: false, reason: "timed-out" });
+    expect(
+      mock.probe.mock.calls.filter(
+        ([, args]: unknown[]) => Array.isArray(args) && args.includes("clone"),
+      ),
+    ).toHaveLength(1);
+    expect(mock.probe.mock.calls.some(([command]: unknown[]) => command === "gh")).toBe(false);
     expect(await readdir(join(home, "code"))).toEqual([]);
   },
 );
