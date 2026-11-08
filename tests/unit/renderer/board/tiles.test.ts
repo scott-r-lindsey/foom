@@ -991,3 +991,269 @@ test("window expansion restores only boolean entries with bounded identities", (
   for (const value of [null, [], "bad"])
     expect(restoreLayout(raw(value)).sidebarExpanded).toEqual({});
 });
+
+test("reloading a pending launch restores the saved space without an extra empty column", () => {
+  let saved = "";
+  const storage = {
+    setItem: (_key: string, value: string) => {
+      saved = value;
+    },
+  };
+  const blank = initialLayout();
+  saveLayout(storage, blank);
+  const before = saved;
+  const pending = placeSession(blank, "launch_pending", false, { columns: 220 });
+  if (!pending) throw new Error("Missing reservation");
+  expect(leaves(pending.tree)).toHaveLength(2);
+  saveLayout(storage, pending, undefined, [
+    { id: "launch_pending", before: blank.tree, placed: pending.tree, pending: true },
+  ]);
+  expect(saved).toBe(before);
+  const restored = pruneContent(restoreLayout(saved), { sessions: new Set(), previews: new Set() });
+  expect(leaves(restored.tree)).toHaveLength(1);
+  expect(leaves(restored.tree)[0]?.content).toBeNull();
+  saveLayout(storage, place(blank, "finished-terminal", false));
+  expect(
+    leaves(restoreLayout(saved).tree).some((tile) => sessionId(tile) === "finished-terminal"),
+  ).toBe(true);
+});
+
+test.each([0, 220, 320])(
+  "failed launches resume saves without retaining temporary columns (columns=%s)",
+  (columns) => {
+    let saved = "";
+    const storage = {
+      setItem: (_key: string, value: string) => {
+        saved = value;
+      },
+    };
+    const before = initialLayout();
+    saveLayout(storage, before);
+    const placed = placeSession(before, "launch_failed", false, { columns });
+    if (!placed) throw new Error("Missing reservation");
+    const reservation = {
+      id: "launch_failed",
+      before: before.tree,
+      placed: placed.tree,
+      pending: false,
+    };
+    const empty =
+      leaves(placed.tree).find((tile) => tile.content === null) ?? leaves(placed.tree)[0];
+    if (!empty) throw new Error("Missing tile");
+    const changed = {
+      ...splitTile({ ...placed, focused: empty.id }, "horizontal"),
+      sidebarWidth: 310,
+      sidebarCollapsed: true,
+    };
+    const original = saved;
+    saveLayout(storage, changed, undefined, [reservation]);
+    expect(saved).not.toBe(original);
+    expect(saved).not.toContain("launch_");
+    const restored = restoreLayout(saved);
+    expect(leaves(restored.tree)).toHaveLength(2);
+    expect(restored.sidebarWidth).toBe(310);
+    expect(restored.sidebarCollapsed).toBe(true);
+    const successful = placeSession(
+      { ...changed, focused: changed.landing ?? changed.focused },
+      "real-terminal",
+      true,
+    );
+    if (!successful) throw new Error("Missing successful launch");
+    saveLayout(storage, successful, undefined, [reservation]);
+    expect(saved).toContain("real-terminal");
+    expect(saved).not.toContain("launch_");
+    expect(leaves(restoreLayout(saved).tree)).toHaveLength(2);
+  },
+);
+
+test.each([0, 220, 320])(
+  "a settled failure restores only its original blank space (columns=%s)",
+  (columns) => {
+    const before = initialLayout();
+    const placed = placeSession(before, "launch_failure", false, { columns });
+    if (!placed) throw new Error("Missing placement");
+    let saved = "";
+    saveLayout(
+      {
+        setItem: (_key, value) => {
+          saved = value;
+        },
+      },
+      placed,
+      undefined,
+      [{ id: "launch_failure", before: before.tree, placed: placed.tree, pending: false }],
+    );
+    expect(saved).not.toContain("launch_");
+    expect(leaves(restoreLayout(saved).tree)).toHaveLength(1);
+  },
+);
+
+test("failed reservations preserve preexisting empty spaces and occupied content", () => {
+  const before = splitTile(place(initialLayout(), "existing"), "horizontal");
+  const placed = place(before, "launch_failure");
+  let saved = "";
+  saveLayout(
+    {
+      setItem: (_key, value) => {
+        saved = value;
+      },
+    },
+    placed,
+    undefined,
+    [{ id: "launch_failure", before: before.tree, placed: placed.tree, pending: false }],
+  );
+  const tiles = leaves(restoreLayout(saved).tree);
+  expect(tiles).toHaveLength(2);
+  expect(tiles.map(sessionId)).toEqual(["existing", undefined]);
+});
+
+test("a failed newly added column disappears without hiding an existing terminal", () => {
+  const before = place(initialLayout(), "existing");
+  const placed = placeSession(before, "launch_failure", false, { columns: 400 });
+  if (!placed) throw new Error("Missing placement");
+  let saved = "";
+  saveLayout(
+    {
+      setItem: (_key, value) => {
+        saved = value;
+      },
+    },
+    placed,
+    undefined,
+    [{ id: "launch_failure", before: before.tree, placed: placed.tree, pending: false }],
+  );
+  expect(leaves(restoreLayout(saved).tree).map(sessionId)).toEqual(["existing"]);
+});
+
+test("splitting the failure tile and resizing its geometry remain saved", () => {
+  const before = initialLayout();
+  const placed = placeSession(before, "launch_failure", false, { columns: 220 });
+  if (!placed) throw new Error("Missing placement");
+  const reservation = {
+    id: "launch_failure",
+    before: before.tree,
+    placed: placed.tree,
+    pending: false,
+  };
+  let saved = "";
+  const storage = {
+    setItem: (_key: string, value: string) => {
+      saved = value;
+    },
+  };
+  saveLayout(storage, splitTile(placed, "vertical"), undefined, [reservation]);
+  expect(leaves(restoreLayout(saved).tree)).toHaveLength(3);
+  expect(restoreLayout(saved).tree).toMatchObject({
+    kind: "split",
+    direction: "horizontal",
+    first: { kind: "split", direction: "vertical" },
+  });
+  const resized = resizeSplit(placed, placed.tree.id, 0.7);
+  saveLayout(storage, resized, undefined, [reservation]);
+  expect(restoreLayout(saved).tree).toMatchObject({ kind: "split", ratio: 0.7 });
+  expect(saved).not.toContain("launch_");
+});
+
+test("later previews and whole-tile moves survive saving beside a failure", () => {
+  const before = initialLayout();
+  const placed = placeSession(before, "launch_failure", false, { columns: 220 });
+  if (!placed) throw new Error("Missing placement");
+  const empty = leaves(placed.tree).find((tile) => tile.content === null);
+  if (!empty) throw new Error("Missing empty tile");
+  const split = splitTile({ ...placed, focused: empty.id }, "horizontal");
+  const preview = placeContent(
+    { ...split, focused: split.landing ?? split.focused },
+    { kind: "preview", preview: "kept-preview" },
+    true,
+  );
+  if (!preview) throw new Error("Missing preview");
+  const moved = swapTiles(preview, empty.id, preview.focused);
+  let saved = "";
+  saveLayout(
+    {
+      setItem: (_key, value) => {
+        saved = value;
+      },
+    },
+    moved,
+    undefined,
+    [{ id: "launch_failure", before: before.tree, placed: placed.tree, pending: false }],
+  );
+  const tiles = leaves(restoreLayout(saved).tree);
+  expect(tiles).toHaveLength(2);
+  expect(tiles[0]?.content).toEqual({ kind: "preview", preview: "kept-preview" });
+  expect(saved).not.toContain("launch_");
+});
+
+test("a preview filling the original empty slot survives a failed launch", () => {
+  const before = initialLayout();
+  const placed = placeSession(before, "launch_failure", false, { columns: 220 });
+  if (!placed) throw new Error("Missing placement");
+  const empty = leaves(placed.tree).find((tile) => tile.content === null);
+  if (!empty) throw new Error("Missing empty tile");
+  const preview = placeContent(
+    { ...placed, focused: empty.id },
+    { kind: "preview", preview: "kept-preview" },
+    true,
+  );
+  if (!preview) throw new Error("Missing preview");
+  let saved = "";
+  saveLayout(
+    {
+      setItem: (_key, value) => {
+        saved = value;
+      },
+    },
+    preview,
+    undefined,
+    [{ id: "launch_failure", before: before.tree, placed: placed.tree, pending: false }],
+  );
+  expect(leaves(restoreLayout(saved).tree).map((tile) => tile.content)).toEqual([
+    { kind: "preview", preview: "kept-preview" },
+  ]);
+  expect(saved).not.toContain("launch_");
+});
+
+test("pending and failed launches project together without blocking saves", () => {
+  const before = initialLayout();
+  const first = placeSession(before, "launch_first", false, { columns: 320 });
+  if (!first) throw new Error("Missing first placement");
+  const second = place(first, "launch_second");
+  const reservations = [
+    { id: "launch_first", before: before.tree, placed: first.tree, pending: false },
+    { id: "launch_second", before: first.tree, placed: second.tree, pending: true },
+  ];
+  let saved = "original";
+  const storage = {
+    setItem: (_key: string, value: string) => {
+      saved = value;
+    },
+  };
+  saveLayout(storage, second, undefined, reservations);
+  expect(leaves(restoreLayout(saved).tree)).toHaveLength(1);
+  expect(saved).not.toContain("launch_");
+  saveLayout(
+    storage,
+    second,
+    undefined,
+    reservations.map((entry) => ({ ...entry, pending: false })),
+  );
+  expect(saved).not.toContain("launch_");
+  expect(leaves(restoreLayout(saved).tree)).toHaveLength(1);
+});
+
+test("a stale untracked startup assignment neither freezes saves nor persists", () => {
+  const layout = { ...place(initialLayout(), "launch_stale"), sidebarWidth: 300 };
+  let saved = "original";
+  saveLayout(
+    {
+      setItem: (_key, value) => {
+        saved = value;
+      },
+    },
+    layout,
+  );
+  expect(saved).not.toContain("launch_");
+  expect(restoreLayout(saved).sidebarWidth).toBe(300);
+  expect(leaves(restoreLayout(saved).tree)[0]?.content).toBeNull();
+});

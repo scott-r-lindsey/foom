@@ -8,6 +8,7 @@ import {
 
 test("only the closed codes select fixed messages, with or without Electron's wrapper", () => {
   const cases = [
+    ["launch-cancel-incomplete", "Terminal may still be running."],
     ["remote-host-unavailable", "Remote host artifact unavailable in this local build."],
     ["session-busy", "This session is busy. Try again when its current action finishes."],
     ["session-running", "Stop this session before closing it."],

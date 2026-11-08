@@ -127,7 +127,13 @@ refresh other sidebar facts. A successful read begun after publication reconcile
 those IDs normally, including removing closed records.
 File-picker replies publish preview inventory, using owned display facts if their
 inventory read was superseded or failed, before returning
-an ID for placement. This data grants no process capabilities. Maximize
+an ID for placement. Renderer launch reservations never suspend layout saves.
+Pending and failed presentations are omitted from saved assignments and untouched
+reservation-only geometry; splits, moves, sidebar geometry and real terminals
+keep saving. An explicit split of a reserved tile adopts its surrounding layout.
+Close projects its history before retiring it, so later saves cannot revive a
+temporary column. Reload retains user edits without reviving presentations or
+untouched automatic columns. This data grants no process capabilities. Maximize
 is not persisted. All terminal IPC remains ID-scoped and main-validated.
 
 The first board opens the bundled manual after setup, with no terminal running. Shells and agents launch from checkout panels; home shells use the home row; **New worktree** is a repository action. `pnpm run start:samples` explicitly builds the development sample board. Normal builds omit its data, and Forge rebuilds without the sample flag before packaging, including when invoked directly. New worktree is a branch field inside the repository panel (`branch-field.ts` holds its pure completion, status and ref-rule logic; `branch-field-view.tsx` the field). It reads `workspace:branches` and creates through `workspace:create-worktree` without a location, so main applies the configured one; it never launches. Whether a panel shows the field is part of the panel intent target, so it closes with its panel. Repository paths come from main’s registry or native directory picker; main chooses worktree destinations and executables.

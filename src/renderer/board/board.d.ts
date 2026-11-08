@@ -8,6 +8,14 @@ export type BoardState = "waiting" | "working" | "needs_input" | "done" | "faile
 export interface BoardRow {
   /** Transient human-owned setup recipe, never replayed. */
   recipe?: boolean;
+  /** Window-local launch presentation; it grants no terminal capability. */
+  startup?: {
+    label: string;
+    remote: boolean;
+    since: number;
+    error?: string;
+    pending?: boolean;
+  };
   waitingOn?: number | undefined;
   /** Host-observed foreground process name; never persisted. */
   foregroundProgram?: string;

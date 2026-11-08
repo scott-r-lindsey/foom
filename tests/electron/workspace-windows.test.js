@@ -110,6 +110,7 @@ test("multiple windows share sessions, keep views exclusive and retain terminals
     .getByRole("button", { name: "Actions for Main checkout", exact: true })
     .press("Enter");
   await second.getByRole("menuitem", { name: /^Shell \(/ }).press("Enter");
+  await expect(second.locator(".tile-startup")).toHaveCount(0);
   await expect(second.locator(".terminal-tile[data-empty=false]")).toHaveCount(1);
   await expect
     .poll(async () => (await first.evaluate(() => window.desktop.workspace())).terminals.length)
@@ -135,6 +136,7 @@ test("multiple windows share sessions, keep views exclusive and retain terminals
     .getByRole("button", { name: "Actions for Main checkout", exact: true })
     .press("Enter");
   await first.getByRole("menuitem", { name: /^Shell \(/ }).press("Enter");
+  await expect(first.locator(".tile-startup")).toHaveCount(0);
   await expect(first.locator(".terminal-tile[data-empty=false]")).toHaveCount(2);
   const firstLayout = () =>
     first.evaluate(() =>

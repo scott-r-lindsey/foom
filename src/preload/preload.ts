@@ -1917,15 +1917,26 @@ const desktop: DesktopApi = {
     };
   },
   sidebarInventory: () => reply("workspace:sidebar", validSidebarInventory),
-  sidebarCommand: async (command) => {
+  cancelSidebarLaunch: (id) => invokeVoid("workspace:cancel-launch", id),
+  onSidebarLaunchStarted: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {
+      if (typeof value === "string" && /^[a-zA-Z0-9_-]{1,200}$/u.test(value)) callback(value);
+    };
+    ipcRenderer.on("workspace:launch-started", listener);
+    return () => {
+      ipcRenderer.removeListener("workspace:launch-started", listener);
+    };
+  },
+  sidebarCommand: async (command, launch) => {
     if (
       command.kind === "home-shell" ||
       command.kind === "machine-launch" ||
-      command.kind === "repository-launch"
+      command.kind === "repository-launch" ||
+      command.kind === "launch"
     ) {
       return reply(
         "workspace:sidebar-command",
-        command.kind === "repository-launch"
+        command.kind === "repository-launch" || command.kind === "launch"
           ? either(
               absent,
               shape({
@@ -1935,7 +1946,7 @@ const desktop: DesktopApi = {
           : shape({
               terminalId: (value): value is string => nonempty(value) && value.length <= 200,
             }),
-        command,
+        ...(launch === undefined ? [command] : [command, launch]),
       );
     }
     await invokeVoid("workspace:sidebar-command", command);

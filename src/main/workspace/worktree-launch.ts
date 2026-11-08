@@ -238,6 +238,8 @@ export async function startShell(
   configEnvironment?: Readonly<Record<string, string>>,
   checkout?: Awaited<ReturnType<WorktreeLaunchContext["orchestration"]["remoteCheckout"]>>,
   remoteOverride?: RemoteTarget,
+  validateLaunch?: () => void,
+  signal?: AbortSignal,
 ): Promise<string> {
   const remote =
     remoteOverride ??
@@ -256,7 +258,9 @@ export async function startShell(
   const environment = remote ? { env: {}, names: [] } : await this.shellEnvironment(pathFirst);
   if (restoreId !== undefined) this.executionOwner.reset(restoreId);
   await checkout?.validate();
+  validateLaunch?.();
   const id = await this.deps.terminals.create({
+    ...(signal ? { signal } : {}),
     ...(restoreId === undefined ? {} : { id: restoreId }),
     ...(remote
       ? {
@@ -319,10 +323,14 @@ export async function startMachine(
   location?: Pick<WorkspaceTerminal, "repository" | "worktree" | "branch">,
   conversation?: string,
   confirm?: ConfirmWorkspace,
+  validateLaunch?: () => void,
+  signal?: AbortSignal,
+  heldReservation?: string,
 ): Promise<string | undefined> {
   let reservation: string | undefined;
   const perform = async (): Promise<string | undefined> => {
     const ensureOpen = () => {
+      validateLaunch?.();
       if (this.closed) throw new Error("Workspace is closed");
       if (this.enabled[run] === false) throw new LaunchFailure("agent_disabled");
     };
@@ -417,8 +425,9 @@ export async function startMachine(
         trackedLocation.branch === "Main checkout"
           ? `remote-main\0${trackedLocation.worktree}`
           : `${trackedLocation.repository}\0:remote:${trackedLocation.worktree}`;
-      if (this.busyWorktrees.has(key)) throw new Error("This worktree is busy");
-      this.busyWorktrees.add(key);
+      if (this.busyWorktrees.has(key) && key !== heldReservation)
+        throw new Error("This worktree is busy");
+      if (key !== heldReservation) this.busyWorktrees.add(key);
       reservation = key;
       if (
         !(await this.confirmAgentLaunch(
@@ -460,6 +469,7 @@ export async function startMachine(
           repository: homeDirectory,
           worktree: homeDirectory,
           humanHome: true,
+          ...(validateLaunch ? { beforeSpawn: validateLaunch } : {}),
           localOnly: true,
           sharedCheckout: true,
           cols: 80,
@@ -473,6 +483,7 @@ export async function startMachine(
       const id =
         agentResult?.id ??
         (await this.deps.terminals.create({
+          ...(signal ? { signal } : {}),
           ...(restoreId ? { id: restoreId } : {}),
           command,
           args,
@@ -521,7 +532,8 @@ export async function startMachine(
   try {
     return await (location ? this.withRepository(location.repository, perform) : perform());
   } finally {
-    if (reservation !== undefined) this.busyWorktrees.delete(reservation);
+    if (reservation !== undefined && reservation !== heldReservation)
+      this.busyWorktrees.delete(reservation);
   }
 }
 
@@ -529,6 +541,8 @@ export async function startHomeShell(
   this: WorktreeLaunchContext,
   restoreId?: string,
   remote?: RemoteTarget,
+  validateLaunch?: () => void,
+  signal?: AbortSignal,
 ): Promise<string> {
   return this.startShell(
     { home: true, repository: homeDirectory, worktree: homeDirectory, branch: null },
@@ -537,6 +551,8 @@ export async function startHomeShell(
     undefined,
     undefined,
     remote,
+    validateLaunch,
+    signal,
   );
 }
 
@@ -604,6 +620,9 @@ export async function startExisting(
   restoring = false,
   authorityIdentity?: ParentIdentity,
   pastedId?: string,
+  validateLaunch?: () => void,
+  signal?: AbortSignal,
+  heldReservation?: string,
 ): Promise<string | undefined> {
   return this.withRepository(repository, async () => {
     let reservation: string | undefined;
@@ -627,8 +646,9 @@ export async function startExisting(
       const registeredHost = this.orchestration.worktreeHost(worktree);
       if (registeredHost !== undefined) {
         const candidate = `${repository}\0:remote:${worktree}`;
-        if (this.busyWorktrees.has(candidate)) throw new Error("This worktree is busy");
-        this.busyWorktrees.add(candidate);
+        if (this.busyWorktrees.has(candidate) && candidate !== heldReservation)
+          throw new Error("This worktree is busy");
+        if (candidate !== heldReservation) this.busyWorktrees.add(candidate);
         reservation = candidate;
       }
       const mappedRemote =
@@ -645,8 +665,9 @@ export async function startExisting(
       if (tree.bare || tree.prunable || tree.locked) throw new Error("Worktree is unavailable");
       if (reservation === undefined) {
         const candidate = worktreeReservation(repository, worktree, tree.branch);
-        if (this.busyWorktrees.has(candidate)) throw new Error("This worktree is busy");
-        this.busyWorktrees.add(candidate);
+        if (this.busyWorktrees.has(candidate) && candidate !== heldReservation)
+          throw new Error("This worktree is busy");
+        if (candidate !== heldReservation) this.busyWorktrees.add(candidate);
         reservation = candidate;
       }
       const identity =
@@ -672,8 +693,14 @@ export async function startExisting(
           run,
           replacement?.id,
           location,
+          undefined,
+          undefined,
+          validateLaunch,
+          signal,
+          heldReservation,
         );
       }
+      validateLaunch?.();
       if (run !== "shell") {
         const report = !isRemote ? await this.scanAgents(false) : undefined;
         const agent = report?.agents.find((entry) => entry.id === run);
@@ -728,10 +755,18 @@ export async function startExisting(
             replacement,
             {
               ...(registeredRemote ? { remoteCheckout: registeredRemote } : {}),
-              ...(resumeGuard ? { beforeSpawn: resumeGuard } : {}),
+              ...(validateLaunch || resumeGuard
+                ? {
+                    beforeSpawn: () => {
+                      validateLaunch?.();
+                      resumeGuard?.();
+                    },
+                  }
+                : {}),
               ...(isRemote && childParentId !== undefined
                 ? {
                     beforeSpawn: () => {
+                      validateLaunch?.();
                       remoteParentGuard?.();
                       const parent = this.orchestration.view(childParentId);
                       const child = replacement
@@ -793,12 +828,16 @@ export async function startExisting(
           undefined,
           undefined,
           registeredRemote,
+          undefined,
+          validateLaunch,
+          signal,
         );
       }
     } finally {
       finishResume?.();
       resumeSlot?.release();
-      if (reservation !== undefined) this.busyWorktrees.delete(reservation);
+      if (reservation !== undefined && reservation !== heldReservation)
+        this.busyWorktrees.delete(reservation);
     }
   });
 }

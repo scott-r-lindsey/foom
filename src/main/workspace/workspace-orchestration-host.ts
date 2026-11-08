@@ -330,6 +330,8 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
         () => Promise.resolve(true),
         validate,
         signal,
+        undefined,
+        undefined,
         onReview,
       );
       return !caps.snapshot().terminals.some((row) => row.id === id);

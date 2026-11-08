@@ -228,6 +228,36 @@ A refused Close keeps the tile and shows a fixed reason. Parents with child rows
 show “Close its N children first” (singular “child” for one), counting all rows
 still naming that parent, including exited children.
 
+## Launch startup (#1044)
+
+A human launch dismisses its menu and reserves its final tile before discovery or
+SSH preparation finishes. Sharing-capable agent launches keep their menu available
+until main checks the resolved checkout and signals launch start. Renderer rows do
+not predict sharing: different registered clones can use the same remote checkout.
+A sharing warning stays armed until confirmed and reserves no tile until accepted;
+leaving, blurring or letting it expire leaves no failure.
+Repeated
+clicks on the same launcher cannot create a second pending launch. Remote tiles
+immediately say **Starting on MACHINE…**, using the host display name; local tiles
+show this state only after 200 ms. The violet orbit is decorative. Reduced motion
+keeps the label and a static ring; covered and hidden tiles do not animate.
+
+The same tile keeps its position until the first terminal attachment frame is
+ready, then reveals that frame. Startup failures replace the label in that tile.
+Close cancels the pending launch, checks cancellation before spawning and closes
+any terminal that finishes creation after cancellation. If that cleanup fails, the
+normal action error dialog says **Terminal may still be running.** A refused launch creates
+no terminal. These temporary presentations grant no terminal capability and are
+never session records.
+
+Pending and failed launch presentations are not saved as terminal assignments or
+untouched automatic geometry. Layout edits save immediately, including during a
+pending launch. Splitting a reserved tile explicitly keeps the chosen layout,
+with an empty space in its place after reload. Other splits, moves, sidebar
+geometry and successful terminals also keep saving. Close removes untouched
+reservation-only geometry before forgetting its history, so later saves cannot
+bring it back. Reload without any user layout edits restores the original space;
+reload after edits retains those edits without restoring a startup or failure.
 
 ## Terminal links (#1065)
 

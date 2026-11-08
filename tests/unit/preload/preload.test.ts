@@ -1837,6 +1837,40 @@ test("worktree replies validate and preserve the optional persisted-removal fail
   await expect(api.worktrees("/repo")).rejects.toThrow();
 });
 
+test("launch presentation events validate operation IDs and launch replies project terminal identities", async () => {
+  const api = await bridge();
+  const callback = vi.fn();
+  const off = api.onSidebarLaunchStarted(callback);
+  const listener = mock.on.mock.calls.find(
+    ([channel]) => channel === "workspace:launch-started",
+  )?.[1];
+  if (!listener) throw new Error("Missing launch listener");
+  for (const value of [undefined, null, 3, {}, "", "x".repeat(201), "bad id"]) listener({}, value);
+  expect(callback).not.toHaveBeenCalled();
+  listener({}, "launch_one");
+  expect(callback).toHaveBeenCalledWith("launch_one");
+  off();
+  expect(mock.removeListener).toHaveBeenCalledWith("workspace:launch-started", listener);
+  mock.invoke.mockResolvedValue({ terminalId: "new-terminal", private: "discard" });
+  await expect(
+    api.sidebarCommand(
+      { kind: "launch", repository: "/repo", worktree: "/repo", run: "shell" },
+      "launch_one",
+    ),
+  ).resolves.toEqual({ terminalId: "new-terminal" });
+  expect(mock.invoke).toHaveBeenLastCalledWith(
+    "workspace:sidebar-command",
+    { kind: "launch", repository: "/repo", worktree: "/repo", run: "shell" },
+    "launch_one",
+  );
+  await api.cancelSidebarLaunch("launch_one");
+  expect(mock.invoke).toHaveBeenLastCalledWith("workspace:cancel-launch", "launch_one");
+  mock.invoke.mockResolvedValue(undefined);
+  await expect(
+    api.sidebarCommand({ kind: "launch", repository: "/repo", worktree: "/repo", run: "shell" }),
+  ).resolves.toBeUndefined();
+});
+
 test("terminal link bridge exposes only ID-scoped void open and copy capabilities", async () => {
   const api = await bridge();
   mock.invoke.mockResolvedValue({ unexpected: "private main data" });

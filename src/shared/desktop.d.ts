@@ -21,6 +21,8 @@ export interface TerminalTelemetry {
   onQuiet?(id: string): void;
 }
 export interface TerminalSpec {
+  /** Main-only startup cancellation, removed before host serialization. */
+  signal?: AbortSignal;
   /** Measured bundled recipient capability, main-only; shells/config providers omit it. */
   imagePaste?: boolean;
   /** Main-only development spike; never copied from renderer payloads. */
