@@ -89,7 +89,7 @@ test.each([9, null, "error"])(
   },
 );
 
-test("ordinary launches cannot install even a valid bundled selector", async () => {
+test("missing accidental-use marker refuses even a valid bundled selector", async () => {
   vi.stubEnv("FOOM_SETTINGS_INSTALL", undefined);
   expect(await installLocalAgent("claude")).toBe(2);
   expect(mocks.run).not.toHaveBeenCalled();

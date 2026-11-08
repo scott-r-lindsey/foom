@@ -13,7 +13,8 @@ import { hostDiscovery, hostLoginEnvironment } from "./agent-discovery";
 import { executable, requirements } from "./host-facts";
 import { remoteShell } from "./daemon";
 
-/** Runs inside a user-clicked PTY only; the daemon never invokes it as a probe. */
+/** Foom launches this from trusted Settings actions, never probes or control tools.
+ * Direct same-user helper invocation is not an authorization boundary. */
 export async function runHostRecipe(argv: readonly string[], home = homedir()): Promise<number> {
   const [tool, action, distro, digest] = argv;
   const request = { tool, action, distro };
@@ -31,6 +32,7 @@ export async function runHostRecipe(argv: readonly string[], home = homedir()): 
     if ((await remotePluginState(found.command, home, env)) !== "not-installed") return 2;
   }
   if (recipe.steps[0]?.[1] === "--vendor-script" && model?.hostSetup?.script) {
+    // Accidental-use guard only: same-user processes can set this, so it is not authorization.
     if (process.env["FOOM_SETTINGS_INSTALL"] !== "1") return 2;
     return runVendorScript(model.hostSetup.script, home, env);
   }

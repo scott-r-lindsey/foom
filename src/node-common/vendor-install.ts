@@ -1,7 +1,7 @@
 import { mkdtemp, open, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { constants, tmpdir } from "node:os";
 import { join } from "node:path";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 
 export interface VendorScript {
   url: string;
@@ -57,7 +57,7 @@ export async function downloadVendorScript(
   throw new Error("Too many installer redirects");
 }
 
-/** Only invoked by a human-owned recipe process, without Foom credentials. */
+/** Foom calls this from Settings recipes; the helper is not an OS authorization boundary. */
 export async function runVendorScript(
   script: VendorScript,
   home: string,
@@ -65,12 +65,48 @@ export async function runVendorScript(
 ): Promise<number> {
   process.stdout.write(`Download ${script.url}\n`);
   const abort = new AbortController();
-  const stop = () => {
-    abort.abort();
+  let child: ChildProcess | undefined;
+  let childClosed = false;
+  let interrupted: NodeJS.Signals | undefined;
+  let escalation: ReturnType<typeof setTimeout> | undefined;
+  const terminate = (signal: NodeJS.Signals) => {
+    if (!child?.pid) return;
+    if (process.platform === "win32") child.kill(signal);
+    else {
+      try {
+        // The interpreter owns a separate group, including vendor descendants.
+        process.kill(-child.pid, signal);
+      } catch (error) {
+        if (!(error instanceof Error && "code" in error && error.code === "ESRCH"))
+          child.kill(signal);
+      }
+    }
   };
-  process.once("SIGTERM", stop);
-  process.once("SIGINT", stop);
+  const stop = (signal: NodeJS.Signals) => {
+    interrupted ??= signal;
+    abort.abort();
+    terminate(childClosed ? "SIGKILL" : signal);
+    if (childClosed) return;
+    // Finish before TerminalManager.stopSession's one-second helper kill fallback.
+    escalation ??= setTimeout(() => {
+      terminate("SIGKILL");
+    }, 250);
+    escalation.unref();
+  };
+  const signals: readonly NodeJS.Signals[] =
+    process.platform === "win32"
+      ? ["SIGHUP", "SIGINT", "SIGTERM"]
+      : ["SIGHUP", "SIGINT", "SIGTERM", "SIGQUIT"];
+  const handlers = signals.map((signal) => {
+    const handler = () => {
+      stop(signal);
+    };
+    process.on(signal, handler);
+    return { signal, handler };
+  });
+  const status = () => (interrupted ? 128 + constants.signals[interrupted] : 1);
   let directory: string | undefined;
+  let outcome = 1;
   try {
     const bytes = await downloadVendorScript(
       script.url,
@@ -86,28 +122,43 @@ export async function runVendorScript(
       await file.close();
     }
     abort.signal.throwIfAborted();
-    return await new Promise<number>((resolve) => {
-      const child = spawn(`/bin/${script.interpreter}`, [path, ...script.arguments], {
+    outcome = await new Promise<number>((resolve) => {
+      child = spawn(`/bin/${script.interpreter}`, [path, ...script.arguments], {
         cwd: home,
         env,
         shell: false,
         stdio: "inherit",
-        signal: abort.signal,
+        detached: process.platform !== "win32",
       });
       let failed = false;
       child.once("error", () => {
         failed = true;
       });
-      child.once("close", (code) => {
-        resolve(failed ? 1 : (code ?? 1));
+      child.once("close", (code, signal: NodeJS.Signals | null) => {
+        childClosed = true;
+        resolve(
+          interrupted
+            ? status()
+            : failed
+              ? 1
+              : (code ?? (signal ? 128 + constants.signals[signal] : 1)),
+        );
       });
     });
   } catch {
-    process.stderr.write("Installer download or execution failed\n");
-    return 1;
+    if (!interrupted) process.stderr.write("Installer download or execution failed\n");
   } finally {
-    if (directory) await rm(directory, { recursive: true, force: true });
-    process.removeListener("SIGTERM", stop);
-    process.removeListener("SIGINT", stop);
+    try {
+      // On interruption, descendants may outlive an interpreter that accepted the signal.
+      if (interrupted) terminate("SIGKILL");
+    } finally {
+      try {
+        if (directory) await rm(directory, { recursive: true, force: true });
+      } finally {
+        clearTimeout(escalation);
+        for (const { signal, handler } of handlers) process.removeListener(signal, handler);
+      }
+    }
   }
+  return interrupted ? status() : outcome;
 }

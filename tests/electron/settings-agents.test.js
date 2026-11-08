@@ -516,3 +516,114 @@ test("one-click local agent installers stay in Settings and refuse untrusted sel
     .poll(async () => (await page.evaluate(() => window.desktop.workspace())).terminals.length)
     .toBe(0);
 });
+
+test("local and registered-host vendor helpers clean private files and descendants after default PTY hangup", {
+  timeout: deadline(60000),
+  skip: process.platform === "win32",
+}, async (context) => {
+  const { writeFile } = require("node:fs/promises");
+  const root = await mkdtemp(path.join(tmpdir(), "foom-installer-hangup-"));
+  removeAfterApps(context, root);
+  const shell = path.join(root, "fixture-login-shell");
+  await writeFile(shell, `#!/bin/sh\nprintf '\\000FOOM_PATH\\000%s\\000' '${root}'\n`, {
+    mode: 0o755,
+  });
+  const descendant = path.join(root, "descendant.cjs");
+  await writeFile(
+    descendant,
+    [
+      "process.on('SIGHUP',()=>{});process.on('SIGTERM',()=>{});",
+      "console.log('DESCENDANT_READY:'+process.pid);setInterval(()=>{},1000);",
+    ].join("\n"),
+  );
+  const bootstrap = path.join(root, "helper.cjs");
+  const quote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
+  const body = `#!/bin/sh\ntrap '' HUP INT TERM\necho FIXTURE_SCRIPT:$0\n${quote(process.execPath)} ${quote(descendant)} &\nread answer\nprintf 'FIXTURE_INPUT:%s\\n' "$answer"\nwait\n`;
+  await writeFile(
+    bootstrap,
+    `
+const {createRequire}=require('node:module');
+const load=createRequire(${JSON.stringify(path.resolve("build/main/main.js"))});
+globalThis.fetch=async()=>new Response(${JSON.stringify(body)});
+(async()=>{
+ if(process.argv[2]==='local') return load('../node-common/local-agent-install.js').installLocalAgent('claude');
+ const {hostLoginEnvironment}=load('../terminal-host/remote/agent-discovery.js');
+ const {requirements}=load('../terminal-host/remote/host-facts.js');
+ const {bundledAgentData}=load('../shared/bundled-agent-data.js');
+ const {selectHostRecipe}=load('../shared/registered-host-recipes.js');
+ const env=await hostLoginEnvironment(process.env.SHELL,${JSON.stringify(root)},undefined,true);
+ const facts=await requirements(process.platform,${JSON.stringify(root)},${JSON.stringify(root)},env);
+ const recipe=selectHostRecipe({tool:'claude',action:'install',distro:facts.distro},facts,bundledAgentData.find(a=>a.id==='claude').hostSetup);
+ if(!recipe) throw Error('Fixture recipe unavailable');
+ const digest=require('node:crypto').createHash('sha256').update(JSON.stringify(recipe.steps)).digest('hex');
+ return load('../terminal-host/remote/host-recipe.js').runHostRecipe(['claude','install',facts.distro,digest],${JSON.stringify(root)});
+})().then(code=>process.exit(code),error=>{console.error(error);process.exit(1)});
+`,
+  );
+  const app = await launchApp(context, { fixture: "empty-board" });
+  const page = await boardPage(app);
+  for (const mode of ["local", "host"]) {
+    const result = await app.evaluate(
+      async (_electron, fixture) => {
+        const load = process.getBuiltinModule("node:module").createRequire(fixture.modulePath);
+        const fs = load("node:fs/promises");
+        const { dirname } = load("node:path");
+        const { execFileSync } = load("node:child_process");
+        const pty = load("node-pty").spawn(process.execPath, [fixture.bootstrap, fixture.mode], {
+          cwd: fixture.root,
+          env: {
+            HOME: fixture.root,
+            TMPDIR: fixture.root,
+            PATH: fixture.root,
+            SHELL: fixture.shell,
+            FOOM_SETTINGS_INSTALL: "1",
+            ELECTRON_RUN_AS_NODE: "1",
+          },
+        });
+        let output = "";
+        let killed = false;
+        let replied = false;
+        const exit = await new Promise((resolve) => {
+          pty.onExit(resolve);
+          pty.onData((data) => {
+            output += data;
+            if (!replied && /DESCENDANT_READY:\d+\r?\n/u.test(output)) {
+              replied = true;
+              pty.write("fixture-input\r");
+            }
+            if (!killed && output.includes("FIXTURE_INPUT:fixture-input")) {
+              killed = true;
+              pty.kill(); // node-pty defaults to SIGHUP, as TerminalManager.terminate does.
+            }
+          });
+        });
+        const script = /FIXTURE_SCRIPT:([^\r\n]+)/u.exec(output)?.[1];
+        const pid = /DESCENDANT_READY:(\d+)/u.exec(output)?.[1];
+        if (!script || !pid) throw new Error(`Fixture failed before hangup: ${output}`);
+        let directoryExists = true;
+        try {
+          await fs.access(dirname(script));
+        } catch {
+          directoryExists = false;
+        }
+        let descendantState = "";
+        try {
+          descendantState = execFileSync("/bin/ps", ["-o", "stat=", "-p", pid], {
+            encoding: "utf8",
+          }).trim();
+        } catch {
+          /* exited processes have no ps row */
+        }
+        return { exit, directoryExists, descendantState };
+      },
+      { modulePath: path.resolve("build/main/main.js"), root, bootstrap, shell, mode },
+    );
+    assert.equal(result.exit.exitCode, 129, mode);
+    assert.equal(result.directoryExists, false, mode);
+    assert.ok(
+      !result.descendantState || result.descendantState.startsWith("Z"),
+      `${mode}: ${result.descendantState}`,
+    );
+  }
+  assert.equal((await page.evaluate(() => window.desktop.workspace())).terminals.length, 0);
+});

@@ -188,12 +188,17 @@ reattachment cannot repeat writes; see [terminal policy](terminals.md#osc-52-cli
 
 ## Vendor installer requests (#1071)
 
-Only a human's Install click starts a vendor-script request, on the selected
-computer. The vendor and HTTPS redirect destinations see that computer's IP and
-normal HTTPS request metadata. Foom sends no terminal content, repository identity,
+Foom starts a vendor-script request only through a trusted Settings Install
+action handled by main, on the selected computer. The vendor and HTTPS redirect
+destinations see that computer's IP and normal HTTPS request metadata. Foom sends no terminal content, repository identity,
 hub credentials or model requests. Fixed addresses live only in bundled manifests;
 config manifests cannot supply addresses. Download bytes stay in a private temp
 file and are removed after execution. Vendor code can make its own requests,
 change shell startup files and agent-owned state with the user's account rights;
 the recipe digest binds the address/arguments, not unversioned remote contents.
 No Foom control capability installs agents. See [host rules](hosts.md#vendor-agent-installers-1071).
+
+The internal Settings launch environment marker is an accidental-use guard, not
+authorization. Same-user processes can forge it and already have the ability to
+execute vendor scripts independently. No agent, child, control API or remote
+management operation gains an install capability.

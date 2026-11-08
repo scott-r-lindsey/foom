@@ -12,7 +12,9 @@ const script = {
   arguments: ["stable"],
 } as const;
 const signal = () => AbortSignal.timeout(5000);
+const platform = process.platform;
 afterEach(() => {
+  Object.defineProperty(process, "platform", { value: platform });
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -179,35 +181,190 @@ test("a local HTTPS fixture server exercises redirects and failed downloads with
   );
 });
 
-test("handled interruption aborts the script and removes its private download and signal handlers", async () => {
-  const before = process.listeners("SIGTERM");
-  vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockResolvedValue(new Response("fixture script")));
-  let path: string | undefined;
-  mocks.spawn.mockImplementation(
-    (_command: string, args: readonly string[], options: { signal: AbortSignal }) => {
+test.skipIf(platform === "win32").each(["SIGHUP", "SIGINT", "SIGTERM", "SIGQUIT"] as const)(
+  "handled %s terminates the installer group and removes private files and handlers",
+  async (signal) => {
+    const before = process.listeners(signal);
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockResolvedValue(new Response("fixture script")));
+    const kill = vi.spyOn(process, "kill").mockReturnValue(true);
+    let path: string | undefined;
+    mocks.spawn.mockImplementation((_command: string, args: readonly string[]) => {
       path = args[0];
-      const child = new EventEmitter();
-      options.signal.addEventListener(
-        "abort",
-        () => {
-          child.emit("error", new Error("fixture interrupted"));
-          child.emit("close", null);
-        },
-        { once: true },
-      );
+      const child = Object.assign(new EventEmitter(), { pid: 123456, kill: vi.fn() });
       queueMicrotask(() => {
-        // Invoke only this recipe's newly registered handler, preserving the test runner's handlers.
-        const interrupt = process
-          .listeners("SIGTERM")
-          .find((listener) => !before.includes(listener));
+        const interrupt = process.listeners(signal).find((listener) => !before.includes(listener));
         if (!interrupt) throw new Error("Missing recipe interruption handler");
-        interrupt("SIGTERM");
+        interrupt(signal);
+        child.emit("close", null, signal);
       });
       return child;
-    },
+    });
+    const { constants } = await import("node:os");
+    expect(await runVendorScript(script, "/fixture/home", {})).toBe(
+      128 + constants.signals[signal],
+    );
+    expect(kill).toHaveBeenCalledWith(-123456, signal);
+    expect(kill).toHaveBeenCalledWith(-123456, "SIGKILL");
+    if (!path) throw new Error("Missing fixture script");
+    await expect(access(dirname(path))).rejects.toThrow();
+    expect(process.listeners(signal)).toEqual(before);
+  },
+);
+
+test("interruption during download returns its signal status without spawning", async () => {
+  const before = process.listeners("SIGHUP");
+  vi.stubGlobal(
+    "fetch",
+    (_input: unknown, options: { signal: AbortSignal }) =>
+      new Promise<Response>((_resolve, reject) => {
+        options.signal.addEventListener("abort", () => {
+          reject(new Error("fixture abort"));
+        });
+        queueMicrotask(() => {
+          const interrupt = process
+            .listeners("SIGHUP")
+            .find((listener) => !before.includes(listener));
+          if (!interrupt) throw new Error("Missing recipe handler");
+          interrupt("SIGHUP");
+        });
+      }),
   );
-  expect(await runVendorScript(script, "/fixture/home", {})).toBe(1);
-  if (!path) throw new Error("Missing fixture script");
-  await expect(access(dirname(path))).rejects.toThrow();
-  expect(process.listeners("SIGTERM")).toEqual(before);
+  expect(await runVendorScript(script, "/fixture/home", {})).toBe(129);
+  expect(mocks.spawn).not.toHaveBeenCalled();
+  expect(process.listeners("SIGHUP")).toEqual(before);
+});
+
+test("signal exits preserve status even when the helper was not interrupted", async () => {
+  vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockResolvedValue(new Response("fixture script")));
+  mocks.spawn.mockImplementation(() => {
+    const child = new EventEmitter();
+    queueMicrotask(() => child.emit("close", null, "SIGTERM"));
+    return child;
+  });
+  expect(await runVendorScript(script, "/fixture/home", {})).toBe(143);
+});
+
+test.skipIf(platform === "win32").each(["ESRCH", "EPERM"])(
+  "group termination handles %s without leaking its download",
+  async (code) => {
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockResolvedValue(new Response("fixture script")));
+    const before = process.listeners("SIGINT");
+    vi.spyOn(process, "kill").mockImplementation(() => {
+      throw Object.assign(new Error("fixture process state"), { code });
+    });
+    const fallback = vi.fn();
+    let path: string | undefined;
+    mocks.spawn.mockImplementation((_command: string, args: readonly string[]) => {
+      path = args[0];
+      const child = Object.assign(new EventEmitter(), { pid: 123456, kill: fallback });
+      queueMicrotask(() => {
+        const interrupt = process
+          .listeners("SIGINT")
+          .find((listener) => !before.includes(listener));
+        if (!interrupt) throw new Error("Missing recipe handler");
+        interrupt("SIGINT");
+        child.emit("close", null, "SIGINT");
+      });
+      return child;
+    });
+    expect(await runVendorScript(script, "/fixture/home", {})).toBe(130);
+    expect(fallback.mock.calls.length > 0).toBe(code === "EPERM");
+    if (!path) throw new Error("Missing script");
+    await expect(access(dirname(path))).rejects.toThrow();
+  },
+);
+
+test.skipIf(platform === "win32")(
+  "an installer that ignores graceful signals is killed as a group before cleanup",
+  async () => {
+    vi.useFakeTimers();
+    try {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn<typeof fetch>().mockResolvedValue(new Response("fixture script")),
+      );
+      const before = process.listeners("SIGTERM");
+      let ready: (() => void) | undefined;
+      const started = new Promise<void>((resolve) => {
+        ready = resolve;
+      });
+      let path: string | undefined;
+      mocks.spawn.mockImplementation((_command: string, args: readonly string[]) => {
+        path = args[0];
+        const child = Object.assign(new EventEmitter(), { pid: 123456 });
+        vi.spyOn(process, "kill").mockImplementation((_pid, signal) => {
+          if (signal === "SIGKILL") child.emit("close", null, "SIGKILL");
+          return true;
+        });
+        queueMicrotask(() => {
+          const interrupt = process
+            .listeners("SIGTERM")
+            .find((listener) => !before.includes(listener));
+          if (!interrupt) throw new Error("Missing recipe handler");
+          interrupt("SIGTERM");
+          ready?.();
+        });
+        return child;
+      });
+      const result = runVendorScript(script, "/fixture/home", {});
+      await started;
+      await vi.advanceTimersByTimeAsync(250);
+      expect(await result).toBe(143);
+      if (!path) throw new Error("Missing script");
+      await expect(access(dirname(path))).rejects.toThrow();
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);
+
+test("the unsupported Windows path uses the child fallback without POSIX process groups or QUIT", async () => {
+  Object.defineProperty(process, "platform", { value: "win32" });
+  vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockResolvedValue(new Response("fixture script")));
+  const before = process.listeners("SIGTERM");
+  const beforeQuit = process.listeners("SIGQUIT");
+  const killGroup = vi.spyOn(process, "kill").mockReturnValue(true);
+  const killChild = vi.fn();
+  mocks.spawn.mockImplementation(() => {
+    const child = Object.assign(new EventEmitter(), { pid: 123456, kill: killChild });
+    queueMicrotask(() => {
+      expect(process.listeners("SIGQUIT")).toEqual(beforeQuit);
+      const interrupt = process.listeners("SIGTERM").find((listener) => !before.includes(listener));
+      if (!interrupt) throw new Error("Missing recipe handler");
+      interrupt("SIGTERM");
+      child.emit("close", null, "SIGTERM");
+    });
+    return child;
+  });
+  expect(await runVendorScript(script, "/fixture/home", {})).toBe(143);
+  expect(killGroup).not.toHaveBeenCalled();
+  expect(killChild).toHaveBeenCalledWith("SIGTERM");
+  expect(killChild).toHaveBeenCalledWith("SIGKILL");
+});
+
+test("an interruption during private-file cleanup still returns the signal status", async () => {
+  vi.useFakeTimers();
+  try {
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockResolvedValue(new Response("fixture script")));
+    vi.spyOn(process, "kill").mockReturnValue(true);
+    const before = process.listeners("SIGHUP");
+    mocks.spawn.mockImplementation(() => {
+      const child = Object.assign(new EventEmitter(), { pid: 123456, kill: vi.fn() });
+      queueMicrotask(() => {
+        child.emit("close", 0, null);
+        queueMicrotask(() => {
+          const interrupt = process
+            .listeners("SIGHUP")
+            .find((listener) => !before.includes(listener));
+          if (!interrupt) throw new Error("Missing recipe handler during cleanup");
+          interrupt("SIGHUP");
+        });
+      });
+      return child;
+    });
+    expect(await runVendorScript(script, "/fixture/home", {})).toBe(129);
+    expect(vi.getTimerCount()).toBe(0);
+  } finally {
+    vi.useRealTimers();
+  }
 });

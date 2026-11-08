@@ -8,6 +8,7 @@ import { spawn } from "node:child_process";
 
 /** Internal Settings helper. No discovery, pairing, agent configuration or control grant. */
 export async function installLocalAgent(id: string | undefined): Promise<number> {
+  // Accidental-use guard only: same-user processes can set this, so it is not authorization.
   if (process.env["FOOM_SETTINGS_INSTALL"] !== "1") return 2;
   if (process.platform !== "linux" && process.platform !== "darwin") return 2;
   const model = bundledAgentData

@@ -252,7 +252,7 @@ test("failed plugin staging never reaches the install command", async () => {
 });
 
 test.each([true, false])(
-  "vendor scripts require both the recipe digest and Settings context (%s)",
+  "vendor helpers check the recipe digest and accidental-use marker (%s)",
   async (settings) => {
     vi.stubEnv("FOOM_SETTINGS_INSTALL", settings ? "1" : undefined);
     const setup = parseAgentManifest(JSON.stringify(codex), "bundled").model.hostSetup;

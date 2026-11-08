@@ -361,17 +361,30 @@ unsupported libc still refuse recipes; a missing package manager alone does not
 prevent a vendor script. Native Windows script recipes are unavailable.
 
 The Settings recipe launcher supplies an internal `FOOM_SETTINGS_INSTALL=1`
-marker; vendor helpers refuse ordinary launch contexts without it. The marker
-is not an OS security boundary and is removed from the vendor environment.
+marker as an accidental-invocation guard only. It is not authorization: any
+same-user process can set it, and it is removed from the vendor environment.
+Foom enforces its click requirement through the trusted Settings renderer action
+and main-owned recipe launch. No agent, child, control API or remote management
+operation exposes an install capability. This does not prevent a same-user
+process from independently downloading or executing vendor code.
 The recipe process prints the fixed HTTPS address, downloads at most 2 MiB with
 a 60-second deadline into a private temporary directory (0700) and file (0600),
 then invokes `/bin/sh` or `/bin/bash` with that file and manifest arguments.
+The interpreter has its own POSIX session/process group with inherited terminal
+stdin/stdout/stderr, so Foom can stop the installer group without killing the
+cleanup helper. Ordinary terminal input is covered by the PTY fixture. The new
+session has no controlling `/dev/tty`; whether any vendor installer depends on
+that device remains part of live qualification.
 Foom's downloader follows at most five redirects, checking HTTPS and refusing
 URL credentials at every hop. It needs no curl or system Node. The script itself
 may require curl/wget or other system tools for its later downloads. Failure
 stops the recipe; a package-manager command failure does not fall back silently.
 The file and directory are removed on success, download/spawn/script failure and
-handled interruption; SIGKILL or machine failure cannot guarantee cleanup.
+handled HUP, INT, TERM or QUIT interruption. On interruption the helper signals
+the interpreter process group, escalates to SIGKILL after 250 ms if needed
+(before the PTY owner's one-second forced helper shutdown), removes the private
+files and returns 128 plus the original signal number. An
+uncatchable SIGKILL or machine failure cannot guarantee cleanup.
 
 The existing SHA-256 recipe-step digest binds the address, interpreter and
 arguments on hosts. The vendor's unversioned script content is **not** bound;
