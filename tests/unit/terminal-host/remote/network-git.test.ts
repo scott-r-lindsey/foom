@@ -129,7 +129,8 @@ test.each([
     "origin-auth",
   ],
   ["remote: Repository not found.", "origin-auth"],
-  ["fatal: unknown diagnostic PRIVATE_TOKEN", "origin-unreachable"],
+  ["fatal: unknown diagnostic PRIVATE_TOKEN", "checkout-invalid"],
+  ["fatal: No space left on device", "checkout-invalid"],
 ])("classifies fixed diagnostic patterns without propagating %s", (diagnostic, reason) => {
   expect(gitFailureReason(diagnostic)).toBe(reason);
 });

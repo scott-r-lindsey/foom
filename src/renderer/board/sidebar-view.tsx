@@ -317,10 +317,7 @@ export function Sidebar(props: SidebarProps) {
               ))
             : tree.map((repo, index) => {
                 const rid = repositoryKey(repo.repository.path);
-                const machines = repositoryMachines(
-                  source.getMachines?.() ?? [],
-                  repo.repository.path,
-                );
+                const machines = repositoryMachines(source.getMachines?.() ?? []);
                 const cleanup = repo.repository.cleanup;
                 const deleting = cleanup && cleanup.phase !== "finished";
                 return (

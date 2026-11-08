@@ -96,18 +96,17 @@ origins are accepted; local paths, command protocols and URL passwords are refus
 The checkout directory is `repository-` plus 24 hex characters of the origin's
 SHA-256, directly beneath the approved folder. Existing destinations must be
 owned, non-writable by other users, canonical directories with matching origin
-and Git top level. State is Clean, Changes or absent (Clone here).
-Absent checkouts show an explicit “Not checked out” label. A checkout must have
+and Git top level. Settings shows only read-only lists of existing checkouts, without clone controls, absent rows or per-repository clone status. A checkout must have
 a valid HEAD commit; an initialized repository with an unborn HEAD is refused.
 
-Clone here runs Git with an argument array on the host, with the host's own login
+First-use repository launch and worktree creation prepare a missing checkout automatically. Main shares concurrent preparation for the same registered host, folder and origin; existing valid checkouts are reused. Clone authorization rechecks the current host, approved folder and repository membership after origin reads and provider preparation, synchronously immediately before remote dispatch. A changed registration refuses without a remote mutation. Preparation runs Git with an argument array on the host, with the host's own login
 PATH and Git configuration/access. No local files, credentials, SSH keys or agent
 sockets are copied/forwarded. Clone, fetch and ls-remote disable terminal prompts and both Git/SSH askpass.
 They run in a detached process group with ignored stdin and no controlling terminal.
 Git resolves its own SSH command and variant, including conditional configuration
 in the clone target context, `ssh.variant`, `GIT_SSH_VARIANT` and auto-detection.
-Foom neither resolves nor rewrites the transport or adds variant-specific options;
-SSH configuration and keys remain owned by Git's transport. Terminal/askpass and
+Foom does not add variant-specific SSH options;
+SSH configuration and keys remain owned by Git's transport. Each missing checkout gets one clone attempt using the registered origin exactly as the host's Git resolves it, including host rewrites and conditional configuration. There is no automatic HTTPS or authentication fallback: Foom adds no URL rewrite or credential helper, performs no alternate-URL probe and does not retry the clone. An `origin-auth` failure shows fixed hints for HTTPS through gh, a deploy key or ssh-agent on the host wherever work started; the user configures access and Foom does not act on those hints. Terminal/askpass and
 GCM interaction are disabled for every variant. Diagnostics
 are bounded and classified on the host, under the C locale, into `origin-auth`,
 `origin-host-key`, `origin-unreachable`, `timed-out` or `checkout-invalid`. A refused
@@ -118,8 +117,8 @@ Only the closed reason crosses management, main and preload; raw output is never
 attached to an exception or reply. Older daemons' `clone-failed` remains accepted.
 The host cannot
 select a local executable or write location. Git output never reaches the UI.
-Clone, fetch and default-branch network queries each have an explicit five-minute
-subprocess deadline; discovery and Git inspection probes retain five seconds.
+Clone, fresh-clone validation, fetch and default-branch network queries each have an explicit five-minute
+subprocess deadline; discovery and other Git inspection probes retain five seconds. Unknown Git diagnostics, including disk/write failures, report `checkout-invalid`, not an inferred connectivity failure. Each first-use preparation logs only its closed result, without paths or Git output.
 The daemon's ten-second deadline covers negotiation and idle clients only.
 Each management request, including session inventory and confirmed End, gets a
 separate seven-minute budget after negotiation;
@@ -141,9 +140,7 @@ Cancelled End stops no later session after an already-issued stop settles.
 Once cancellation settles, a clone retry inspects an existing published checkout
 instead of cloning again. Worktree creation remains charged/indeterminate if its
 reply is lost, and an existing branch refuses a duplicate creation as before.
-Repositories → Locations automatically refreshes repository locations after an unreachable clone
-reply and offers **Refresh locations** for later reconciliation, including a clone
-published before its reply was lost. Refresh reads state and never retries a mutation.
+Repositories → Locations offers **Refresh locations** for reconciliation, including a clone published before its reply was lost. Refresh reads state and never retries a mutation.
 Clones are prepared in a private temporary sibling inside the approved folder,
 validated, then published
 by rename. Failure removes the temporary directory and leaves the destination
@@ -204,7 +201,7 @@ Only profile registrations authorize fleet operations. The management protocol a
 closed create/inspect/remove-worktree operations; no terminal ID, executable,
 arbitrary destination or credential enters these requests. Main derives the remote
 checkout from the registered repository's own origin and approved code folder.
-Absent checkouts refuse: only Settings can clone. New branch worktrees live directly
+Absent checkouts are cloned automatically before worktree dispatch or repository launch (#1074). Clone failures preserve `origin-auth`, `origin-host-key`, `origin-unreachable`, `timed-out` or `checkout-invalid` in operation results and human action dialogs. A pre-creation clone failure consumes no unused-worktree budget. New branch worktrees live directly
 inside the code folder and start from the freshly fetched origin default branch,
 without tracking that default. Open same-repository PR adoption fetches and tracks
 its validated origin branch. Existing branches refuse rather than overwrite work.
@@ -421,9 +418,7 @@ fresh inspection, never from saved observations. Host facts offers a separate
 session/worktree inventory refresh.
 
 Each host is a compact name, OS, status and chevron row, opening by default only
-when it needs attention. Expanding exposes all controls and observations. Ready
-repositories collapse to a count; problem rows remain visible and expanding the
-repository group exposes the ready ones. Busy state belongs to each host; checking
+when it needs attention. Expanding exposes all controls and observations. Ready Git-access checks collapse to a count; failed origin checks remain visible. Checked-out repositories appear in a separate read-only list. Busy state belongs to each host; checking
 one never disables another. Add host is enabled during loading and checks and is
 disabled only while an add is running. An added host and its own check cannot be
 replaced by an older check reply. The grouped checklist keeps
@@ -437,19 +432,16 @@ Create explicitly creates the approved folder. Change folder edits its approved
 path and rechecks without creating it. Install and Sign in use the existing
 main-selected recipes and foreground tile placement; Settings closes once that
 tile is visible. No background install, recipe replay or terminal typing is added.
-Missing recipes show no Install button. For origin-auth, Git-origin fixes offer HTTPS through gh,
-a deploy key or a persistent ssh-agent as user-run instructions. Host facts,
+Missing recipes show no Install button. Git access to origin and explicit Trust host key remain in each repository’s Git-access group. Origin-auth hints identify HTTPS through gh, a deploy key and ssh-agent as user-configured access options; Foom never applies them or instructs global URL rewrites. Host facts,
 foreign session End and foreign worktree counts remain under Host facts.
 
-Repositories → Locations groups rows beneath Local and each registered host,
-with checkout path copy controls, fixed states and Clone here. Local selection
+Repositories → Locations groups existing checkouts beneath Local and each registered host,
+with checkout path copy controls and no clone controls or clone status. Local selection
 controls remain available under Choose repositories, opening for an empty list or
 an active scan/selection. Its recent-days control stays available even when the
 Recent group is empty or filtered out. The existing
 projection supplies checkout paths rather than origin display strings and does
-not report local dirty state; Local says Checked out. No management protocol
-change is needed. Failed clone reasons remain visible until the next user check;
-unreachable replies reconcile through a read-only location/preflight check.
+not report dirty or clone state; entries show the repository name and checkout path. The existing closed clone management request is reused by first-use preparation. Unreachable replies reconcile through read-only location/preflight checks.
 
 ## Human machine sessions (#1024)
 
@@ -493,13 +485,10 @@ the existing host-preparation budget, in addition to bootstrap.
 ## Host card readiness and repository fixes (#1026)
 
 A host is Ready when SSH, platform, daemon, code folder and Git pass and at least
-one enabled agent is installed and probeable. The summary counts existing usable
-checkouts. Optional missing agents, gh sign-in, absent checkouts and nonblocking macOS
-folder/power warnings are neutral;
-Install, Sign in and Clone here remain available. Repository access failures keep
+one enabled agent is installed and probeable. Optional missing agents, gh sign-in, absent checkouts and nonblocking macOS
+folder/power warnings are neutral. Install and Sign in remain available. Repository access failures keep
 their fixed failure rows without making an otherwise usable host unavailable.
-Clone here shows Cloning… with the activity spinner in the selected row until
-its resulting state or fixed failure reason is available.
+Checkout creation belongs to first-use launch/worktree preparation (#1074), not Settings. The summary says Ready; existing checkouts are a read-only list.
 
 An origin-host-key failure offers Trust host key. Main re-reads the registered
 repository's validated SSH origin and opens a human-owned tile on the registered

@@ -276,7 +276,11 @@ export async function manageHost(
   };
   const git = (args: string[], cwd: string, timeout = 5000) =>
     hostProbe("git", ["--no-optional-locks", ...args], cwd, env, true, timeout, signal);
-  const checkout = async (directory: string, origin: string) => {
+  const checkout = async (directory: string, origin: string, timeout = 5000) => {
+    const inspect = (args: string[]) =>
+      timeout === HOST_CLONE_TIMEOUT_MS
+        ? networkGit(args, directory, env, timeout, signal)
+        : git(args, directory, timeout);
     const info = await lstat(directory);
     if (
       !info.isDirectory() ||
@@ -284,13 +288,13 @@ export async function manageHost(
       info.uid !== process.getuid?.() ||
       (info.mode & 0o022) !== 0 ||
       (await realpath(directory)) !== directory ||
-      (await git(["config", "--get", "remote.origin.url"], directory)).trim() !== origin ||
-      (await git(["rev-parse", "--show-toplevel"], directory)).trim() !== directory
+      (await inspect(["config", "--get", "remote.origin.url"])).trim() !== origin ||
+      (await inspect(["rev-parse", "--show-toplevel"])).trim() !== directory
     )
       throw new Error("Invalid checkout");
     // An initialized repository left by an interrupted clone is not a checkout.
-    await git(["rev-parse", "--verify", "HEAD^{commit}"], directory);
-    return await git(["status", "--porcelain", "-z", "--untracked-files=normal"], directory);
+    await inspect(["rev-parse", "--verify", "HEAD^{commit}"]);
+    return await inspect(["status", "--porcelain", "-z", "--untracked-files=normal"]);
   };
   if (request.operation === "origin") {
     try {
@@ -405,9 +409,11 @@ export async function manageHost(
           signal,
         );
         try {
-          status = await checkout(temporary, request.origin);
-        } catch {
-          throw new HostGitFailure("checkout-invalid");
+          status = await checkout(temporary, request.origin, HOST_CLONE_TIMEOUT_MS);
+        } catch (error) {
+          throw error instanceof HostGitFailure && error.reason === "timed-out"
+            ? error
+            : new HostGitFailure("checkout-invalid");
         }
         signal?.throwIfAborted();
         await approvedCodeFolder(folder, home);

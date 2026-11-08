@@ -14,6 +14,12 @@ export const launchReasons = {
   remote_worktree_unavailable: "The remote worktree is missing or not a repository member.",
   remote_prepare_refused: "The remote host refused launch preparation.",
   remote_start_refused: "The remote host refused to start the agent.",
+  "origin-auth":
+    "Origin authentication failed. Configure Git access on the host: HTTPS through gh, a deploy key, or ssh-agent.",
+  "origin-host-key": "Origin SSH host key is not trusted. Use Trust host key in Settings → Hosts.",
+  "origin-unreachable": "Origin unreachable from the host.",
+  "timed-out": "The host Git operation timed out.",
+  "checkout-invalid": "Checkout validation failed on the host.",
   launch_failed: "The agent launch failed.",
 } as const;
 export type LaunchReason = keyof typeof launchReasons;

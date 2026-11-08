@@ -328,8 +328,8 @@ the user answers prompts there. Origin SSH host-key failures offer Trust host ke
 in a human-owned tile; the user verifies and accepts the fingerprint. Other Git
 access fixes remain user-run instructions. Ready means the host checks and Git
 pass with at least one installed agent; optional missing agents, gh sign-in and
-absent checkouts stay neutral. The summary counts existing repositories.
-Clone here shows Cloning… in its row, then the result or fixed failure reason.
+absent checkouts do not affect readiness. Existing checkouts appear in a read-only list.
+Settings has no Clone here control or per-repository clone status.
 Host checks are language neutral and never execute anything from a checkout.
 Preparing a host to build a repository is left to an agent the user runs on that
 host ([#1024](https://github.com/scott-r-lindsey/foom/issues/1024)).
@@ -342,9 +342,7 @@ session/worktree counts and Refresh facts. Ready tool/agent checks mean installe
 and probeable; Not found and Unable to check are fixed states. Declared bounded
 status probes report sign-in separately; unknown status never becomes a pass.
 
-Repositories groups rows under Local and each registered host, with checkout paths and states,
-and Clone here where absent. Choose repositories opens the local selection controls. Clones use that repository's own origin and the
-host's own Git access, inside its approved code folder. Failures show fixed reasons.
+Repositories lists existing checkouts under Local and each registered host with copyable paths. Choose repositories opens the local selection controls. Foom clones automatically on first repository launch or worktree creation, using only the registered origin and approved code folder. Each missing checkout gets one clone attempt using the host’s own Git routing, with no automatic transport or authentication fallback. Foom changes no Git credentials or configuration. Failures appear where the action started with a fixed reason. Git access to origin and Trust host key remain in Hosts. Authentication failures show hints for user-configured HTTPS through gh, a deploy key or ssh-agent wherever the action started; Foom does not act on these hints.
 This profile’s live remote sessions survive hub restarts with screen replay.
 Profile-owned worktrees remain in the sidebar without a session, including after
 the last session closes or a create reply is lost. Recovery launches nothing and
