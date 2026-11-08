@@ -1,3 +1,4 @@
+import { hostPressure } from "./host-pressure";
 import { recipeLaunch } from "./registered-host-recipes";
 import { imagePut, imagePutResult, imageNonce } from "./image-paste";
 import {
@@ -40,6 +41,7 @@ function hello(value: object): boolean {
     (!("originTrust" in value) || value.originTrust === 1) &&
     (!("hostRowCheck" in value) || value.hostRowCheck === 1) &&
     (!("hostPreflight" in value) || value.hostPreflight === 1) &&
+    (!("childPressure" in value) || value.childPressure === 1) &&
     (!("hostFacts" in value) || value.hostFacts === 1) &&
     (!("machineHome" in value) || remotePath(value.machineHome)) &&
     (!("humanMachines" in value) || value.humanMachines === 1) &&
@@ -249,8 +251,16 @@ export function remoteResponse(value: unknown): value is RemoteResponse {
     return keys(value, ["type", "result"]) && hostResult(value["result"]);
   if (record(value) && remoteId(value["id"])) {
     if (value["type"] === "agent-failed")
-      return keys(value, ["type", "id", "reason"]) && isLaunchReason(value["reason"]);
-    if (value["type"] === "agent-prepared") return keys(value, ["type", "id"]);
+      return (
+        keys(value, ["type", "id", "reason", "pressure"]) &&
+        isLaunchReason(value["reason"]) &&
+        (value["pressure"] === undefined || hostPressure(value["pressure"]))
+      );
+    if (value["type"] === "agent-prepared")
+      return (
+        keys(value, ["type", "id", "pressure"]) &&
+        (value["pressure"] === undefined || hostPressure(value["pressure"]))
+      );
     if (value["type"] === "agent-ready")
       return (
         keys(value, ["type", "id", "ready", "imageOwner"]) &&

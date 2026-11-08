@@ -328,3 +328,21 @@ test("remote binding cannot start before preparation or without captured parent 
   );
   launched.dispose();
 });
+
+test("only main's automated pressure capability asks the daemon for admission and returns its facts", async () => {
+  const f = fixture(false);
+  const pressure = vi.fn();
+  const launched = await launchRemoteChild(
+    { ...request, pressure },
+    mapping,
+    [],
+    false,
+    { create: f.create },
+    f.control,
+    f.validate,
+  );
+  expect(f.remote().spec.childPressure).toBe(true);
+  f.remote().pressure?.({ measured: false });
+  expect(pressure).toHaveBeenCalledWith({ measured: false });
+  launched.dispose();
+});

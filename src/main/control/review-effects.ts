@@ -1,3 +1,4 @@
+import { LaunchFailure } from "../../shared/launch-failure";
 import { randomUUID } from "node:crypto";
 import { ControlError } from "../../shared/control-validation";
 import type { Operations } from "./operations";
@@ -187,6 +188,19 @@ export class ReviewEffects {
       return id;
     } catch (error) {
       if (!reviewer) reservation.exited(true);
+      if (operation && error instanceof LaunchFailure && error.reason === "host_busy") {
+        const record = await operations.finish(
+          actor,
+          operation.operationId,
+          "failed",
+          "host_busy",
+          null,
+          undefined,
+          error.pressure,
+        );
+        owned.note(record);
+        throw error;
+      }
       if (operation)
         await this.finish(owned, actor, operations, operation, "indeterminate").catch(
           () => undefined,

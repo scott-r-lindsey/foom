@@ -70,17 +70,39 @@ detach their view and invalidate pending replay; failed creation removes its ID 
 avoid an unreachable PTY. Remote transport deadlines and reconnection are unchanged.
 A host exit, broken transport or unanswered liveness probe rejects pending operations,
 marks live terminals failed (`terminal:exit` code -1), and removes views. Exited terminals are not reclassified. A later create starts a fresh host; old IDs cannot address new sessions. The board displays terminal failures and offers Restart shell for its local shell. Confirmed quit requests native PTY shutdown in the host and reports failures without closing the window, allowing a retry. Shutdown RPC has a 15-second deadline to accommodate the native exit barriers. Final disposal waits for the utility process to exit, with a 12-second fallback for an unresponsive host. Main records abnormal utility exits with exit code and PID plus Electron’s `child-process-gone` reason and native exit code, correlated by a unique service name per host. Electron's utility exit event does not expose a signal. Host stderr is discarded: xterm parser errors can include terminal-supplied values,
-so even bounded raw stderr is unsafe. Failures retain only fixed reason, code, PID
-and native crash metadata; no raw stderr enters errors, console diagnostics or disk. Abnormal exit records also appear in Electron test diagnostics/JUnit, including crash details delivered after the utility exit event. An unexpected zero exit still rejects pending operations and is logged; successful final disposal adds no exit record. App event listeners are released on host replacement or final disposal.
+so even bounded raw stderr is unsafe. Failures retain fixed reason, code, PID,
+native crash metadata and the numeric conditions described below; no raw stderr enters errors, console diagnostics or disk. Abnormal exit records also appear in Electron test diagnostics/JUnit, including crash details delivered after the utility exit event. An unexpected zero exit still rejects pending operations and is logged; successful final disposal adds no exit record. App event listeners are released on host replacement or final disposal.
 Abnormal records and local request timeouts survive restart in the profile's private
-`terminal-host-diagnostics/exits.json`: an atomic, synced version-2 object with
+`terminal-host-diagnostics/exits.json`: an atomic, synced version-3 object with
 separate arrays of JSON-encoded metadata records. The exit reserve retains up to
 32 records (timestamp, fixed reason, service identity, PID, code or null until
 reported, native crash details). The timeout reserve retains up to 16 records,
 containing only timestamp, fixed command type and monotonic elapsed milliseconds.
 It includes every local operation deadline, including shutdown; it never records
 terminal/request/view IDs, arguments, input, output, snapshots or tails. Timeout
-storms cannot evict exits. Pending writes coalesce into the same bounded reserves.
+storms cannot evict exits. A separate reserve retains 16 near misses: matching
+liveness replies taking at least 1,000 ms (`late-reply`), drain cycles taking at
+least 100 ms (`late-drain`), and delayed deadline turns that grant the existing
+clamped reply window (`late-turn`). Each contains timestamp, fixed kind, reply
+latency (null for drain/turn observations), elapsed time since the first unanswered
+probe, total late drain cycles and observed main delay, all in monotonic milliseconds.
+Prompt replies add nothing; observations never change watchdog decisions or limits.
+On reload, malformed near-miss entries are dropped individually without blocking
+exit or timeout writes. Near-miss timestamps must be canonical 24-character UTC ISO
+strings with a valid calendar date; unknown fields are discarded and numeric
+metadata is restricted to nonnegative safe integers or null.
+Each new exit record includes a fixed cause: `watchdog-kill` for liveness expiry,
+`foom-kill` for other main-initiated retirement, or `host-exit` for independent exit.
+A snapshot frozen before failure cleanup records live local terminal count,
+Electron's host working-set memory in KiB (null when unavailable), milliseconds
+since the last validated host message (or host start if none), and main delay.
+Main delay is the peak native event-loop delay since the last validated host
+message (or host start), subtracting
+the monitor's 20 ms resolution, or a larger observed liveness delay. It is diagnostic
+only; it never discounts deadlines. Electron may have removed an exited host's
+memory metric before notification. Late native exit updates preserve the frozen
+snapshot and cause. Version-1/2 history remains readable; old records need not
+have these new fields. Pending writes coalesce into the same bounded reserves.
 Startup strips legacy stderr and extra fields before rewriting earlier exit history;
 it adds no event for a normal launch. Late native details append safe exit updates.
 The directory is owner-only (0700), files are private (0600, private ACLs on Windows),
