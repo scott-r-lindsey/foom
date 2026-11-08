@@ -46,6 +46,7 @@ test.each([
   "codeFolder",
   "worktreeLocation",
   "environment",
+  "terminalClipboardWrites",
 ])("rejects excluded %s with a fixed field-specific reason", (key) => {
   expect(() => parseSettingsFile(JSON.stringify({ kind: "settings", [key]: null }))).toThrow(
     expect.objectContaining({ path: `$.${key}`, reason: "unknown-key" }),

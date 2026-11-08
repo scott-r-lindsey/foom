@@ -29,6 +29,7 @@ export function parseSettingsFile(text: string): ConfigSettings {
     "codeFolder",
     "worktreeLocation",
     "environment",
+    "terminalClipboardWrites",
   ])
     if (Object.hasOwn(value, key)) throw new ThemeValidationError(`$.${key}`, "unknown-key");
   themeKeys(value, ["kind"], "$", CONFIG_SETTINGS);

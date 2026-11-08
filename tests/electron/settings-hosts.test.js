@@ -48,7 +48,9 @@ async function captureHosts(app, page, name) {
         .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
         .toBe(mode === "dark");
       await area.screenshot({
-        path: evidencePath(`${/^106[12]\//u.test(name) ? name : `1063/${name}`}-${mode}.png`),
+        path: evidencePath(
+          `${/^(?:1061|1062|1074)\//u.test(name) ? name : `1074/${name}`}-${mode}.png`,
+        ),
       });
     }
   } finally {
@@ -282,6 +284,81 @@ process.stdin.on('data', bytes => {
   };
 }
 
+test("first-use repository launch exposes each fixed clone failure and Settings has no clone control", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { page, card, cloneReason, calls, capture } = await hostsFixture(context);
+  await expect(card.getByRole("button", { name: "Clone here", exact: true })).toHaveCount(0);
+  await capture("no-clone-control");
+  for (const reason of [
+    "origin-auth",
+    "origin-host-key",
+    "origin-unreachable",
+    "timed-out",
+    "checkout-invalid",
+  ]) {
+    await writeFile(cloneReason, reason);
+    const message = await page.evaluate(async () => {
+      const repository = (await window.desktop.workspace()).repositories[0].path;
+      try {
+        await window.desktop.sidebarCommand({
+          kind: "repository-launch",
+          repository,
+          host: "fixture-cloud",
+          run: "shell",
+        });
+        return "unexpected success";
+      } catch (error) {
+        return error.message;
+      }
+    });
+    assert.ok(message.includes(`foom-error:${reason}`), message);
+    assert.ok(!message.includes("RAW GIT SECRET"));
+  }
+  const recorded = (await readFile(calls, "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  assert.equal(recorded.filter(({ message }) => message.operation === "clone").length, 5);
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Actions for shell-fixture", exact: true }).click();
+  await page.getByRole("menuitem", { name: "New worktree", exact: true }).click();
+  await expect(page.getByRole("menuitem", { name: "fixture-cloud", exact: true })).toBeVisible();
+  for (const mode of ["light", "dark"]) {
+    await page.evaluate(
+      (mode) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${mode}` }),
+      mode,
+    );
+    await expect
+      .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
+      .toBe(mode === "dark");
+    await page.screenshot({ path: evidencePath(`1074/sidebar-first-use-${mode}.png`) });
+  }
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  await writeFile(cloneReason, "origin-auth");
+  await page.getByRole("button", { name: "Actions for shell-fixture", exact: true }).click();
+  await page.getByRole("menuitem", { name: "New agent", exact: true }).click();
+  await page.getByRole("menuitem", { name: "fixture-cloud", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Claude Code", exact: true }).click();
+  const failure = page.getByRole("region", { name: "Tile 1: Claude Code", exact: true });
+  await expect(failure).toContainText(
+    "Configure Git access on the host: HTTPS through gh, a deploy key, or ssh-agent.",
+  );
+  await expect(failure).not.toContainText("RAW GIT SECRET");
+  for (const mode of ["light", "dark"]) {
+    await page.evaluate(
+      (mode) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${mode}` }),
+      mode,
+    );
+    await expect
+      .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
+      .toBe(mode === "dark");
+    await page.screenshot({ path: evidencePath(`1074/origin-auth-hints-${mode}.png`) });
+  }
+});
+
 test("Hosts edits names during checks and enrolls optional nicknames", {
   skip: process.platform === "win32",
   timeout: deadline(60000),
@@ -419,7 +496,7 @@ test("Hosts shows independent inspection and repository check progress", {
   const originRow = card.locator(".host-check-row").filter({ hasText: "Git access to origin" });
   const checkoutRow = card.locator(".host-check-row").filter({ hasText: "Repository checkout" });
   await expect(originRow).toContainText("Checking…");
-  await expect(checkoutRow).toContainText("Checking…");
+  await expect(checkoutRow).toHaveCount(0);
   const workingSymbol = originRow.locator(".host-work .host-symbol");
   const assertSpinnerCentered = async () => {
     await expect(workingSymbol).toHaveCSS("translate", "0px -50%");
@@ -456,7 +533,7 @@ test("Hosts shows independent inspection and repository check progress", {
     }
   };
   await assertSpinnerCentered();
-  await checkoutRow.screenshot({ path: evidencePath("1041/check-row-spinner.png") });
+  await originRow.screenshot({ path: evidencePath("1041/check-row-spinner.png") });
   await expect(card.locator(".host-throbber")).toHaveCSS("animation-name", "host-check-spin");
   await capture("progress-origin");
   await app.evaluate(({ BrowserWindow }) =>
@@ -492,14 +569,14 @@ test("Hosts shows independent inspection and repository check progress", {
   await updateScenario({ ...checkingOrigin, hold: "repository" });
   await expect(progressStatus).toHaveText("Checking checkout · shell-fixture (1 of 1)");
   await expect(originRow).toContainText("Pass · Reachable");
-  await expect(checkoutRow).toContainText("Checking…");
+  await expect(checkoutRow).toHaveCount(0);
   await capture("progress-checkout-reduced");
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await capture("progress-checkout");
   await updateScenario({ ...checkingOrigin, hold: false });
   await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
   await expect(card.locator(".host-throbber")).toHaveCount(0);
-  await expect(checkoutRow).toContainText("Not checked out");
+  await expect(checkoutRow).toHaveCount(0);
   await capture("progress-result");
 });
 
@@ -596,12 +673,11 @@ test("Hosts renders Git failures and platform capability diagnostics", {
   }
 });
 
-test("Hosts shows readiness and clones checkouts with explicit origin trust", {
+test("Hosts shows readiness and read-only checkouts with explicit origin trust", {
   skip: process.platform === "win32",
   timeout: deadline(60000),
 }, async (context) => {
-  const { app, page, card, capture, updateScenario, heldCloneCount, calls } =
-    await hostsFixture(context);
+  const { app, page, card, capture, updateScenario, calls } = await hostsFixture(context);
   await card.getByRole("button", { name: "Change folder", exact: true }).click();
   await card.getByLabel("Code folder", { exact: true }).fill("~/new-code");
   await card.getByRole("button", { name: "Save", exact: true }).click();
@@ -626,7 +702,7 @@ test("Hosts shows readiness and clones checkouts with explicit origin trust", {
   };
   await updateScenario(ready);
   await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
-  await expect(card.getByText("Ready · 1 repository", { exact: true })).toBeVisible();
+  await expect(card.getByText("Ready", { exact: true })).toBeVisible();
   await capture("ready");
   await page.evaluate(() =>
     window.desktop.saveSetup({
@@ -648,13 +724,8 @@ test("Hosts shows readiness and clones checkouts with explicit origin trust", {
   };
   await updateScenario(optional);
   await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
-  await expect(card.getByText("Ready · 0 repositories", { exact: true })).toBeVisible();
-  assert.equal(
-    await card
-      .getByText("Not checked out", { exact: true })
-      .evaluate((el) => el.closest(".host-status").classList.contains("host-neutral")),
-    true,
-  );
+  await expect(card.getByText("Ready", { exact: true })).toBeVisible();
+  await expect(card.getByText("Not checked out", { exact: true })).toHaveCount(0);
   assert.ok(
     (
       await card
@@ -665,23 +736,11 @@ test("Hosts shows readiness and clones checkouts with explicit origin trust", {
     ).every(Boolean),
   );
   await capture("ready-optional-agents");
-  const heldHostClones = await heldCloneCount();
-  await updateScenario({ ...optional, holdClone: true });
-  await card.getByRole("button", { name: "Clone here", exact: true }).click();
-  await expect(card.getByText("Cloning…", { exact: true })).toBeVisible();
-  await capture("hosts-cloning");
-  await expect.poll(heldCloneCount).toBe(heldHostClones + 1);
+  await expect(card.getByRole("button", { name: "Clone here", exact: true })).toHaveCount(0);
   await updateScenario({ ...optional, checkout: "clean" });
-  await expect(
-    card.getByText("Origin authentication failed · origin-auth", { exact: true }),
-  ).toBeVisible();
-  await capture("hosts-clone-failed");
-  await updateScenario({ ...optional, cloneSuccess: true, checkout: "clean" });
-  await card.getByRole("button", { name: "Clone here", exact: true }).click();
-  await expect(card.getByRole("button", { name: /Repositories · 1 ready/ })).toBeVisible();
-  await card.getByRole("button", { name: /Repositories · 1 ready/ }).click();
-  await expect(card.getByText("Clean", { exact: true })).toBeVisible();
-  await capture("hosts-clone-clean");
+  await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
+  await expect(card.locator(".host-repository-row")).toContainText("shell-fixture");
+  await capture("hosts-read-only-checkouts");
   await updateScenario({ ...optional, origin: "origin-host-key" });
   await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
   await expect(card.getByRole("button", { name: "Trust host key", exact: true })).toBeEnabled();
@@ -715,7 +774,7 @@ test("Hosts shows readiness and clones checkouts with explicit origin trust", {
   assert.deepEqual(trustChecks, ["origin", "repository"]);
   await updateScenario(ready);
   await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
-  await expect(card.getByText("Ready · 1 repository", { exact: true })).toBeVisible();
+  await expect(card.getByText("Ready", { exact: true })).toBeVisible();
   await app.evaluate(({ BrowserWindow }) =>
     BrowserWindow.getAllWindows()
       .find((window) => window.webContents.getURL() === "app://bundle/index.html")
@@ -797,51 +856,27 @@ test("Hosts creates missing folders and reports enrollment and artifact failures
   await updateScenario({});
 });
 
-test("Repositories clones per host and opens fixed repair recipes without exposing remote output", {
+test("Repositories lists existing checkouts and opens fixed repair recipes without exposing remote output", {
   skip: process.platform === "win32",
   timeout: deadline(60000),
 }, async (context) => {
-  const {
-    page,
-    card,
-    navigation,
-    calls,
-    cloneReason,
-    recipeCalls,
-    capture,
-    updateScenario,
-    heldCloneCount,
-  } = await hostsFixture(context);
+  const { page, card, navigation, calls, recipeCalls, capture, updateScenario } =
+    await hostsFixture(context);
   await card.getByRole("button", { name: "Change folder", exact: true }).click();
   await card.getByLabel("Code folder", { exact: true }).fill("~/new-code");
   await card.getByRole("button", { name: "Save", exact: true }).click();
   await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
   await navigation.getByRole("button", { name: "Repositories", exact: true }).click();
   await expect(page.getByRole("region", { name: "Local", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Clone here", exact: true })).toHaveCount(1);
-  const heldRepositoryClones = await heldCloneCount();
-  await updateScenario({ holdClone: true, cloneSuccess: true });
-  await page.getByRole("button", { name: "Clone here", exact: true }).click();
-  await expect(page.getByText("Cloning…", { exact: true })).toBeVisible();
-  await capture("repositories-cloning");
-  // Each optimistic clone waits for its own held reply, not an earlier clone.
-  await expect.poll(heldCloneCount).toBe(heldRepositoryClones + 1);
-  await updateScenario({});
-  await expect(page.getByText("Clean", { exact: true })).toBeVisible();
-  await capture("repositories-clone-clean");
+  await expect(page.getByRole("button", { name: "Clone here", exact: true })).toHaveCount(0);
+  await expect(page.getByText("Not checked out", { exact: true })).toHaveCount(0);
+  await updateScenario({ checkout: "clean" });
   await page.getByRole("button", { name: "Refresh locations", exact: true }).click();
-  await expect(page.getByText("Not checked out", { exact: true })).toBeVisible();
-  for (const [reason, text] of [
-    ["origin-auth", "Origin authentication failed"],
-    ["origin-host-key", "Origin SSH host key is not trusted"],
-    ["origin-unreachable", "Origin unreachable"],
-    ["timed-out", "Git operation timed out"],
-    ["checkout-invalid", "Checkout validation failed"],
-  ]) {
-    await writeFile(cloneReason, reason);
-    await page.getByRole("button", { name: "Clone here", exact: true }).click();
-    await expect(page.getByText(`${text} · ${reason}`, { exact: true })).toBeVisible();
-  }
+  await expect(
+    page
+      .getByRole("region", { name: "fixture-cloud", exact: true })
+      .getByRole("button", { name: "Copy checkout path", exact: true }),
+  ).toBeVisible();
   await capture("repositories-per-host");
   await assertAccessible(page);
   await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
@@ -957,7 +992,7 @@ test("Repositories clones per host and opens fixed repair recipes without exposi
     .trim()
     .split("\n")
     .map((line) => JSON.parse(line));
-  assert.ok(recorded.some(({ message }) => message.operation === "clone"));
+  assert.ok(recorded.every(({ message }) => message.operation !== "clone"));
 });
 
 test("Hosts opens saved checks without SSH and keeps ready repositories compact", {
@@ -1034,7 +1069,7 @@ test("Hosts opens saved checks without SSH and keeps ready repositories compact"
   const before = await readFile(calls, "utf8");
   await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
   const card = page.getByRole("region", { name: "saved-fixture", exact: true });
-  await expect(card.getByText("Ready · 6 repositories", { exact: true })).toBeVisible();
+  await expect(card.getByText("Ready", { exact: true })).toBeVisible();
   const capture = (name) => captureHosts(app, page, `saved-${name}`);
   await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeHidden();
   const fits = await page
@@ -1054,8 +1089,8 @@ test("Hosts opens saved checks without SSH and keeps ready repositories compact"
   await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
   await assertHostColumns(card);
   await capture("expanded");
-  await card.getByRole("button", { name: /Repositories · 6 ready/ }).click();
-  await expect(card.getByText("Clean", { exact: true })).toHaveCount(6);
+  await card.getByRole("button", { name: /Git access · 6 ready/ }).click();
+  await expect(card.locator(".host-repository-row")).toHaveCount(6);
   await assertHostColumns(card);
   await capture("repositories");
   for (const width of [900, 640]) {
@@ -1069,17 +1104,17 @@ test("Hosts opens saved checks without SSH and keeps ready repositories compact"
     await expect.poll(() => page.evaluate(() => innerWidth)).toBe(width);
     await assertHostColumns(card);
     await capture(`repositories-${width}`);
-    await card.getByRole("button", { name: /Repositories · 6 ready/ }).click();
+    await card.getByRole("button", { name: /Git access · 6 ready/ }).click();
     await assertHostColumns(card);
     await capture(`expanded-${width}`);
-    await card.getByRole("button", { name: /Repositories · 6 ready/ }).click();
+    await card.getByRole("button", { name: /Git access · 6 ready/ }).click();
   }
   await app.evaluate(({ BrowserWindow }) =>
     BrowserWindow.getAllWindows()
       .find((window) => window.webContents.getURL() === "app://bundle/index.html")
       .setContentSize(1280, 800),
   );
-  await card.getByRole("button", { name: /Repositories · 6 ready/ }).click();
+  await card.getByRole("button", { name: /Git access · 6 ready/ }).click();
   await card.getByText("Host facts", { exact: true }).click();
   await expect(card.getByText("Other profiles or untagged: 2", { exact: true })).toBeVisible();
   await capture("inventory");
@@ -1087,7 +1122,7 @@ test("Hosts opens saved checks without SSH and keeps ready repositories compact"
   assert.equal(await readFile(calls, "utf8"), before);
   await navigation.getByRole("button", { name: "General", exact: true }).click();
   await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
-  await expect(card.getByText("Ready · 6 repositories", { exact: true })).toBeVisible();
+  await expect(card.getByText("Ready", { exact: true })).toBeVisible();
   assert.equal(await readFile(calls, "utf8"), before);
 });
 
@@ -1096,14 +1131,19 @@ test("Hosts reloads individual rows and actions never trigger full capability ch
   timeout: deadline(60000),
 }, async (context) => {
   const { app, page, card, calls, updateScenario } = await hostsFixture(context);
-  const managementCalls = async () =>
+  const capabilityCalls = async () =>
     (await readFile(calls, "utf8"))
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line))
       .filter(
         ({ message, phase }) =>
-          message.type === "manage" && message.operation !== "list-worktrees" && !phase,
+          message.type === "manage" &&
+          message.operation !== "list-worktrees" &&
+          // Folder changes independently invalidate the sidebar's read-only locations.
+          // These reads are not capability checks and may overlap the next action.
+          message.operation !== "repository" &&
+          !phase,
       )
       .map(({ message }) => message);
   const checkedAt = () =>
@@ -1115,7 +1155,7 @@ test("Hosts reloads individual rows and actions never trigger full capability ch
   // checkout read before measuring the requests caused by a row action.
   await page.evaluate(() => window.desktop.sidebarInventory());
   const timestamp = await checkedAt();
-  let before = (await managementCalls()).length;
+  let before = (await capabilityCalls()).length;
   await updateScenario({
     hold: "inspect",
     facts: {
@@ -1138,70 +1178,58 @@ test("Hosts reloads individual rows and actions never trigger full capability ch
   await captureHosts(app, page, "1061/row-reload-pending");
   await updateScenario({});
   await expect(gitRow).toContainText("Pass · Installed");
-  const afterReload = (await managementCalls()).slice(before);
+  const afterReload = (await capabilityCalls()).slice(before);
   assert.equal(afterReload.length, 1, JSON.stringify(afterReload));
   assert.deepEqual(afterReload[0].target, { kind: "tool", tool: "git" });
   // The fixture returned changed gh facts too. Its row must retain its prior result.
   await expect(card.getByRole("button", { name: "Sign in gh", exact: true })).toBeVisible();
   assert.equal(await checkedAt(), timestamp);
   await captureHosts(app, page, "1061/row-reload-complete");
-  before = (await managementCalls()).length;
+  before = (await capabilityCalls()).length;
   await card.getByRole("button", { name: "Change folder", exact: true }).click();
   await card.getByLabel("Code folder", { exact: true }).fill("~/new-code");
   await card.getByRole("button", { name: "Save", exact: true }).click();
   await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
   assert.deepEqual(
-    (await managementCalls()).slice(before).map(({ operation, target }) => ({ operation, target })),
+    (await capabilityCalls()).slice(before).map(({ operation, target }) => ({ operation, target })),
     [{ operation: "inspect", target: { kind: "folder" } }],
   );
-  await expect(
-    card.locator(".host-check-row").filter({ hasText: "Repository checkout" }),
-  ).toContainText("Not checked");
+  await expect(card.getByText("Repository checkout", { exact: true })).toHaveCount(0);
   assert.equal(await checkedAt(), timestamp);
   // A row reload can reconcile a missing folder, then Create uses only its own reply.
   await updateScenario({ facts: { folder: { state: "fail", reason: "folder-missing" } } });
   await card.getByRole("button", { name: "Reload Code folder", exact: true }).click();
   await expect(card.getByRole("button", { name: "Create", exact: true })).toBeEnabled();
   await updateScenario({});
-  before = (await managementCalls()).length;
+  before = (await capabilityCalls()).length;
   await card.getByRole("button", { name: "Create", exact: true }).click();
   await expect(card.getByText("Pass · Valid", { exact: true })).toBeVisible();
   assert.deepEqual(
-    (await managementCalls()).slice(before).map(({ operation }) => operation),
+    (await capabilityCalls()).slice(before).map(({ operation }) => operation),
     ["create-folder"],
   );
   assert.equal(await checkedAt(), timestamp);
-  // Checkout reload and Clone do not inspect other repositories or capabilities.
-  await card.getByRole("button", { name: /^Reload Repository checkout/u }).click();
-  await expect(card.getByRole("button", { name: "Clone here", exact: true })).toBeEnabled();
-  before = (await managementCalls()).length;
-  await card.getByRole("button", { name: "Clone here", exact: true }).click();
-  await expect(
-    card.getByText("Origin authentication failed · origin-auth", { exact: true }),
-  ).toBeVisible();
-  assert.deepEqual(
-    (await managementCalls()).slice(before).map(({ operation }) => operation),
-    ["clone"],
-  );
-  assert.equal(await checkedAt(), timestamp);
+  await expect(card.getByRole("button", { name: "Clone here", exact: true })).toHaveCount(0);
+  // Finish the folder action's location reconciliation before measuring Refresh facts.
+  await page.evaluate(() => window.desktop.sidebarInventory());
   await card.getByText("Host facts", { exact: true }).click();
   await updateScenario({ facts: { cores: 4 } });
-  before = (await managementCalls()).length;
+  before = (await capabilityCalls()).length;
   await card.getByRole("button", { name: "Refresh facts", exact: true }).click();
   await expect(card.getByText("CPU cores", { exact: true }).locator("..")).toContainText("4");
   await expect(card.getByRole("button", { name: "Refresh facts", exact: true })).toBeEnabled();
   assert.deepEqual(
-    (await managementCalls()).slice(before).map(({ operation, target }) => ({ operation, target })),
+    (await capabilityCalls()).slice(before).map(({ operation, target }) => ({ operation, target })),
     [{ operation: "inspect", target: { kind: "facts" } }],
   );
   assert.equal(await checkedAt(), timestamp);
   await updateScenario({ factsFailure: "unreachable" });
-  before = (await managementCalls()).length;
+  before = (await capabilityCalls()).length;
   await card.getByRole("button", { name: "Refresh facts", exact: true }).click();
   await expect(card.getByText("Host unreachable", { exact: true })).toBeVisible();
   await expect(card.getByRole("button", { name: "Refresh facts", exact: true })).toBeEnabled();
   assert.deepEqual(
-    (await managementCalls()).slice(before).map(({ operation, target }) => ({ operation, target })),
+    (await capabilityCalls()).slice(before).map(({ operation, target }) => ({ operation, target })),
     [{ operation: "inspect", target: { kind: "facts" } }],
   );
   assert.equal(await checkedAt(), timestamp);

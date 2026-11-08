@@ -54,8 +54,8 @@ foom wait-for [ID...] --until-event [--after '{"ID":"EVENT"}'] [--timeout SECOND
 Every mutation requires an idempotency key. After losing a response, query
 `operation-status --idempotency-key KEY`; reusing a key with different input is
 refused. Removal follows the [trusted confirmation and narrow automatic-removal policies](control-mutations.md#orchestrators-and-children-155).
-`--host` names a Settings-registered SSH host with an approved repository checkout.
-Creation never clones; launch keeps the created checkout's host and refuses an
+`--host` names a Settings-registered SSH host with an approved code folder.
+Creation first prepares the registered repository's checkout there when absent, sharing concurrent clone preparation. Clone failures retain a closed Git reason in the failed operation; raw Git output is never returned. Launch keeps the created checkout's host and refuses an
 explicit mismatch. Orchestrator session reads include host agent inventories and
 CPU/memory observations. Remote review remains unsupported. See
 [host-aware placement](control-mutations.md#host-aware-placement-756).

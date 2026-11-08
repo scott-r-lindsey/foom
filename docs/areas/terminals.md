@@ -562,3 +562,24 @@ there is no detached-session reaper.
 Agent preparation/start failures return only validated `agent-failed {id, reason}`
 frames using the fixed [launch reason enum](../contracts/control-mutations.md#launch-failure-reasons).
 No host output or stderr enters the diagnostic channel.
+
+## OSC 52 clipboard writes (#1073)
+
+Settings → Terminal offers a profile-only `terminalClipboardWrites` switch, off
+by default. Any program in an attached local or remote terminal can replace the
+local clipboard without a click when enabled; the user could paste it elsewhere.
+Only text writes to the default (empty) or explicit `c` clipboard target are
+accepted. Primary, selection lists and other targets are ignored. Empty text
+clears the clipboard. Queries (`?`) always receive no reply.
+
+Both renderer and main validate strict base64 (padded or unpadded, canonical pad
+bits), fatal UTF-8 and at most 65,536 decoded bytes. Malformed and oversized
+requests are consumed whole. Main owns the clipboard API and independently checks
+the current preference and attached terminal ownership. Terminal output cannot
+change the preference. No clipboard reads or replies are added.
+
+The host explicitly consumes OSC 52 without side effects. Live output reaches the
+browser parser, but attachment, screen restore and full remote reconnect replay
+use serialized parsed cells/modes from the headless screen, never raw output or
+OSC 52 commands. Hidden output is consumed by the host and cannot write later
+when shown. No clipboard command or content is persisted or logged by this feature.

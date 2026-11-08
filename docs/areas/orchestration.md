@@ -240,12 +240,15 @@ the settled read is checked synchronously again immediately before close.
 ## Registered-host placement (#756)
 
 `create_worktree` accepts an optional registered SSH `host`. Omission keeps local
-creation; specifying one creates in that host's already approved repository
-checkout, branching from its fetched default (or its validated PR branch). The
+creation; specifying one prepares the origin-derived checkout inside that host’s approved code folder when absent, then creates the worktree, branching from its fetched default (or its validated PR branch). The
 returned worktree ID is host-bound and opaque, even when two hosts use identical
 paths. `launch.host`, when supplied, must match that worktree. Omission retains the
 created worktree's host; it never moves work or chooses a host. Remote inventory is
 checked before launch preparation, using [the shared host service](hosts.md).
+Concurrent first-use checkout preparation is shared. Clone failures return the closed
+`origin-auth`, `origin-host-key`, `origin-unreachable`, `timed-out` or `checkout-invalid`
+reason on the failed operation without charging the unused-worktree budget. Once
+worktree creation is dispatched, ambiguous failures remain indeterminate and charged.
 
 The hub owns child grants, limits, operation IDs and launch reservations across
 hosts. Remote children retain exactly handoff, manual and sanitized whoami.

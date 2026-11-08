@@ -8,6 +8,10 @@ import {
 
 test("only the closed codes select fixed messages, with or without Electron's wrapper", () => {
   const cases = [
+    [
+      "origin-auth",
+      "Origin authentication failed. Configure Git access on the host: HTTPS through gh, a deploy key, or ssh-agent.",
+    ],
     ["launch-cancel-incomplete", "Terminal may still be running."],
     ["remote-host-unavailable", "Remote host artifact unavailable in this local build."],
     ["session-busy", "This session is busy. Try again when its current action finishes."],
@@ -141,4 +145,25 @@ test("incomplete removal discloses only a canonical encoded target path and requ
     expect(
       errorMessage(new Error(`foom-error:worktree-removal-incomplete:${detail}`), "fallback"),
     ).toBe("fallback");
+});
+
+test("typed host Git failures retain their closed reason through IPC error presentation", async () => {
+  const { capabilityError } = await import("../../../src/shared/application-errors");
+  const { LaunchFailure, launchReasons } = await import("../../../src/shared/launch-failure");
+  for (const reason of [
+    "origin-auth",
+    "origin-host-key",
+    "origin-unreachable",
+    "timed-out",
+    "checkout-invalid",
+  ] as const) {
+    expect(applicationErrorCode(capabilityError(new LaunchFailure(reason)))).toBe(reason);
+    expect(errorMessage(capabilityError(new LaunchFailure(reason)))).toBe(launchReasons[reason]);
+    expect(applicationErrorCode(capabilityError(new Error(reason)))).toBe("operation-failed");
+  }
+  expect(applicationErrorCode(capabilityError(new LaunchFailure("agent_unavailable")))).toBe(
+    "operation-failed",
+  );
+  const error = new ApplicationError("worktree-missing");
+  expect(capabilityError(error)).toBe(error);
 });

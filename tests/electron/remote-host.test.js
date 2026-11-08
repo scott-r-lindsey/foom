@@ -300,6 +300,14 @@ child.on('close', code => { appendFileSync(${JSON.stringify(sshLog)}, 'fixture s
   await expect(linkConfirmation.getByRole("heading", { name: "Open this link?" })).toBeVisible();
   await linkConfirmation.getByRole("button", { name: "Open in browser", exact: true }).click();
   await expect.poll(() => app.evaluate(() => globalThis.remoteOpenedLinks)).toEqual([remoteUrl]);
+  // OSC 52 crosses SSH only as live fixture output; clipboard remains hub-owned.
+  await page.evaluate(() => window.desktop.saveSetup({ terminalClipboardWrites: true }));
+  await page.keyboard.type("printf '\\033]52;c;cmVtb3RlIGNsaXBib2FyZA==\\007\\n'");
+  await page.keyboard.press("Enter");
+  await expect
+    .poll(() => app.evaluate(({ clipboard }) => clipboard.readText()))
+    .toBe("remote clipboard");
+  await app.evaluate(({ clipboard }) => clipboard.writeText("remote replay sentinel"));
   const darkColors = JSON.parse(await readFile(colorRecord, "utf8"));
   assert.ok(darkColors.includes(oscColor(10, "#f4efff")));
   assert.ok(darkColors.includes(oscColor(11, "#05040a")));
@@ -359,6 +367,11 @@ child.on('close', code => { appendFileSync(${JSON.stringify(sshLog)}, 'fixture s
     .toBeGreaterThan(priorTokens);
   // Snapshot/live output is rendered through the existing sandboxed tile bridge.
   await expect(page.locator(".xterm-rows")).toContainText("LARGE_REPLAY_READY");
+  assert.equal(
+    await app.evaluate(({ clipboard }) => clipboard.readText()),
+    "remote replay sentinel",
+  );
+
   await page.keyboard.type('printf \'RECONNECTED:%s:%s\\n\' "$persist" "$$"');
   await page.keyboard.press("Enter");
   await expect.poll(tail).toContain(`RECONNECTED:STILL_ALIVE:${pid}`);

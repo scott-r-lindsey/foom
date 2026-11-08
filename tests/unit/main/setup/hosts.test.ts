@@ -355,7 +355,7 @@ test("registration revocation or a manifest-selection change during inventory ca
   await expect(hosts.inventory("worker")).rejects.toMatchObject({ code: "not_found" });
 });
 
-test("remote worktree commands never clone and only use the registered origin and approved code folder", async () => {
+test("remote worktree commands reuse existing checkouts and use the registered origin and approved folder", async () => {
   hosts = new Hosts(store, () => repositories, "0.1.0", run, "a".repeat(32));
   settings = { ...settings, registeredHosts: [{ host: "worker", codeFolder: facts.codeFolder }] };
   const origin = "git@forge.test:me/repo.git";
@@ -2374,6 +2374,143 @@ test.each(["", "\n", "\r\n", "\r"])(
   },
 );
 
+test("first-use launch and worktree creation share one absent checkout preparation", async () => {
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  hosts = new Hosts(store, () => repositories, "0.1.0", run, "a".repeat(32));
+  const clone = Promise.withResolvers<HostResult>();
+  let directory = "";
+  run.mockImplementation((_host, request) => {
+    if (request.operation === "repository") {
+      directory = request.directory;
+      return Promise.resolve({
+        ok: true,
+        facts,
+        checkout: { path: `${facts.codeFolder}/${directory}`, state: "absent" },
+      });
+    }
+    if (request.operation === "clone") return clone.promise;
+    if (request.operation === "create-worktree")
+      return Promise.resolve({
+        ok: true,
+        facts,
+        worktree: {
+          path: `${facts.codeFolder}/.foom-worktree-new`,
+          branch: "new",
+          identity: "a".repeat(64),
+          changes: "",
+        },
+      });
+    throw new Error("Unexpected request");
+  });
+  const target = hosts.repositoryTarget("worker", "/local/repo");
+  const tree = hosts.worktree("worker", "/local/repo", {
+    operation: "create-worktree",
+    branch: "new",
+  });
+  await vi.waitFor(() => {
+    expect(run.mock.calls.filter(([, request]) => request.operation === "clone")).toHaveLength(1);
+  });
+  clone.resolve({
+    ok: true,
+    facts,
+    checkout: { path: `${facts.codeFolder}/${directory}`, state: "clean" },
+  });
+  expect((await target).machine?.repository?.directory).toBe(directory);
+  expect((await tree).branch).toBe("new");
+  expect(run.mock.calls.filter(([, request]) => request.operation === "clone")).toHaveLength(1);
+});
+
+test.each([
+  "origin-auth",
+  "origin-host-key",
+  "origin-unreachable",
+  "timed-out",
+  "checkout-invalid",
+] as const)(
+  "automatic clone reports %s to launch and worktree callers without dispatching creation",
+  async (reason) => {
+    settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+    hosts = new Hosts(store, () => repositories, "0.1.0", run, "a".repeat(32));
+    run.mockImplementation((_host, request) =>
+      Promise.resolve(
+        request.operation === "repository"
+          ? {
+              ok: true,
+              facts,
+              checkout: { path: `${facts.codeFolder}/${request.directory}`, state: "absent" },
+            }
+          : { ok: false, reason },
+      ),
+    );
+    await expect(hosts.repositoryTarget("worker", "/local/repo")).rejects.toMatchObject({ reason });
+    await expect(
+      hosts.worktree("worker", "/local/repo", { operation: "create-worktree", branch: "new" }),
+    ).rejects.toMatchObject({ reason });
+    expect(run.mock.calls.every(([, request]) => request.operation !== "create-worktree")).toBe(
+      true,
+    );
+  },
+);
+
+test.each(["origin", "repository", "folder"] as const)(
+  "first-use preparation rechecks %s before cloning and after its reply",
+  async (change) => {
+    for (const phase of ["inspect", "clone"] as const) {
+      repositories = [{ path: "/local/repo", name: "repo" }];
+      settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+      mock.execute.mockResolvedValue({ stdout: "git@forge.test:me/repo.git" });
+      hosts = new Hosts(store, () => repositories, "0.1.0", run, "a".repeat(32));
+      const held = Promise.withResolvers<HostResult>();
+      let directory = "";
+      run.mockReset().mockImplementation((_host, request) => {
+        if (request.operation !== "repository" && request.operation !== "clone")
+          throw new Error("Unexpected mutation");
+        directory = request.directory;
+        if (
+          (phase === "inspect" && request.operation === "repository") ||
+          (phase === "clone" && request.operation === "clone")
+        )
+          return held.promise;
+        return Promise.resolve({
+          ok: true,
+          facts,
+          checkout: { path: `${facts.codeFolder}/${directory}`, state: "absent" },
+        });
+      });
+      const result = hosts.worktree("worker", "/local/repo", {
+        operation: "create-worktree",
+        branch: "new",
+      });
+      const rejected = expect(result).rejects.toThrow();
+      await vi.waitFor(() => {
+        expect(
+          run.mock.calls.some(
+            ([, request]) => request.operation === (phase === "inspect" ? "repository" : "clone"),
+          ),
+        ).toBe(true);
+      });
+      if (change === "origin")
+        mock.execute.mockResolvedValue({ stdout: "git@forge.test:other/repo.git" });
+      if (change === "repository") repositories = [];
+      if (change === "folder")
+        settings.registeredHosts = [{ host: "worker", codeFolder: "/changed" }];
+      held.resolve({
+        ok: true,
+        facts,
+        checkout: {
+          path: `${facts.codeFolder}/${directory}`,
+          state: phase === "inspect" ? "absent" : "clean",
+        },
+      });
+      await rejected;
+      expect(run.mock.calls.filter(([, request]) => request.operation === "clone")).toHaveLength(
+        phase === "inspect" ? 0 : 1,
+      );
+      hosts.dispose();
+    }
+  },
+);
+
 test("native recipe completion automatically rechecks only its tool", async () => {
   hosts = new Hosts(store, () => repositories, "0.1.0", run, "f".repeat(32));
   run.mockResolvedValue({
@@ -2460,4 +2597,99 @@ test("a second recipe exit during a row refresh retains its newly queued targets
     { kind: "tool", tool: "git" },
     { kind: "sign-in", tool: "gh" },
   ]);
+});
+
+test.each(["folder", "host", "repository"] as const)(
+  "clone dispatch rechecks %s after origin reads and provider preparation",
+  async (change) => {
+    const origin = "git@forge.test:me/repo.git";
+    for (const phase of ["third-origin", "fourth-origin", "providers"] as const) {
+      repositories = [{ path: "/local/repo", name: "repo" }];
+      settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+      hosts = new Hosts(store, () => repositories, "0.1.0", run, "a".repeat(32));
+      const reading = Promise.withResolvers<{ stdout: string }>();
+      const preparing = Promise.withResolvers<undefined>();
+      let reads = 0;
+      let validations = 0;
+      mock.execute.mockReset().mockImplementation(() => {
+        reads++;
+        return reads === (phase === "third-origin" ? 3 : phase === "fourth-origin" ? 4 : -1)
+          ? reading.promise
+          : Promise.resolve({ stdout: origin });
+      });
+      const base = agentProvider("claude");
+      replaceConfigProviders([
+        {
+          ...base,
+          id: "guard-fixture",
+          origin: "config",
+          model: { ...base.model, id: "guard-fixture" },
+          validate: () => {
+            validations++;
+            return phase === "providers" && validations === 2
+              ? preparing.promise
+              : Promise.resolve();
+          },
+        },
+      ]);
+      run.mockReset().mockImplementation((_host, request) =>
+        Promise.resolve(
+          request.operation === "repository"
+            ? {
+                ok: true,
+                facts,
+                checkout: { path: `${facts.codeFolder}/${request.directory}`, state: "absent" },
+              }
+            : { ok: false, reason: "origin-auth" },
+        ),
+      );
+      try {
+        const pending = hosts.repositoryTarget("worker", "/local/repo").catch(() => undefined);
+        await vi.waitFor(() => {
+          expect(phase === "providers" ? validations : reads).toBe(
+            phase === "third-origin" ? 3 : phase === "fourth-origin" ? 4 : 2,
+          );
+        });
+        if (change === "folder")
+          settings.registeredHosts = [{ host: "worker", codeFolder: "/approved-new" }];
+        if (change === "host") settings.registeredHosts = [];
+        if (change === "repository") repositories = [];
+        reading.resolve({ stdout: origin });
+        preparing.resolve(undefined);
+        expect(await pending).toBeUndefined();
+        expect(run.mock.calls.filter(([, request]) => request.operation === "clone")).toHaveLength(
+          0,
+        );
+      } finally {
+        reading.resolve({ stdout: origin });
+        preparing.resolve(undefined);
+        replaceConfigProviders([]);
+        hosts.dispose();
+      }
+    }
+  },
+);
+
+test("clone dispatch refuses an origin changed by its final asynchronous read", async () => {
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  hosts = new Hosts(store, () => repositories, "0.1.0", run, "a".repeat(32));
+  let reads = 0;
+  mock.execute.mockImplementation(() =>
+    Promise.resolve({
+      stdout: ++reads === 4 ? "git@forge.test:other/repo.git" : "git@forge.test:me/repo.git",
+    }),
+  );
+  run.mockImplementation((_host, request) =>
+    Promise.resolve(
+      request.operation === "repository"
+        ? {
+            ok: true,
+            facts,
+            checkout: { path: `${facts.codeFolder}/${request.directory}`, state: "absent" },
+          }
+        : { ok: false, reason: "origin-auth" },
+    ),
+  );
+  await expect(hosts.repositoryTarget("worker", "/local/repo")).rejects.toThrow();
+  expect(run.mock.calls.filter(([, request]) => request.operation === "clone")).toHaveLength(0);
 });

@@ -989,3 +989,17 @@ test("remote profile tags are opaque, stable, private metadata and cannot be set
   expect(() => parseSettingsPatch({ remoteProfile: store.profileTag() })).toThrow();
   expect((await SettingsStore.open(await directory())).profileTag()).not.toBe(store.profileTag());
 });
+
+test("terminal clipboard writes default off, validate booleans and persist in the profile", async () => {
+  const dir = await directory();
+  const store = await SettingsStore.open(dir);
+  expect(store.get().terminalClipboardWrites).toBe(false);
+  for (const value of [null, "true", 1, {}])
+    expect(() => parseSettingsPatch({ terminalClipboardWrites: value })).toThrow(
+      "Invalid settings",
+    );
+  await store.update(parseSettingsPatch({ terminalClipboardWrites: true }));
+  expect((await SettingsStore.open(dir)).get().terminalClipboardWrites).toBe(true);
+  await store.update(parseSettingsPatch({ terminalClipboardWrites: false }));
+  expect((await SettingsStore.open(dir)).get().terminalClipboardWrites).toBe(false);
+});

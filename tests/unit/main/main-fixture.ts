@@ -277,10 +277,13 @@ vi.mock("../../../src/main/terminals/terminal-ipc", () => ({
     allow: (contents: unknown, id: string) => boolean,
     shellEnvironment: () => Record<string, string>,
     copyOnSelect: () => boolean,
+    _remoteProfile: string | undefined,
+    clipboardWrites: () => boolean,
   ) => {
     mock.allowView = allow;
     mock.shellEnvironment = shellEnvironment;
     mock.copyOnSelect = copyOnSelect;
+    mock.clipboardWrites = clipboardWrites;
     mock.terminalEvents = events;
     return mock.terminals;
   },
@@ -562,6 +565,7 @@ const mock = vi.hoisted(() => {
     allowView: (_contents: unknown, _id: string): boolean => false,
     shellEnvironment: undefined as (() => Record<string, string>) | undefined,
     copyOnSelect: (): boolean => false,
+    clipboardWrites: (): boolean => false,
     environmentChanged: undefined as (() => void) | undefined,
     terminalEvents: {},
     workspace,

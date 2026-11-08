@@ -1,6 +1,12 @@
+import { LaunchFailure, launchReasons } from "./launch-failure";
 import type { CopyableErrorId, ApplicationErrorCode } from "./application-error";
 
 const messages = {
+  "origin-auth": launchReasons["origin-auth"],
+  "origin-host-key": launchReasons["origin-host-key"],
+  "origin-unreachable": launchReasons["origin-unreachable"],
+  "timed-out": launchReasons["timed-out"],
+  "checkout-invalid": launchReasons["checkout-invalid"],
   "launch-cancel-incomplete": "Terminal may still be running.",
   "remote-host-unavailable": "Remote host artifact unavailable in this local build.",
   "session-has-children": "Close its children first.",
@@ -29,6 +35,22 @@ export class ApplicationError extends Error {
       throw new Error("Invalid application error details");
     super(`foom-error:${code}${childCount === undefined ? "" : `:${String(childCount)}`}`);
   }
+}
+
+/** Preserve only typed, closed host Git failures through desktop IPC. */
+export function capabilityError(error: unknown): ApplicationError {
+  if (error instanceof ApplicationError) return error;
+  if (error instanceof LaunchFailure) {
+    switch (error.reason) {
+      case "origin-auth":
+      case "origin-host-key":
+      case "origin-unreachable":
+      case "timed-out":
+      case "checkout-invalid":
+        return new ApplicationError(error.reason);
+    }
+  }
+  return new ApplicationError("operation-failed");
 }
 
 /** Only main's validated removal target may supply this narrowly scoped detail. */

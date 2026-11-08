@@ -1,3 +1,4 @@
+import { terminalClipboardText } from "../../shared/terminal-clipboard";
 import { terminalLink } from "../../shared/terminal-link";
 import type { DialogContent } from "../../shared/confirmation";
 import { randomUUID } from "node:crypto";
@@ -50,6 +51,7 @@ export function attachTerminal(
   shellEnvironment: () => Record<string, string> = () => ({}),
   copyOnSelect: () => boolean = () => false,
   remoteProfile?: string,
+  clipboardWrites: () => boolean = () => false,
 ) {
   const windows = new Map<
     WebContents,
@@ -265,6 +267,14 @@ export function attachTerminal(
       if (pasteQueues.get(id) === operation) pasteQueues.delete(id);
     });
     return operation;
+  });
+  handlers.set("terminal:write-clipboard", async (event, id, payload) => {
+    if (!trusted(event)) throw new Error("Untrusted IPC sender");
+    if (!validId(id) || attached.get(id) !== event.sender)
+      throw new Error("Unknown or unattached terminal ID");
+    const text = terminalClipboardText(payload);
+    if (text === undefined) throw new Error("Invalid terminal clipboard write");
+    if (clipboardWrites()) await clipboard.writeText(text);
   });
   handlers.set("terminal:copy-selection", async (event, id, text) => {
     if (!trusted(event)) throw new Error("Untrusted IPC sender");

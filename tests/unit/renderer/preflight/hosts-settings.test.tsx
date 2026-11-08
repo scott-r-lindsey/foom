@@ -125,7 +125,6 @@ test("all independent checks, resource facts, refresh, folder editing, End and r
     "Pass · Valid",
     "Claude Code",
     "Pass · Reachable",
-    "Not checked out",
     "2 other worktrees",
     "8.0 GiB",
     "4.0 GiB",
@@ -175,19 +174,7 @@ test("all independent checks, resource facts, refresh, folder editing, End and r
   await waitFor(() => {
     expect(api).toHaveBeenCalledWith({ action: "end", host: "worker" });
   });
-  await waitFor(() => {
-    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Clone here" }).disabled).toBe(
-      false,
-    );
-  });
-  fireEvent.click(screen.getByRole("button", { name: "Clone here" }));
-  await waitFor(() => {
-    expect(api).toHaveBeenCalledWith({
-      action: "clone",
-      host: "worker",
-      repository: "/local/project",
-    });
-  });
+  expect(screen.queryByRole("button", { name: "Clone here" })).toBeNull();
   await waitFor(() => {
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "Remove" }).disabled).toBe(false);
   });
@@ -240,6 +227,9 @@ test("partial facts retain passes and expose Create plus available Install and S
   await screen.findByText("Pass · Host key trusted");
   expect(screen.getByText(/Code folder does not exist · folder-missing/u)).toBeTruthy();
   expect(screen.getByLabelText("Git access fixes").textContent).toContain("Use HTTPS through gh");
+  expect(screen.getByText("Use HTTPS through gh").getAttribute("title")).toBe(
+    "Configure the host's Git to use HTTPS through gh",
+  );
   expect(screen.queryByRole("button", { name: "Install codex" })).toBeNull();
   expect(screen.getByText("Unable to check")).toBeTruthy();
   for (const [button, action] of [
@@ -460,44 +450,13 @@ function locations(): HostsState {
     })),
   };
 }
-test("repository locations are per-host lists with paths, states, clones and recovery after lost reply", async () => {
-  const state = locations();
-  const recovered = {
-    ...state,
-    locations: state.locations.map((entry) => ({
-      ...entry,
-      result: { ...host.result, checkout: { path: "/remote/project", state: "clean" as const } },
-    })),
-  };
-  const api = vi
-    .fn<(action: HostsAction) => Promise<HostsState>>()
-    .mockResolvedValueOnce(state)
-    .mockResolvedValueOnce({
-      ...state,
-      locations: [
-        {
-          host: "worker",
-          repository: "/local/project",
-          result: { ok: false, reason: "unreachable" },
-        },
-      ],
-    })
-    .mockResolvedValue(recovered);
+test("repository locations show only existing checkouts and never offer cloning", async () => {
+  const api = vi.fn<(action: HostsAction) => Promise<HostsState>>().mockResolvedValue(locations());
   render(<RepositoryHosts source={{ hosts: api }} repositories={repositories} />);
   const remote = await screen.findByRole("region", { name: "worker" });
-  expect(screen.getByRole("region", { name: "Local" })).toBeTruthy();
-  expect(screen.queryByRole("table")).toBeNull();
-  for (const text of ["Not checked out", "Changes", "Clean"])
-    expect(within(remote).getByText(text)).toBeTruthy();
-  fireEvent.click(within(remote).getByRole("button", { name: "Clone here" }));
-  await waitFor(() => {
-    expect(within(remote).getAllByText("Clean")).toHaveLength(3);
-  });
-  expect(api.mock.calls.map(([action]) => action.action)).toEqual([
-    "locations",
-    "clone",
-    "locations",
-  ]);
+  expect(remote.querySelectorAll(".host-repository-row")).toHaveLength(2);
+  for (const text of ["Clone here", "Not checked out", "Changes", "Clean"])
+    expect(screen.queryByText(text)).toBeNull();
   api.mockRejectedValueOnce(new Error("private"));
   fireEvent.click(screen.getByRole("button", { name: "Refresh locations" }));
   await screen.findByText("Unable to check locations");
@@ -505,32 +464,8 @@ test("repository locations are per-host lists with paths, states, clones and rec
   await waitFor(() => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
+  expect(api.mock.calls.every(([action]) => action.action === "locations")).toBe(true);
 });
-test.each(failures)(
-  "repository %s reports a fixed reason; only retryable failures offer Clone here",
-  async (reason) => {
-    const state = {
-      ...initial,
-      locations: [
-        { host: "worker", repository: "/local/project", result: { ok: false as const, reason } },
-      ],
-    };
-    const api = vi.fn<(action: HostsAction) => Promise<HostsState>>().mockResolvedValue(state);
-    render(
-      <RepositoryHosts
-        source={{ hosts: api }}
-        repositories={[{ name: "project", path: "/local/project" }]}
-      />,
-    );
-    await screen.findByText(new RegExp(` · ${reason}$`, "u"));
-    const button = screen.queryByRole("button", { name: "Clone here" });
-    if (button) {
-      api.mockRejectedValueOnce(new Error("raw"));
-      fireEvent.click(button);
-      await screen.findByText("Unable to clone repository");
-    }
-  },
-);
 test("location load rejection, missing observations and unmount before locations settle", async () => {
   const api = vi
     .fn<(action: HostsAction) => Promise<HostsState>>()
@@ -544,7 +479,7 @@ test("location load rejection, missing observations and unmount before locations
   });
   const unknown = render(<RepositoryHosts source={{ hosts: api }} repositories={repositories} />);
   await screen.findByRole("region", { name: "worker" });
-  expect(screen.getAllByText("Not checked")).toHaveLength(3);
+  expect(screen.queryByText("Not checked")).toBeNull();
   unknown.unmount();
   let resolve: ((state: HostsState) => void) | undefined;
   api.mockImplementation(
@@ -578,23 +513,23 @@ test.each([true, false])(
       });
     view.unmount();
     render(<RepositoryHosts source={source} repositories={repositories} />);
-    await screen.findByText("/remote/project");
+    await screen.findByText("/remote/changed");
     for (const button of screen.getAllByRole("button", { name: "Copy checkout path" }))
       fireEvent.click(button);
     if (available)
       expect(copyHost).toHaveBeenCalledWith({
         kind: "copy-checkout-path",
         host: "worker",
-        repository: "/local/project",
+        repository: "/local/changed",
       });
     else
       await waitFor(() => {
-        expect(screen.getAllByText("Unable to copy")).toHaveLength(6);
+        expect(screen.getAllByText("Unable to copy")).toHaveLength(5);
       });
   },
 );
 
-test("complete means every check and checkout passed; changed checkouts remain usable", async () => {
+test("ready hosts list checkout paths without rendering dirty or clone state", async () => {
   await mount({
     ...initial,
     preflight: {
@@ -608,9 +543,9 @@ test("complete means every check and checkout passed; changed checkouts remain u
       ],
     },
   });
-  await screen.findByText("Ready · 1 repository");
-  fireEvent.click(screen.getByText("Repositories · 1 ready"));
-  expect(screen.getByText("Changes")).toBeTruthy();
+  await screen.findByText("Ready");
+  fireEvent.click(screen.getByText("Git access · 1 ready"));
+  expect(screen.getByText("/remote/project")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Clone here" })).toBeNull();
 });
 test("unknown distro offers no install recipe and initial preflight failures stay fixed", async () => {
@@ -635,36 +570,13 @@ test("unknown distro offers no install recipe and initial preflight failures sta
   fireEvent.click(screen.getByRole("button", { name: "Check capabilities" }));
   await screen.findByText("Unable to update hosts");
 });
-test("failed clone remains visible after independent preflight, until explicit recheck", async () => {
-  const { api } = await mount();
-  fireEvent.click(await screen.findByRole("button", { name: "Clone here" }));
-  // Wait for initial observation before sending the mutation.
-  await waitFor(() => {
-    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Clone here" }).disabled).toBe(
-      false,
-    );
-  });
-  api
-    .mockResolvedValueOnce({
-      ...initial,
-      locations: [
-        {
-          host: "worker",
-          repository: "/local/project",
-          result: { ok: false, reason: "origin-auth" },
-        },
-      ],
-    })
-    .mockResolvedValue(initial);
-  fireEvent.click(screen.getByRole("button", { name: "Clone here" }));
-  await screen.findByText("Origin authentication failed · origin-auth");
-  await waitFor(() => {
-    expect(
-      screen.getByRole<HTMLButtonElement>("button", { name: "Check capabilities" }).disabled,
-    ).toBe(false);
-  });
-  fireEvent.click(screen.getByRole("button", { name: "Check capabilities" }));
-  await screen.findByText("Not checked out");
+test("absent checkouts have no clone state or clone control in Hosts", async () => {
+  await mount();
+  expect(screen.queryByText("Not checked out")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Clone here" })).toBeNull();
+  expect(
+    screen.getByText("Foom checks out repositories automatically when you use this host."),
+  ).toBeTruthy();
 });
 
 test("Mac protected-folder warning never hides a missing-folder failure or its Create action", async () => {
@@ -844,7 +756,7 @@ test("first check renders pending repository rows and replaces them with observa
   expandHosts();
   fireEvent.click(screen.getByRole("button", { name: "Check capabilities" }));
   await screen.findByText("Checking Git access · project (1 of 2)");
-  expect(screen.getAllByText("Checking…", { exact: true })).toHaveLength(4);
+  expect(screen.getAllByText("Checking…", { exact: true })).toHaveLength(2);
   expect(screen.getByText("Repository · next")).toBeTruthy();
   expect(view.container.querySelector(".host-throbber")?.getAttribute("aria-hidden")).toBe("true");
   progress = {
@@ -860,7 +772,9 @@ test("first check renders pending repository rows and replaces them with observa
   act(() => {
     finish?.(initial);
   });
-  await screen.findByText("Not checked out");
+  await waitFor(() => {
+    expect(view.container.querySelector(".host-throbber")).toBeNull();
+  });
   expect(view.container.querySelector(".host-throbber")).toBeNull();
   const calls = api.mock.calls.length;
   await new Promise((resolve) => setTimeout(resolve, 300));
@@ -922,10 +836,8 @@ test("usable hosts keep optional missing agents, sign-in and checkouts neutral",
     hosts: [{ ...host, result, recipes: [{ tool: "pi", install: true, signIn: false }] }],
     preflight: { ...preflight, result },
   });
-  await screen.findByText("Ready · 0 repositories");
-  expect(screen.getByText("Not checked out").closest(".host-status")?.className).toContain(
-    "host-neutral",
-  );
+  await screen.findByText("Ready");
+  expect(screen.queryByText("Not checked out")).toBeNull();
   expect(screen.getAllByText("Not found").every((item) => item.closest(".host-neutral"))).toBe(
     true,
   );
@@ -966,48 +878,6 @@ test("host-key fix identifies only the repository", async () => {
     });
   });
 });
-test.each(["hosts", "repositories"])(
-  "%s clone row stays busy until its result arrives",
-  async (surface) => {
-    const api = vi
-      .fn<(action: HostsAction) => Promise<HostsState>>()
-      .mockResolvedValue(surface === "hosts" ? initial : locations());
-    render(
-      surface === "hosts" ? (
-        <HostsSettings source={{ hosts: api }} headingRef={createRef()} />
-      ) : (
-        <RepositoryHosts source={{ hosts: api }} repositories={repositories} />
-      ),
-    );
-    if (surface === "hosts") {
-      await screen.findByRole("region", { name: "worker" });
-      expandHosts();
-      fireEvent.click(screen.getByRole("button", { name: "Check capabilities" }));
-    }
-    await waitFor(() => {
-      expect(screen.getByRole<HTMLButtonElement>("button", { name: "Clone here" }).disabled).toBe(
-        false,
-      );
-    });
-    let finish: ((state: HostsState) => void) | undefined;
-    api.mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          finish = resolve;
-        }),
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Clone here" }));
-    expect(screen.getByText("Cloning…").closest(".host-status")?.className).toContain("host-work");
-    await act(async () => {
-      finish?.(surface === "hosts" ? initial : locations());
-      await Promise.resolve();
-    });
-    await waitFor(() => {
-      expect(screen.queryByText("Cloning…")).toBeNull();
-    });
-  },
-);
-
 test("opening uses saved checks, keeps ready hosts compact and exposes every ready repository", async () => {
   const state = saved({
     ...initial,
@@ -1025,15 +895,15 @@ test("opening uses saved checks, keeps ready hosts compact and exposes every rea
   });
   const api = vi.fn<(action: HostsAction) => Promise<HostsState>>().mockResolvedValue(state);
   render(<HostsSettings source={{ hosts: api }} headingRef={createRef()} />);
-  await screen.findByText("Ready · 6 repositories");
+  await screen.findByText("Ready");
   expect(api.mock.calls).toEqual([[{ action: "list" }]]);
   expect(screen.queryByRole("button", { name: "Check capabilities" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Expand worker" }));
   expect(screen.getByText(/Last checked/u)).toBeTruthy();
   expect(screen.queryByText("Repository · project-0")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: /Repositories · 6 ready/u }));
-  expect(screen.getAllByText("Clean")).toHaveLength(6);
-  fireEvent.click(screen.getByRole("button", { name: /Repositories · 6 ready/u }));
+  fireEvent.click(screen.getByRole("button", { name: /Git access · 6 ready/u }));
+  expect(screen.getAllByText(/^\/remote\/project-/u)).toHaveLength(6);
+  fireEvent.click(screen.getByRole("button", { name: /Git access · 6 ready/u }));
   expect(screen.queryByText("Repository · project-0")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Collapse worker" }));
   expect(screen.queryByRole("button", { name: "Check capabilities" })).toBeNull();

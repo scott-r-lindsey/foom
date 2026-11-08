@@ -1943,3 +1943,10 @@ test("host setup output and recipe IDs are bounded display-only reply fields", a
     await expect(api.hosts({ action: "list" })).rejects.toThrow();
   }
 });
+
+test("OSC 52 has a void terminal-ID-scoped bridge without reads", async () => {
+  const api = await bridge();
+  mock.invoke.mockResolvedValue(undefined);
+  await api.writeTerminalClipboard("one", "c;aGk=");
+  expect(mock.invoke).toHaveBeenCalledExactlyOnceWith("terminal:write-clipboard", "one", "c;aGk=");
+});

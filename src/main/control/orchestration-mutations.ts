@@ -144,6 +144,16 @@ export class OrchestrationMutations extends OrchestrationAuthority {
     } catch (error) {
       if (error instanceof ControlError)
         return await this.refuse(actor, parent, operations, operation, label, error.code);
+      if (error instanceof LaunchFailure) {
+        const record = await operations.finish(
+          actor,
+          operation.operationId,
+          "failed",
+          error.reason,
+        );
+        this.note(parent, this.entry(record, label));
+        return record;
+      }
       if (error instanceof UncertainEffect) {
         parent.uncertain++;
         return await this.finish(actor, parent, operations, operation, label, "indeterminate");
@@ -711,6 +721,11 @@ export class OrchestrationMutations extends OrchestrationAuthority {
               : error instanceof ApplicationError
                 ? (
                     {
+                      "origin-auth": "git_failed",
+                      "origin-host-key": "git_failed",
+                      "origin-unreachable": "git_failed",
+                      "timed-out": "git_failed",
+                      "checkout-invalid": "git_failed",
                       "worktree-locked": "locked",
                       "worktree-missing": "not_found",
                       "worktree-main": "main_checkout",

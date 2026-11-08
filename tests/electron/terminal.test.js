@@ -469,6 +469,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
           "attach",
           "detach",
           "kill",
+          "writeTerminalClipboard",
           "copyTerminalSelection",
           "openTerminalLink",
           "copyTerminalLink",
@@ -2160,4 +2161,105 @@ test("terminal context menu targets the clicked shell and preserves tracked righ
   await page.keyboard.type("b");
   await expect.poll(async () => (await readFile(marker, "utf8")).trim()).toBe("62");
   await page.keyboard.type("q");
+});
+
+test("OSC 52 clipboard writes require consent and reject queries, malformed output and replay", {
+  timeout: deadline(45000),
+}, async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "foom-osc52-"));
+  removeAfterApps(context, root);
+  const program = path.join(root, "output.cjs");
+  const replies = path.join(root, "replies");
+  await writeFile(replies, "");
+  await writeFile(
+    program,
+    `
+    const fs = require('node:fs');
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+    let count = 0;
+    const payloads = {
+      w: 'c;' + Buffer.from('fixture clipboard 🔒').toString('base64'),
+      d: ';' + Buffer.from('default clipboard').toString('base64'),
+      q: 'c;?', p: 'p;aGk=', m: 'c;invalid!', u: 'c;/w==',
+      o: 'c;' + Buffer.alloc(65537, 120).toString('base64'),
+      e: 'c;'
+    };
+    process.stdout.write('OSC52_READY\\r\\n');
+    process.stdin.on('data', data => {
+      const key = data.toString();
+      if (key === 'x') process.exit(0);
+      if (!(key in payloads)) { fs.appendFileSync(${JSON.stringify(replies)}, data); return; }
+      process.stdout.write('\\x1b]52;' + payloads[key] + (count % 2 ? '\\x1b\\\\' : '\\x07') + '\\r\\nOSC52_BARRIER_' + (++count) + '\\r\\n');
+    });
+  `,
+  );
+  const app = await launchApp(context, { fixture: "running-shell" });
+  const page = await boardPage(app);
+  await app.evaluate(({ clipboard }) => clipboard.writeText("sentinel"));
+  await page.keyboard.type(
+    `${process.platform === "win32" ? "& " : ""}"${process.execPath}" "${program}"`,
+  );
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".xterm-rows")).toContainText("OSC52_READY");
+  let count = 0;
+  const emit = async (key) => {
+    await page.keyboard.type(key);
+    await expect(page.locator(".xterm-rows")).toContainText(`OSC52_BARRIER_${++count}`);
+    // Drain the main IPC queue after the renderer has parsed this output.
+    await page.evaluate(() => window.desktop.setupState());
+  };
+  const clipboard = () => app.evaluate(({ clipboard }) => clipboard.readText());
+  await emit("w");
+  assert.equal(await clipboard(), "sentinel");
+  await emit("q");
+  await openSettingsScreen(page);
+  await page.getByRole("button", { name: "Terminal", exact: true }).click();
+  const toggle = page.getByRole("checkbox", { name: "Allow terminal clipboard writes (OSC 52)" });
+  await expect(toggle).not.toBeChecked();
+  await toggle.check();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        async () => (await window.desktop.setupState()).settings.terminalClipboardWrites,
+      ),
+    )
+    .toBe(true);
+  for (const theme of ["eclipse-light", "eclipse-dark"]) {
+    await page.evaluate((interfaceTheme) => window.desktop.saveSetup({ interfaceTheme }), theme);
+    await expect(page.getByLabel("Terminal theme preview")).toHaveCSS(
+      "background-color",
+      theme === "eclipse-light" ? "rgb(243, 240, 250)" : "rgb(5, 4, 10)",
+    );
+    await page.screenshot({ path: evidencePath(`screenshots-1073/terminal-${theme}.png`) });
+  }
+  await page.keyboard.press("Escape");
+  await page.locator(".board-row[data-kind='shell']").click();
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+  assert.equal(await clipboard(), "sentinel");
+  await emit("w");
+  await expect.poll(clipboard).toBe("fixture clipboard 🔒");
+  for (const key of ["q", "p", "m", "u", "o"]) {
+    await emit(key);
+    assert.equal(await clipboard(), "fixture clipboard 🔒");
+  }
+  assert.equal(await readFile(replies, "utf8"), "");
+  await emit("d");
+  await expect.poll(clipboard).toBe("default clipboard");
+  await emit("e");
+  await expect.poll(clipboard).toBe("");
+  await emit("w");
+  await expect.poll(clipboard).toBe("fixture clipboard 🔒");
+  await app.evaluate(({ clipboard }) => clipboard.writeText("after write"));
+  await openSettingsScreen(page);
+  await page.keyboard.press("Escape");
+  await page.locator(".board-row[data-kind='shell']").click();
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+  await emit("q");
+  assert.equal(await clipboard(), "after write");
+  assert.equal(await readFile(replies, "utf8"), "");
+  await page.evaluate(() => window.desktop.saveSetup({ terminalClipboardWrites: false }));
+  await emit("w");
+  assert.equal(await clipboard(), "after write");
+  await page.keyboard.type("x");
 });

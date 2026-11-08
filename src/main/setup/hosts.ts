@@ -6,7 +6,7 @@ import { parseAgentManifest } from "../../shared/agent-plugin-parser";
 import type { ForgeWorktree, ForgeInspection } from "../control/forge.d";
 import { ControlError } from "../../shared/control-validation";
 import { UncertainEffect } from "../workspace/worktree-outcome";
-import { LaunchFailure } from "../../shared/launch-failure";
+import { isLaunchReason, LaunchFailure } from "../../shared/launch-failure";
 import { providerRevision } from "../agents/providers/registry";
 import { loginPath } from "../agents/agents";
 import { resolveForgeExecutable } from "../control/forge-process";
@@ -411,7 +411,7 @@ export class Hosts {
       throw new ControlError("not_found");
     let sourcePath: string | undefined;
     if (action.operation === "create-worktree") {
-      const source = await this.repository(host, entry.codeFolder, repository, false);
+      const source = await this.ensureRepository(host, entry.codeFolder, repository);
       this.registered(host, entry.codeFolder);
       if (!source.ok || !source.checkout || source.checkout.state === "absent")
         throw new LaunchFailure("remote_worktree_unavailable");
@@ -462,7 +462,7 @@ export class Hosts {
       }
       return { repository: source, ...result.worktree, sourceOrigin: origin };
     } catch (error) {
-      // Preflight above cannot create a checkout. After dispatch, even a failed
+      // Preparation above can create only the repository clone. After worktree dispatch, a failed
       // reply may follow a partial creation or a failed final identity check.
       if (action.operation === "create-worktree") {
         // Reconcile by reading; never replay the mutation or release its charged slot.
@@ -639,7 +639,7 @@ export class Hosts {
     const registration = this.registered(host);
     if (!this.repositories().some((repo) => repo.path === repository))
       throw new ControlError("not_found");
-    const result = await this.repository(host, registration.codeFolder, repository, false);
+    const result = await this.ensureRepository(host, registration.codeFolder, repository);
     if (!result.ok || !result.checkout || result.checkout.state === "absent")
       throw new LaunchFailure("remote_worktree_unavailable");
     const origin = await this.origin(repository);
@@ -1419,7 +1419,11 @@ export class Hosts {
   private async run(
     host: string,
     request: HostManagement,
-    options: { currentObservation?: () => boolean; output?: boolean } = {},
+    options: {
+      currentObservation?: () => boolean;
+      output?: boolean;
+      beforeDispatch?: () => boolean;
+    } = {},
   ): Promise<HostResult> {
     const currentObservation = options.currentObservation ?? (() => true);
     const failed = (
@@ -1469,6 +1473,8 @@ export class Hosts {
         executables: provider.executableNames,
       }));
       let result: unknown;
+      // Provider preparation can await. Revoke stale mutation authority before dispatch.
+      if (options.beforeDispatch?.() === false) return failed("checkout-refused", "configuration");
       try {
         const generation = this.outputGeneration;
         const output =
@@ -1670,11 +1676,54 @@ export class Hosts {
       throw new Error("Origin unavailable");
     }
   }
+  private readonly preparingRepositories = new Map<string, Promise<HostResult>>();
+  private async ensureRepository(
+    host: string,
+    folder: string,
+    repository: string,
+  ): Promise<HostResult> {
+    const origin = await this.origin(repository);
+    this.registered(host, folder);
+    const key = JSON.stringify([host, folder, origin]);
+    let pending = this.preparingRepositories.get(key);
+    if (!pending) {
+      pending = this.repository(host, folder, repository, false)
+        .then(async (result) => {
+          if (!result.ok || result.checkout?.state !== "absent") return result;
+          const currentOrigin = await this.origin(repository);
+          this.registered(host, folder);
+          if (
+            !this.repositories().some((entry) => entry.path === repository) ||
+            currentOrigin !== origin
+          )
+            throw new LaunchFailure("remote_worktree_unavailable");
+          const cloned = await this.repository(host, folder, repository, true, origin);
+          console.info(`Host clone attempt: reason=${cloned.ok ? "completed" : cloned.reason}`);
+          return cloned;
+        })
+        .finally(() => {
+          this.preparingRepositories.delete(key);
+          this.sidebarLocations = undefined;
+        });
+      this.preparingRepositories.set(key, pending);
+    }
+    const result = await pending;
+    const currentOrigin = await this.origin(repository);
+    this.registered(host, folder);
+    if (!this.repositories().some((entry) => entry.path === repository) || currentOrigin !== origin)
+      throw new LaunchFailure("remote_worktree_unavailable");
+    if (!result.ok)
+      throw new LaunchFailure(
+        isLaunchReason(result.reason) ? result.reason : "remote_worktree_unavailable",
+      );
+    return result;
+  }
   private async repository(
     host: string,
     codeFolder: string,
     repository: string,
     clone: boolean,
+    expectedOrigin?: string,
   ): Promise<HostResult> {
     let origin: string;
     try {
@@ -1682,14 +1731,28 @@ export class Hosts {
     } catch {
       return { ok: false, reason: "origin-unavailable" };
     }
+    const authorized = () =>
+      this.store
+        .get()
+        .registeredHosts?.some(
+          (entry) => entry.host === host && entry.codeFolder === codeFolder,
+        ) === true &&
+      this.repositories().some((entry) => entry.path === repository) &&
+      this.repositoryOrigins.get(repository) === origin &&
+      (expectedOrigin === undefined || origin === expectedOrigin);
+    if (clone && !authorized()) return { ok: false, reason: "checkout-refused" };
     const directory = `repository-${createHash("sha256").update(origin).digest("hex").slice(0, 24)}`;
-    const result = await this.run(host, {
-      type: "manage",
-      operation: clone ? "clone" : "repository",
-      codeFolder,
-      origin,
-      directory,
-    });
+    const result = await this.run(
+      host,
+      {
+        type: "manage",
+        operation: clone ? "clone" : "repository",
+        codeFolder,
+        origin,
+        directory,
+      },
+      clone ? { beforeDispatch: authorized } : {},
+    );
     if (result.ok && (!result.checkout || result.checkout.path !== `${codeFolder}/${directory}`))
       return { ok: false, reason: "checkout-refused" };
     return result;

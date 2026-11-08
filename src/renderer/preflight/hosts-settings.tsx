@@ -10,7 +10,6 @@ import type {
   HostCheckProgress,
   HostFailure,
   HostPreflight,
-  HostResult,
   HostRow,
   HostsAction,
   HostsState,
@@ -155,16 +154,6 @@ function checkPresentation(
     return { tone: "fail", text: `${reasons[check.reason]} · ${check.reason}` };
   return { tone: "neutral", text: "Not checked" };
 }
-function checkoutPresentation(result: HostResult | undefined): { tone: Tone; text: string } {
-  if (!result) return { tone: "neutral", text: "Not checked" };
-  if (!result.ok) return { tone: "fail", text: `${reasons[result.reason]} · ${result.reason}` };
-  if (!result.checkout) return { tone: "neutral", text: "Not checked" };
-  if (result.checkout.state === "absent") return { tone: "neutral", text: "Not checked out" };
-  return {
-    tone: result.checkout.state === "clean" ? "pass" : "neutral",
-    text: result.checkout.state === "clean" ? "Clean" : "Changes",
-  };
-}
 export function hostProgressText(progress: HostCheckProgress | undefined): string {
   if (!progress || progress.phase === "inspect") return "Checking host…";
   const index = progress.repositories.findIndex((repo) => repo.repository === progress.repository);
@@ -184,26 +173,7 @@ function hostSummary(preflight: HostPreflight | undefined) {
     facts.requirements?.mac?.commandLineTools !== false &&
     facts.agents.some((agent) => agent.state === "ready");
   if (!ready) return "Needs you";
-  const count = preflight.repositories.filter(
-    (repo) =>
-      repo.checkout.ok && repo.checkout.checkout && repo.checkout.checkout.state !== "absent",
-  ).length;
-  return `Ready · ${String(count)} ${count === 1 ? "repository" : "repositories"}`;
-}
-function canClone(result: HostResult | undefined) {
-  return (
-    result &&
-    (result.ok
-      ? result.checkout?.state === "absent"
-      : [
-          "clone-failed",
-          "origin-auth",
-          "origin-host-key",
-          "origin-unreachable",
-          "timed-out",
-          "checkout-invalid",
-        ].includes(result.reason))
-  );
+  return "Ready";
 }
 function Group({ children }: { children: ReactNode }) {
   return <h4 className="host-check-group">{children}</h4>;
@@ -220,7 +190,6 @@ function Checklist({
   preflight,
   checking,
   progress,
-  cloning,
   disabled,
   act,
   changeFolder,
@@ -229,7 +198,6 @@ function Checklist({
   preflight: HostPreflight | undefined;
   checking: boolean;
   progress: HostCheckProgress | undefined;
-  cloning: string | undefined;
   disabled: boolean;
   act: (action: HostsAction) => void;
   changeFolder: () => void;
@@ -410,7 +378,7 @@ function Checklist({
             setShowReady(!showReady);
           }}
         >
-          <span aria-hidden="true">{showReady ? "⌄" : "›"}</span> Repositories ·{" "}
+          <span aria-hidden="true">{showReady ? "⌄" : "›"}</span> Git access ·{" "}
           {readyRepositories.length} ready
         </button>
       )}
@@ -445,11 +413,7 @@ function Checklist({
             />
             {repo.origin?.state === "fail" && repo.origin.reason === "origin-auth" && (
               <div className="host-origin-fixes" aria-label="Git access fixes">
-                <span
-                  title={
-                    'Run gh auth setup-git, then git config --global url."https://github.com/".insteadOf git@github.com: on this host'
-                  }
-                >
+                <span title={"Configure the host's Git to use HTTPS through gh"}>
                   Use HTTPS through gh
                 </span>
                 <span title="Add a passphrase-less deploy key on this host">deploy key</span>
@@ -458,29 +422,22 @@ function Checklist({
                 </span>
               </div>
             )}
-            <Row
-              target={{ kind: "checkout", repository: repo.repository }}
-              name="Repository checkout"
-              {...(cloning === repo.repository
-                ? { tone: "work" as const, text: "Cloning…" }
-                : checking && !repo.checkout
-                  ? { tone: "work" as const, text: "Checking…" }
-                  : checkoutPresentation(repo.checkout))}
-              action={
-                canClone(repo.checkout) ? (
-                  <button
-                    type="button"
-                    disabled={disabled}
-                    onClick={() => {
-                      act({ action: "clone", host: entry.host, repository: repo.repository });
-                    }}
-                  >
-                    Clone here
-                  </button>
-                ) : undefined
-              }
-            />
           </Fragment>
+        ))}
+      <Group>Checked out repositories</Group>
+      <p>Foom checks out repositories automatically when you use this host.</p>
+      {repositories
+        .filter(
+          (repo) =>
+            repo.checkout?.ok &&
+            repo.checkout.checkout &&
+            repo.checkout.checkout.state !== "absent",
+        )
+        .map((repo) => (
+          <div key={repo.repository} className="host-repository-row">
+            <span>{repo.repository.split(/[\\/]/u).at(-1)}</span>
+            <code>{repo.checkout?.ok ? repo.checkout.checkout?.path : ""}</code>
+          </div>
         ))}
       {mac && (
         <>
@@ -620,7 +577,6 @@ export function HostsSettings({
   const [changing, setChanging] = useState<{ host: string; folder: string }>();
   const [busy, setBusy] = useState<ReadonlySet<string>>(() => new Set());
   const [addBusy, setAddBusy] = useState(false);
-  const [cloning, setCloning] = useState<ReadonlyMap<string, string>>(() => new Map());
   const [error, setError] = useState("");
   const api = source.hosts;
   const [checkingHosts, setCheckingHosts] = useState<ReadonlySet<string>>(() => new Set());
@@ -778,8 +734,6 @@ export function HostsSettings({
     setBusy((previous) => new Set(previous).add(target));
     let enrolling = action.action === "add";
     if (enrolling) setAddBusy(true);
-    if (action.action === "clone")
-      setCloning((previous) => new Map(previous).set(action.host, action.repository));
     setError("");
     try {
       let next =
@@ -830,24 +784,6 @@ export function HostsSettings({
           return updated;
         });
       }
-      if (action.action === "clone") {
-        const checkout = next.locations.find(
-          (location) => location.host === action.host && location.repository === action.repository,
-        )?.result;
-        if (checkout)
-          setChecks((previous) => {
-            const observed =
-              previous.get(action.host) ??
-              state.hosts.find((entry) => entry.host === action.host)?.observation?.preflight;
-            if (!observed) return previous;
-            return new Map(previous).set(action.host, {
-              ...observed,
-              repositories: observed.repositories.map((repo) =>
-                repo.repository === action.repository ? { ...repo, checkout } : repo,
-              ),
-            });
-          });
-      }
       if (action.action === "add") {
         const entry = next.hosts.find((entry) => entry.host === action.host);
         if (entry) {
@@ -864,11 +800,6 @@ export function HostsSettings({
     } catch {
       setError("Unable to update hosts");
     } finally {
-      setCloning((previous) => {
-        const next = new Map(previous);
-        next.delete(target);
-        return next;
-      });
       setBusy((previous) => {
         const next = new Set(previous);
         next.delete(target);
@@ -1132,7 +1063,6 @@ export function HostsSettings({
                   preflight={preflight}
                   progress={progress?.host === entry.host ? progress : undefined}
                   checking={checkingHosts.has(entry.host)}
-                  cloning={cloning.get(entry.host)}
                   disabled={busy.has(entry.host)}
                   act={(action) => {
                     void act(action);
@@ -1276,7 +1206,6 @@ export function RepositoryHosts({
 }) {
   const [state, setState] = useState<HostsState>({ hosts: [], locations: [] });
   const [busy, setBusy] = useState(false);
-  const [cloning, setCloning] = useState<{ host: string; repository: string }>();
   const [error, setError] = useState("");
   const api = source.hosts;
   useEffect(() => {
@@ -1295,28 +1224,13 @@ export function RepositoryHosts({
   }, [api, repositories]);
   const act = async (action: HostsAction) => {
     setBusy(true);
-    if (action.action === "clone") setCloning(action);
     setError("");
     try {
-      let next = await api?.(action);
-      if (
-        action.action === "clone" &&
-        next?.locations.some(
-          (entry) =>
-            entry.host === action.host &&
-            entry.repository === action.repository &&
-            !entry.result.ok &&
-            entry.result.reason === "unreachable",
-        )
-      )
-        next = await api?.({ action: "locations" });
+      const next = await api?.(action);
       if (next) setState(next);
     } catch {
-      setError(
-        action.action === "clone" ? "Unable to clone repository" : "Unable to check locations",
-      );
+      setError("Unable to check locations");
     } finally {
-      setCloning(undefined);
       setBusy(false);
     }
   };
@@ -1341,74 +1255,62 @@ export function RepositoryHosts({
           {error}
         </p>
       )}
-      {[{ host: null, codeFolder: "" }, ...state.hosts].map((host) => (
-        <section
-          className="host-card repository-host-card"
-          key={host.host ?? "local"}
-          aria-label={host.host ?? "Local"}
-        >
-          <header className="hosts-heading">
-            <h3>{host.host === null ? "Local" : hostDisplayName(host)}</h3>
-            <span className="host-tag">
-              {repositories.length} {repositories.length === 1 ? "repository" : "repositories"}
-            </span>
-            <code>{host.codeFolder}</code>
-          </header>
-          {repositories.map((repo) => {
-            const result = state.locations.find(
-              (entry) => entry.host === host.host && entry.repository === repo.path,
-            )?.result;
-            const checkout = result?.ok ? result.checkout : undefined;
-            const isCloning = cloning?.host === host.host && cloning.repository === repo.path;
-            const path = host.host === null ? repo.path : checkout?.path;
-            return (
-              <div className="host-repository-row" key={repo.path}>
-                <span>{repo.name}</span>
-                <code>
-                  {path && (
-                    <CopyValue
-                      value={path}
-                      label="Copy checkout path"
-                      copy={() =>
-                        source.copyHost?.({
-                          kind: "copy-checkout-path",
-                          host: host.host,
-                          repository: repo.path,
-                        }) ?? Promise.reject(new Error("Copy unavailable"))
-                      }
-                    />
-                  )}
-                </code>
-                <Status
-                  {...(host.host === null
-                    ? { tone: "neutral" as const }
-                    : { tone: isCloning ? ("work" as const) : checkoutPresentation(result).tone })}
-                >
-                  {host.host === null
-                    ? "Checked out"
-                    : isCloning
-                      ? "Cloning…"
-                      : checkoutPresentation(result).text}
-                </Status>
-                <span className="host-check-action">
-                  {host.host !== null && canClone(result) && (
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => {
-                        if (host.host)
-                          void act({ action: "clone", host: host.host, repository: repo.path });
-                      }}
-                    >
-                      Clone here
-                    </button>
-                  )}
-                </span>
-              </div>
-            );
-          })}
-        </section>
-      ))}
+      {[{ host: null, codeFolder: "" }, ...state.hosts].map((host) => {
+        const checked = repositories.filter(
+          (repo) =>
+            host.host === null ||
+            state.locations.some(
+              (entry) =>
+                entry.host === host.host &&
+                entry.repository === repo.path &&
+                entry.result.ok &&
+                entry.result.checkout &&
+                entry.result.checkout.state !== "absent",
+            ),
+        );
+        return (
+          <section
+            className="host-card repository-host-card"
+            key={host.host ?? "local"}
+            aria-label={host.host ?? "Local"}
+          >
+            <header className="hosts-heading">
+              <h3>{host.host === null ? "Local" : hostDisplayName(host)}</h3>
+              <span className="host-tag">
+                {checked.length} {checked.length === 1 ? "repository" : "repositories"}
+              </span>
+              <code>{host.codeFolder}</code>
+            </header>
+            {checked.map((repo) => {
+              const result = state.locations.find(
+                (entry) => entry.host === host.host && entry.repository === repo.path,
+              )?.result;
+              const checkout = result?.ok ? result.checkout : undefined;
+              const path = host.host === null ? repo.path : checkout?.path;
+              return (
+                <div className="host-repository-row" key={repo.path}>
+                  <span>{repo.name}</span>
+                  <code>
+                    {path && (
+                      <CopyValue
+                        value={path}
+                        label="Copy checkout path"
+                        copy={() =>
+                          source.copyHost?.({
+                            kind: "copy-checkout-path",
+                            host: host.host,
+                            repository: repo.path,
+                          }) ?? Promise.reject(new Error("Copy unavailable"))
+                        }
+                      />
+                    )}
+                  </code>
+                </div>
+              );
+            })}
+          </section>
+        );
+      })}
     </section>
   );
 }

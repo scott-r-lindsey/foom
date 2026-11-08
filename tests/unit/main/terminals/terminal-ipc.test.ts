@@ -1836,3 +1836,78 @@ test("a long canonical ASCII OAuth target always confirms with the complete targ
   expect(confirm.mock.calls[0]?.[0].facts).toContainEqual({ label: "URL", value: url, mono: true });
   expect(mock.shell.openExternal).not.toHaveBeenCalled();
 });
+
+test("OSC 52 main capability revalidates consent, payload and attached main frame", async () => {
+  const id = await create();
+  await invoke("attach", [id]);
+  await invoke("write-clipboard", [id, "c;aGk="]);
+  expect(mock.clipboard.writeText).not.toHaveBeenCalled();
+  await terminalControl.dispose();
+  mock.handle.mockClear();
+  let enabled = true;
+  terminalControl = attachTerminal(
+    window as unknown as BrowserWindow,
+    {},
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    () => enabled,
+  );
+  const next = await create();
+  await expect(invoke("write-clipboard", [next, "c;aGk="])).rejects.toThrow("unattached");
+  await invoke("attach", [next]);
+  for (const payload of [
+    null,
+    {},
+    "c;?",
+    "p;aGk=",
+    "c;!",
+    "c;/w==",
+    `c;${Buffer.from("x".repeat(65_537)).toString("base64")}`,
+  ])
+    await expect(invoke("write-clipboard", [next, payload])).rejects.toThrow(
+      "Invalid terminal clipboard",
+    );
+  await expect(invoke("write-clipboard", ["foreign", "c;aGk="])).rejects.toThrow("unattached");
+  await expect(
+    invoke("write-clipboard", [next, "c;aGk="], { ...event, senderFrame: null }),
+  ).rejects.toThrow("Untrusted");
+  for (const sender of [
+    { sender: {}, senderFrame: frame },
+    { sender: contents, senderFrame: { url: frame.url } },
+  ]) {
+    await expect(
+      invoke("write-clipboard", [next, "c;aGk="], sender as unknown as typeof event),
+    ).rejects.toThrow("Untrusted");
+  }
+  frame.url = "https://evil.example";
+  await expect(invoke("write-clipboard", [next, "c;aGk="])).rejects.toThrow("Untrusted");
+  frame.url = "app://bundle/index.html";
+  await invoke("write-clipboard", [next, "c;aGk="]);
+  expect(mock.clipboard.writeText).toHaveBeenCalledExactlyOnceWith("hi");
+  enabled = false;
+  await invoke("write-clipboard", [next, "c;aGk="]);
+  await invoke("detach", [next]);
+  await expect(invoke("write-clipboard", [next, "c;aGk="])).rejects.toThrow("unattached");
+  expect(mock.clipboard.writeText).toHaveBeenCalledTimes(1);
+});
+
+test("headless snapshots consume OSC 52 and never retain writes or answer queries", async () => {
+  const id = manager.create(spec);
+  for (const data of [
+    "\x1b]52;c;aGk=\x07",
+    "\x1b]52;c;?\x1b\\",
+    "\x1b]52;p;?\x07",
+    "\x1b]52;c;",
+    "aGk=\x07screen text",
+  ])
+    output(data);
+  expect(await manager.tail(id, 1)).toEqual(["screen text"]);
+  expect(pty().write).not.toHaveBeenCalled();
+  const replay = vi.fn();
+  await manager.attach(id, replay);
+  expect(replay).toHaveBeenCalledOnce();
+  expect(replay.mock.calls[0]?.[1]).not.toContain("\x1b]52;");
+  expect(mock.clipboard.writeText).not.toHaveBeenCalled();
+});
