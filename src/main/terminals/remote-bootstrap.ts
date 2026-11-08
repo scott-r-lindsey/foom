@@ -285,6 +285,7 @@ export async function selectHostArtifact(
   metadata = join(__dirname, "../../build-metadata.json"),
   signal?: AbortSignal,
   observe?: (stage: keyof HostConnectionChecks, result: HostCheck) => void,
+  output?: (text: string, startLine?: boolean) => void,
 ) {
   let missingArtifact = false;
   let expectedSource: string | undefined;
@@ -308,18 +309,24 @@ export async function selectHostArtifact(
       missingArtifact = true;
     }
   }
-  const { stdout } = await promisify(execFile)(
-    "ssh",
-    [...sshArguments(target.host), "uname -s; uname -m"],
-    {
-      env: sshEnvironment(),
-      shell: false,
-      timeout: 10000,
-      maxBuffer: 256,
-      encoding: "utf8",
-      ...(signal ? { signal } : {}),
-    },
-  ).catch(() => {
+  output?.("Connecting…\nPlatform\n", true);
+  const probe = promisify(execFile)("ssh", [...sshArguments(target.host), "uname -s; uname -m"], {
+    env: sshEnvironment(),
+    shell: false,
+    timeout: 10000,
+    maxBuffer: 256,
+    encoding: "utf8",
+    ...(signal ? { signal } : {}),
+  });
+  if (output) {
+    probe.child.stdout?.on("data", (text: string) => {
+      output(text);
+    });
+    probe.child.stderr?.on("data", (text: string) => {
+      output(text);
+    });
+  }
+  const { stdout } = await probe.catch(() => {
     observe?.("ssh", { state: "fail", reason: "unreachable" });
     throw new LaunchFailure("remote_host_unreachable");
   });
@@ -365,6 +372,7 @@ export async function selectHostArtifact(
     if (libc) throw new UnsupportedRemotePlatform("Unsupported remote host platform");
   } else observe?.("platform", { state: "pass" });
   if (missingArtifact) throw new ApplicationError("remote-host-unavailable");
+  output?.("Verifying daemon artifact…\n", true);
   const artifact = await hostArtifact(
     target.artifact ?? join(catalog, `${remote.platform}-${remote.arch}`, "foom-host.gz"),
     expectedSource,

@@ -294,6 +294,7 @@ export async function startShell(
     agent: "shell",
     ...location,
     ...(remote ? { remote: true, placement: { kind: "remote" as const, host: remote.host } } : {}),
+    ...(remote?.recipe ? { recipe: true } : {}),
     ...(checkout ? { branch: `${checkout.branch} · ${checkout.target.host}` } : {}),
     ...(environment.names.length ? { environment: environment.names } : {}),
     attention: "evaluator",

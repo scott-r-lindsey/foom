@@ -31,7 +31,9 @@ When on, sidebar repositories beneath the chosen code folder show relative paths
 Open **Settings** from the board, or press ⌘, on macOS and Ctrl+Shift+, elsewhere.
 It replaces the terminal tiles beside the persistent sidebar in the same window.
 Esc returns to the tiles and restores the same focused sidebar row.
-Selecting a terminal in the sidebar also leaves Settings; terminals keep running throughout.
+Selecting a terminal in the sidebar also leaves Settings; ordinary board terminals
+keep running throughout. The Settings shortcut closes Settings when it is already
+open. Running installs use the Stop / Keep open decision below.
 
 General offers **Show pull requests and checks**, defaulting to on when an enabled forge for a selected repository is ready during first run. The [shared forge disclosure](orchestration.md#orchestration-and-privacy) explains the selected CLI login and read-only metadata requests. Turning it off stops non-orchestrator polling. Foom stores no tokens and makes no forge writes.
 
@@ -356,8 +358,17 @@ for the profile and cleanup rules.
 Other Hosts actions never start a full check. Rename is local. Folder actions
 refresh the folder from their successful reply and mark affected repositories **Not checked**.
 A failed replacement reports the attempted change and preserves the registered folder's result.
-Clone/Trust origin update that repository; returning from Install/Sign in refreshes
-only the affected tool and sign-in rows. **Last checked** records full checks only.
+Clone/Trust origin update that repository. Install stays in Settings in an
+interactive terminal inside the host card. Closing Settings disposes its install
+terminals immediately if they have exited. If an install is running, closing by
+any route shows **Stop the install?** with **Stop** and **Keep open**. Keep open
+is focused by default; Escape keeps Settings and the install open. Stop terminates
+the install and closes Settings, without moving it to the board or sidebar.
+Window close and quit keep their existing confirmation. Sign in retains its foreground tile. On exit,
+Install and Sign in refresh only their affected tool and sign-in rows. The
+terminal header states Done or Failed with its exit code and retains the output
+until dismissed or replaced. Add and checks retain bounded read-only step
+output, including OpenSSH stderr, in the Add section or host card. **Last checked** records full checks only.
 Each checklist row has a reload icon on hover and keyboard focus, with a name
 that identifies the row. Reload shows a spinner only on that row, preserves other
 results and leaves other rows usable. A row that cannot display its result without

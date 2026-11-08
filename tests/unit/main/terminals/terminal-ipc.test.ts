@@ -1681,6 +1681,21 @@ test("queued paste preserves each gesture's text snapshot and bounds the FIFO", 
   );
 });
 
+test("main recipe exit subscriptions observe native exit and dispose independently", async () => {
+  const listener = vi.fn();
+  const off = terminalControl.onExit(listener);
+  const first = await terminalControl.create(spec);
+  ptys[0]?.emitExit();
+  await vi.waitFor(() => {
+    expect(listener).toHaveBeenCalledWith(first, 0);
+  });
+  off();
+  const second = await terminalControl.create(spec);
+  ptys[1]?.emitExit();
+  await manager.tail(second, 1).catch(() => []);
+  expect(listener).toHaveBeenCalledOnce();
+});
+
 test("terminal link capabilities revalidate sender, attachment, URL; copy is exact", async () => {
   const id = await create();
   for (const operation of ["open-link", "copy-link"]) {

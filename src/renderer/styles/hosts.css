@@ -1,0 +1,55 @@
+.host-terminal {
+  min-width: 0;
+  margin-block: 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.host-terminal > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.host-terminal > pre {
+  max-height: 240px;
+  min-height: 100px;
+  margin: 0;
+  padding: 10px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 12px / 1.5 var(--font-mono);
+  user-select: text;
+}
+.host-terminal-view {
+  height: 240px;
+  padding: 8px;
+}
+
+.stop-install-dialog {
+  width: min(360px, calc(100vw - 32px));
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--ink);
+  box-shadow: 0 20px 60px var(--raised-shadow);
+}
+.stop-install-dialog::backdrop {
+  background: color-mix(in srgb, var(--hole) 65%, transparent);
+}
+.stop-install-dialog h2 {
+  margin: 0 0 24px;
+  font-size: 18px;
+}
+.stop-install-dialog footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.stop-install-dialog button:focus {
+  outline: 2px solid var(--highlight);
+  outline-offset: 2px;
+}

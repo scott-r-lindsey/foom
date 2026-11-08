@@ -108,7 +108,10 @@ Main reserves the shortcut through the existing validated `board:command` channe
 Each registered window has its own trusted IPC sender and setup coordinator. The board keeps its terminal
 controllers mounted but detaches and hides their views while Settings is open. Esc
 restores sidebar row focus after the terminal has reattached; selecting a sidebar
-terminal closes Settings. The shared setup coordinator renders the same Agents,
+terminal closes Settings. Every Settings exit first applies the
+[install lifetime decision](hosts.md#embedded-host-terminals-1062); native window
+close and quit keep their existing main-owned confirmation. The Settings shortcut
+toggles the Settings view. The shared setup coordinator renders the same Agents,
 Repositories and Appearance controls in both paths, with guided navigation only in
 preflight: Welcome → Agents (T-2) → Repositories (T-1) → Go / no-go (T-0). Worktree
 location controls live only in Settings → General. The existing `worktreeLocation` schema and

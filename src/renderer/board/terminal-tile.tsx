@@ -420,7 +420,13 @@ export function Tile({
               </span>
               {(row.exited || row.foregroundProgram) && (
                 <span className="session-program">
-                  {row.exited ? "exited" : row.foregroundProgram}
+                  {row.exited
+                    ? row.recipe
+                      ? row.exitCode === 0
+                        ? "Done"
+                        : `Failed · exit code ${String(row.exitCode ?? "unknown")}`
+                      : "exited"
+                    : row.foregroundProgram}
                 </span>
               )}
             </>

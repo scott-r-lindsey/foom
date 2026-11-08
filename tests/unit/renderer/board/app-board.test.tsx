@@ -27,12 +27,15 @@ test("board starts empty, launches into a tile, and Settings keeps its view moun
   await settle();
   expect(screen.getByRole("region", { name: "Settings" })).toBeTruthy();
   expect(mock.dispose).not.toHaveBeenCalled();
-  const reads = mock.setupState.mock.calls.length;
   act(() => {
     mock.command?.("settings");
   });
   await settle();
-  expect(mock.setupState.mock.calls.length).toBe(reads);
+  expect(screen.queryByRole("region", { name: "Settings" })).toBeNull();
+  act(() => {
+    mock.command?.("settings");
+  });
+  await settle();
   fireEvent.keyDown(screen.getByRole("region", { name: "Settings" }), { key: "Escape" });
   await settle();
   expect(screen.queryByRole("region", { name: "Settings" })).toBeNull();

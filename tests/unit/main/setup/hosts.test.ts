@@ -80,6 +80,7 @@ test("test does not authorize, add records enrollment, refresh replaces stale fa
       operation: "inspect",
       agents: run.mock.calls[0]?.[1].agents,
     }),
+    expect.any(Function),
   );
   await expect(
     hosts.action({ action: "add", host: "worker", codeFolder: "~/code" }),
@@ -185,6 +186,7 @@ test("windows share the same serialized registration owner and production transp
     "0.1.0",
     expect.objectContaining({ type: "manage" }),
     expect.any(AbortSignal),
+    expect.any(Function),
   );
   expect(new Hosts(store, () => repositories, "0.1.0").state().hosts).toHaveLength(1);
 });
@@ -1005,17 +1007,20 @@ test.each([
       launch,
     );
     expect(state.hosts[0]?.recipes).toContainEqual({ tool: "git", install: true, signIn: false });
-    expect(launch).toHaveBeenCalledExactlyOnceWith({
-      host: "worker",
-      profile: "f".repeat(32),
-      human: true,
-      recipe: {
-        tool: "git",
-        distro,
-        action: "install",
-        digest,
+    expect(launch).toHaveBeenCalledExactlyOnceWith(
+      {
+        host: "worker",
+        profile: "f".repeat(32),
+        human: true,
+        recipe: {
+          tool: "git",
+          distro,
+          action: "install",
+          digest,
+        },
       },
-    });
+      expect.any(Function),
+    );
     expect(run).toHaveBeenLastCalledWith("worker", expect.objectContaining({ readOnly: true }));
     expect(
       (
@@ -2305,6 +2310,70 @@ test.skipIf(process.platform === "win32")(
   },
 );
 
+test("host check output is live, bounded, inert and retained after failure", async () => {
+  let finish: (result: HostResult) => void = () => {};
+  let write: (text: string) => void = () => {};
+  const execute = vi.fn(
+    (_host: string, _request: HostManagement, output?: (text: string) => void) => {
+      write = output ?? (() => {});
+      write("Connecting\n");
+      return new Promise<HostResult>((resolve) => {
+        finish = resolve;
+      });
+    },
+  );
+  hosts = new Hosts(store, () => [], "0.1.0", execute);
+  const pending = hosts.action({ action: "test", host: "worker", codeFolder: "~/code" });
+  await vi.waitFor(() => {
+    expect(execute).toHaveBeenCalled();
+  });
+  expect((await hosts.action({ action: "progress" })).output).toMatchObject({
+    host: "worker",
+    running: true,
+    text: "Connecting\n",
+  });
+  write("x".repeat(70000));
+  write("<script>untrusted</script>\nSSH refused\n");
+  finish({ ok: false, reason: "unreachable" });
+  const state = await pending;
+  expect(state.output?.text.length).toBe(65536);
+  expect(state.output).toMatchObject({ running: false, failed: true });
+  expect(state.output?.text).toContain("<script>untrusted</script>");
+  expect((await hosts.action({ action: "progress" })).output).toEqual(state.output);
+  expect((await hosts.action({ action: "dismiss-output" })).output).toBeUndefined();
+});
+
+test.each(["", "\n", "\r\n", "\r"])(
+  "Foom output lines stay separate after SSH chunks ending with %j",
+  async (ending) => {
+    for (const outcome of ["done", "failed", "thrown"] as const) {
+      const execute = vi.fn(
+        (
+          _host: string,
+          _request: HostManagement,
+          output?: (text: string, startLine?: boolean) => void,
+        ): Promise<HostResult> => {
+          output?.("SSH chunk");
+          output?.(ending);
+          output?.("Inspecting…\n", true);
+          output?.("last SSH chunk");
+          output?.(ending);
+          if (outcome === "thrown") throw new Error("fixture connection failed");
+          return Promise.resolve(
+            outcome === "done" ? { ok: true, facts } : { ok: false, reason: "unreachable" },
+          );
+        },
+      );
+      hosts = new Hosts(store, () => [], "0.1.0", execute);
+      const state = await hosts.action({ action: "test", host: "worker", codeFolder: "~/code" });
+      const lineEnd = ending.endsWith("\n") ? ending : `${ending}\n`;
+      expect(state.output?.text).toBe(
+        `SSH chunk${lineEnd}Inspecting…\nlast SSH chunk${lineEnd}${outcome === "done" ? "Done" : "Failed · unreachable"}\n`,
+      );
+    }
+  },
+);
+
 test("first-use launch and worktree creation share one absent checkout preparation", async () => {
   settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
   hosts = new Hosts(store, () => repositories, "0.1.0", run, "a".repeat(32));
@@ -2441,6 +2510,94 @@ test.each(["origin", "repository", "folder"] as const)(
     }
   },
 );
+
+test("native recipe completion automatically rechecks only its tool", async () => {
+  hosts = new Hosts(store, () => repositories, "0.1.0", run, "f".repeat(32));
+  run.mockResolvedValue({
+    ok: true,
+    facts: {
+      ...facts,
+      requirements: { distro: "debian", libc: "supported", packageManager: "apt" },
+    },
+  });
+  await hosts.action({ action: "add", host: "worker", codeFolder: "~/code" });
+  let finished = () => {};
+  const state = await hosts.action(
+    { action: "recipe", host: "worker", tool: "git", operation: "install" },
+    undefined,
+    (_target, callback) => {
+      finished = callback ?? (() => {});
+      return Promise.resolve("recipe");
+    },
+  );
+  expect(state.recipeSession).toBe("recipe");
+  run.mockClear();
+  finished();
+  await hosts.action({ action: "list" });
+  expect(run).toHaveBeenCalledOnce();
+  expect(run.mock.calls[0]?.[1]).toMatchObject({
+    operation: "inspect",
+    target: { kind: "tool", tool: "git" },
+  });
+});
+
+test("a second recipe exit during a row refresh retains its newly queued targets", async () => {
+  hosts = new Hosts(store, () => repositories, "0.1.0", run, "f".repeat(32));
+  const result = {
+    ok: true as const,
+    facts: {
+      ...facts,
+      requirements: {
+        distro: "debian" as const,
+        libc: "supported" as const,
+        packageManager: "apt" as const,
+      },
+    },
+  };
+  run.mockResolvedValue(result);
+  await hosts.action({ action: "add", host: "worker", codeFolder: "~/code" });
+  const completions: (() => void)[] = [];
+  const launch = (_target: unknown, finished?: () => void) => {
+    if (finished) completions.push(finished);
+    return Promise.resolve("recipe");
+  };
+  await hosts.action(
+    { action: "recipe", host: "worker", tool: "git", operation: "install" },
+    undefined,
+    launch,
+  );
+  await hosts.action(
+    { action: "recipe", host: "worker", tool: "gh", operation: "sign-in" },
+    undefined,
+    launch,
+  );
+  let release = () => {};
+  run.mockClear();
+  run.mockImplementationOnce(
+    () =>
+      new Promise<HostResult>((resolve) => {
+        release = () => {
+          resolve(result);
+        };
+      }),
+  );
+  completions[0]?.();
+  await vi.waitFor(() => {
+    expect(run).toHaveBeenCalledOnce();
+  });
+  completions[1]?.();
+  release();
+  await hosts.action({ action: "list" });
+  await vi.waitFor(() => {
+    expect(run).toHaveBeenCalledTimes(2);
+  });
+  expect(
+    run.mock.calls.map((call) => (call[1].operation === "inspect" ? call[1].target : undefined)),
+  ).toEqual([
+    { kind: "tool", tool: "git" },
+    { kind: "sign-in", tool: "gh" },
+  ]);
+});
 
 test.each(["folder", "host", "repository"] as const)(
   "clone dispatch rechecks %s after origin reads and provider preparation",

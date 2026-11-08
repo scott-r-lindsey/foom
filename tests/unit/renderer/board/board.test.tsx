@@ -674,7 +674,10 @@ test("opens the local message board from the footer and restores the terminal ar
       notice: "Untrusted data",
     }),
   );
-  const closeSettings = vi.fn();
+  let proceed: (() => void) | undefined;
+  const closeSettings = vi.fn((next?: () => void) => {
+    proceed = next;
+  });
   const view = render(
     <Board
       source={{
@@ -686,6 +689,12 @@ test("opens the local message board from the footer and restores the terminal ar
   );
   await act(async () => {
     fireEvent.click(view.getByRole("button", { name: "Open message board" }));
+    await Promise.resolve();
+  });
+  expect(view.queryByRole("region", { name: "Message board" })).toBeNull();
+  expect(threads).not.toHaveBeenCalled();
+  await act(async () => {
+    proceed?.();
     await Promise.resolve();
   });
   expect(view.getByRole("region", { name: "Message board" })).toBeTruthy();

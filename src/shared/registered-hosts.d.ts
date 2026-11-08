@@ -154,7 +154,15 @@ export interface HostCheckProgress {
     checkout?: HostResult;
   }[];
 }
+export interface HostOutput {
+  host: string;
+  text: string;
+  running: boolean;
+  failed: boolean;
+}
 export interface HostsState {
+  output?: HostOutput;
+  recipeSession?: string;
   progress?: HostCheckProgress;
   preflight?: HostPreflight;
   recipeFailure?: "recipe-unavailable";
@@ -172,6 +180,7 @@ export type HostsAction =
   | { action: "change-folder"; host: string; codeFolder: string }
   | { action: "list" }
   | { action: "progress" }
+  | { action: "dismiss-output" }
   | { action: "add"; host: string; codeFolder: string; nickname?: string }
   | { action: "test"; host: string; codeFolder: string }
   | { action: "refresh"; host: string }

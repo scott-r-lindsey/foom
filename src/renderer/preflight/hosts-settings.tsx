@@ -1,8 +1,10 @@
+import { HostTerminal } from "./host-terminal";
 import { hostDisplayName, hostNicknameError } from "../../shared/registered-hosts";
 import { Fragment, createContext, use, useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode, RefObject } from "react";
 import { CopyValue } from "../ui/copy-value";
 import type {
+  HostOutput,
   HostCheckTarget,
   HostCheck,
   HostCheckProgress,
@@ -38,6 +40,24 @@ const reasons: Record<HostFailure, string> = {
   "clone-failed": "Could not clone from origin",
   "checkout-refused": "Checkout unavailable",
 };
+
+function HostCheckOutput({ output, dismiss }: { output: HostOutput; dismiss: () => void }) {
+  return (
+    <section className="host-terminal" aria-label="Host check output">
+      <header>
+        <span role="status" className={output.failed ? "hosts-failure" : undefined}>
+          {output.running ? "Checking…" : output.failed ? "Failed" : "Done"}
+        </span>
+        {!output.running && (
+          <button type="button" onClick={dismiss}>
+            Dismiss
+          </button>
+        )}
+      </header>
+      <pre tabIndex={0}>{output.text}</pre>
+    </section>
+  );
+}
 
 type Tone = "pass" | "need" | "fail" | "neutral" | "work";
 function Status({ tone, children }: { tone: Tone; children: ReactNode }) {
@@ -541,7 +561,7 @@ export function HostsSettings({
   source,
   headingRef,
 }: {
-  source: Pick<SetupSource, "hosts" | "copyHost">;
+  source: Pick<SetupSource, "hosts" | "copyHost" | "hostTerminal" | "installs">;
   headingRef: RefObject<HTMLHeadingElement | null>;
 }) {
   const [state, setState] = useState<HostsState>({ hosts: [], locations: [] });
@@ -561,9 +581,51 @@ export function HostsSettings({
   const api = source.hosts;
   const [checkingHosts, setCheckingHosts] = useState<ReadonlySet<string>>(() => new Set());
   const [progress, setProgress] = useState<HostCheckProgress>();
+  const [rowPending, setRowPending] = useState<ReadonlySet<string>>(() => new Set());
+  const [output, setOutput] = useState<HostOutput>();
+  const [recipes, setRecipes] = useState<ReadonlyMap<string, { id: string; finished: boolean }>>(
+    () =>
+      new Map(
+        [...(source.installs?.sessions() ?? [])].map(([host, id]) => [
+          host,
+          { id, finished: false },
+        ]),
+      ),
+  );
+  const clearRecipe = (host: string, force = false) => {
+    if (!force && !recipes.get(host)?.finished) return;
+    setRecipes((previous) => {
+      const next = new Map(previous);
+      next.delete(host);
+      return next;
+    });
+  };
+  const dismissOutput = () => {
+    setOutput(undefined);
+    void api?.({ action: "dismiss-output" });
+  };
+  const recipeFinished = useCallback(
+    (id: string) => {
+      setRecipes((previous) => {
+        for (const [host, recipe] of previous)
+          if (recipe.id === id) return new Map(previous).set(host, { ...recipe, finished: true });
+        return previous;
+      });
+      void api?.({ action: "list" })
+        .then((next) => {
+          setState(next);
+          setChecks(new Map());
+        })
+        .catch(() => {
+          setError("Unable to refresh tool");
+        });
+    },
+    [api],
+  );
   const changedRef = useRef(false);
   const [expanded, setExpanded] = useState<ReadonlyMap<string, boolean>>(() => new Map());
   const applyState = (next: HostsState, host: string, startedRename?: { nickname: string }) => {
+    if (next.output) setOutput(next.output);
     setState((previous) => ({
       ...next,
       hosts: [
@@ -587,16 +649,24 @@ export function HostsSettings({
       ],
     }));
   };
+  const progressPendingRef = useRef(false);
   useEffect(() => {
-    if (!checkingHosts.size || !api) return;
+    if ((!checkingHosts.size && !busy.size && !addBusy && !rowPending.size) || !api) return;
     let active = true;
     let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
-      try {
-        const next = await api({ action: "progress" });
-        if (active) setProgress(next.progress);
-      } catch {
-        // The authoritative preflight request owns error reporting.
+      if (!progressPendingRef.current) {
+        progressPendingRef.current = true;
+        try {
+          const next = await api({ action: "progress" });
+          if (active) {
+            setProgress(next.progress);
+            if (next.output) setOutput(next.output);
+          }
+        } catch {
+          // The authoritative preflight request owns error reporting.
+        }
+        progressPendingRef.current = false;
       }
       if (active)
         timer = setTimeout(() => {
@@ -608,7 +678,7 @@ export function HostsSettings({
       active = false;
       clearTimeout(timer);
     };
-  }, [api, checkingHosts]);
+  }, [api, checkingHosts, busy, addBusy, rowPending]);
   const runCheck = useCallback(
     async (host: string, codeFolder: string) => {
       setCheckingHosts((previous) => new Set(previous).add(host));
@@ -632,6 +702,7 @@ export function HostsSettings({
       try {
         const initial = await api?.({ action: "list" });
         if (!current() || !initial) return;
+        if (!changedRef.current && initial.output) setOutput(initial.output);
         setState((previous) =>
           changedRef.current
             ? {
@@ -655,6 +726,8 @@ export function HostsSettings({
   }, [api]);
   const act = async (action: HostsAction) => {
     changedRef.current = true;
+    if (action.action === "recipe") setOutput(undefined);
+    if ("host" in action) clearRecipe(action.host, action.action === "remove");
     if ("host" in action) setExpanded((previous) => new Map(previous).set(action.host, true));
     const target = "host" in action ? action.host : "";
     const startedRename = renamedRef.current.get(target);
@@ -680,6 +753,10 @@ export function HostsSettings({
       if (action.action === "preflight" && next.preflight) {
         const preflight = next.preflight;
         setChecks((previous) => new Map(previous).set(action.host, preflight));
+      }
+      if (next.recipeSession && "host" in action) {
+        const id = next.recipeSession;
+        setRecipes((previous) => new Map(previous).set(action.host, { id, finished: false }));
       }
       if (next.recipeFailure) setError("Recipe unavailable for this host");
       if (action.action === "add" && next.hosts.some((entry) => entry.host === action.host)) {
@@ -732,8 +809,8 @@ export function HostsSettings({
     }
   };
   const [rowFailed, setRowFailed] = useState<ReadonlySet<string>>(() => new Set());
-  const [rowPending, setRowPending] = useState<ReadonlySet<string>>(() => new Set());
   const reload = async (host: string, target: HostCheckTarget) => {
+    clearRecipe(host);
     const key = `${host}:${rowKey(target)}`;
     setExpanded((previous) => new Map(previous).set(host, true));
     setError("");
@@ -850,11 +927,14 @@ export function HostsSettings({
           >
             Cancel
           </button>
-          {addBusy && <p role="status">Checking…</p>}
+          {output?.host === host.trim() && (
+            <HostCheckOutput output={output} dismiss={dismissOutput} />
+          )}
         </form>
       )}
       {!state.hosts.length && !adding && <p>No hosts</p>}
       {state.hosts.map((entry) => {
+        const recipe = recipes.get(entry.host);
         const preflight = checks.get(entry.host) ?? entry.observation?.preflight;
         const summary = hostSummary(preflight);
         const distro = entry.result?.ok ? entry.result.facts.requirements?.distro : undefined;
@@ -943,6 +1023,17 @@ export function HostsSettings({
                   Remove
                 </button>
               </div>
+              {output?.host === entry.host && (
+                <HostCheckOutput output={output} dismiss={dismissOutput} />
+              )}
+              {recipe && source.hostTerminal && (
+                <HostTerminal
+                  key={recipe.id}
+                  id={recipe.id}
+                  source={source.hostTerminal}
+                  finished={recipeFinished}
+                />
+              )}
               <ReloadContext
                 value={{
                   reload: (target) => {

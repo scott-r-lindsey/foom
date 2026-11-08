@@ -49,6 +49,7 @@ vi.mock("../../../src/main/setup/readiness", () => ({ checkReadiness: readinessC
 
 import type * as ForgeRuntimeModule from "../../../src/main/control/forge-runtime";
 
+import type { RemoteTarget } from "../../../src/shared/remote-host";
 import type { WorkspaceTerminal } from "../../../src/shared/workspace";
 
 const forgeAvailable = vi.hoisted(() => vi.fn(() => Promise.resolve(false)));
@@ -321,6 +322,7 @@ vi.mock("../../../src/main/workspace/workspace", () => ({
         },
       ],
     });
+    startHostRecipe = mock.workspace.startHostRecipe;
     output = mock.workspace.output;
     evidence = mock.workspace.evidence;
     foreground = mock.workspace.foreground;
@@ -498,6 +500,9 @@ const mock = vi.hoisted(() => {
   const instances: BrowserWindow[] = [];
   const workspace = {
     deps: undefined as WorkspaceDependencies | undefined,
+    startHostRecipe: vi.fn<(target: RemoteTarget) => Promise<string>>(() =>
+      Promise.resolve("recipe"),
+    ),
     output: vi.fn(),
     evidence: vi.fn(),
     foreground: vi.fn(),
@@ -536,6 +541,7 @@ const mock = vi.hoisted(() => {
   };
   return {
     terminals: {
+      onExit: vi.fn<(listener: (id: string, code: number) => void) => () => void>(() => () => {}),
       dispose: vi.fn(() => Promise.resolve()),
       addWindow: vi.fn(),
       setLinkConfirmation:
