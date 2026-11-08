@@ -30,6 +30,8 @@ export interface TileStartupReservation {
   before: TileNode;
   placed: TileNode;
   pending: boolean;
+  /** A human split adopted the surrounding layout; only clear its assignment. */
+  preserveGeometry?: boolean;
 }
 export interface TileRect {
   x: number;

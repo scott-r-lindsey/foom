@@ -1,4 +1,4 @@
-import { settledStartupTree } from "./startup-layout";
+import { projectStartupLayout } from "./startup-layout";
 import type { BoardRow } from "./board.d";
 import { conversationId } from "../../shared/conversation";
 import type {
@@ -728,11 +728,8 @@ export function saveLayout(
   key = TILE_STORAGE,
   reservations: readonly TileStartupReservation[] = [],
 ): void {
-  const sessions = new Set(leaves(layout.tree).map(sessionId));
-  if (reservations.some((entry) => entry.pending && sessions.has(entry.id))) return;
-  const settled = reservations.filter((entry) => !entry.pending);
+  layout = projectStartupLayout(layout, reservations);
   let tree = layout.tree;
-  for (const reservation of [...settled].reverse()) tree = settledStartupTree(tree, reservation);
   // Stale or untracked view-only assignments cannot become stored terminal IDs.
   for (const tile of leaves(tree))
     if (sessionId(tile)?.startsWith("launch_"))

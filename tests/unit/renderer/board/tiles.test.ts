@@ -1142,8 +1142,12 @@ test("splitting the failure tile and resizing its geometry remain saved", () => 
     },
   };
   saveLayout(storage, splitTile(placed, "vertical"), undefined, [reservation]);
-  expect(leaves(restoreLayout(saved).tree)).toHaveLength(2);
-  expect(restoreLayout(saved).tree).toMatchObject({ kind: "split", direction: "vertical" });
+  expect(leaves(restoreLayout(saved).tree)).toHaveLength(3);
+  expect(restoreLayout(saved).tree).toMatchObject({
+    kind: "split",
+    direction: "horizontal",
+    first: { kind: "split", direction: "vertical" },
+  });
   const resized = resizeSplit(placed, placed.tree.id, 0.7);
   saveLayout(storage, resized, undefined, [reservation]);
   expect(restoreLayout(saved).tree).toMatchObject({ kind: "split", ratio: 0.7 });
@@ -1210,7 +1214,7 @@ test("a preview filling the original empty slot survives a failed launch", () =>
   expect(saved).not.toContain("launch_");
 });
 
-test("another genuinely pending launch keeps saving suspended until it settles", () => {
+test("pending and failed launches project together without blocking saves", () => {
   const before = initialLayout();
   const first = placeSession(before, "launch_first", false, { columns: 320 });
   if (!first) throw new Error("Missing first placement");
@@ -1226,7 +1230,8 @@ test("another genuinely pending launch keeps saving suspended until it settles",
     },
   };
   saveLayout(storage, second, undefined, reservations);
-  expect(saved).toBe("original");
+  expect(leaves(restoreLayout(saved).tree)).toHaveLength(1);
+  expect(saved).not.toContain("launch_");
   saveLayout(
     storage,
     second,

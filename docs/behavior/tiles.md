@@ -250,11 +250,11 @@ normal action error dialog says **Terminal may still be running.** A refused lau
 no terminal. These temporary presentations grant no terminal capability and are
 never session records.
 
-Pending launch reservations are not saved as terminal assignments or geometry.
-While a launch is genuinely pending, saves retain the last settled layout.
-Failure resumes saving immediately, even while its failure tile stays visible.
-Saved layouts omit failure presentations and untouched space created only for
-those reservations, while retaining later splits, moves, sidebar geometry and
-successful terminals. Reload neither restores a failed launch nor adds an empty
-column. Reload during a still-pending launch retains the prior layout, including
-the same single space for a previously blank board.
+Pending and failed launch presentations are not saved as terminal assignments or
+untouched automatic geometry. Layout edits save immediately, including during a
+pending launch. Splitting a reserved tile explicitly keeps the chosen layout,
+with an empty space in its place after reload. Other splits, moves, sidebar
+geometry and successful terminals also keep saving. Close removes untouched
+reservation-only geometry before forgetting its history, so later saves cannot
+bring it back. Reload without any user layout edits restores the original space;
+reload after edits retains those edits without restoring a startup or failure.

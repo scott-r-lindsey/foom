@@ -124,7 +124,15 @@ wait();`,
   );
   const app = await launchApp(context, { fixture: "repository", env: { PATH: bin } });
   const page = await boardPage(app);
-  const width = ["reload", "failed-save"].includes(scenario) ? 2200 : 1280;
+  const width = [
+    "reload",
+    "failed-save",
+    "pending-edits",
+    "close-pending",
+    "close-failed",
+  ].includes(scenario)
+    ? 2200
+    : 1280;
   await app.evaluate(
     ({ BrowserWindow }, width) =>
       BrowserWindow.getAllWindows()
@@ -210,6 +218,16 @@ wait();`,
     const tileId = await startup.locator("..").getAttribute("data-tile");
     assert.ok(tileId);
     const tile = page.locator(`[data-tile="${tileId}"]`);
+    const savedLayout = () =>
+      page.evaluate(() => {
+        const raw = localStorage.getItem(`foom.tiles.v1.${window.desktop.windows.id}`);
+        return raw ? JSON.parse(raw) : null;
+      });
+    const storedSpaces = async () => {
+      const count = (node) =>
+        !node ? 0 : node.kind === "tile" ? 1 : count(node.first) + count(node.second);
+      return count((await savedLayout())?.tree);
+    };
     for (const mode of ["light", "dark"]) {
       await page.evaluate(
         (mode) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${mode}` }),
@@ -220,6 +238,62 @@ wait();`,
         path: evidencePath(`1044/startup-${mode}.png`),
         animations: "disabled",
       });
+    }
+    if (scenario === "close-pending" || scenario === "close-failed") {
+      if (scenario === "close-failed") {
+        await writeFile(offline, "offline");
+        await rm(launchGate, { force: true });
+        await expect(page.locator('.tile-startup[data-failed="true"]')).toHaveCount(1);
+      }
+      await tile.getByRole("button", { name: "Close", exact: true }).click();
+      await expect(page.locator(".tile-startup")).toHaveCount(0);
+      await expect(page.locator(".terminal-tile")).toHaveCount(beforeLaunchTiles);
+      await expect.poll(storedSpaces).toBe(beforeLaunchTiles);
+      await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
+      await expect.poll(async () => (await savedLayout())?.sidebarCollapsed).toBe(true);
+      await expect.poll(storedSpaces).toBe(beforeLaunchTiles);
+      await page.reload();
+      await expect(page.locator(".terminal-tile")).toHaveCount(beforeLaunchTiles);
+      await expect(page.locator('.terminal-tile[data-empty="true"]')).toHaveCount(
+        beforeLaunchTiles,
+      );
+      assert.ok(!JSON.stringify(await savedLayout()).includes("launch_"));
+      await rm(launchGate, { force: true });
+      return;
+    }
+    if (scenario === "pending-edits") {
+      try {
+        await page.evaluate(() => window.desktop.appMenu.execute("split-down"));
+        await expect(page.locator(".terminal-tile")).toHaveCount(3);
+        const separator = page.getByRole("separator", { name: "Sidebar width", exact: true });
+        const gutter = await separator.boundingBox();
+        assert.ok(gutter);
+        const initialWidth = Number(await separator.getAttribute("aria-valuenow"));
+        assert.ok(initialWidth >= 240);
+        await page.mouse.move(gutter.x + gutter.width / 2, gutter.y + gutter.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(
+          gutter.x + gutter.width / 2 + 410 - initialWidth,
+          gutter.y + gutter.height / 2,
+        );
+        await page.mouse.up();
+        await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
+        await expect.poll(async () => (await savedLayout())?.sidebarWidth).toBe(410);
+        await expect.poll(async () => (await savedLayout())?.sidebarCollapsed).toBe(true);
+        await expect.poll(storedSpaces).toBe(3);
+        assert.ok(!JSON.stringify(await savedLayout()).includes("launch_"));
+        await page.reload();
+        await expect(page.locator(".tile-startup")).toHaveCount(0);
+        await expect(page.locator(".terminal-tile")).toHaveCount(3);
+        await expect(page.locator('.terminal-tile[data-empty="true"]')).toHaveCount(3);
+        await expect(
+          page.getByRole("button", { name: "Expand sidebar", exact: true }),
+        ).toBeVisible();
+        assert.equal((await savedLayout()).sidebarWidth, 410);
+      } finally {
+        await rm(launchGate, { force: true });
+      }
+      return;
     }
     if (scenario === "failed-save") {
       await writeFile(offline, "offline");
@@ -235,7 +309,7 @@ wait();`,
           .locator('.tile-startup[data-failed="true"]')
           .locator("..")
           .screenshot({
-            path: evidencePath(`1044/round3/failure-${mode}.png`),
+            path: evidencePath(`1044/failure-${mode}.png`),
             animations: "disabled",
           });
       }
@@ -781,4 +855,17 @@ test(
     timeout: deadline(60000),
   },
   (context) => sidebarMachines(context, true, "failed-save"),
+);
+
+for (const phase of ["pending", "failed"])
+  test(
+    `closing a ${phase} startup removes its temporary column from later saves`,
+    { skip: process.platform === "win32", timeout: deadline(60000) },
+    (context) => sidebarMachines(context, true, `close-${phase}`),
+  );
+
+test(
+  "pending startup saves an explicit split and sidebar changes across reload",
+  { skip: process.platform === "win32", timeout: deadline(60000) },
+  (context) => sidebarMachines(context, true, "pending-edits"),
 );

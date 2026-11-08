@@ -2,6 +2,7 @@ import { readPreferences } from "./sidebar-preferences";
 import { errorMessage } from "../../shared/application-errors";
 import { prepareMove, finishMove } from "./move-placement";
 import { useBackgroundErrors } from "./error-presentation";
+import { projectStartupLayout, splitsStartupTile } from "./startup-layout";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { TERMINAL_FONT_FALLBACK, terminalFontStack } from "../../shared/terminal-fonts";
 import type { PreviewSummary } from "../../shared/workspace";
@@ -183,16 +184,25 @@ export function useBoardTiles({
         }
       }
       const ids = new Set(leaves(next.tree).map(sessionId));
-      for (const id of startupLayoutsRef.current.keys())
-        if (!ids.has(id)) startupLayoutsRef.current.delete(id);
+      let placing = false;
       for (const id of ids)
-        if (id?.startsWith("launch_") && !startupLayoutsRef.current.has(id))
+        if (id?.startsWith("launch_") && !startupLayoutsRef.current.has(id)) {
+          placing = true;
           startupLayoutsRef.current.set(id, {
             id,
             before: layoutRef.current.tree,
             placed: next.tree,
             pending: true,
+            preserveGeometry: false,
           });
+        }
+      const history = [...startupLayoutsRef.current.values()];
+      if (!placing && splitsStartupTile(layoutRef.current.tree, next.tree, history))
+        for (const entry of history) entry.preserveGeometry = true;
+      const removed = history.filter((entry) => !ids.has(entry.id));
+      // Apply the history before retiring it, so later saves cannot revive its columns.
+      next = projectStartupLayout(next, removed);
+      for (const entry of removed) startupLayoutsRef.current.delete(entry.id);
       layoutRef.current = next;
       setLayout(next);
       if (transient) return;
@@ -216,6 +226,8 @@ export function useBoardTiles({
   // A transfer reserves geometry, but a startup may gain its terminal ID meanwhile.
   const completeStartup = useCallback(
     (before: string, after: string) => {
+      // A real terminal adopts the placement; Close must instead project it away.
+      startupLayoutsRef.current.delete(before);
       const bind = (current: TileLayout): TileLayout => {
         const tile = leaves(current.tree).find((leaf) => sessionId(leaf) === before);
         if (!tile) return current;
