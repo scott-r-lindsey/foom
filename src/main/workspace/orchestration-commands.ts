@@ -1,3 +1,4 @@
+import { worktreeReservation } from "./worktree-reservations";
 import { HostAdmission } from "../../shared/host-pressure";
 import { localResources } from "../setup/local-host";
 import { canRestoreControl } from "./session-restore";
@@ -228,7 +229,9 @@ export async function launchChild(
       : (await this.worktrees(repository)).find((item) => item.path === worktree);
     if (!tree || tree.bare || tree.locked || tree.prunable || tree.path === repository)
       throw new Error("Worktree is unavailable");
-    const key = `${repository}\0${remote ? worktree : (tree.branch ?? "")}`;
+    const key = remote
+      ? `${repository}\0${worktree}`
+      : worktreeReservation(repository, worktree, tree.branch);
     if (this.busyWorktrees.has(key)) throw new Error("This worktree is busy");
     this.busyWorktrees.add(key);
     try {

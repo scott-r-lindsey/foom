@@ -125,6 +125,7 @@ export interface WorkspaceMethods {
     confirm: ConfirmWorkspace,
     validateClose?: () => void,
     closeSignal?: AbortSignal,
+    onCloseReview?: (pending: boolean) => Promise<void>,
   ): Promise<SidebarCommandResult>;
   auditHuman(
     action: string,

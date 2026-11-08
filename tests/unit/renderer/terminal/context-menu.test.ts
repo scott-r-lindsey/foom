@@ -35,9 +35,14 @@ test.each(["Linux x86_64", "Win32", "MacIntel"])(
     );
     const received = vi.fn();
     textarea.addEventListener("mousedown", received);
+    const released = vi.fn();
+    textarea.addEventListener("mouseup", released);
     const gesture = (button: number, shiftKey = false, ctrlKey = false) => {
       textarea.dispatchEvent(
         new MouseEvent("mousedown", { button, shiftKey, ctrlKey, bubbles: true, cancelable: true }),
+      );
+      textarea.dispatchEvent(
+        new MouseEvent("mouseup", { button, shiftKey, ctrlKey, bubbles: true, cancelable: true }),
       );
       const event = new MouseEvent("contextmenu", {
         button,
@@ -57,6 +62,7 @@ test.each(["Linux x86_64", "Win32", "MacIntel"])(
     expect(opened[0]?.point).toEqual({ x: 45, y: 60 });
     expect(opened[0]?.anchor).toBe(textarea);
     expect(received).not.toHaveBeenCalled();
+    expect(released).not.toHaveBeenCalled();
     tracking = "vt200";
     gesture(2);
     expect(opened).toHaveLength(1);

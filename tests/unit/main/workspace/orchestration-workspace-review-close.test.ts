@@ -73,12 +73,16 @@ it.each([
       return Promise.resolve(true);
     });
   vi.mocked(dialog).mockClear();
-  const result = (await workspace.orchestration.call(
+  let result = (await workspace.orchestration.call(
     actor,
     "close",
     { id: "reviewer", idempotencyKey: "close" },
     ops,
   )) as Operation;
+  await vi.waitFor(() => {
+    result = ops.lookup(actor, { idempotencyKey: "close" });
+    expect(["running", "pending_confirmation"]).not.toContain(result.status);
+  });
   if (mode === "clean") expect(deps.dialog).not.toHaveBeenCalled();
   else
     expect(deps.dialog).toHaveBeenCalledWith(
@@ -155,3 +159,61 @@ it.each(["takeover", "revocation"])(
     expect(workspace.snapshot().terminals.some((row) => row.id === "reviewer")).toBe(true);
   },
 );
+
+it("returns pending confirmation promptly and joins review close with explicit removal", async () => {
+  const workspace = createWorkspace(deps);
+  await orchestrate(workspace);
+  const actor = principal();
+  const operations = new Operations(
+    async () => {},
+    () => {},
+  );
+  const tree = (await workspace.orchestration.call(
+    actor,
+    "create_worktree",
+    { branch: "feature", idempotencyKey: "tree" },
+    operations,
+  )) as Operation;
+  launch.mockResolvedValueOnce({ id: "reviewer", attention: "evaluator" });
+  await workspace.orchestration.call(
+    actor,
+    "launch",
+    { worktreeId: tree.resultId, agent: "claude", idempotencyKey: "launch" },
+    operations,
+  );
+  await workspace.exited("reviewer", 0);
+  vi.mocked(deps.worktrees.reviewIdentity).mockReturnValue("identity");
+  vi.mocked(deps.worktrees.canAutoRemoveReview).mockResolvedValue(false);
+  const answer = Promise.withResolvers<boolean>();
+  deps.dialog = vi.fn(() => answer.promise);
+  const closing = (await workspace.orchestration.call(
+    actor,
+    "close",
+    { id: "reviewer", idempotencyKey: "close" },
+    operations,
+  )) as Operation;
+  expect(closing.status).toBe("pending_confirmation");
+  const duplicate = (await workspace.orchestration.call(
+    actor,
+    "close",
+    { id: "reviewer", idempotencyKey: "duplicate-close" },
+    operations,
+  )) as Operation;
+  expect(duplicate.status).toBe("pending_confirmation");
+  await workspace.orchestration.call(
+    actor,
+    "remove_worktree",
+    { worktreeId: tree.resultId, idempotencyKey: "remove" },
+    operations,
+  );
+  await vi.waitFor(() => {
+    expect(deps.dialog).toHaveBeenCalledOnce();
+  });
+  expect(deps.worktrees.removeWorktree).not.toHaveBeenCalled();
+  answer.resolve(true);
+  await vi.waitFor(() => {
+    for (const key of ["close", "duplicate-close", "remove"])
+      expect(operations.lookup(actor, { idempotencyKey: key }).status).toBe("succeeded");
+  });
+  expect(deps.worktrees.removeWorktree).toHaveBeenCalledOnce();
+});

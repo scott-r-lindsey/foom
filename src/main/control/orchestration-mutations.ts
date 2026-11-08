@@ -519,36 +519,50 @@ export class OrchestrationMutations extends OrchestrationAuthority {
     if (!child.exited) return this.refuse(actor, parent, operations, operation, label, "conflict");
     this.note(parent, this.entry(operation, label));
     const scope = this.closeScope(actor, id);
-    try {
-      const closed = await this.host.close(
-        id,
-        () => {
-          operations.lookup(actor, { operationId: operation.operationId });
-          const current = this.parent(actor);
-          if (current.children.get(id) !== child || child.takenOver || !child.exited)
-            throw new ControlError("forbidden");
-        },
-        scope.signal,
-      );
-      if (!closed)
-        return await this.finish(actor, parent, operations, operation, label, "declined", id);
-    } catch (error) {
-      if (error instanceof LaunchFailure) {
-        const record = await operations.finish(
-          actor,
-          operation.operationId,
-          "failed",
-          error.reason,
+    let pending: (record: Operation) => void = () => undefined;
+    const review = new Promise<Operation>((resolve) => {
+      pending = resolve;
+    });
+    const result = (async () => {
+      try {
+        const closed = await this.host.close(
           id,
+          () => {
+            operations.lookup(actor, { operationId: operation.operationId });
+            const current = this.parent(actor);
+            if (current.children.get(id) !== child || child.takenOver || !child.exited)
+              throw new ControlError("forbidden");
+          },
+          scope.signal,
+          async (reviewing) => {
+            const record = reviewing
+              ? await operations.reviewRemoval(actor, operation.operationId)
+              : await operations.finish(actor, operation.operationId, "running", "intent");
+            this.note(parent, this.entry(record, label));
+            if (reviewing) pending(record);
+          },
         );
-        this.note(parent, this.entry(record, label));
-        return record;
+        if (!closed)
+          return await this.finish(actor, parent, operations, operation, label, "declined", id);
+      } catch (error) {
+        if (error instanceof LaunchFailure) {
+          const record = await operations.finish(
+            actor,
+            operation.operationId,
+            "failed",
+            error.reason,
+            id,
+          );
+          this.note(parent, this.entry(record, label));
+          return record;
+        }
+        return await this.finish(actor, parent, operations, operation, label, "failed", id);
+      } finally {
+        scope.release();
       }
-      return await this.finish(actor, parent, operations, operation, label, "failed", id);
-    } finally {
-      scope.release();
-    }
-    return await this.finish(actor, parent, operations, operation, label, "succeeded", id);
+      return await this.finish(actor, parent, operations, operation, label, "succeeded", id);
+    })();
+    return Promise.race([result, review]);
   }
 
   protected async stop(
@@ -676,10 +690,27 @@ export class OrchestrationMutations extends OrchestrationAuthority {
             operations.lookup(actor, { operationId: operation.operationId });
             if (abort.signal.aborted) throw new ControlError("forbidden");
           },
+          async (pending) => {
+            // Joining shares the existing consent, but still needs its own
+            // durable effect state before deletion can proceed or be observed.
+            outcome.accepted = !pending;
+            const current = operations.lookup(actor, { operationId: operation.operationId });
+            const record = pending
+              ? await operations.reviewRemoval(actor, operation.operationId)
+              : current.status === "running"
+                ? current
+                : await operations.finish(actor, operation.operationId, "running", "intent");
+            this.note(parent, this.entry(record, label));
+          },
         );
         if (removed) {
           parent.worktrees.delete(worktreeId);
           await this.finish(actor, parent, operations, operation, label, "succeeded", worktreeId);
+        } else if (
+          operations.lookup(actor, { operationId: operation.operationId }).status ===
+          "pending_confirmation"
+        ) {
+          await this.finish(actor, parent, operations, operation, label, "declined", worktreeId);
         }
       } catch (error) {
         const reason: RemovalReason =
