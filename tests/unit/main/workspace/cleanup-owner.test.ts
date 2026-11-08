@@ -804,3 +804,39 @@ it.each([true, false])(
     log.mockRestore();
   },
 );
+
+it("joins owned removals before review, rejects another identity, and releases failures for retry", async () => {
+  const f = fixture();
+  const inventory = Promise.withResolvers<Worktree[]>();
+  f.deps.inventory.mockReturnValueOnce(inventory.promise);
+  const answer = Promise.withResolvers<boolean>();
+  const confirm = vi.fn(() => answer.promise);
+  const reviewing = vi.fn(async () => {});
+  const first = f.owner.removeOwnedTree(repository, tree().path, "identity", confirm, () => {});
+  const joined = f.owner.removeOwnedTree(
+    repository,
+    tree().path,
+    "identity",
+    confirm,
+    () => {},
+    undefined,
+    reviewing,
+  );
+  await expect(
+    f.owner.removeOwnedTree(repository, tree().path, "replacement", confirm, () => {}),
+  ).rejects.toMatchObject({ reason: "identity_changed" });
+  inventory.resolve([tree()]);
+  await vi.waitFor(() => {
+    expect(confirm).toHaveBeenCalledOnce();
+  });
+  expect(reviewing).toHaveBeenCalledOnce();
+  f.worktrees.removeWorktree.mockRejectedValueOnce(new Error("git failed"));
+  const results = Promise.allSettled([first, joined]);
+  answer.resolve(true);
+  expect((await results).map((result) => result.status)).toEqual(["rejected", "rejected"]);
+  expect(f.worktrees.removeWorktree).toHaveBeenCalledOnce();
+  expect(await f.owner.removeOwnedTree(repository, tree().path, "identity", accept, () => {})).toBe(
+    true,
+  );
+  expect(f.worktrees.removeWorktree).toHaveBeenCalledTimes(2);
+});

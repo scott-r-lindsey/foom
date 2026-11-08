@@ -19,6 +19,7 @@ retry with the same key returns that record.
 | `prompt` | `id`, `text` ≤16 KiB | Text plus submit, honoring bracketed paste, without review |
 | `send_keys` | `id`, `keys` (1–64) | Validated logical keys, without review |
 | `stop` | `id` | Existing graceful stop; an already exited child succeeds; a stop error is `indeterminate` |
+| `close` | `id` | Closes an exited child; returns `pending_confirmation` promptly when review-checkout removal needs human review; poll `operation_status` |
 | `remove_worktree` | `worktreeId` | Returns an operation (`pending_confirmation` when review is needed); poll `operation_status` |
 | `handoff` (child only) | `status`, `summary`, optional `links` and `review`, `idempotencyKey` | `{ seq, status, timestamp }` |
 | `read_handoff` (orchestrator only) | `id`, optional `seq` | Bounded report with `untrusted: true` |
