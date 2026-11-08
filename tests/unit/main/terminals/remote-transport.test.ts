@@ -671,12 +671,18 @@ test.each(["legacy", "foreign-request", "ended-first-open"])(
   },
 );
 
-async function remoteAgent(palette: Pick<typeof create, "dark" | "theme"> = {}) {
+async function remoteAgent(
+  palette: Pick<typeof create, "dark" | "theme"> = {},
+  pressure = false,
+  capable = false,
+) {
   transport.kill();
   child = new Child();
   mock.spawn.mockReturnValue(child);
   const agent = {
+    pressure: vi.fn(),
     spec: {
+      ...(pressure ? { childPressure: true as const } : {}),
       agent: "claude",
       repository: "/remote/repo",
       worktree: "/remote/tree",
@@ -696,7 +702,8 @@ async function remoteAgent(palette: Pick<typeof create, "dark" | "theme"> = {}) 
   transport.on("message", (message) => events.push(message));
   transport.postMessage({ ...create, ...palette });
   await Promise.resolve();
-  child.greet();
+  child.header();
+  child.message({ type: "hello", build: "a".repeat(64), ...(capable ? { childPressure: 1 } : {}) });
   return {
     ...agent,
     activate: () => {
@@ -1857,4 +1864,47 @@ test("explicit management output observes upload steps and stderr without exposi
     ["Uploading daemon…\n", true],
     ["Daemon ready · Inspecting…\n", true],
   ]);
+});
+
+test.each([true, false])(
+  "child pressure capability %s gates request fields and reports older daemons unmeasured",
+  async (capable) => {
+    const agent = await remoteAgent({}, true, capable);
+    const opening = child.messages.find(
+      (value) =>
+        value && typeof value === "object" && "type" in value && value.type === "agent-open",
+    );
+    expect(opening).toMatchObject({ spec: { agent: "claude" } });
+    if (capable) expect(opening).toMatchObject({ spec: { childPressure: true } });
+    else expect(JSON.stringify(opening)).not.toContain("childPressure");
+    const pressure = {
+      measured: true as const,
+      loadPerCore: 0.5,
+      memoryAvailable: 8 * 1024 ** 3,
+      memoryTotal: 16 * 1024 ** 3,
+      sessions: 1,
+      reservations: 0,
+      budget: 4,
+    };
+    child.message({ type: "agent-prepared", id: "one", ...(capable ? { pressure } : {}) });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(agent.pressure).toHaveBeenCalledWith(capable ? pressure : { measured: false });
+  },
+);
+test("host_busy remote failures retain validated facts without retrying the start", async () => {
+  await remoteAgent({}, true, true);
+  const pressure = {
+    measured: true as const,
+    loadPerCore: 1,
+    memoryAvailable: 8 * 1024 ** 3,
+    memoryTotal: 16 * 1024 ** 3,
+    sessions: 1,
+    reservations: 0,
+    budget: 4,
+  };
+  const starts = mock.spawn.mock.calls.length;
+  child.message({ type: "agent-failed", id: "one", reason: "host_busy", pressure });
+  expect(transport.launchFailure).toMatchObject({ reason: "host_busy", pressure });
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(mock.spawn).toHaveBeenCalledTimes(starts);
 });

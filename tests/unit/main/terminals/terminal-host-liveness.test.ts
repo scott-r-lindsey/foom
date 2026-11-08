@@ -192,3 +192,32 @@ test("a silent host dies after three extra late drain cycles past the cap", asyn
   expect(failed).toHaveBeenCalledOnce();
   expect(vi.getTimerCount()).toBe(0);
 });
+
+test("late drain and recovered main turns report observations without changing retirement", async () => {
+  const immediate = vi.spyOn(globalThis, "setImmediate");
+  const observed = vi.fn();
+  const failed = vi.fn();
+  cancel = watchHostLiveness(failed, observed);
+  await vi.advanceTimersByTimeAsync(5001);
+  const callback = immediate.mock.calls.at(-1)?.[0];
+  if (typeof callback !== "function") throw new Error("Missing drain callback");
+  vi.clearAllTimers();
+  vi.setSystemTime(11000);
+  callback();
+  expect(observed).toHaveBeenCalledWith({
+    kind: "late-drain",
+    replyLatencyMs: null,
+    probeElapsedMs: 11000,
+    lateCycles: 1,
+    mainLagMs: 6000,
+  });
+  await vi.advanceTimersByTimeAsync(2);
+  expect(observed).toHaveBeenCalledWith({
+    kind: "late-turn",
+    replyLatencyMs: null,
+    probeElapsedMs: 11001,
+    lateCycles: 1,
+    mainLagMs: 6001,
+  });
+  expect(failed).not.toHaveBeenCalled();
+});

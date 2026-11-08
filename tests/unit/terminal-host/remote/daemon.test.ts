@@ -1,3 +1,4 @@
+import type * as os from "node:os";
 import { terminalThemes } from "../../../../src/shared/terminal-themes";
 import type { HostResult } from "../../../../src/shared/registered-hosts.d";
 import { LaunchFailure } from "../../../../src/shared/launch-failure";
@@ -376,6 +377,7 @@ test.skipIf(process.platform === "win32").each(["close", "takeover"])(
         type: "hello",
         build,
         compatible: 2,
+        childPressure: 1,
         hostFacts: 1,
         hostPreflight: 1,
         hostRowCheck: 1,
@@ -1443,6 +1445,7 @@ test.skipIf(process.platform === "win32")(
       type: "hello",
       build,
       compatible: 2,
+      childPressure: 1,
       hostFacts: 1,
       hostPreflight: 1,
       hostRowCheck: 1,
@@ -1822,6 +1825,7 @@ test.skipIf(process.platform === "win32")(
         type: "hello",
         build,
         compatible: 2,
+        childPressure: 1,
         hostFacts: 1,
         hostPreflight: 1,
         hostRowCheck: 1,
@@ -2918,5 +2922,195 @@ test.skipIf(process.platform === "win32").each([true, false])(
     expect(restored.messages[1]).toMatchObject({ type: "open-result", state: "live" });
     expect(mock.create).toHaveBeenCalledOnce();
     expect(mock.setTheme).not.toHaveBeenCalled();
+  },
+);
+
+vi.mock("../../../../src/terminal-host/remote/host-platform", () => ({
+  daemonHostPlatform: { memoryAvailable: vi.fn(() => Promise.resolve(128 * 1024 ** 3)) },
+}));
+
+const pressureFacts = vi.hoisted(() => ({ load: [0, 0, 0], total: 16 * 1024 ** 3 }));
+vi.mock("node:os", async (original) => ({
+  ...(await original<typeof os>()),
+  cpus: () => [0, 1, 2, 3],
+  loadavg: () => pressureFacts.load,
+  totalmem: () => pressureFacts.total,
+}));
+import { daemonHostPlatform } from "../../../../src/terminal-host/remote/host-platform";
+
+async function pressureChild(id: string) {
+  const c = await client();
+  c.send({ type: "hello", build });
+  await c.wait(1);
+  c.send({
+    type: "agent-open",
+    profile: "f".repeat(32),
+    id,
+    request: 1,
+    cols: 80,
+    rows: 24,
+    spec: {
+      childPressure: true,
+      agent: "claude",
+      repository: "/remote/repo",
+      worktree: `/remote/${id}`,
+      defaults: [],
+      hooks: false,
+    },
+  });
+  await c.wait(2);
+  return c;
+}
+test.skipIf(process.platform === "win32")(
+  "fresh daemon load and memory independently refuse before preparation",
+  async () => {
+    await start();
+    try {
+      pressureFacts.load = [4, 0, 0];
+      const load = await pressureChild("load");
+      expect(load.messages[1]).toMatchObject({
+        type: "agent-failed",
+        reason: "host_busy",
+        pressure: { measured: true, loadPerCore: 1 },
+      });
+      pressureFacts.load = [0, 0, 0];
+      vi.spyOn(daemonHostPlatform, "memoryAvailable").mockResolvedValueOnce(1);
+      const memory = await pressureChild("memory");
+      expect(memory.messages[1]).toMatchObject({
+        type: "agent-failed",
+        reason: "host_busy",
+        pressure: { measured: true, memoryAvailable: 1 },
+      });
+      expect(mock.create).not.toHaveBeenCalled();
+      // Ordinary human sessions never run admission at the same pressure.
+      pressureFacts.load = [100, 0, 0];
+      const human = await open("human");
+      expect(human.messages[1]).toMatchObject({ type: "open-result", state: "live" });
+      expect(mock.create).toHaveBeenCalledOnce();
+    } finally {
+      pressureFacts.load = [0, 0, 0];
+    }
+  },
+);
+test.skipIf(process.platform === "win32")(
+  "daemon reservations bound a burst, survive preparation, and release on disconnect and exit",
+  async () => {
+    pressureFacts.total = 8 * 1024 ** 3;
+    await start();
+    try {
+      const first = await pressureChild("first");
+      const second = await pressureChild("second");
+      expect(first.messages[1]).toMatchObject({
+        type: "agent-prepared",
+        pressure: { reservations: 0, budget: 2 },
+      });
+      expect(second.messages[1]).toMatchObject({
+        type: "agent-prepared",
+        pressure: { reservations: 1 },
+      });
+      const third = await pressureChild("third");
+      expect(third.messages[1]).toMatchObject({ type: "agent-failed", reason: "host_busy" });
+      first.send({ type: "agent-start", id: "first" });
+      await first.wait(4);
+      const fourth = await pressureChild("fourth");
+      expect(fourth.messages[1]).toMatchObject({
+        type: "agent-failed",
+        reason: "host_busy",
+        pressure: { sessions: 1, reservations: 1 },
+      });
+      second.socket.destroy();
+      await once(second.serverSocket, "close");
+      const fifth = await pressureChild("fifth");
+      expect(fifth.messages[1]).toMatchObject({
+        type: "agent-prepared",
+        pressure: { sessions: 1, reservations: 0 },
+      });
+      mock.exited("first", 0);
+      const sixth = await pressureChild("sixth");
+      expect(sixth.messages[1]).toMatchObject({
+        type: "agent-prepared",
+        pressure: { sessions: 0, reservations: 1 },
+      });
+    } finally {
+      pressureFacts.total = 16 * 1024 ** 3;
+    }
+  },
+);
+test.skipIf(process.platform === "win32")(
+  "unreadable daemon measurements allow explicitly unmeasured child starts",
+  async () => {
+    await start();
+    vi.spyOn(daemonHostPlatform, "memoryAvailable").mockRejectedValueOnce(new Error("unreadable"));
+    const c = await pressureChild("unreadable");
+    expect(c.messages[1]).toMatchObject({ type: "agent-prepared", pressure: { measured: false } });
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "a concurrent daemon burst prepares only its budget of children",
+  async () => {
+    pressureFacts.total = 8 * 1024 ** 3;
+    await start();
+    try {
+      const burst = await Promise.all(
+        ["burst-a", "burst-b", "burst-c", "burst-d"].map(pressureChild),
+      );
+      const responses = burst.map((entry) => entry.messages[1]);
+      expect(
+        responses.filter((value) => record(value) && value["type"] === "agent-prepared"),
+      ).toHaveLength(2);
+      expect(
+        responses.filter((value) => record(value) && value["reason"] === "host_busy"),
+      ).toHaveLength(2);
+      expect(mock.create).not.toHaveBeenCalled();
+    } finally {
+      pressureFacts.total = 16 * 1024 ** 3;
+    }
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "disconnect while measuring releases admission without preparing a provider",
+  async () => {
+    await start();
+    let complete: ((value: number) => void) | undefined;
+    const memory = vi.spyOn(daemonHostPlatform, "memoryAvailable").mockImplementationOnce(
+      () =>
+        new Promise<number>((resolve) => {
+          complete = resolve;
+        }),
+    );
+    const c = await client();
+    c.send({ type: "hello", build });
+    await c.wait(1);
+    c.send({
+      type: "agent-open",
+      profile: "f".repeat(32),
+      id: "cancelled-pressure",
+      request: 1,
+      cols: 80,
+      rows: 24,
+      spec: {
+        childPressure: true,
+        agent: "claude",
+        repository: "/remote/repo",
+        worktree: "/remote/cancelled",
+        defaults: [],
+        hooks: false,
+      },
+    });
+    await vi.waitFor(() => {
+      expect(memory).toHaveBeenCalledOnce();
+    });
+    c.socket.destroy();
+    await once(c.serverSocket, "close");
+    complete?.(8 * 1024 ** 3);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const next = await pressureChild("after-cancelled");
+    expect(next.messages[1]).toMatchObject({
+      type: "agent-prepared",
+      pressure: { reservations: 0 },
+    });
+    expect(mock.create).not.toHaveBeenCalled();
   },
 );
