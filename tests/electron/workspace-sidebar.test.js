@@ -913,9 +913,8 @@ test("Close removes the tile and sidebar before slow cleanup and restores a fail
   const second = await page.evaluate(() => window.desktop.sidebarCommand({ kind: "home-shell" }));
   await page.locator(`[data-drag-session="${second.terminalId}"]`).press("Enter");
   const closingTile = page.getByRole("region", { name: /Tile 2:/ });
-  await closingTile.locator(".xterm-helper-textarea").focus();
-  await page.keyboard.type("exit");
-  await page.keyboard.press("Enter");
+  await expectShellReady(page, id, closingTile.locator(".xterm-helper-textarea"));
+  await page.evaluate((id) => window.desktop.input(id, "exit\r"), id);
   await expect(row).toHaveAttribute("data-exited", "true");
   await app.evaluate(({ app }) => {
     const load = process

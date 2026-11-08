@@ -198,7 +198,10 @@ test("exited Close uses the sidebar command, retains the tile on failure and rem
   expect(source.sidebarCommand).toHaveBeenCalledWith({ kind: "close", id: "permission" });
   expect(screen.getByRole("alert").textContent).toContain("Unable to close session");
   expect(screen.getByRole("button", { name: "Close" })).toBeTruthy();
-  source.sidebarCommand = vi.fn(async () => {});
+  source.sidebarCommand = vi.fn(() => {
+    data.update("permission", { id: "closed" });
+    return Promise.resolve();
+  });
   fireEvent.click(screen.getByRole("button", { name: "Tile 1 menu" }));
   fireEvent.click(screen.getByRole("menuitem", { name: "Close" }));
   await act(async () => {});
@@ -228,11 +231,73 @@ test("asynchronous Close focuses the surviving terminal after the command resolv
   await act(async () => {});
   const focusedBefore = views[1]?.focus.mock.calls.length ?? 0;
   await act(async () => {
+    data.update("permission", { id: "closed" });
     complete?.();
     await Promise.resolve();
   });
   expect(views[1]?.focus).toHaveBeenCalledTimes(focusedBefore + 1);
   expect(document.activeElement).toBe(screen.getByRole("region", { name: /Tile 1:/ }));
+});
+test("a cancelled Close preserves a tile reopened before the command settles", async () => {
+  const { screen, click, data, source } = setup();
+  click(0);
+  act(() => {
+    data.update("permission", { exited: true });
+  });
+  const cleanup = Promise.withResolvers<undefined>();
+  source.sidebarCommand = vi.fn(() => cleanup.promise);
+  fireEvent.click(screen.getByRole("button", { name: "Close" }));
+  act(() => {
+    data.update("permission", { id: "closing" });
+  });
+  act(() => {
+    data.update("closing", { id: "permission" });
+  });
+  click(0);
+  await act(async () => {
+    cleanup.resolve(undefined);
+    await cleanup.promise;
+  });
+  expect(screen.getByRole("button", { name: "Close" })).toBeTruthy();
+});
+test("a cancelled Close response cannot clear a retry's pending focus change", async () => {
+  const { screen, click, data, source, send, views } = setup();
+  click(0);
+  send("split-right");
+  click(1);
+  send("tile-1");
+  act(() => {
+    data.update("permission", { exited: true });
+  });
+  const cancelled = Promise.withResolvers<undefined>();
+  const retried = Promise.withResolvers<undefined>();
+  source.sidebarCommand = vi
+    .fn()
+    .mockReturnValueOnce(cancelled.promise)
+    .mockReturnValueOnce(retried.promise);
+  fireEvent.click(screen.getByRole("button", { name: "Close" }));
+  act(() => {
+    data.update("permission", { id: "closing" });
+  });
+  act(() => {
+    data.update("closing", { id: "permission" });
+  });
+  click(0);
+  fireEvent.click(screen.getByRole("button", { name: "Close" }));
+  await act(async () => {
+    cancelled.resolve(undefined);
+    await cancelled.promise;
+  });
+  expect(screen.getByRole("button", { name: "Close" })).toBeTruthy();
+  const focusedBefore = views[1]?.focus.mock.calls.length ?? 0;
+  act(() => {
+    data.update("permission", { id: "closed" });
+  });
+  expect(views[1]?.focus).toHaveBeenCalledTimes(focusedBefore + 1);
+  await act(async () => {
+    retried.resolve(undefined);
+    await retried.promise;
+  });
 });
 test("New worktree opens the focused tile's repository, else the top one, else Add repository", async () => {
   const { screen, source, send, click, data } = setup();

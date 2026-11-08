@@ -71,7 +71,7 @@ export function useBoardTiles({
   const focusClockRef = useRef(0);
   const repairTilesRef = useRef<(() => void) | undefined>(undefined);
   const unrestoredRolesRef = useRef(new Set<string>());
-  const closingTilesRef = useRef(new Set<string>());
+  const closingTilesRef = useRef(new Map<string, symbol>());
   useEffect(() => {
     if (!soundSetup) return;
     let active = true;
@@ -504,11 +504,13 @@ export function useBoardTiles({
         session &&
         source.getSnapshot().some((row) => row.id === session && row.exited)
       ) {
-        if (source.sidebarCommand) closingTilesRef.current.add(session);
+        const attempt = Symbol();
+        if (source.sidebarCommand) closingTilesRef.current.set(session, attempt);
         void source
           .sidebarCommand?.({ kind: "close", id: session })
           .then(() => {
             if (
+              !source.getSnapshot().some((row) => row.id === session) &&
               leaves(layoutRef.current.tree).some(
                 (item) => item.id === tile && sessionId(item) === session,
               )
@@ -521,7 +523,9 @@ export function useBoardTiles({
             setRemoveError(errorMessage(error, "Unable to close session."));
           })
           .finally(() => {
-            closingTilesRef.current.delete(session);
+            if (closingTilesRef.current.get(session) === attempt) {
+              closingTilesRef.current.delete(session);
+            }
           });
         return;
       }
