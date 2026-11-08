@@ -72,6 +72,7 @@ export class RemoteTransport extends EventEmitter {
   private closed = false;
   private ready = false;
   private opened = false;
+  private childPressure = false;
   private upgrades = 0;
   private retries = 0;
   private timer: ReturnType<typeof setTimeout> | undefined;
@@ -156,6 +157,8 @@ export class RemoteTransport extends EventEmitter {
       ...(this.target.profile ? { profile: this.target.profile } : {}),
       ...(this.target.context ? { context: this.target.context } : {}),
     };
+    const agentSpec = this.target.agent ? { ...this.target.agent.spec } : undefined;
+    if (agentSpec && !this.childPressure) delete agentSpec.childPressure;
     return this.target.agent && !reattach && !this.target.reattach
       ? {
           type: "agent-open",
@@ -163,7 +166,7 @@ export class RemoteTransport extends EventEmitter {
           request,
           cols: session.spec.cols,
           rows: session.spec.rows,
-          spec: this.target.agent.spec,
+          spec: agentSpec ?? this.target.agent.spec,
           ...metadata,
         }
       : {
@@ -374,6 +377,7 @@ export class RemoteTransport extends EventEmitter {
               this.managementFailure = "version-mismatch";
               throw new Error("Host version mismatch");
             }
+            this.childPressure = value.childPressure === 1;
             if (
               this.management?.type === "manage" &&
               (this.management.operation === "create-folder" ||
@@ -517,7 +521,7 @@ export class RemoteTransport extends EventEmitter {
           if (value.type === "agent-failed") {
             if (!this.target.agent || value.id !== this.session?.id || this.opened)
               throw new Error("Unexpected failure");
-            this.launchFailure = new LaunchFailure(value.reason);
+            this.launchFailure = new LaunchFailure(value.reason, value.pressure);
             this.retireConnection(connection, "failure");
             return;
           }
@@ -540,6 +544,7 @@ export class RemoteTransport extends EventEmitter {
             if (value.type === "agent-prepared") {
               if (this.opened || agentPrepared) throw new Error("Unexpected remote preparation");
               agentPrepared = true;
+              agent.pressure?.(value.pressure ?? { measured: false });
               void agent
                 .authorize()
                 .then(() => {

@@ -332,3 +332,14 @@ export const pastedResume = {
   agent: "claude",
   id: "external-123",
 } as const;
+
+vi.mock("../../../../src/main/setup/local-host", () => ({
+  localResources: vi.fn(() =>
+    Promise.resolve({
+      cores: 64,
+      load: [0, 0, 0],
+      memoryTotal: 256 * 1024 ** 3,
+      memoryAvailable: 128 * 1024 ** 3,
+    }),
+  ),
+}));

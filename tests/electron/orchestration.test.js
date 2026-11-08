@@ -112,3 +112,10 @@ test("a CLI-only orchestrator has no Resume promise or exited Revoke menu item",
 }, async (context) => {
   await runOrchestratorScenario(context, true, "resume-unsupported");
 });
+
+test("child host pressure refuses with retry facts while human launches still start", {
+  timeout: deadline(90_000),
+  skip: process.platform === "win32" && "The fake agent is a POSIX script",
+}, async (context) => {
+  await runOrchestratorScenario(context, false, "pressure");
+});

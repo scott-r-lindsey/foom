@@ -164,6 +164,7 @@ logged. Ownership/grant refusals retain their existing control error semantics.
 
 | Code | Meaning |
 | --- | --- |
+| `host_busy` | Retryable host pressure refusal; wait and retry with a new key or choose another host |
 | `agent_disabled` | Local agent disabled in Settings |
 | `agent_unavailable` | Local agent not installed or discoverable |
 | `remote_agent_unsupported` | Agent has no supported remote launch attachments |
@@ -304,3 +305,38 @@ answers, or `send_keys`; the original prompt is delivered but omitted from persi
 board records. Existing credential/provider attention defaults to sensitive.
 Automatic labels continuation nudges. Key values are never recorded.
 See [main's recording rules](../areas/message-board.md#child-conversation-threads-974).
+
+
+### Child host pressure (#1046)
+
+Control API, MCP and CLI child launches measure the target at launch time, never
+from Settings caches. `host_busy` is a failed, retryable launch with no process
+started. Wait and retry with a fresh idempotency key (the original key keeps its
+original result), or choose another host/worktree. Human sidebar/tile launches
+and attachment to an already running session are never refused by this policy.
+
+Launch operations include `pressure: {measured: false}` when measurement is
+unavailable, including compatible older daemons without `childPressure: 1`.
+Measured results contain `{measured: true, loadPerCore, memoryAvailable,
+memoryTotal, sessions, reservations, budget}`. Memory is in bytes; sessions counts
+running Foom agents on that machine, including human agents; reservations counts
+other child launches preparing there. No paths or process details are included.
+The operation lookup and idempotent reply retain these facts.
+
+Refuse at one-minute load/core ≥ 1.0, available memory below max(1 GiB, 10% of
+total), or sessions + reservations ≥ budget. Budget is
+max(1, min(CPU cores, floor(total memory / 4 GiB))). Reservations span preparation
+through publication of the running session and release on failure/cancellation.
+Linux uses MemAvailable; macOS uses free + inactive + speculative vm_stat pages,
+never freemem alone. Windows uses available physical memory (loadavg is unavailable
+and reports zero). Unreadable measurements allow launch with measured false.
+
+The remote hello advertises `childPressure: 1`; new hubs then send
+`spec.childPressure: true` only for automated child starts. The daemon measures
+fresh facts and reserves across profiles/connections before provider preparation.
+`agent-prepared` and `agent-failed` may carry validated `pressure` facts. Hubs omit
+the new request field for older daemons and report unmeasured; reattachment sends
+no fresh start. Human launches omit admission, including human remote Resume.
+Review loops retry host_busy every five seconds for at most five minutes, then
+escalate as launch failed. Cancellation releases the retry timer. Other launch
+failures retain their existing behavior. No threshold setting is added.

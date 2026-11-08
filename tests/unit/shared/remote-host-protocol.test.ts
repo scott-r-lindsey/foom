@@ -462,3 +462,27 @@ test("remote launches validate optional startup palettes with the host theme val
   expect(remoteResponse({ ...hello, startupTheme: 1 })).toBe(true);
   expect(remoteResponse({ ...hello, startupTheme: 2 })).toBe(false);
 });
+
+test("child-pressure protocol accepts bounded numeric facts and rejects unknown fields and malformed capability values", () => {
+  const hello = { type: "hello", build: "a".repeat(64), childPressure: 1 };
+  expect(remoteResponse(hello)).toBe(true);
+  expect(remoteResponse({ ...hello, childPressure: 2 })).toBe(false);
+  const pressure = {
+    measured: true,
+    loadPerCore: 1,
+    memoryTotal: 16 * 1024 ** 3,
+    memoryAvailable: 8 * 1024 ** 3,
+    sessions: 2,
+    reservations: 1,
+    budget: 4,
+  };
+  for (const base of [
+    { type: "agent-prepared", id: "child" },
+    { type: "agent-failed", id: "child", reason: "host_busy" },
+  ]) {
+    expect(remoteResponse({ ...base, pressure })).toBe(true);
+    expect(remoteResponse({ ...base, pressure: { measured: false } })).toBe(true);
+    expect(remoteResponse({ ...base, pressure: { ...pressure, path: "/secret" } })).toBe(false);
+    expect(remoteResponse({ ...base, pressure: { ...pressure, sessions: -1 } })).toBe(false);
+  }
+});

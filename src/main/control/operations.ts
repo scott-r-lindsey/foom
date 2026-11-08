@@ -115,6 +115,7 @@ export class Operations {
     reason: Reason,
     resultId: string | null = null,
     placement?: Operation["placement"],
+    pressure?: Operation["pressure"],
   ): Promise<Operation> {
     this.check(actor);
     if (resultId !== null) identifier(resultId);
@@ -148,6 +149,7 @@ export class Operations {
         reason,
         ...removalDetail(reason),
         ...(placement ? { placement } : {}),
+        ...(pressure ? { pressure } : {}),
         resultId,
         updatedAt: new Date().toISOString(),
       },

@@ -285,3 +285,15 @@ distinguish an evaluation that never reaches main, an ignored/reentrant native
 quit, a pending service barrier and a process waiting for debugger disconnect.
 The normal-exit assertion, shutdown deadline and forced cleanup on failure remain
 unchanged.
+
+
+## Launch pressure fixtures (#1046)
+
+The development harness replaces main's local resource reader with deterministic
+healthy measurements before loading the application; pressure scenarios explicitly
+supply fixture values. The Electron runner builds its disposable remote SEA with
+`--fixture-resources`, replacing only the daemon launch-resource reader at bundle
+time. Production builds omit this flag and read real OS facts; there is no runtime
+or profile switch. Ordinary app/package builds clear the disposable build tree.
+Daemon unit tests exercise the real admission path with fixture OS measurements,
+including reservations, refusals, disconnects and unreadable observations.
