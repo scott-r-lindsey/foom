@@ -1459,13 +1459,22 @@ test.each([false, true])(
     api.mockResolvedValue({ ...missing, recipeSession: "recipe" });
     fireEvent.click(screen.getByRole("button", { name: "Install git" }));
     await screen.findByRole("region", { name: "Install terminal" });
-    if (fails) api.mockRejectedValueOnce(new Error("read failed"));
+    const listReads = api.mock.calls.filter(([action]) => action.action === "list").length;
+    if (fails)
+      api.mockImplementation((action) =>
+        action.action === "list"
+          ? Promise.reject(new Error("read failed"))
+          : Promise.resolve(missing),
+      );
     await act(async () => {
       exit({ exited: true, code: 0 });
       await Promise.resolve();
     });
     if (fails) expect(screen.getByText("Unable to refresh tool")).toBeTruthy();
-    else expect(api).toHaveBeenLastCalledWith({ action: "list" });
+    else
+      expect(api.mock.calls.filter(([action]) => action.action === "list")).toHaveLength(
+        listReads + 1,
+      );
   },
 );
 

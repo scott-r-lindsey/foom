@@ -148,3 +148,24 @@ it.each(["live", "ownership", "ineligible", "declined"])(
     expect(removed).toHaveBeenCalledTimes(mode === "live" ? 1 : 0);
   },
 );
+
+it("records automatic close waiting for review and running before approved deletion", async () => {
+  const h = fixture();
+  const answer = Promise.withResolvers<undefined>();
+  h.host.close.mockImplementation(async (_id, validate, _signal, onReview) => {
+    await onReview?.(true);
+    await answer.promise;
+    validate?.();
+    await onReview?.(false);
+    expect(h.persist.mock.calls.at(-1)?.[0].operation.status).toBe("running");
+    return true;
+  });
+  await h.sync();
+  expect(h.owned.note).toHaveBeenCalledWith(
+    expect.objectContaining({ action: "close", status: "pending_confirmation" }),
+  );
+  expect(h.owned.note).not.toHaveBeenCalledWith(expect.objectContaining({ status: "succeeded" }));
+  answer.resolve(undefined);
+  await settleAutomation();
+  expect(h.owned.note).toHaveBeenCalledWith(expect.objectContaining({ status: "succeeded" }));
+});
