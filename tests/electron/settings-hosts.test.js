@@ -877,7 +877,11 @@ test("Repositories clones per host and opens fixed repair recipes without exposi
       ],
     },
   });
+  await expect(
+    card.getByRole("region", { name: "Install terminal" }).getByRole("status"),
+  ).toHaveText("Done");
   await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Settings", exact: true })).toHaveCount(0);
   await openSettingsScreen(page);
   await page
     .getByRole("navigation", { name: "Settings sections" })
@@ -933,6 +937,8 @@ test("Repositories clones per host and opens fixed repair recipes without exposi
       ["gh", "auth", "login", "--web", "--git-protocol", "https", "--skip-ssh-key"],
     ],
   );
+  await expect(page.getByRole("region", { name: "Settings", exact: true })).toHaveCount(0);
+  await expect(page.locator(".terminal-tile[data-kind='shell']")).toBeVisible();
   await openSettingsScreen(page);
   await page
     .getByRole("navigation", { name: "Settings sections" })
