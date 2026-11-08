@@ -403,7 +403,9 @@ export class TerminalHostClient {
     });
   }
 
-  async create(spec: TerminalSpec): Promise<string> {
+  async create(input: TerminalSpec): Promise<string> {
+    const { signal, ...spec } = input;
+    signal?.throwIfAborted();
     if (this.disposed) throw new Error("Terminal host disposed");
     if (this.shuttingDown) throw new Error("Terminals are shutting down");
     const id = spec.id ?? randomUUID();
@@ -416,12 +418,19 @@ export class TerminalHostClient {
       this.remotes.set(id, client);
       const local = { ...spec };
       delete local.remote;
+      const creating = client.create({ ...local, id });
+      const cancel = () => {
+        if (client.child && "cancelStartup" in client.child) client.child.cancelStartup();
+      };
+      signal?.addEventListener("abort", cancel, { once: true });
       try {
-        await client.create({ ...local, id });
+        await creating;
       } catch (error) {
         this.remotes.delete(id);
         await client.dispose();
         throw error;
+      } finally {
+        signal?.removeEventListener("abort", cancel);
       }
       return id;
     }

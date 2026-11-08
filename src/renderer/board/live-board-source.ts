@@ -649,6 +649,11 @@ export function createAppSource(): BoardSource {
       subscribe: (listener) => window.desktop.onConfigChange(listener),
       openFolder: () => window.desktop.openConfigFolder(),
     },
+    cancelSidebarLaunch: (id) => window.desktop.cancelSidebarLaunch(id),
+    discardStartup: async (id) => {
+      await window.desktop.kill(id);
+      snapshot(await window.desktop.workspace());
+    },
     panelFacts: (repository, worktree) => window.desktop.panelFacts(repository, worktree),
     messageBoard: window.desktop.messageBoard,
     actionLog: {
@@ -656,7 +661,7 @@ export function createAppSource(): BoardSource {
       clear: () => window.desktop.clearActionLog(),
     },
     onFocusWorktree: (callback) => window.desktop.onFocusWorktree?.(callback) ?? (() => {}),
-    sidebarCommand: async (command) => {
+    sidebarCommand: async (command, startup) => {
       if ("id" in command && command.id === shellId && command.kind === "restart") {
         await restart();
         return;
@@ -688,9 +693,17 @@ export function createAppSource(): BoardSource {
         );
       }
       let result: SidebarCommandResult;
+      const off = startup
+        ? window.desktop.onSidebarLaunchStarted((id) => {
+            if (id === startup.id) startup.started();
+          })
+        : undefined;
       try {
-        result = await window.desktop.sidebarCommand(command);
+        result = await (startup
+          ? window.desktop.sidebarCommand(command, startup.id)
+          : window.desktop.sidebarCommand(command));
       } finally {
+        off?.();
         if (command.kind === "resume" || command.kind === "new-conversation")
           snapshot(await window.desktop.workspace(), command.id);
       }

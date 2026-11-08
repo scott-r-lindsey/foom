@@ -7,6 +7,7 @@ export type ApplicationErrorCode =
   | "timed-out"
   | "checkout-invalid"
   | "remote-host-unavailable"
+  | "launch-cancel-incomplete"
   | "operation-failed"
   | "session-has-children"
   | "session-busy"

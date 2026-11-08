@@ -915,6 +915,41 @@ test("a pong queued during the 5008-to-16008 drain pause preserves both sessions
   await expect(responsive).resolves.toEqual([]);
 });
 
+test("creation consumes cancellation in main and never serializes its signal", async () => {
+  const controller = new AbortController();
+  const pending = client.create({ ...spec, signal: controller.signal });
+  const message = child.postMessage.mock.calls[0]?.[0];
+  expect(message).toMatchObject({ type: "create", spec });
+  if (!message || message === "shutdown" || message.type !== "create")
+    throw new Error("Missing creation");
+  expect(message.spec).not.toHaveProperty("signal");
+  child.reply();
+  await pending;
+  controller.abort();
+  await expect(client.create({ ...spec, signal: controller.signal })).rejects.toThrow();
+});
+
+test("cancelling remote bootstrap retires its transport and releases the reserved session", async () => {
+  const remote = new Child();
+  const cancel = vi.fn(() => {
+    remote.emit("exit", 0);
+    return true;
+  });
+  Object.assign(remote, { cancelStartup: cancel });
+  mock.remote.mockReturnValue(remote);
+  const controller = new AbortController();
+  const pending = client.create({
+    ...spec,
+    remote: { host: "fixture", artifact: "/fixture/host" },
+    signal: controller.signal,
+  });
+  const rejected = expect(pending).rejects.toThrow();
+  controller.abort();
+  await rejected;
+  expect(cancel).toHaveBeenCalledOnce();
+  expect(client.runningCount).toBe(0);
+});
+
 test("late answered probes record numeric near misses while prompt replies remain silent", async () => {
   const id = await create();
   for (const latency of [50, 1200]) {

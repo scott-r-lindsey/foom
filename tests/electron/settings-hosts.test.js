@@ -313,7 +313,7 @@ test("first-use repository launch exposes each fixed clone failure and Settings 
   await page.getByRole("menuitem", { name: "New agent", exact: true }).click();
   await page.getByRole("menuitem", { name: "fixture-cloud", exact: true }).click();
   await page.getByRole("menuitem", { name: "Claude Code", exact: true }).click();
-  const failure = page.getByRole("dialog", { name: "Action failed", exact: true });
+  const failure = page.getByRole("region", { name: "Tile 1: Claude Code", exact: true });
   await expect(failure).toContainText(
     "Configure Git access on the host: HTTPS through gh, a deploy key, or ssh-agent.",
   );

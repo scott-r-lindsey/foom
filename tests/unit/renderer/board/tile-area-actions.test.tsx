@@ -444,6 +444,7 @@ test.each(["filled", "removed"] as const)(
     fireEvent.click(screen.getByRole("menuitem", { name: "New shell here" }));
     if (mode === "filled") click(1);
     else send("tidy-tiles");
+    const chosenView = views.find((view) => view.open.mock.calls.at(-1)?.[0] === "build");
     await act(async () => {
       finish?.();
       await Promise.resolve();
@@ -451,7 +452,7 @@ test.each(["filled", "removed"] as const)(
     expect(views.some((view) => view.open.mock.calls.some(([id]) => id === "home-created"))).toBe(
       true,
     );
-    if (mode === "filled") expect(views[1]?.open).toHaveBeenLastCalledWith("build");
+    if (mode === "filled") expect(chosenView?.open).toHaveBeenLastCalledWith("build");
     expect(screen.queryByRole("alert")).toBeNull();
   },
 );

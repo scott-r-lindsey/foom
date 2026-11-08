@@ -27,8 +27,8 @@ export function SidebarMachineRow({
     setMenu({ available: machine.available, compact, anchor });
   };
   const launch = async (value: SidebarCommand) => {
-    await command(value);
     setAnchor(undefined);
+    await command(value);
   };
   const label = `${machine.name}${machine.available ? "" : " · Unavailable"}`;
   return (

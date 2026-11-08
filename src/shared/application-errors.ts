@@ -7,6 +7,7 @@ const messages = {
   "origin-unreachable": launchReasons["origin-unreachable"],
   "timed-out": launchReasons["timed-out"],
   "checkout-invalid": launchReasons["checkout-invalid"],
+  "launch-cancel-incomplete": "Terminal may still be running.",
   "remote-host-unavailable": "Remote host artifact unavailable in this local build.",
   "session-has-children": "Close its children first.",
   "session-busy": "This session is busy. Try again when its current action finishes.",

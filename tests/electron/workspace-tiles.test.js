@@ -618,6 +618,7 @@ test("wide blank tiles start as columns, full boards grow right, and hide refill
     await expect(
       page.locator('.terminal-tile[data-focused="true"] .xterm-helper-textarea'),
     ).toBeFocused();
+    await expect(page.locator(".tile-startup")).toHaveCount(0);
   };
   await launch();
   const tiles = page.locator(".terminal-tile");

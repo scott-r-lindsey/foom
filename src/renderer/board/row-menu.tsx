@@ -11,6 +11,8 @@ import type { CSSProperties, ReactNode } from "react";
 export interface RowAction {
   label: string;
   disabled?: boolean;
+  /** Launches without a sharing warning dismiss before dispatching work. */
+  dismissBeforeRun?: boolean;
   checked?: boolean | undefined;
   badge?: string;
   glyph?: CommandGlyphName;
@@ -417,6 +419,12 @@ export function RowMenu({
                   }
                   if (confirmation.pending && selected !== index) {
                     confirmation.cancel();
+                    return;
+                  }
+                  if (action.dismissBeforeRun) {
+                    close();
+                    restoreBoardFocus(anchor);
+                    void action.run();
                     return;
                   }
                   setSelected(index);
