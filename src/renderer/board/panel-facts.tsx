@@ -599,7 +599,17 @@ export function PanelFacts({
               subject.row.exitCode === undefined ? (
                 <Sub>{unknown}</Sub>
               ) : (
-                <Chip tone={subject.row.state === "failed" ? "failed" : "done"}>
+                <Chip
+                  tone={
+                    subject.row.closeFailed
+                      ? subject.row.exitCode === 0
+                        ? "done"
+                        : "failed"
+                      : subject.row.state === "failed"
+                        ? "failed"
+                        : "done"
+                  }
+                >
                   {subject.row.exitCode}
                 </Chip>
               )

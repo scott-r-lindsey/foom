@@ -1,3 +1,4 @@
+import type { CheckoutHold, CheckoutHolds } from "./worktree-reservations";
 import type { AgentId } from "../../shared/agents";
 import type { Settings } from "../../shared/setup";
 import type { AgentReport, WorkspaceSnapshot, WorkspaceTerminal } from "../../shared/workspace";
@@ -21,6 +22,7 @@ export interface WorktreeLaunchContext {
   readonly addWorktree: WorkspaceMethods["addWorktree"];
   readonly agents: Pick<Agents, "launch">;
   readonly busyWorktrees: Set<string>;
+  readonly checkoutHolds: CheckoutHolds;
   readonly confirmAgentLaunch: WorkspaceMethods["confirmAgentLaunch"];
   readonly defaultArguments: Settings["agentArguments"];
   readonly enabled: Readonly<Record<AgentId, boolean>>;
@@ -94,12 +96,18 @@ export interface AgentSetupContext {
 }
 
 export interface SidebarCommandsContext {
+  readonly closeSession: (
+    entry: WorkspaceTerminal,
+    cleanup: (hold?: CheckoutHold) => Promise<void>,
+    parent?: CheckoutHold,
+  ) => Promise<void>;
   readonly confirmAgentLaunch: WorkspaceMethods["confirmAgentLaunch"];
   readonly scanAgents: WorkspaceMethods["scanAgents"];
   readonly enabled: Readonly<Record<AgentId, boolean>>;
   readonly auditHuman: WorkspaceMethods["auditHuman"];
   readonly busySessions: Set<string>;
   readonly busyWorktrees: Set<string>;
+  readonly checkoutHolds: CheckoutHolds;
   readonly cleanup: Pick<
     CleanupOwner,
     "deleteMerged" | "inventory" | "removeIdleTree" | "removeOwnedTree" | "offerClosedReviews"
@@ -203,6 +211,7 @@ export interface ConfigLaunchContext {
 export interface RepositoryOperationsContext {
   readonly addWorktree: WorkspaceMethods["addWorktree"];
   readonly busyWorktrees: Set<string>;
+  readonly checkoutHolds: CheckoutHolds;
   readonly cleanup: Pick<CleanupOwner, "removeIdleTree">;
   readonly launched: Map<string, WorkspaceTerminal>;
   readonly location: "root" | "adjacent";
@@ -222,6 +231,7 @@ export interface OrchestrationCommandsContext {
   readonly scanAgents: WorkspaceMethods["scanAgents"];
   readonly auditHuman: WorkspaceMethods["auditHuman"];
   readonly busyWorktrees: Set<string>;
+  readonly checkoutHolds: CheckoutHolds;
   readonly control:
     | Promise<Pick<ControlRuntime, "setRole"> & Partial<Pick<ControlRuntime, "audit">>>
     | undefined;
@@ -286,6 +296,7 @@ export interface OrchestrationHostContext {
   readonly defaultAgent: string | null;
   readonly launchAgent: WorkspaceMethods["launchAgent"];
   readonly busyWorktrees: Set<string>;
+  readonly checkoutHolds: CheckoutHolds;
   readonly cleanup: Pick<CleanupOwner, "removeOwnedTree">;
   readonly closed: boolean;
   readonly control:

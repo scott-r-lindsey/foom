@@ -326,7 +326,9 @@ restore and confirmation-free removal still require the exact captured head.
 When an available observation is CLOSED or MERGED, idle retained review
 checkouts are offered together in the existing trusted removal batch. Each
 identity is offered once per app lifetime; unavailable/offline evidence waits for
-later inventory. Running sessions are skipped. Approval retains identity,
+later inventory. Running or closing sessions are skipped. Offers use the same
+canonical-path hold as Close and other removals across confirmation and final
+revalidation; they cannot begin a second cleanup while Close is pending. Approval retains identity,
 membership, session, reservation and final snapshot guards; it grants no new
 automatic deletion exception. Decline or a failed removal is never retried
 automatically in that app lifetime. No directory scan or new polling is added.
@@ -404,3 +406,44 @@ Removal failed state and a manual Clean up action; success removes the row and
 record, then prunes only recorded empty parent directories. Group retry requires
 no sessions in the directory and uses the repository operation reservation.
 Each refusal reason and restart recovery are covered with temporary fixtures.
+
+## Close presentation and retained cleanup (#1048)
+
+Accepted Close hides its session from board presentation before owned-review
+removal performs inventory, proofs, confirmation or deletion. Main retains the
+session and a persisted interrupted-close marker throughout; failures or declines
+restore the row. The original trusted review, automatic-removal policy, identity
+rechecks and refusal rules are unchanged. Closing records additionally reserve
+their checkout against launches before the removal owner acquires its ordinary
+branch lock. Idle removal refuses a closing checkout, and merged cleanup skips it;
+explicit identity-matched owned removals can still join the original removal. Control inventory keeps those records until actual cleanup settles,
+so removal still conflicts with outstanding sessions. Interrupted cleanup surfaces
+as a failed saved row after restart and grants no new deletion authority.
+
+An ordinary Close also reserves its checkout against separately initiated owned
+removal, locally and remotely. Removal refuses with busy/conflict before inspection
+or deletion when a session is closing, and rechecks after confirmation. Only a
+matching join to an already-running owned removal shares that operation; the
+review Close that owns the removal may retain its own closing session.
+
+`WorkspaceContext` owns `CheckoutHolds`, the shared canonical-path lease registry.
+Close, idle/owned/merged removal, remote removal, prune/broken-cleanup retries and
+known-checkout launch/resume/restart preparation, including shared-agent startup
+confirmation, acquire a lease before awaiting
+confirmation or effects. A pending removal refuses Close before its row is hidden;
+a closing session refuses removal at confirmation, post-confirmation and final
+service revalidation. Renaming a branch, detaching HEAD or replacing filesystem
+identity cannot release a path lease. Existing identity authorization remains.
+
+Nested preparation and cleanup borrow only a live, main-only lease capability.
+Each borrow retains the path independently until released; stale capabilities and
+independent operations cannot borrow it. An owned review Close passes its lease
+into its own removal, and remote removal passes its lease to its post-delete Close.
+Identity-matched owned-removal joins share the existing operation and consent.
+Success, decline and failure release every lease; a retained merged-branch cleanup
+also retains its path lease until its existing release callback runs.
+
+Branch reservations remain secondary locks for branch creation/adoption before a
+path is known and for branch cleanup. Every resolved path also checks the shared
+registry; an already-held branch key cannot waive a path hold. Home/config sessions
+retain their independent lifecycle and grant no managed-checkout deletion authority.

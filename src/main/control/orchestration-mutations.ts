@@ -628,6 +628,8 @@ export class OrchestrationMutations extends OrchestrationAuthority {
         )
     )
       return this.refuse(actor, parent, operations, operation, label, "conflict");
+    // The removal owner checks closing sessions: it may only bypass that guard
+    // to join an existing removal with the same checkout identity.
     this.note(parent, this.entry(operation, label));
     const abort = new AbortController();
     parent.aborts.add(abort);

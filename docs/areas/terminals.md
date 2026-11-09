@@ -583,3 +583,10 @@ browser parser, but attachment, screen restore and full remote reconnect replay
 use serialized parsed cells/modes from the headless screen, never raw output or
 OSC 52 commands. Hidden output is consumed by the host and cannot write later
 when shown. No clipboard command or content is persisted or logged by this feature.
+
+## Closing input guard (#1048)
+
+The main-only `setClosing(id, boolean)` capability blocks renderer attachment, kill
+and input, and main reply/child input while cleanup retains an exited terminal.
+It invalidates queued paste leases; detach remains available for view teardown.
+Main's original host-aware kill still retains remote ownership on transport failure.

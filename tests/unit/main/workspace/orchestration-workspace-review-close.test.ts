@@ -172,7 +172,7 @@ it.each(["takeover", "revocation"])(
   },
 );
 
-it("returns pending confirmation promptly and joins review close with explicit removal", async () => {
+it("returns pending confirmation promptly, refuses a second close and joins explicit removal", async () => {
   const workspace = createWorkspace(deps);
   await orchestrate(workspace);
   const actor = principal();
@@ -211,7 +211,7 @@ it("returns pending confirmation promptly and joins review close with explicit r
     { id: "reviewer", idempotencyKey: "duplicate-close" },
     operations,
   )) as Operation;
-  expect(duplicate.status).toBe("pending_confirmation");
+  expect(duplicate.status).toBe("failed");
   await workspace.orchestration.call(
     actor,
     "remove_worktree",
@@ -224,8 +224,89 @@ it("returns pending confirmation promptly and joins review close with explicit r
   expect(deps.worktrees.removeWorktree).not.toHaveBeenCalled();
   answer.resolve(true);
   await vi.waitFor(() => {
-    for (const key of ["close", "duplicate-close", "remove"])
+    for (const key of ["close", "remove"])
       expect(operations.lookup(actor, { idempotencyKey: key }).status).toBe("succeeded");
+  });
+  expect(deps.worktrees.removeWorktree).toHaveBeenCalledOnce();
+});
+
+it("refuses an owned removal while an ordinary child's Close is still killing its terminal", async () => {
+  const workspace = createWorkspace(deps);
+  await orchestrate(workspace);
+  const actor = principal();
+  const operations = new Operations(
+    async () => {},
+    () => {},
+  );
+  await workspace.orchestration.call(
+    actor,
+    "create_worktree",
+    {
+      branch: "feature",
+      idempotencyKey: "tree",
+    },
+    operations,
+  );
+  const tree = operations.lookup(actor, { idempotencyKey: "tree" });
+  launch.mockResolvedValueOnce({ id: "ordinary", attention: "evaluator" });
+  await workspace.orchestration.call(
+    actor,
+    "launch",
+    {
+      worktreeId: tree.resultId,
+      agent: "claude",
+      idempotencyKey: "launch",
+    },
+    operations,
+  );
+  await workspace.exited("ordinary", 0);
+  const teardown = Promise.withResolvers<undefined>();
+  const kill = vi.spyOn(deps.terminals, "kill").mockReturnValueOnce(teardown.promise);
+  const close = workspace.sidebarCommand({ kind: "close", id: "ordinary" }, confirm);
+  try {
+    await vi.waitFor(() => {
+      expect(kill).toHaveBeenCalledOnce();
+    });
+    await workspace.orchestration.call(
+      actor,
+      "remove_worktree",
+      {
+        worktreeId: tree.resultId,
+        idempotencyKey: "blocked-removal",
+      },
+      operations,
+    );
+    await vi.waitFor(() => {
+      expect(
+        operations.lookup(actor, {
+          idempotencyKey: "blocked-removal",
+        }),
+      ).toMatchObject({ status: "failed", reason: "busy" });
+    });
+    expect(deps.worktrees.removeWorktree).not.toHaveBeenCalled();
+    expect(kill).toHaveBeenCalledOnce();
+    expect(workspace.snapshot().terminals.find((row) => row.id === "ordinary")?.closeState).toBe(
+      "closing",
+    );
+  } finally {
+    teardown.resolve(undefined);
+    await close;
+  }
+  await workspace.orchestration.call(
+    actor,
+    "remove_worktree",
+    {
+      worktreeId: tree.resultId,
+      idempotencyKey: "after-close",
+    },
+    operations,
+  );
+  await vi.waitFor(() => {
+    expect(
+      operations.lookup(actor, {
+        idempotencyKey: "after-close",
+      }).status,
+    ).toBe("succeeded");
   });
   expect(deps.worktrees.removeWorktree).toHaveBeenCalledOnce();
 });

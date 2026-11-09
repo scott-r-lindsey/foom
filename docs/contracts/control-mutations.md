@@ -362,3 +362,12 @@ loop reviewer returns `review_agent_required`. Supply `agent` (CLI `--agent`, or
 unavailable providers refuse under the same installed-provider validation as launch;
 Foom never selects the first installed provider or falls back to another vendor.
 This changes no child authority: reviewers cannot launch or prompt agents.
+
+## Close cleanup visibility (#1048)
+
+`sessions`, `session_state` and wait observations retain an exited session during
+Close cleanup and add `closeState: "closing"`; cleanup failure exposes
+`closeState: "failed"`. This field participates in the session revision. The close
+operation cannot report success until worktree and terminal cleanup settle. Its
+existing pending-confirmation, conflict, declined, failed and indeterminate rules
+remain authoritative. A hidden board row is not proof of completed cleanup.

@@ -71,6 +71,7 @@ export function useBoardTiles({
   const focusClockRef = useRef(0);
   const repairTilesRef = useRef<(() => void) | undefined>(undefined);
   const unrestoredRolesRef = useRef(new Set<string>());
+  const closingTilesRef = useRef(new Map<string, symbol>());
   useEffect(() => {
     if (!soundSetup) return;
     let active = true;
@@ -372,8 +373,14 @@ export function useBoardTiles({
           : sessionId(tile) && !sessions.has(sessionId(tile) ?? ""),
       )
     ) {
+      const accepted = leaves(current.tree).reduce((layout, tile) => {
+        const id = sessionId(tile);
+        return id && !sessions.has(id) && closingTilesRef.current.has(id)
+          ? closeTile({ ...layout, focused: tile.id })
+          : layout;
+      }, current);
       const next = fitLayout(
-        pruneContent(current, {
+        pruneContent(accepted, {
           sessions,
           previews: previewIds(current),
         }),
@@ -381,6 +388,7 @@ export function useBoardTiles({
       );
       layoutRef.current = next;
       setLayout(next);
+      if (accepted !== current) setFocusRequest((value) => value + 1);
       try {
         saveLayout(localStorage, next, storageKey, [...startupLayoutsRef.current.values()]);
         clear("tile-layout");
@@ -496,13 +504,15 @@ export function useBoardTiles({
         session &&
         source.getSnapshot().some((row) => row.id === session && row.exited)
       ) {
+        const attempt = Symbol();
+        if (source.sidebarCommand) closingTilesRef.current.set(session, attempt);
         void source
           .sidebarCommand?.({ kind: "close", id: session })
           .then(() => {
             if (
+              !source.getSnapshot().some((row) => row.id === session) &&
               leaves(layoutRef.current.tree).some(
-                (item) =>
-                  item.id === tile && (sessionId(item) === session || item.content === null),
+                (item) => item.id === tile && sessionId(item) === session,
               )
             ) {
               changeLayout(closeTile({ ...layoutRef.current, focused: tile }));
@@ -511,6 +521,11 @@ export function useBoardTiles({
           })
           .catch((error: unknown) => {
             setRemoveError(errorMessage(error, "Unable to close session."));
+          })
+          .finally(() => {
+            if (closingTilesRef.current.get(session) === attempt) {
+              closingTilesRef.current.delete(session);
+            }
           });
         return;
       }

@@ -44,6 +44,8 @@ export interface WorkspaceTerminal {
   /** Phase-2 remote child; never silently relaunched as a local process. */
   remote?: true;
   remoteCleanup?: "unreachable";
+  /** Main retains cleanup ownership while the board hides a closing session. */
+  closeState?: "closing" | "failed";
   placement?: { kind: "local" } | { kind: "remote"; host: string };
   /** Host-observed foreground process name; never persisted. */
   foregroundProgram?: string;

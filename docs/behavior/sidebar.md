@@ -175,7 +175,7 @@ Antigravity captures IDs through its opt-in lifecycle plugin. Without supported
 hooks, IDs must be pasted to make Resume and Copy session ID available.
 An exited shell’s sidebar panel offers **Restart shell**, a separator and **Close**;
 the terminal pane has no restart button. Close removes the
-session and its stored record, never the checkout or the agent's own conversation files.
+session and its stored record after background cleanup, preserving the agent's own conversation files. Owned review worktrees retain their trusted removal rules; see [Close](tiles.md#closing-sessions-1048).
 With **Restore sessions on launch** on (the default), agents running at quit resume their recorded conversations in the same rows and tiles. Agents without a conversation ID stay exited and offer New conversation here; Foom never substitutes a new conversation. If no ID was pasted and no supported hook/notify event
 arrived before exit (including hooks-disabled launches), no conversation ID is available.
 

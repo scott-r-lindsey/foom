@@ -1,3 +1,4 @@
+const { measureClose, closeTiming } = require("./close-timing.js");
 const { sizeTileBoard } = require("./tile-fixture.js");
 const { evidencePath } = require("../helpers/evidence.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
@@ -898,4 +899,83 @@ test("sidebar border resizes live, persists per window and refits the terminal o
   await expect.poll(savedWidth).toBe(300);
   await expect(handle).toHaveAttribute("aria-valuenow", "300");
   await assertAccessible(page);
+});
+
+test("Close removes the tile and sidebar before slow cleanup and restores a failed row", {
+  timeout: deadline(45000),
+}, async (context) => {
+  const app = await launchApp(context, { fixture: "running-shell" });
+  const page = await boardPage(app);
+  await sizeTileBoard(app, page);
+  const id = await page.evaluate(async () => (await window.desktop.workspace()).terminals[0].id);
+  const row = page.locator(`[data-drag-session="${id}"]`);
+  await page.evaluate(() => window.desktop.appMenu.execute("split-right"));
+  const second = await page.evaluate(() => window.desktop.sidebarCommand({ kind: "home-shell" }));
+  await page.locator(`[data-drag-session="${second.terminalId}"]`).press("Enter");
+  const closingTile = page.getByRole("region", { name: /Tile 2:/ });
+  await expectShellReady(page, id, closingTile.locator(".xterm-helper-textarea"));
+  await page.evaluate((id) => window.desktop.input(id, "exit\r"), id);
+  await expect(row).toHaveAttribute("data-exited", "true");
+  await app.evaluate(({ app }) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { TerminalHostClient } = load("./build/main/terminals/terminal-host-client.js");
+    const kill = TerminalHostClient.prototype.kill;
+    globalThis.closeTiming = {};
+    TerminalHostClient.prototype.kill = async function (...args) {
+      globalThis.closeTiming.cleanupStarted = Date.now();
+      await new Promise((resolve) => {
+        globalThis.releaseClose = resolve;
+      });
+      if (globalThis.failClose) throw new Error("fixture cleanup failed");
+      await kill.apply(this, args);
+      globalThis.closeTiming.finished = Date.now();
+    };
+  });
+  await measureClose(app, page, id);
+  await page.screenshot({ animations: "disabled", path: evidencePath("1048-close-before.png") });
+  const started = Date.now();
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(row).toHaveCount(0);
+  await expect(closingTile).toHaveCount(0);
+  await expect(
+    page.getByRole("region", { name: /Tile 1:/ }).locator(".xterm-helper-textarea"),
+  ).toBeFocused();
+  const hiddenMs = Date.now() - started;
+  const timing = await closeTiming(app, page);
+  await expect.poll(() => app.evaluate(() => globalThis.closeTiming.cleanupStarted)).toBeTruthy();
+  assert.equal(await app.evaluate(() => globalThis.closeTiming.finished), undefined);
+  assert.equal(
+    await page.evaluate(
+      async (id) =>
+        (await window.desktop.workspace()).terminals.find((row) => row.id === id)?.closeState,
+      id,
+    ),
+    "closing",
+  );
+  await page.screenshot({
+    animations: "disabled",
+    path: evidencePath("1048-close-background.png"),
+  });
+  await app.evaluate(() => {
+    globalThis.failClose = true;
+    globalThis.releaseClose();
+  });
+  await expect(row).toHaveCount(1);
+  await expect(row).toContainText("Close failed · cleanup may be incomplete");
+  await page.getByRole("button", { name: "Dismiss", exact: true }).click();
+  // Cleanup failures remain visible in both the row and its session panel.
+  await row.locator(".row-actions").click();
+  await expect(
+    page.getByText("Close failed · cleanup may be incomplete", { exact: true }).last(),
+  ).toBeVisible();
+  await expect(page.locator(".panel-chip").filter({ hasText: /^0$/ })).toHaveAttribute(
+    "data-tone",
+    "done",
+  );
+  await page.screenshot({ animations: "disabled", path: evidencePath("1048-close-failed.png") });
+  console.log(
+    `1048 local fixture: tile+row hidden in ${hiddenMs}ms; cleanup remained gated until after screenshot; ${JSON.stringify(timing)}`,
+  );
 });

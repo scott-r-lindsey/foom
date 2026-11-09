@@ -251,6 +251,8 @@ export function createAppSource(): BoardSource {
   };
   const latest = (row: BoardRow): BoardRow => {
     const current = executionRow(latestVerdict(row));
+    if (row.closeFailed)
+      return { ...current, state: "failed", reason: "Close failed · cleanup may be incomplete" };
     return row.unavailable ? { ...current, reason: "Unavailable" } : current;
   };
   const latestVerdict = (row: BoardRow): BoardRow => {
@@ -279,7 +281,8 @@ export function createAppSource(): BoardSource {
     loaded = true;
     repositories = next.repositories.map((repo) => repo.name);
     const known = new Map(rows.map((row) => [row.id, row]));
-    const live = next.terminals.map((entry): BoardRow => {
+    const visible = next.terminals.filter((entry) => entry.closeState !== "closing");
+    const live = visible.map((entry): BoardRow => {
       const previous = known.get(entry.id);
       const version = entry.launchVersion ?? 0;
       if (previous && (previous.launchVersion ?? 0) > version) {
@@ -392,6 +395,7 @@ export function createAppSource(): BoardSource {
                   (entry.placement?.kind === "remote" ? entry.placement.host : undefined) &&
                 !machine.available,
             )),
+        closeFailed: entry.closeState === "failed",
         launchVersion: entry.launchVersion ?? 0,
       });
     });
@@ -684,7 +688,6 @@ export function createAppSource(): BoardSource {
         return;
       }
       if (
-        command.kind === "close" ||
         command.kind === "restart" ||
         command.kind === "resume" ||
         command.kind === "new-conversation"
@@ -719,7 +722,10 @@ export function createAppSource(): BoardSource {
         if (command.kind === "resume" || command.kind === "new-conversation")
           snapshot(await window.desktop.workspace(), command.id);
       }
-      if (command.kind === "close") {
+      if (
+        command.kind === "close" &&
+        !(await window.desktop.workspace()).terminals.some((row) => row.id === command.id)
+      ) {
         forget(command.id);
         rows = rows.filter((row) => row.id !== command.id);
         if (command.id === shellId) shellId = pendingShell;
