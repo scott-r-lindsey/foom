@@ -7,27 +7,10 @@ const { deadline } = require("./test-policy.js");
 const run = promisify(execFile);
 const { assertFixtureAgent } = require("./agent-isolation.js");
 
-async function snapshot() {
-  if (process.platform === "win32") {
-    const { stdout } = await run(
-      "powershell.exe",
-      [
-        "-NoProfile",
-        "-NonInteractive",
-        "-Command",
-        "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name,CreationDate,CommandLine | ConvertTo-Json -Compress",
-      ],
-      { timeout: deadline(10_000), maxBuffer: 4 * 1024 * 1024 },
-    );
-    return JSON.parse(stdout).map((entry) => ({
-      pid: entry.ProcessId,
-      parent: entry.ParentProcessId,
-      name: entry.Name,
-      start: entry.CreationDate,
-      command: entry.CommandLine ?? "",
-      host: /node.mojom.NodeService/.test(entry.CommandLine ?? ""),
-    }));
-  }
+const { windowsProcessSnapshot } = require("./windows-process-snapshot.js");
+
+async function snapshot(report) {
+  if (process.platform === "win32") return windowsProcessSnapshot(report);
   const { stdout } = await run("ps", ["-axo", "pid=,ppid=,lstart=,comm=,args="], {
     timeout: deadline(10_000),
     maxBuffer: 4 * 1024 * 1024,
@@ -69,7 +52,15 @@ function descendants(rows, roots, baseline = []) {
 
 // Capture descendants while the app is alive, retaining their creation identity
 // after reparenting. Never kill a process solely because its PID was reused.
-async function auditProcesses(context, checkpoint = () => {}, takeSnapshot = snapshot) {
+async function auditProcesses(
+  context,
+  checkpoint = () => {},
+  takeSnapshot = () =>
+    snapshot((details) => {
+      checkpoint("process audit snapshot", details);
+      context.diagnostic(`process audit snapshot: ${JSON.stringify(details)}`);
+    }),
+) {
   const roots = new Set();
   const tracked = new Map();
   const baseline = await takeSnapshot();
