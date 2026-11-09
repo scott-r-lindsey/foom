@@ -249,7 +249,10 @@ turn, including in the focused tile. Initial readiness is not a completion. Comp
 replayed. Attention reminders resume after two minutes away or after unmuting.
 Verdicts settle for one second before sounding. Simultaneous alerts play once, with
 Needs you taking precedence; verdict alerts are at least two seconds apart.
-Full tile placement does not play Refusal. Visual status always stays on.
+Refusal plays once when a foreground terminal open or sidebar preview open hits
+the tile layout's size limit. Background opens and agent-requested previews stay
+silent. Alerts off or zero alert volume mutes Refusal, including requests forwarded
+from another window. Visual status always stays on.
 
 **Open sounds folder** opens `~/.foom/config/sounds/` in the file manager. Add files
 to `working/`, `done/`, `needs-you/` or `refusal/`, then reopen Settings → Sound to
