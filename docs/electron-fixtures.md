@@ -631,8 +631,8 @@ this false readiness state. It then completes the command and waits for a render
 `REMOTE_LINK_READY` marker, produced with a split printf format so the marker
 cannot match command echo. Only then does it measure and click the OSC link. It
 asserts that the malformed-looking echo target and correct OSC target coexist,
-that the entire typed command arrives in order, and that the shell emits actual
-ESC/BEL bytes. The fixture-only stream is retained in ignored
+that the shell emits actual ESC/BEL bytes. Interactive shells may redraw edited
+input, so raw PTY echo is not required to contain the command contiguously. The fixture-only stream is retained in ignored
 `test-results/remote-link-readiness.json`. A unit regression feeds the echoed
 command and BEL-terminated OSC output through every OSC chunk boundary, keeping
 their targets separate. This distinguishes remote echo readiness from shell

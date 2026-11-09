@@ -156,12 +156,17 @@ test("remote shell fixture copies links and confirms external browser navigation
     window.stopRemoteLinkChunks();
     return window.remoteLinkChunks;
   });
-  assert.ok(chunks.join("").includes(prefix + suffix));
-  assert.ok(chunks.join("").includes(`\x1b]8;;${remoteUrl}\x07Remote sign in\x1b]8;;\x07`));
   await writeFile(
     evidencePath("remote-link-readiness.json"),
-    JSON.stringify({ chunks, echoedTarget, oscTarget: remoteUrl }, null, 2),
+    JSON.stringify(
+      { chunks, typedParts: [prefix, suffix], echoedTarget, oscTarget: remoteUrl },
+      null,
+      2,
+    ),
   );
+  // Interactive shells can redraw edited input; raw PTY echo need not be a
+  // contiguous copy of the command. The executed printf's OSC bytes are exact.
+  assert.ok(chunks.join("").includes(`\x1b]8;;${remoteUrl}\x07Remote sign in\x1b]8;;\x07`));
   const linkBounds = await remoteLink.locator(":scope > span").first().boundingBox();
   assert.ok(linkBounds);
   const linkPoint = { x: linkBounds.x + 10, y: linkBounds.y + linkBounds.height / 2 };
