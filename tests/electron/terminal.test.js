@@ -894,9 +894,12 @@ test("an unanswered request times out while a real fixture terminal still answer
   );
   assert.equal(result.timeouts.length, 2);
   assert.equal(result.timeouts[0].command, "tail");
-  // Node timers have millisecond precision and can fire just under 10 seconds;
-  // diagnostics round the actual monotonic duration, which can therefore be 9999.
-  assert.ok(result.timeouts[0].elapsedMs >= 9999);
+  const TIMEOUT_MS = 10_000;
+  const TIMER_TOLERANCE_MS = 25;
+  // The monotonic measurement starts before the timer is armed. Allow a few
+  // milliseconds of timer/clock jitter and diagnostic rounding, while still
+  // rejecting a timeout that fires noticeably early (100 ms or more).
+  assert.ok(result.timeouts[0].elapsedMs >= TIMEOUT_MS - TIMER_TOLERANCE_MS);
   assert.deepEqual(Object.keys(result.timeouts[0]).sort(), ["command", "elapsedMs", "time"]);
 });
 
