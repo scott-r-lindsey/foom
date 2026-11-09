@@ -299,7 +299,7 @@ test("remote shell fixture restores profile sessions and palettes after hub rest
 }, async (context) => {
   const fixture = await remoteFixture(context);
   const { bin, remoteHome, cleanup, manifest, socket, closeDaemon, colorProbe, daemon } = fixture;
-  const { app, page, profilePath, profileTag } = await remoteApp(context, fixture);
+  const { app, page, profilePath, profileTag, hubHome } = await remoteApp(context, fixture);
   // Enrollment is a precondition here; its failure/UI coverage has its own case.
   await mkdir(path.join(remoteHome, "code"), { mode: 0o700 });
   await page.evaluate(
@@ -359,6 +359,7 @@ test("remote shell fixture restores profile sessions and palettes after hub rest
   fixture.phase("recovery preparation");
   const restarted = await launchApp(context, {
     fixture: "restored",
+    home: hubHome,
     env: { PATH: bin, SSH_AUTH_SOCK: "" },
     args: [`--user-data-dir=${profilePath}`, "--remote-shell-spike=fixture-cloud"],
   }).finally(() => {
@@ -366,6 +367,13 @@ test("remote shell fixture restores profile sessions and palettes after hub rest
     cleanup.apps.push(closeDaemon);
   });
   const restored = await boardPage(restarted);
+  const restoredSettings = await restored.evaluate(
+    async () => (await window.desktop.setupState()).settings,
+  );
+  assert.equal(restoredSettings.terminalTheme, "foom-dark");
+  assert.equal(restoredSettings.interfaceTheme, "eclipse-light");
+  // Refreshing unchanged saved settings must not erase retained application colours.
+  await restored.evaluate(() => window.desktop.saveSetup({ terminalTheme: "foom-dark" }));
   await expect
     .poll(async () =>
       (await restored.evaluate(() => window.desktop.workspace())).terminals
@@ -796,7 +804,8 @@ async function remoteApp(context, fixture) {
   ).remoteProfile;
   assert.match(profileTag, /^[a-f0-9]{32}$/u);
   fixture.phase("hub launch");
-  return { app, page, profilePath, profileTag };
+  const hubHome = await app.evaluate(({ app }) => app.getPath("home"));
+  return { app, page, profilePath, profileTag, hubHome };
 }
 
 async function remoteShell(page, phase) {

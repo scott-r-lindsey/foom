@@ -688,7 +688,10 @@ and proves the owned session remains live. These were separated after a passing
 macOS restart case measured 30.17 seconds, above #1155's 30-second acceptance
 target despite remaining below its unchanged 60-second deadline.
 
-The restart case keeps a light interface and a saved dark terminal palette, and
+The restart case reuses both the persisted profile and the same isolated HOME;
+reusing only the profile would also change the shared config location. It asserts
+the restored settings, refreshes the unchanged saved terminal choice, keeps a
+light interface and a saved dark terminal palette, and
 checks the same shell PID before and after restoration. Startup applies that saved
 palette before restoring sessions, so a late settings application cannot replace
 the retained application-set background. Built-in and custom startup palettes also
