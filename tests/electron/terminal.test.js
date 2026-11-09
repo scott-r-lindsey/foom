@@ -21,7 +21,7 @@ const {
   stopSession,
 } = require("./harness.js");
 
-async function exitedCursorResize(context, delayedExit = false) {
+async function exitedCursorResize(context, delayedExit = false, rejectRefresh = false) {
   const root = await mkdtemp(path.join(tmpdir(), "foom-cursor-reflow-"));
   removeAfterApps(context, root);
   const prompt = String.raw`PS C:\Users\runneradmin\AppData\Local\Temp\foom-tests-bW5FZf\foom-profile-u5o8i1\shell-fixture> `;
@@ -78,8 +78,43 @@ process.stdin.once("data", () => {
     });
     const gate = await holdExit(app, page, id);
     try {
+      if (rejectRefresh) {
+        await app.evaluate(({ app }, id) => {
+          const load = process
+            .getBuiltinModule("node:module")
+            .createRequire(app.getAppPath() + "/package.json");
+          const { TerminalHostClient } = load("./build/main/terminals/terminal-host-client.js");
+          const attach = TerminalHostClient.prototype.attach;
+          globalThis.refreshAttachAttempts = 0;
+          TerminalHostClient.prototype.attach = function (candidate, send) {
+            if (candidate === id && ++globalThis.refreshAttachAttempts === 1)
+              return Promise.reject(new Error("Fixture snapshot unavailable"));
+            return attach.call(this, candidate, send);
+          };
+        }, id);
+      }
       await page.keyboard.type("q");
-      await reconcileExitResize(app, page, id, gate, prompt);
+      await reconcileExitResize(
+        app,
+        page,
+        id,
+        gate,
+        prompt,
+        rejectRefresh
+          ? async () => {
+              // Only the second native-host attach rejects. Its error must settle
+              // without hiding the already-rendered cursor row or losing its lease.
+              await expect(page.locator(".tile-status")).toHaveText(
+                /Unable to (open|refresh) terminal/,
+              );
+              await expect(rows).toBeVisible();
+              await expect.poll(() => app.evaluate(() => globalThis.refreshAttachAttempts)).toBe(1);
+              await sizeTileBoard(app, page, 1500, 900);
+              await expect.poll(cols).toBeGreaterThan(prompt.length);
+              await expect.poll(() => app.evaluate(() => globalThis.refreshAttachAttempts)).toBe(2);
+            }
+          : undefined,
+      );
     } finally {
       await gate.release();
     }
@@ -121,6 +156,10 @@ test("cursor-row output survives window shrink, grow and Settings reattachment",
 
 test("local exit delivery across shrink reconciles the attached cursor row", async (context) => {
   await exitedCursorResize(context, true);
+});
+
+test("failed exit refresh retains visible output and retries on the next resize", async (context) => {
+  await exitedCursorResize(context, true, true);
 });
 
 test("live raw PTY writes after resize without a stale reflow suffix", async (context) => {

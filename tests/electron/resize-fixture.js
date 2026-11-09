@@ -128,7 +128,7 @@ async function holdExit(app, page, id) {
   };
 }
 
-async function reconcileExitResize(app, page, id, gate, prompt) {
+async function reconcileExitResize(app, page, id, gate, prompt, afterRelease) {
   const cols = () => terminalColumns(app, id);
   const tail = () => page.evaluate(async (id) => (await window.desktop.tail(id, 40)).join(""), id);
   await expect.poll(gate.count).toBe(1);
@@ -140,6 +140,7 @@ async function reconcileExitResize(app, page, id, gate, prompt) {
   const clipped = prompt.slice(0, await cols()).trimEnd();
   await expect.poll(() => renderedText(page)).toBe(clipped);
   await gate.release();
+  if (afterRelease) await afterRelease();
   // Recovery must happen in the attached view, without visiting Settings.
   await expect.poll(() => renderedText(page)).toBe(prompt.trimEnd());
   await expect.poll(tail).toBe(prompt);

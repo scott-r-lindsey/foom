@@ -127,6 +127,7 @@ export function createShell(
   let busy = false;
   let fontResizePending = false;
   let exited = false;
+  let failedExitRefresh: string | undefined;
   let hostFailed = false;
   let terminalStatus = "Starting shell…";
   const showOperationError = (prefix: string, _error: unknown) => {
@@ -243,6 +244,7 @@ export function createShell(
     if (lastLiveViewId === id) lastLiveViewId = undefined;
     exits.delete(id);
     removed.delete(id);
+    if (failedExitRefresh === id) failedExitRefresh = undefined;
     if (pendingId === id) {
       pendingId = undefined;
       ++request;
@@ -356,7 +358,10 @@ export function createShell(
     view.rows = terminal.rows;
     publish();
     fontResizePending = false;
-    if (activeId && resizeHost) window.desktop.resize(activeId, terminal.cols, terminal.rows);
+    if (activeId && resizeHost) {
+      window.desktop.resize(activeId, terminal.cols, terminal.rows);
+      if (failedExitRefresh === activeId && wantsVisible()) void select(activeId, true);
+    }
   };
   // Subscribe before loading so a late initial response cannot undo a live change.
   let settingsChanged = false;
@@ -450,6 +455,7 @@ export function createShell(
     window.desktop.resize(id, terminal.cols, terminal.rows);
     if (refresh) await window.desktop.attach(id, "refresh");
     else await window.desktop.attach(id);
+    if (failedExitRefresh === id) failedExitRefresh = undefined;
     if (!wantsVisible()) {
       visibility(false);
       if (isAvailable(id)) await window.desktop.detach(id);
@@ -580,8 +586,11 @@ export function createShell(
       controls();
       try {
         if (attached && activeId === id) {
-          if (refresh) await openView(id, true);
-          else if (focusOnOpen) terminal.focus();
+          if (refresh) {
+            await openView(id, true);
+            view.status = terminalStatus;
+            publish();
+          } else if (focusOnOpen) terminal.focus();
           return;
         }
         const previous = attached ? activeId : undefined;
@@ -604,9 +613,16 @@ export function createShell(
         view.status = terminalStatus;
         await openView(id);
       } catch (error: unknown) {
-        visibility(false);
-        if (isAvailable(id)) await window.desktop.detach(id).catch(() => {});
-        showOperationError("Unable to open terminal", error);
+        if (refresh) {
+          // Optional replay must not discard a view that was already attached.
+          // Keep its last cells and retry on a later resize or normal reattach.
+          if (activeId === id && attached && isAvailable(id)) failedExitRefresh = id;
+          showOperationError("Unable to refresh terminal", error);
+        } else {
+          visibility(false);
+          if (isAvailable(id)) await window.desktop.detach(id).catch(() => {});
+          showOperationError("Unable to open terminal", error);
+        }
       } finally {
         busy = false;
         controls();

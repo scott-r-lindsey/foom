@@ -1361,26 +1361,56 @@ test.each(["hide", "switch", "release", "revoke", "dispose"])(
   },
 );
 
-test("failed exit reconciliation hides the view and permits another snapshot attempt", async () => {
+test("failed exit reconciliation retains the visible attachment and retries on resize", async () => {
   const update = vi.fn();
-  const controller = createShell(document.createElement("div"), update, false, undefined, false);
+  const container = document.createElement("div");
+  let width = 800;
+  vi.spyOn(container, "getBoundingClientRect").mockImplementation(
+    () => new DOMRect(0, 0, width, 400),
+  );
+  const controller = createShell(container, update, false, undefined, false);
   await controller.open("one");
+  mock.onData.mock.calls[0]?.[0]("one", "old", "retained output");
+  mock.reset.mockClear();
+  mock.focus.mockClear();
   mock.attach.mockRejectedValueOnce(new Error("snapshot unavailable"));
   mock.onExit.mock.calls[0]?.[0]("one", 0);
   await vi.waitFor(() => {
     expect(update).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        visible: false,
-        status: "Unable to open terminal",
+        visible: true,
+        status: "Unable to refresh terminal",
         toggleDisabled: false,
       }),
     );
   });
-  expect(mock.detach).toHaveBeenCalledWith("one");
-  await controller.open("one");
+  expect(container.hidden).toBe(false);
+  expect(mock.detach).not.toHaveBeenCalled();
+  expect(mock.reset).not.toHaveBeenCalled();
+  expect(mock.focus).not.toHaveBeenCalled();
+  width = 1200;
+  mock.fitCols = 120;
+  mock.resizeCallback.mock.calls[0]?.[0]();
+  await vi.waitFor(() => {
+    expect(mock.attach).toHaveBeenCalledTimes(3);
+    expect(update).toHaveBeenLastCalledWith(expect.objectContaining({ toggleDisabled: false }));
+  });
+  expect(mock.attach).toHaveBeenLastCalledWith("one", "refresh");
   expect(mock.options.disableStdin).toBe(true);
   expect(mock.options.reflowCursorLine).toBe(true);
-  expect(update).toHaveBeenLastCalledWith(expect.objectContaining({ visible: true }));
+  expect(update).toHaveBeenLastCalledWith(
+    expect.objectContaining({ visible: true, status: "Shell exited (0)" }),
+  );
+  expect(mock.detach).not.toHaveBeenCalled();
+  // A successful retry must not request another snapshot on subsequent resizes.
+  width = 1400;
+  mock.fitCols = 140;
+  mock.resizeCallback.mock.calls[0]?.[0]();
+  await Promise.resolve();
+  expect(mock.attach).toHaveBeenCalledTimes(3);
+  await controller.hide();
+  await controller.open("one");
+  expect(mock.attach).toHaveBeenLastCalledWith("one");
   controller.dispose();
 });
 

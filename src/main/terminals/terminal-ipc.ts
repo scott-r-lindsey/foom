@@ -204,7 +204,9 @@ export function attachTerminal(
               event.sender.send("terminal:data", id, token, data);
           });
         } catch (error) {
-          if (attached.get(id) === event.sender) {
+          // A refresh replaces an existing snapshot, not its capability. Retain
+          // ownership so a failed optional replay can be retried in place.
+          if (mode !== "refresh" && attached.get(id) === event.sender) {
             invalidatePaste(id);
             attached.delete(id);
           }

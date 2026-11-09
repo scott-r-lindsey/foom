@@ -488,6 +488,33 @@ test("refresh replays only a retained attachment and is harmless after detach, c
   );
 });
 
+test("a failed optional refresh retains its attachment capability for snapshot retry", async () => {
+  const id = await create();
+  output("retained output");
+  await invoke("attach", [id]);
+  pty().onExit.mock.calls[0]?.[0]({ exitCode: 0 });
+  await vi.waitFor(() => {
+    expect(contents.send).toHaveBeenCalledWith("terminal:exit", id, 0);
+  });
+  const serialize = vi.spyOn(SerializeAddon.prototype, "serialize").mockImplementationOnce(() => {
+    throw new Error("Incompatible snapshot");
+  });
+  try {
+    await expect(invoke("attach", [id, "refresh"])).rejects.toThrow("Unable to snapshot terminal");
+    await expect(invoke("tail", [id, 1])).resolves.toEqual(["retained output"]);
+    contents.send.mockClear();
+    await invoke("attach", [id, "refresh"]);
+    expect(contents.send).toHaveBeenCalledWith(
+      "terminal:data",
+      id,
+      expect.any(String),
+      expect.stringContaining("retained output"),
+    );
+  } finally {
+    serialize.mockRestore();
+  }
+});
+
 test("rejects malformed dimensions and untrusted frames on every channel", async () => {
   const id = await create();
   for (const pair of [
