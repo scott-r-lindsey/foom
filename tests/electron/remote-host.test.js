@@ -310,7 +310,6 @@ test("remote shell fixture uploads a pinned headless host and replays the same P
   const tail = () =>
     page.evaluate(async (id) => (await window.desktop.tail(id, 40)).join("\n"), id);
   await expect.poll(tail).toMatch(/[$#>]\s*$/);
-  await require("./resize-fixture.js").liveRawResize(app, page, id, root);
   // Links from fixture SSH output use the local clipboard and stubbed local browser.
   const remoteUrl = "https://remote.example.test/oauth?state=fixture";
   await app.evaluate(({ shell }) => {
@@ -604,11 +603,9 @@ test("remote shell fixture uploads a pinned headless host and replays the same P
   gone.close();
 });
 
-test("remote exit delivery across shrink reconciles the attached cursor row", {
-  skip: process.platform === "win32",
-  timeout: deadline(60000),
-}, async (context) => {
-  const { app, page, root, remoteHome } = await remoteFixture(context);
+async function remoteResizeFixture(context) {
+  const fixture = await remoteFixture(context);
+  const { page, remoteHome } = fixture;
   const enrolled = await page.evaluate(
     (codeFolder) => window.desktop.hosts({ action: "add", host: "fixture-cloud", codeFolder }),
     remoteHome,
@@ -617,6 +614,22 @@ test("remote exit delivery across shrink reconciles the attached cursor row", {
   await page.evaluate(() => window.desktop.sidebarCommand({ kind: "home-shell" }));
   await page.locator(".board-row[data-kind='shell']").click();
   const id = (await page.evaluate(() => window.desktop.workspace())).terminals[0].id;
+  return { ...fixture, id };
+}
+
+test("remote live raw PTY writes after resize without a stale reflow suffix", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, root, id } = await remoteResizeFixture(context);
+  await require("./resize-fixture.js").liveRawResize(app, page, id, root);
+});
+
+test("remote exit delivery across shrink reconciles the attached cursor row", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, root, id } = await remoteResizeFixture(context);
   const { exitResizeRace } = require("./resize-fixture.js");
   await exitResizeRace(app, page, id, root);
 });

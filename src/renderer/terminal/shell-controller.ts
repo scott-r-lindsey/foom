@@ -428,7 +428,10 @@ export function createShell(
     });
     if (isDisposed() || !wantsVisible() || !isAvailable(id)) return;
     wheel.reset();
-    terminal.reset();
+    // Current hosts send a self-resetting snapshot. A retained-attachment
+    // refresh can be skipped after revocation, so keep its old cells/colors
+    // until that snapshot actually arrives. Normal opens also support old hosts.
+    if (!refresh) terminal.reset();
     terminal.options.cursorBlink = !exited;
     // xterm reset retains cursor hiding. Preserve it for the same live session
     // on older hosts without DECTCEM; a different session starts visible.
@@ -437,7 +440,7 @@ export function createShell(
     else if (lastLiveViewId !== id) terminal.write("\x1b[?25h");
     lastLiveViewId = exited ? undefined : id;
     controls();
-    updateTheme();
+    if (!refresh) updateTheme();
     visibility(true);
     fit.fit();
     view.cols = terminal.cols;
@@ -566,10 +569,12 @@ export function createShell(
     suspended = undefined;
     pruneEvents();
     const current = ++request;
-    visibleRequested = false;
+    // Recovery must not make an in-flight wanted attachment detach itself.
+    if (!refresh) visibleRequested = false;
     selection = selection.then(async () => {
       await ready;
       if (isDisposed() || current !== request || !isAvailable(id)) return;
+      if (refresh && (!attached || activeId !== id)) return;
       visibleRequested = true;
       busy = true;
       controls();
@@ -597,7 +602,7 @@ export function createShell(
         terminalStatus = code === undefined ? "Terminal" : `Terminal exited (${String(code)})`;
         view.state = code === undefined ? "quiet_ok" : code === 0 ? "done" : "failed";
         view.status = terminalStatus;
-        await openView(id, refresh);
+        await openView(id);
       } catch (error: unknown) {
         visibility(false);
         if (isAvailable(id)) await window.desktop.detach(id).catch(() => {});

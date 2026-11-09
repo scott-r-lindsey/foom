@@ -1204,8 +1204,9 @@ test("exit repairs a cursor row clipped before lifecycle delivery without steali
   });
   const controller = createShell(document.createElement("div"), vi.fn(), false, undefined, false);
   const receive = mock.onData.mock.calls[0]?.[0];
+  let generation = 0;
   mock.attach.mockImplementation((id: string) => {
-    receive?.(id, "snapshot", `\x1bc${terminalSnapshot(host, serialize)}`);
+    receive?.(id, `snapshot-${String(++generation)}`, `\x1bc${terminalSnapshot(host, serialize)}`);
     return Promise.resolve();
   });
   try {
@@ -1234,6 +1235,105 @@ test("exit repairs a cursor row clipped before lifecycle delivery without steali
     mock.reset.mockReset();
     mock.resize.mockReset();
     host.dispose();
+    view.dispose();
+  }
+});
+
+test("exit during initial attachment preserves its wanted view and lease for recovery", async () => {
+  const pending = Promise.withResolvers<undefined>();
+  mock.attach.mockReturnValueOnce(pending.promise);
+  const update = vi.fn();
+  const controller = createShell(document.createElement("div"), update, false, undefined, false);
+  try {
+    const opening = controller.open("one");
+    await vi.waitFor(() => {
+      expect(mock.attach).toHaveBeenCalledOnce();
+    });
+    mock.onExit.mock.calls[0]?.[0]("one", 1);
+    pending.resolve(undefined);
+    await opening;
+    await vi.waitFor(() => {
+      expect(mock.attach).toHaveBeenCalledTimes(2);
+    });
+    expect(mock.detach).not.toHaveBeenCalled();
+    expect(mock.attach).toHaveBeenLastCalledWith("one", "refresh");
+    expect(update).toHaveBeenLastCalledWith(expect.objectContaining({ visible: true }));
+  } finally {
+    pending.resolve(undefined);
+    await controller.hide();
+    controller.dispose();
+  }
+});
+
+test("exit recovery does not reopen a view whose pending initial attachment failed", async () => {
+  const pending = Promise.withResolvers<undefined>();
+  mock.attach.mockReturnValueOnce(pending.promise);
+  const update = vi.fn();
+  const controller = createShell(document.createElement("div"), update, false, undefined, false);
+  const opening = controller.open("one");
+  await vi.waitFor(() => {
+    expect(mock.attach).toHaveBeenCalledOnce();
+  });
+  mock.onExit.mock.calls[0]?.[0]("one", 1);
+  await settle(() => {
+    pending.reject(new Error("Unable to snapshot terminal"));
+  });
+  await opening;
+  expect(mock.attach).toHaveBeenCalledOnce();
+  expect(update).toHaveBeenLastCalledWith(
+    expect.objectContaining({ visible: false, status: "Unable to open terminal" }),
+  );
+  await controller.hide();
+  controller.dispose();
+});
+
+test("exit refresh retains output until a fresh snapshot, including when the PTY was revoked", async () => {
+  const view = new HeadlessTerminal({ allowProposedApi: true });
+  const write = (data: string) =>
+    new Promise<void>((resolve) => {
+      view.write(data, resolve);
+    });
+  const text = () =>
+    Array.from(
+      { length: view.buffer.active.length },
+      (_, index) => view.buffer.active.getLine(index)?.translateToString(true) ?? "",
+    ).join("");
+  mock.write.mockImplementation((data, done) => {
+    view.write(data, done);
+  });
+  mock.reset.mockImplementation(() => {
+    view.reset();
+  });
+  const controller = createShell(document.createElement("div"), vi.fn(), false, undefined, false);
+  const pending = Promise.withResolvers<undefined>();
+  try {
+    await controller.open("one");
+    const receive = mock.onData.mock.calls[0]?.[0];
+    receive?.("one", "old", "UNKNOWN_CONVERSATION external-123");
+    await write("");
+    mock.attach.mockReturnValueOnce(pending.promise);
+    mock.onExit.mock.calls[0]?.[0]("one", 1);
+    await vi.waitFor(() => {
+      expect(mock.attach).toHaveBeenCalledTimes(2);
+    });
+    await write("");
+    expect(text()).toBe("UNKNOWN_CONVERSATION external-123");
+    receive?.("one", "old", "\r\nLATE");
+    await write("");
+    expect(text()).toBe("UNKNOWN_CONVERSATION external-123LATE");
+    // A revoked attachment can resolve refresh without delivering a snapshot.
+    pending.resolve(undefined);
+    await write("");
+    expect(text()).toBe("UNKNOWN_CONVERSATION external-123LATE");
+    receive?.("one", "new", "\x1bcREPLAY");
+    await write("");
+    expect(text()).toBe("REPLAY");
+    expect(mock.acknowledge).toHaveBeenLastCalledWith("one", "new", 8);
+  } finally {
+    pending.resolve(undefined);
+    await controller.hide();
+    controller.dispose();
+    mock.reset.mockReset();
     view.dispose();
   }
 });

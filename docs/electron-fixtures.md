@@ -472,7 +472,8 @@ then checking one prompt after shrink and standalone `SHRINK_MARKER` output afte
 typing while narrow and growing. A raw Node child writes 96 P characters, stays
 alive through shrink, growth and Settings reattachment, then writes Z. Host tail
 and renderer must agree with Z at the end, without a stale reflow suffix. The
-same raw case runs over fixture SSH in the remote-shell scenario. Windows also
+same raw case runs in its own isolated fixture-SSH case. The existing SSH-loss
+continuity scenario contains no resize regression steps. Windows also
 exercises its ConPTY-owned console redraw; the Bash-only case is POSIX. Unit
 coverage checks live/default writes, exited replay, and renderer lifecycle and
 view-reuse policy. No fixture uses a real agent CLI, real SSH or user startup
@@ -511,8 +512,9 @@ its shell with a raw Node fixture and writes 96 P characters before exiting.
 Both first prove the authoritative host retains the line while the uninformed
 renderer clips it on shrink, then release the exit notification. The attached
 view must recover the complete line automatically while narrow and retain it
-after growth, without a Settings round trip. The remote case has its own isolated
-fixture so it does not extend the SSH continuity scenario's deadline.
+after growth, without a Settings round trip. Both remote resize cases create
+their own isolated app, profile and daemon fixtures, so neither extends the SSH
+continuity scenario's deadline.
 
 Packaged smoke also waits for the replacement Home shell's authoritative workspace
 entry before reading its ID. A shell row can be the optimistic startup placeholder
@@ -536,6 +538,20 @@ removal event. Refresh now does nothing for revoked, detached, closing or
 other-window attachments; normal attach still rejects unknown/foreign IDs. Unit
 coverage checks those boundaries and malformed refresh requests. The focused
 probe scenario retains its teardown assertion forbidding stale-capability IPC.
+A revoked refresh can have no snapshot to send: recovery keeps the old renderer
+cells until the host actually delivers its self-resetting snapshot, then resets
+in that same parser write. Both current hosts include the reset in their snapshot
+bytes and normal flow-control accounting. The retained rejected-conversation cases for fixture Claude,
+Codex and Antigravity keep their original output assertions. A local pre-fix run
+reproduced the blank error screen; unit coverage also holds refresh, delivers
+late old-token output, resolves without a snapshot and checks that the last
+output remains until fresh-token replay replaces it.
+A second ordering regression holds the initial attach reply across native exit:
+queuing recovery must preserve the wanted view, let that attach finish without
+detaching its lease, then replay. Otherwise the initial snapshot can arrive while
+the view is hidden and the retained-only refresh correctly has nothing to replay.
+The diagnostic fixture trace reproduced delivery of the full error snapshot with
+an empty renderer; the pending-attach unit fails on that unwanted detach.
 
 ## Sharing-menu opening and facts order (#1150)
 
