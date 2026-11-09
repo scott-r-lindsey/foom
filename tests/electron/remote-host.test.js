@@ -259,6 +259,10 @@ test("remote shell fixture uploads a pinned headless host and replays the same P
   const sshPids = (await readFile(pidFile, "utf8")).trim().split("\n");
   assert.notEqual(Number(sshPids.at(-1)), firstSsh);
   assert.deepEqual(await fixture.sshOwners(id), [firstSsh]);
+  appendFileSync(
+    fixture.traceFile,
+    `${JSON.stringify({ at: Date.now(), kind: "intentional-loss", id, pid: firstSsh })}\n`,
+  );
   process.kill(firstSsh, "SIGTERM");
   await expect.poll(() => fixture.sshOwners(id)).toHaveLength(2);
   await expect
@@ -611,7 +615,11 @@ async function remoteFixture(context) {
   await writeFile(
     colorProbe,
     `#!${process.execPath}
-(async () => { ${colorQueryFixture(colorRecord, true)} })().catch(() => process.exit(1));
+(async () => {
+${colorQueryFixture(colorRecord, true)}
+const values = JSON.parse(require('node:fs').readFileSync(${JSON.stringify(colorRecord)} + '.' + process.ppid, 'utf8'));
+require('node:fs').appendFileSync(${JSON.stringify(traceFile)}, JSON.stringify({ at: Date.now(), kind: 'color-reply', pid: process.pid, shellPid: process.ppid, colors: values.match(/rgb:[0-9a-f/]+/gi)?.slice(0, 4) }) + '\\n');
+})().catch(() => process.exit(1));
 `,
     { mode: 0o700 },
   );
@@ -713,6 +721,7 @@ child.on('close', (code, signal) => { record({ kind: 'exit', code, signal }); ap
     closeDaemon,
     socket,
     phase,
+    traceFile,
     sshOwners: async (id) => [
       ...new Set(
         (await readFile(traceFile, "utf8"))

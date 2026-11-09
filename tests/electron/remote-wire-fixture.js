@@ -1,14 +1,28 @@
 const { appendFileSync } = require("node:fs");
 
-// Observe the fixture's real bootstrap/protocol without delaying or changing it.
+// Observe the fixture's real bootstrap/protocol without changing its bytes.
 // Never retain terminal text, commands, credentials or whole protocol payloads.
 function observeRemoteSsh(input, output, file, uploadSize) {
   const { RemoteFrames, remoteRequest, remoteResponse } =
     require("../../build/shared/remote-host-protocol.js");
   let records = 0;
+  // Fragment rows retain their own lengths; data totals cover unfragmented messages.
+  const totals = {
+    outputFrames: 0,
+    outputChars: 0,
+    writes: 0,
+    inputChars: 0,
+    acks: 0,
+    ackChars: 0,
+  };
+  const expected = new Set();
+  const tokens = new Set();
   const record = (event) => {
     if (records++ < 2048 || event.kind === "exit")
-      appendFileSync(file, `${JSON.stringify({ at: Date.now(), pid: process.pid, ...event })}\n`);
+      appendFileSync(
+        file,
+        `${JSON.stringify({ at: Date.now(), pid: process.pid, ...event, totals: { ...totals } })}\n`,
+      );
   };
   record({ kind: "start" });
   const requests = new RemoteFrames();
@@ -22,6 +36,27 @@ function observeRemoteSsh(input, output, file, uploadSize) {
     try {
       frames.push(bytes, (value) => {
         if (!valid(value)) throw new Error("Invalid fixture frame");
+        if (kind === "request") {
+          if (value.type === "write") {
+            totals.writes++;
+            totals.inputChars += value.data.length;
+            return;
+          }
+          if (value.type === "acknowledge") {
+            totals.acks++;
+            totals.ackChars += value.count;
+            return;
+          }
+          if (typeof value.request === "number") expected.add(value.request);
+        } else {
+          if (value.type === "data") {
+            totals.outputFrames++;
+            totals.outputChars += value.data.length;
+            if (tokens.has(value.token)) return;
+            if (tokens.size < 128) tokens.add(value.token);
+          }
+          if (value.type === "result" && !expected.delete(value.request)) return;
+        }
         record({
           kind,
           type: value.type,
@@ -32,13 +67,6 @@ function observeRemoteSsh(input, output, file, uploadSize) {
           background: value.theme?.background,
           count: value.count,
           length: value.data?.length,
-          backgrounds:
-            value.type === "data"
-              ? value.data
-                  .split("\x1b]11;")
-                  .slice(1)
-                  .flatMap((part) => part.match(/^(#[0-9a-f]{6}|rgb:[0-9a-f/]+)/i)?.[1] ?? [])
-              : undefined,
         });
       });
     } catch {

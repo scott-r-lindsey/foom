@@ -651,7 +651,10 @@ output update or resize. This covers the detached/null-bounds signature as well
 as the transient command-echo URL.
 
 SSH fixture traces record bounded request/response metadata, process IDs and
-lifecycles under `test-results/remote-ssh-*.jsonl`; they exclude terminal text,
+lifecycles under `test-results/remote-ssh-*.jsonl`. Bulk input/data/ACK traffic is
+aggregated into counters so it cannot exhaust the control-event trace cap. An
+explicit loss marker and PID-scoped RGB reply values identify the intended
+disconnect and the actual replying shell. The traces exclude terminal text,
 input, credentials and full payloads. Daemon stderr is capped at 8192 bytes in the
 matching fixture-only `.daemon.log`. The replay case observes rendered producer
 completion, then requires exactly one owning SSH before deliberately killing it.
