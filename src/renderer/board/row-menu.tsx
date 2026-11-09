@@ -127,6 +127,7 @@ export function RowMenu({
   useLayoutEffect(() => {
     const menu = ref.current;
     if (!menu) return;
+    let panelTop: number | undefined;
     const position = () => {
       const button = anchor.getBoundingClientRect();
       if (isNested) {
@@ -147,22 +148,29 @@ export function RowMenu({
         menu.style.width = `${String(Math.min(720, Math.max(280, placement === "below" ? window.innerWidth - 16 : window.innerWidth - right - 18)))}px`;
       if (placement === "below")
         menu.style.maxHeight = `${String(Math.max(80, window.innerHeight - (point ? 0 : button.bottom) - 16))}px`;
-      // Opening animations transform the border box; placement needs its final
-      // layout size or the expanded menu can extend beyond the window edge.
+      // Fit the layout box within the viewport, independent of decoration.
       const bounds = { width: menu.offsetWidth, height: menu.offsetHeight };
-      const top = Math.max(
-        8,
-        Math.min(
-          point
-            ? point.y
-            : bottomAligned
-              ? button.bottom - bounds.height
-              : placement === "below"
-                ? button.bottom + 8
-                : button.top,
-          window.innerHeight - bounds.height - 8,
-        ),
-      );
+      const top =
+        panelTop ??
+        Math.max(
+          8,
+          Math.min(
+            point
+              ? point.y
+              : bottomAligned
+                ? button.bottom - bounds.height
+                : placement === "below"
+                  ? button.bottom + 8
+                  : button.top,
+            window.innerHeight - bounds.height - 8,
+          ),
+        );
+      if (isPanel && !bottomAligned) {
+        // Late facts may grow the panel. Keep commands under the pointer and
+        // let the body scroll within the remaining viewport instead of moving up.
+        panelTop = top;
+        menu.style.maxHeight = `${String(window.innerHeight - top - 8)}px`;
+      }
       menu.style.top = `${String(top)}px`;
       menu.style.left = `${String(Math.max(8, Math.min(point ? point.x : placement === "below" ? button.left : right + 10, window.innerWidth - bounds.width - 8)))}px`;
       menu.style.setProperty(
@@ -170,20 +178,29 @@ export function RowMenu({
         `${String(Math.max(12, Math.min(bounds.height - 12, button.top + button.height / 2 - top)))}px`,
       );
     };
-    position();
+    const resize = () => {
+      panelTop = undefined;
+      menu.style.removeProperty("max-height");
+      position();
+    };
+    resize();
     const observer =
       typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(position);
     observer?.observe(menu);
-    if (keepOnResize) window.addEventListener("resize", position);
-    // Pinning a hovered panel must let the pointer choose focus. Focusing the
-    // first launcher here can scroll the pressed item away before mouse-up.
-    if (focusOnOpen && !pointerPinRef.current)
-      menu.querySelector<HTMLButtonElement>(".row-menu-items button:not(:disabled)")?.focus();
-    pointerPinRef.current = false;
+    if (keepOnResize) window.addEventListener("resize", resize);
     return () => {
       observer?.disconnect();
-      window.removeEventListener("resize", position);
+      window.removeEventListener("resize", resize);
     };
+  }, [anchor, placement, isPanel, point, keepOnResize, isNested, bottomAligned]);
+  useLayoutEffect(() => {
+    // Pinning changes focus policy, not placement. Pointer pinning leaves focus
+    // to the pressed launcher so it cannot scroll away before mouse-up.
+    if (focusOnOpen && !pointerPinRef.current)
+      ref.current
+        ?.querySelector<HTMLButtonElement>(".row-menu-items button:not(:disabled)")
+        ?.focus();
+    pointerPinRef.current = false;
   }, [anchor, placement, focusOnOpen, isPanel, point, keepOnResize, isNested, bottomAligned]);
   useEffect(() => {
     // The top-level menu owns dismissal for its submenu.
@@ -202,6 +219,11 @@ export function RowMenu({
     };
     const scroll = (event: Event) => {
       if (!dismissOnScroll) return;
+      if (isPanel && event.target instanceof Node && ref.current?.contains(event.target)) {
+        // Panel scrolling moves submenu anchors; retain the panel, not stale portals.
+        setSub(undefined);
+        return;
+      }
       if (
         !(event.target instanceof Node) ||
         (!ref.current?.contains(event.target) && !inSubmenu(event.target))

@@ -652,7 +652,7 @@
     0 8px 16px -8px var(--raised-shadow),
     0 0 28px -8px
     color-mix(in srgb, var(--highlight) calc(40% * var(--shape-shadow, 1)), transparent);
-  transform-origin: 0 var(--notch);
+  /* Opening motion must not move commands away from a stationary pointer. */
   animation: menu-open 130ms ease-out;
 }
 .row-menu::before {
@@ -726,21 +726,17 @@
 @keyframes menu-open {
   from {
     opacity: 0;
-    transform: translateX(-6px) scale(0.96);
   }
   to {
     opacity: 1;
-    transform: none;
   }
 }
 @keyframes menu-item {
   from {
     opacity: 0;
-    transform: translateX(-3px);
   }
   to {
     opacity: 1;
-    transform: none;
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -996,7 +992,6 @@
 @keyframes submenu-open {
   from {
     opacity: 0;
-    transform: translateX(-6px) scale(0.97);
   }
 }
 .row-menu button[data-open] {
@@ -1164,6 +1159,8 @@
   }
 }
 .sidebar-panel {
+  display: flex;
+  flex-direction: column;
   width: 720px;
   padding: 4px;
   border-radius: var(--shape-panel-radius, 10px);
@@ -1182,6 +1179,7 @@
   border-color: color-mix(in srgb, var(--highlight) 55%, var(--raised-line));
 }
 .panel-header {
+  flex-shrink: 0;
   position: relative;
   display: flex;
   align-items: center;
@@ -1242,6 +1240,7 @@
   font: 11px var(--font-mono);
 }
 .panel-body {
+  min-height: 0;
   display: grid;
   grid-template-columns: 248px minmax(0, 1fr);
   max-height: calc(100vh - 100px);
