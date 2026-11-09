@@ -592,3 +592,26 @@ failure-only trace of menu labels, bounds, pointer transitions and animation eve
 in JUnit diagnostics and `test-results/1150/` to distinguish another cause.
 Native input, real menus, fixture CLIs, sandboxing and process auditing remain in
 use. There are no deadline increases, fixed settling sleeps or retries.
+
+## Remote shell replay phases (#1155)
+
+`remote-host.test.js` gives host preflight/enrollment, terminal links, SSH-loss
+replay, hub restart/recovery, startup palettes and oversized headless replay
+independent cases. The helpers share fixture construction code only: each case
+owns its HOME, daemon, profile, controlled SSH/tool PATH and process audit. The
+SSH-loss case still uploads the pinned production host, uses native input and
+proves PID/variable/umask continuity, replay acknowledgements, palette retention
+and suppression of replayed OSC 52 clipboard writes. The restart case explicitly
+seeds its approved code folder and expands its own Settings host card; neither
+precondition depends on the enrollment case's filesystem or saved UI state.
+
+Each case emits `Remote phase: {name, ms}` diagnostics into JUnit, measuring
+successive completed phases with a monotonic clock. Fixture/artifact preparation,
+daemon startup, hub launch, upload/bootstrap, replay preparation, reconnect and
+live input are separate phases. The restart case additionally separates hub quit,
+recovery preparation, session replay and Settings cleanup. Harness fixture timing
+still measures setup/body/teardown, including process auditing. These diagnostics
+contain fixed phase names and durations, never terminal or SSH output. Deadlines,
+retry policy, sandboxing and fixture-only CLI rules are unchanged. Superseded
+whole-scenario timings are removed from the shard plan; new cases use the normal
+hash fallback until their CI measurements are recorded.

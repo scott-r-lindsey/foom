@@ -30,189 +30,13 @@ const {
 } = require("./harness.js");
 const { auditProcesses } = require("./process-audit.js");
 
-async function remoteFixture(context) {
-  const root = await realpath(await mkdtemp(path.join(tmpdir(), "frh-")));
-  removeAfterApps(context, root);
-  const cleanup = fixtureCleanup(context);
-  cleanup.audit ??= await auditProcesses(context);
-  // Keep the canonical socket path below the daemon's 100-byte limit even
-  // under macOS's long temp prefix plus the parent-owned test-run directory.
-  const remoteHome = await mkdtemp(path.join(await realpath("/tmp"), "rhh-"));
-  const bin = path.join(root, "bin");
-  removeAfterApps(context, remoteHome);
-  await mkdir(bin, { mode: 0o700 });
-  // Only explicitly required tools. No inherited PATH, real ssh, SSH material,
-  // agent CLI, network, system install, or user shell startup files.
-  for (const tool of [
-    "sh",
-    "uname",
-    "gzip",
-    "head",
-    "mkdir",
-    "chmod",
-    "mv",
-    "mktemp",
-    "sha256sum",
-    "shasum",
-    "cut",
-    "wc",
-    "tr",
-    "rm",
-    "ls",
-    "sleep",
-  ]) {
-    for (const directory of ["/usr/bin", "/bin"]) {
-      try {
-        await stat(path.join(directory, tool));
-        await symlink(path.join(directory, tool), path.join(bin, tool));
-        break;
-      } catch (error) {
-        if (error.code !== "ENOENT") throw error;
-      }
-    }
-  }
-  const artifact = path.resolve("build/remote-host/foom-host");
-  const manifest = JSON.parse(await readFile("build/remote-host/manifest.json", "utf8"));
-  // The runner prepares the verified precompressed production catalog before cases.
-  const pidFile = path.join(root, "ssh-pids");
-  const sshLog = path.resolve("test-results/remote-ssh-fixture.log");
-  await writeFile(sshLog, "");
-  // A fixture executable accepts the daemon's login flags without loading
-  // system/user login profiles or changing the controlled PATH.
-  const shell = path.join(bin, "remote-shell");
-  const colorRecord = path.join(root, "shell-colors.json");
-  const colorProbe = path.join(bin, "color-probe");
-  await writeFile(
-    colorProbe,
-    `#!${process.execPath}
-(async () => { ${colorQueryFixture(colorRecord)} })().catch(() => process.exit(1));
-`,
-    { mode: 0o700 },
-  );
-  await writeFile(
-    shell,
-    `#!/bin/sh
-if [ -t 0 ]; then "${colorProbe}"; fi
-exec /bin/sh -i
-`,
-    { mode: 0o700 },
-  );
-  const ssh = path.join(bin, "ssh");
-  await writeFile(
-    ssh,
-    `#!${process.execPath}
-const { spawn } = require('node:child_process');
-const { appendFileSync } = require('node:fs');
-const args = process.argv.slice(2);
-const split = args.indexOf('--');
-if (split < 0 || !['fixture-cloud', 'fixture-unreachable', 'fixture-unsupported', 'fixture-no-artifact', 'fixture-old-libc'].includes(args[split + 1])) process.exit(2);
-const host = args[split + 1];
-if (host === 'fixture-unreachable') { process.stderr.write('private fixture SSH output'); process.exit(255); }
-if (host === 'fixture-unsupported') { process.stdout.write('Plan9\\nx86_64\\n'); process.exit(0); }
-if (host === 'fixture-no-artifact') { process.stdout.write('Darwin\\n' + (process.platform === 'darwin' && process.arch === 'arm64' ? 'x86_64' : 'arm64') + '\\n'); process.exit(0); }
-if (host === 'fixture-old-libc' && args.at(-1).includes('FOOM-LIBC-TOO-OLD')) { process.stdout.write('FOOM-LIBC-TOO-OLD\\n'); process.exit(1); }
-if (args.at(-1) === 'uname -s; uname -m') { process.stdout.write(require('node:os').type() + '\\n' + (process.arch === 'x64' ? 'x86_64' : process.platform === 'darwin' ? 'arm64' : 'aarch64') + '\\n'); process.exit(0); }
-appendFileSync(${JSON.stringify(pidFile)}, process.pid + '\\n');
-appendFileSync(${JSON.stringify(sshLog)}, 'fixture ssh started\\n');
-const child = spawn('/bin/sh', ['-c', 'exec ' + args.slice(split + 2).join(' ')], { env: { HOME: ${JSON.stringify(remoteHome)}, PATH: ${JSON.stringify(bin)}, SHELL: ${JSON.stringify(shell)}, LANG: 'C' }, stdio: ['pipe', 'pipe', 'pipe'] });
-process.stdin.pipe(child.stdin); child.stdout.pipe(process.stdout); child.stderr.pipe(process.stderr);
-child.stdin.on('error', () => {});
-process.on('SIGTERM', () => child.kill('SIGTERM'));
-let diagnosticBytes = 0;
-child.stderr.on('data', bytes => { const part = bytes.subarray(0, Math.max(0, 8192 - diagnosticBytes)); diagnosticBytes += part.length; appendFileSync(${JSON.stringify(sshLog)}, part); });
-child.on('close', code => { appendFileSync(${JSON.stringify(sshLog)}, 'fixture ssh exit ' + String(code) + '\\n'); process.exit(code ?? 1); });
-`,
-    { mode: 0o700 },
-  );
-  await chmod(ssh, 0o700);
-  const started = performance.now();
-  const daemon = spawn(
-    "/bin/sh",
-    ["-c", 'umask 002; exec "$@"', "fixture-daemon", artifact, "--daemon"],
-    {
-      env: { HOME: remoteHome, PATH: bin, SHELL: shell, LANG: "C" },
-      stdio: ["ignore", "pipe", "pipe"],
-    },
-  );
-  cleanup.audit.add(daemon.pid);
-  let stderr = "";
-  daemon.stderr.on("data", (bytes) => {
-    stderr = (stderr + bytes).slice(-8192);
-  });
-  const closeDaemon = async () => {
-    if (daemon.exitCode === null && daemon.signalCode === null) {
-      const closed = once(daemon, "close");
-      daemon.kill("SIGTERM");
-      await closed;
-    }
-  };
-  cleanup.apps.push(closeDaemon);
-  const socket = path.join(remoteHome, ".foom-host/host-v2.sock");
-  await expect
-    .poll(async () => {
-      try {
-        return (await stat(socket)).isSocket();
-      } catch {
-        return false;
-      }
-    })
-    .toBe(true);
-  const startupMs = performance.now() - started;
-  assert.equal((await stat(socket)).mode & 0o777, 0o600);
-  assert.equal((await stat(path.dirname(socket))).mode & 0o777, 0o700);
-  assert.equal(stderr, "");
-  const app = await launchApp(context, {
-    fixture: "empty-board",
-    env: { PATH: bin, SSH_AUTH_SOCK: "" },
-    args: ["--remote-shell-spike=fixture-cloud"],
-  });
-  // Teardown always closes the hub before the explicitly owned fixture daemon.
-  cleanup.apps.push(cleanup.apps.shift());
-  assert.equal(await app.evaluate(({ app }) => app.getVersion()), manifest.version);
-  const page = await boardPage(app);
-  return {
-    root,
-    remoteHome,
-    bin,
-    manifest,
-    pidFile,
-    colorRecord,
-    colorProbe,
-    daemon,
-    closeDaemon,
-    socket,
-    startupMs,
-    cleanup,
-    app,
-    page,
-  };
-}
-
-test("remote shell fixture uploads a pinned headless host and replays the same PTY after SSH loss", {
+test("remote host fixture checks preflight failures and enrolls an incomplete code folder", {
   skip: process.platform === "win32",
   timeout: deadline(60000),
 }, async (context) => {
-  const {
-    root,
-    remoteHome,
-    bin,
-    manifest,
-    pidFile,
-    colorRecord,
-    colorProbe,
-    daemon,
-    closeDaemon,
-    socket,
-    startupMs,
-    cleanup,
-    app,
-    page,
-  } = await remoteFixture(context);
-  const profilePath = await app.evaluate(({ app }) => app.getPath("userData"));
-  const profileTag = JSON.parse(
-    await readFile(path.join(profilePath, "settings.json"), "utf8"),
-  ).remoteProfile;
-  assert.match(profileTag, /^[a-f0-9]{32}$/u);
+  const fixture = await remoteFixture(context);
+  const { remoteHome } = fixture;
+  const { page } = await remoteApp(context, fixture);
   for (const [host, row, reason] of [
     ["fixture-unreachable", "ssh", "unreachable"],
     ["fixture-unsupported", "platform", "unsupported"],
@@ -288,28 +112,16 @@ test("remote shell fixture uploads a pinned headless host and replays the same P
   await expect(page.getByText("Pass · Valid", { exact: true })).toBeVisible();
   assert.ok((await stat(path.join(remoteHome, "code"))).isDirectory());
   await page.keyboard.press("Escape");
-  await page.evaluate(() => {
-    window.remoteReplayTokens = new Set();
-    window.stopRemoteReplay = window.desktop.onData((_id, token) =>
-      window.remoteReplayTokens.add(token),
-    );
-  });
-  await page.evaluate(() => window.desktop.saveSetup({ terminalTheme: "foom-dark" }));
-  // Await the launch capability's completion before asserting its UI. Bootstrap
-  // transfers a full runtime and is an asynchronous operation, unlike a local PTY.
-  await page.evaluate(() => window.desktop.sidebarCommand({ kind: "home-shell" }));
-  await page.locator(".board-row[data-kind='shell']").click();
-  await expect(page.locator(".terminal-tile[data-kind='shell']")).toHaveCount(1);
-  let id;
-  await expect
-    .poll(async () => {
-      id = (await page.evaluate(() => window.desktop.workspace())).terminals[0]?.id;
-      return Boolean(id);
-    })
-    .toBe(true);
-  const tail = () =>
-    page.evaluate(async (id) => (await window.desktop.tail(id, 40)).join("\n"), id);
-  await expect.poll(tail).toMatch(/[$#>]\s*$/);
+  fixture.phase("host preflight and enrollment");
+});
+
+test("remote shell fixture copies links and confirms external browser navigation", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const fixture = await remoteFixture(context);
+  const { app, page } = await remoteApp(context, fixture);
+  await remoteShell(page, fixture.phase);
   // Links from fixture SSH output use the local clipboard and stubbed local browser.
   const remoteUrl = "https://remote.example.test/oauth?state=fixture";
   await app.evaluate(({ shell }) => {
@@ -336,6 +148,17 @@ test("remote shell fixture uploads a pinned headless host and replays the same P
   await expect(linkConfirmation.getByRole("heading", { name: "Open this link?" })).toBeVisible();
   await linkConfirmation.getByRole("button", { name: "Open in browser", exact: true }).click();
   await expect.poll(() => app.evaluate(() => globalThis.remoteOpenedLinks)).toEqual([remoteUrl]);
+  fixture.phase("link copy and external-open confirmation");
+});
+
+test("remote shell fixture uploads a pinned headless host and replays the same PTY after SSH loss", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const fixture = await remoteFixture(context);
+  const { manifest, remoteHome, colorRecord, colorProbe, daemon, pidFile } = fixture;
+  const { app, page } = await remoteApp(context, fixture);
+  const { tail } = await remoteShell(page, fixture.phase);
   // OSC 52 crosses SSH only as live fixture output; clipboard remains hub-owned.
   await page.evaluate(() => window.desktop.saveSetup({ terminalClipboardWrites: true }));
   await page.keyboard.type("printf '\\033]52;c;cmVtb3RlIGNsaXBib2FyZA==\\007\\n'");
@@ -344,30 +167,7 @@ test("remote shell fixture uploads a pinned headless host and replays the same P
     .poll(() => app.evaluate(({ clipboard }) => clipboard.readText()))
     .toBe("remote clipboard");
   await app.evaluate(({ clipboard }) => clipboard.writeText("remote replay sentinel"));
-  const darkColors = JSON.parse(await readFile(colorRecord, "utf8"));
-  assert.ok(darkColors.includes(oscColor(10, "#f4efff")));
-  assert.ok(darkColors.includes(oscColor(11, "#05040a")));
-  // A shell variable and PID prove process continuity, not merely replayed text.
-  await page.keyboard.type(
-    'persist=STILL_ALIVE; printf \'REMOTE_READY:%s:%s\\n\' "$persist" "$$"; pwd',
-  );
-  await page.keyboard.press("Enter");
-  await expect.poll(tail).toContain("REMOTE_READY:STILL_ALIVE:");
-  await expect.poll(async () => (await tail()).replaceAll("\n", "")).toContain(remoteHome);
-  await page.keyboard.type(
-    "printf 'INITIAL_MASK:'; umask; : > terminal-file; mkdir terminal-dir; umask 027; printf 'MASK_FILES_READY\\n'",
-  );
-  await page.keyboard.press("Enter");
-  await expect.poll(tail).toMatch(/INITIAL_MASK:0*2(?:\n|\r|$)/);
-  await expect.poll(tail).toMatch(/(?:^|\n)MASK_FILES_READY(?:\n|$)/);
-  assert.equal((await stat(path.join(remoteHome, "terminal-file"))).mode & 0o777, 0o664);
-  assert.equal((await stat(path.join(remoteHome, "terminal-dir"))).mode & 0o777, 0o775);
-  // Application-set background must survive transport and hub reattachment.
-  await page.keyboard.type("printf '\\033]11;#123456\\007'");
-  await page.keyboard.press("Enter");
-  const before = await tail();
-  const pid = before.match(/REMOTE_READY:STILL_ALIVE:(\d+)/)?.[1];
-  assert.ok(pid);
+  const pid = await preparePersistentShell(page, fixture, tail);
   // Retain a snapshot above the view high-water mark. The remote owner must
   // account for reset bytes too, or the first replay ACK would be rejected and
   // subsequent output would stay paused.
@@ -376,6 +176,7 @@ test("remote shell fixture uploads a pinned headless host and replays the same P
   );
   await page.keyboard.press("Enter");
   await expect.poll(tail).toMatch(/(?:^|\n)LARGE_REPLAY_READY(?:\n|$)/);
+  fixture.phase("large replay preparation");
   const installed = path.join(
     remoteHome,
     ".foom-host",
@@ -401,6 +202,7 @@ test("remote shell fixture uploads a pinned headless host and replays the same P
   await expect
     .poll(() => page.evaluate(() => window.remoteReplayTokens.size))
     .toBeGreaterThan(priorTokens);
+  fixture.phase("SSH loss and reconnect");
   // Snapshot/live output is rendered through the existing sandboxed tile bridge.
   await expect(page.locator(".xterm-rows")).toContainText("LARGE_REPLAY_READY");
   assert.equal(
@@ -420,22 +222,40 @@ test("remote shell fixture uploads a pinned headless host and replays the same P
     .poll(async () => JSON.parse(await readFile(colorRecord, "utf8")))
     .toContain(oscColor(11, "#123456"));
   assert.equal(daemon.exitCode, null);
-  await mkdir("test-results", { recursive: true });
-  await writeFile(
-    "test-results/remote-host-measurements.json",
-    JSON.stringify(
-      {
-        platform: process.platform,
-        arch: process.arch,
-        bytes: manifest.size,
-        startupMs,
-        node: process.versions.node,
-      },
-      null,
-      2,
-    ),
-  );
+  fixture.phase("SSH loss, replay and live input");
   await page.screenshot({ path: evidencePath("remote-host.png") });
+});
+
+test("remote shell fixture restores profile sessions after hub restart and ends foreign sessions", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const fixture = await remoteFixture(context);
+  const {
+    bin,
+    remoteHome,
+    cleanup,
+    manifest,
+    socket,
+    closeDaemon,
+    colorRecord,
+    colorProbe,
+    daemon,
+  } = fixture;
+  const { app, page, profilePath, profileTag } = await remoteApp(context, fixture);
+  // Enrollment is a precondition here; its failure/UI coverage has its own case.
+  await mkdir(path.join(remoteHome, "code"), { mode: 0o700 });
+  await page.evaluate(
+    (codeFolder) =>
+      window.desktop.hosts({
+        action: "add",
+        host: "fixture-cloud",
+        codeFolder,
+      }),
+    path.join(remoteHome, "code"),
+  );
+  const { id, tail } = await remoteShell(page, fixture.phase);
+  const pid = await preparePersistentShell(page, fixture, tail);
   await quitAndWait(app, async () => {
     await app.evaluate(({ app }) => app.quit());
     await (await confirmationPage(app)).getByRole("button", { name: "Stop all and quit" }).click();
@@ -463,6 +283,7 @@ test("remote shell fixture uploads a pinned headless host and replays the same P
   } finally {
     retained.close();
   }
+  fixture.phase("hub quit and retained PTY");
   const recovered = await hostChannel(
     socket,
     manifest.sha256,
@@ -480,6 +301,7 @@ test("remote shell fixture uploads a pinned headless host and replays the same P
   recovered.close();
   const foreign = await hostChannel(socket, manifest.sha256, "legacy-foreign", cleanup);
   foreign.close();
+  fixture.phase("recovery preparation");
   const restarted = await launchApp(context, {
     fixture: "restored",
     env: { PATH: bin, SSH_AUTH_SOCK: "" },
@@ -521,11 +343,13 @@ test("remote shell fixture uploads a pinned headless host and replays the same P
       (await restored.evaluate(() => window.desktop.tail("lost-profile-write", 40))).join("\n"),
     )
     .toContain("RECOVERED_SCREEN");
+  fixture.phase("hub restart and session replay");
   await openSettingsScreen(restored);
   await restored
     .getByRole("navigation", { name: "Settings sections" })
     .getByRole("button", { name: "Hosts", exact: true })
     .click();
+  await restored.getByRole("button", { name: "Expand fixture-cloud", exact: true }).click();
   await restored.getByRole("button", { name: "Check capabilities", exact: true }).click();
   await expect(
     restored.getByRole("button", { name: "Check capabilities", exact: true }),
@@ -572,6 +396,15 @@ test("remote shell fixture uploads a pinned headless host and replays the same P
       .getByRole("button", { name: "Stop all and quit" })
       .click();
   });
+  fixture.phase("Settings and foreign-session cleanup");
+});
+
+test("remote host fixture supplies startup palettes and refuses absent session reattachment", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const fixture = await remoteFixture(context);
+  const { socket, manifest, colorRecord, cleanup } = fixture;
   // No hub/theme-update round trip: first-action queries must use open's
   // palette even when the acknowledgement has not reached any hub yet.
   const { terminalThemes } = require("../../build/shared/terminal-themes.js");
@@ -597,15 +430,26 @@ test("remote shell fixture uploads a pinned headless host and replays the same P
     await peer.ask({ type: "kill" });
     peer.close();
   }
-  await wideReplay(root, socket, manifest.sha256, cleanup);
   const gone = await hostChannel(socket, manifest.sha256, "never-created", cleanup, 80, 24, true);
   assert.equal(gone.opened.state, "gone");
   gone.close();
+  fixture.phase("startup palettes and absent-session reattach");
+});
+
+test("remote host fixture bounds oversized replay while retaining history and live PTY state", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const fixture = await remoteFixture(context);
+  const { root, socket, manifest, cleanup } = fixture;
+  await wideReplay(root, socket, manifest.sha256, cleanup);
+  fixture.phase("oversized headless replay");
 });
 
 async function remoteResizeFixture(context) {
   const fixture = await remoteFixture(context);
-  const { page, remoteHome } = fixture;
+  const { remoteHome } = fixture;
+  const { app, page } = await remoteApp(context, fixture);
   const enrolled = await page.evaluate(
     (codeFolder) => window.desktop.hosts({ action: "add", host: "fixture-cloud", codeFolder }),
     remoteHome,
@@ -614,7 +458,7 @@ async function remoteResizeFixture(context) {
   await page.evaluate(() => window.desktop.sidebarCommand({ kind: "home-shell" }));
   await page.locator(".board-row[data-kind='shell']").click();
   const id = (await page.evaluate(() => window.desktop.workspace())).terminals[0].id;
-  return { ...fixture, id };
+  return { ...fixture, app, page, id };
 }
 
 test("remote live raw PTY writes after resize without a stale reflow suffix", {
@@ -633,6 +477,245 @@ test("remote exit delivery across shrink reconciles the attached cursor row", {
   const { exitResizeRace } = require("./resize-fixture.js");
   await exitResizeRace(app, page, id, root);
 });
+
+async function remoteFixture(context) {
+  let phaseStarted = performance.now();
+  const phase = (name) => {
+    const now = performance.now();
+    context.diagnostic(`Remote phase: ${JSON.stringify({ name, ms: now - phaseStarted })}`);
+    phaseStarted = now;
+  };
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "frh-")));
+  removeAfterApps(context, root);
+  const cleanup = fixtureCleanup(context);
+  cleanup.audit ??= await auditProcesses(context);
+  // Keep the canonical socket path below the daemon's 100-byte limit even
+  // under macOS's long temp prefix plus the parent-owned test-run directory.
+  const remoteHome = await mkdtemp(path.join(await realpath("/tmp"), "rhh-"));
+  const bin = path.join(root, "bin");
+  removeAfterApps(context, remoteHome);
+  await mkdir(bin, { mode: 0o700 });
+  // Only explicitly required tools. No inherited PATH, real ssh, SSH material,
+  // agent CLI, network, system install, or user shell startup files.
+  for (const tool of [
+    "sh",
+    "uname",
+    "gzip",
+    "head",
+    "mkdir",
+    "chmod",
+    "mv",
+    "mktemp",
+    "sha256sum",
+    "shasum",
+    "cut",
+    "wc",
+    "tr",
+    "rm",
+    "ls",
+    "sleep",
+  ]) {
+    for (const directory of ["/usr/bin", "/bin"]) {
+      try {
+        await stat(path.join(directory, tool));
+        await symlink(path.join(directory, tool), path.join(bin, tool));
+        break;
+      } catch (error) {
+        if (error.code !== "ENOENT") throw error;
+      }
+    }
+  }
+  const artifact = path.resolve("build/remote-host/foom-host");
+  const manifest = JSON.parse(await readFile("build/remote-host/manifest.json", "utf8"));
+  // The runner prepares the verified precompressed production catalog before cases.
+  const pidFile = path.join(root, "ssh-pids");
+  const sshLog = path.resolve(
+    `test-results/remote-ssh-${context.name.replaceAll(/[^a-z0-9]/gi, "-")}.log`,
+  );
+  await writeFile(sshLog, "");
+  // A fixture executable accepts the daemon's login flags without loading
+  // system/user login profiles or changing the controlled PATH.
+  const shell = path.join(bin, "remote-shell");
+  const colorRecord = path.join(root, "shell-colors.json");
+  const colorProbe = path.join(bin, "color-probe");
+  await writeFile(
+    colorProbe,
+    `#!${process.execPath}
+(async () => { ${colorQueryFixture(colorRecord)} })().catch(() => process.exit(1));
+`,
+    { mode: 0o700 },
+  );
+  await writeFile(
+    shell,
+    `#!/bin/sh
+if [ -t 0 ]; then "${colorProbe}"; fi
+exec /bin/sh -i
+`,
+    { mode: 0o700 },
+  );
+  const ssh = path.join(bin, "ssh");
+  await writeFile(
+    ssh,
+    `#!${process.execPath}
+const { spawn } = require('node:child_process');
+const { appendFileSync } = require('node:fs');
+const args = process.argv.slice(2);
+const split = args.indexOf('--');
+if (split < 0 || !['fixture-cloud', 'fixture-unreachable', 'fixture-unsupported', 'fixture-no-artifact', 'fixture-old-libc'].includes(args[split + 1])) process.exit(2);
+const host = args[split + 1];
+if (host === 'fixture-unreachable') { process.stderr.write('private fixture SSH output'); process.exit(255); }
+if (host === 'fixture-unsupported') { process.stdout.write('Plan9\\nx86_64\\n'); process.exit(0); }
+if (host === 'fixture-no-artifact') { process.stdout.write('Darwin\\n' + (process.platform === 'darwin' && process.arch === 'arm64' ? 'x86_64' : 'arm64') + '\\n'); process.exit(0); }
+if (host === 'fixture-old-libc' && args.at(-1).includes('FOOM-LIBC-TOO-OLD')) { process.stdout.write('FOOM-LIBC-TOO-OLD\\n'); process.exit(1); }
+if (args.at(-1) === 'uname -s; uname -m') { process.stdout.write(require('node:os').type() + '\\n' + (process.arch === 'x64' ? 'x86_64' : process.platform === 'darwin' ? 'arm64' : 'aarch64') + '\\n'); process.exit(0); }
+appendFileSync(${JSON.stringify(pidFile)}, process.pid + '\\n');
+appendFileSync(${JSON.stringify(sshLog)}, 'fixture ssh started\\n');
+const child = spawn('/bin/sh', ['-c', 'exec ' + args.slice(split + 2).join(' ')], { env: { HOME: ${JSON.stringify(remoteHome)}, PATH: ${JSON.stringify(bin)}, SHELL: ${JSON.stringify(shell)}, LANG: 'C' }, stdio: ['pipe', 'pipe', 'pipe'] });
+process.stdin.pipe(child.stdin); child.stdout.pipe(process.stdout); child.stderr.pipe(process.stderr);
+child.stdin.on('error', () => {});
+process.on('SIGTERM', () => child.kill('SIGTERM'));
+let diagnosticBytes = 0;
+child.stderr.on('data', bytes => { const part = bytes.subarray(0, Math.max(0, 8192 - diagnosticBytes)); diagnosticBytes += part.length; appendFileSync(${JSON.stringify(sshLog)}, part); });
+child.on('close', code => { appendFileSync(${JSON.stringify(sshLog)}, 'fixture ssh exit ' + String(code) + '\\n'); process.exit(code ?? 1); });
+`,
+    { mode: 0o700 },
+  );
+  await chmod(ssh, 0o700);
+
+  phase("fixture files and pinned artifact");
+  const daemon = spawn(
+    "/bin/sh",
+    ["-c", 'umask 002; exec "$@"', "fixture-daemon", artifact, "--daemon"],
+    {
+      env: { HOME: remoteHome, PATH: bin, SHELL: shell, LANG: "C" },
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+  cleanup.audit.add(daemon.pid);
+  let stderr = "";
+  daemon.stderr.on("data", (bytes) => {
+    stderr = (stderr + bytes).slice(-8192);
+  });
+  const closeDaemon = async () => {
+    if (daemon.exitCode === null && daemon.signalCode === null) {
+      const closed = once(daemon, "close");
+      daemon.kill("SIGTERM");
+      await closed;
+    }
+  };
+  cleanup.apps.push(closeDaemon);
+  const socket = path.join(remoteHome, ".foom-host/host-v2.sock");
+  await expect
+    .poll(async () => {
+      try {
+        return (await stat(socket)).isSocket();
+      } catch {
+        return false;
+      }
+    })
+    .toBe(true);
+  phase("daemon startup");
+  assert.equal((await stat(socket)).mode & 0o777, 0o600);
+  assert.equal((await stat(path.dirname(socket))).mode & 0o777, 0o700);
+  assert.equal(stderr, "");
+  return {
+    root,
+    cleanup,
+    remoteHome,
+    bin,
+    manifest,
+    pidFile,
+    shell,
+    colorRecord,
+    colorProbe,
+    daemon,
+    closeDaemon,
+    socket,
+    phase,
+  };
+}
+
+async function remoteApp(context, fixture) {
+  const { bin, cleanup, manifest } = fixture;
+  const app = await launchApp(context, {
+    fixture: "empty-board",
+    env: { PATH: bin, SSH_AUTH_SOCK: "" },
+    args: ["--remote-shell-spike=fixture-cloud"],
+  });
+  // Teardown always closes the hub before the explicitly owned fixture daemon.
+  cleanup.apps.push(cleanup.apps.shift());
+  assert.equal(await app.evaluate(({ app }) => app.getVersion()), manifest.version);
+  const page = await boardPage(app);
+  const profilePath = await app.evaluate(({ app }) => app.getPath("userData"));
+  const profileTag = JSON.parse(
+    await readFile(path.join(profilePath, "settings.json"), "utf8"),
+  ).remoteProfile;
+  assert.match(profileTag, /^[a-f0-9]{32}$/u);
+  fixture.phase("hub launch");
+  return { app, page, profilePath, profileTag };
+}
+
+async function remoteShell(page, phase) {
+  await page.evaluate(() => {
+    window.remoteReplayTokens = new Set();
+    window.stopRemoteReplay = window.desktop.onData((_id, token) =>
+      window.remoteReplayTokens.add(token),
+    );
+  });
+  await page.evaluate(() => window.desktop.saveSetup({ terminalTheme: "foom-dark" }));
+  // Await the launch capability's completion before asserting its UI. Bootstrap
+  // transfers a full runtime and is an asynchronous operation, unlike a local PTY.
+  await page.evaluate(() => window.desktop.sidebarCommand({ kind: "home-shell" }));
+  await page.locator(".board-row[data-kind='shell']").click();
+  await expect(page.locator(".terminal-tile[data-kind='shell']")).toHaveCount(1);
+  let id;
+  await expect
+    .poll(async () => {
+      id = (await page.evaluate(() => window.desktop.workspace())).terminals[0]?.id;
+      return Boolean(id);
+    })
+    .toBe(true);
+  const tail = () =>
+    page.evaluate(async (id) => (await window.desktop.tail(id, 40)).join("\n"), id);
+  await expect.poll(tail).toMatch(/[$#>]\s*$/);
+  phase("upload and shell bootstrap");
+  return { id, tail };
+}
+
+async function preparePersistentShell(page, fixture, tail) {
+  const { remoteHome, colorRecord, colorProbe } = fixture;
+  const darkColors = JSON.parse(await readFile(colorRecord, "utf8"));
+  assert.ok(darkColors.includes(oscColor(10, "#f4efff")));
+  assert.ok(darkColors.includes(oscColor(11, "#05040a")));
+  // A shell variable and PID prove process continuity, not merely replayed text.
+  await page.keyboard.type(
+    'persist=STILL_ALIVE; printf \'REMOTE_READY:%s:%s\\n\' "$persist" "$$"; pwd',
+  );
+  await page.keyboard.press("Enter");
+  await expect.poll(tail).toContain("REMOTE_READY:STILL_ALIVE:");
+  await expect.poll(async () => (await tail()).replaceAll("\n", "")).toContain(remoteHome);
+  await page.keyboard.type(
+    "printf 'INITIAL_MASK:'; umask; : > terminal-file; mkdir terminal-dir; umask 027; printf 'MASK_FILES_READY\\n'",
+  );
+  await page.keyboard.press("Enter");
+  await expect.poll(tail).toMatch(/INITIAL_MASK:0*2(?:\n|\r|$)/);
+  await expect.poll(tail).toMatch(/(?:^|\n)MASK_FILES_READY(?:\n|$)/);
+  assert.equal((await stat(path.join(remoteHome, "terminal-file"))).mode & 0o777, 0o664);
+  assert.equal((await stat(path.join(remoteHome, "terminal-dir"))).mode & 0o777, 0o775);
+  // Application-set background must survive transport and hub reattachment.
+  await page.keyboard.type("printf '\\033]11;#123456\\007'");
+  await page.keyboard.press("Enter");
+  const before = await tail();
+  const pid = before.match(/REMOTE_READY:STILL_ALIVE:(\d+)/)?.[1];
+  assert.ok(pid);
+  await page.keyboard.type(`'${colorProbe}'`);
+  await page.keyboard.press("Enter");
+  await expect
+    .poll(async () => JSON.parse(await readFile(colorRecord, "utf8")))
+    .toContain(oscColor(11, "#123456"));
+  fixture.phase("persistent shell preparation");
+  return pid;
+}
 
 async function hostChannel(
   socket,
