@@ -347,24 +347,37 @@ This establishes the ordering defect without claiming the reports captured the
 underlying Git operation timing. Test deadlines and product deletion policy stay
 unchanged.
 
-## Sharing-menu opening order (#1150)
+## Sharing-menu opening and facts order (#1150)
 
 The remote-clones sharing-warning case holds the real sidebar panel opening
 animation at its first frame, uses native input near New agent's upper edge,
-then completes the animation while the pointer stays still. It asserts that
-New agent and its machine submenu remain selected before hovering Builder and
-launching Claude Code through the real sharing confirmation.
+then completes the animation while the pointer stays still. It also gates the
+real panel-facts reply until that submenu is open. A long valid fixture origin
+and a short window ensure that the arriving facts grow a bottom-clamped panel.
+The case requires the panel's top and selected submenu to stay fixed and the
+whole panel to remain in the viewport, then launches through Builder and the real
+sharing confirmation. The opener scrolls into view before pinning, with a renderer
+frame barrier to drain the scroll event: tree scrolling intentionally dismisses
+panels. Cleanup releases the facts gate and restores the method.
 
-With the original scale/translation keyframes, a controlled Linux trace records
-pointerover New agent at 4453.8 ms, pointerout to New worktree at 4470.8 ms and
-panel animationend at 4471.1 ms. The final regression fails against those original
-styles because New agent's aria-expanded becomes false; it passes with opening
-opacity only. This establishes a product hit-testing defect: the opening transform
-can change the selected command beneath a stationary pointer. Machine inventory
-updates and sharing confirmation are not needed to reproduce it.
+The original scale/translation keyframes change the selected command beneath a
+stationary pointer when the opening animation ends. A controlled trace records
+New agent switching to New worktree at that boundary. The first fade-only fix
+then failed macOS shard 3 in run
+[42642953941](https://github.com/scott-r-lindsey/foom/actions/runs/42642953941/job/129248721237):
+New agent received pointerover at 14285.1 ms, the panel fade ended at 14350.7 ms,
+and the pointer crossed to Pin to top at 14483.4 ms without another input action.
+
+Gating the real facts reproduces the second defect on Linux: delivering the long
+origin grows the panel from 304.75 px to 473.5 px and moves its top from 310.296875 px
+to 158 px. The late-facts regression fails against the fade-only styles on that
+position change. Normal panels now retain their initial top and scroll their body
+within the remaining viewport; explicit resize can refit a retained panel.
+Opening fades no longer transform hit areas. The final case exercises both orders.
+
 The older macOS reports record Builder instability and detachment but no pointer
-trace, so they do not establish that exact event order. The test retains a bounded,
-failure-only trace of menu labels, pointer transitions and animation events in
-JUnit diagnostics and `test-results/1150/`, for distinguishing another cause.
-It preserves native input, real menus, fixture CLIs, sandboxing and process auditing;
-there are no deadline increases, fixed settling sleeps or retries.
+trace, so they do not establish the exact event order. The test retains a bounded,
+failure-only trace of menu labels, bounds, pointer transitions and animation events
+in JUnit diagnostics and `test-results/1150/` to distinguish another cause.
+Native input, real menus, fixture CLIs, sandboxing and process auditing remain in
+use. There are no deadline increases, fixed settling sleeps or retries.

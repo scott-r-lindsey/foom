@@ -1159,6 +1159,8 @@
   }
 }
 .sidebar-panel {
+  display: flex;
+  flex-direction: column;
   width: 720px;
   padding: 4px;
   border-radius: var(--shape-panel-radius, 10px);
@@ -1177,6 +1179,7 @@
   border-color: color-mix(in srgb, var(--highlight) 55%, var(--raised-line));
 }
 .panel-header {
+  flex-shrink: 0;
   position: relative;
   display: flex;
   align-items: center;
@@ -1237,6 +1240,7 @@
   font: 11px var(--font-mono);
 }
 .panel-body {
+  min-height: 0;
   display: grid;
   grid-template-columns: 248px minmax(0, 1fr);
   max-height: calc(100vh - 100px);
