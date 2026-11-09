@@ -206,6 +206,15 @@ status remains available. Hiding and reshowing a session that already rendered
 does not show the skeleton again. Live tiles retain their split geometry and
 hidden-space rules.
 
+## Terminal capability revocation (#1143)
+
+The live board source retains terminal availability revocations across controller
+unmounts and queued view work. Workspace snapshots and launch replies may still
+contain a revoked ID; they cannot authorize attachment. Both board and host views
+check the source's revocation state when their queued work runs. Only main's
+availability event restores that capability, including restoration after failed
+shutdown without a launch reset.
+
 ## Close projection (#1048)
 
 The live board source omits main-owned `closeState: "closing"` sessions from rows
