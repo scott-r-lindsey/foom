@@ -394,8 +394,13 @@ already enumerate and kill arbitrary same-user processes or create other session
 
 After reporting normal completion, the supervisor also issues `kill -KILL 0`
 itself. This independent fallback prevents a lost watcher from allowing workers
-to survive a completed install. Both cleanup signals originate from live members
-of their own group, never from a remembered numeric PGID.
+to survive a completed install. The helper also signals its own still-live ChildProcess handle with TERM on
+cleanup. The supervisor runs the interpreter as a background job with explicit
+terminal stdin, then waits with job control disabled; TERM interrupts that wait
+and its trap kills its own group. This independent Stop path works when the
+watcher is lost while an installer hangs. An exited child is never signalled.
+All group cleanup signals originate from live members of their own group, never
+from a remembered numeric PGID.
 
 The supervisor receives interpreter, private script path and manifest arguments
 as positional argv, never generated shell source. It reports the interpreter's
@@ -410,7 +415,7 @@ The private file and directory are removed after success, download/spawn/script
 failure, handled interruption and supervisor-only SIGKILL. If the helper itself
 receives uncatchable SIGKILL, the watcher still terminates the installer group,
 but the helper cannot run its file cleanup: the private temporary directory may
-remain. Machine failure or deliberately killing all cleanup processes likewise
+remain. Machine failure or simultaneous loss of multiple cleanup components likewise
 cannot guarantee cleanup. Fixtures cover both local and host paths, including
 supervisor/helper SIGKILL while the interpreter waits for `/bin/sleep`.
 

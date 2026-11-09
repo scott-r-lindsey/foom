@@ -6,15 +6,19 @@ import { spawn, type ChildProcess } from "node:child_process";
 // Fixed source only; vendor values are positional argv, never shell source.
 // The watcher reads the helper's lifetime pipe while the interpreter is running.
 // It kills its own group (0), so cleanup never addresses a possibly reused PGID.
-const installerSupervisor = `set +e
-trap ':' HUP INT TERM QUIT PIPE
+const installerSupervisor = `set +em
+trap 'kill -KILL 0' HUP INT TERM QUIT
+trap ':' PIPE
 (
   trap '' HUP INT TERM QUIT
   IFS= read -r hold <&4
   kill -KILL 0
 ) &
-exec 4<&-
-"$@" 3>&- 4<&-
+exec 4<&- 6<&0
+"$@" <&6 3>&- 4<&- 6<&- &
+installer=$!
+exec 6<&-
+wait "$installer"
 result=$?
 printf '%s\\n' "$result" >&3
 kill -KILL 0
@@ -88,9 +92,11 @@ export async function runVendorScript(
   let interrupted: NodeJS.Signals | undefined;
   const terminate = (signal: NodeJS.Signals = "SIGKILL") => {
     if (!child) return;
-    if (process.platform === "win32") {
-      if (!childExited) child.kill(signal);
-    } else if (!cleanupRequested && child.stdio[4]) {
+    // ChildProcess.kill targets only this unreaped child and refuses an exited
+    // handle. The supervisor's interrupted wait kills its own group, providing
+    // Stop cleanup even if the watcher was lost. Never signal a numeric PGID.
+    if (!childExited && child.pid) child.kill(process.platform === "win32" ? signal : "SIGTERM");
+    if (process.platform !== "win32" && !cleanupRequested && child.stdio[4]) {
       cleanupRequested = true;
       child.stdio[4].destroy();
     }

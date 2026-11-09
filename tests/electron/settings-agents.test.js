@@ -549,7 +549,7 @@ process.kill=(pid,signal)=>{
  if(pid<0) throw Error('Helper must not signal numeric process groups');
  return originalKill(pid,signal);
 };
-const bodies=${JSON.stringify({ hangup: `${body}wait\n`, 0: `${body}exit 0\n`, watcher: `${body}exit 0\n`, 7: `${body}exit 7\n` })};
+const bodies=${JSON.stringify({ hangup: `${body}wait\n`, 0: `${body}exit 0\n`, watcher: `${body}exit 0\n`, "watcher-stop": `${body}wait\n`, 7: `${body}exit 7\n` })};
 globalThis.fetch=async()=>new Response(bodies[process.argv[3]]);
 (async()=>{
  if(process.argv[2]==='local') return load('../node-common/local-agent-install.js').installLocalAgent('claude');
@@ -577,7 +577,10 @@ globalThis.fetch=async()=>new Response(bodies[process.argv[3]]);
     ["host", 7],
     ["local", "watcher"],
     ["host", "watcher"],
+    ["local", "watcher-stop"],
+    ["host", "watcher-stop"],
   ]) {
+    context.diagnostic(`Installer fixture ${mode}:${completion}`);
     const result = await app.evaluate(
       async (_electron, fixture) => {
         const load = process.getBuiltinModule("node:module").createRequire(fixture.modulePath);
@@ -602,13 +605,17 @@ globalThis.fetch=async()=>new Response(bodies[process.argv[3]]);
         let output = "";
         let killed = false;
         let replied = false;
+        let forcedStop;
         const exit = await new Promise((resolve) => {
-          pty.onExit(resolve);
+          pty.onExit((exit) => {
+            clearTimeout(forcedStop);
+            resolve(exit);
+          });
           pty.onData((data) => {
             output += data;
             if (!replied && /DESCENDANT_READY:\d+\r?\n/u.test(output)) {
               replied = true;
-              if (fixture.completion === "watcher") {
+              if (fixture.completion === "watcher" || fixture.completion === "watcher-stop") {
                 const group = Number(/FIXTURE_GROUP:(\d+)/u.exec(output)?.[1]);
                 const interpreter = Number(/FIXTURE_INTERPRETER:(\d+)/u.exec(output)?.[1]);
                 const descendant = Number(/DESCENDANT_READY:(\d+)/u.exec(output)?.[1]);
@@ -628,12 +635,17 @@ globalThis.fetch=async()=>new Response(bodies[process.argv[3]]);
               pty.write("fixture-input\r");
             }
             if (
-              fixture.completion === "hangup" &&
+              ["hangup", "watcher-stop"].includes(fixture.completion) &&
               !killed &&
               output.includes("FIXTURE_INPUT:fixture-input")
             ) {
               killed = true;
               pty.kill(); // node-pty defaults to SIGHUP, as TerminalManager.terminate does.
+              if (fixture.completion === "watcher-stop") {
+                // Mirror TerminalManager's one-second force-kill fallback so a
+                // regression remains observable without leaking a hung fixture.
+                forcedStop = setTimeout(() => pty.kill("SIGKILL"), 1000);
+              }
             }
           });
         });
@@ -672,7 +684,11 @@ globalThis.fetch=async()=>new Response(bodies[process.argv[3]]);
     );
     assert.equal(
       result.exit.exitCode,
-      completion === "hangup" ? 129 : completion === "watcher" ? 0 : completion,
+      ["hangup", "watcher-stop"].includes(completion)
+        ? 129
+        : completion === "watcher"
+          ? 0
+          : completion,
       `${mode}:${completion}`,
     );
     assert.equal(result.directoryExists, false, mode);

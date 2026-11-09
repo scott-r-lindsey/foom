@@ -17,6 +17,7 @@ const signal = () => AbortSignal.timeout(5000);
 const platform = process.platform;
 function fixtureChild() {
   return Object.assign(new EventEmitter(), {
+    kill: vi.fn(),
     stdio: [null, null, null, new PassThrough(), new PassThrough()],
   });
 }
@@ -344,8 +345,14 @@ test.skipIf(platform === "win32").each([0, 7])(
     vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockResolvedValue(new Response("fixture script")));
     const kill = vi.spyOn(process, "kill").mockReturnValue(true);
     let closeCount = 0;
+    let leaderAlive = true;
+    const aliveAtSignal: boolean[] = [];
     mocks.spawn.mockImplementation(() => {
       const child = Object.assign(fixtureChild(), { pid: 123456 });
+      child.kill.mockImplementation(() => {
+        aliveAtSignal.push(leaderAlive);
+        return true;
+      });
       const hold = child.stdio[4];
       if (!hold) throw new Error("Missing lifetime pipe");
       vi.spyOn(hold, "destroy").mockImplementation(() => {
@@ -354,6 +361,7 @@ test.skipIf(platform === "win32").each([0, 7])(
       });
       queueMicrotask(() => {
         child.stdio[3]?.emit("data", Buffer.from(`${String(code)}\n`));
+        leaderAlive = false;
         child.emit("exit", null, "SIGKILL");
         child.emit("close", null, "SIGKILL");
       });
@@ -361,6 +369,7 @@ test.skipIf(platform === "win32").each([0, 7])(
     });
     expect(await runVendorScript(script, "/fixture/home", {})).toBe(code);
     expect(closeCount).toBe(1);
+    expect(aliveAtSignal).toEqual([true]);
     expect(kill).not.toHaveBeenCalled();
   },
 );
