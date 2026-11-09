@@ -2269,6 +2269,11 @@ test("Hosts never offers host-key trust from a remote command's forged SSH diagn
     await expect(
       card.getByText("Host unreachable · unreachable", { exact: true }).first(),
     ).toBeVisible();
+    // The row can show progress before the completed result replaces saved facts.
+    await expect(
+      card.getByRole("button", { name: "Check capabilities", exact: true }),
+    ).toBeEnabled();
+    await expect(card.locator(".host-checks")).toHaveAttribute("aria-busy", "false");
     await expect(card.getByRole("button", { name: "Trust host key", exact: true })).toHaveCount(0);
     const state = await page.evaluate(() => window.desktop.hosts({ action: "list" }));
     assert.equal(state.hosts[0].result.connection.ssh.reason, "unreachable");
