@@ -6,13 +6,14 @@ const properties = "ProcessId,ParentProcessId,Name,CreationDate,CommandLine";
 // Restrict WMI's projection, not the process set or the fields used by the audit.
 const command = [
   "$ErrorActionPreference = 'Stop'",
-  "[Console]::Error.WriteLine('FOOM_AUDIT:ready')",
+  "$foomAuditClock = [Diagnostics.Stopwatch]::StartNew()",
+  "[Console]::Error.WriteLine('FOOM_AUDIT:ready:' + $foomAuditClock.ElapsedMilliseconds)",
   `$rows = @(Get-CimInstance Win32_Process -Property ${properties})`,
-  "[Console]::Error.WriteLine('FOOM_AUDIT:queried')",
+  "[Console]::Error.WriteLine('FOOM_AUDIT:queried:' + $foomAuditClock.ElapsedMilliseconds)",
   `$json = ConvertTo-Json -InputObject @($rows | Select-Object ${properties}) -Compress`,
-  "[Console]::Error.WriteLine('FOOM_AUDIT:serialized')",
+  "[Console]::Error.WriteLine('FOOM_AUDIT:serialized:' + $foomAuditClock.ElapsedMilliseconds)",
   "[Console]::Out.WriteLine($json)",
-  "[Console]::Error.WriteLine('FOOM_AUDIT:written')",
+  "[Console]::Error.WriteLine('FOOM_AUDIT:written:' + $foomAuditClock.ElapsedMilliseconds)",
 ].join("; ");
 
 // Fixed phase names and byte counts only: process argv and PowerShell errors may
@@ -20,8 +21,12 @@ const command = [
 async function windowsProcessSnapshot(report = () => {}, execute = execFile) {
   const started = performance.now();
   const trace = [];
-  const record = (phase) =>
-    trace.push({ phase, elapsedMs: Math.round(performance.now() - started) });
+  const record = (phase, scriptElapsedMs) =>
+    trace.push({
+      phase,
+      elapsedMs: Math.round(performance.now() - started),
+      ...(scriptElapsedMs === undefined ? {} : { scriptElapsedMs }),
+    });
   record("requested");
   let stdoutBytes = 0;
   let stderrBytes = 0;
@@ -55,12 +60,11 @@ async function windowsProcessSnapshot(report = () => {}, execute = execFile) {
       stderrBytes += Buffer.byteLength(chunk);
       for (const character of chunk.toString()) {
         if (character === "\n") {
-          if (
-            nextPhase < phases.length &&
-            (pending === `FOOM_AUDIT:${phases[nextPhase]}\r` ||
-              pending === `FOOM_AUDIT:${phases[nextPhase]}`)
-          ) {
-            record(phases[nextPhase++]);
+          const marker = /^FOOM_AUDIT:(ready|queried|serialized|written):(\d{1,8})\r?$/.exec(
+            pending,
+          );
+          if (nextPhase < phases.length && marker?.[1] === phases[nextPhase]) {
+            record(phases[nextPhase++], Number(marker[2]));
           }
           pending = "";
         } else if (pending.length < 128) pending += character;

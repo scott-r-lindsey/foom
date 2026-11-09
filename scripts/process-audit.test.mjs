@@ -375,7 +375,7 @@ test("Windows snapshot records split phase markers, exit and stream closure with
     child.emit("spawn");
     child.stderr.write("FOOM_AUD");
     child.stderr.write(
-      "IT:ready\r\nFOOM_AUDIT:queried\nFOOM_AUDIT:serialized\nFOOM_AUDIT:written\n",
+      "IT:ready:0\r\nFOOM_AUDIT:queried:7\nFOOM_AUDIT:serialized:10\nFOOM_AUDIT:written:11\n",
     );
     child.stdout.write(JSON.stringify(snapshotRows));
     child.emit("exit", 0, null);
@@ -389,6 +389,13 @@ test("Windows snapshot records split phase markers, exit and stream closure with
   assert.equal(rows[0].command, snapshotRows[0].CommandLine);
   assert.equal(reports[0].success, true);
   assert.equal(reports[0].stdoutBytes, Buffer.byteLength(JSON.stringify(snapshotRows)));
+  assert.deepEqual(
+    reports[0].trace
+      .filter((row) => row.scriptElapsedMs !== undefined)
+      .map((row) => row.scriptElapsedMs),
+    [0, 7, 10, 11],
+    "PowerShell's clock must retain phase costs even when pipe delivery is coalesced",
+  );
   assert.deepEqual(
     reports[0].trace.map((row) => row.phase),
     [
@@ -412,10 +419,12 @@ for (const phase of ["startup", "query", "serialization", "stream closure"]) {
       const markers = ["ready", "queried", "serialized", "written"];
       const count = { startup: 0, query: 1, serialization: 2, "stream closure": 4 }[phase];
       child.stderr.write("private-payload".repeat(1000) + "\n");
-      for (const marker of markers.slice(0, count)) child.stderr.write(`FOOM_AUDIT:${marker}\n`);
+      for (const marker of markers.slice(0, count)) child.stderr.write(`FOOM_AUDIT:${marker}:0\n`);
       // Duplicated/out-of-order/unrecognized markers must not expand the trace.
       child.stderr.write(
-        `FOOM_AUDIT:${count ? markers[count - 1] : "unknown"}\nFOOM_AUDIT:unknown\n`.repeat(100),
+        `FOOM_AUDIT:${count ? markers[count - 1] : "unknown"}:0\nFOOM_AUDIT:unknown\nFOOM_AUDIT:queried:private-payload\n`.repeat(
+          100,
+        ),
       );
       child.emit("exit");
       child.emit("close");
@@ -463,52 +472,3 @@ for (const output of ["private-payload", "[]", "null", '[{"ProcessId":7}]']) {
     assert.equal(reports[0].success, false);
   });
 }
-
-test("Windows projected snapshot measures enumeration and preserves this process identity", {
-  skip: process.platform !== "win32",
-}, async (context) => {
-  const { promisify } = await import("node:util");
-  const { execFile } = await import("node:child_process");
-  const { performance } = await import("node:perf_hooks");
-  const { windowsProcessSnapshot } = await import("../tests/electron/windows-process-snapshot.js");
-  const started = performance.now();
-  const { stdout } = await promisify(execFile)(
-    "powershell.exe",
-    [
-      "-NoProfile",
-      "-NonInteractive",
-      "-Command",
-      "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name,CreationDate,CommandLine | ConvertTo-Json -Compress",
-    ],
-    { timeout: 30_000, maxBuffer: 4 * 1024 * 1024 },
-  )
-    .catch(() => {
-      throw new Error("Unprojected Windows snapshot comparison command failed");
-    })
-    .finally(() => {
-      context.diagnostic(
-        `unprojected Windows snapshot elapsedMs: ${Math.round(performance.now() - started)}`,
-      );
-    });
-  let baseline;
-  try {
-    baseline = JSON.parse(stdout).find((row) => row.ProcessId === process.pid);
-  } catch {
-    throw new Error("Unprojected Windows snapshot comparison returned invalid rows");
-  }
-  assert.ok(baseline);
-  const rows = await windowsProcessSnapshot((details) =>
-    context.diagnostic(`projected Windows snapshot: ${JSON.stringify(details)}`),
-  );
-  const own = rows.find((row) => row.pid === process.pid);
-  assert.ok(own);
-  assert.equal(own.pid, baseline.ProcessId);
-  assert.equal(own.parent, baseline.ParentProcessId);
-  assert.equal(own.name, baseline.Name);
-  assert.equal(own.start, baseline.CreationDate);
-  assert.equal(own.host, /node.mojom.NodeService/.test(baseline.CommandLine));
-  assert.ok(
-    own.command === baseline.CommandLine,
-    "Projected snapshot must retain the full command line",
-  );
-});

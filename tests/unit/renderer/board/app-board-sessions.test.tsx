@@ -24,6 +24,36 @@ test("closing a local shell forgets its revoked ID and placeholder rows never at
   expect(mock.kill).not.toHaveBeenCalled();
 });
 
+test.each([false, true])(
+  "revocation survives stale snapshots and later views (row known: %s)",
+  async (known) => {
+    mock.workspace.mockResolvedValue({ repositories: [], terminals: known ? [agent("late")] : [] });
+    const source = createAppSource();
+    const off = source.connect?.();
+    await settle();
+    mock.availability?.("late", false);
+    // An inventory reply can still project the row after its capability is gone.
+    mock.workspace.mockResolvedValue({ repositories: [], terminals: [agent("late")] });
+    mock.changed?.();
+    await settle();
+    const view = source.createView?.();
+    expect(mock.viewAvailable?.("late")).toBe(false);
+    await view?.open("late");
+    expect(mock.open).not.toHaveBeenCalled();
+    // Failed shutdown restores the existing capability without a launch reset.
+    mock.availability?.("late", true);
+    expect(mock.viewAvailable?.("late")).toBe(true);
+    await view?.open("late");
+    expect(mock.open).toHaveBeenCalledWith("late");
+    mock.availability?.("late", false);
+    source.createHostView?.();
+    expect(mock.viewAvailable?.("late")).toBe(false);
+    mock.availability?.("late", true, true);
+    expect(mock.viewAvailable?.("late")).toBe(true);
+    off?.();
+  },
+);
+
 test("restored sessions have no host view or tail and resuming clears previous exit evidence", async () => {
   const source = createAppSource();
   const disconnect = source.connect?.();

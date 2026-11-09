@@ -160,6 +160,73 @@ between independent tests. These are observations on shared local hardware and
 hosted CI runners, not guaranteed speedups. CI case sums measure aggregate test
 compute; the longest shard and job/step wall times measure elapsed feedback.
 
+## Windows process snapshot timing (#1136)
+
+The mandatory process audit still enumerates every process, retaining PID, parent
+PID, creation identity, name and command line for ancestry and fixture-agent checks.
+Its Windows query now requests those five properties from CIM itself, rather than
+fetching every `Win32_Process` property before discarding the unused fields.
+[Microsoft's property projection documentation](https://learn.microsoft.com/en-us/powershell/module/cimcmdlets/get-ciminstance?view=powershell-5.1#-property)
+describes the reduced returned object size. No snapshot retries, process filters,
+audit exemptions or deadline changes are introduced.
+
+Every Windows snapshot emits a bounded timing record in test diagnostics (and the
+packaged smoke checkpoint stream). Node records request, native spawn, native exit,
+stream closure and successful JSON parsing. PowerShell writes fixed stderr markers
+when its script starts, CIM returns, serialization completes and stdout is written.
+Node's `elapsedMs` is monotonic time at observation. PowerShell's markers also
+carry `scriptElapsedMs` from its own stopwatch, so coalesced pipe delivery cannot
+hide the query and serialization costs. A gap before `ready` includes PowerShell
+startup and delivery; script `ready` to `queried` covers CIM enumeration, and
+`queried` to `serialized` covers selection/JSON conversion. Native exit preceding
+stream closure distinguishes an inherited-pipe delay. Markers share a pipe with
+each other but not stdout, so cross-stream arrival order is not a provider-side
+clock measurement. Error records contain fixed phases, byte counts and bounded
+exit facts, never raw stdout/stderr, process arguments or environment values.
+Malformed/empty enumerations fail the audit. In-flight failures remain failures.
+
+Original evidence, preserved by numeric artifact ID:
+
+| Run / attempt | Artifact | Case | Result / JUnit seconds |
+| --- | --- | --- | --- |
+| [42551903310 / 1](https://github.com/scott-r-lindsey/foom/actions/runs/42551903310/attempts/1) | 13645888362 | User-authored extension | Failed / 30.276 |
+| [42551903310 / 2](https://github.com/scott-r-lindsey/foom/actions/runs/42551903310/attempts/2) | 13647908408 | User-authored extension | Passed / 23.296 |
+| [42614426562 / 1](https://github.com/scott-r-lindsey/foom/actions/runs/42614426562/job/129150908202) | 13671309453 | OpenCode cards/resume | Failed / 45.284 |
+| [42614426562 / 2](https://github.com/scott-r-lindsey/foom/actions/runs/42614426562/job/129162059429) | 13674430539 | OpenCode cards/resume | Passed case / 29.167; job cancelled |
+
+Both failed commands were killed with SIGTERM and empty stdout/stderr. The first
+failure has no completed fixture timing record; the new OpenCode failure also
+has none. Neither failed case emits the baseline process-count diagnostic. The
+harness awaits that baseline before preparing the profile or launching Electron; its
+process-count diagnostic is emitted immediately after baseline completion. This
+ordering supports a harness baseline failure before the product starts, rather
+than an agent assertion or surviving app process. The reports still cannot
+identify the slow phase or establish a runner-load explanation. The earlier
+OpenCode case passed in both original artifacts (26.696 / 36.644 seconds); its setup/body/teardown sums were
+5.373/19.630/1.689 and 4.894/29.712/2.033 seconds. The passing extension rerun's
+sums were 12.234/8.788/2.262 seconds. The new run’s second attempt completed
+OpenCode in 29.167 seconds, with phase sums 8.476/18.907/1.779 seconds, before its job was cancelled. That artifact contains
+only the opening JUnit envelope; its case result comes from the job log and its
+completed fixture record. Cancellation is not whole-job success. Case totals are
+not snapshot durations.
+
+The Windows Electron regression measures the old full-property command followed
+by the projected snapshot, reports both durations and checks all five fields of
+the test process against the original query. Ordinary Electron tests measure each
+projected snapshot in context. These observations do not assert a speedup from a
+single sequential comparison. Deterministic stream fixtures reproduce failures
+before startup readiness, during querying/serialization and after output, checking
+that the timing report stays bounded/private and every failure remains fatal.
+
+Initial PR measurement at `a51e0f58`,
+[Windows shard 1](https://github.com/scott-r-lindsey/foom/actions/runs/42619266639/job/129166995047):
+all 381 projected snapshots succeeded. Request-to-parse minimum/median/maximum
+were 266/348/3733 ms. In the slowest observation, native spawn was at 4 ms,
+PowerShell readiness at 2371 ms, CIM completion at 2931 ms, JSON completion at
+3689 ms and stream closure at 3733 ms. These separate observed startup, query,
+serialization and closure costs; they do not reproduce the historical timeout
+or prove which phase was responsible for it.
+
 ## Linux display isolation
 
 Every development and packaged GUI launch uses the shared
@@ -328,67 +395,21 @@ or profile switch. Ordinary app/package builds clear the disposable build tree.
 Daemon unit tests exercise the real admission path with fixture OS measurements,
 including reservations, refusals, disconnects and unreadable observations.
 
-## Windows process snapshot timing (#1136)
+## Group cleanup completion ordering (#1146)
 
-The mandatory process audit still enumerates every process, retaining PID, parent
-PID, creation identity, name and command line for ancestry and fixture-agent checks.
-Its Windows query now requests those five properties from CIM itself, rather than
-fetching every `Win32_Process` property before discarding the unused fields.
-[Microsoft's property projection documentation](https://learn.microsoft.com/en-us/powershell/module/cimcmdlets/get-ciminstance?view=powershell-5.1#-property)
-describes the reduced returned object size. No snapshot retries, process filters,
-audit exemptions or deadline changes are introduced.
+The untracked/detached cleanup case holds delivery of the second detached
+checkout's real removal result. It verifies the trusted progress dialog remains
+at 2/3 with Hide available and no Done, then awaits `CleanupRun.settled()` before
+asserting the finished UI. The gate releases on failure before app shutdown.
+All real Git checks and trusted dirty approval still run.
 
-Every Windows snapshot emits a bounded timing record in test diagnostics (and the
-packaged smoke checkpoint stream). Node records request, native spawn, native exit,
-stream closure and successful JSON parsing. PowerShell writes fixed stderr markers
-when its script starts, CIM returns, serialization completes and stdout is written.
-Elapsed milliseconds use Node's monotonic clock at observation. A gap before
-`ready` includes PowerShell startup; `ready` to `queried` includes CIM enumeration;
-`queried` to `serialized` covers selection/JSON conversion. Native exit preceding
-stream closure distinguishes an inherited-pipe delay. Markers share a pipe with
-each other but not stdout, so cross-stream arrival order is not a provider-side
-clock measurement. Error records contain fixed phases, byte counts and bounded
-exit facts, never raw stdout/stderr, process arguments or environment values.
-Malformed/empty enumerations fail the audit. In-flight failures remain failures.
-
-Original evidence, preserved by numeric artifact ID:
-
-| Run / attempt | Artifact | Case | Result / JUnit seconds |
-| --- | --- | --- | --- |
-| [42551903310 / 1](https://github.com/scott-r-lindsey/foom/actions/runs/42551903310/attempts/1) | 13645888362 | User-authored extension | Failed / 30.276 |
-| [42551903310 / 2](https://github.com/scott-r-lindsey/foom/actions/runs/42551903310/attempts/2) | 13647908408 | User-authored extension | Passed / 23.296 |
-| [42614426562 / 1](https://github.com/scott-r-lindsey/foom/actions/runs/42614426562/job/129150908202) | 13671309453 | OpenCode cards/resume | Failed / 45.284 |
-| [42614426562 / 2](https://github.com/scott-r-lindsey/foom/actions/runs/42614426562/job/129162059429) | 13674430539 | OpenCode cards/resume | Passed case / 29.167; job cancelled |
-
-Both failed commands were killed with SIGTERM and empty stdout/stderr. The first
-failure has no completed fixture timing record; the new OpenCode failure also
-has none. Neither failed case emits the baseline process-count diagnostic. The harness
-awaits that baseline before preparing the profile or launching Electron; its
-process-count diagnostic is emitted immediately after baseline completion. This
-ordering supports a harness baseline failure before the product starts, rather
-than an agent assertion or surviving app process. The reports still cannot
-identify the slow phase or establish a runner-load explanation. The earlier OpenCode case passed in both
-original artifacts (26.696 / 36.644 seconds); its setup/body/teardown sums were
-5.373/19.630/1.689 and 4.894/29.712/2.033 seconds. The passing extension rerun's
-sums were 12.234/8.788/2.262 seconds. The new run’s second attempt completed OpenCode in 29.167 seconds, with phase sums
-8.476/18.907/1.779 seconds, before its job was cancelled. That artifact contains
-only the opening JUnit envelope; its case result comes from the job log and its
-completed fixture record. Cancellation is not whole-job success. Case totals are
-not snapshot durations.
-
-The Windows CI-policy regression measures the old full-property command followed
-by the projected snapshot, reports both durations and checks all five fields of
-the test process against the original query. Ordinary Electron tests measure each
-projected snapshot in context. These observations do not assert a speedup from a
-single sequential comparison. Deterministic stream fixtures reproduce failures
-before startup readiness, during querying/serialization and after output, checking
-that the timing report stays bounded/private and every failure remains fatal.
-
-Initial PR measurement at `a51e0f58`,
-[Windows shard 1](https://github.com/scott-r-lindsey/foom/actions/runs/42619266639/job/129166995047):
-all 381 projected snapshots succeeded. Request-to-parse minimum/median/maximum
-were 266/348/3733 ms. In the slowest observation, native spawn was at 4 ms,
-PowerShell readiness at 2371 ms, CIM completion at 2931 ms, JSON completion at
-3689 ms and stream closure at 3733 ms. These separate observed startup, query,
-serialization and closure costs; they do not reproduce the historical timeout
-or prove which phase was responsible for it.
+Both macOS JUnit reports from runs 42601978396 and 42606320501 show the same
+`Deleting merged worktrees` progress dialog at 2/3, with `review-detached-b`
+still removing. The repeated alertdialog interception is the harness's native
+focus readiness handler, not evidence of another unanswered dialog. The original
+Done assertion starts its ten-second UI deadline while native removals are still
+running. Holding that completion reproduces the original failure deterministically;
+waiting for the run separates native operation completion from UI rendering.
+This establishes the ordering defect without claiming the reports captured the
+underlying Git operation timing. Test deadlines and product deletion policy stay
+unchanged.

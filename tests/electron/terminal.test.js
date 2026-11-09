@@ -21,6 +21,104 @@ const {
   stopSession,
 } = require("./harness.js");
 
+test("a different tile never attaches a revoked ID while workspace refresh is held", async (context) => {
+  const app = await launchApp(context, { fixture: "running-shell" });
+  const page = await boardPage(app);
+  const id = (await page.evaluate(() => window.desktop.workspace())).terminals[0].id;
+  await sizeTileBoard(app, page, 1800);
+  const originalTile = await page
+    .locator('.terminal-tile[data-kind="shell"]')
+    .getAttribute("data-tile");
+  await page.evaluate(() => window.desktop.appMenu.execute("split-right"));
+  await page.getByRole("button", { name: "Hide", exact: true }).click();
+  const original = page.locator(`[data-tile="${originalTile}"]`);
+  await original.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Close space", exact: true }).click();
+  await expect(original).toHaveCount(0);
+  const healthy = await page.evaluate(() => window.desktop.sidebarCommand({ kind: "home-shell" }));
+  assert.ok(healthy?.terminalId);
+  await expect(page.locator(`.board-row[data-drag-session="${healthy.terminalId}"]`)).toBeVisible();
+  await page.locator(`.board-row[data-drag-session="${healthy.terminalId}"]`).click();
+  await expect(
+    page.locator('.terminal-tile[data-focused="true"] .xterm-helper-textarea'),
+  ).toBeEditable();
+  await page.getByRole("button", { name: "Hide", exact: true }).click();
+  await app.evaluate(({ ipcMain }) => {
+    const original = ipcMain._invokeHandlers.get("workspace:snapshot");
+    let release;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    globalThis.revokedViewRefreshes = 0;
+    globalThis.releaseRevokedViewRefresh = () => {
+      ipcMain.removeHandler("workspace:snapshot");
+      ipcMain.handle("workspace:snapshot", original);
+      release();
+    };
+    ipcMain.removeHandler("workspace:snapshot");
+    ipcMain.handle("workspace:snapshot", async (...args) => {
+      globalThis.revokedViewRefreshes++;
+      await gate;
+      return original(...args);
+    });
+    const select = ipcMain._invokeHandlers.get("windows:select");
+    let releaseSelection;
+    const selected = new Promise((resolve) => {
+      releaseSelection = resolve;
+    });
+    globalThis.revokedViewSelected = false;
+    globalThis.releaseRevokedViewSelection = () => {
+      ipcMain.removeHandler("windows:select");
+      ipcMain.handle("windows:select", select);
+      releaseSelection();
+    };
+    ipcMain.removeHandler("windows:select");
+    ipcMain.handle("windows:select", async (...args) => {
+      const result = await select(...args);
+      globalThis.revokedViewSelected = true;
+      await selected;
+      return result;
+    });
+    const attach = ipcMain._invokeHandlers.get("terminal:attach");
+    globalThis.revokedViewAttaches = [];
+    ipcMain.removeHandler("terminal:attach");
+    ipcMain.handle("terminal:attach", (...args) => {
+      globalThis.revokedViewAttaches.push(args[1]);
+      return attach(...args);
+    });
+  });
+  try {
+    // Authorize selection while the capability is live, but hold its reply.
+    // Kill then publishes revocation before workspace membership catches up.
+    await page.locator(`.board-row[data-drag-session="${id}"]`).click();
+    await expect.poll(() => app.evaluate(() => globalThis.revokedViewSelected)).toBe(true);
+    await page.evaluate((id) => window.desktop.kill(id), id);
+    await expect.poll(() => app.evaluate(() => globalThis.revokedViewRefreshes)).toBeGreaterThan(0);
+    await app.evaluate(() => globalThis.releaseRevokedViewSelection());
+    await expect(page.locator(`.board-row[data-drag-session="${id}"]`)).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    // A subsequent healthy attachment drains the shared view queue. This
+    // observes completion without a sleep or guessing at xterm's parser timing.
+    await page.locator(`.board-row[data-drag-session="${healthy.terminalId}"]`).click();
+    await expect(
+      page.locator('.terminal-tile[data-focused="true"] .xterm-helper-textarea'),
+    ).toBeEditable();
+    assert.deepEqual(
+      await app.evaluate(() => globalThis.revokedViewAttaches),
+      [healthy.terminalId],
+      `revoked ID: ${id}`,
+    );
+  } finally {
+    await app.evaluate(() => {
+      globalThis.releaseRevokedViewSelection();
+      globalThis.releaseRevokedViewRefresh();
+    });
+  }
+  await expect(page.locator(`.board-row[data-drag-session="${id}"]`)).toHaveCount(0);
+});
+
 test("a new shell has a rendered blinking cursor after reusing an exited terminal view", async (context) => {
   const app = await launchApp(context, { fixture: "running-shell" });
   const page = await boardPage(app);
