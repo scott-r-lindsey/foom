@@ -330,6 +330,46 @@ test("group cleanup reviews untracked files and removes detached checkouts insid
   const remoteRoot = await mkdtemp(path.join(tmpdir(), "foom-729-remote-"));
   removeAfterApps(context, remoteRoot);
   const app = await launchApp(context, { fixture: "repository" });
+  fixtureCleanup(context).apps.unshift(async () => {
+    await app.evaluate(() => globalThis.groupCleanupRestore?.()).catch(() => {});
+  });
+  await app.evaluate(({ app }) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { CleanupRun } = load("./build/main/workspace/cleanup-run.js");
+    const { WorkspaceContext } = load("./build/main/workspace/workspace-context.js");
+    const act = CleanupRun.prototype.act;
+    const remove = WorkspaceContext.prototype.removeTree;
+    const gate = new Promise((resolve) => {
+      globalThis.groupCleanupRelease = resolve;
+    });
+    let reached;
+    globalThis.groupCleanupReached = new Promise((resolve) => {
+      reached = resolve;
+    });
+    globalThis.groupCleanupWaitStarted = false;
+    globalThis.groupCleanupSettled = false;
+    CleanupRun.prototype.act = function (...args) {
+      globalThis.groupCleanupRun = this;
+      return act.apply(this, args);
+    };
+    WorkspaceContext.prototype.removeTree = async function (...args) {
+      // Hold only completion delivery, after the real removal and every safety
+      // check. The checklist must remain at 2/3 until this result is delivered.
+      const result = await remove.apply(this, args);
+      if (args[1].endsWith("review-detached-b")) {
+        reached();
+        await gate;
+      }
+      return result;
+    };
+    globalThis.groupCleanupRestore = () => {
+      globalThis.groupCleanupRelease();
+      CleanupRun.prototype.act = act;
+      WorkspaceContext.prototype.removeTree = remove;
+    };
+  });
   const page = await boardPage(app);
   const repository = await page.evaluate(
     async () => (await window.desktop.workspace()).repositories[0].path,
@@ -424,6 +464,33 @@ test("group cleanup reviews untracked files and removes detached checkouts insid
     confirmation.getByRole("checkbox", { name: "Close when completed" }),
   ).not.toBeChecked();
   await confirmation.getByRole("button", { name: "Force delete 3", exact: true }).click();
+  await app.evaluate(() => globalThis.groupCleanupReached);
+  await expect(confirmation.getByRole("progressbar", { name: "Cleanup progress" })).toHaveAttribute(
+    "value",
+    "2",
+  );
+  await expect(
+    confirmation.getByRole("alertdialog", { name: "Deleting merged worktrees" }),
+  ).toBeVisible();
+  await expect(confirmation.getByRole("button", { name: "Hide", exact: true })).toBeVisible();
+  assert.equal(await confirmation.getByRole("button", { name: "Done", exact: true }).count(), 0);
+  // Git completion is not dialog readiness. Await the main-owned run before
+  // starting the ordinary UI assertion deadline, including for slow native Git.
+  const settled = app.evaluate(async () => {
+    globalThis.groupCleanupWaitStarted = true;
+    await globalThis.groupCleanupRun.settled();
+    globalThis.groupCleanupSettled = true;
+  });
+  try {
+    await expect.poll(() => app.evaluate(() => globalThis.groupCleanupWaitStarted)).toBe(true);
+    assert.equal(await app.evaluate(() => globalThis.groupCleanupSettled), false);
+  } finally {
+    await app.evaluate(() => globalThis.groupCleanupRelease());
+    await settled;
+    context.diagnostic(
+      `Group cleanup completion: ${await confirmation.locator("body").innerText()}`,
+    );
+  }
   await expect(confirmation.getByRole("button", { name: "Done", exact: true })).toBeVisible();
   await expect(confirmation.locator('[data-cleanup="removed"]')).toHaveCount(3);
   for (const tree of trees) await assert.rejects(realpath(tree.path), { code: "ENOENT" });
