@@ -327,7 +327,7 @@ function snapshotChild(context, respond) {
   return async function runSnapshot() {
     const { EventEmitter } = await import("node:events");
     const { PassThrough } = await import("node:stream");
-    const { windowsProcessSnapshot } = await import(
+    const { windowsSnapshotAttempt } = await import(
       "../tests/electron/windows-process-snapshot.js"
     );
     const child = new EventEmitter();
@@ -348,7 +348,7 @@ function snapshotChild(context, respond) {
       queueMicrotask(() => respond(child, callback, reports));
       return child;
     };
-    const promise = windowsProcessSnapshot((row) => reports.push(row), execute);
+    const promise = windowsSnapshotAttempt((row) => reports.push(row), execute);
     context.after(() => {
       assert.equal(reports.length, 1);
       const text = JSON.stringify(reports);
@@ -472,3 +472,119 @@ for (const output of ["private-payload", "[]", "null", '[{"ProcessId":7}]']) {
     assert.equal(reports[0].success, false);
   });
 }
+
+async function snapshotTransport(outcomes, rows = snapshotRows) {
+  const { EventEmitter } = await import("node:events");
+  const { PassThrough } = await import("node:stream");
+  const { windowsProcessSnapshot } = await import("../tests/electron/windows-process-snapshot.js");
+  const budgetMs = process.platform === "win32" ? 30_000 : 10_000;
+  let elapsed = 0;
+  const timeouts = [];
+  const reports = [];
+  const execute = (_file, _args, options, callback) => {
+    const outcome = outcomes[timeouts.length] ?? "unexpected";
+    timeouts.push(options.timeout);
+    const child = new EventEmitter();
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    queueMicrotask(() => {
+      child.emit("spawn");
+      if (outcome !== "startup-timeout") child.stderr.write("FOOM_AUDIT:ready:0\n");
+      const timedOut = ["timeout", "startup-timeout", "late-timeout", "output-timeout"].includes(
+        outcome,
+      );
+      elapsed += timedOut ? (outcome === "late-timeout" ? budgetMs + 1 : options.timeout) : 1;
+      const output = outcome === "malformed" ? "private-payload" : JSON.stringify(rows);
+      if (outcome === "success" || outcome === "malformed" || outcome === "output-timeout") {
+        child.stderr.write("FOOM_AUDIT:queried:1\nFOOM_AUDIT:serialized:2\nFOOM_AUDIT:written:3\n");
+        child.stdout.write(output);
+      }
+      child.emit("exit");
+      child.emit("close");
+      if (outcome === "success" || outcome === "malformed") callback(null, output);
+      else
+        callback(
+          Object.assign(new Error("private-payload"), {
+            code: timedOut
+              ? null
+              : outcome === "max-buffer"
+                ? "ERR_CHILD_PROCESS_STDIO_MAXBUFFER"
+                : 1,
+            signal: timedOut || outcome === "max-buffer" ? "SIGTERM" : null,
+            killed: timedOut || outcome === "max-buffer",
+          }),
+        );
+    });
+    return child;
+  };
+  return {
+    budgetMs,
+    timeouts,
+    reports,
+    snapshot: () =>
+      windowsProcessSnapshot(
+        (details) => reports.push(details),
+        execute,
+        () => elapsed,
+      ),
+  };
+}
+
+for (const timeout of ["timeout", "startup-timeout"]) {
+  test(`Windows snapshot recovers one ${timeout} within the original budget and retains its trace`, async () => {
+    const transport = await snapshotTransport([timeout, "success"]);
+    const rows = await transport.snapshot();
+    assert.equal(rows[0].command, snapshotRows[0].CommandLine);
+    assert.deepEqual(transport.timeouts, [transport.budgetMs / 2, transport.budgetMs / 2]);
+    assert.deepEqual(
+      transport.reports.map(({ attempt, success }) => ({ attempt, success })),
+      [
+        { attempt: 1, success: false },
+        { attempt: 2, success: true },
+      ],
+    );
+    assert.ok(transport.reports.every((report) => report.budgetMs === transport.budgetMs));
+    assert.ok(transport.reports[0].snapshotId > 0);
+    assert.equal(transport.reports[0].snapshotId, transport.reports[1].snapshotId);
+    assert.ok(!JSON.stringify(transport.reports).includes("private-payload"));
+  });
+}
+
+for (const outcomes of [
+  ["timeout", "timeout"],
+  ["late-timeout"],
+  ["output-timeout"],
+  ["exit-error"],
+  ["max-buffer"],
+  ["malformed"],
+]) {
+  test(`Windows snapshot fails closed without extra budget or retries: ${outcomes.join(", ")}`, async () => {
+    const transport = await snapshotTransport(outcomes);
+    await assert.rejects(transport.snapshot(), (error) => {
+      assert.match(error.message, /Windows process snapshot/);
+      assert.ok(!error.message.includes("private-payload"));
+      return true;
+    });
+    assert.equal(transport.timeouts.length, outcomes.length);
+    assert.ok(transport.timeouts.reduce((sum, value) => sum + value, 0) <= transport.budgetMs);
+    assert.ok(transport.reports.every((report) => !report.success));
+    assert.ok(!JSON.stringify(transport.reports).includes("private-payload"));
+  });
+}
+
+test("a recovered snapshot never retries away an outside-agent audit violation", async (context) => {
+  const transport = await snapshotTransport(
+    ["timeout", "success"],
+    [{ ...snapshotRows[0], CommandLine: `${process.cwd()}/agy` }],
+  );
+  let snapshots = 0;
+  const scope = await audit.auditProcesses(context, undefined, async () => {
+    snapshots++;
+    return snapshots === 2 ? transport.snapshot() : [];
+  });
+  scope.add(7);
+  scope.forbidAgentsOutside(new Set());
+  await scope.capture();
+  await assert.rejects(scope.finish(), /Test started an agent outside its fixtures/);
+  assert.equal(transport.timeouts.length, 2);
+});

@@ -167,8 +167,12 @@ PID, creation identity, name and command line for ancestry and fixture-agent che
 Its Windows query now requests those five properties from CIM itself, rather than
 fetching every `Win32_Process` property before discarding the unused fields.
 [Microsoft's property projection documentation](https://learn.microsoft.com/en-us/powershell/module/cimcmdlets/get-ciminstance?view=powershell-5.1#-property)
-describes the reduced returned object size. No snapshot retries, process filters,
-audit exemptions or deadline changes are introduced.
+describes the reduced returned object size. The original snapshot budget stays
+at ten seconds scaled by platform (30 seconds on Windows). An empty-output killed-command timeout gets one fresh transport attempt: the first
+command gets half the budget and the second gets only the remaining monotonic
+budget. A command that emitted process data is never retried. Exit errors, buffer
+overflow, malformed rows, process survivors and agent violations remain fatal. Every command attempt retains its timing/failure record and snapshot ID. No
+audit assertion or test is retried, and no process filter or exemption is added.
 
 Every Windows snapshot emits a bounded timing record in test diagnostics (and the
 packaged smoke checkpoint stream). Node records request, native spawn, native exit,
@@ -183,7 +187,8 @@ stream closure distinguishes an inherited-pipe delay. Markers share a pipe with
 each other but not stdout, so cross-stream arrival order is not a provider-side
 clock measurement. Error records contain fixed phases, byte counts and bounded
 exit facts, never raw stdout/stderr, process arguments or environment values.
-Malformed/empty enumerations fail the audit. In-flight failures remain failures.
+Malformed/empty enumerations fail the audit. Exhausted transport failures and
+audit assertion failures remain fatal.
 
 Original evidence, preserved by numeric artifact ID:
 
@@ -197,26 +202,29 @@ Original evidence, preserved by numeric artifact ID:
 Both failed commands were killed with SIGTERM and empty stdout/stderr. The first
 failure has no completed fixture timing record; the new OpenCode failure also
 has none. Neither failed case emits the baseline process-count diagnostic. The
-harness awaits that baseline before preparing the profile or launching Electron; its
-process-count diagnostic is emitted immediately after baseline completion. This
+harness awaits that baseline before preparing the profile or launching Electron;
+its process-count diagnostic is emitted immediately after baseline completion. This
 ordering supports a harness baseline failure before the product starts, rather
 than an agent assertion or surviving app process. The reports still cannot
 identify the slow phase or establish a runner-load explanation. The earlier
-OpenCode case passed in both original artifacts (26.696 / 36.644 seconds); its setup/body/teardown sums were
+OpenCode case passed in both original artifacts (26.696 / 36.644 seconds); its
+setup/body/teardown sums were
 5.373/19.630/1.689 and 4.894/29.712/2.033 seconds. The passing extension rerun's
 sums were 12.234/8.788/2.262 seconds. The new run’s second attempt completed
-OpenCode in 29.167 seconds, with phase sums 8.476/18.907/1.779 seconds, before its job was cancelled. That artifact contains
+OpenCode in 29.167 seconds, with phase sums 8.476/18.907/1.779 seconds, before its
+job was cancelled. That artifact contains
 only the opening JUnit envelope; its case result comes from the job log and its
 completed fixture record. Cancellation is not whole-job success. Case totals are
 not snapshot durations.
 
-The Windows Electron regression measures the old full-property command followed
-by the projected snapshot, reports both durations and checks all five fields of
+The Windows Electron regression measures the full-property query followed by
+the projected query using the same bounded, instrumented transport for both. It
+reports both durations and checks all five fields of
 the test process against the original query. Ordinary Electron tests measure each
 projected snapshot in context. These observations do not assert a speedup from a
 single sequential comparison. Deterministic stream fixtures reproduce failures
 before startup readiness, during querying/serialization and after output, checking
-that the timing report stays bounded/private and every failure remains fatal.
+that every failed attempt keeps its bounded/private timing report.
 
 Initial PR measurement at `a51e0f58`,
 [Windows shard 1](https://github.com/scott-r-lindsey/foom/actions/runs/42619266639/job/129166995047):
@@ -226,6 +234,19 @@ PowerShell readiness at 2371 ms, CIM completion at 2931 ms, JSON completion at
 3689 ms and stream closure at 3733 ms. These separate observed startup, query,
 serialization and closure costs; they do not reproduce the historical timeout
 or prove which phase was responsible for it.
+
+Windows shard 1 on `be9228e4`
+([job 129185257617](https://github.com/scott-r-lindsey/foom/actions/runs/42624639135/job/129185257617))
+measured the original command at 360 ms and the projected command at 368 ms,
+with identical audited identity for the test process. This single pair does not
+show a projection speedup. All 410 audit snapshots passed (median 458.5 ms,
+maximum 6676 ms), each retaining all four PowerShell clock markers. Script query
+median/maximum were 146/1656 ms; serialization median/maximum were 27/1512 ms.
+These measurements motivate a 15-second first transport attempt inside the
+unchanged 30-second Windows budget, rather than relying on projection alone to
+recover the historical killed-command signature. Virtual-clock regressions
+reproduce startup/query timeouts, recover one fresh full snapshot, and prove two
+timeouts cannot add budget or erase an outside-agent violation.
 
 ## Linux display isolation
 

@@ -18,7 +18,20 @@ const command = [
 
 // Fixed phase names and byte counts only: process argv and PowerShell errors may
 // contain private data. Keep the trace bounded even for malformed child output.
-async function windowsProcessSnapshot(report = () => {}, execute = execFile) {
+let snapshotSequence = 0;
+
+class SnapshotCommandError extends Error {
+  constructor(details, retryable) {
+    super(`Windows process snapshot failed: ${JSON.stringify(details)}`);
+    this.retryable = retryable;
+  }
+}
+
+async function windowsSnapshotAttempt(
+  report = () => {},
+  execute = execFile,
+  timeout = deadline(10_000),
+) {
   const started = performance.now();
   const trace = [];
   const record = (phase, scriptElapsedMs) =>
@@ -34,13 +47,19 @@ async function windowsProcessSnapshot(report = () => {}, execute = execFile) {
   const phases = ["ready", "queried", "serialized", "written"];
   let nextPhase = 0;
   let outcome;
+  let retryable = false;
   const stdout = await new Promise((resolve, reject) => {
     const child = execute(
       "powershell.exe",
       ["-NoProfile", "-NonInteractive", "-Command", command],
-      { timeout: deadline(10_000), maxBuffer: 4 * 1024 * 1024 },
+      { timeout, maxBuffer: 4 * 1024 * 1024 },
       (error, output) => {
         if (error) {
+          retryable =
+            error.code === null &&
+            error.killed === true &&
+            error.signal === "SIGTERM" &&
+            stdoutBytes === 0;
           outcome = {
             code: typeof error.code === "number" ? error.code : null,
             signal: error.signal === "SIGTERM" ? "SIGTERM" : null,
@@ -72,9 +91,7 @@ async function windowsProcessSnapshot(report = () => {}, execute = execFile) {
     });
   }).catch(() => {
     report({ trace, stdoutBytes, stderrBytes, outcome, success: false });
-    throw new Error(
-      `Windows process snapshot failed: ${JSON.stringify({ trace, stdoutBytes, stderrBytes, outcome })}`,
-    );
+    throw new SnapshotCommandError({ trace, stdoutBytes, stderrBytes, outcome }, retryable);
   });
   let rows;
   try {
@@ -109,4 +126,29 @@ async function windowsProcessSnapshot(report = () => {}, execute = execFile) {
   }));
 }
 
-module.exports = { windowsProcessSnapshot };
+// Retry only the observed empty-output killed-command transport timeout, never malformed data
+// or any audit assertion. Both attempts share the original snapshot budget.
+async function windowsProcessSnapshot(
+  report = () => {},
+  execute = execFile,
+  now = () => performance.now(),
+) {
+  const snapshotId = ++snapshotSequence;
+  const budgetMs = deadline(10_000);
+  const until = now() + budgetMs;
+  const capture = (attempt, timeoutMs) =>
+    windowsSnapshotAttempt(
+      (details) => report({ snapshotId, attempt, budgetMs, timeoutMs, ...details }),
+      execute,
+      timeoutMs,
+    );
+  try {
+    return await capture(1, Math.floor(budgetMs / 2));
+  } catch (error) {
+    const remaining = Math.floor(until - now());
+    if (!(error instanceof SnapshotCommandError) || !error.retryable || remaining <= 0) throw error;
+    return capture(2, remaining);
+  }
+}
+
+module.exports = { windowsProcessSnapshot, windowsSnapshotAttempt };
