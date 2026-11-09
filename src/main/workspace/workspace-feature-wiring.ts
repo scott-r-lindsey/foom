@@ -297,6 +297,9 @@ export function workspaceFeatureWiring(owner: WorkspaceContext): {
           get reviewIdentity() {
             return owner.deps.worktrees.reviewIdentity.bind(owner.deps.worktrees);
           },
+          get reviewBranch() {
+            return owner.deps.worktrees.reviewBranch.bind(owner.deps.worktrees);
+          },
           get cleanupBrokenWorktree() {
             return owner.deps.worktrees.cleanupBrokenWorktree.bind(owner.deps.worktrees);
           },

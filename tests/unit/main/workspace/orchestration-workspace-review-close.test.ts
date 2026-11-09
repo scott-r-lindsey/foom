@@ -13,6 +13,8 @@ import {
 
 it.each([
   "clean",
+  "earlier-grant",
+  "taken-over",
   "tracked",
   "untracked",
   "changed-head",
@@ -50,7 +52,7 @@ it.each([
   await workspace.exited("reviewer", 0);
   vi.mocked(deps.worktrees.reviewIdentity).mockReturnValue("identity");
   vi.mocked(deps.worktrees.canAutoRemoveReview).mockResolvedValue(
-    mode === "clean" || mode === "late-change",
+    ["clean", "earlier-grant", "taken-over", "late-change"].includes(mode),
   );
   if (mode === "late-change")
     vi.mocked(deps.worktrees.canAutoRemoveReview)
@@ -73,6 +75,16 @@ it.each([
       return Promise.resolve(true);
     });
   vi.mocked(dialog).mockClear();
+  if (mode === "earlier-grant" || mode === "taken-over") {
+    if (mode === "earlier-grant") workspace.orchestration.revoke("parent");
+    else workspace.orchestration.takeOver("reviewer");
+    await workspace.sidebarCommand({ kind: "close", id: "reviewer" }, confirm);
+    expect(deps.dialog).not.toHaveBeenCalled();
+    expect(deps.worktrees.removeWorktree).toHaveBeenCalledOnce();
+    expect(workspace.snapshot().terminals.some((row) => row.id === "reviewer")).toBe(false);
+    await workspace.dispose();
+    return;
+  }
   let result = (await workspace.orchestration.call(
     actor,
     "close",

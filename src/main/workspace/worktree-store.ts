@@ -69,7 +69,17 @@ export class WorktreeStore {
             /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/u.test(review["head"]) &&
             typeof review["refs"] === "string" &&
             review["refs"].length <= 1024 * 1024
-              ? { review: { head: review["head"], branch: review["branch"], refs: review["refs"] } }
+              ? {
+                  review: {
+                    head: review["head"],
+                    branch: review["branch"],
+                    refs: review["refs"],
+                    ...(typeof review["exclusions"] === "string" &&
+                    /^[a-f0-9]{64}$/u.test(review["exclusions"])
+                      ? { exclusions: review["exclusions"] }
+                      : {}),
+                  },
+                }
               : {}),
           };
         }),

@@ -57,11 +57,17 @@ the socket deadline to 65 seconds after a request body arrives, allowing the CLI
 a reviewer can remove its checkout without confirmation, regardless of the
 **Auto-remove merged worktrees** setting or whether the PR is still open, only
 when Foom created it for review, its identity still validates, it remains detached
-at the exact fetched and recorded PR head, it has no tracked or untracked changes
+at the exact fetched and recorded PR head, it has no tracked or non-ignored untracked changes
 and no local refs or commits beyond that head, and no other session or operation
 is using it. Main checks local refs against the creation baseline and inspects
-worktree reflogs, including commits later reset away. Ignored content and unavailable
-evidence also refuse automatic deletion. The closing exited session is released
+worktree reflogs, including commits later reset away. Only ignored output under the
+fixed root directories `node_modules/`, `build/`, `out/`, `.cache/`, `test-results/`, `.husky/_/` and `coverage/` is disposable without confirmation.
+Other ignored paths, modified/untracked `.gitignore` files, and changed or missing
+creation-time exclusion evidence refuse automatic deletion. `info/exclude` bytes
+and the checkout's `core.excludesFile` setting must match the recorded digest;
+review status reads disable `core.excludesFile`. Tracked changes remain changes
+inside these roots. See [review removal proof](../areas/worktrees.md#detached-pr-review-checkouts-843).
+The closing exited session is released
 by the removal sequence. The proof is repeated under the removal lock and next to
 Git deletion; failure falls back to trusted confirmation. Existing identity,
 membership, active-session and operation guards still apply after approval.
