@@ -154,7 +154,7 @@ if (host === 'offline-cloud') { process.stderr.write('RAW SSH SECRET'); process.
 if (args.at(-1) === 'uname -s; uname -m' && current.diagnosticOverflow) {
  const diagnostic = args[args.indexOf('-E') + 1];
  assert.ok(diagnostic);
- require('node:fs').writeFileSync(${JSON.stringify(overflowInfo)}, JSON.stringify({diagnostic, pid:process.pid}));
+ require('node:fs').appendFileSync(${JSON.stringify(overflowInfo)}, JSON.stringify({diagnostic, pid:process.pid})+'\\n');
  require('node:fs').appendFileSync(diagnostic, Buffer.alloc(16385));
  setInterval(() => {}, 1000);
  return;
@@ -2285,9 +2285,29 @@ test("Hosts kills fixture SSH on live diagnostic overflow and removes its privat
   await expect(
     card.getByText("Host unreachable · unreachable", { exact: true }).first(),
   ).toBeVisible();
-  const { diagnostic, pid } = JSON.parse(await readFile(overflowInfo, "utf8"));
-  await assert.rejects(access(diagnostic), { code: "ENOENT" });
-  assert.throws(() => process.kill(pid, 0), { code: "ESRCH" });
+  // Checklist and background inventory probes finish independently. Wait for
+  // the run, then observe cleanup for every fixture process instead of racing
+  // the first failed row or checking only the last recorded process.
+  await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
+  const probes = (await readFile(overflowInfo, "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  assert.ok(probes.length > 0);
+  for (const { diagnostic, pid } of probes) {
+    await expect
+      .poll(async () => {
+        try {
+          await access(diagnostic);
+          return false;
+        } catch (error) {
+          if (error.code !== "ENOENT") throw error;
+          return true;
+        }
+      })
+      .toBe(true);
+    assert.throws(() => process.kill(pid, 0), { code: "ESRCH" });
+  }
   await expect(card.getByRole("button", { name: "Trust host key", exact: true })).toHaveCount(0);
   const state = await page.evaluate(() => window.desktop.hosts({ action: "list" }));
   assert.equal(state.hosts[0].result.connection.ssh.reason, "unreachable");
