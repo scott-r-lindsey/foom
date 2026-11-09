@@ -30,10 +30,7 @@ const {
 } = require("./harness.js");
 const { auditProcesses } = require("./process-audit.js");
 
-test("remote shell fixture uploads a pinned headless host and replays the same PTY after SSH loss", {
-  skip: process.platform === "win32",
-  timeout: deadline(60000),
-}, async (context) => {
+async function remoteFixture(context) {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "frh-")));
   removeAfterApps(context, root);
   const cleanup = fixtureCleanup(context);
@@ -173,6 +170,44 @@ child.on('close', code => { appendFileSync(${JSON.stringify(sshLog)}, 'fixture s
   cleanup.apps.push(cleanup.apps.shift());
   assert.equal(await app.evaluate(({ app }) => app.getVersion()), manifest.version);
   const page = await boardPage(app);
+  return {
+    root,
+    remoteHome,
+    bin,
+    manifest,
+    pidFile,
+    colorRecord,
+    colorProbe,
+    daemon,
+    closeDaemon,
+    socket,
+    startupMs,
+    cleanup,
+    app,
+    page,
+  };
+}
+
+test("remote shell fixture uploads a pinned headless host and replays the same PTY after SSH loss", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const {
+    root,
+    remoteHome,
+    bin,
+    manifest,
+    pidFile,
+    colorRecord,
+    colorProbe,
+    daemon,
+    closeDaemon,
+    socket,
+    startupMs,
+    cleanup,
+    app,
+    page,
+  } = await remoteFixture(context);
   const profilePath = await app.evaluate(({ app }) => app.getPath("userData"));
   const profileTag = JSON.parse(
     await readFile(path.join(profilePath, "settings.json"), "utf8"),
@@ -566,6 +601,37 @@ child.on('close', code => { appendFileSync(${JSON.stringify(sshLog)}, 'fixture s
   const gone = await hostChannel(socket, manifest.sha256, "never-created", cleanup, 80, 24, true);
   assert.equal(gone.opened.state, "gone");
   gone.close();
+});
+
+async function remoteResizeFixture(context) {
+  const fixture = await remoteFixture(context);
+  const { page, remoteHome } = fixture;
+  const enrolled = await page.evaluate(
+    (codeFolder) => window.desktop.hosts({ action: "add", host: "fixture-cloud", codeFolder }),
+    remoteHome,
+  );
+  assert.equal(enrolled.result.ok, true);
+  await page.evaluate(() => window.desktop.sidebarCommand({ kind: "home-shell" }));
+  await page.locator(".board-row[data-kind='shell']").click();
+  const id = (await page.evaluate(() => window.desktop.workspace())).terminals[0].id;
+  return { ...fixture, id };
+}
+
+test("remote live raw PTY writes after resize without a stale reflow suffix", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, root, id } = await remoteResizeFixture(context);
+  await require("./resize-fixture.js").liveRawResize(app, page, id, root);
+});
+
+test("remote exit delivery across shrink reconciles the attached cursor row", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, root, id } = await remoteResizeFixture(context);
+  const { exitResizeRace } = require("./resize-fixture.js");
+  await exitResizeRace(app, page, id, root);
 });
 
 async function hostChannel(

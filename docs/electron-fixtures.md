@@ -435,6 +435,124 @@ This establishes the ordering defect without claiming the reports captured the
 underlying Git operation timing. Test deadlines and product deletion policy stay
 unchanged.
 
+## Close-test shell readiness before layout changes (#1137)
+
+The optimistic-close case finishes its interactive fixture shell before growing
+or splitting the board. It observes the initial prompt and editable input, types
+`echo FOOM_CLOSE_READY` through native keyboard input, observes the standalone
+output marker and the returned prompt, then types `exit` and observes the exited
+row. Only then does it prepare the two-tile close scenario. The slow-cleanup gate,
+failed-row restoration and close timing assertions remain unchanged.
+
+The original headless reproduction established that xterm's default resize
+policy clips a completed cursor row: shrinking the 96-column Windows prompt to
+68 columns leaves the exact `foom-pr` prefix. For exited PTYs this corrupts the
+retained authoritative screen, tails and attachment snapshots with no remaining
+program to redraw it. Host and renderer now enable normal-buffer cursor-row
+reflow only after the native PTY exits. Known-exited attachments select that
+policy before fitting; a reused live view restores the default live policy.
+
+Live programs retain ownership of cursor-row redraw. Enabling xterm 6.0.0's
+cursor-row reflow while live duplicates a long Bash prompt and leaves the cursor
+at the wrong column for a raw PTY's later writes. Live narrowing can clip content
+when an application does not redraw; the exited policy preserves only the
+content remaining at exit. See [the terminal resize policy](areas/terminals.md).
+
+The exited manager and sandboxed Electron regressions retain the fixed
+96-column output across shrink, grow and fresh attachment. The Electron case
+launches a controlled Node process, waits for its ready marker and a wide host
+grid, then uses native input to request a cleared screen with the fixed prompt
+and no newline before process exit. It checks the full authoritative tail and
+rendered text at 1500×900, after 900×900 shrink, after growth, and after Settings
+forces a new attachment token.
+
+Separate live regressions exercise a real fixture Bash with a 94-P prompt plus
+`> `, waiting for that initial prompt in both host and renderer before shrinking,
+then checking one prompt after shrink and standalone `SHRINK_MARKER` output after
+typing while narrow and growing. A raw Node child writes 96 P characters, stays
+alive through shrink, growth and Settings reattachment, then writes Z. Host tail
+and renderer must agree with Z at the end, without a stale reflow suffix. The
+same raw case runs in its own isolated fixture-SSH case. The existing SSH-loss
+continuity scenario contains no resize regression steps. Windows also
+exercises its ConPTY-owned console redraw; the Bash-only case is POSIX. Unit
+coverage checks live/default writes, exited replay, and renderer lifecycle and
+view-reuse policy. No fixture uses a real agent CLI, real SSH or user startup
+files, and the close timing assertions remain unchanged.
+
+Run 42551903310 attempt 1 artifact **13646043326** failed at readiness in
+37.033 seconds; attempt 2 artifact **13648420047** passed in 7.195 seconds.
+Run 42618694514 attempt 1 artifact **13676860593** repeated the same cutoff in
+37.836 seconds. Neither older failure captured raw ConPTY output or cursor/resize
+ordering, so the deterministic reproduction establishes the clipping mechanism
+without claiming those artifacts contain that ordering trace. Future readiness
+failures also print the bounded fixture tail, renderer grid/cursor geometry,
+input editability and terminal exit state. No deadlines change.
+
+The Bash resize precondition includes rendered text, not only the authoritative
+tail. A controlled delayed-view reproduction held the wide prompt's stream until
+after shrink: the host correctly retained one prompt, while parsing both the old
+wide prompt and Bash's redraw at the new width left an extra 68-P prefix in the
+renderer. This matched run 42646014373's Linux 4 failure at the renderer assertion
+(artifact **13689210376**).
+Waiting for both initial parsers before the resize retains every post-resize
+assertion and changes no product policy or deadline.
+
+The same ordering gate applies before growth: the standalone marker and returned
+narrow prompt must reach both parsers first. Holding that command's view stream
+until after growth reproduced the macOS 4 missing-rendered-marker assertion in
+run 42646014373 (artifact **13689186919**) while the host still retained the marker. The fixture now observes
+the marker and returned prompt before growing, then repeats the retained-marker
+assertions afterwards. Both controlled reproductions remain under ignored
+`test-results/`; neither changes the live/exited product policy.
+
+The exit/resize regressions hold only `terminal:exit` delivery to the sandboxed
+renderer while native exit, host snapshots, output and resize requests continue.
+Local output uses the 96-column PowerShell-shaped prompt; fixture SSH replaces
+its shell with a raw Node fixture and writes 96 P characters before exiting.
+Both first prove the authoritative host retains the line while the uninformed
+renderer clips it on shrink, then release the exit notification. The attached
+view must recover the complete line automatically while narrow and retain it
+after growth, without a Settings round trip. Both remote resize cases create
+their own isolated app, profile and daemon fixtures, so neither extends the SSH
+continuity scenario's deadline.
+
+Packaged smoke also waits for the replacement Home shell's authoritative workspace
+entry before reading its ID. A shell row can be the optimistic startup placeholder
+while the previous exited session is still finishing asynchronous removal. The
+round-three validation reproduced a read of that old ID after the new row was
+already visible; an unchanged retry passed. The fixture now gates on exactly one
+workspace terminal with a different ID, retaining the new-ID, native prompt,
+cursor reuse and other packaged assertions without changing deadlines.
+
+The post-exit terminal-link gesture waits for the automatic replay's renderer
+parser acknowledgement and a visible link segment before clicking. Native exit
+notification alone no longer means the recovered view is interactive: a click
+against the previous overlay can arrive while lifecycle work suppresses gestures.
+A focused local run reproduced the missing consent dialog before this gate. The
+full-target, consent, primary-button and exited-link assertions remain intact.
+
+Recovery also uses a main-validated refresh mode rather than acquiring another
+attachment capability. The config-probe interruption case caught a native exit
+whose temporary PTY had already been revoked before the renderer received its
+removal event. Refresh now does nothing for revoked, detached, closing or
+other-window attachments; normal attach still rejects unknown/foreign IDs. Unit
+coverage checks those boundaries and malformed refresh requests. The focused
+probe scenario retains its teardown assertion forbidding stale-capability IPC.
+A revoked refresh can have no snapshot to send: recovery keeps the old renderer
+cells until the host actually delivers its self-resetting snapshot, then resets
+in that same parser write. Both current hosts include the reset in their snapshot
+bytes and normal flow-control accounting. The retained rejected-conversation cases for fixture Claude,
+Codex and Antigravity keep their original output assertions. A local pre-fix run
+reproduced the blank error screen; unit coverage also holds refresh, delivers
+late old-token output, resolves without a snapshot and checks that the last
+output remains until fresh-token replay replaces it.
+A second ordering regression holds the initial attach reply across native exit:
+queuing recovery must preserve the wanted view, let that attach finish without
+detaching its lease, then replay. Otherwise the initial snapshot can arrive while
+the view is hidden and the retained-only refresh correctly has nothing to replay.
+The diagnostic fixture trace reproduced delivery of the full error snapshot with
+an empty renderer; the pending-attach unit fails on that unwanted detach.
+
 ## Sharing-menu opening and facts order (#1150)
 
 The remote-clones sharing-warning case holds the real sidebar panel opening

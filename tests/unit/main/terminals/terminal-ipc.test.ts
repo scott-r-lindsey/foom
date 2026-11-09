@@ -270,6 +270,41 @@ test("detached output continuously updates real headless screen and scrollback",
   expect(pty().write).toHaveBeenCalledWith("hello");
 });
 
+test("exited cursor-row content survives shrink, grow and reattach", async () => {
+  const id = manager.create({ ...spec, cols: 140 });
+  const prompt = String.raw`PS C:\Users\runneradmin\AppData\Local\Temp\foom-tests-bW5FZf\foom-profile-u5o8i1\shell-fixture> `;
+  output(`\x1b[2J\x1b[H${prompt}`);
+  expect((await manager.tail(id, 40)).join("")).toBe(prompt);
+  pty().emitExit();
+  manager.resize(id, 68, 24);
+  expect((await manager.tail(id, 40)).join("")).toBe(prompt);
+  expect((await manager.screen(id)).lines.join("")).toBe(prompt);
+  manager.resize(id, 140, 24);
+  expect((await manager.tail(id, 40)).join("")).toBe(prompt);
+  manager.detach(id);
+  const restored = new Terminal({ cols: 140, rows: 24, allowProposedApi: true });
+  try {
+    const snapshot: string[] = [];
+    await manager.attach(id, (_token, data) => snapshot.push(data));
+    await new Promise<void>((resolve) => {
+      restored.write(snapshot.join(""), resolve);
+    });
+    expect(restored.buffer.active.getLine(0)?.translateToString(true)).toBe(prompt);
+  } finally {
+    restored.dispose();
+  }
+});
+
+test("live cursor-row resizing leaves redraw and subsequent writes to the PTY", async () => {
+  const id = manager.create({ ...spec, cols: 139 });
+  output("P".repeat(96));
+  await manager.tail(id, 40);
+  manager.resize(id, 68, 24);
+  manager.resize(id, 139, 24);
+  output("Z");
+  expect((await manager.tail(id, 40)).join("")).toBe("P".repeat(67) + "Z");
+});
+
 test.each(["before", "after"])(
   "initial prompt output %s the attach barrier reaches the view exactly once",
   async (order) => {
@@ -407,6 +442,77 @@ test("IPC isolates IDs, validates input and cleans up", async () => {
   await vi.waitFor(() => {
     expect(contents.send).toHaveBeenCalledWith("terminal:exit", second, 2);
   });
+});
+
+test("refresh replays only a retained attachment and is harmless after detach, close or revocation", async () => {
+  const id = await create();
+  const foreign = manager.create(spec);
+  for (const candidate of [id, foreign, "removed"]) {
+    contents.send.mockClear();
+    await invoke("attach", [candidate, "refresh"]);
+    expect(contents.send).not.toHaveBeenCalled();
+  }
+  await invoke("attach", [id]);
+  pty().onExit.mock.calls[0]?.[0]({ exitCode: 0 });
+  await vi.waitFor(() => {
+    expect(contents.send).toHaveBeenCalledWith("terminal:exit", id, 0);
+  });
+  contents.send.mockClear();
+  await invoke("attach", [id, "refresh"]);
+  expect(contents.send).toHaveBeenCalledWith(
+    "terminal:data",
+    id,
+    expect.any(String),
+    expect.any(String),
+  );
+  terminalControl.setClosing(id, true);
+  contents.send.mockClear();
+  await invoke("attach", [id, "refresh"]);
+  expect(contents.send).not.toHaveBeenCalled();
+  terminalControl.setClosing(id, false);
+  await invoke("detach", [id]);
+  contents.send.mockClear();
+  await invoke("attach", [id, "refresh"]);
+  expect(contents.send).not.toHaveBeenCalled();
+  await terminalControl.kill(id);
+  contents.send.mockClear();
+  await invoke("attach", [id, "refresh"]);
+  expect(contents.send).not.toHaveBeenCalled();
+  await expect(invoke("attach", [id])).rejects.toThrow("Unknown or foreign");
+  for (const candidate of [null, 1, "", "x".repeat(257)])
+    await expect(invoke("attach", [candidate, "refresh"])).rejects.toThrow("Invalid terminal ID");
+  for (const mode of [null, true, {}, "other"])
+    await expect(invoke("attach", [id, mode])).rejects.toThrow("Invalid terminal attachment mode");
+  await expect(invoke("attach", [id, "refresh"], { ...event, senderFrame: null })).rejects.toThrow(
+    "Untrusted IPC sender",
+  );
+});
+
+test("a failed optional refresh retains its attachment capability for snapshot retry", async () => {
+  const id = await create();
+  output("retained output");
+  await invoke("attach", [id]);
+  pty().onExit.mock.calls[0]?.[0]({ exitCode: 0 });
+  await vi.waitFor(() => {
+    expect(contents.send).toHaveBeenCalledWith("terminal:exit", id, 0);
+  });
+  const serialize = vi.spyOn(SerializeAddon.prototype, "serialize").mockImplementationOnce(() => {
+    throw new Error("Incompatible snapshot");
+  });
+  try {
+    await expect(invoke("attach", [id, "refresh"])).rejects.toThrow("Unable to snapshot terminal");
+    await expect(invoke("tail", [id, 1])).resolves.toEqual(["retained output"]);
+    contents.send.mockClear();
+    await invoke("attach", [id, "refresh"]);
+    expect(contents.send).toHaveBeenCalledWith(
+      "terminal:data",
+      id,
+      expect.any(String),
+      expect.stringContaining("retained output"),
+    );
+  } finally {
+    serialize.mockRestore();
+  }
 });
 
 test("rejects malformed dimensions and untrusted frames on every channel", async () => {
@@ -1311,6 +1417,7 @@ test("two windows share app terminals but cannot steal, resize, type into or det
   await invoke("attach", [a]);
   await invoke("attach", [b], secondEvent);
   await expect(invoke("attach", [a], secondEvent)).rejects.toThrow("another window");
+  await expect(invoke("attach", [a, "refresh"], secondEvent)).resolves.toBeUndefined();
   const writes = pty().write.mock.calls.length;
   const resizes = pty().resize.mock.calls.length;
   send("input", [a, "foreign"], secondEvent);

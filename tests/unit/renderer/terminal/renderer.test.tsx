@@ -553,7 +553,7 @@ test.each(["startup", "reopen", "hide"])(
     expect(document.querySelector("#status")?.textContent).toBe("replacement shell");
     expect(restart?.disabled).toBe(true);
     // A later unrelated startup error must not reuse the old host failure.
-    act(() => {
+    await settle(() => {
       mock.onExit.mock.calls[0]?.[0]("replacement", 0);
     });
     mock.create.mockRejectedValueOnce(new Error("spawn failed"));
@@ -1139,6 +1139,7 @@ test("exit disables input and hides the cursor across snapshots, reopening and r
   exit?.("one", 0);
   expect(mock.options.disableStdin).toBe(true);
   expect(mock.options.cursorBlink).toBe(false);
+  expect(mock.options.reflowCursorLine).toBe(true);
   expect(mock.write).toHaveBeenLastCalledWith("\x1b[?25l");
   input?.("ignored");
   mock.wheel.mock.calls[0]?.[0](new WheelEvent("wheel", { deltaY: 1, deltaMode: 1 }));
@@ -1153,12 +1154,263 @@ test("exit disables input and hides the cursor across snapshots, reopening and r
   await controller.open("one");
   expect(mock.options.disableStdin).toBe(true);
   expect(mock.options.cursorBlink).toBe(false);
+  expect(mock.options.reflowCursorLine).toBe(true);
   mock.create.mockResolvedValue({ id: "two", title: "bash" });
   await controller.restart();
   expect(mock.options.disableStdin).toBe(false);
   expect(mock.options.cursorBlink).toBe(true);
+  expect(mock.options.reflowCursorLine).toBe(false);
   input?.("working");
   expect(mock.input).toHaveBeenLastCalledWith("two", "working");
+  controller.dispose();
+});
+
+test("exit repairs a cursor row clipped before lifecycle delivery without stealing focus", async () => {
+  const host = new HeadlessTerminal({
+    cols: 139,
+    rows: 24,
+    allowProposedApi: true,
+    reflowCursorLine: false,
+  });
+  const view = new HeadlessTerminal({
+    cols: 139,
+    rows: 24,
+    allowProposedApi: true,
+    reflowCursorLine: false,
+  });
+  const serialize = new SerializeAddon();
+  host.loadAddon(serialize);
+  const write = (terminal: HeadlessTerminal, data: string) =>
+    new Promise<void>((resolve) => {
+      terminal.write(data, resolve);
+    });
+  const text = (terminal: HeadlessTerminal) =>
+    Array.from(
+      { length: terminal.buffer.active.length },
+      (_, index) => terminal.buffer.active.getLine(index)?.translateToString(true) ?? "",
+    ).join("");
+  mock.fitCols = 139;
+  mock.write.mockImplementation((data, done) => {
+    view.options.reflowCursorLine = mock.options.reflowCursorLine ?? false;
+    view.write(data, done);
+  });
+  mock.reset.mockImplementation(() => {
+    view.reset();
+  });
+  mock.resize.mockImplementation((_id: string, cols: number, rows: number) => {
+    host.resize(cols, rows);
+    view.options.reflowCursorLine = mock.options.reflowCursorLine ?? false;
+    view.resize(cols, rows);
+  });
+  const controller = createShell(document.createElement("div"), vi.fn(), false, undefined, false);
+  const receive = mock.onData.mock.calls[0]?.[0];
+  let generation = 0;
+  mock.attach.mockImplementation((id: string) => {
+    receive?.(id, `snapshot-${String(++generation)}`, `\x1bc${terminalSnapshot(host, serialize)}`);
+    return Promise.resolve();
+  });
+  try {
+    await controller.open("one");
+    await write(host, "P".repeat(96));
+    await write(view, "P".repeat(96));
+    host.options.reflowCursorLine = true; // Native exit; renderer event is still held.
+    mock.fitCols = 68;
+    mock.resizeCallback.mock.calls[0]?.[0]();
+    expect(text(host)).toBe("P".repeat(96));
+    expect(text(view)).toBe("P".repeat(68));
+    mock.focus.mockClear();
+    mock.onExit.mock.calls[0]?.[0]("one", 0);
+    await vi.waitFor(() => {
+      expect(mock.attach).toHaveBeenCalledTimes(2);
+    });
+    await write(view, "");
+    expect(text(view)).toBe(text(host));
+    expect(mock.focus).not.toHaveBeenCalled();
+    mock.fitCols = 139;
+    mock.resizeCallback.mock.calls[0]?.[0]();
+    expect(text(view)).toBe("P".repeat(96));
+    expect(text(view)).toBe(text(host));
+  } finally {
+    controller.dispose();
+    mock.reset.mockReset();
+    mock.resize.mockReset();
+    host.dispose();
+    view.dispose();
+  }
+});
+
+test("exit during initial attachment preserves its wanted view and lease for recovery", async () => {
+  const pending = Promise.withResolvers<undefined>();
+  mock.attach.mockReturnValueOnce(pending.promise);
+  const update = vi.fn();
+  const controller = createShell(document.createElement("div"), update, false, undefined, false);
+  try {
+    const opening = controller.open("one");
+    await vi.waitFor(() => {
+      expect(mock.attach).toHaveBeenCalledOnce();
+    });
+    mock.onExit.mock.calls[0]?.[0]("one", 1);
+    pending.resolve(undefined);
+    await opening;
+    await vi.waitFor(() => {
+      expect(mock.attach).toHaveBeenCalledTimes(2);
+    });
+    expect(mock.detach).not.toHaveBeenCalled();
+    expect(mock.attach).toHaveBeenLastCalledWith("one", "refresh");
+    expect(update).toHaveBeenLastCalledWith(expect.objectContaining({ visible: true }));
+  } finally {
+    pending.resolve(undefined);
+    await controller.hide();
+    controller.dispose();
+  }
+});
+
+test("exit recovery does not reopen a view whose pending initial attachment failed", async () => {
+  const pending = Promise.withResolvers<undefined>();
+  mock.attach.mockReturnValueOnce(pending.promise);
+  const update = vi.fn();
+  const controller = createShell(document.createElement("div"), update, false, undefined, false);
+  const opening = controller.open("one");
+  await vi.waitFor(() => {
+    expect(mock.attach).toHaveBeenCalledOnce();
+  });
+  mock.onExit.mock.calls[0]?.[0]("one", 1);
+  await settle(() => {
+    pending.reject(new Error("Unable to snapshot terminal"));
+  });
+  await opening;
+  expect(mock.attach).toHaveBeenCalledOnce();
+  expect(update).toHaveBeenLastCalledWith(
+    expect.objectContaining({ visible: false, status: "Unable to open terminal" }),
+  );
+  await controller.hide();
+  controller.dispose();
+});
+
+test("exit refresh retains output until a fresh snapshot, including when the PTY was revoked", async () => {
+  const view = new HeadlessTerminal({ allowProposedApi: true });
+  const write = (data: string) =>
+    new Promise<void>((resolve) => {
+      view.write(data, resolve);
+    });
+  const text = () =>
+    Array.from(
+      { length: view.buffer.active.length },
+      (_, index) => view.buffer.active.getLine(index)?.translateToString(true) ?? "",
+    ).join("");
+  mock.write.mockImplementation((data, done) => {
+    view.write(data, done);
+  });
+  mock.reset.mockImplementation(() => {
+    view.reset();
+  });
+  const controller = createShell(document.createElement("div"), vi.fn(), false, undefined, false);
+  const pending = Promise.withResolvers<undefined>();
+  try {
+    await controller.open("one");
+    const receive = mock.onData.mock.calls[0]?.[0];
+    receive?.("one", "old", "UNKNOWN_CONVERSATION external-123");
+    await write("");
+    mock.attach.mockReturnValueOnce(pending.promise);
+    mock.onExit.mock.calls[0]?.[0]("one", 1);
+    await vi.waitFor(() => {
+      expect(mock.attach).toHaveBeenCalledTimes(2);
+    });
+    await write("");
+    expect(text()).toBe("UNKNOWN_CONVERSATION external-123");
+    receive?.("one", "old", "\r\nLATE");
+    await write("");
+    expect(text()).toBe("UNKNOWN_CONVERSATION external-123LATE");
+    // A revoked attachment can resolve refresh without delivering a snapshot.
+    pending.resolve(undefined);
+    await write("");
+    expect(text()).toBe("UNKNOWN_CONVERSATION external-123LATE");
+    receive?.("one", "new", "\x1bcREPLAY");
+    await write("");
+    expect(text()).toBe("REPLAY");
+    expect(mock.acknowledge).toHaveBeenLastCalledWith("one", "new", 8);
+  } finally {
+    pending.resolve(undefined);
+    await controller.hide();
+    controller.dispose();
+    mock.reset.mockReset();
+    view.dispose();
+  }
+});
+
+test.each(["hide", "switch", "release", "revoke", "dispose"])(
+  "%s cancels queued exit reconciliation",
+  async (action) => {
+    const controller = createShell(document.createElement("div"), vi.fn(), false, undefined, false);
+    await controller.open("one");
+    mock.attach.mockClear();
+    mock.onExit.mock.calls[0]?.[0]("one", 0);
+    if (action === "hide") await controller.hide();
+    else if (action === "switch") await controller.open("two");
+    else if (action === "release") controller.release("one");
+    else if (action === "revoke") mock.onTerminalAvailability.mock.calls[0]?.[0]("one", false);
+    else controller.dispose();
+    await Promise.resolve();
+    expect(mock.attach).not.toHaveBeenCalledWith("one");
+    expect(mock.attach).not.toHaveBeenCalledWith("one", "refresh");
+    if (action === "switch") {
+      expect(mock.attach).toHaveBeenCalledWith("two");
+      expect(mock.options.reflowCursorLine).toBe(false);
+    }
+    controller.dispose();
+  },
+);
+
+test("failed exit reconciliation retains the visible attachment and retries on resize", async () => {
+  const update = vi.fn();
+  const container = document.createElement("div");
+  let width = 800;
+  vi.spyOn(container, "getBoundingClientRect").mockImplementation(
+    () => new DOMRect(0, 0, width, 400),
+  );
+  const controller = createShell(container, update, false, undefined, false);
+  await controller.open("one");
+  mock.onData.mock.calls[0]?.[0]("one", "old", "retained output");
+  mock.reset.mockClear();
+  mock.focus.mockClear();
+  mock.attach.mockRejectedValueOnce(new Error("snapshot unavailable"));
+  mock.onExit.mock.calls[0]?.[0]("one", 0);
+  await vi.waitFor(() => {
+    expect(update).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        visible: true,
+        status: "Unable to refresh terminal",
+        toggleDisabled: false,
+      }),
+    );
+  });
+  expect(container.hidden).toBe(false);
+  expect(mock.detach).not.toHaveBeenCalled();
+  expect(mock.reset).not.toHaveBeenCalled();
+  expect(mock.focus).not.toHaveBeenCalled();
+  width = 1200;
+  mock.fitCols = 120;
+  mock.resizeCallback.mock.calls[0]?.[0]();
+  await vi.waitFor(() => {
+    expect(mock.attach).toHaveBeenCalledTimes(3);
+    expect(update).toHaveBeenLastCalledWith(expect.objectContaining({ toggleDisabled: false }));
+  });
+  expect(mock.attach).toHaveBeenLastCalledWith("one", "refresh");
+  expect(mock.options.disableStdin).toBe(true);
+  expect(mock.options.reflowCursorLine).toBe(true);
+  expect(update).toHaveBeenLastCalledWith(
+    expect.objectContaining({ visible: true, status: "Shell exited (0)" }),
+  );
+  expect(mock.detach).not.toHaveBeenCalled();
+  // A successful retry must not request another snapshot on subsequent resizes.
+  width = 1400;
+  mock.fitCols = 140;
+  mock.resizeCallback.mock.calls[0]?.[0]();
+  await Promise.resolve();
+  expect(mock.attach).toHaveBeenCalledTimes(3);
+  await controller.hide();
+  await controller.open("one");
+  expect(mock.attach).toHaveBeenLastCalledWith("one");
   controller.dispose();
 });
 
@@ -1176,10 +1428,12 @@ test("a newly mounted view knows an already exited session and can switch to a l
   await controller.open("old");
   expect(mock.options.disableStdin).toBe(true);
   expect(mock.options.cursorBlink).toBe(false);
+  expect(mock.options.reflowCursorLine).toBe(true);
   expect(mock.write).toHaveBeenLastCalledWith("\x1b[?25l");
   await controller.open("live");
   expect(mock.options.disableStdin).toBe(false);
   expect(mock.options.cursorBlink).toBe(true);
+  expect(mock.options.reflowCursorLine).toBe(false);
   controller.dispose();
 });
 

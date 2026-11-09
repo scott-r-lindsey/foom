@@ -531,6 +531,17 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
       .locator(".tree-name")
       .click();
     await expect(page.locator(".board-row[data-kind='shell']")).toHaveCount(1);
+    // The new row appears optimistically before its native launch completes;
+    // the old shell can also still be completing asynchronous removal.
+    await expect
+      .poll(() =>
+        page.evaluate((primary) => {
+          return window.desktop
+            .workspace()
+            .then(({ terminals }) => terminals.length === 1 && terminals[0].id !== primary);
+        }, primary),
+      )
+      .toBe(true);
     const replacement = (await page.evaluate(() => window.desktop.workspace())).terminals[0];
     assert.notEqual(replacement.id, primary);
     await expect

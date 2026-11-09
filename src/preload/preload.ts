@@ -1830,8 +1830,9 @@ const desktop: DesktopApi = {
       throw new Error("Invalid terminal response");
     return { id: reply.id, title: reply.title };
   },
-  async attach(id) {
-    await ipcRenderer.invoke("terminal:attach", id);
+  async attach(id, mode) {
+    if (mode === undefined) await ipcRenderer.invoke("terminal:attach", id);
+    else await ipcRenderer.invoke("terminal:attach", id, mode);
   },
   async detach(id) {
     await ipcRenderer.invoke("terminal:detach", id);
