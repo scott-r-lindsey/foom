@@ -327,3 +327,50 @@ time. Production builds omit this flag and read real OS facts; there is no runti
 or profile switch. Ordinary app/package builds clear the disposable build tree.
 Daemon unit tests exercise the real admission path with fixture OS measurements,
 including reservations, refusals, disconnects and unreadable observations.
+
+## Windows process snapshot timing (#1136)
+
+The mandatory process audit still enumerates every process, retaining PID, parent
+PID, creation identity, name and command line for ancestry and fixture-agent checks.
+Its Windows query now requests those five properties from CIM itself, rather than
+fetching every `Win32_Process` property before discarding the unused fields.
+[Microsoft's property projection documentation](https://learn.microsoft.com/en-us/powershell/module/cimcmdlets/get-ciminstance?view=powershell-5.1#-property)
+describes the reduced returned object size. No snapshot retries, process filters,
+audit exemptions or deadline changes are introduced.
+
+Every Windows snapshot emits a bounded timing record in test diagnostics (and the
+packaged smoke checkpoint stream). Node records request, native spawn, native exit,
+stream closure and successful JSON parsing. PowerShell writes fixed stderr markers
+when its script starts, CIM returns, serialization completes and stdout is written.
+Elapsed milliseconds use Node's monotonic clock at observation. A gap before
+`ready` includes PowerShell startup; `ready` to `queried` includes CIM enumeration;
+`queried` to `serialized` covers selection/JSON conversion. Native exit preceding
+stream closure distinguishes an inherited-pipe delay. Markers share a pipe with
+each other but not stdout, so cross-stream arrival order is not a provider-side
+clock measurement. Error records contain fixed phases, byte counts and bounded
+exit facts, never raw stdout/stderr, process arguments or environment values.
+Malformed/empty enumerations fail the audit. In-flight failures remain failures.
+
+Original evidence, preserved by numeric artifact ID:
+
+| Run / attempt | Artifact | Case | Result / JUnit seconds |
+| --- | --- | --- | --- |
+| [42551903310 / 1](https://github.com/scott-r-lindsey/foom/actions/runs/42551903310/attempts/1) | 13645888362 | User-authored extension | Failed / 30.276 |
+| [42551903310 / 2](https://github.com/scott-r-lindsey/foom/actions/runs/42551903310/attempts/2) | 13647908408 | User-authored extension | Passed / 23.296 |
+| [42614426562 / 1](https://github.com/scott-r-lindsey/foom/actions/runs/42614426562/job/129150908202) | 13671309453 | OpenCode cards/resume | Failed / 45.284 |
+
+Both failed commands were killed with SIGTERM and empty stdout/stderr. The first
+failure has no completed fixture timing record; the new OpenCode failure also
+has none. These reports cannot identify the slow phase or establish a product
+defect or runner-load explanation. The earlier OpenCode case passed in both
+original artifacts (26.696 / 36.644 seconds); its setup/body/teardown sums were
+5.373/19.630/1.689 and 4.894/29.712/2.033 seconds. The passing extension rerun's
+sums were 12.234/8.788/2.262 seconds. Case totals are not snapshot durations.
+
+The Windows CI-policy regression measures the old full-property command followed
+by the projected snapshot, reports both durations and checks all five fields of
+the test process against the original query. Ordinary Electron tests measure each
+projected snapshot in context. These observations do not assert a speedup from a
+single sequential comparison. Deterministic stream fixtures reproduce failures
+before startup readiness, during querying/serialization and after output, checking
+that the timing report stays bounded/private and every failure remains fatal.

@@ -322,3 +322,178 @@ test("agent guard compares native Windows aliases and still rejects outside targ
     /Agent outside test fixtures/,
   );
 });
+
+function snapshotChild(context, respond) {
+  return async function runSnapshot() {
+    const { EventEmitter } = await import("node:events");
+    const { PassThrough } = await import("node:stream");
+    const { windowsProcessSnapshot } = await import(
+      "../tests/electron/windows-process-snapshot.js"
+    );
+    const child = new EventEmitter();
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    const reports = [];
+    const execute = (file, args, options, callback) => {
+      assert.equal(file, "powershell.exe");
+      assert.deepEqual(args.slice(0, 3), ["-NoProfile", "-NonInteractive", "-Command"]);
+      assert.match(
+        args[3],
+        /Get-CimInstance Win32_Process -Property ProcessId,ParentProcessId,Name,CreationDate,CommandLine/,
+      );
+      assert.equal(options.timeout, process.platform === "win32" ? 30_000 : 10_000);
+      assert.equal(options.maxBuffer, 4 * 1024 * 1024);
+      queueMicrotask(() => respond(child, callback, reports));
+      return child;
+    };
+    const promise = windowsProcessSnapshot((row) => reports.push(row), execute);
+    context.after(() => {
+      assert.equal(reports.length, 1);
+      const text = JSON.stringify(reports);
+      assert.ok(!text.includes("private-payload"));
+      assert.ok(reports[0].trace.length <= 9);
+      for (const row of reports[0].trace) assert.ok(row.elapsedMs >= 0);
+    });
+    return { promise, reports };
+  };
+}
+
+const snapshotRows = [
+  {
+    ProcessId: 7,
+    ParentProcessId: 1,
+    Name: "node.exe",
+    CreationDate: "new",
+    CommandLine: "private-payload node.mojom.NodeService",
+  },
+];
+
+test("Windows snapshot records split phase markers, exit and stream closure without argv", async (context) => {
+  const { promise, reports } = await snapshotChild(context, (child, callback, reports) => {
+    child.emit("spawn");
+    child.stderr.write("FOOM_AUD");
+    child.stderr.write(
+      "IT:ready\r\nFOOM_AUDIT:queried\nFOOM_AUDIT:serialized\nFOOM_AUDIT:written\n",
+    );
+    child.stdout.write(JSON.stringify(snapshotRows));
+    child.emit("exit", 0, null);
+    // execFile completes only when inherited streams close, after native exit.
+    assert.equal(reports.length, 0);
+    child.emit("close", 0, null);
+    callback(null, JSON.stringify(snapshotRows));
+  })();
+  const rows = await promise;
+  assert.equal(rows[0].host, true);
+  assert.equal(rows[0].command, snapshotRows[0].CommandLine);
+  assert.equal(reports[0].success, true);
+  assert.deepEqual(
+    reports[0].trace.map((row) => row.phase),
+    [
+      "requested",
+      "spawned",
+      "ready",
+      "queried",
+      "serialized",
+      "written",
+      "exited",
+      "closed",
+      "parsed",
+    ],
+  );
+});
+
+for (const phase of ["startup", "query", "serialization", "stream closure"]) {
+  test(`Windows snapshot fails closed with bounded ${phase} diagnostics`, async (context) => {
+    const { promise, reports } = await snapshotChild(context, (child, callback) => {
+      child.emit("spawn");
+      const markers = ["ready", "queried", "serialized", "written"];
+      const count = { startup: 0, query: 1, serialization: 2, "stream closure": 4 }[phase];
+      child.stderr.write("private-payload".repeat(1000) + "\n");
+      for (const marker of markers.slice(0, count)) child.stderr.write(`FOOM_AUDIT:${marker}\n`);
+      // Duplicated/out-of-order/unrecognized markers must not expand the trace.
+      child.stderr.write(
+        `FOOM_AUDIT:${count ? markers[count - 1] : "unknown"}\nFOOM_AUDIT:unknown\n`.repeat(100),
+      );
+      child.emit("exit");
+      child.emit("close");
+      callback(
+        Object.assign(new Error("private-payload"), {
+          code: null,
+          signal: "SIGTERM",
+          killed: true,
+          stdout: "private-payload",
+          stderr: "private-payload",
+        }),
+      );
+    })();
+    await assert.rejects(promise, (error) => {
+      assert.match(error.message, /Windows process snapshot failed/);
+      assert.ok(!error.message.includes("private-payload"));
+      assert.equal(error.cause, undefined);
+      return true;
+    });
+    assert.equal(reports[0].success, false);
+    assert.deepEqual(
+      reports[0].trace
+        .filter((row) => ["ready", "queried", "serialized", "written"].includes(row.phase))
+        .map((row) => row.phase),
+      ["ready", "queried", "serialized", "written"].slice(
+        0,
+        { startup: 0, query: 1, serialization: 2, "stream closure": 4 }[phase],
+      ),
+    );
+  });
+}
+
+for (const output of ["private-payload", "[]", "null", '[{"ProcessId":7}]']) {
+  test(`Windows snapshot refuses malformed or empty enumeration: ${output.length}`, async (context) => {
+    const { promise, reports } = await snapshotChild(context, (child, callback) => {
+      child.emit("spawn");
+      child.emit("exit");
+      child.emit("close");
+      callback(null, output);
+    })();
+    await assert.rejects(
+      promise,
+      /^Error: Windows process snapshot returned invalid process rows$/,
+    );
+    assert.equal(reports[0].success, false);
+  });
+}
+
+test("Windows projected snapshot measures enumeration and preserves this process identity", {
+  skip: process.platform !== "win32",
+}, async (context) => {
+  const { promisify } = await import("node:util");
+  const { execFile } = await import("node:child_process");
+  const { performance } = await import("node:perf_hooks");
+  const { windowsProcessSnapshot } = await import("../tests/electron/windows-process-snapshot.js");
+  const started = performance.now();
+  const { stdout } = await promisify(execFile)(
+    "powershell.exe",
+    [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name,CreationDate,CommandLine | ConvertTo-Json -Compress",
+    ],
+    { timeout: 30_000, maxBuffer: 4 * 1024 * 1024 },
+  );
+  context.diagnostic(
+    `unprojected Windows snapshot elapsedMs: ${Math.round(performance.now() - started)}`,
+  );
+  const baseline = JSON.parse(stdout).find((row) => row.ProcessId === process.pid);
+  assert.ok(baseline);
+  const rows = await windowsProcessSnapshot((details) =>
+    context.diagnostic(`projected Windows snapshot: ${JSON.stringify(details)}`),
+  );
+  const own = rows.find((row) => row.pid === process.pid);
+  assert.deepEqual(own, {
+    pid: baseline.ProcessId,
+    parent: baseline.ParentProcessId,
+    name: baseline.Name,
+    start: baseline.CreationDate,
+    command: baseline.CommandLine,
+    host: /node.mojom.NodeService/.test(baseline.CommandLine),
+  });
+});
