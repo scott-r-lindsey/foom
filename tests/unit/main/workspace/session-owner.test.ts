@@ -448,3 +448,84 @@ it("does not infer a linked parent's checkout identity from legacy repository-on
   expect(f.orchestration.reserve).not.toHaveBeenCalled();
   expect(f.owner.roleNotRestored("parent")).toBe(true);
 });
+
+it("repairs stale host rows on load before restoring authority and retains cleanup recovery", async () => {
+  const remote = { remote: true as const, placement: { kind: "remote" as const, host: "gone" } };
+  const owned = { path: "/repo/owned", identity: "tree", state: "used" as const };
+  const f = fixture([
+    parent({ ...remote }),
+    row("orphan", { parentId: "parent", running: false }),
+    row("stale-child", { ...remote, parentId: "local-parent" }),
+    row("local-parent", { orchestrator: { identity: "local", history: [], worktrees: [owned] } }),
+    row("cleanup", { ...remote, closeState: "closing" }),
+    row("other", { remote: true, placement: { kind: "remote", host: "kept" } }),
+  ]);
+  f.deps.registeredHost = (host) => host === "kept";
+  await f.owner.restore();
+  expect([...f.rows.keys()]).toEqual(["orphan", "local-parent", "cleanup", "other"]);
+  const repaired = f.store.save.mock.lastCall?.[0];
+  expect(repaired?.map((entry) => entry.id)).toEqual([...f.rows.keys()]);
+  expect(repaired?.find((entry) => entry.id === "orphan")).not.toHaveProperty("parentId");
+  expect(repaired?.find((entry) => entry.id === "local-parent")?.orchestrator?.worktrees).toEqual([
+    owned,
+  ]);
+  expect(f.rows.get("cleanup")?.closeState).toBe("failed");
+  expect(f.orchestration.handoffs.entries("parent")).toEqual([]);
+  await f.owner.restartSaved();
+  expect(f.deps.launch).not.toHaveBeenCalledWith(
+    expect.objectContaining({ id: "parent" }),
+    expect.anything(),
+    expect.anything(),
+  );
+});
+
+it("removes forgotten dormant/exited rows, keeps live connections until exit and never saves them", async () => {
+  const remote = { remote: true as const, placement: { kind: "remote" as const, host: "worker" } };
+  const f = fixture([row("dormant", remote)]);
+  let registered = true;
+  f.deps.registeredHost = () => registered;
+  const removed: string[] = [];
+  f.deps.removeRow = (id) => {
+    removed.push(id);
+    f.rows.delete(id);
+    // The workspace's ordinary removal path persists recursively.
+    f.owner.persist();
+  };
+  f.owner.configure(false);
+  await f.owner.restore();
+  f.rows.set("exited", row("exited", { ...remote, dormant: false }));
+  f.rows.set("live", row("live", { ...remote, exited: false, dormant: false }));
+  f.rows.set("cleanup", row("cleanup", { ...remote, closeState: "failed" }));
+  f.rows.set("local", row("local"));
+  f.owner.rememberRemote("live", {
+    repository: "/remote/repo",
+    path: "/remote/tree",
+    branch: "topic",
+    identity: "a".repeat(64),
+  });
+  registered = false;
+  await f.owner.pruneHosts();
+  expect(removed).toEqual(["dormant", "exited"]);
+  expect([...f.rows.keys()]).toEqual(["live", "cleanup", "local"]);
+  expect(f.store.save.mock.lastCall?.[0].map((entry) => entry.id)).toEqual(["cleanup", "local"]);
+  f.rows.set("live", row("live", { ...remote, exited: true, dormant: false }));
+  f.owner.persist();
+  expect(removed).toEqual(["dormant", "exited", "live"]);
+  await f.owner.restartSaved();
+  expect(f.deps.launch).not.toHaveBeenCalled();
+});
+
+it("filters late discovery for forgotten hosts and propagates repair write failures", async () => {
+  const stale = row("stale", { remote: true, placement: { kind: "remote", host: "gone" } });
+  const f = fixture([stale]);
+  f.deps.registeredHost = () => false;
+  f.store.save.mockRejectedValueOnce(new Error("repair failed"));
+  await expect(f.owner.restore()).rejects.toThrow("repair failed");
+  expect(f.rows.size).toBe(0);
+  f.store.load.mockResolvedValue([]);
+  f.deps.discover = () => Promise.resolve([stale]);
+  await f.owner.restore();
+  await f.owner.restartSaved();
+  expect(f.rows.size).toBe(0);
+  expect(f.deps.launch).not.toHaveBeenCalled();
+});

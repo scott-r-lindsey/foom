@@ -736,3 +736,88 @@ it.each(["unchanged", "repository", "worktree"])(
     }
   },
 );
+
+it("forgetting a host retires child references while preserving owned checkout state and live tiles", async () => {
+  const { readSessions } = await import("../../../../src/main/workspace/session-store");
+  const remote = { remote: true, placement: { kind: "remote", host: "worker" } };
+  const entries = readSessions([
+    {
+      id: "parent",
+      conversationId: "parent-conversation",
+      agent: "claude",
+      repository: repo.path,
+      worktree: repo.path,
+      branch: "main",
+      running: true,
+      orchestrator: { identity: "identity", history: [] },
+    },
+    {
+      id: "child",
+      agent: "claude",
+      repository: repo.path,
+      worktree: child.path,
+      branch: "feature",
+      running: false,
+      parentId: "parent",
+      ...remote,
+    },
+    {
+      id: "live",
+      agent: "shell",
+      repository: repo.path,
+      worktree: repo.path,
+      branch: "main",
+      running: true,
+      ...remote,
+    },
+  ]);
+  const save = vi.fn<NonNullable<WorkspaceDependencies["sessions"]>["save"]>(() =>
+    Promise.resolve(),
+  );
+  deps.sessions = { load: () => Promise.resolve(entries), save, flush: () => Promise.resolve() };
+  let registered = true;
+  let removed: (() => Promise<void>) | undefined;
+  const unsubscribe = vi.fn();
+  type HostDependencies = NonNullable<WorkspaceDependencies["hosts"]>;
+  deps.hosts = {
+    fleet: vi.fn<HostDependencies["fleet"]>(),
+    worktree: vi.fn<HostDependencies["worktree"]>(),
+    requireAgent: vi.fn<HostDependencies["requireAgent"]>(),
+    registered: () => {
+      if (!registered) throw new Error("Host forgotten");
+      return { host: "worker", codeFolder: "/remote/code" };
+    },
+    onRemoved: (listener) => {
+      removed = listener;
+      return unsubscribe;
+    },
+  };
+  const kill = vi.fn(() => Promise.resolve());
+  deps.terminals.kill = kill;
+  const workspace = createWorkspace();
+  workspace.configure({ hooks: false, agents: { claude: true, codex: true, agy: true } });
+  await workspace.restore();
+  await workspace.restartSaved();
+  expect(workspace.orchestration.view("child")).toMatchObject({
+    role: "child",
+    parentId: "parent",
+  });
+  const owned = workspace.orchestration.ownedWorktrees("parent");
+  expect(owned).toEqual([expect.objectContaining({ path: child.path, state: "used" })]);
+  expect(workspace.snapshot().terminals.find((row) => row.id === "live")).toMatchObject({
+    exited: false,
+  });
+  registered = false;
+  expect(removed).toBeDefined();
+  await removed?.();
+  expect(workspace.orchestration.view("child")).toBeUndefined();
+  expect(workspace.orchestration.ownedWorktrees("parent")).toEqual(owned);
+  expect(workspace.snapshot().terminals.map((row) => row.id)).toEqual(["parent", "live"]);
+  expect(save.mock.lastCall?.[0].map((row) => row.id)).toEqual(["parent"]);
+  expect(stop).not.toHaveBeenCalled();
+  expect(kill).not.toHaveBeenCalled();
+  await workspace.exited("live", 0);
+  expect(workspace.snapshot().terminals.map((row) => row.id)).toEqual(["parent"]);
+  await workspace.dispose();
+  expect(unsubscribe).toHaveBeenCalledOnce();
+});

@@ -57,8 +57,11 @@ starts with the captured mask; login shell startup may then override it. Foom's
 cache, sockets, control files and other private artifacts remain 0700/0600.
 Reattachment retains the existing PTY and its current mask (#1047). A management request has no terminal ID and creates no PTY. Existing
 SSH host-key trust applies; Foom never accepts a key or prompts for credentials.
-Removing a registration only forgets it: it sends no stop, kill or session-close
-operation, including when the last observation reports live sessions.
+Removing a registration forgets its saved session rows and host caches in the same
+operation, without sending stop, kill or session-close, including when the last
+observation reports live sessions. Open attached tiles keep their connections until
+exit or Close, but are no longer persisted or restored. Failed/pending Close
+recovery rows are retained under the [session recovery rule](sessions.md#forgotten-hosts-1152).
 
 The default code folder is `~/foom`. The remote expands it against its own home,
 creates missing components with mode 0700 only for the explicit `create-folder`
@@ -167,7 +170,9 @@ object again; replacements arriving while an earlier stop settles are skipped an
 reported in the returned inventory for a new confirmation. Sessions arriving during
 confirmation are not ended. Legacy End likewise retains its confirmed daemon
 incarnation and never clears a replacement observed while its stop settles.
-Removing a host still only forgets it. A daemon-live invocation saved as exited is
+Removing a host also prunes its saved rows under the
+[forgotten-host rule](sessions.md#forgotten-hosts-1152), retaining cleanup recovery
+and live connections. A daemon-live invocation saved as exited is
 likewise recovered for the human, without inheriting its stale parent grant.
 Profile tags classify ownership; they are not credentials or isolation from other
 processes running as the account.

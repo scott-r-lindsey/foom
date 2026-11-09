@@ -224,6 +224,7 @@ export interface WorkspaceDependencies {
     Partial<
       Pick<
         Hosts,
+        | "onRemoved"
         | "sessions"
         | "placement"
         | "rememberPlacement"

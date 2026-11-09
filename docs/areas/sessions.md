@@ -134,3 +134,27 @@ replace that recovery record. This retains the remote locator for explicit retry
 when its host is reachable. A cleanup that completes after the quit freeze may
 leave a conservative recovery row; retry still uses the original live membership,
 identity and deletion checks.
+
+
+## Forgotten hosts (#1152)
+
+Before importing saved rows, SessionOwner prunes remote placements whose host is
+no longer registered and awaits the repaired sessions.json write. This also cleans
+profiles left stale by older builds, with Restore sessions disabled as well as
+enabled. Host removal awaits the same inventory/persistence repair. Late remote
+discovery cannot reintroduce forgotten rows. Live attached tiles remain usable until
+exit or Close; all saves, including quit, exclude them, and exit removes their rows.
+No pruning step sends remote stop, kill or session-close or closes a live connection.
+
+Dropped parents confer no saved authority: surviving records lose their parentId.
+Runtime row removal uses normal orchestration retirement and child removal. Owned
+worktree provenance and used state on surviving parents remain intact, including
+archived reviewer reports: forgetting a session is not permission to delete or reuse
+its checkout. Independent worktree-removal retry records are untouched.
+
+Exception: pending/failed Close records retain their row, remote locator and cleanup
+marker even if the host is missing. They protect unfinished destructive cleanup
+under Background Close; dropping them would silently lose the explicit retry.
+Startup presents them as failed/dormant and never retries automatically. Re-enroll
+the same host before explicitly retrying Close, with the existing membership and
+identity checks. This exception also covers Close racing registration removal.
