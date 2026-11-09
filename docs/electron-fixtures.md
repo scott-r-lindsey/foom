@@ -358,14 +358,23 @@ Original evidence, preserved by numeric artifact ID:
 | [42551903310 / 1](https://github.com/scott-r-lindsey/foom/actions/runs/42551903310/attempts/1) | 13645888362 | User-authored extension | Failed / 30.276 |
 | [42551903310 / 2](https://github.com/scott-r-lindsey/foom/actions/runs/42551903310/attempts/2) | 13647908408 | User-authored extension | Passed / 23.296 |
 | [42614426562 / 1](https://github.com/scott-r-lindsey/foom/actions/runs/42614426562/job/129150908202) | 13671309453 | OpenCode cards/resume | Failed / 45.284 |
+| [42614426562 / 2](https://github.com/scott-r-lindsey/foom/actions/runs/42614426562/job/129162059429) | 13674430539 | OpenCode cards/resume | Passed case / 29.167; job cancelled |
 
 Both failed commands were killed with SIGTERM and empty stdout/stderr. The first
 failure has no completed fixture timing record; the new OpenCode failure also
-has none. These reports cannot identify the slow phase or establish a product
-defect or runner-load explanation. The earlier OpenCode case passed in both
+has none. Neither failed case emits the baseline process-count diagnostic. The harness
+awaits that baseline before preparing the profile or launching Electron; its
+process-count diagnostic is emitted immediately after baseline completion. This
+ordering supports a harness baseline failure before the product starts, rather
+than an agent assertion or surviving app process. The reports still cannot
+identify the slow phase or establish a runner-load explanation. The earlier OpenCode case passed in both
 original artifacts (26.696 / 36.644 seconds); its setup/body/teardown sums were
 5.373/19.630/1.689 and 4.894/29.712/2.033 seconds. The passing extension rerun's
-sums were 12.234/8.788/2.262 seconds. Case totals are not snapshot durations.
+sums were 12.234/8.788/2.262 seconds. The new run’s second attempt completed OpenCode in 29.167 seconds, with phase sums
+8.476/18.907/1.779 seconds, before its job was cancelled. That artifact contains
+only the opening JUnit envelope; its case result comes from the job log and its
+completed fixture record. Cancellation is not whole-job success. Case totals are
+not snapshot durations.
 
 The Windows CI-policy regression measures the old full-property command followed
 by the projected snapshot, reports both durations and checks all five fields of
@@ -374,3 +383,12 @@ projected snapshot in context. These observations do not assert a speedup from a
 single sequential comparison. Deterministic stream fixtures reproduce failures
 before startup readiness, during querying/serialization and after output, checking
 that the timing report stays bounded/private and every failure remains fatal.
+
+Initial PR measurement at `a51e0f58`,
+[Windows shard 1](https://github.com/scott-r-lindsey/foom/actions/runs/42619266639/job/129166995047):
+all 381 projected snapshots succeeded. Request-to-parse minimum/median/maximum
+were 266/348/3733 ms. In the slowest observation, native spawn was at 4 ms,
+PowerShell readiness at 2371 ms, CIM completion at 2931 ms, JSON completion at
+3689 ms and stream closure at 3733 ms. These separate observed startup, query,
+serialization and closure costs; they do not reproduce the historical timeout
+or prove which phase was responsible for it.

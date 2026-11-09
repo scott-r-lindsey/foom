@@ -333,6 +333,8 @@ function snapshotChild(context, respond) {
     const child = new EventEmitter();
     child.stdout = new PassThrough();
     child.stderr = new PassThrough();
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
     const reports = [];
     const execute = (file, args, options, callback) => {
       assert.equal(file, "powershell.exe");
@@ -364,7 +366,7 @@ const snapshotRows = [
     ParentProcessId: 1,
     Name: "node.exe",
     CreationDate: "new",
-    CommandLine: "private-payload node.mojom.NodeService",
+    CommandLine: "private-payload 🚀 node.mojom.NodeService",
   },
 ];
 
@@ -386,6 +388,7 @@ test("Windows snapshot records split phase markers, exit and stream closure with
   assert.equal(rows[0].host, true);
   assert.equal(rows[0].command, snapshotRows[0].CommandLine);
   assert.equal(reports[0].success, true);
+  assert.equal(reports[0].stdoutBytes, Buffer.byteLength(JSON.stringify(snapshotRows)));
   assert.deepEqual(
     reports[0].trace.map((row) => row.phase),
     [
@@ -478,22 +481,34 @@ test("Windows projected snapshot measures enumeration and preserves this process
       "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name,CreationDate,CommandLine | ConvertTo-Json -Compress",
     ],
     { timeout: 30_000, maxBuffer: 4 * 1024 * 1024 },
-  );
-  context.diagnostic(
-    `unprojected Windows snapshot elapsedMs: ${Math.round(performance.now() - started)}`,
-  );
-  const baseline = JSON.parse(stdout).find((row) => row.ProcessId === process.pid);
+  )
+    .catch(() => {
+      throw new Error("Unprojected Windows snapshot comparison command failed");
+    })
+    .finally(() => {
+      context.diagnostic(
+        `unprojected Windows snapshot elapsedMs: ${Math.round(performance.now() - started)}`,
+      );
+    });
+  let baseline;
+  try {
+    baseline = JSON.parse(stdout).find((row) => row.ProcessId === process.pid);
+  } catch {
+    throw new Error("Unprojected Windows snapshot comparison returned invalid rows");
+  }
   assert.ok(baseline);
   const rows = await windowsProcessSnapshot((details) =>
     context.diagnostic(`projected Windows snapshot: ${JSON.stringify(details)}`),
   );
   const own = rows.find((row) => row.pid === process.pid);
-  assert.deepEqual(own, {
-    pid: baseline.ProcessId,
-    parent: baseline.ParentProcessId,
-    name: baseline.Name,
-    start: baseline.CreationDate,
-    command: baseline.CommandLine,
-    host: /node.mojom.NodeService/.test(baseline.CommandLine),
-  });
+  assert.ok(own);
+  assert.equal(own.pid, baseline.ProcessId);
+  assert.equal(own.parent, baseline.ParentProcessId);
+  assert.equal(own.name, baseline.Name);
+  assert.equal(own.start, baseline.CreationDate);
+  assert.equal(own.host, /node.mojom.NodeService/.test(baseline.CommandLine));
+  assert.ok(
+    own.command === baseline.CommandLine,
+    "Projected snapshot must retain the full command line",
+  );
 });

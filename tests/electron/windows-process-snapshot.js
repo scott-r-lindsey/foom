@@ -49,10 +49,10 @@ async function windowsProcessSnapshot(report = () => {}, execute = execFile) {
     child.once("exit", () => record("exited"));
     child.once("close", () => record("closed"));
     child.stdout.on("data", (chunk) => {
-      stdoutBytes += chunk.length;
+      stdoutBytes += Buffer.byteLength(chunk);
     });
     child.stderr.on("data", (chunk) => {
-      stderrBytes += chunk.length;
+      stderrBytes += Buffer.byteLength(chunk);
       for (const character of chunk.toString()) {
         if (character === "\n") {
           if (
