@@ -379,7 +379,8 @@ rendered text at 1500×900, after 900×900 shrink, after growth, and after Setti
 forces a new attachment token.
 
 Separate live regressions exercise a real fixture Bash with a 94-P prompt plus
-`> `, checking one prompt after shrink and standalone `SHRINK_MARKER` output after
+`> `, waiting for that initial prompt in both host and renderer before shrinking,
+then checking one prompt after shrink and standalone `SHRINK_MARKER` output after
 typing while narrow and growing. A raw Node child writes 96 P characters, stays
 alive through shrink, growth and Settings reattachment, then writes Z. Host tail
 and renderer must agree with Z at the end, without a stale reflow suffix. The
@@ -397,3 +398,12 @@ ordering, so the deterministic reproduction establishes the clipping mechanism
 without claiming those artifacts contain that ordering trace. Future readiness
 failures also print the bounded fixture tail, renderer grid/cursor geometry,
 input editability and terminal exit state. No deadlines change.
+
+The Bash resize precondition includes rendered text, not only the authoritative
+tail. A controlled delayed-view reproduction held the wide prompt's stream until
+after shrink: the host correctly retained one prompt, while parsing both the old
+wide prompt and Bash's redraw at the new width left an extra 68-P prefix in the
+renderer. This matched run 42646014373's Linux 4 failure at the renderer assertion
+(artifact **13689210376**).
+Waiting for both initial parsers before the resize retains every post-resize
+assertion and changes no product policy or deadline.

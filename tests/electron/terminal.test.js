@@ -129,6 +129,8 @@ test("live Bash redraws a long prompt once and retains narrow command output aft
   await page.keyboard.type(`PS1='${prompt}'; printf '\\033[2J\\033[H'`);
   await page.keyboard.press("Enter");
   await expect.poll(async () => (await tail()).join("")).toBe(prompt);
+  // Both parsers must consume the wide prompt before changing its geometry.
+  await expect.poll(() => renderedText(page)).toBe(prompt.trimEnd());
   await sizeTileBoard(app, page, 900, 900);
   await expect.poll(cols).toBeLessThan(96);
   await expect.poll(async () => (await tail()).join("")).toBe(prompt);
