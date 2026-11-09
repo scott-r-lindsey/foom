@@ -615,3 +615,25 @@ contain fixed phase names and durations, never terminal or SSH output. Deadlines
 retry policy, sandboxing and fixture-only CLI rules are unchanged. Superseded
 whole-scenario timings are removed from the shard plan; new cases use the normal
 hash fallback until their CI measurements are recorded.
+
+
+### Remote OSC 8 readiness regression
+
+A matching link alone does not prove that a typed printf command has executed.
+While the PTY is echoing the URL argument, its unfinished plain-text link has the
+same target as the eventual OSC 8 link. Remaining echo appends the literal
+`\007Remote` suffix and moves the actual output to a different row; coordinates
+captured from the transient echo can therefore select the wrong link. Main run
+42664151136 attempt 2 copied exactly that echoed target.
+
+The remote link case deliberately types only through the URL first and observes
+this false readiness state. It then completes the command and waits for a rendered
+`REMOTE_LINK_READY` marker, produced with a split printf format so the marker
+cannot match command echo. Only then does it measure and click the OSC link. It
+asserts that the malformed-looking echo target and correct OSC target coexist,
+that the entire typed command arrives in order, and that the shell emits actual
+ESC/BEL bytes. The fixture-only stream is retained in ignored
+`test-results/remote-link-readiness.json`. A unit regression feeds the echoed
+command and BEL-terminated OSC output through every OSC chunk boundary, keeping
+their targets separate. This distinguishes remote echo readiness from shell
+escape handling and OSC parsing without changing product URL rules.

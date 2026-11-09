@@ -130,12 +130,38 @@ test("remote shell fixture copies links and confirms external browser navigation
       globalThis.remoteOpenedLinks.push(url);
     };
   });
-  await page.keyboard.type(
-    String.raw`printf '\033]8;;${remoteUrl}\007Remote sign in\033]8;;\007\n'`,
-  );
-  await page.keyboard.press("Enter");
+  await page.evaluate(() => {
+    window.remoteLinkChunks = [];
+    window.stopRemoteLinkChunks = window.desktop.onData((_id, _token, data) =>
+      window.remoteLinkChunks.push(data),
+    );
+  });
   const remoteLink = page.getByRole("link", { name: remoteUrl, exact: true });
+  // Reproduce the old readiness false positive: the unfinished command echo
+  // already contains an exact plain URL, before any OSC 8 output exists.
+  const prefix = String.raw`printf '\033]8;;${remoteUrl}`;
+  const suffix = String.raw`\007Remote sign in\033]8;;\007\n'; printf 'REMOTE_LINK_%s\n' READY`;
+  await page.keyboard.type(prefix);
   await expect(remoteLink).toHaveCount(1);
+  assert.ok(!(await page.evaluate(() => window.remoteLinkChunks.join(""))).includes("\x1b]8;;"));
+  await page.keyboard.type(suffix);
+  await page.keyboard.press("Enter");
+  // Native typing completion does not drain the remote PTY echo/output. The
+  // marker cannot occur in the echoed printf format and is rendered after OSC 8.
+  await expect(page.locator(".xterm-rows")).toContainText("REMOTE_LINK_READY");
+  await expect(remoteLink).toHaveCount(1);
+  const echoedTarget = String.raw`${remoteUrl}\007Remote`;
+  await expect(page.getByRole("link", { name: echoedTarget, exact: true })).toHaveCount(1);
+  const chunks = await page.evaluate(() => {
+    window.stopRemoteLinkChunks();
+    return window.remoteLinkChunks;
+  });
+  assert.ok(chunks.join("").includes(prefix + suffix));
+  assert.ok(chunks.join("").includes(`\x1b]8;;${remoteUrl}\x07Remote sign in\x1b]8;;\x07`));
+  await writeFile(
+    evidencePath("remote-link-readiness.json"),
+    JSON.stringify({ chunks, echoedTarget, oscTarget: remoteUrl }, null, 2),
+  );
   const linkBounds = await remoteLink.locator(":scope > span").first().boundingBox();
   assert.ok(linkBounds);
   const linkPoint = { x: linkBounds.x + 10, y: linkBounds.y + linkBounds.height / 2 };
