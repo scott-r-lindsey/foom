@@ -21,6 +21,7 @@ export function setupState(
       copyOnSelect: false,
       terminalClipboardWrites: false,
       concurrentChildren: 4,
+      defaultAgent: null,
       recentRepositoryDays: 30,
       unreadChildMinutes: 5,
       autoRemoveMergedWorktrees: false,

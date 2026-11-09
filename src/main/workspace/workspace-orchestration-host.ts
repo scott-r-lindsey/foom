@@ -345,6 +345,7 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
         (item) => item.id === agent && item.path !== null && item.resume === true,
       );
     },
+    defaultAgent: () => caps.defaultAgent,
     bypassDefaults: (agent) => hasBypassArgument(agent, caps.defaultArguments[agent] ?? []),
     restoreWorktree: async (repository, path) => {
       const saved = remoteTree(path);

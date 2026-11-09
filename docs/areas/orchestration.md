@@ -130,8 +130,8 @@ stay ended; recovery never restarts automation or replays actions.
 ## Optional child build/review loop (#690)
 
 Only an orchestrator's `launch` accepts `review: {rounds?, agent?, model?, effort?, postFindings?, parentWaitMinutes?}`.
-It is off by default; opting in defaults to three rounds (maximum five), Claude,
-and no posting. Both author and reviewer providers must support resume. Review-enabled task prompts
+It is off by default; opting in defaults to three rounds (maximum five)
+and no posting, using the user-chosen default agent when omitted. Both author and reviewer providers must support resume. Review-enabled task prompts
 reserve the fixed author brief within the combined 16 KiB UTF-8 launch limit;
 oversized requests refuse before creating a launch operation. Main runs
 fixed sequential steps; agents receive no orchestration authority. The human
@@ -304,7 +304,7 @@ PR head branch. Existing head, check, capacity and cancellation gates remain.
 New tasks may launch before creating their first PR and bind on first completion.
 
 The orchestrator's `review` mutation composes detached PR creation and one ordinary
-Claude launch under a durable outer launch operation. Its key reconciles the
+selected-provider launch under a durable outer launch operation. Its key reconciles the
 entire action; internal operations have derived keys. It supplies the standard
 read-only verdict brief, optional full-SHA `since` and quoted `focus`. It validates
 that the detached checkout head matches the resolved PR before launch and checks

@@ -40,8 +40,8 @@ Orchestrator commands (all support `--json`):
 ```text
 foom create-worktree BRANCH [--host HOST] --idempotency-key KEY
 foom create-worktree --pull-request N [--review] [--host HOST] --idempotency-key KEY
-foom review --pull-request N [--since SHA] [--focus TEXT] [--post-findings true|false] --idempotency-key KEY
-foom launch WORKTREE_ID [--pull-request N] --agent PROVIDER [--host HOST] [--model MODEL] [--effort EFFORT] [--prompt TEXT] [--review-model MODEL] [--review-effort EFFORT] --idempotency-key KEY
+foom review --pull-request N [--agent PROVIDER] [--since SHA] [--focus TEXT] [--post-findings true|false] --idempotency-key KEY
+foom launch WORKTREE_ID [--pull-request N] [--agent PROVIDER] [--host HOST] [--model MODEL] [--effort EFFORT] [--prompt TEXT] [--review-model MODEL] [--review-effort EFFORT] --idempotency-key KEY
 foom stop ID --idempotency-key KEY
 foom close ID --idempotency-key KEY
 foom remove-worktree WORKTREE_ID --idempotency-key KEY

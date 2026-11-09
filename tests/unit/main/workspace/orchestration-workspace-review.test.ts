@@ -56,7 +56,7 @@ it("revalidates a standalone snapshot after preparation through the workspace la
       workspace.orchestration.call(
         principal(),
         "review",
-        { pullRequest: 7, idempotencyKey: "standalone" },
+        { pullRequest: 7, agent: "claude", idempotencyKey: "standalone" },
         operations,
       ),
     ).rejects.toThrow("pr_binding_unresolved");
@@ -181,6 +181,11 @@ it.each(runs)(
     };
     const workspace = createWorkspace({ ...deps, forge, ...(remote ? { hosts } : {}) });
     await orchestrate(workspace);
+    workspace.configure({
+      hooks: false,
+      agents: { claude: true, codex: true, agy: true },
+      defaultAgent: "claude",
+    });
     let next = 0;
     launch.mockImplementation((request) => {
       request.beforeSpawn?.();

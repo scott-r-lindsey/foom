@@ -161,6 +161,8 @@ it("bounds replies, refuses redirects and malformed JSON, and does not print ser
       "capacity",
       "not_found",
       "invalid_request",
+      "agent_required",
+      "review_agent_required",
       "forbidden",
       "remote_review_unsupported",
       "pr_binding_unresolved",

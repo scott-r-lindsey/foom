@@ -293,6 +293,7 @@ export interface ExecutionEventsContext {
 }
 
 export interface OrchestrationHostContext {
+  readonly defaultAgent: string | null;
   readonly launchAgent: WorkspaceMethods["launchAgent"];
   readonly busyWorktrees: Set<string>;
   readonly checkoutHolds: CheckoutHolds;

@@ -1,6 +1,6 @@
 import { hostAlias } from "../shared/registered-hosts";
 import { selectionInput } from "../node-common/launch-selection";
-import { reviewOptions } from "../shared/review-validation";
+import { reviewInput } from "../shared/review-validation";
 import { isChildInput } from "../shared/child-input";
 import { readHandoffRequest } from "../shared/handoff-validation";
 import { validAgentId } from "../shared/providers/catalog";
@@ -177,6 +177,11 @@ function orchestration(name: string | undefined, words: string[]): Command {
       break;
     }
     case "review": {
+      const agent = take("--agent");
+      if (agent !== undefined) {
+        if (!validAgentId(agent)) throw new ControlError("invalid_request");
+        params["agent"] = agent;
+      }
       params["pullRequest"] = integer(take("--pull-request"), Number.MAX_SAFE_INTEGER, 1);
       const since = take("--since");
       if (since !== undefined) {
@@ -198,8 +203,10 @@ function orchestration(name: string | undefined, words: string[]): Command {
       if (number !== undefined) params["pullRequest"] = integer(number, Number.MAX_SAFE_INTEGER, 1);
       params["worktreeId"] = identifier(positional[0]);
       const agent = take("--agent");
-      if (!validAgentId(agent)) throw new ControlError("invalid_request");
-      params["agent"] = agent;
+      if (agent !== undefined) {
+        if (!validAgentId(agent)) throw new ControlError("invalid_request");
+        params["agent"] = agent;
+      }
       const model = take("--model");
       const effort = take("--effort");
       Object.assign(params, selectionInput({ model, effort }));
@@ -219,7 +226,7 @@ function orchestration(name: string | undefined, words: string[]): Command {
       ) {
         if (post !== undefined && post !== "true" && post !== "false")
           throw new ControlError("invalid_request");
-        params["review"] = reviewOptions({
+        params["review"] = reviewInput({
           ...(reviewModel === undefined ? {} : { model: reviewModel }),
           ...(reviewEffort === undefined ? {} : { effort: reviewEffort }),
           ...(rounds === undefined ? {} : { rounds: integer(rounds, 5, 1) }),
