@@ -152,6 +152,26 @@ for the assignment method and measurement history.
 2. Electron launch tests and Forge installer/ZIP packaging on Ubuntu, Windows, and macOS, alongside static checks when desktop validation is required.
 3. A stable **Quality gate** status that requires all three Linux jobs to succeed and desktop validation to pass, or to be explicitly classified as unnecessary and skipped. Failed detection never permits a skip.
 
+Electron and native-check/packaging jobs restore `actions/cache` entries keyed by
+runner OS, architecture and the exact Electron version resolved by the frozen
+lockfile install. ZIPs live in `runner.temp/electron-cache`, outside the checkout;
+PR writes retain GitHub's branch scope and no new permissions or secrets are used.
+The three-minute **Prepare Electron binary** step allows at most three attempts,
+with two/four-second backoff, for network errors and HTTP 5xx responses only.
+Individual requests have a 45-second timeout. Other failures, including checksum
+mismatches, stop immediately. Fixture policy tests exercise retries and the installed
+`@electron/get` cache validation without network requests or real ZIP downloads.
+
+Preparation passes `electron/checksums.json` to `@electron/get`, which checks cached
+ZIPs before use and replaces a corrupt entry only with a verified download. The
+installer checks the same cache before extraction. In the packaging job only, CI
+appends a download configuration to its disposable `forge.config.js` checkout so
+`pnpm run make` uses the same cache and bundled checksums: a valid hit requests
+neither the ZIP nor remote `SHASUMS256.txt`. Existing Forge hooks are preserved;
+no application or local packaging behavior changes. Release-environment jobs do
+not use this cache: they retain their tested ZIP/DMG and same-run SEA inputs.
+The Quality gate, required job graph and deadlines are unchanged.
+
 CI runs for pull requests and pushes to `main`, avoiding duplicate branch-push runs for PRs. The [Electron sharding guide](electron-shards.md) owns the desktop job layout and assignment details. Test deadlines come from `tests/electron/test-policy.js`.
 
 Desktop validation is skipped only when every changed path is `README.md`, `AGENTS.md`, `LICENSE`, `NOTICE`, Markdown under `docs/`, direct HTML mockups under `docs/mockups/`, or reference/prototype material under `inspiration/` or `spikes/` (the exact allowlist is in [`scripts/ci-changes.mjs`](../scripts/ci-changes.mjs)). Reference files are classified by path only; CI never tests or packages their contents. Unknown paths, empty diffs, and manual runs require desktop validation. PR detection uses the merge-base diff against the base branch; pushes compare the previous commit with the new commit. Renames include both old and new paths. Missing comparison history fails change detection.
