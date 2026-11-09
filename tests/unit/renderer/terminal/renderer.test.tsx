@@ -1252,6 +1252,7 @@ test.each(["hide", "switch", "release", "revoke", "dispose"])(
     else controller.dispose();
     await Promise.resolve();
     expect(mock.attach).not.toHaveBeenCalledWith("one");
+    expect(mock.attach).not.toHaveBeenCalledWith("one", "refresh");
     if (action === "switch") {
       expect(mock.attach).toHaveBeenCalledWith("two");
       expect(mock.options.reflowCursorLine).toBe(false);

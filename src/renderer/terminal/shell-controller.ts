@@ -419,7 +419,7 @@ export function createShell(
   board?.addEventListener("transitioncancel", sidebarTransition);
   const observer = new ResizeObserver(resize);
   observer.observe(container);
-  const openView = async (id: string, focus = true) => {
+  const openView = async (id: string, refresh = false) => {
     view.attaching = !view.firstFrame;
     publish();
     // Drain writes from the old attachment before resetting, including delayed ACKs.
@@ -445,11 +445,12 @@ export function createShell(
     publish();
     fontResizePending = false;
     window.desktop.resize(id, terminal.cols, terminal.rows);
-    await window.desktop.attach(id);
+    if (refresh) await window.desktop.attach(id, "refresh");
+    else await window.desktop.attach(id);
     if (!wantsVisible()) {
       visibility(false);
       if (isAvailable(id)) await window.desktop.detach(id);
-    } else if (!isDisposed() && focusOnOpen && focus) terminal.focus();
+    } else if (!isDisposed() && focusOnOpen && !refresh) terminal.focus();
   };
   const toggleView = async () => {
     if (busy || !activeId) return;
@@ -574,7 +575,7 @@ export function createShell(
       controls();
       try {
         if (attached && activeId === id) {
-          if (refresh) await openView(id, false);
+          if (refresh) await openView(id, true);
           else if (focusOnOpen) terminal.focus();
           return;
         }
@@ -596,7 +597,7 @@ export function createShell(
         terminalStatus = code === undefined ? "Terminal" : `Terminal exited (${String(code)})`;
         view.state = code === undefined ? "quiet_ok" : code === 0 ? "done" : "failed";
         view.status = terminalStatus;
-        await openView(id, !refresh);
+        await openView(id, refresh);
       } catch (error: unknown) {
         visibility(false);
         if (isAvailable(id)) await window.desktop.detach(id).catch(() => {});

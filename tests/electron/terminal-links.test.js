@@ -279,6 +279,28 @@ test("terminal links open and copy complete targets with trusted confirmation, w
   await expect
     .poll(() => page.evaluate(async (id) => (await window.desktop.tail(id, 5)).join("\n"), id))
     .toMatch(/[$#%>]\s*$/);
+  // Exit starts asynchronous authoritative replay. Observe its parser ACK so
+  // the subsequent gesture addresses the recovered screen, not the old overlay.
+  await app.evaluate(({ app }, id) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { TerminalHostClient } = load("./build/main/terminals/terminal-host-client.js");
+    const attach = TerminalHostClient.prototype.attach;
+    const acknowledge = TerminalHostClient.prototype.acknowledge;
+    let replayToken;
+    globalThis.linkExitReplayParsed = false;
+    TerminalHostClient.prototype.attach = function (source, send) {
+      return attach.call(this, source, (token, data) => {
+        if (source === id) replayToken = token;
+        send(token, data);
+      });
+    };
+    TerminalHostClient.prototype.acknowledge = function (source, token, count) {
+      if (source === id && token === replayToken) globalThis.linkExitReplayParsed = true;
+      return acknowledge.call(this, source, token, count);
+    };
+  }, id);
   await page.evaluate(
     (id) =>
       new Promise((resolve) => {
@@ -292,6 +314,10 @@ test("terminal links open and copy complete targets with trusted confirmation, w
       }),
     id,
   );
+  await expect.poll(() => app.evaluate(() => globalThis.linkExitReplayParsed)).toBe(true);
+  await expect(
+    page.getByRole("link", { name: plain, exact: true }).locator(":scope > span").first(),
+  ).toBeVisible();
   const exitedCount = (await opened()).length;
   await click(plain);
   await approve(plain);

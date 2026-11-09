@@ -433,3 +433,18 @@ round-three validation reproduced a read of that old ID after the new row was
 already visible; an unchanged retry passed. The fixture now gates on exactly one
 workspace terminal with a different ID, retaining the new-ID, native prompt,
 cursor reuse and other packaged assertions without changing deadlines.
+
+The post-exit terminal-link gesture waits for the automatic replay's renderer
+parser acknowledgement and a visible link segment before clicking. Native exit
+notification alone no longer means the recovered view is interactive: a click
+against the previous overlay can arrive while lifecycle work suppresses gestures.
+A focused local run reproduced the missing consent dialog before this gate. The
+full-target, consent, primary-button and exited-link assertions remain intact.
+
+Recovery also uses a main-validated refresh mode rather than acquiring another
+attachment capability. The config-probe interruption case caught a native exit
+whose temporary PTY had already been revoked before the renderer received its
+removal event. Refresh now does nothing for revoked, detached, closing or
+other-window attachments; normal attach still rejects unknown/foreign IDs. Unit
+coverage checks those boundaries and malformed refresh requests. The focused
+probe scenario retains its teardown assertion forbidding stale-capability IPC.

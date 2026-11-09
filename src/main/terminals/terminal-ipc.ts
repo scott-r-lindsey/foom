@@ -176,8 +176,17 @@ export function attachTerminal(
     return { id, title: `${command} — ${cwd}` };
   });
   for (const operation of ["attach", "detach", "kill"] as const) {
-    handlers.set(`terminal:${operation}`, async (event, id) => {
+    handlers.set(`terminal:${operation}`, async (event, id, mode) => {
       if (!trusted(event)) throw new Error("Untrusted IPC sender");
+      if (operation === "attach" && mode !== undefined) {
+        if (mode !== "refresh") throw new Error("Invalid terminal attachment mode");
+        if (typeof id !== "string" || id.length === 0 || id.length > 256)
+          throw new Error("Invalid terminal ID");
+        // A normal exit can revoke a temporary PTY before its renderer learns
+        // removal. Refresh only the caller's retained attachment; never acquire
+        // a new capability or race ordinary teardown with a stale attach.
+        if (!validId(id) || attached.get(id) !== event.sender || closing.has(id)) return;
+      }
       if (!validId(id)) throw new Error("Unknown or foreign terminal ID");
       if (operation !== "detach" && closing.has(id)) throw new Error("Session is closing");
       if (operation === "attach") {

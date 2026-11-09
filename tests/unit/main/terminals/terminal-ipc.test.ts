@@ -444,6 +444,50 @@ test("IPC isolates IDs, validates input and cleans up", async () => {
   });
 });
 
+test("refresh replays only a retained attachment and is harmless after detach, close or revocation", async () => {
+  const id = await create();
+  const foreign = manager.create(spec);
+  for (const candidate of [id, foreign, "removed"]) {
+    contents.send.mockClear();
+    await invoke("attach", [candidate, "refresh"]);
+    expect(contents.send).not.toHaveBeenCalled();
+  }
+  await invoke("attach", [id]);
+  pty().onExit.mock.calls[0]?.[0]({ exitCode: 0 });
+  await vi.waitFor(() => {
+    expect(contents.send).toHaveBeenCalledWith("terminal:exit", id, 0);
+  });
+  contents.send.mockClear();
+  await invoke("attach", [id, "refresh"]);
+  expect(contents.send).toHaveBeenCalledWith(
+    "terminal:data",
+    id,
+    expect.any(String),
+    expect.any(String),
+  );
+  terminalControl.setClosing(id, true);
+  contents.send.mockClear();
+  await invoke("attach", [id, "refresh"]);
+  expect(contents.send).not.toHaveBeenCalled();
+  terminalControl.setClosing(id, false);
+  await invoke("detach", [id]);
+  contents.send.mockClear();
+  await invoke("attach", [id, "refresh"]);
+  expect(contents.send).not.toHaveBeenCalled();
+  await terminalControl.kill(id);
+  contents.send.mockClear();
+  await invoke("attach", [id, "refresh"]);
+  expect(contents.send).not.toHaveBeenCalled();
+  await expect(invoke("attach", [id])).rejects.toThrow("Unknown or foreign");
+  for (const candidate of [null, 1, "", "x".repeat(257)])
+    await expect(invoke("attach", [candidate, "refresh"])).rejects.toThrow("Invalid terminal ID");
+  for (const mode of [null, true, {}, "other"])
+    await expect(invoke("attach", [id, mode])).rejects.toThrow("Invalid terminal attachment mode");
+  await expect(invoke("attach", [id, "refresh"], { ...event, senderFrame: null })).rejects.toThrow(
+    "Untrusted IPC sender",
+  );
+});
+
 test("rejects malformed dimensions and untrusted frames on every channel", async () => {
   const id = await create();
   for (const pair of [
@@ -1346,6 +1390,7 @@ test("two windows share app terminals but cannot steal, resize, type into or det
   await invoke("attach", [a]);
   await invoke("attach", [b], secondEvent);
   await expect(invoke("attach", [a], secondEvent)).rejects.toThrow("another window");
+  await expect(invoke("attach", [a, "refresh"], secondEvent)).resolves.toBeUndefined();
   const writes = pty().write.mock.calls.length;
   const resizes = pty().resize.mock.calls.length;
   send("input", [a, "foreign"], secondEvent);

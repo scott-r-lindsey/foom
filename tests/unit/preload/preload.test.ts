@@ -87,10 +87,12 @@ test("lifecycle requests and code-point-safe paste chunks", async () => {
   const api = await bridge();
   mock.invoke.mockResolvedValue(undefined);
   await api.attach("one");
+  await api.attach("one", "refresh");
   await api.detach("one");
   await api.kill("one");
   expect(mock.invoke.mock.calls).toEqual([
     ["terminal:attach", "one"],
+    ["terminal:attach", "one", "refresh"],
     ["terminal:detach", "one"],
     ["terminal:kill", "one"],
   ]);
