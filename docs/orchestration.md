@@ -140,7 +140,19 @@ Close the exited reviewer normally. Foom removes an unchanged, clean review
 checkout without confirmation even with an open PR and merged cleanup disabled.
 It verifies the creation identity, exact detached head, absence of local work
 (including reflog commits reset away), and absence of other sessions/operations.
+Only ignored output under the root directories `node_modules/`, `build/`, `out/`, `.cache/`, `test-results/`, `.husky/_/` and `coverage/` is disposable under this
+review-only exception. Other ignored and non-ignored untracked files require
+confirmation. Modified/untracked `.gitignore` files or changed creation-time
+exclusion settings also require confirmation; `core.excludesFile` is disabled
+during the proof. Older records without the exclusion baseline require confirmation. Close uses
+this profile's creation identity even for sessions from earlier orchestrator grants.
 Any failed or unavailable proof falls back to the trusted removal confirmation;
 declining keeps the checkout and screen. Existing safety guards remain in force.
 Ordinary checkouts keep their existing removal policy. See the
 [removal contract](contracts/control-mutations.md#orchestrators-and-children-155).
+
+With board PR tracking enabled, retained review checkouts are offered in one
+trusted removal batch once their PR is merged or closed and their sessions are
+idle. Offline or unavailable evidence waits for a later inventory. Each checkout
+identity is offered once per app lifetime; declining preserves it. Approval still
+rechecks identity, membership, sessions, reservations and the final status snapshot.

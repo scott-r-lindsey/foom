@@ -3,6 +3,8 @@ import { expect, it, vi } from "vitest";
 import { CleanupOwner } from "../../../../src/main/workspace/cleanup-owner";
 import type { CleanupOwnerDependencies } from "../../../../src/main/workspace/cleanup-owner";
 import type { CleanupFeed } from "../../../../src/shared/cleanup";
+import type { BoardPullRequest } from "../../../../src/shared/forge";
+import type { DialogContent } from "../../../../src/shared/confirmation";
 import type { ConfirmWorkspace } from "../../../../src/shared/confirmation";
 import type { Worktree } from "../../../../src/shared/worktrees";
 import type { WorkspaceTerminal } from "../../../../src/shared/workspace";
@@ -112,7 +114,7 @@ function fixture() {
         readSnapshot,
       ]: Parameters<CleanupOwnerDependencies["withWorktreeRemoval"]>
     ): Promise<boolean> => {
-      const release = acquireWorktree(repository, branch);
+      const release = acquireWorktree(repository, branch ?? worktree);
       let removed = false;
       try {
         removed = await owner.removeReservedTree(
@@ -882,3 +884,205 @@ it.each(["confirmation", "post-confirmation", "final deletion"])(
     if (stage === "confirmation") expect(confirm).not.toHaveBeenCalled();
   },
 );
+it.each([true, false])(
+  "batches retained review checkout offers after closed PRs (approve: %s)",
+  async (approved) => {
+    const f = fixture();
+    const one = tree("review-one", { branch: null });
+    const two = tree("review-two", { branch: null });
+    f.trees([one, two]);
+    f.worktrees.reviewIdentity.mockReturnValue("identity");
+    f.worktrees.changes.mockResolvedValue("?? review.png\0");
+    // The real reservation key for a detached checkout is its path.
+    const { RemovalReview } = await import("../../../../src/main/confirmations/removal-review");
+    const pending = Promise.withResolvers<boolean>();
+    const contents: DialogContent[] = [];
+    const review = new RemovalReview(async (content) => {
+      contents.push(content);
+      await pending.promise;
+      const feed = content.removalFeed;
+      if (!feed) throw new Error("Missing removal feed");
+      feed.select(feed.current().map((item) => item.id));
+      return approved;
+    });
+    const dialog = vi.fn<NonNullable<Parameters<CleanupOwner["offerClosedReviews"]>[3]>>(
+      (content, signal) => {
+        if (!content.removal) throw new Error("Missing removal item");
+        return review.request(content.removal.group, content.removal.item, signal);
+      },
+    );
+    const pr = { number: 1115, state: "CLOSED" as const, checks: null };
+    const offer = () => {
+      f.owner.offerClosedReviews(repository, [one, two], () => pr, dialog);
+    };
+    offer();
+    await vi.waitFor(() => {
+      expect(dialog).toHaveBeenCalledTimes(2);
+    });
+    expect(contents).toHaveLength(1);
+    expect(contents[0]?.removalFeed?.current()).toHaveLength(2);
+    expect(contents[0]?.removalFeed?.current()[0]?.changes).toBe("?? review.png\0");
+    offer();
+    expect(dialog).toHaveBeenCalledTimes(2);
+    pending.resolve(approved);
+    await vi.waitFor(() => {
+      expect(f.locks.size).toBe(0);
+    });
+    expect(f.worktrees.removeWorktree).toHaveBeenCalledTimes(approved ? 2 : 0);
+    offer();
+    expect(dialog).toHaveBeenCalledTimes(2);
+    await f.owner.dispose();
+  },
+);
+
+it.each([
+  "open",
+  "missing-pr",
+  "ordinary",
+  "running",
+  "locked",
+  "prunable",
+  "bare",
+  "main",
+  "remote",
+  "disposed",
+])("does not offer retained review cleanup: %s", async (mode) => {
+  const f = fixture();
+  f.worktrees.reviewIdentity.mockReturnValue(mode === "ordinary" ? undefined : "identity");
+  const candidate = tree("review", {
+    ...(mode === "main" ? { path: repository } : {}),
+    ...(mode === "locked" ? { locked: true } : {}),
+    ...(mode === "prunable" ? { prunable: true } : {}),
+    ...(mode === "bare" ? { bare: true } : {}),
+    ...(mode === "remote" ? { host: "worker" } : {}),
+  });
+  f.rows(mode === "running" ? [row("live", { worktree: candidate.path })] : []);
+  f.deps.running.mockReturnValue(true);
+  if (mode === "disposed") await f.owner.dispose();
+  const dialog = vi.fn(accept);
+  f.owner.offerClosedReviews(
+    repository,
+    [candidate],
+    () =>
+      mode === "missing-pr"
+        ? undefined
+        : { number: 1, state: mode === "open" ? "OPEN" : "MERGED", checks: null },
+    dialog,
+  );
+  await f.owner.dispose();
+  expect(dialog).not.toHaveBeenCalled();
+  expect(f.worktrees.removeWorktree).not.toHaveBeenCalled();
+});
+
+it.each([
+  "reopen",
+  "missing-pr",
+  "different-pr",
+  "identity",
+  "provenance",
+  "session",
+  "shutdown",
+  "snapshot",
+  "final-snapshot",
+])("retained review approval revalidates before deletion: %s", async (mode) => {
+  const f = fixture();
+  f.worktrees.reviewIdentity.mockReturnValue("identity");
+  let pr: BoardPullRequest | undefined = {
+    number: 1,
+    state: "MERGED",
+    checks: null,
+  };
+  const dialog = vi.fn(() => {
+    if (mode === "reopen") pr = { number: 1, state: "OPEN", checks: null };
+    if (mode === "missing-pr") pr = undefined;
+    if (mode === "different-pr") pr = { number: 2, state: "CLOSED", checks: null };
+    if (mode === "identity") f.worktrees.launchIdentity.mockResolvedValue("replacement");
+    if (mode === "provenance") f.worktrees.reviewIdentity.mockReturnValue(undefined);
+    if (mode === "session") {
+      f.rows([row()]);
+      f.deps.running.mockReturnValue(true);
+    }
+    if (mode === "shutdown") f.close();
+    if (mode === "snapshot") f.worktrees.changes.mockResolvedValue("?? late\0");
+    return Promise.resolve(true);
+  });
+  if (mode === "final-snapshot")
+    f.worktrees.removeWorktree.mockImplementation(
+      async (_repo, _path, _force, _identity, validate) => {
+        f.worktrees.changes.mockResolvedValue("?? late\0");
+        await expect(validate?.()).rejects.toThrow("changes_changed");
+        throw new Error("Removal refused");
+      },
+    );
+  f.owner.offerClosedReviews(repository, [tree()], () => pr, dialog);
+  await vi.waitFor(() => {
+    expect(dialog).toHaveBeenCalledOnce();
+  });
+  await vi.waitFor(() => {
+    expect(f.locks.size).toBe(0);
+  });
+  expect(f.worktrees.removeWorktree).toHaveBeenCalledTimes(mode === "final-snapshot" ? 1 : 0);
+  await f.owner.dispose();
+});
+
+it("cancels pending retained-review offers on disposal and drains their reservations", async () => {
+  const f = fixture();
+  f.worktrees.reviewIdentity.mockReturnValue("identity");
+  let signal: AbortSignal | undefined;
+  const dialog = vi.fn((_content: DialogContent, current: AbortSignal) => {
+    signal = current;
+    return new Promise<boolean>((resolve) => {
+      current.addEventListener(
+        "abort",
+        () => {
+          resolve(false);
+        },
+        { once: true },
+      );
+    });
+  });
+  f.owner.offerClosedReviews(
+    repository,
+    [tree()],
+    () => ({ number: 1, state: "CLOSED", checks: null }),
+    dialog,
+  );
+  await vi.waitFor(() => {
+    expect(dialog).toHaveBeenCalledOnce();
+  });
+  await f.owner.dispose();
+  expect(signal?.aborted).toBe(true);
+  expect(f.locks.size).toBe(0);
+  expect(f.worktrees.removeWorktree).not.toHaveBeenCalled();
+});
+
+it("retries unavailable inspection before an offer, but never a failed approved removal", async () => {
+  const f = fixture();
+  f.worktrees.reviewIdentity.mockReturnValue("identity");
+  f.worktrees.launchIdentity.mockRejectedValueOnce(new Error("offline"));
+  const dialog = vi.fn(accept);
+  const offer = () => {
+    f.owner.offerClosedReviews(
+      repository,
+      [tree()],
+      () => ({ number: 1, state: "CLOSED", checks: null }),
+      dialog,
+    );
+  };
+  offer();
+  await vi.waitFor(() => {
+    expect(f.locks.size).toBe(0);
+  });
+  expect(dialog).not.toHaveBeenCalled();
+  f.worktrees.removeWorktree.mockRejectedValue(new Error("failed removal"));
+  offer();
+  await vi.waitFor(() => {
+    expect(dialog).toHaveBeenCalledOnce();
+  });
+  await vi.waitFor(() => {
+    expect(f.locks.size).toBe(0);
+  });
+  offer();
+  expect(dialog).toHaveBeenCalledOnce();
+  await f.owner.dispose();
+});

@@ -376,3 +376,93 @@ test("shared-agent startup confirmation holds the path against an exited sibling
   await workspace.sidebarCommand({ kind: "close", id: "t2" }, confirm);
   await workspace.dispose();
 });
+
+test.each(["renamed", null])(
+  "retained review offer holds its path against Close with current branch %s",
+  async (branch) => {
+    const { ForgeTracking } = await import("../../../../src/main/control/forge-tracking");
+    const directory = deps.agentPluginDirectory;
+    if (!directory) throw new Error("Missing fixture");
+    const forge = new ForgeTracking(
+      directory,
+      () => Promise.resolve(undefined),
+      () => {},
+    );
+    deps.forge = forge;
+    forge.setEnabled(true);
+    vi.spyOn(forge, "sync").mockImplementation(() => {});
+    vi.spyOn(forge, "readBoard").mockReturnValue({ number: 1115, state: "CLOSED", checks: null });
+    const workspace = await launched();
+    await workspace.exited("t1", 0);
+    vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([{ ...tree, branch }]);
+    vi.mocked(deps.worktrees.reviewIdentity).mockReturnValue("identity");
+    const answer = held<boolean>();
+    deps.dialog = vi.fn(() => answer.promise);
+    try {
+      await workspace.sidebarInventory();
+      await vi.waitFor(() => {
+        expect(deps.dialog).toHaveBeenCalledOnce();
+      });
+      await expect(workspace.sidebarCommand(close, confirm)).rejects.toMatchObject({
+        code: "session-busy",
+      });
+      expect(workspace.snapshot().terminals[0]?.closeState).toBeUndefined();
+      expect(deps.worktrees.removeWorktree).not.toHaveBeenCalled();
+      answer.resolve(false);
+      vi.mocked(deps.worktrees.reviewIdentity).mockReturnValue(undefined);
+      await vi.waitFor(async () => {
+        await workspace.sidebarCommand(close, confirm);
+      });
+      expect(workspace.snapshot().terminals).toEqual([]);
+    } finally {
+      answer.resolve(false);
+      await workspace.dispose();
+    }
+  },
+);
+
+test.each(["renamed", null])(
+  "retained review cleanup waits for ordinary Close with current branch %s",
+  async (branch) => {
+    const { ForgeTracking } = await import("../../../../src/main/control/forge-tracking");
+    const directory = deps.agentPluginDirectory;
+    if (!directory) throw new Error("Missing fixture");
+    const forge = new ForgeTracking(
+      directory,
+      () => Promise.resolve(undefined),
+      () => {},
+    );
+    deps.forge = forge;
+    forge.setEnabled(true);
+    vi.spyOn(forge, "sync").mockImplementation(() => {});
+    vi.spyOn(forge, "readBoard").mockReturnValue({ number: 1115, state: "CLOSED", checks: null });
+    const workspace = await launched();
+    await workspace.exited("t1", 0);
+    vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([{ ...tree, branch }]);
+    const cleanup = held<undefined>();
+    const kill = vi.spyOn(deps.terminals, "kill").mockReturnValue(cleanup.promise);
+    const pending = workspace.sidebarCommand(close, confirm);
+    vi.mocked(deps.worktrees.reviewIdentity).mockReturnValue("identity");
+    deps.dialog = vi.fn(() => Promise.resolve(false));
+    try {
+      await vi.waitFor(() => {
+        expect(kill).toHaveBeenCalledOnce();
+      });
+      await workspace.sidebarInventory();
+      expect(workspace.snapshot().terminals[0]?.closeState).toBe("closing");
+      expect(deps.dialog).not.toHaveBeenCalled();
+      expect(deps.worktrees.removeWorktree).not.toHaveBeenCalled();
+      cleanup.resolve(undefined);
+      await pending;
+      await workspace.sidebarInventory();
+      await vi.waitFor(() => {
+        expect(deps.dialog).toHaveBeenCalledOnce();
+      });
+      expect(deps.worktrees.removeWorktree).not.toHaveBeenCalled();
+    } finally {
+      cleanup.resolve(undefined);
+      await pending;
+      await workspace.dispose();
+    }
+  },
+);

@@ -9,14 +9,18 @@ import { expect, test, vi } from "vitest";
 test("forge observations require registered, managed worktrees with matching branch and identity", async () => {
   const listRepositories = vi.fn(() => [{ path: "/repo", name: "Repo" }]);
   const listWorktrees = vi.fn(() =>
-    Promise.resolve([{ path: "/tree", managed: true, branch: "child-one", head: "a".repeat(40) }]),
+    Promise.resolve<{ path: string; managed: boolean; branch: string | null; head: string }[]>([
+      { path: "/tree", managed: true, branch: "child-one", head: "a".repeat(40) },
+    ]),
   );
   const launchIdentity = vi.fn(() => Promise.resolve("identity"));
+  const reviewBranch = vi.fn((): string | undefined => undefined);
   const forgeRemote = vi.fn(() => Promise.resolve<string | undefined>("https://github.com/o/r"));
   mock.openWorktrees.mockResolvedValue({
     listRepositories,
     listWorktrees,
     launchIdentity,
+    reviewBranch,
     forgeRemote,
     watchPaths: vi.fn(),
   });
@@ -38,6 +42,17 @@ test("forge observations require registered, managed worktrees with matching bra
   ]);
   expect(await inspect(tree, true)).toBeUndefined();
   forgeRemote.mockResolvedValueOnce(undefined);
+  expect(await inspect(tree)).toBeUndefined();
+  listWorktrees.mockResolvedValueOnce([
+    { path: "/tree", managed: true, branch: null, head: "b".repeat(40) },
+  ]);
+  reviewBranch.mockReturnValueOnce("child-one");
+  // Changed review HEAD may still track its source PR; this is never deletion proof.
+  expect(await inspect(tree)).toEqual({ remote: "https://github.com/o/r", head: "b".repeat(40) });
+  expect(reviewBranch).toHaveBeenCalledWith("/repo", "/tree");
+  listWorktrees.mockResolvedValueOnce([
+    { path: "/tree", managed: true, branch: null, head: "a".repeat(40) },
+  ]);
   expect(await inspect(tree)).toBeUndefined();
   forgeMock.open.mock.lastCall?.[2]();
   expect(mock.workspace.refresh).toHaveBeenCalled();
