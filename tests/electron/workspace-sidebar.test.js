@@ -27,6 +27,44 @@ async function expectShellReady(page, id, input) {
   await expect(input).toBeEditable();
 }
 
+// xterm deliberately does not reflow the active cursor row. A complete prompt
+// can therefore lose its terminator when the fixture splits a live shell tile.
+test("shrinking a completed PowerShell prompt reproduces the close readiness cutoff", async () => {
+  const { Terminal } = require("@xterm/headless");
+  const screen = new Terminal({ cols: 140, rows: 24, allowProposedApi: true });
+  const prompt = String.raw`PS C:\Users\runneradmin\AppData\Local\Temp\foom-tests-bW5FZf\foom-profile-u5o8i1\shell-fixture> `;
+  const trace = [];
+  const sample = (phase) => {
+    const buffer = screen.buffer.active;
+    trace.push({
+      phase,
+      cols: screen.cols,
+      rows: screen.rows,
+      cursorX: buffer.cursorX,
+      cursorY: buffer.cursorY,
+      line: buffer.getLine(buffer.cursorY)?.translateToString(true),
+    });
+  };
+  try {
+    await new Promise((resolve) => screen.write(prompt, resolve));
+    sample("prompt write completed");
+    assert.match(trace[0].line, /PS [\s\S]*>\s*$/);
+    screen.resize(68, 24);
+    sample("tile split resize");
+    assert.equal(
+      trace[1].line,
+      String.raw`PS C:\Users\runneradmin\AppData\Local\Temp\foom-tests-bW5FZf\foom-pr`,
+    );
+    screen.resize(140, 24);
+    sample("tile enlarged again");
+    assert.equal(trace[2].line, trace[1].line);
+    assert.doesNotMatch(trace[2].line, />\s*$/);
+  } finally {
+    console.log(`1137 completed-prompt resize trace: ${JSON.stringify(trace)}`);
+    screen.dispose();
+  }
+});
+
 test("board starts with live terminals only and focuses rows without opening", async (context) => {
   const app = await launchApp(context, { fixture: "running-shell", shell: "hidden" });
   const page = await boardPage(app);
@@ -906,16 +944,51 @@ test("Close removes the tile and sidebar before slow cleanup and restores a fail
 }, async (context) => {
   const app = await launchApp(context, { fixture: "running-shell" });
   const page = await boardPage(app);
-  await sizeTileBoard(app, page);
   const id = await page.evaluate(async () => (await window.desktop.workspace()).terminals[0].id);
   const row = page.locator(`[data-drag-session="${id}"]`);
+  const input = page.locator(".xterm-helper-textarea");
+  // Finish the real interactive shell before resizing its cursor row. On Windows
+  // a split can clip an already complete PowerShell prompt permanently (#1137).
+  try {
+    await expectShellReady(page, id, input);
+    await input.focus();
+    await page.keyboard.type("echo FOOM_CLOSE_READY");
+    await page.keyboard.press("Enter");
+    await expect
+      .poll(() => page.evaluate(async (id) => window.desktop.tail(id, 40), id))
+      .toContain("FOOM_CLOSE_READY");
+    await expectShellReady(page, id, input);
+    await page.keyboard.type("exit");
+    await page.keyboard.press("Enter");
+    await expect(row).toHaveAttribute("data-exited", "true");
+  } catch (error) {
+    console.log(
+      "1137 shell readiness failure:",
+      await page.evaluate(
+        async (id) => ({
+          tail: await window.desktop.tail(id, 40),
+          terminals: (await window.desktop.workspace()).terminals.map(({ id, exited }) => ({
+            id,
+            exited,
+          })),
+          grids: [...document.querySelectorAll(".xterm-rows")].map((grid) => ({
+            rows: grid.childElementCount,
+            bounds: grid.getBoundingClientRect().toJSON(),
+            cursor: grid.querySelector(".xterm-cursor")?.textContent,
+          })),
+          editable: !document.querySelector(".xterm-helper-textarea")?.readOnly,
+        }),
+        id,
+      ),
+    );
+    throw error;
+  }
+  await sizeTileBoard(app, page);
   await page.evaluate(() => window.desktop.appMenu.execute("split-right"));
   const second = await page.evaluate(() => window.desktop.sidebarCommand({ kind: "home-shell" }));
   await page.locator(`[data-drag-session="${second.terminalId}"]`).press("Enter");
   const closingTile = page.getByRole("region", { name: /Tile 2:/ });
-  await expectShellReady(page, id, closingTile.locator(".xterm-helper-textarea"));
-  await page.evaluate((id) => window.desktop.input(id, "exit\r"), id);
-  await expect(row).toHaveAttribute("data-exited", "true");
+  await expect(closingTile.locator(".xterm-helper-textarea")).toHaveJSProperty("readOnly", true);
   await app.evaluate(({ app }) => {
     const load = process
       .getBuiltinModule("node:module")

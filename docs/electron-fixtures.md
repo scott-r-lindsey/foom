@@ -346,3 +346,31 @@ waiting for the run separates native operation completion from UI rendering.
 This establishes the ordering defect without claiming the reports captured the
 underlying Git operation timing. Test deadlines and product deletion policy stay
 unchanged.
+
+## Close-test shell readiness before layout changes (#1137)
+
+The optimistic-close case finishes its interactive fixture shell before growing
+or splitting the board. It observes the initial prompt and editable input, types
+`echo FOOM_CLOSE_READY` through native keyboard input, observes the standalone
+output marker and the returned prompt, then types `exit` and observes the exited
+row. Only then does it prepare the two-tile close scenario. The slow-cleanup gate,
+failed-row restoration and close timing assertions remain unchanged.
+
+A deterministic reproduction with the pinned headless xterm writes the complete
+Windows prompt before resizing its active cursor row from 140 to 68 columns.
+The completed line ends in `>` before the resize; afterwards it ends in `foom-pr`,
+exactly matching both reported Windows failures. Growing the screen again does
+not recover the clipped text. The trace records write completion, screen geometry,
+cursor coordinates and the fixed fixture line. The active cursor row is not
+reflowed on shrink, so a prompt terminator in a tail is not a durable shell-ready
+signal across layout changes. This is a fixture ordering defect; changing the
+terminal's resize policy is outside this test fix.
+
+Run 42551903310 attempt 1 artifact **13646043326** failed at readiness in
+37.033 seconds; attempt 2 artifact **13648420047** passed in 7.195 seconds.
+Run 42618694514 attempt 1 artifact **13676860593** repeated the same cutoff in
+37.836 seconds. Neither older failure captured raw ConPTY output or cursor/resize
+ordering, so the deterministic reproduction establishes the clipping mechanism
+without claiming those artifacts contain that ordering trace. Future readiness
+failures also print the bounded fixture tail, renderer grid/cursor geometry,
+input editability and terminal exit state. No deadlines or product code change.
