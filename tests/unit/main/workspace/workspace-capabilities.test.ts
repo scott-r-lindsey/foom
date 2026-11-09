@@ -1,3 +1,4 @@
+import { CheckoutHolds } from "../../../../src/main/workspace/worktree-reservations";
 import { describe, expect, it, vi } from "vitest";
 import { addWorktree, createWorktree } from "../../../../src/main/workspace/sidebar-commands";
 import type { RepositoryOperationsContext } from "../../../../src/main/workspace/workspace-capabilities";
@@ -16,6 +17,7 @@ function repositoryFixture(): RepositoryOperationsContext {
   const capabilities: RepositoryOperationsContext = {
     launched: new Map(),
     busyWorktrees: new Set(),
+    checkoutHolds: new CheckoutHolds(),
     location: "adjacent",
     refresh: vi.fn(),
     withRepository: (_repository, work) => work(),

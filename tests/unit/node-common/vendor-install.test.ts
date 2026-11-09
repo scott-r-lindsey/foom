@@ -1,3 +1,4 @@
+import { PassThrough } from "node:stream";
 import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
 import { readFile, stat, access } from "node:fs/promises";
@@ -15,7 +16,9 @@ const script = {
 const signal = () => AbortSignal.timeout(5000);
 const platform = process.platform;
 function fixtureChild() {
-  return Object.assign(new EventEmitter(), { stdio: [null, null, null, new EventEmitter()] });
+  return Object.assign(new EventEmitter(), {
+    stdio: [null, null, null, new PassThrough(), new PassThrough()],
+  });
 }
 afterEach(() => {
   Object.defineProperty(process, "platform", { value: platform });
@@ -196,10 +199,12 @@ test.skipIf(platform === "win32").each(["SIGHUP", "SIGINT", "SIGTERM", "SIGQUIT"
     const before = process.listeners(signal);
     vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockResolvedValue(new Response("fixture script")));
     const kill = vi.spyOn(process, "kill").mockReturnValue(true);
+    let hold: PassThrough | null | undefined;
     let path: string | undefined;
     mocks.spawn.mockImplementation((_command: string, args: readonly string[]) => {
       path = args[process.platform === "win32" ? 0 : 4];
       const child = Object.assign(fixtureChild(), { pid: 123456, kill: vi.fn() });
+      hold = child.stdio[4];
       queueMicrotask(() => {
         const interrupt = process.listeners(signal).find((listener) => !before.includes(listener));
         if (!interrupt) throw new Error("Missing recipe interruption handler");
@@ -213,8 +218,8 @@ test.skipIf(platform === "win32").each(["SIGHUP", "SIGINT", "SIGTERM", "SIGQUIT"
     expect(await runVendorScript(script, "/fixture/home", {})).toBe(
       128 + constants.signals[signal],
     );
-    expect(kill).toHaveBeenCalledWith(-123456, signal);
-    expect(kill).toHaveBeenCalledWith(-123456, "SIGKILL");
+    expect(kill).not.toHaveBeenCalled();
+    expect(hold?.destroyed).toBe(true);
     if (!path) throw new Error("Missing fixture script");
     await expect(access(dirname(path))).rejects.toThrow();
     expect(process.listeners(signal)).toEqual(before);
@@ -257,77 +262,28 @@ test("signal exits preserve status even when the helper was not interrupted", as
   expect(await runVendorScript(script, "/fixture/home", {})).toBe(143);
 });
 
-test.skipIf(platform === "win32").each(["ESRCH", "EPERM"])(
-  "group termination handles %s without leaking its download",
-  async (code) => {
+test.skipIf(platform === "win32")(
+  "supervisor exit closes the lifetime pipe before waiting for the watcher",
+  async () => {
     vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockResolvedValue(new Response("fixture script")));
-    const before = process.listeners("SIGINT");
-    vi.spyOn(process, "kill").mockImplementation(() => {
-      throw Object.assign(new Error("fixture process state"), { code });
-    });
-    const fallback = vi.fn();
+    const kill = vi.spyOn(process, "kill").mockReturnValue(true);
     let path: string | undefined;
     mocks.spawn.mockImplementation((_command: string, args: readonly string[]) => {
-      path = args[process.platform === "win32" ? 0 : 4];
-      const child = Object.assign(fixtureChild(), { pid: 123456, kill: fallback });
+      path = args[4];
+      const child = Object.assign(fixtureChild(), { pid: 123456 });
+      const hold = child.stdio[4];
+      hold?.once("close", () => child.emit("close", null, "SIGKILL"));
       queueMicrotask(() => {
-        const interrupt = process
-          .listeners("SIGINT")
-          .find((listener) => !before.includes(listener));
-        if (!interrupt) throw new Error("Missing recipe handler");
-        interrupt("SIGINT");
-        child.emit("close", null, "SIGINT");
+        child.emit("exit", null, "SIGKILL");
+        expect(hold?.destroyed).toBe(true);
+        expect(path && existsSync(path)).toBe(true);
       });
       return child;
     });
-    expect(await runVendorScript(script, "/fixture/home", {})).toBe(130);
-    expect(fallback.mock.calls.length > 0).toBe(code === "EPERM");
+    expect(await runVendorScript(script, "/fixture/home", {})).toBe(1);
+    expect(kill).not.toHaveBeenCalled();
     if (!path) throw new Error("Missing script");
     await expect(access(dirname(path))).rejects.toThrow();
-  },
-);
-
-test.skipIf(platform === "win32")(
-  "an installer that ignores graceful signals is killed as a group before cleanup",
-  async () => {
-    vi.useFakeTimers();
-    try {
-      vi.stubGlobal(
-        "fetch",
-        vi.fn<typeof fetch>().mockResolvedValue(new Response("fixture script")),
-      );
-      const before = process.listeners("SIGTERM");
-      let ready: (() => void) | undefined;
-      const started = new Promise<void>((resolve) => {
-        ready = resolve;
-      });
-      let path: string | undefined;
-      mocks.spawn.mockImplementation((_command: string, args: readonly string[]) => {
-        path = args[process.platform === "win32" ? 0 : 4];
-        const child = Object.assign(fixtureChild(), { pid: 123456 });
-        vi.spyOn(process, "kill").mockImplementation((_pid, signal) => {
-          if (signal === "SIGKILL") child.emit("close", null, "SIGKILL");
-          return true;
-        });
-        queueMicrotask(() => {
-          const interrupt = process
-            .listeners("SIGTERM")
-            .find((listener) => !before.includes(listener));
-          if (!interrupt) throw new Error("Missing recipe handler");
-          interrupt("SIGTERM");
-          ready?.();
-        });
-        return child;
-      });
-      const result = runVendorScript(script, "/fixture/home", {});
-      await started;
-      await vi.advanceTimersByTimeAsync(250);
-      expect(await result).toBe(143);
-      if (!path) throw new Error("Missing script");
-      await expect(access(dirname(path))).rejects.toThrow();
-    } finally {
-      vi.useRealTimers();
-    }
   },
 );
 
@@ -383,33 +339,29 @@ test("an interruption during private-file cleanup still returns the signal statu
 });
 
 test.skipIf(platform === "win32").each([0, 7])(
-  "interpreter exit %s kills the still-live supervisor exactly once before private-file cleanup",
+  "interpreter exit %s closes the lifetime pipe exactly once without signaling a numeric group",
   async (code) => {
     vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockResolvedValue(new Response("fixture script")));
-    let path: string | undefined;
-    let leaderAlive = true;
-    const aliveAtKill: boolean[] = [];
-    const kill = vi.spyOn(process, "kill").mockImplementation(() => {
-      aliveAtKill.push(leaderAlive);
-      if (!path) throw new Error("Missing fixture script");
-      expect(existsSync(path)).toBe(true);
-      return true;
-    });
-    mocks.spawn.mockImplementation((_command: string, args: readonly string[]) => {
-      path = args[0] === "-c" ? args[4] : args[0];
-      const child = Object.assign(fixtureChild(), { pid: 123456, kill: vi.fn() });
+    const kill = vi.spyOn(process, "kill").mockReturnValue(true);
+    let closeCount = 0;
+    mocks.spawn.mockImplementation(() => {
+      const child = Object.assign(fixtureChild(), { pid: 123456 });
+      const hold = child.stdio[4];
+      if (!hold) throw new Error("Missing lifetime pipe");
+      vi.spyOn(hold, "destroy").mockImplementation(() => {
+        closeCount++;
+        return hold;
+      });
       queueMicrotask(() => {
         child.stdio[3]?.emit("data", Buffer.from(`${String(code)}\n`));
-        leaderAlive = false;
-        child.emit("close", code, null);
+        child.emit("exit", null, "SIGKILL");
+        child.emit("close", null, "SIGKILL");
       });
       return child;
     });
     expect(await runVendorScript(script, "/fixture/home", {})).toBe(code);
-    expect(kill).toHaveBeenCalledExactlyOnceWith(-123456, "SIGKILL");
-    expect(aliveAtKill).toEqual([true]);
-    if (!path) throw new Error("Missing fixture script");
-    await expect(access(dirname(path))).rejects.toThrow();
+    expect(closeCount).toBe(1);
+    expect(kill).not.toHaveBeenCalled();
   },
 );
 
@@ -433,7 +385,7 @@ test.skipIf(platform === "win32").each([
       return child;
     });
     expect(await runVendorScript(script, "/fixture/home", {})).toBe(expected);
-    expect(kill).toHaveBeenCalledExactlyOnceWith(-123456, "SIGKILL");
+    expect(kill).not.toHaveBeenCalled();
   },
 );
 

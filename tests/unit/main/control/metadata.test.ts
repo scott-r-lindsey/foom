@@ -351,3 +351,44 @@ it("host filters and metadata keep identical remote paths distinct and attach fl
   expect(hosts).not.toHaveBeenCalled();
   service.close();
 });
+
+it("closing inventory remains truthful and changes revision through cleanup failure", () => {
+  const rows: WorkspaceTerminal[] = [
+    {
+      id: "child",
+      kind: "agent",
+      agent: "claude",
+      repository: "/repo",
+      worktree: "/tree",
+      branch: "feature",
+      attention: "evaluator",
+      state: null,
+      exited: true,
+      closeState: "closing",
+    },
+  ];
+  const service = new ControlService(
+    new Operations(
+      () => Promise.resolve(),
+      () => undefined,
+    ),
+    () => rows,
+  );
+  const grant = service.prepare("/repo", "/tree");
+  grant.bind("parent");
+  const actor = service.authenticate(grant.env["FOOM_CONTROL_TOKEN"] ?? "");
+  const call = () =>
+    service.dispatch(actor, {
+      version: 1,
+      instanceId: service.instanceId,
+      method: "session_state",
+      params: { id: "child" },
+    });
+  const before = call();
+  expect(before).toMatchObject({ id: "child", state: "exited", closeState: "closing" });
+  const row = rows[0];
+  if (!row) throw new Error("Missing child");
+  row.closeState = "failed";
+  expect(call()).toMatchObject({ closeState: "failed" });
+  expect(call()).not.toEqual(before);
+});

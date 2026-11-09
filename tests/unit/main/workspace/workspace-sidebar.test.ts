@@ -836,3 +836,36 @@ test("startup sharing holds the detached checkout reservation without blocking a
     "second-agent",
   ]);
 });
+
+test("sidebar tracks retained detached review source branches and offers closed PR cleanup", async () => {
+  const { ForgeTracking } = await import("../../../../src/main/control/forge-tracking");
+  const directory = deps.agentPluginDirectory;
+  if (!directory) throw new Error("Missing fixture");
+  const forge = new ForgeTracking(
+    directory,
+    () => Promise.resolve(undefined),
+    () => {},
+  );
+  deps.forge = forge;
+  forge.setEnabled(true);
+  const sync = vi.spyOn(forge, "sync").mockImplementation(() => {});
+  const read = vi
+    .spyOn(forge, "readBoard")
+    .mockReturnValue({ number: 1115, state: "CLOSED", checks: null });
+  const detached = { ...tree, branch: null };
+  vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([detached]);
+  vi.mocked(deps.worktrees.reviewBranch).mockReturnValue("source-pr");
+  vi.mocked(deps.worktrees.reviewIdentity).mockReturnValue("identity");
+  deps.dialog = vi.fn(() => Promise.resolve(false));
+  const workspace = new Workspace(deps);
+  await workspace.sidebarInventory();
+  await vi.waitFor(() => {
+    expect(deps.dialog).toHaveBeenCalledOnce();
+  });
+  expect(sync).toHaveBeenCalledWith(repo.path, [
+    { repository: repo.path, path: tree.path, identity: "identity", branch: "source-pr" },
+  ]);
+  expect(read).toHaveBeenCalledWith(repo.path, tree.path);
+  expect(deps.worktrees.removeWorktree).not.toHaveBeenCalled();
+  await workspace.dispose();
+});

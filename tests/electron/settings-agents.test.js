@@ -538,7 +538,7 @@ test("local and registered-host vendor helpers clean private files and descendan
   );
   const bootstrap = path.join(root, "helper.cjs");
   const quote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
-  const body = `#!/bin/sh\ntrap '' HUP INT TERM\necho FIXTURE_SCRIPT:$0\n${quote(process.execPath)} ${quote(descendant)} &\nread answer\nprintf 'FIXTURE_INPUT:%s\\n' "$answer"\n`;
+  const body = `#!/bin/sh\ntrap '' HUP INT TERM\necho FIXTURE_SCRIPT:$0\necho FIXTURE_GROUP:$PPID\necho FIXTURE_INTERPRETER:$$\n${quote(process.execPath)} ${quote(descendant)} &\nread answer\nprintf 'FIXTURE_INPUT:%s\\n' "$answer"\n`;
   await writeFile(
     bootstrap,
     `
@@ -546,13 +546,10 @@ const {createRequire}=require('node:module');
 const load=createRequire(${JSON.stringify(path.resolve("build/main/main.js"))});
 const originalKill=process.kill.bind(process);
 process.kill=(pid,signal)=>{
- if(pid<0 && signal==='SIGKILL') {
-  const state=require('node:child_process').execFileSync('/bin/ps',['-o','stat=','-p',String(-pid)],{encoding:'utf8'}).trim();
-  console.log('ANCHOR_KILL:'+state);
- }
+ if(pid<0) throw Error('Helper must not signal numeric process groups');
  return originalKill(pid,signal);
 };
-const bodies=${JSON.stringify({ hangup: `${body}wait\n`, 0: `${body}exit 0\n`, 7: `${body}exit 7\n` })};
+const bodies=${JSON.stringify({ hangup: `${body}wait\n`, 0: `${body}exit 0\n`, watcher: `${body}exit 0\n`, 7: `${body}exit 7\n` })};
 globalThis.fetch=async()=>new Response(bodies[process.argv[3]]);
 (async()=>{
  if(process.argv[2]==='local') return load('../node-common/local-agent-install.js').installLocalAgent('claude');
@@ -578,6 +575,8 @@ globalThis.fetch=async()=>new Response(bodies[process.argv[3]]);
     ["host", 0],
     ["local", 7],
     ["host", 7],
+    ["local", "watcher"],
+    ["host", "watcher"],
   ]) {
     const result = await app.evaluate(
       async (_electron, fixture) => {
@@ -609,6 +608,23 @@ globalThis.fetch=async()=>new Response(bodies[process.argv[3]]);
             output += data;
             if (!replied && /DESCENDANT_READY:\d+\r?\n/u.test(output)) {
               replied = true;
+              if (fixture.completion === "watcher") {
+                const group = Number(/FIXTURE_GROUP:(\d+)/u.exec(output)?.[1]);
+                const interpreter = Number(/FIXTURE_INTERPRETER:(\d+)/u.exec(output)?.[1]);
+                const descendant = Number(/DESCENDANT_READY:(\d+)/u.exec(output)?.[1]);
+                const watchers = execFileSync("/bin/ps", ["-axo", "pid=,pgid="], {
+                  encoding: "utf8",
+                })
+                  .trim()
+                  .split("\n")
+                  .map((line) => line.trim().split(/\s+/u).map(Number))
+                  .filter(
+                    ([pid, pgid]) =>
+                      pgid === group && ![group, interpreter, descendant].includes(pid),
+                  );
+                if (watchers.length !== 1) throw Error("Missing fixture watcher");
+                process.kill(watchers[0][0], "SIGKILL");
+              }
               pty.write("fixture-input\r");
             }
             if (
@@ -650,19 +666,16 @@ globalThis.fetch=async()=>new Response(bodies[process.argv[3]]);
           exit,
           directoryExists,
           descendantState,
-          anchors: [...output.matchAll(/ANCHOR_KILL:([^\r\n]+)/gu)].map((match) => match[1]),
         };
       },
       { modulePath: path.resolve("build/main/main.js"), root, bootstrap, shell, mode, completion },
     );
     assert.equal(
       result.exit.exitCode,
-      completion === "hangup" ? 129 : completion,
+      completion === "hangup" ? 129 : completion === "watcher" ? 0 : completion,
       `${mode}:${completion}`,
     );
     assert.equal(result.directoryExists, false, mode);
-    assert.equal(result.anchors.length, 1, `${mode}:${completion}: one final group kill`);
-    assert.ok(!result.anchors[0].startsWith("Z"), `${mode}:${completion}: leader alive at kill`);
     assert.ok(
       !result.descendantState || result.descendantState.startsWith("Z"),
       `${mode}: ${result.descendantState}`,
@@ -670,3 +683,134 @@ globalThis.fetch=async()=>new Response(bodies[process.argv[3]]);
   }
   assert.equal((await page.evaluate(() => window.desktop.workspace())).terminals.length, 0);
 });
+
+for (const victim of ["supervisor", "helper"]) {
+  test(`local and registered-host installers stop their whole group after ${victim} SIGKILL`, {
+    timeout: deadline(60000),
+    skip: process.platform === "win32",
+  }, async (context) => {
+    const { writeFile, rm } = require("node:fs/promises");
+    const root = await mkdtemp(path.join(tmpdir(), "foom-installer-loss-"));
+    removeAfterApps(context, root);
+    const shell = path.join(root, "fixture-login-shell");
+    await writeFile(shell, `#!/bin/sh\nprintf '\\000FOOM_PATH\\000%s\\000' '${root}'\n`, {
+      mode: 0o755,
+    });
+    const bootstrap = path.join(root, "helper.cjs");
+    const body = `#!/bin/sh
+trap '' HUP INT TERM
+if ( : <&4 ) 2>/dev/null; then exit 99; fi
+if ( : >&3 ) 2>/dev/null; then exit 98; fi
+echo FIXTURE_SCRIPT:$0
+echo FIXTURE_GROUP:$PPID
+echo FIXTURE_INTERPRETER:$$
+/bin/sleep 300 &
+echo FIXTURE_SLEEP:$!
+wait
+`;
+    await writeFile(
+      bootstrap,
+      `
+const {createRequire}=require('node:module');
+const load=createRequire(${JSON.stringify(path.resolve("build/main/main.js"))});
+globalThis.fetch=async()=>new Response(${JSON.stringify(body)});
+(async()=>{
+ if(process.argv[2]==='local') return load('../node-common/local-agent-install.js').installLocalAgent('claude');
+ const {hostLoginEnvironment}=load('../terminal-host/remote/agent-discovery.js');
+ const {requirements}=load('../terminal-host/remote/host-facts.js');
+ const {bundledAgentData}=load('../shared/bundled-agent-data.js');
+ const {selectHostRecipe}=load('../shared/registered-host-recipes.js');
+ const env=await hostLoginEnvironment(process.env.SHELL,${JSON.stringify(root)},undefined,true);
+ const facts=await requirements(process.platform,${JSON.stringify(root)},${JSON.stringify(root)},env);
+ const recipe=selectHostRecipe({tool:'claude',action:'install',distro:facts.distro},facts,bundledAgentData.find(a=>a.id==='claude').hostSetup);
+ const digest=require('node:crypto').createHash('sha256').update(JSON.stringify(recipe.steps)).digest('hex');
+ return load('../terminal-host/remote/host-recipe.js').runHostRecipe(['claude','install',facts.distro,digest],${JSON.stringify(root)});
+})().then(code=>process.exit(code),error=>{console.error(error);process.exit(1)});
+`,
+    );
+    const app = await launchApp(context, { fixture: "empty-board" });
+    for (const mode of ["local", "host"]) {
+      const result = await app.evaluate(
+        async (_electron, fixture) => {
+          const { spawn } = process.getBuiltinModule("node:child_process");
+          const helper = spawn(process.execPath, [fixture.bootstrap, fixture.mode], {
+            cwd: fixture.root,
+            env: {
+              HOME: fixture.root,
+              TMPDIR: fixture.root,
+              PATH: fixture.root,
+              SHELL: fixture.shell,
+              FOOM_SETTINGS_INSTALL: "1",
+              ELECTRON_RUN_AS_NODE: "1",
+            },
+            stdio: ["ignore", "pipe", "pipe"],
+          });
+          let output = "";
+          let killed = false;
+          helper.stdout.on("data", (data) => {
+            output += data.toString();
+            const group = /FIXTURE_GROUP:(\d+)/u.exec(output)?.[1];
+            if (!killed && group && /FIXTURE_SLEEP:\d+\n/u.test(output)) {
+              killed = true;
+              process.kill(fixture.victim === "helper" ? helper.pid : Number(group), "SIGKILL");
+            }
+          });
+          const exit = await new Promise((resolve) =>
+            helper.once("exit", (code, signal) => resolve({ code, signal })),
+          );
+          helper.stdout.destroy();
+          helper.stderr.destroy();
+          const group = Number(/FIXTURE_GROUP:(\d+)/u.exec(output)?.[1]);
+          const script = /FIXTURE_SCRIPT:([^\r\n]+)/u.exec(output)?.[1];
+          if (!group || !script) throw Error(`Fixture failed before kill: ${output}`);
+          return { group, script, exit };
+        },
+        { root, shell, bootstrap, mode, victim },
+      );
+      try {
+        await expect
+          .poll(() =>
+            app.evaluate((group) => {
+              const { execFileSync } = process.getBuiltinModule("node:child_process");
+              return execFileSync("/bin/ps", ["-axo", "pid=,pgid=,stat="], { encoding: "utf8" })
+                .trim()
+                .split("\n")
+                .map((line) => line.trim().split(/\s+/u))
+                .filter((row) => Number(row[1]) === group && !row[2].startsWith("Z"));
+            }, result.group),
+          )
+          .toEqual([]);
+        const directory = path.dirname(result.script);
+        const present = await require("node:fs/promises")
+          .access(directory)
+          .then(
+            () => true,
+            () => false,
+          );
+        assert.equal(present, victim === "helper", `${mode}:${victim}: temp cleanup`);
+        if (victim === "helper") assert.equal(result.exit.signal, "SIGKILL");
+        else assert.equal(result.exit.code, 1);
+      } finally {
+        // Preserve failures, but never leak the intentionally hung fixture on regression.
+        await app.evaluate((group) => {
+          const { execFileSync } = process.getBuiltinModule("node:child_process");
+          for (const line of execFileSync("/bin/ps", ["-axo", "pid=,pgid=,stat="], {
+            encoding: "utf8",
+          })
+            .trim()
+            .split("\n")) {
+            const [pid, pgid, state] = line.trim().split(/\s+/u);
+            if (Number(pgid) === group && !state.startsWith("Z")) {
+              try {
+                process.kill(Number(pid), "SIGKILL");
+              } catch {
+                /* already exited */
+              }
+            }
+          }
+        }, result.group);
+        await rm(path.dirname(result.script), { recursive: true, force: true });
+      }
+    }
+  });
+}

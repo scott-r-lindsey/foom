@@ -1911,3 +1911,22 @@ test("headless snapshots consume OSC 52 and never retain writes or answer querie
   expect(replay.mock.calls[0]?.[1]).not.toContain("\x1b]52;");
   expect(mock.clipboard.writeText).not.toHaveBeenCalled();
 });
+
+test("closing sessions reject attachment and every input path until cleanup settles", async () => {
+  const id = await create();
+  await invoke("attach", [id]);
+  terminalControl.setClosing(id, true);
+  send("input", [id, "must not arrive"]);
+  expect(pty().write).not.toHaveBeenCalled();
+  await expect(invoke("attach", [id])).rejects.toThrow("closing");
+  await expect(invoke("kill", [id])).rejects.toThrow("closing");
+  await expect(terminalControl.reply(id, "reply")).rejects.toThrow("closing");
+  await expect(terminalControl.childInput(id, { kind: "keys", keys: ["enter"] })).rejects.toThrow(
+    "closing",
+  );
+  await invoke("detach", [id]);
+  terminalControl.setClosing(id, false);
+  await invoke("attach", [id]);
+  send("input", [id, "allowed"]);
+  expect(pty().write).toHaveBeenCalledWith("allowed");
+});

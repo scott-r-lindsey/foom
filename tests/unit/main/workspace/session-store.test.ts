@@ -423,3 +423,15 @@ test("retains the parent's distinct repository and checkout identities", () => {
     ])[0]?.orchestrator,
   ).toEqual({ identity: "root", worktreeIdentity: "linked", history: [] });
 });
+
+test.each(["closing", "failed"] as const)(
+  "persists %s cleanup and surfaces it after restart",
+  async (closeState) => {
+    const { store } = await setup();
+    const entry = readSessions([record])[0];
+    if (!entry) throw new Error("Missing session");
+    await store.save([{ ...entry, closeState }]);
+    expect((await store.load())[0]).toMatchObject({ closeState: "failed", dormant: true });
+    expect(() => readSessions([{ ...record, closeState: "done" }])).toThrow("Invalid session");
+  },
+);

@@ -1,4 +1,5 @@
-import { worktreeReservation } from "./worktree-reservations";
+import { checkoutBusy, worktreeReservation } from "./worktree-reservations";
+import type { CheckoutHold } from "./worktree-reservations";
 import { hostDisplayName } from "../../shared/registered-hosts";
 import type { RegisteredHost } from "../../shared/registered-hosts.d";
 import { locationId } from "../control/metadata";
@@ -117,7 +118,7 @@ export async function sidebarInventory(this: SidebarCommandsContext): Promise<Si
             worktrees
               .filter(
                 (tree) =>
-                  tree.branch &&
+                  (tree.branch || this.deps.worktrees.reviewBranch(repository.path, tree.path)) &&
                   !tree.bare &&
                   !tree.prunable &&
                   !tree.path.startsWith("/foom-remote/"),
@@ -126,12 +127,14 @@ export async function sidebarInventory(this: SidebarCommandsContext): Promise<Si
                 const identity = await this.deps.worktrees
                   .launchIdentity(repository.path, tree.path)
                   .catch(() => undefined);
-                return identity && tree.branch
+                const branch =
+                  this.deps.worktrees.reviewBranch(repository.path, tree.path) ?? tree.branch;
+                return identity && branch
                   ? {
                       repository: repository.path,
                       path: tree.path,
                       identity,
-                      branch: tree.branch,
+                      branch,
                     }
                   : undefined;
               }),
@@ -141,6 +144,15 @@ export async function sidebarInventory(this: SidebarCommandsContext): Promise<Si
             tracked.filter((tree) => tree !== undefined),
           );
         }
+        const forge = this.deps.forge;
+        const dialog = this.deps.dialog;
+        if (forge && dialog)
+          this.cleanup.offerClosedReviews(
+            repository.path,
+            worktrees,
+            (path) => forge.readBoard(repository.path, path),
+            dialog,
+          );
         const { removedWorktrees, ...eligibility } = this.cleanup.inventory(
           repository.path,
           worktrees,
@@ -184,12 +196,17 @@ export async function sidebarCommand(
   startup?: SidebarStartup,
   heldReservation?: string,
   onCloseReview?: (pending: boolean) => Promise<void>,
+  heldCheckout?: CheckoutHold,
 ): Promise<SidebarCommandResult> {
   validateClose?.();
   if (this.closed) throw new Error("Workspace is closed");
+  if ("id" in command && this.launched.get(command.id)?.closeState === "closing")
+    throw new ApplicationError("session-busy");
+
   if (startup) {
     const begin = async () => {
       let reservation: string | undefined;
+      let pathHold: CheckoutHold | undefined;
       try {
         startup.signal.throwIfAborted();
         let sharedAcknowledged = false;
@@ -226,7 +243,13 @@ export async function sidebarCommand(
               if (!tree) throw new Error("Worktree was removed. Choose another checkout.");
               key = worktreeReservation(command.repository, worktree, tree.branch);
             }
-            if (this.busyWorktrees.has(key)) throw new Error("This worktree is busy");
+            if (
+              this.busyWorktrees.has(key) ||
+              checkoutBusy(this.checkoutHolds, this.launched.values(), key, worktree)
+            )
+              throw new Error("This worktree is busy");
+            pathHold = this.checkoutHolds.acquire(worktree);
+            if (!pathHold) throw new Error("This worktree is busy");
             this.busyWorktrees.add(key);
             reservation = key;
           }
@@ -257,9 +280,11 @@ export async function sidebarCommand(
           undefined,
           reservation,
           onCloseReview,
+          pathHold,
         );
       } finally {
         if (reservation !== undefined) this.busyWorktrees.delete(reservation);
+        pathHold?.release();
       }
     };
     return "repository" in command ? this.withRepository(command.repository, begin) : begin();
@@ -296,6 +321,7 @@ export async function sidebarCommand(
         validateClose,
         closeSignal,
         heldReservation,
+        heldCheckout,
       );
       return id ? { terminalId: id } : undefined;
     }
@@ -310,6 +336,7 @@ export async function sidebarCommand(
       validateClose,
       closeSignal,
       heldReservation,
+      heldCheckout,
     );
     return id ? { terminalId: id } : undefined;
   }
@@ -324,6 +351,7 @@ export async function sidebarCommand(
       validateClose,
       closeSignal,
       heldReservation,
+      heldCheckout,
     );
     return id ? { terminalId: id } : undefined;
   }
@@ -598,47 +626,77 @@ export async function sidebarCommand(
         this.deps.worktrees.listRepositories().some((repo) => repo.path === entry.repository))
         ? this.deps.worktrees.reviewIdentity(entry.repository, entry.worktree)
         : undefined;
-    if (entry && identity !== undefined) {
-      await this.cleanup.removeOwnedTree(
-        entry.repository,
-        entry.worktree,
-        identity,
-        async (branch, changes, automatic) =>
-          automatic === true ||
-          (await this.deps.dialog?.(
-            {
-              title: "Remove review worktree?",
-              accept: changes ? "Discard changes and remove" : "Remove worktree",
-              removal: {
-                group: `review-close-${command.id}`,
-                item: { id: command.id, branch, path: entry.worktree, changes },
-              },
-            },
-            closeSignal ?? new AbortController().signal,
-          )) === true,
-        () => {
-          validateClose?.();
-          if (this.closed || this.launched.get(command.id) !== entry)
-            throw new Error("Session changed");
-        },
-        command.id,
-        onCloseReview,
-      );
-      return;
+    if (command.kind === "close" && entry) {
+      if (!entry.home && !entry.config && this.checkoutHolds.busy(entry.worktree, heldCheckout))
+        throw new ApplicationError("session-busy");
+      const key = worktreeReservation(entry.repository, entry.worktree, entry.branch);
+      if (
+        [
+          key,
+          `${entry.repository}\0:remote:${entry.worktree}`,
+          `${entry.repository}\0${entry.worktree}`,
+          `remote-main\0${entry.worktree}`,
+        ].some((key) => key !== heldReservation && this.busyWorktrees.has(key))
+      )
+        throw new ApplicationError("session-busy");
+      if (
+        identity !== undefined &&
+        this.snapshot().terminals.some((row) => row.worktree === entry.worktree && !row.exited)
+      )
+        throw new ApplicationError("session-running");
     }
-    if (entry?.remote) {
-      const host = entry.placement?.kind === "remote" ? entry.placement.host : undefined;
-      if (!host) throw new Error("Remote host placement is unavailable");
-      try {
-        await this.deps.terminals.kill(command.id, host);
-      } catch {
-        entry.remoteCleanup = "unreachable";
-        this.refresh();
-        console.error("Remote child close failed: remote_host_unreachable");
-        throw new LaunchFailure("remote_host_unreachable");
+    const cleanup = async (hold?: CheckoutHold) => {
+      validateClose?.();
+      if (
+        command.kind === "close" &&
+        (this.closed || (entry && this.launched.get(command.id) !== entry))
+      )
+        throw new Error("Session changed");
+      if (entry && identity !== undefined) {
+        await this.cleanup.removeOwnedTree(
+          entry.repository,
+          entry.worktree,
+          identity,
+          async (branch, changes, automatic) =>
+            automatic === true ||
+            (await this.deps.dialog?.(
+              {
+                title: "Remove review worktree?",
+                accept: changes ? "Discard changes and remove" : "Remove worktree",
+                removal: {
+                  group: `review-close-${command.id}`,
+                  item: { id: command.id, branch, path: entry.worktree, changes },
+                },
+              },
+              closeSignal ?? new AbortController().signal,
+            )) === true,
+          () => {
+            validateClose?.();
+            if (this.closed || this.launched.get(command.id) !== entry)
+              throw new Error("Session changed");
+          },
+          command.id,
+          onCloseReview,
+          hold,
+        );
+        return;
       }
-    } else if (!entry?.dormant) await this.deps.terminals.kill(command.id);
-    this.removed(command.id);
+      if (entry?.remote) {
+        const host = entry.placement?.kind === "remote" ? entry.placement.host : undefined;
+        if (!host) throw new Error("Remote host placement is unavailable");
+        try {
+          await this.deps.terminals.kill(command.id, host);
+        } catch {
+          entry.remoteCleanup = "unreachable";
+          this.refresh();
+          console.error("Remote child close failed: remote_host_unreachable");
+          throw new LaunchFailure("remote_host_unreachable");
+        }
+      } else if (!entry?.dormant) await this.deps.terminals.kill(command.id);
+      this.removed(command.id);
+    };
+    if (command.kind === "close" && entry) await this.closeSession(entry, cleanup, heldCheckout);
+    else await cleanup();
     return;
   }
   this.known(command.repository);
@@ -650,7 +708,13 @@ export async function sidebarCommand(
         (tree) => tree.path === command.worktree,
       );
       const key = worktreeReservation(command.repository, command.worktree, tree?.branch);
-      if (this.busyWorktrees.has(key)) throw new Error("This worktree is busy");
+      if (
+        this.busyWorktrees.has(key) ||
+        checkoutBusy(this.checkoutHolds, this.launched.values(), key, command.worktree)
+      )
+        throw new Error("This worktree is busy");
+      const hold = this.checkoutHolds.acquire(command.worktree);
+      if (!hold) throw new Error("This worktree is busy");
       this.busyWorktrees.add(key);
       try {
         if (command.kind === "cleanup-worktree")
@@ -659,6 +723,7 @@ export async function sidebarCommand(
         this.refresh();
       } finally {
         this.busyWorktrees.delete(key);
+        hold.release();
       }
     });
     return;
@@ -694,6 +759,7 @@ export async function sidebarCommand(
         validateClose,
         closeSignal,
         heldReservation,
+        heldCheckout,
       );
       return id ? { terminalId: id } : undefined;
     }
@@ -710,6 +776,7 @@ export async function sidebarCommand(
       validateClose,
       closeSignal,
       heldReservation,
+      heldCheckout,
     );
     return id ? { terminalId: id } : undefined;
   }
@@ -951,7 +1018,11 @@ export async function createWorktree(
 ): Promise<Worktree & { outcome: CreateOutcome }> {
   return this.withRepository(repository, async () => {
     const key = `${repository}\0${branch}`;
-    if (this.busyWorktrees.has(key)) throw new Error("This worktree is busy");
+    if (
+      this.busyWorktrees.has(key) ||
+      checkoutBusy(this.checkoutHolds, this.launched.values(), key, undefined)
+    )
+      throw new Error("This worktree is busy");
     this.busyWorktrees.add(key);
     try {
       if (host !== undefined) {
@@ -963,6 +1034,8 @@ export async function createWorktree(
           branch,
         });
         const path = `/foom-remote/${locationId(JSON.stringify([host, created.path]))}`;
+        if (checkoutBusy(this.checkoutHolds, this.launched.values(), key, path))
+          throw new Error("This worktree is busy");
         hosts.rememberPlacement?.(repository, path, host, {
           repository: created.repository,
           path: created.path,
@@ -1004,6 +1077,15 @@ export async function addWorktree(
     (tree) => tree.path === path,
   );
   if (!created) throw new Error("Created worktree is missing");
+  if (
+    checkoutBusy(
+      this.checkoutHolds,
+      this.launched.values(),
+      worktreeReservation(repository, path, created.branch),
+      path,
+    )
+  )
+    throw new Error("This worktree is busy");
   return { ...created, outcome };
 }
 

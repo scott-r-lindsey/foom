@@ -3,20 +3,21 @@ import { constants, tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 
-// Fixed supervisor source; vendor values are positional argv, never shell source.
-// Keep the group leader alive after reporting the interpreter status. Only the
-// helper's group kill (or loss of its hold pipe) releases this anchor.
-const installerSupervisor = `trap ':' HUP INT TERM QUIT PIPE
+// Fixed source only; vendor values are positional argv, never shell source.
+// The watcher reads the helper's lifetime pipe while the interpreter is running.
+// It kills its own group (0), so cleanup never addresses a possibly reused PGID.
+const installerSupervisor = `set +e
+trap ':' HUP INT TERM QUIT PIPE
+(
+  trap '' HUP INT TERM QUIT
+  IFS= read -r hold <&4
+  kill -KILL 0
+) &
+exec 4<&-
 "$@" 3>&- 4<&-
 result=$?
 printf '%s\\n' "$result" >&3
-while :; do
-  IFS= read -r hold <&4
-  result=$?
-  if [ "$result" -le 128 ]; then
-    kill -KILL -$$
-  fi
-done
+kill -KILL 0
 `;
 
 export interface VendorScript {
@@ -82,34 +83,22 @@ export async function runVendorScript(
   process.stdout.write(`Download ${script.url}\n`);
   const abort = new AbortController();
   let child: ChildProcess | undefined;
-  let childClosed = false;
-  let groupKilled = false;
+  let childExited = false;
+  let cleanupRequested = false;
   let interrupted: NodeJS.Signals | undefined;
-  let escalation: ReturnType<typeof setTimeout> | undefined;
-  const terminate = (signal: NodeJS.Signals) => {
-    if (!child?.pid || childClosed || groupKilled) return;
-    if (signal === "SIGKILL") groupKilled = true;
-    if (process.platform === "win32") child.kill(signal);
-    else {
-      try {
-        // The fixed supervisor anchors this group until the single final kill.
-        process.kill(-child.pid, signal);
-      } catch (error) {
-        if (!(error instanceof Error && "code" in error && error.code === "ESRCH"))
-          child.kill(signal);
-      }
+  const terminate = (signal: NodeJS.Signals = "SIGKILL") => {
+    if (!child) return;
+    if (process.platform === "win32") {
+      if (!childExited) child.kill(signal);
+    } else if (!cleanupRequested && child.stdio[4]) {
+      cleanupRequested = true;
+      child.stdio[4].destroy();
     }
   };
   const stop = (signal: NodeJS.Signals) => {
     interrupted ??= signal;
     abort.abort();
     terminate(signal);
-    if (childClosed) return;
-    // Finish before TerminalManager.stopSession's one-second helper kill fallback.
-    escalation ??= setTimeout(() => {
-      terminate("SIGKILL");
-    }, 250);
-    escalation.unref();
   };
   const signals: readonly NodeJS.Signals[] =
     process.platform === "win32"
@@ -167,7 +156,8 @@ export async function runVendorScript(
       let report = "";
       child.stdio[3]?.on("data", (bytes: Buffer) => {
         report += bytes.toString("ascii");
-        // Only the fixed supervisor owns this fd; descendants cannot inherit it.
+        // Only the supervisor writes this fd; the watcher holds it until cleanup.
+        // The interpreter and its descendants inherit neither private pipe.
         if (report.length > 4 || !/^\d{1,3}\n$/.test(report)) {
           if (report.length > 4 || report.includes("\n")) terminate("SIGKILL");
           return;
@@ -179,8 +169,14 @@ export async function runVendorScript(
       child.once("error", () => {
         failed = true;
       });
+      // close can wait for the watcher's inherited fd3. exit must release fd4
+      // immediately when the supervisor dies, even while the interpreter runs.
+      child.once("exit", () => {
+        childExited = true;
+        terminate();
+      });
       child.once("close", (code, signal: NodeJS.Signals | null) => {
-        childClosed = true;
+        childExited = true;
         resolve(
           interrupted
             ? status()
@@ -196,13 +192,12 @@ export async function runVendorScript(
     if (!interrupted) process.stderr.write("Installer download or execution failed\n");
   } finally {
     try {
-      // Never signal a reaped group or repeat a kill: its numeric ID may be reused.
+      // Closing the lifetime pipe is safe even after the supervisor has been reaped.
       terminate("SIGKILL");
     } finally {
       try {
         if (directory) await rm(directory, { recursive: true, force: true });
       } finally {
-        clearTimeout(escalation);
         for (const { signal, handler } of handlers) process.removeListener(signal, handler);
       }
     }

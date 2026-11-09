@@ -49,6 +49,7 @@ export class Workspace {
       undefined,
       undefined,
       undefined,
+      undefined,
       { command: join(directory, "foom"), args: ["--install-agent", id] },
     );
   }

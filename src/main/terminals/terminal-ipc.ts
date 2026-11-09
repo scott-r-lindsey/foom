@@ -35,6 +35,7 @@ export interface TerminalControl
   /** Main-only launch: the window may use the new terminal like one it created. */
   create(spec: TerminalSpec): Promise<string>;
   kill(id: string, remoteHost?: string): Promise<void>;
+  setClosing(id: string, closing: boolean): void;
   tail(id: string, lines: number): Promise<string[]>;
   screen(id: string): Promise<{ lines: string[]; title: string; cols?: number; rows?: number }>;
   owns(id: string): boolean;
@@ -103,6 +104,7 @@ export function attachTerminal(
   };
   // Capture before BrowserWindow is destroyed; its getter throws during closed.
   const owned = new Set<string>();
+  const closing = new Set<string>();
   const running = new Map<string, { id: string; command: string; cwd: string }>();
   const trusted = (event: IpcMainEvent | IpcMainInvokeEvent) =>
     windows.has(event.sender) &&
@@ -177,6 +179,7 @@ export function attachTerminal(
     handlers.set(`terminal:${operation}`, async (event, id) => {
       if (!trusted(event)) throw new Error("Untrusted IPC sender");
       if (!validId(id)) throw new Error("Unknown or foreign terminal ID");
+      if (operation !== "detach" && closing.has(id)) throw new Error("Session is closing");
       if (operation === "attach") {
         if (!allowView(event.sender, id))
           throw new Error("Terminal view belongs to another window");
@@ -350,6 +353,7 @@ export function attachTerminal(
     if (
       trusted(event) &&
       validId(id) &&
+      !closing.has(id) &&
       (!attached.has(id) || attached.get(id) === event.sender) &&
       typeof data === "string" &&
       data.length <= 65536
@@ -523,6 +527,12 @@ export function attachTerminal(
       broadcast("terminal:availability", [id], true, true);
       return id;
     },
+    setClosing(id: string, value: boolean) {
+      if (value) {
+        closing.add(id);
+        invalidatePaste(id);
+      } else closing.delete(id);
+    },
     async kill(id: string, remoteHost?: string) {
       if (remoteHost === undefined) await manager.kill(id);
       else if (remoteProfile) await manager.kill(id, remoteHost, remoteProfile);
@@ -545,10 +555,12 @@ export function attachTerminal(
     },
     reply: async (id: string, data: string) => {
       if (!owned.has(id)) throw new Error("Unknown terminal");
+      if (closing.has(id)) throw new Error("Session is closing");
       await manager.reply(id, data);
     },
     childInput: async (id: string, data: ChildInput) => {
       if (!owned.has(id)) throw new Error("Unknown terminal");
+      if (closing.has(id)) throw new Error("Session is closing");
       if (!isChildInput(data)) throw new Error("Invalid child input");
       await manager.childInput(id, data);
     },

@@ -99,7 +99,11 @@ the coordinator. `workspace-feature-wiring.ts` builds each feature's dependency
 slice and live views of coordinator-owned state; feature functions bind to these
 capabilities rather than the coordinator. `workspace-orchestration-host.ts` adapts the
 orchestration host, including PR adoption under the shared repository and branch
-reservations. The context still owns those reservations, terminal queues, launch
+reservations. Canonical checkout leases are shared by launch preparation, restart,
+Close and every removal route. Nested calls borrow a live main-only lease, so
+mutable branch metadata cannot make those operations overlap; see
+[checkout holds](worktrees.md#close-presentation-and-retained-cleanup-1048).
+The context still owns those reservations, terminal queues, launch
 cancellation, owner initialization and shutdown order behind the unchanged
 `workspace.ts` facade.
 

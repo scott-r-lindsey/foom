@@ -446,6 +446,7 @@ test("local Install requires a click, retains its terminal, and reloads only its
     close: () => Promise.resolve(),
     dispose: () => {},
   };
+  let terminalExit: { exited: boolean; code?: number } = { exited: false };
   const listeners = new Set<(exit: { exited: boolean; code?: number }) => void>();
   f.source.hostTerminal = {
     createView: () => ({
@@ -466,6 +467,7 @@ test("local Install requires a click, retains its terminal, and reloads only its
     }),
     observe: (_id, receive) => {
       listeners.add(receive);
+      receive(terminalExit);
       return () => {
         listeners.delete(receive);
       };
@@ -481,9 +483,10 @@ test("local Install requires a click, retains its terminal, and reloads only its
   expect(install).toHaveBeenLastCalledWith("claude");
   expect(button).toHaveProperty("disabled", true);
   act(() => {
-    for (const receive of listeners) receive({ exited: true, code: 7 });
+    terminalExit = { exited: true, code: 7 };
+    for (const receive of listeners) receive(terminalExit);
   });
-  expect(screen.getByText("Failed · exit code 7")).toBeTruthy();
+  expect(await screen.findByText("Failed · exit code 7")).toBeTruthy();
   expect(f.scan).toHaveBeenLastCalledWith(false);
   view.unmount();
   expect(listeners.size).toBe(0);

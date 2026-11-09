@@ -1,4 +1,5 @@
-import { worktreeReservation } from "./worktree-reservations";
+import type { CheckoutHold } from "./worktree-reservations";
+import { checkoutBusy, worktreeReservation } from "./worktree-reservations";
 import { HostAdmission } from "../../shared/host-pressure";
 import { localResources } from "../setup/local-host";
 import { canRestoreControl } from "./session-restore";
@@ -179,7 +180,11 @@ export async function createChildWorktree(
 ): Promise<{ path: string; branch: string; identity: string }> {
   return this.withRepository(repository, async () => {
     const key = `${repository}\0${branch}`;
-    if (this.busyWorktrees.has(key)) throw new Error("This worktree is busy");
+    if (
+      this.busyWorktrees.has(key) ||
+      checkoutBusy(this.checkoutHolds, this.launched.values(), key, undefined)
+    )
+      throw new Error("This worktree is busy");
     this.busyWorktrees.add(key);
     try {
       await this.deps.worktrees.validateBranch(repository, branch);
@@ -188,6 +193,8 @@ export async function createChildWorktree(
           location: this.location,
           newBranch: true,
         });
+        if (checkoutBusy(this.checkoutHolds, this.launched.values(), key, path))
+          throw new Error("This worktree is busy");
         const identity = await this.deps.worktrees.launchIdentity(repository, path);
         return { path, branch, identity };
       } catch (error) {
@@ -222,92 +229,104 @@ export async function launchChild(
     validate(): void;
   },
   remote?: AgentLaunch["remoteCheckout"],
+  parentHold?: CheckoutHold,
 ): Promise<string> {
   return this.withRepository(repository, async () => {
-    const tree = remote
-      ? { path: worktree, branch: remote.branch, bare: false, locked: false, prunable: false }
-      : (await this.worktrees(repository)).find((item) => item.path === worktree);
-    if (!tree || tree.bare || tree.locked || tree.prunable || tree.path === repository)
-      throw new Error("Worktree is unavailable");
-    const key = remote
-      ? `${repository}\0${worktree}`
-      : worktreeReservation(repository, worktree, tree.branch);
-    if (this.busyWorktrees.has(key)) throw new Error("This worktree is busy");
-    this.busyWorktrees.add(key);
+    const hold = this.checkoutHolds.acquire(worktree, parentHold);
+    if (!hold) throw new Error("This worktree is busy");
     try {
-      // Only the checkout the orchestrator created, never a replacement at the same path.
-      const identity =
-        remote?.identity ?? (await this.deps.worktrees.launchIdentity(repository, worktree));
-      if (identity !== created) throw new Error("Worktree has changed");
-      step?.validate();
-      const replacement = step?.resume;
-      const isRemote = remote || remoteAgentTarget(process.argv, worktree);
-      const admission = isRemote
-        ? undefined
-        : await localAdmission.reserve(
-            localResources,
-            () =>
-              [...this.launched.values()].filter(
-                (row) =>
-                  row.kind === "agent" &&
-                  !row.dormant &&
-                  !row.remote &&
-                  this.executionOwner.view(row.id).exitCode === undefined,
-              ).length,
-          );
-      if (admission) step?.pressure?.(admission.pressure);
+      const tree = remote
+        ? { path: worktree, branch: remote.branch, bare: false, locked: false, prunable: false }
+        : (await this.worktrees(repository)).find((item) => item.path === worktree);
+      if (!tree || tree.bare || tree.locked || tree.prunable || tree.path === repository)
+        throw new Error("Worktree is unavailable");
+      const key = remote
+        ? `${repository}\0${worktree}`
+        : worktreeReservation(repository, worktree, tree.branch);
+      if (
+        this.busyWorktrees.has(key) ||
+        checkoutBusy(this.checkoutHolds, this.launched.values(), key, worktree, hold)
+      )
+        throw new Error("This worktree is busy");
+      this.busyWorktrees.add(key);
       try {
-        if (replacement) {
-          const old = this.launched.get(replacement.id);
-          if (old?.remote && !remote && !remoteAgentTarget(process.argv, worktree))
-            throw new Error("Remote mapping is required to resume this child");
-          if (!old || this.executionOwner.view(old.id).exitCode === undefined)
-            throw new Error("Author is still running");
-          await this.queues.get(old.id);
-          if (!old.dormant) await this.deps.terminals.kill(old.id);
-          old.dormant = true;
-          this.executionOwner.reset(old.id);
-          this.deps.verdicts.forget(old.id);
+        // Only the checkout the orchestrator created, never a replacement at the same path.
+        const identity =
+          remote?.identity ?? (await this.deps.worktrees.launchIdentity(repository, worktree));
+        if (identity !== created) throw new Error("Worktree has changed");
+        step?.validate();
+        const replacement = step?.resume;
+        const isRemote = remote || remoteAgentTarget(process.argv, worktree);
+        const admission = isRemote
+          ? undefined
+          : await localAdmission.reserve(
+              localResources,
+              () =>
+                [...this.launched.values()].filter(
+                  (row) =>
+                    row.kind === "agent" &&
+                    !row.dormant &&
+                    !row.remote &&
+                    this.executionOwner.view(row.id).exitCode === undefined,
+                ).length,
+            );
+        if (admission) step?.pressure?.(admission.pressure);
+        try {
+          if (replacement) {
+            const old = this.launched.get(replacement.id);
+            if (old?.remote && !remote && !remoteAgentTarget(process.argv, worktree))
+              throw new Error("Remote mapping is required to resume this child");
+            if (!old || this.executionOwner.view(old.id).exitCode === undefined)
+              throw new Error("Author is still running");
+            await this.queues.get(old.id);
+            if (!old.dormant) await this.deps.terminals.kill(old.id);
+            old.dormant = true;
+            this.executionOwner.reset(old.id);
+            this.deps.verdicts.forget(old.id);
+          }
+          const launched = await this.launchAgent(
+            {
+              agent,
+              repository,
+              worktree,
+              cols: 80,
+              rows: 24,
+            },
+            false,
+            false,
+            identity,
+            replacement,
+            {
+              ...(step?.selection ? { selection: step.selection } : {}),
+              ...(step?.validateSnapshot ? { prepareSpawn: step.validateSnapshot } : {}),
+              ...(remote ? { remoteCheckout: remote } : {}),
+              pressure: step?.pressure ?? (() => {}),
+              control: { parentId },
+              prompt: prompt ?? "Await your assigned task.",
+              ...(step
+                ? {
+                    beforeSpawn: () => {
+                      step.validate();
+                    },
+                    ...(step.loop ? { loop: step.loop } : {}),
+                  }
+                : {}),
+            },
+            hold,
+          );
+          return launched.id;
+        } catch (error) {
+          if (replacement) this.executionOwner.markExited(replacement.id, -1);
+          this.refresh();
+          throw error;
+        } finally {
+          admission?.release();
         }
-        const launched = await this.launchAgent(
-          {
-            agent,
-            repository,
-            worktree,
-            cols: 80,
-            rows: 24,
-          },
-          false,
-          false,
-          identity,
-          replacement,
-          {
-            ...(step?.selection ? { selection: step.selection } : {}),
-            ...(step?.validateSnapshot ? { prepareSpawn: step.validateSnapshot } : {}),
-            ...(remote ? { remoteCheckout: remote } : {}),
-            pressure: step?.pressure ?? (() => {}),
-            control: { parentId },
-            prompt: prompt ?? "Await your assigned task.",
-            ...(step
-              ? {
-                  beforeSpawn: () => {
-                    step.validate();
-                  },
-                  ...(step.loop ? { loop: step.loop } : {}),
-                }
-              : {}),
-          },
-        );
-        return launched.id;
-      } catch (error) {
-        if (replacement) this.executionOwner.markExited(replacement.id, -1);
-        this.refresh();
-        throw error;
       } finally {
-        admission?.release();
+        this.busyWorktrees.delete(key);
       }
     } finally {
-      this.busyWorktrees.delete(key);
+      hold.release();
     }
   });
 }

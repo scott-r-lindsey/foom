@@ -327,3 +327,11 @@ in addition to per-parent capacity. A retryable `host_busy` preserves the unused
 checkout and starts no child. Review steps wait and retry every five seconds for
 five minutes before escalating; they revalidate ownership and review evidence on
 each attempt. Human launches bypass this policy. See [control pressure](../contracts/control-mutations.md#child-host-pressure-1046).
+
+## Background Close recovery (#1048)
+
+The finished-child closer starts no new attempt for sessions marked closing or failed
+cleanup, including restored interrupted closes. Its own in-flight close may still
+revalidate the closing record it retains. It must not consume another automatic
+close attempt or repeat deletion while the user reviews a retained failure row. Manual Close
+and the original removal authority checks still own explicit retries.

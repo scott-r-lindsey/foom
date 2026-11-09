@@ -35,6 +35,9 @@ export function workspaceFeatureWiring(owner: WorkspaceContext): {
       get agents() {
         return owner.agents;
       },
+      get checkoutHolds() {
+        return owner.checkoutHolds;
+      },
       get busyWorktrees() {
         return owner.busyWorktrees;
       },
@@ -211,6 +214,9 @@ export function workspaceFeatureWiring(owner: WorkspaceContext): {
       get busySessions() {
         return owner.busySessions;
       },
+      get checkoutHolds() {
+        return owner.checkoutHolds;
+      },
       get busyWorktrees() {
         return owner.busyWorktrees;
       },
@@ -297,6 +303,9 @@ export function workspaceFeatureWiring(owner: WorkspaceContext): {
           get reviewIdentity() {
             return owner.deps.worktrees.reviewIdentity.bind(owner.deps.worktrees);
           },
+          get reviewBranch() {
+            return owner.deps.worktrees.reviewBranch.bind(owner.deps.worktrees);
+          },
           get cleanupBrokenWorktree() {
             return owner.deps.worktrees.cleanupBrokenWorktree.bind(owner.deps.worktrees);
           },
@@ -336,6 +345,9 @@ export function workspaceFeatureWiring(owner: WorkspaceContext): {
       },
       get confirmAgentLaunch() {
         return owner.confirmAgentLaunch.bind(owner);
+      },
+      get closeSession() {
+        return owner.closeSession.bind(owner);
       },
     } satisfies SidebarCommandsContext,
     configLaunch: {
@@ -452,6 +464,9 @@ export function workspaceFeatureWiring(owner: WorkspaceContext): {
       get addWorktree() {
         return owner.addWorktree.bind(owner);
       },
+      get checkoutHolds() {
+        return owner.checkoutHolds;
+      },
       get busyWorktrees() {
         return owner.busyWorktrees;
       },
@@ -496,6 +511,9 @@ export function workspaceFeatureWiring(owner: WorkspaceContext): {
       },
       get auditHuman() {
         return owner.auditHuman.bind(owner);
+      },
+      get checkoutHolds() {
+        return owner.checkoutHolds;
       },
       get busyWorktrees() {
         return owner.busyWorktrees;
@@ -618,6 +636,9 @@ export function workspaceFeatureWiring(owner: WorkspaceContext): {
     orchestrationHost: {
       get launchAgent() {
         return owner.launchAgent.bind(owner);
+      },
+      get checkoutHolds() {
+        return owner.checkoutHolds;
       },
       get busyWorktrees() {
         return owner.busyWorktrees;

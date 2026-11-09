@@ -1,6 +1,6 @@
 import { expect, it, vi } from "vitest";
 import type { Worktree } from "../../../../src/shared/worktrees";
-import { unchangedReview } from "../../../../src/main/workspace/review-worktrees";
+import { unchangedReview, reviewExclusions } from "../../../../src/main/workspace/review-worktrees";
 import { git } from "../../../../src/main/workspace/worktree-operations";
 
 vi.mock("../../../../src/main/workspace/worktree-operations", async (original) => {
@@ -61,7 +61,7 @@ function fixture() {
           return Promise.reject(new Error("Unexpected Git proof command"));
       }
     });
-  const review = { head, branch: "feature", refs: facts.refs };
+  const review = { head, branch: "feature", refs: facts.refs, exclusions: "c".repeat(64) };
   const check = () => unchangedReview(source, "/repo", "/review", "identity", review);
   return { tree, source, facts, review, check };
 }
@@ -172,3 +172,49 @@ it.each([
   }
   expect(await f.check()).toBe(false);
 });
+
+it("ignores only ignored status entries at both proof reads", async () => {
+  const f = fixture();
+  f.source.cleanupStatus
+    .mockResolvedValueOnce("!! node_modules/\0")
+    .mockResolvedValue("!! build/\0!! .cache/\0");
+  expect(await f.check()).toBe(true);
+  f.source.cleanupStatus
+    .mockResolvedValueOnce("!! node_modules/\0")
+    .mockResolvedValue("!! build/\0?? review.png\0");
+  expect(await f.check()).toBe(false);
+});
+
+it.each([undefined, "invalid"])(
+  "refuses a missing or malformed exclusion baseline: %s",
+  async (value) => {
+    const f = fixture();
+    if (value === undefined) Reflect.deleteProperty(f.review, "exclusions");
+    else f.review.exclusions = value;
+    expect(await f.check()).toBe(false);
+  },
+);
+
+it.each([
+  "!! precious.txt\0",
+  "!! nested/build/\0",
+  "!! .husky/\0",
+  "!! build\0",
+  "!! build/../precious\0",
+  "!! build/.gitignore\0",
+  "!! build/.GITIGNORE\0",
+])("refuses ignored non-disposable status at either read: %j", async (status) => {
+  const f = fixture();
+  f.source.cleanupStatus.mockResolvedValue(status);
+  expect(await f.check()).toBe(false);
+  f.source.cleanupStatus.mockResolvedValueOnce("!! build/\0").mockResolvedValue(status);
+  expect(await f.check()).toBe(false);
+});
+
+it.each([new Error("Unavailable config"), null])(
+  "cannot capture exclusion authority after a configuration read error: %s",
+  async (error) => {
+    vi.mocked(git).mockReset().mockRejectedValueOnce(error);
+    await expect(reviewExclusions("/unused")).rejects.toBe(error);
+  },
+);

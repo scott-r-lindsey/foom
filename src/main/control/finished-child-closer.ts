@@ -58,7 +58,7 @@ export class FinishedChildCloser {
     if (actor.role === "orchestrator") this.automation.set(actor.terminalId, { actor, operations });
   }
 
-  private finishedChild(owned: AuthorizedChild, id: string): boolean {
+  private finishedChild(owned: AuthorizedChild, id: string, allowClosing = false): boolean {
     const row = this.host.terminals().find((entry) => entry.id === id);
     const review = row && this.reviewMetadata(row);
     const after = this.exitObservations.get(id);
@@ -67,6 +67,7 @@ export class FinishedChildCloser {
       owned.active() &&
       owned.exited() &&
       row?.exited === true &&
+      (row.closeState === undefined || (allowClosing && row.closeState === "closing")) &&
       row.kind === "agent" &&
       !this.host.starting?.(id) &&
       row.state?.state !== "needs_input" &&
@@ -147,7 +148,7 @@ export class FinishedChildCloser {
       const closed = await this.host.close(
         id,
         () => {
-          if (!owned.valid() || !this.finishedChild(owned, id))
+          if (!owned.valid() || !this.finishedChild(owned, id, true))
             throw new Error("Child close eligibility changed");
         },
         scope.signal,

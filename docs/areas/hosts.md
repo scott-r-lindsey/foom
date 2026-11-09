@@ -370,32 +370,49 @@ process from independently downloading or executing vendor code.
 The recipe process prints the fixed HTTPS address, downloads at most 2 MiB with
 a 60-second deadline into a private temporary directory (0700) and file (0600),
 then invokes `/bin/sh` or `/bin/bash` with that file and manifest arguments.
-A fixed `/bin/sh` supervisor anchors its own POSIX session/process group with
-inherited terminal stdin/stdout/stderr, so Foom can stop the group without killing the
-cleanup helper. Ordinary terminal input is covered by the PTY fixture. The new
-session has no controlling `/dev/tty`; whether any vendor installer depends on
-that device remains part of live qualification.
+A fixed `/bin/sh` supervisor starts an independent watcher in its own POSIX
+session/process group before running the interpreter. Terminal stdin/stdout/stderr
+are inherited; ordinary terminal input is covered by the PTY fixture. The new
+session has no controlling `/dev/tty`; vendor dependence on that device remains
+part of live qualification.
 Foom's downloader follows at most five redirects, checking HTTPS and refusing
 URL credentials at every hop. It needs no curl or system Node. The script itself
-may require curl/wget or other system tools for its later downloads. Failure
-stops the recipe; a package-manager command failure does not fall back silently.
-Foom does not support installers leaving background processes running. On every
-interpreter completion, success or failure, Foom sends SIGKILL to any remaining
-members of the installer process group before deleting the private files. The
-interpreter's exit status is preserved. The supervisor receives the interpreter,
-private script path and manifest arguments as positional argv, never generated
-shell source. It reports the interpreter status over a separate pipe, then blocks
-on a helper-owned hold pipe until the group is killed. The helper sends that final
-kill once while the leader is still alive and waits for its close before file
-cleanup; it never signals a reaped group whose numeric ID could be reused.
-The interpreter cannot inherit either private pipe. Loss of the hold pipe makes
-the supervisor kill its own group.
-The file and directory are removed on success, download/spawn/script failure and
-handled HUP, INT, TERM or QUIT interruption. On interruption the helper signals
-the interpreter process group, escalates to SIGKILL after 250 ms if needed
-(before the PTY owner's one-second forced helper shutdown), removes the private
-files and returns 128 plus the original signal number. An
-uncatchable SIGKILL or machine failure cannot guarantee cleanup.
+may require curl/wget or other tools for later downloads. Failure stops the
+recipe; a package-manager failure does not fall back silently.
+
+Foom does not support installers leaving background processes running. The
+watcher blocks on a helper-owned lifetime pipe (fd4) while the interpreter runs.
+On success, failure, interruption or unexpected supervisor exit, the helper closes
+that pipe. Helper death also closes it in the kernel. EOF makes the watcher issue
+`kill -KILL 0` from inside the installer's group: the watcher itself anchors the
+target, even when the supervisor has died. The helper never signals a numeric
+PGID that might have been reused. The supervisor and interpreter close fd4; no
+vendor descendant can inherit it and postpone EOF. The watcher ignores catchable
+HUP/INT/TERM/QUIT, and its identity is not passed to the interpreter. This is
+lifecycle cleanup, not containment of malicious same-user vendor code, which can
+already enumerate and kill arbitrary same-user processes or create other sessions.
+
+After reporting normal completion, the supervisor also issues `kill -KILL 0`
+itself. This independent fallback prevents a lost watcher from allowing workers
+to survive a completed install. Both cleanup signals originate from live members
+of their own group, never from a remembered numeric PGID.
+
+The supervisor receives interpreter, private script path and manifest arguments
+as positional argv, never generated shell source. It reports the interpreter's
+exit status over fd3; the interpreter cannot inherit that pipe. The watcher holds
+fd3 open without writing it, so the helper waits for watcher termination before
+removing private files. An unexpected supervisor `exit` releases fd4 immediately,
+rather than waiting for `close` (which may be waiting on that watcher). Normal
+interpreter status is preserved; handled HUP/INT/TERM/QUIT returns 128 plus the
+original signal number after closing the lifetime pipe and cleaning up.
+
+The private file and directory are removed after success, download/spawn/script
+failure, handled interruption and supervisor-only SIGKILL. If the helper itself
+receives uncatchable SIGKILL, the watcher still terminates the installer group,
+but the helper cannot run its file cleanup: the private temporary directory may
+remain. Machine failure or deliberately killing all cleanup processes likewise
+cannot guarantee cleanup. Fixtures cover both local and host paths, including
+supervisor/helper SIGKILL while the interpreter waits for `/bin/sleep`.
 
 The existing SHA-256 recipe-step digest binds the address, interpreter and
 arguments on hosts. The vendor's unversioned script content is **not** bound;

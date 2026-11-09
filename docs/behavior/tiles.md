@@ -282,3 +282,17 @@ available; control and bidi characters are refused. OSC 8 hyperlinks keep their 
 join soft wraps only; application-authored newlines remain separate. If excessive
 OSC metadata is omitted during replay, the text stays visible and selectable, but
 affected links are unavailable in that replay.
+
+## Closing sessions (#1048)
+
+Close first refuses running or busy sessions and parents with children, using only
+local state. Once accepted, its tile and sidebar session row disappear immediately,
+leaving the same empty space and focus behavior as an ordinary Close. Main keeps
+cleanup ownership while terminal teardown (including SSH) and any owned review
+worktree cleanup continue. A required worktree decision still opens the trusted
+dialog with the existing identity and changes checks. Declining keeps files and
+restores the session row. A cleanup failure restores the row with **Close failed ·
+cleanup may be incomplete** in the sidebar and session panel, and the usual action
+failure dialog. Closing sessions cannot receive input, restart, or close twice;
+launches in their checkout are refused until cleanup settles. An interrupted Close
+appears as a failed row after restart for inspection and another explicit attempt.
