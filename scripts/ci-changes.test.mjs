@@ -2,6 +2,155 @@ import { gitSync, gitEnvironment } from "../tests/helpers/git.js";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { desktopMatrix, detectDesktop, requiresDesktop } from "./ci-changes.mjs";
+import { packagingConfig, retryDownload } from "../.github/scripts/prepare-electron.mjs";
+
+test("Electron preparation retries only transient downloads, at most three times", async () => {
+  for (const error of [
+    Object.assign(new Error("HTTP 504"), { response: { status: 504 } }),
+    new Error("fetch failed", { cause: Object.assign(new Error("reset"), { code: "ECONNRESET" }) }),
+    Object.assign(new Error("timed out"), { name: "TimeoutError" }),
+  ]) {
+    let attempts = 0;
+    const delays = [];
+    const messages = [];
+    const download = () => {
+      attempts++;
+      throw error;
+    };
+    const options = {
+      sleep: async (delay) => delays.push(delay),
+      log: (line) => messages.push(line),
+    };
+    await assert.rejects(
+      retryDownload(download, options),
+      /Electron download failed on attempt 3\/3/,
+    );
+    assert.equal(attempts, 3);
+    assert.deepEqual(delays, [2000, 4000]);
+    assert.match(messages.join("\n"), /attempt 1\/3.*retrying in 2s/);
+    attempts = 0;
+    assert.equal(
+      await retryDownload(() => (++attempts === 1 ? download() : "cached"), options),
+      "cached",
+    );
+  }
+  for (const error of [
+    Object.assign(new Error("HTTP 404"), { response: { status: 404 } }),
+    Object.assign(new Error("HTTP 403"), { response: { status: 403 } }),
+    Object.assign(new Error("bad checksum"), { name: "ChecksumMismatchError" }),
+    Object.assign(new Error("disk full"), { code: "ENOSPC" }),
+    new Error("unknown failure"),
+  ]) {
+    let attempts = 0;
+    await assert.rejects(
+      retryDownload(() => {
+        attempts++;
+        if (attempts > 1) return "must not succeed";
+        throw error;
+      }),
+      /Electron download failed on attempt 1\/3/,
+    );
+    assert.equal(attempts, 1);
+  }
+});
+
+test("Electron and Forge validate fixture cache hits and reject corrupt downloads without network", async () => {
+  const { downloadArtifact } = await import("@electron/get");
+  const { createHash } = await import("node:crypto");
+  const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { runInNewContext } = await import("node:vm");
+  const { createRequire } = await import("node:module");
+  const require = createRequire(import.meta.url);
+  const directory = mkdtempSync(join(tmpdir(), "foom-electron-cache-"));
+  const bytes = Buffer.from("fixture ZIP bytes; never executed or extracted");
+  const version = require("electron/package.json").version;
+  const file = `electron-v${version}-${process.platform}-${process.arch}.zip`;
+  const checksums = { [file]: createHash("sha256").update(bytes).digest("hex") };
+  let downloads = 0;
+  let corrupt = false;
+  const options = {
+    version,
+    artifactName: "electron",
+    platform: process.platform,
+    arch: process.arch,
+    cacheRoot: directory,
+    checksums,
+    downloader: {
+      download: async (_url, destination) => {
+        downloads++;
+        writeFileSync(destination, corrupt ? "corrupt" : bytes);
+      },
+    },
+  };
+  try {
+    const cached = await downloadArtifact(options);
+    assert.equal(downloads, 1);
+    assert.equal(await downloadArtifact(options), cached);
+    assert.equal(downloads, 1, "valid cache hit must make no downloader request");
+    const original = { packagerConfig: { asar: true }, hooks: { prePackage: () => {} } };
+    const context = {
+      module: { exports: original },
+      process: { env: { electron_config_cache: directory } },
+      require: (name) => {
+        assert.equal(name, "electron/checksums.json");
+        return checksums;
+      },
+    };
+    runInNewContext(packagingConfig, context);
+    assert.equal(context.module.exports.hooks, original.hooks);
+    assert.equal(original.packagerConfig.asar, true);
+    assert.equal(
+      await downloadArtifact({ ...options, ...original.packagerConfig.download }),
+      cached,
+    );
+    assert.equal(downloads, 1, "Forge shares the verified ZIP without fetching remote checksums");
+    writeFileSync(cached, "corrupt cache entry");
+    // @electron/get verifies hits and replaces corrupt entries using a verified download.
+    assert.equal(await downloadArtifact(options), cached);
+    assert.equal(downloads, 2);
+    writeFileSync(cached, "corrupt cache entry");
+    corrupt = true;
+    let attempts = 0;
+    await assert.rejects(
+      retryDownload(() => {
+        attempts++;
+        return downloadArtifact(options);
+      }),
+      /Electron download failed on attempt 1\/3:.*checksum/i,
+    );
+    assert.equal(attempts, 1, "checksum mismatch must never retry into success");
+    assert.equal(downloads, 3);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("desktop and packaging share exact-version Electron caches without changing Release inputs", async () => {
+  const { readFileSync } = await import("node:fs");
+  const workflow = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
+  for (const name of ["desktop", "platform"]) {
+    const job = workflow.split(`\n  ${name}:\n`)[1].split(/\n {2}[a-z-]+:\n/)[0];
+    assert.match(job, /electron_config_cache: \$\{\{ runner.temp \}\}\/electron-cache/);
+    assert.match(job, /uses: actions\/cache@[a-f0-9]{40} # v5/);
+    assert.match(job, /path: \$\{\{ runner.temp \}\}\/electron-cache/);
+    assert.match(
+      job,
+      /key: electron-\$\{\{ runner.os \}\}-\$\{\{ runner.arch \}\}-\$\{\{ steps.electron.outputs.version \}\}/,
+    );
+    assert.doesNotMatch(job, /restore-keys:|continue-on-error:|permissions:|secrets\./);
+    assert.match(job, /name: Prepare Electron binary\n {8}timeout-minutes: 3/);
+    assert.match(job, /run: node \.github\/scripts\/prepare-electron.mjs/);
+    assert.ok(job.indexOf("Cache Electron downloads") < job.indexOf("Prepare Electron binary"));
+    if (name === "platform") {
+      assert.match(job, /prepare-electron.mjs packaging/);
+      assert.match(job, /run: pnpm run make/);
+    }
+  }
+  const release = workflow.split("\n  macos-sign:\n")[1];
+  assert.doesNotMatch(release, /actions\/cache@|prepare-electron.mjs|electron_config_cache/);
+});
 
 const base = "a".repeat(40);
 const head = "b".repeat(40);
