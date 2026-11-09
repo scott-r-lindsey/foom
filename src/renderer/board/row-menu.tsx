@@ -219,6 +219,11 @@ export function RowMenu({
     };
     const scroll = (event: Event) => {
       if (!dismissOnScroll) return;
+      if (isPanel && event.target instanceof Node && ref.current?.contains(event.target)) {
+        // Panel scrolling moves submenu anchors; retain the panel, not stale portals.
+        setSub(undefined);
+        return;
+      }
       if (
         !(event.target instanceof Node) ||
         (!ref.current?.contains(event.target) && !inSubmenu(event.target))

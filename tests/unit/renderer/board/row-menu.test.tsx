@@ -394,3 +394,44 @@ test("late panel facts and pinning keep commands stationary; explicit resize ref
     anchor.remove();
   }
 });
+
+test("scrolling a panel body dismisses every submenu while retaining the panel", () => {
+  const anchor = document.createElement("button");
+  document.body.append(anchor);
+  const close = vi.fn();
+  const view = render(
+    <RowMenu
+      anchor={anchor}
+      close={close}
+      panel={{
+        title: "Repository",
+        kind: "Repository",
+        mark: "repository",
+        facts: null,
+        pinned: true,
+      }}
+      actions={[
+        {
+          label: "New agent",
+          run: () => {},
+          submenu: [
+            { label: "Builder", run: () => {}, submenu: [{ label: "Claude Code", run: () => {} }] },
+          ],
+        },
+      ]}
+    />,
+  );
+  fireEvent.pointerEnter(view.getByRole("menuitem", { name: "New agent" }));
+  fireEvent.pointerEnter(view.getByRole("menuitem", { name: "Builder" }));
+  expect(view.getByRole("menu", { name: "Builder" })).toBeTruthy();
+  const panel = view.getByRole("dialog");
+  const body = panel.querySelector(".panel-body");
+  expect(body).not.toBeNull();
+  if (body) fireEvent.scroll(body);
+  expect(view.queryByRole("menu", { name: "New agent" })).toBeNull();
+  expect(view.queryByRole("menu", { name: "Builder" })).toBeNull();
+  expect(view.getByRole("dialog")).toBe(panel);
+  expect(close).not.toHaveBeenCalled();
+  view.unmount();
+  anchor.remove();
+});

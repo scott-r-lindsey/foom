@@ -560,6 +560,33 @@ wait();`,
           await expect(panel).toBeInViewport({ ratio: 1 });
           await expect(page.getByRole("menu", { name: "New agent", exact: true })).toBeVisible();
           await page.getByRole("menuitem", { name: "Builder", exact: true }).hover();
+          const agentMenu = page.getByRole("menu", { name: "Builder", exact: true });
+          await expect(agentMenu).toBeVisible();
+          const body = panel.locator(".panel-body");
+          const scrollTop = await body.evaluate((element) => element.scrollTop);
+          const factsPoint = await body.evaluate((element) => {
+            const bounds = element.getBoundingClientRect();
+            return { x: bounds.right - 24, y: bounds.top + Math.min(80, bounds.height / 2) };
+          });
+          // Move beyond both submenu portals so the native wheel reaches facts.
+          await page.mouse.move(factsPoint.x, factsPoint.y);
+          await expect(agentMenu).toBeVisible();
+          await page.mouse.wheel(0, 60);
+          await expect
+            .poll(() => body.evaluate((element) => element.scrollTop))
+            .toBeGreaterThan(scrollTop);
+          await expect(panel).toBeVisible();
+          await expect(page.locator(".row-submenu")).toHaveCount(0);
+          await expect(newAgent).toHaveAttribute("aria-expanded", "false");
+          await page.mouse.wheel(0, -60);
+          await expect.poll(() => body.evaluate((element) => element.scrollTop)).toBe(scrollTop);
+          await body.evaluate(async () => {
+            await new Promise((resolve) =>
+              requestAnimationFrame(() => requestAnimationFrame(resolve)),
+            );
+          });
+          await newAgent.hover();
+          await page.getByRole("menuitem", { name: "Builder", exact: true }).hover();
           await page.getByRole("menuitem", { name: "Claude Code", exact: true }).click();
         } catch (error) {
           const trace = await page.evaluate(() => window.sharingMenuTrace.events);

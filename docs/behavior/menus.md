@@ -22,7 +22,9 @@ Items whose issue hasn't landed are present but disabled, with no explanation.
 Arrows, Home/End, Enter and Escape navigate the menu; disabled items are skipped.
 Right or Enter on a submenu opens it and focuses the first enabled
 item; Left or Escape returns to its parent, and hovering opens it without moving
-focus. The submenu flips left when the window has no room on its right. Up and
+focus. Scrolling within a sidebar panel closes its open submenus and keeps the
+panel open, so submenus cannot remain detached from scrolled commands. The submenu
+flips left when the window has no room on its right. Up and
 Down treat the Size row as one stop; Left and Right move between − and +.
 Escape at the top level returns focus to the wordmark. The menu uses the same
 surface and motion as row actions, with a scrollable list on short windows. Opening

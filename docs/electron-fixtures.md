@@ -358,7 +358,12 @@ The case requires the panel's top and selected submenu to stay fixed and the
 whole panel to remain in the viewport, then launches through Builder and the real
 sharing confirmation. The opener scrolls into view before pinning, with a renderer
 frame barrier to drain the scroll event: tree scrolling intentionally dismisses
-panels. Cleanup releases the facts gate and restores the method.
+panels. With New agent → Builder open, the case moves the pointer onto the facts
+column and sends a native 60 px wheel input. It requires actual body scrolling,
+dismissal of both submenu portals and retention of the panel, then scrolls back,
+reopens the menus and completes the original launch/confirmation flow. Both
+shell-fixture and clone-b exercise this sequence. Cleanup releases the facts gate
+and restores the method.
 
 The original scale/translation keyframes change the selected command beneath a
 stationary pointer when the opening animation ends. A controlled trace records
