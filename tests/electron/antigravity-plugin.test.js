@@ -498,6 +498,11 @@ for (const firstRun of [false, true]) {
       expect(result.stderr).toBe("");
     }
     await page.evaluate((id) => window.desktop.input(id, "w"), id);
+    // MCP's pre-tool observer can already have established Working. Wait for
+    // this prompt observer to allocate its sequence before sending Stop.
+    await expect
+      .poll(() => page.evaluate((id) => window.desktop.tail(id, 20), id))
+      .toContain("OBSERVER_RETURNED_PreInvocation");
     await expect.poll(() => page.evaluate(() => window.agyTransitions.at(-1)?.to)).toBe("working");
     await page.evaluate((id) => window.desktop.input(id, "s"), id);
     await expect.poll(() => page.evaluate(() => window.agyTransitions.at(-1)?.to)).toBe("idle");
@@ -741,13 +746,13 @@ for (const mode of ["light", "dark"]) {
     await capture("progress");
     await rm(hold);
     await expect(dialog.locator(".plugin-receipt")).toHaveText(
-      "✓ Installed Foom observer v5 · enabled",
+      "✓ Installed Foom observer v6 · enabled",
     );
     await expect(dialog.locator(".plugin-command")).toContainText(/exit 0 · [0-9.]+ s/u);
     await assertAccessible(dialog);
     await capture("success");
     await dialog.getByRole("button", { name: "Done", exact: true }).click();
-    await expect(row.getByRole("status")).toContainText("Installed Foom observer v5");
+    await expect(row.getByRole("status")).toContainText("Installed Foom observer v6");
     await writeFile(path.join(plugins, "fail-install"), "");
     await row.getByRole("button", { name: "Reinstall plugin", exact: true }).click();
     await dialog.getByRole("button", { name: "Reinstall plugin", exact: true }).click();
