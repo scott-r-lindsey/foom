@@ -92,6 +92,15 @@ export class ControlMcp {
       status: 200,
       body: { jsonrpc: "2.0", id, result: value },
     });
+    // Modern stdio clients probe before the legacy initialize handshake. Return
+    // a protocol error so they can fall back, rather than terminating the bridge.
+    // Authentication has already run; metadata never creates a session or grant.
+    if (request["method"] === "server/discover" && id !== undefined) {
+      return {
+        status: 200,
+        body: { jsonrpc: "2.0", id, error: { code: -32601, message: "Method not found" } },
+      };
+    }
     if (request["method"] === "initialize") {
       requireField(id !== undefined, "id");
       requireField(headers["mcp-session-id"] === undefined, "mcp-session-id");

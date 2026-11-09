@@ -1,3 +1,4 @@
+import discover from "../../fixtures/agy-1.5.3-discover.json";
 import { tmpdir } from "node:os";
 import { Readable } from "node:stream";
 import { createServer } from "node:http";
@@ -130,15 +131,19 @@ it("relays a config session's manual-only endpoint without granting control tool
     return Promise.resolve();
   });
   const result = await run({ ...base, ...manual.env }, [
+    discover,
     initialize,
     initialized,
     list,
     { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "whoami" } },
+    { jsonrpc: "2.0", method: "notifications/roots/list_changed", params: {} },
   ]);
+  expect(result.error.mock.calls).toEqual([]);
   expect(result.code).toBe(0);
   const replies = result.out.mock.calls.map(([line]): unknown => JSON.parse(line));
-  expect(replies[1]).toMatchObject({ result: { tools: [{ name: "manual" }] } });
-  expect(replies[2]).toMatchObject({ error: { code: -32602 } });
+  expect(replies[0]).toMatchObject({ error: { code: -32601 } });
+  expect(replies[2]).toMatchObject({ result: { tools: [{ name: "manual" }] } });
+  expect(replies[3]).toMatchObject({ error: { code: -32602 } });
   expect(JSON.stringify(replies)).not.toContain(manual.token);
 });
 it("reads every page of escaped Board posts through the bounded MCP bridge", async () => {
@@ -457,4 +462,40 @@ it.each([
   );
   expect(result.code).toBe(4);
   expect(result.error).toHaveBeenCalledWith(`Foom MCP transport failed: ${expected} (request).\n`);
+});
+
+it("keeps the bridge open for agy discovery fallback and whoami", async () => {
+  const service: ControlService = new ControlService(
+    new Operations(
+      () => Promise.resolve(),
+      (actor) => {
+        service.assertActive(actor);
+      },
+    ),
+  );
+  const http = await ControlHttp.listen(service);
+  cleanup.push(() => http.close());
+  const launch = service.prepare(tmpdir(), tmpdir());
+  launch.bind("terminal", true);
+  const result = await run({ ...base, ...launch.env, FOOM_CONTROL_URL: http.endpoint }, [
+    discover,
+    initialize,
+    initialized,
+    list,
+    { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "whoami" } },
+    { jsonrpc: "2.0", method: "notifications/roots/list_changed", params: {} },
+  ]);
+  expect(result.error.mock.calls).toEqual([]);
+  expect(result.code).toBe(0);
+  expect(result.out.mock.calls.map(([line]): unknown => JSON.parse(line))).toMatchObject([
+    { id: 0, error: { code: -32601 } },
+    { id: 1, result: { protocolVersion: "2025-11-25" } },
+    {
+      id: 2,
+      result: {},
+    },
+    { id: 3, result: { structuredContent: { role: "agent" } } },
+  ]);
+  expect(result.out.mock.calls.map(([line]) => line).join("")).toContain('"name":"whoami"');
+  launch.dispose();
 });

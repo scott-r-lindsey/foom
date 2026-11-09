@@ -146,6 +146,50 @@ Malformed requests now name the fixed rejected schema field in the bridge error,
 so a later human run can identify any remaining incompatibility without logging
 payload values. Real agy connection and `whoami` remain manual verification.
 
+### Antigravity discovery capture (agy 1.5.3, reopened #1124)
+
+Measured manually on Linux on 2026-11-09 with the default HOME and Google login,
+using the installed plugin without changing its files. All inherited `FOOM_*`
+variables were removed; synthetic `FOOM_CONTROL_URL`, `FOOM_CONTROL_TOKEN`,
+`FOOM_SESSION` and `FOOM_CLI_DIRECTORY` selected a logging bridge wrapper and
+isolated loopback stand-in. A short print prompt requested no tools; no bypass
+flags were used. The operator did not inspect, copy or edit files under
+`~/.gemini`, user Foom profiles, credentials or shell rc files; agy accessed its
+own login/history normally. Only method names, field names/types,
+message order and process/connection counts were recorded, never payload values.
+
+Both captures observed one bridge process and this order:
+
+1. `server/discover`: `jsonrpc` (string), `id` (number), `method` (string),
+   `params` (object). Its `params._meta` (object) contains
+   `io.modelcontextprotocol/clientCapabilities` (object),
+   `io.modelcontextprotocol/clientInfo` (object) and
+   `io.modelcontextprotocol/protocolVersion` (string).
+2. `initialize`: the same envelope field types; params contain `clientInfo`
+   (object with `name`/`version` strings), `protocolVersion` (string) and
+   `capabilities` (object with `elicitation`/`roots` objects).
+3. `notifications/initialized`, then `tools/list`, then
+   `notifications/roots/list_changed`, each with object params; notifications
+   omit `id`, while `tools/list` has a numeric `id`.
+
+The wrapper's HTTP header names were `content-type`, `x-capture-process`,
+`authorization`, `host`, `connection` and `content-length`; these belong to the
+stand-in, not agy's stdio wire format. One HTTP connection was observed per run.
+On the second run the stand-in returned JSON-RPC `-32601` for discovery and
+answered initialize with Foom's latest supported legacy version, `2025-11-25`.
+agy completed initialization and requested tools. This verifies the
+[stdio legacy fallback](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/docs/specification/2026-07-28/basic/transports/stdio.mdx#backward-compatibility),
+not implementation of the newer stateless protocol.
+
+The captured discovery shape reproduces main's HTTP 400
+`invalid_request field=mcp-session-id` and the bridge's `(request)` diagnostic
+before the fix. Fixtures use synthetic values and never run real agy. The control
+and manual-only adapters now return Method not found for this authenticated
+pre-initialize probe, allowing legacy negotiation without minting a session or
+using client metadata as authority. Fixture Electron coverage waits for that
+error before initializing through the installed fixture plugin, listing tools and
+calling `whoami`. A live Foom-launched connection remains for the user to verify.
+
 ### Pi 1.4.0 measurement (#823)
 
 Measured manually on Linux on 2026-10-25, using `/home/slindsey/.local/bin/pi`

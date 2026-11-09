@@ -71,6 +71,15 @@ Task-augmented tool calls are refused because Foom advertises no task support.
 Tool names, arguments and every control-service payload retain strict validation;
 protocol extensions cannot supply roles or authority.
 
+An authenticated `server/discover` request may precede initialization (#1124).
+Because Foom supports the legacy handshake versions, control and manual-only
+adapters answer this newer stdio compatibility probe with JSON-RPC `-32601`
+(Method not found), without allocating or replacing a session. This permits
+client fallback to initialize. Metadata is ignored; other pre-initialize calls
+retain their session requirements. The manual-only adapter also ignores unused
+client notifications after session validation, including roots-list changes,
+without marking a session ready or invoking a tool.
+
 The bridge reports HTTP status, an allowlisted Foom error code (or `http_error`),
 a fixed method label and, for schema failures, a fixed rejected field path.
 Failures without an HTTP response use `no_http_response` and a fixed local code.

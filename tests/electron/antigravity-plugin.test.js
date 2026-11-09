@@ -252,6 +252,11 @@ if (!${firstRun}) {
     let end;
     while ((end = buffer.indexOf('\\n')) >= 0) {
       const value = JSON.parse(buffer.slice(0,end)); buffer = buffer.slice(end+1);
+      if (value.id === 0) {
+        if (value.error?.code !== -32601) process.exit(9);
+        console.log('MCP_DISCOVERY_FALLBACK');
+        fallback();
+      }
       if (value.id === 1 && value.result.protocolVersion !== '2025-11-25') process.exit(8);
       if (value.id === 2) {
         if (!value.result.tools.some((t) => t.name === 'whoami')) process.exit(5);
@@ -262,12 +267,15 @@ if (!${firstRun}) {
   });
   mcp.stderr.on('data', () => process.exit(6));
   mcp.on('error', () => process.exit(7));
-  for (const message of [
-    {jsonrpc:'2.0', id:1, method:'initialize', extension:{ignored:true},params:{protocolVersion:'2099-01-01',capabilities:{roots:{listChanged:true},sampling:{},experimental:{'fixture/extension':{}}},clientInfo:{name:'fixture-agy',version:'1',title:'Fixture Antigravity',websiteUrl:'https://example.invalid'},_meta:{progressToken:1,'fixture/metadata':{}},extension:{ignored:true}}},
-    {jsonrpc:'2.0', method:'notifications/initialized'},
-    {jsonrpc:'2.0', id:2, method:'tools/list'},
-    {jsonrpc:'2.0', id:3, method:'tools/call', params:{name:'whoami'}},
-  ]) mcp.stdin.write(JSON.stringify(message) + '\\n');
+  function fallback() {
+    for (const message of [
+      {jsonrpc:'2.0', id:1, method:'initialize', extension:{ignored:true},params:{protocolVersion:'2099-01-01',capabilities:{roots:{listChanged:true},sampling:{},experimental:{'fixture/extension':{}}},clientInfo:{name:'fixture-agy',version:'1',title:'Fixture Antigravity',websiteUrl:'https://example.invalid'},_meta:{progressToken:1,'fixture/metadata':{}},extension:{ignored:true}}},
+      {jsonrpc:'2.0', method:'notifications/initialized'},
+      {jsonrpc:'2.0', id:2, method:'tools/list'},
+      {jsonrpc:'2.0', id:3, method:'tools/call', params:{name:'whoami'}},
+    ]) mcp.stdin.write(JSON.stringify(message) + '\\n');
+  }
+  mcp.stdin.write(JSON.stringify({jsonrpc:'2.0',id:0,method:'server/discover',params:{_meta:{'io.modelcontextprotocol/clientCapabilities':{elicitation:{},roots:{}},'io.modelcontextprotocol/clientInfo':{name:'fixture-agy',version:'1.5.3'},'io.modelcontextprotocol/protocolVersion':'2026-07-28'}}}) + '\\n');
 }
 
 process.stdin.on('data', (data) => {
