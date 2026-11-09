@@ -1,3 +1,4 @@
+import { CheckoutHolds } from "../../../../src/main/workspace/worktree-reservations";
 import { reviewExclusions } from "../../../../src/main/workspace/review-worktrees";
 import { writeFileSync } from "node:fs";
 import { UncertainEffect } from "../../../../src/main/workspace/worktree-outcome";
@@ -36,6 +37,7 @@ const commit = (cwd: string) =>
 const eligible = () => service.canAutoRemoveReview(repo, path, identity);
 function removalOwner(prepareWorktreeRemoval?: CleanupOwnerDependencies["prepareWorktreeRemoval"]) {
   const ownerDeps: CleanupOwnerDependencies = {
+    checkoutHolds: new CheckoutHolds(),
     ...(prepareWorktreeRemoval ? { prepareWorktreeRemoval } : {}),
     worktrees: service,
     inventory: (repository) => service.listWorktrees(repository),

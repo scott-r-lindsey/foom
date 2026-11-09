@@ -77,10 +77,12 @@ export function readSessions(value: unknown): StoredSession[] {
       remote,
       placement,
       remoteCheckout,
+      closeState,
       handoffs,
       review,
     } = data;
     if (
+      (closeState !== undefined && closeState !== "closing" && closeState !== "failed") ||
       (remoteCheckout !== undefined && (remote !== true || !savedRemote(remoteCheckout))) ||
       (placement !== undefined &&
         (!objectPlacement(placement) || (placement.kind === "remote") !== (remote === true))) ||
@@ -128,6 +130,7 @@ export function readSessions(value: unknown): StoredSession[] {
     ids.add(id);
     return {
       id,
+      ...(closeState ? { closeState: "failed" as const } : {}),
       ...(selection ? { selection: selectionInput(selection) } : {}),
       ...(isReviewState(review)
         ? {
@@ -191,6 +194,7 @@ export class SessionStore {
           remote,
           placement,
           remoteCheckout,
+          closeState,
           home,
           machine,
           config,
@@ -207,6 +211,7 @@ export class SessionStore {
           running,
           orchestrator,
           parentId,
+          ...(closeState ? { closeState } : {}),
           ...(home ? { home: true } : {}),
           ...(machine ? { machine: true } : {}),
           ...(config ? { config: true } : {}),

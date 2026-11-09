@@ -74,6 +74,10 @@ export class SessionOwner {
     const entry = this.deps.terminal(id);
     if (entry) this.deps.rememberRemote?.({ ...entry, remoteCheckout: placement });
   }
+  get isQuitting(): boolean {
+    return this.quitting;
+  }
+
   /** Explicit handoff writes propagate failures even during the quit freeze. */
   async save(): Promise<void> {
     await this.deps.store?.save(this.records());
@@ -94,6 +98,7 @@ export class SessionOwner {
         const previous = this.saved.get(entry.id);
         const reconcile =
           previous?.remote &&
+          previous.closeState === undefined &&
           previous.running !== true &&
           entry.running === true &&
           previous.placement?.kind === "remote" &&
@@ -121,6 +126,7 @@ export class SessionOwner {
         this.deps.rememberRemote?.(entry);
       }
       const row = { ...entry };
+      if (row.closeState) row.closeState = "failed";
       delete row.running;
       delete row.recovered;
       delete row.remoteCheckout;

@@ -355,37 +355,32 @@ test.each([
 });
 
 test.each(["id", "sidebar"] as const)(
-  "%s removal revalidates a session launched during confirmation before stopping anything",
+  "%s removal holds the canonical path against branch-changed launches during confirmation",
   async (path) => {
     const workspace = new Workspace(deps);
     await workspace.startWorktree(start);
     await workspace.exited("t1", 0);
+    const removeTree = vi.spyOn(deps.worktrees, "removeWorktree");
+    const create = vi.spyOn(deps.terminals, "create").mockResolvedValue("t2");
     const confirm = vi.fn(async () => {
-      // A changed branch name gives the concurrent launch a different branch lock.
       vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([{ ...tree, branch: "renamed" }]);
-      vi.spyOn(deps.terminals, "create").mockResolvedValue("t2");
-      await workspace.sidebarCommand(
-        { kind: "launch", repository: repo.path, worktree: tree.path, run: "shell" },
-        () => Promise.resolve(true),
-      );
+      await expect(
+        workspace.sidebarCommand(
+          { kind: "launch", repository: repo.path, worktree: tree.path, run: "shell" },
+          () => Promise.resolve(true),
+        ),
+      ).rejects.toThrow("busy");
       return true;
     });
-    const removal =
-      path === "id"
-        ? workspace.removeWorktree("t1", confirm)
-        : workspace.sidebarCommand(
-            { kind: "remove-worktree", repository: repo.path, worktree: tree.path },
-            confirm,
-          );
-    await expect(removal).rejects.toThrow("A session is running in this worktree");
+    if (path === "id") await workspace.removeWorktree("t1", confirm);
+    else
+      await workspace.sidebarCommand(
+        { kind: "remove-worktree", repository: repo.path, worktree: tree.path },
+        confirm,
+      );
     expect(confirm).toHaveBeenCalledOnce();
-    expect(vi.spyOn(deps.terminals, "stop")).not.toHaveBeenCalled();
-    expect(vi.spyOn(deps.terminals, "kill")).not.toHaveBeenCalled();
-    expect(vi.mocked(deps.worktrees.removeWorktree)).not.toHaveBeenCalled();
-    expect(workspace.snapshot().terminals.find((entry) => entry.id === "t2")?.exited).toBe(false);
-    expect(workspace.snapshot().terminals).toHaveLength(2);
-    await workspace.exited("t2", 0);
-    await workspace.removeWorktree("t1", () => Promise.resolve(true));
+    expect(create).toHaveBeenCalledOnce();
+    expect(removeTree).toHaveBeenCalledOnce();
     expect(workspace.snapshot().terminals).toEqual([]);
     await workspace.dispose();
   },

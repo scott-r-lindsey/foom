@@ -107,7 +107,7 @@ export function SidebarSessionRow({
         data-state={lightState(row)}
         data-exited={Boolean(row.exited)}
         tabIndex={docked || row.id === selected ? 0 : -1}
-        aria-label={`${compact ? `${row.home ? "~" : row.config ? "Foom config" : row.repository} · ` : ""}${row.branch} · ${name}${name === identity ? "" : ` · ${identity}`} · ${light(row).label}${row.orchestration?.role === "child" ? ` · Child of ${parentName ?? row.orchestration.parentId}` : ""}${row.foregroundProgram ? ` · ${row.foregroundProgram}` : ""}${row.kind === "shell" ? "" : ` · ${row.reason}`}${row.handoff ? ` · Handoff ${row.handoff.status}` : ""}${row.review ? ` · ${reviewLabel(row.review)}` : ""}${row.bypass ? " · Bypass" : ""}${row.worktreeRemoved ? " · Worktree removed" : ""}${row.unavailable ? " · Unavailable" : ""}`}
+        aria-label={`${compact ? `${row.home ? "~" : row.config ? "Foom config" : row.repository} · ` : ""}${row.branch} · ${name}${name === identity ? "" : ` · ${identity}`} · ${light(row).label}${row.orchestration?.role === "child" ? ` · Child of ${parentName ?? row.orchestration.parentId}` : ""}${row.foregroundProgram ? ` · ${row.foregroundProgram}` : ""}${row.kind === "shell" && !row.closeFailed ? "" : ` · ${row.reason}`}${row.handoff ? ` · Handoff ${row.handoff.status}` : ""}${row.review ? ` · ${reviewLabel(row.review)}` : ""}${row.bypass ? " · Bypass" : ""}${row.worktreeRemoved ? " · Worktree removed" : ""}${row.unavailable ? " · Unavailable" : ""}`}
         ref={(element) => {
           register(row.id, element);
         }}
@@ -232,11 +232,12 @@ export function SidebarSessionRow({
               <span aria-hidden="true">⊘</span> Worktree removed
             </span>
           )}
-          {row.kind !== "shell" && (!row.unavailable || row.reason !== "Unavailable") && (
-            <span className="board-reason" title={row.reason}>
-              <Highlight text={row.reason} filter={filter} />
-            </span>
-          )}
+          {(row.kind !== "shell" || row.closeFailed) &&
+            (!row.unavailable || row.reason !== "Unavailable") && (
+              <span className="board-reason" title={row.reason}>
+                <Highlight text={row.reason} filter={filter} />
+              </span>
+            )}
           <span className="visually-hidden board-state">{light(row).label}</span>
         </span>
         {compact && robot}

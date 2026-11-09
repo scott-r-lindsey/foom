@@ -1,5 +1,6 @@
 import { LaunchFailure } from "../../shared/launch-failure";
 import { RemovalError } from "./worktree-outcome";
+import type { CheckoutHold, CheckoutHolds } from "./worktree-reservations";
 import { basename } from "node:path";
 import { conversationId } from "../agents/conversation";
 import { CleanupRun, KeptWorktree } from "./cleanup-run";
@@ -13,6 +14,7 @@ import type { WorkspaceTerminal } from "../../shared/workspace";
 import type { WorktreeService } from "./worktrees";
 
 export interface CleanupOwnerDependencies {
+  checkoutHolds: CheckoutHolds;
   worktrees: Pick<
     WorktreeService,
     | "changes"
@@ -45,6 +47,7 @@ export interface CleanupOwnerDependencies {
     retainBranchLock?: (release: () => void) => void,
     autoApprove?: () => Promise<boolean>,
     readSnapshot?: () => Promise<string>,
+    parentHold?: CheckoutHold,
   ) => Promise<boolean>;
   terminals: () => readonly WorkspaceTerminal[];
   running: (id: string) => boolean;
@@ -118,7 +121,11 @@ export class CleanupOwner {
         tree.prunable ||
         this.deps
           .terminals()
-          .some((entry) => entry.worktree === tree.path && this.deps.running(entry.id))
+          .some(
+            (entry) =>
+              entry.worktree === tree.path &&
+              (this.deps.running(entry.id) || entry.closeState === "closing"),
+          )
       )
         continue;
       const key = JSON.stringify([repository, tree.path, identity]);
@@ -127,6 +134,7 @@ export class CleanupOwner {
       let offered = false;
       const validate = async () => {
         this.reviewOfferAbort.signal.throwIfAborted();
+        this.requireIdleWorktree(tree.path);
         const current = read(tree.path);
         if (
           this.deps.closed() ||
@@ -140,6 +148,7 @@ export class CleanupOwner {
           (await this.deps.worktrees.launchIdentity(repository, tree.path)) !== identity
         )
           throw new RemovalError("identity_changed");
+        this.requireIdleWorktree(tree.path);
       };
       const run = this.deps
         .withWorktreeRemoval(
@@ -206,6 +215,7 @@ export class CleanupOwner {
     revalidate: () => void,
     closingId?: string,
     onReview?: (pending: boolean) => Promise<void>,
+    parentHold?: CheckoutHold,
   ): Promise<boolean> {
     revalidate();
     const key = JSON.stringify([repository, worktree]);
@@ -218,6 +228,9 @@ export class CleanupOwner {
       }
       return pending.result;
     }
+    this.requireNoClosingSession(worktree, closingId);
+    const hold = this.deps.checkoutHolds.acquire(worktree, parentHold);
+    if (!hold) throw new RemovalError("busy", "This worktree is busy");
     const listeners = new Set<(pending: boolean) => Promise<void>>(onReview ? [onReview] : []);
     const entry = {
       identity,
@@ -246,6 +259,7 @@ export class CleanupOwner {
       },
       revalidate,
       closingId,
+      hold,
     );
     entry.result = result;
     this.ownedRemovals.set(key, entry);
@@ -253,6 +267,7 @@ export class CleanupOwner {
       return await result;
     } finally {
       this.ownedRemovals.delete(key);
+      hold.release();
     }
   }
 
@@ -263,6 +278,7 @@ export class CleanupOwner {
     confirm: (branch: string, changes: string, automatic?: boolean) => Promise<boolean>,
     revalidate: () => void,
     closingId?: string,
+    hold?: CheckoutHold,
   ): Promise<boolean> {
     const review = this.deps.worktrees.reviewIdentity(repository, worktree) !== undefined;
     const outcome = { reviewed: false };
@@ -272,7 +288,7 @@ export class CleanupOwner {
       if (tree.path === repository) throw new RemovalError("main_checkout");
       // removeTree holds the branch lock while it calls this, so no launch can slip in.
       const available = async () => {
-        this.requireIdleWorktree(worktree);
+        this.requireIdleWorktree(worktree, closingId);
         if ((await this.deps.worktrees.launchIdentity(repository, worktree)) !== identity)
           throw new RemovalError("identity_changed", "Worktree has changed");
         revalidate();
@@ -317,6 +333,8 @@ export class CleanupOwner {
           await available();
           return eligible && this.autoRemoveMergedWorktrees;
         },
+        undefined,
+        hold,
       );
       this.deps.refresh();
       return removed;
@@ -353,7 +371,20 @@ export class CleanupOwner {
     this.cleanupRuns.clear();
     this.mergeEligibility.clear();
   }
-  private requireIdleWorktree(worktree: string): void {
+  private requireNoClosingSession(worktree: string, closingId?: string): void {
+    if (
+      this.deps
+        .terminals()
+        .some(
+          (entry) =>
+            entry.worktree === worktree && entry.closeState === "closing" && entry.id !== closingId,
+        )
+    )
+      throw new RemovalError("busy", "This worktree is busy: a session is closing");
+  }
+
+  private requireIdleWorktree(worktree: string, closingId?: string): void {
+    this.requireNoClosingSession(worktree, closingId);
     if (
       this.deps
         .terminals()
@@ -474,6 +505,7 @@ export class CleanupOwner {
 
   private sessionSkip(worktree: string): CleanupReason | undefined {
     const sessions = this.deps.terminals().filter((item) => item.worktree === worktree);
+    if (sessions.some((item) => item.closeState === "closing")) return "unavailable";
     if (sessions.some((item) => this.deps.exitCode(item.id) === undefined)) return "running";
     if (sessions.some((item) => item.kind === "agent" && conversationId(item.conversationId)))
       return "resumable conversation";
@@ -589,12 +621,18 @@ export class CleanupOwner {
             this.requireIdleWorktree(tree.path);
             if (this.deps.terminals().some((entry) => entry.worktree === tree.path))
               throw new KeptWorktree("unavailable");
-            const release = await this.deps.prepareWorktreeRemoval?.(tree.path);
+            const hold = this.deps.checkoutHolds.acquire(tree.path);
+            if (!hold) throw new KeptWorktree("unavailable");
             try {
-              await this.deps.worktrees.cleanupBrokenWorktree(repository, tree.path);
-              await this.deps.worktreeRemoved?.(tree.path);
+              const release = await this.deps.prepareWorktreeRemoval?.(tree.path);
+              try {
+                await this.deps.worktrees.cleanupBrokenWorktree(repository, tree.path);
+                await this.deps.worktreeRemoved?.(tree.path);
+              } finally {
+                release?.();
+              }
             } finally {
-              release?.();
+              hold.release();
             }
             return;
           }
