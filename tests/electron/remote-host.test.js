@@ -293,7 +293,7 @@ test("remote shell fixture uploads a pinned headless host and replays the same P
   await page.screenshot({ path: evidencePath("remote-host.png") });
 });
 
-test("remote shell fixture restores profile sessions after hub restart and ends foreign sessions", {
+test("remote shell fixture restores profile sessions and palettes after hub restart", {
   skip: process.platform === "win32",
   timeout: deadline(60000),
 }, async (context) => {
@@ -312,6 +312,8 @@ test("remote shell fixture restores profile sessions after hub restart and ends 
     path.join(remoteHome, "code"),
   );
   const { id, tail } = await remoteShell(page, fixture.phase);
+  // Keep the saved terminal palette different from the interface/native default.
+  await page.evaluate(() => window.desktop.saveSetup({ interfaceTheme: "eclipse-light" }));
   const pid = await preparePersistentShell(page, fixture, tail);
   const colorRecord = `${fixture.colorRecord}.${pid}`;
   await quitAndWait(app, async () => {
@@ -354,8 +356,6 @@ test("remote shell fixture restores profile sessions after hub restart and ends 
   );
   const recoveredPid = await hostShellPid(recovered, "RECOVERED_SCREEN");
   recovered.close();
-  const foreign = await hostChannel(socket, manifest.sha256, "legacy-foreign", cleanup);
-  foreign.close();
   fixture.phase("recovery preparation");
   const restarted = await launchApp(context, {
     fixture: "restored",
@@ -414,6 +414,37 @@ test("remote shell fixture restores profile sessions after hub restart and ends 
     )
     .toContain("RECOVERED_SCREEN");
   fixture.phase("hub restart and session replay");
+  await quitAndWait(restarted, async () => {
+    await restarted.evaluate(({ app }) => app.quit());
+    await (await confirmationPage(restarted))
+      .getByRole("button", { name: "Stop all and quit" })
+      .click();
+  });
+  assert.equal(daemon.exitCode, null);
+});
+
+test("remote host fixture confirms foreign-session cleanup and copies host details", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const fixture = await remoteFixture(context);
+  const { remoteHome, socket, manifest, cleanup } = fixture;
+  const { app: restarted, page: restored } = await remoteApp(context, fixture);
+  await mkdir(path.join(remoteHome, "code"), { mode: 0o700 });
+  const enrolled = await restored.evaluate(
+    (codeFolder) =>
+      window.desktop.hosts({
+        action: "add",
+        host: "fixture-cloud",
+        codeFolder,
+      }),
+    path.join(remoteHome, "code"),
+  );
+  assert.equal(enrolled.result.ok, true);
+  const { id } = await remoteShell(restored, fixture.phase);
+  const foreign = await hostChannel(socket, manifest.sha256, "legacy-foreign", cleanup);
+  foreign.close();
+  fixture.phase("registered host and foreign session ready");
   await openSettingsScreen(restored);
   await restored
     .getByRole("navigation", { name: "Settings sections" })
@@ -460,6 +491,11 @@ test("remote shell fixture restores profile sessions after hub restart and ends 
   const ended = await hostChannel(socket, manifest.sha256, "legacy-foreign", cleanup, 80, 24, true);
   assert.equal(ended.opened.state, "gone");
   ended.close();
+  assert.ok(
+    (await restored.evaluate(() => window.desktop.workspace())).terminals.some(
+      (row) => row.id === id && !row.exited,
+    ),
+  );
   await quitAndWait(restarted, async () => {
     await restarted.evaluate(({ app }) => app.quit());
     await (await confirmationPage(restarted))

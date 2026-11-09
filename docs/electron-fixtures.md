@@ -597,7 +597,8 @@ use. There are no deadline increases, fixed settling sleeps or retries.
 
 `remote-host.test.js` gives host preflight/enrollment, terminal links, SSH-loss
 replay, hub restart/recovery, startup palettes and oversized headless replay
-independent cases. The helpers share fixture construction code only: each case
+independent cases, with foreign-session Settings administration separate from
+hub restart/recovery. The helpers share fixture construction code only: each case
 owns its HOME, daemon, profile, controlled SSH/tool PATH and process audit. The
 SSH-loss case still uploads the pinned production host, uses native input and
 proves PID/variable/umask continuity, replay acknowledgements, palette retention
@@ -679,3 +680,16 @@ immediate cause. The old artifacts do not retain daemon exit facts or correlated
 protocol metadata, so they do not establish why that stream exited. The new
 fixture trace preserves those missing observations rather than attributing all
 five signatures to one unproven product race.
+
+The restart/recovery case ends after proving both restored palettes and session
+identity, then explicitly quits. The separate Settings case seeds its own live
+profile-owned and foreign sessions, exercises copy/check/cancel/confirmed End,
+and proves the owned session remains live. These were separated after a passing
+macOS restart case measured 30.17 seconds, above #1155's 30-second acceptance
+target despite remaining below its unchanged 60-second deadline.
+
+The restart case keeps a light interface and a saved dark terminal palette, and
+checks the same shell PID before and after restoration. Startup applies that saved
+palette before restoring sessions, so a late settings application cannot replace
+the retained application-set background. Built-in and custom startup palettes also
+have a unit regression for this ordering.
