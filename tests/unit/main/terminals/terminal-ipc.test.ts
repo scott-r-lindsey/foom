@@ -270,33 +270,40 @@ test("detached output continuously updates real headless screen and scrollback",
   expect(pty().write).toHaveBeenCalledWith("hello");
 });
 
-test.each([false, true])(
-  "cursor-row content survives shrink, grow and reattach (exited: %s)",
-  async (exited) => {
-    const id = manager.create({ ...spec, cols: 140 });
-    const prompt = String.raw`PS C:\Users\runneradmin\AppData\Local\Temp\foom-tests-bW5FZf\foom-profile-u5o8i1\shell-fixture> `;
-    output(`\x1b[2J\x1b[H${prompt}`);
-    expect((await manager.tail(id, 40)).join("")).toBe(prompt);
-    if (exited) pty().emitExit();
-    manager.resize(id, 68, 24);
-    expect((await manager.tail(id, 40)).join("")).toBe(prompt);
-    expect((await manager.screen(id)).lines.join("")).toBe(prompt);
-    manager.resize(id, 140, 24);
-    expect((await manager.tail(id, 40)).join("")).toBe(prompt);
-    manager.detach(id);
-    const restored = new Terminal({ cols: 140, rows: 24, allowProposedApi: true });
-    try {
-      const snapshot: string[] = [];
-      await manager.attach(id, (_token, data) => snapshot.push(data));
-      await new Promise<void>((resolve) => {
-        restored.write(snapshot.join(""), resolve);
-      });
-      expect(restored.buffer.active.getLine(0)?.translateToString(true)).toBe(prompt);
-    } finally {
-      restored.dispose();
-    }
-  },
-);
+test("exited cursor-row content survives shrink, grow and reattach", async () => {
+  const id = manager.create({ ...spec, cols: 140 });
+  const prompt = String.raw`PS C:\Users\runneradmin\AppData\Local\Temp\foom-tests-bW5FZf\foom-profile-u5o8i1\shell-fixture> `;
+  output(`\x1b[2J\x1b[H${prompt}`);
+  expect((await manager.tail(id, 40)).join("")).toBe(prompt);
+  pty().emitExit();
+  manager.resize(id, 68, 24);
+  expect((await manager.tail(id, 40)).join("")).toBe(prompt);
+  expect((await manager.screen(id)).lines.join("")).toBe(prompt);
+  manager.resize(id, 140, 24);
+  expect((await manager.tail(id, 40)).join("")).toBe(prompt);
+  manager.detach(id);
+  const restored = new Terminal({ cols: 140, rows: 24, allowProposedApi: true });
+  try {
+    const snapshot: string[] = [];
+    await manager.attach(id, (_token, data) => snapshot.push(data));
+    await new Promise<void>((resolve) => {
+      restored.write(snapshot.join(""), resolve);
+    });
+    expect(restored.buffer.active.getLine(0)?.translateToString(true)).toBe(prompt);
+  } finally {
+    restored.dispose();
+  }
+});
+
+test("live cursor-row resizing leaves redraw and subsequent writes to the PTY", async () => {
+  const id = manager.create({ ...spec, cols: 139 });
+  output("P".repeat(96));
+  await manager.tail(id, 40);
+  manager.resize(id, 68, 24);
+  manager.resize(id, 139, 24);
+  output("Z");
+  expect((await manager.tail(id, 40)).join("")).toBe("P".repeat(67) + "Z");
+});
 
 test.each(["before", "after"])(
   "initial prompt output %s the attach barrier reaches the view exactly once",

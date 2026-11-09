@@ -48,8 +48,8 @@ export function createShell(
   const terminal = new Terminal({
     // Activation is owned by Foom, including primary-button and trusted-gesture checks.
     linkHandler: { activate: () => {} },
-    // Match the authoritative host when fitting a narrower view.
-    reflowCursorLine: true,
+    // Live programs own redraw; exited views preserve their retained cursor row.
+    reflowCursorLine: false,
     cursorBlink: true,
     fontSize: 14,
     fontFamily: TERMINAL_FONT_FALLBACK,
@@ -222,6 +222,7 @@ export function createShell(
   };
   const controls = () => {
     // Match the input guard: focus/paint can precede the attachment RPC settling.
+    terminal.options.reflowCursorLine = exited;
     terminal.options.disableStdin = exited || busy;
     if (exited) terminal.options.cursorBlink = false;
     if (fontResizePending) resize();

@@ -99,6 +99,51 @@ process.stdin.once("data", () => {
   await expect.poll(rendered).toBe(prompt.trimEnd());
 });
 
+test("live raw PTY writes after resize without a stale reflow suffix", async (context) => {
+  const { liveRawResize } = require("./resize-fixture.js");
+  const root = await mkdtemp(path.join(tmpdir(), "foom-live-resize-"));
+  removeAfterApps(context, root);
+  const app = await launchApp(context, { fixture: "running-shell" });
+  const page = await boardPage(app);
+  const id = (await page.evaluate(() => window.desktop.workspace())).terminals[0].id;
+  await expect
+    .poll(() => page.evaluate(async (id) => (await window.desktop.tail(id, 40)).join("\n"), id))
+    .toMatch(process.platform === "win32" ? /PS [\s\S]*>\s*$/ : /[$#>]\s*$/);
+  await liveRawResize(app, page, id, root);
+});
+
+test("live Bash redraws a long prompt once and retains narrow command output after growth", {
+  skip: process.platform === "win32" && "Requires the POSIX fixture Bash",
+}, async (context) => {
+  const { observeResize, terminalColumns, renderedText } = require("./resize-fixture.js");
+  const app = await launchApp(context, { fixture: "running-shell" });
+  const page = await boardPage(app);
+  const id = (await page.evaluate(() => window.desktop.workspace())).terminals[0].id;
+  const tail = () => page.evaluate(async (id) => window.desktop.tail(id, 40), id);
+  await expect.poll(async () => (await tail()).join("")).toMatch(/[$#>]\s*$/);
+  await observeResize(app);
+  await sizeTileBoard(app, page, 1500, 900);
+  const cols = () => terminalColumns(app, id);
+  await expect.poll(cols).toBeGreaterThan(96);
+  const prompt = "P".repeat(94) + "> ";
+  await page.keyboard.type(`PS1='${prompt}'; printf '\\033[2J\\033[H'`);
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await tail()).join("")).toBe(prompt);
+  await sizeTileBoard(app, page, 900, 900);
+  await expect.poll(cols).toBeLessThan(96);
+  await expect.poll(async () => (await tail()).join("")).toBe(prompt);
+  await expect.poll(() => renderedText(page)).toBe(prompt.trimEnd());
+  await page.keyboard.type("echo SHRINK_MARKER");
+  await page.keyboard.press("Enter");
+  await expect.poll(tail).toContain("SHRINK_MARKER");
+  await sizeTileBoard(app, page, 1500, 900);
+  await expect.poll(cols).toBeGreaterThan(96);
+  await expect.poll(tail).toContain("SHRINK_MARKER");
+  await expect(
+    page.locator(".xterm-rows > div").filter({ hasText: /^SHRINK_MARKER\s*$/ }),
+  ).toHaveCount(1);
+});
+
 test("a different tile never attaches a revoked ID while workspace refresh is held", async (context) => {
   const app = await launchApp(context, { fixture: "running-shell" });
   const page = await boardPage(app);

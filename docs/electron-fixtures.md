@@ -358,20 +358,36 @@ failed-row restoration and close timing assertions remain unchanged.
 
 The original headless reproduction established that xterm's default resize
 policy clips a completed cursor row: shrinking the 96-column Windows prompt to
-68 columns leaves the exact `foom-pr` prefix. This also affects the real app's
-authoritative host screen, tails and attachment snapshots; it is a product data
-loss defect. Both host and renderer now enable normal
-buffer cursor-row reflow so narrowing wraps content rather than discarding it.
+68 columns leaves the exact `foom-pr` prefix. For exited PTYs this corrupts the
+retained authoritative screen, tails and attachment snapshots with no remaining
+program to redraw it. Host and renderer now enable normal-buffer cursor-row
+reflow only after the native PTY exits. Known-exited attachments select that
+policy before fitting; a reused live view restores the default live policy.
 
-Unit regressions exercise live and exited PTYs through shrink, grow and snapshot
-replay, checking complete text. The sandboxed Electron regression launches a controlled Node process through the normal shell-launch
-path, waits for its ready marker, and uses native input to request a cleared
-screen with the fixed 96-column prompt and no newline before process exit.
-It checks the full authoritative tail and rendered text at 1500×900, after
-shrinking to 900×900, after growing, and after Settings forces reattachment.
-The geometry gate observes host columns, so a native window-size update alone
-cannot satisfy the resize regression. The close-test ordering improvement above
-still avoids coupling shell startup/input to unrelated layout changes.
+Live programs retain ownership of cursor-row redraw. Enabling xterm 6.0.0's
+cursor-row reflow while live duplicates a long Bash prompt and leaves the cursor
+at the wrong column for a raw PTY's later writes. Live narrowing can clip content
+when an application does not redraw; the exited policy preserves only the
+content remaining at exit. See [the terminal resize policy](areas/terminals.md).
+
+The exited manager and sandboxed Electron regressions retain the fixed
+96-column output across shrink, grow and fresh attachment. The Electron case
+launches a controlled Node process, waits for its ready marker and a wide host
+grid, then uses native input to request a cleared screen with the fixed prompt
+and no newline before process exit. It checks the full authoritative tail and
+rendered text at 1500×900, after 900×900 shrink, after growth, and after Settings
+forces a new attachment token.
+
+Separate live regressions exercise a real fixture Bash with a 94-P prompt plus
+`> `, checking one prompt after shrink and standalone `SHRINK_MARKER` output after
+typing while narrow and growing. A raw Node child writes 96 P characters, stays
+alive through shrink, growth and Settings reattachment, then writes Z. Host tail
+and renderer must agree with Z at the end, without a stale reflow suffix. The
+same raw case runs over fixture SSH in the remote-shell scenario. Windows also
+exercises its ConPTY-owned console redraw; the Bash-only case is POSIX. Unit
+coverage checks live/default writes, exited replay, and renderer lifecycle and
+view-reuse policy. No fixture uses a real agent CLI, real SSH or user startup
+files, and the close timing assertions remain unchanged.
 
 Run 42551903310 attempt 1 artifact **13646043326** failed at readiness in
 37.033 seconds; attempt 2 artifact **13648420047** passed in 7.195 seconds.

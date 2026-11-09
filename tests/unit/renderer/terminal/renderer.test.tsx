@@ -1139,6 +1139,7 @@ test("exit disables input and hides the cursor across snapshots, reopening and r
   exit?.("one", 0);
   expect(mock.options.disableStdin).toBe(true);
   expect(mock.options.cursorBlink).toBe(false);
+  expect(mock.options.reflowCursorLine).toBe(true);
   expect(mock.write).toHaveBeenLastCalledWith("\x1b[?25l");
   input?.("ignored");
   mock.wheel.mock.calls[0]?.[0](new WheelEvent("wheel", { deltaY: 1, deltaMode: 1 }));
@@ -1153,10 +1154,12 @@ test("exit disables input and hides the cursor across snapshots, reopening and r
   await controller.open("one");
   expect(mock.options.disableStdin).toBe(true);
   expect(mock.options.cursorBlink).toBe(false);
+  expect(mock.options.reflowCursorLine).toBe(true);
   mock.create.mockResolvedValue({ id: "two", title: "bash" });
   await controller.restart();
   expect(mock.options.disableStdin).toBe(false);
   expect(mock.options.cursorBlink).toBe(true);
+  expect(mock.options.reflowCursorLine).toBe(false);
   input?.("working");
   expect(mock.input).toHaveBeenLastCalledWith("two", "working");
   controller.dispose();
@@ -1176,10 +1179,12 @@ test("a newly mounted view knows an already exited session and can switch to a l
   await controller.open("old");
   expect(mock.options.disableStdin).toBe(true);
   expect(mock.options.cursorBlink).toBe(false);
+  expect(mock.options.reflowCursorLine).toBe(true);
   expect(mock.write).toHaveBeenLastCalledWith("\x1b[?25l");
   await controller.open("live");
   expect(mock.options.disableStdin).toBe(false);
   expect(mock.options.cursorBlink).toBe(true);
+  expect(mock.options.reflowCursorLine).toBe(false);
   controller.dispose();
 });
 

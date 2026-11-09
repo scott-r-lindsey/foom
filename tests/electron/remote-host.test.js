@@ -275,6 +275,7 @@ child.on('close', code => { appendFileSync(${JSON.stringify(sshLog)}, 'fixture s
   const tail = () =>
     page.evaluate(async (id) => (await window.desktop.tail(id, 40)).join("\n"), id);
   await expect.poll(tail).toMatch(/[$#>]\s*$/);
+  await require("./resize-fixture.js").liveRawResize(app, page, id, root);
   // Links from fixture SSH output use the local clipboard and stubbed local browser.
   const remoteUrl = "https://remote.example.test/oauth?state=fixture";
   await app.evaluate(({ shell }) => {

@@ -85,8 +85,8 @@ export class TerminalManager {
       throw error;
     }
     const screen = new Terminal({
-      // Tails and replay must preserve cursor-row output without an application redraw.
-      reflowCursorLine: true,
+      // A live program owns prompt redraw and cursor positioning on resize.
+      reflowCursorLine: false,
       cursorBlink: true,
       cols: spec.cols,
       rows: spec.rows,
@@ -207,6 +207,8 @@ export class TerminalManager {
       exitSubscription.dispose();
       resolveExit();
       if (!this.sessions.has(id)) return;
+      // No program can redraw now. Preserve retained cursor-row output on resize.
+      screen.options.reflowCursorLine = true;
       // Preserve the final screen, and report exit after queued output has parsed.
       screen.write("", () => {
         if (this.sessions.has(id)) this.onExit(id, exitCode);
