@@ -3,6 +3,22 @@ import { constants, tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 
+// Fixed supervisor source; vendor values are positional argv, never shell source.
+// Keep the group leader alive after reporting the interpreter status. Only the
+// helper's group kill (or loss of its hold pipe) releases this anchor.
+const installerSupervisor = `trap ':' HUP INT TERM QUIT PIPE
+"$@" 3>&- 4<&-
+result=$?
+printf '%s\\n' "$result" >&3
+while :; do
+  IFS= read -r hold <&4
+  result=$?
+  if [ "$result" -le 128 ]; then
+    kill -KILL -$$
+  fi
+done
+`;
+
 export interface VendorScript {
   url: string;
   interpreter: "sh" | "bash";
@@ -67,14 +83,16 @@ export async function runVendorScript(
   const abort = new AbortController();
   let child: ChildProcess | undefined;
   let childClosed = false;
+  let groupKilled = false;
   let interrupted: NodeJS.Signals | undefined;
   let escalation: ReturnType<typeof setTimeout> | undefined;
   const terminate = (signal: NodeJS.Signals) => {
-    if (!child?.pid) return;
+    if (!child?.pid || childClosed || groupKilled) return;
+    if (signal === "SIGKILL") groupKilled = true;
     if (process.platform === "win32") child.kill(signal);
     else {
       try {
-        // The interpreter owns a separate group, including vendor descendants.
+        // The fixed supervisor anchors this group until the single final kill.
         process.kill(-child.pid, signal);
       } catch (error) {
         if (!(error instanceof Error && "code" in error && error.code === "ESRCH"))
@@ -85,7 +103,7 @@ export async function runVendorScript(
   const stop = (signal: NodeJS.Signals) => {
     interrupted ??= signal;
     abort.abort();
-    terminate(childClosed ? "SIGKILL" : signal);
+    terminate(signal);
     if (childClosed) return;
     // Finish before TerminalManager.stopSession's one-second helper kill fallback.
     escalation ??= setTimeout(() => {
@@ -123,14 +141,41 @@ export async function runVendorScript(
     }
     abort.signal.throwIfAborted();
     outcome = await new Promise<number>((resolve) => {
-      child = spawn(`/bin/${script.interpreter}`, [path, ...script.arguments], {
-        cwd: home,
-        env,
-        shell: false,
-        stdio: "inherit",
-        detached: process.platform !== "win32",
-      });
+      const posix = process.platform !== "win32";
+      child = spawn(
+        posix ? "/bin/sh" : `/bin/${script.interpreter}`,
+        posix
+          ? [
+              "-c",
+              installerSupervisor,
+              "foom-installer",
+              `/bin/${script.interpreter}`,
+              path,
+              ...script.arguments,
+            ]
+          : [path, ...script.arguments],
+        {
+          cwd: home,
+          env,
+          shell: false,
+          stdio: posix ? ["inherit", "inherit", "inherit", "pipe", "pipe"] : "inherit",
+          detached: posix,
+        },
+      );
       let failed = false;
+      let reported: number | undefined;
+      let report = "";
+      child.stdio[3]?.on("data", (bytes: Buffer) => {
+        report += bytes.toString("ascii");
+        // Only the fixed supervisor owns this fd; descendants cannot inherit it.
+        if (report.length > 4 || !/^\d{1,3}\n$/.test(report)) {
+          if (report.length > 4 || report.includes("\n")) terminate("SIGKILL");
+          return;
+        }
+        const code = Number(report.trim());
+        if (code <= 255) reported = code;
+        terminate("SIGKILL");
+      });
       child.once("error", () => {
         failed = true;
       });
@@ -141,7 +186,9 @@ export async function runVendorScript(
             ? status()
             : failed
               ? 1
-              : (code ?? (signal ? 128 + constants.signals[signal] : 1)),
+              : posix
+                ? (reported ?? 1)
+                : (code ?? (signal ? 128 + constants.signals[signal] : 1)),
         );
       });
     });
@@ -149,7 +196,7 @@ export async function runVendorScript(
     if (!interrupted) process.stderr.write("Installer download or execution failed\n");
   } finally {
     try {
-      // A completed installer must not leave background workers running, even on success.
+      // Never signal a reaped group or repeat a kill: its numeric ID may be reused.
       terminate("SIGKILL");
     } finally {
       try {

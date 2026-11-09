@@ -544,6 +544,14 @@ test("local and registered-host vendor helpers clean private files and descendan
     `
 const {createRequire}=require('node:module');
 const load=createRequire(${JSON.stringify(path.resolve("build/main/main.js"))});
+const originalKill=process.kill.bind(process);
+process.kill=(pid,signal)=>{
+ if(pid<0 && signal==='SIGKILL') {
+  const state=require('node:child_process').execFileSync('/bin/ps',['-o','stat=','-p',String(-pid)],{encoding:'utf8'}).trim();
+  console.log('ANCHOR_KILL:'+state);
+ }
+ return originalKill(pid,signal);
+};
 const bodies=${JSON.stringify({ hangup: `${body}wait\n`, 0: `${body}exit 0\n`, 7: `${body}exit 7\n` })};
 globalThis.fetch=async()=>new Response(bodies[process.argv[3]]);
 (async()=>{
@@ -638,7 +646,12 @@ globalThis.fetch=async()=>new Response(bodies[process.argv[3]]);
             /* already exited */
           }
         }
-        return { exit, directoryExists, descendantState };
+        return {
+          exit,
+          directoryExists,
+          descendantState,
+          anchors: [...output.matchAll(/ANCHOR_KILL:([^\r\n]+)/gu)].map((match) => match[1]),
+        };
       },
       { modulePath: path.resolve("build/main/main.js"), root, bootstrap, shell, mode, completion },
     );
@@ -648,6 +661,8 @@ globalThis.fetch=async()=>new Response(bodies[process.argv[3]]);
       `${mode}:${completion}`,
     );
     assert.equal(result.directoryExists, false, mode);
+    assert.equal(result.anchors.length, 1, `${mode}:${completion}: one final group kill`);
+    assert.ok(!result.anchors[0].startsWith("Z"), `${mode}:${completion}: leader alive at kill`);
     assert.ok(
       !result.descendantState || result.descendantState.startsWith("Z"),
       `${mode}: ${result.descendantState}`,

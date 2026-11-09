@@ -370,8 +370,8 @@ process from independently downloading or executing vendor code.
 The recipe process prints the fixed HTTPS address, downloads at most 2 MiB with
 a 60-second deadline into a private temporary directory (0700) and file (0600),
 then invokes `/bin/sh` or `/bin/bash` with that file and manifest arguments.
-The interpreter has its own POSIX session/process group with inherited terminal
-stdin/stdout/stderr, so Foom can stop the installer group without killing the
+A fixed `/bin/sh` supervisor anchors its own POSIX session/process group with
+inherited terminal stdin/stdout/stderr, so Foom can stop the group without killing the
 cleanup helper. Ordinary terminal input is covered by the PTY fixture. The new
 session has no controlling `/dev/tty`; whether any vendor installer depends on
 that device remains part of live qualification.
@@ -382,7 +382,14 @@ stops the recipe; a package-manager command failure does not fall back silently.
 Foom does not support installers leaving background processes running. On every
 interpreter completion, success or failure, Foom sends SIGKILL to any remaining
 members of the installer process group before deleting the private files. The
-interpreter's exit status is preserved.
+interpreter's exit status is preserved. The supervisor receives the interpreter,
+private script path and manifest arguments as positional argv, never generated
+shell source. It reports the interpreter status over a separate pipe, then blocks
+on a helper-owned hold pipe until the group is killed. The helper sends that final
+kill once while the leader is still alive and waits for its close before file
+cleanup; it never signals a reaped group whose numeric ID could be reused.
+The interpreter cannot inherit either private pipe. Loss of the hold pipe makes
+the supervisor kill its own group.
 The file and directory are removed on success, download/spawn/script failure and
 handled HUP, INT, TERM or QUIT interruption. On interruption the helper signals
 the interpreter process group, escalates to SIGKILL after 250 ms if needed
