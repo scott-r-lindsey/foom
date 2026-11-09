@@ -357,16 +357,44 @@ export function notarizationSession({
         );
       return deadline - now();
     };
+    let lastPollError;
     const query = async (operation, target) => {
-      const output = await execute(
-        "xcrun",
-        ["notarytool", operation, target, ...auth, "--output-format", "json"],
-        { timeout: Math.min(queryTimeoutMs, remaining()), killSignal: "SIGKILL" },
-      );
-      try {
-        return JSON.parse(output);
-      } catch {
-        throw new Error(`notarytool ${operation} returned invalid JSON`);
+      while (true) {
+        let output;
+        try {
+          output = await execute(
+            "xcrun",
+            ["notarytool", operation, target, ...auth, "--output-format", "json"],
+            { timeout: Math.min(queryTimeoutMs, remaining()), killSignal: "SIGKILL" },
+          );
+        } catch (error) {
+          // Inspect only explicit tool error codes, never print Apple's response
+          // body. Authentication/signing failures take precedence over transport.
+          const httpCodes = [
+            ...error.message.matchAll(
+              /\b(?:statusCode\s*:\s*(?:Optional\(\s*)?|HTTP(?:\/\d(?:\.\d)?)?\s+)([45]\d{2})\b/gi,
+            ),
+          ].map((match) => match[1]);
+          const urlCode = /\bNSURLErrorDomain\s+Code\s*=\s*(-\d+)\b/i.exec(error.message)?.[1];
+          const permanent =
+            httpCodes.some((code) => code.startsWith("4")) ||
+            /\bauthentication\b|\bunauthorized\b|\bforbidden\b|\bcertificate\b|\bsignature\b/i.test(
+              error.message,
+            );
+          const code =
+            httpCodes.find((code) => code.startsWith("5")) ??
+            (["-1001", "-1003", "-1004", "-1005", "-1009"].includes(urlCode) ? urlCode : undefined);
+          if (permanent || !code) throw error;
+          lastPollError = new Error(`notarytool ${operation} ${target}: status code ${code}`);
+          report(lastPollError.message);
+          await wait(Math.min(pollMs, remaining()));
+          continue;
+        }
+        try {
+          return JSON.parse(output);
+        } catch {
+          throw new Error(`notarytool ${operation} returned invalid JSON`);
+        }
       }
     };
     let lastStaplerError;
@@ -465,7 +493,7 @@ export function notarizationSession({
     } catch (error) {
       // Include all IDs even on tool errors/timeouts. Never echo unsanitized
       // tool output, JSON parse errors or credentials supplied outside env.
-      const message = `${now() >= deadline ? "Notarization deadline exceeded; " : ""}${error.message}${lastStaplerError && lastStaplerError !== error ? `; last stapler error: ${lastStaplerError.message}` : ""}; submissions: ${history() || "none"}`;
+      const message = `${now() >= deadline ? "Notarization deadline exceeded; " : ""}${error.message}${now() >= deadline && lastPollError ? `; last poll error: ${lastPollError.message}` : ""}${lastStaplerError && lastStaplerError !== error ? `; last stapler error: ${lastStaplerError.message}` : ""}; submissions: ${history() || "none"}`;
       // Deliberately create a sanitized error without the raw tool error as
       // cause: Node prints causes and their argv/stdio in uncaught errors.
       const failure = new Error(safe(message));
