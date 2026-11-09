@@ -254,6 +254,27 @@ present menu whose facts do not stack. Neither earlier macOS nor Linux CI artifa
 recorded those final values; the original bare predicate timeout does not itself
 establish an incorrect grid layout.
 
+## Preview restore before native drags (#1056)
+
+The composition drag case waits for tile transition completion before sampling
+its shell-title coordinates. A decoded snapshot and a visible native preview do
+not mean restore geometry has settled. The case still observes the live preview
+and snapshot during maximize/restore, with the deliberately lengthened one-second
+transition; it then waits on the actual animation promises before starting the
+separate drag assertion. Maximize completes first so restore exercises its full
+travel rather than reversing an animation that has barely started.
+
+A controlled local trace held the restore transition at its first frame. Mouse-down
+at the shell title's measured `(315, 14)` instead hit the preview, whose left edge
+was still at 306 rather than 900. Native `dragstart` therefore selected the preview,
+and every `dragover` targeted that same tile. The product correctly suppresses a
+drop preview on the origin tile. The original test reproduced the missing
+`.tile-drop-preview` assertion; this establishes a fixture ordering defect, without
+claiming the older Windows reports recorded that same ordering. The case now also
+asserts that native drag-start selected the shell and reports a bounded input-event
+trace only on failure, so CI can distinguish a different native drag defect.
+No product hit testing, animation duration or test deadline changes.
+
 ## Quit acknowledgement ordering (#1056)
 
 The harness cancels an unprevented native `will-quit` after Foom's save, PTY
