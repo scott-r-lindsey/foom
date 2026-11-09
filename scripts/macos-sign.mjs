@@ -361,11 +361,12 @@ export function notarizationSession({
     const query = async (operation, target) => {
       while (true) {
         let output;
+        const timeout = Math.min(queryTimeoutMs, remaining());
         try {
           output = await execute(
             "xcrun",
             ["notarytool", operation, target, ...auth, "--output-format", "json"],
-            { timeout: Math.min(queryTimeoutMs, remaining()), killSignal: "SIGKILL" },
+            { timeout, killSignal: "SIGKILL" },
           );
         } catch (error) {
           // Inspect only explicit tool error codes, never print Apple's response
@@ -375,7 +376,7 @@ export function notarizationSession({
               /\b(?:statusCode\s*:\s*(?:Optional\(\s*)?|HTTP(?:\/\d(?:\.\d)?)?\s+)([45]\d{2})\b/gi,
             ),
           ].map((match) => match[1]);
-          const urlCode = /\bNSURLErrorDomain\s+Code\s*=\s*(-\d+)\b/i.exec(error.message)?.[1];
+          const urlCode = /\bNSURLErrorDomain\s+Code\s*=\s*(-\d{1,5})\b/i.exec(error.message)?.[1];
           const permanent =
             httpCodes.some((code) => code.startsWith("4")) ||
             /\bauthentication\b|\bunauthorized\b|\bforbidden\b|\bcertificate\b|\bsignature\b/i.test(
@@ -384,7 +385,23 @@ export function notarizationSession({
           const code =
             httpCodes.find((code) => code.startsWith("5")) ??
             (["-1001", "-1003", "-1004", "-1005", "-1009"].includes(urlCode) ? urlCode : undefined);
-          if (permanent || !code) throw error;
+          if (permanent || !code) {
+            const failureCode =
+              httpCodes.find((code) => code.startsWith("4")) ??
+              httpCodes[0] ??
+              urlCode ??
+              "unknown";
+            const exitStatus =
+              Number.isInteger(error.status) && error.status >= 0 && error.status <= 255
+                ? error.status
+                : "unknown";
+            // A fatal response can contain the same private HTML as a transient
+            // one. Propagate only bounded codes, without the raw error as cause.
+            const failure = new Error(
+              `notarytool ${operation} ${target}: status code ${failureCode}; exit status ${exitStatus}`,
+            );
+            throw failure;
+          }
           lastPollError = new Error(`notarytool ${operation} ${target}: status code ${code}`);
           report(lastPollError.message);
           await wait(Math.min(pollMs, remaining()));

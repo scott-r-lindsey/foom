@@ -858,7 +858,7 @@ else {
   const scenario = JSON.parse(process.env.FIXTURE_POLL_SCENARIO);
   const count = calls.filter(([op]) => op === operation).length;
   if (operation === scenario.operation && (scenario.repeat || count === 1)) {
-    console.error(scenario.error + '\\n<html>private-response-body poll-secret-key poll-secret-id poll-secret-issuer</html>');
+    console.error(scenario.error + '\\n<html>private-response-body 55555 poll-secret-key poll-secret-id poll-secret-issuer</html>');
     process.exit(1);
   }
   console.log(JSON.stringify(operation === 'log' ? {issues: ['fixture issue']} : {status: scenario.status || 'Accepted'}));
@@ -878,15 +878,23 @@ else {
       code: String(code),
     })),
     { error: "HTTP 502 Bad Gateway", code: "502", repeat: true },
-    { error: "HTTP 401 Unauthorized", fatal: true },
-    { error: "HTTP 403 Forbidden", fatal: true },
-    { error: "HTTP 504 certificate failure", fatal: true },
-    { error: "HTTP 504 Invalid signature", fatal: true },
-    { error: "NSURLErrorDomain Code=-1200", fatal: true },
-    { error: "unrecognized tool failure", fatal: true },
+    ...["info", "log"].flatMap((operation) =>
+      [
+        { error: "HTTP 401 Unauthorized", code: "401" },
+        { error: "HTTP 403 Forbidden", code: "403" },
+        { error: "HTTP 504 certificate failure", code: "504" },
+        { error: "HTTP 504 Invalid signature", code: "504" },
+        { error: "NSURLErrorDomain Code=-1200", code: "-1200" },
+        { error: "unrecognized tool failure", code: "unknown" },
+      ].map((scenario) => ({
+        ...scenario,
+        fatal: true,
+        operation,
+        ...(operation === "log" ? { status: "Invalid" } : {}),
+      })),
+    ),
     { error: "HTTP 504", code: "504", operation: "log", status: "Invalid" },
     { error: "HTTP 503", code: "503", operation: "log", status: "Rejected", repeat: true },
-    { error: "HTTP 401 Unauthorized", fatal: true, operation: "log", status: "Invalid" },
   ];
   for (const scenario of cases) {
     const operation = scenario.operation ?? "info";
@@ -944,6 +952,16 @@ else {
     );
     if (scenario.status) assert.equal(calls.filter(([op]) => op === "info").length, 1);
     assert.deepEqual(waits, scenario.repeat ? [30, 30, 30, 10] : scenario.fatal ? [] : [30]);
+    if (scenario.fatal) {
+      assert.ok(
+        messages
+          .join("\n")
+          .includes(
+            `notarytool ${operation} id-second.dmg: status code ${scenario.code}; exit status 1`,
+          ),
+      );
+      assert.ok(!messages.join("\n").includes("unrecognized tool failure"));
+    }
     if (!scenario.fatal) {
       for (const line of messages.filter(
         (line) =>
@@ -958,8 +976,9 @@ else {
           ),
         );
       }
-      assert.ok(!messages.join("\n").includes("private-response-body"));
     }
+    for (const body of ["private-response-body", "55555", "<html>"])
+      assert.ok(!messages.join("\n").includes(body));
     for (const secret of Object.values(credentials))
       assert.ok(!messages.join("\n").includes(secret));
   }

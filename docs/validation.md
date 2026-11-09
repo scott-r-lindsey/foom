@@ -406,7 +406,9 @@ and logs its ID as soon as the tool prints it. Info and log queries are bounded 
 one minute (or the remaining budget). Info and log queries retry HTTP 5xx and
 NSURL transport codes -1001, -1003, -1004, -1005 and -1009 every 30 seconds within
 that shared deadline. Each transient failure logs only its timestamp, submission
-ID, query operation and status code, never the response body or credentials.
+ID, query operation and status code. Fatal info/log failures report only the
+query operation, submission ID, HTTP or NSURL code (or unknown), and tool exit
+status (or unknown); response bodies and credentials never enter poll diagnostics.
 Authentication errors (including 401/403), certificate and signature failures,
 and Invalid or Rejected statuses remain fatal; only retrieving their issues log
 may retry. Deadline exhaustion includes the last poll error and all submission
