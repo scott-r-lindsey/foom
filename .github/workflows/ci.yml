@@ -178,7 +178,6 @@ jobs:
       matrix:
         include: ${{ fromJSON(needs.changes.outputs.desktop_matrix) }}
     env:
-      electron_config_cache: ${{ runner.temp }}/electron-cache
       FOOM_ELECTRON_SHARD: ${{ matrix.shard }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -204,6 +203,8 @@ jobs:
           key: electron-${{ runner.os }}-${{ runner.arch }}-${{ steps.electron.outputs.version }}
       - name: Prepare Electron binary
         timeout-minutes: 3
+        env:
+          DEBUG: '@electron/get:index'
         # Electron 44 can download lazily on require; keep network setup outside
         # the first Playwright launch deadline and the desktop test budget.
         run: node .github/scripts/prepare-electron.mjs
@@ -372,8 +373,6 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04, windows-2025, macos-15]
-    env:
-      electron_config_cache: ${{ runner.temp }}/electron-cache
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -398,6 +397,8 @@ jobs:
           key: electron-${{ runner.os }}-${{ runner.arch }}-${{ steps.electron.outputs.version }}
       - name: Prepare Electron binary
         timeout-minutes: 3
+        env:
+          DEBUG: '@electron/get:index'
         # Electron 44 can download lazily on require; keep network setup outside
         # the first Playwright launch deadline and the desktop test budget.
         run: node .github/scripts/prepare-electron.mjs packaging
@@ -463,6 +464,8 @@ jobs:
           path: .cache/remote-host-inputs
           merge-multiple: true
       - name: Package desktop application
+        env:
+          DEBUG: '@electron/get:index'
         run: pnpm run make
       - name: Verify macOS ad-hoc signature after packaging and fuses
         if: runner.os == 'macOS'

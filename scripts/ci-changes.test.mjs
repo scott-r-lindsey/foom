@@ -9,6 +9,7 @@ test("Electron preparation retries only transient downloads, at most three times
     Object.assign(new Error("HTTP 504"), { response: { status: 504 } }),
     new Error("fetch failed", { cause: Object.assign(new Error("reset"), { code: "ECONNRESET" }) }),
     Object.assign(new Error("timed out"), { name: "TimeoutError" }),
+    Object.assign(new Error("DNS lookup failed"), { code: "ENOTFOUND" }),
   ]) {
     let attempts = 0;
     const delays = [];
@@ -30,9 +31,14 @@ test("Electron preparation retries only transient downloads, at most three times
     assert.match(messages.join("\n"), /attempt 1\/3.*retrying in 2s/);
     attempts = 0;
     assert.equal(
-      await retryDownload(() => (++attempts === 1 ? download() : "cached"), options),
+      await retryDownload(() => {
+        attempts++;
+        if (attempts === 1) throw error;
+        return "cached";
+      }, options),
       "cached",
     );
+    assert.equal(attempts, 2);
   }
   for (const error of [
     Object.assign(new Error("HTTP 404"), { response: { status: 404 } }),
@@ -132,7 +138,7 @@ test("desktop and packaging share exact-version Electron caches without changing
   const workflow = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
   for (const name of ["desktop", "platform"]) {
     const job = workflow.split(`\n  ${name}:\n`)[1].split(/\n {2}[a-z-]+:\n/)[0];
-    assert.match(job, /electron_config_cache: \$\{\{ runner.temp \}\}\/electron-cache/);
+    assert.doesNotMatch(job.split("    steps:\n")[0], /runner\./);
     assert.match(job, /uses: actions\/cache@[a-f0-9]{40} # v5/);
     assert.match(job, /path: \$\{\{ runner.temp \}\}\/electron-cache/);
     assert.match(
@@ -141,6 +147,7 @@ test("desktop and packaging share exact-version Electron caches without changing
     );
     assert.doesNotMatch(job, /restore-keys:|continue-on-error:|permissions:|secrets\./);
     assert.match(job, /name: Prepare Electron binary\n {8}timeout-minutes: 3/);
+    assert.match(job, /DEBUG: '@electron\/get:index'/);
     assert.match(job, /run: node \.github\/scripts\/prepare-electron.mjs/);
     assert.ok(job.indexOf("Cache Electron downloads") < job.indexOf("Prepare Electron binary"));
     if (name === "platform") {
@@ -150,6 +157,41 @@ test("desktop and packaging share exact-version Electron caches without changing
   }
   const release = workflow.split("\n  macos-sign:\n")[1];
   assert.doesNotMatch(release, /actions\/cache@|prepare-electron.mjs|electron_config_cache/);
+});
+
+test("Electron cache identity CLI reports only the exact frozen lockfile version", async () => {
+  const { spawnSync } = await import("node:child_process");
+  const { mkdtempSync, readFileSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const directory = mkdtempSync(join(tmpdir(), "foom-electron-identity-"));
+  try {
+    const output = join(directory, "github-output");
+    const envFile = join(directory, "github-env");
+    const result = spawnSync(
+      process.execPath,
+      [fileURLToPath(new URL("../.github/scripts/prepare-electron.mjs", import.meta.url)), "cache"],
+      {
+        env: { ...process.env, GITHUB_OUTPUT: output, GITHUB_ENV: envFile, RUNNER_TEMP: directory },
+        encoding: "utf8",
+      },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, "", "identity must not require/download the Electron binary");
+    const lockfile = readFileSync(new URL("../pnpm-lock.yaml", import.meta.url), "utf8");
+    const version = lockfile.match(
+      / {6}electron:\n {8}specifier: [^\n]+\n {8}version: ([^\n]+)/,
+    )?.[1];
+    assert.ok(version);
+    assert.equal(readFileSync(output, "utf8"), `version=${version}\n`);
+    assert.equal(
+      readFileSync(envFile, "utf8"),
+      `electron_config_cache=${join(directory, "electron-cache")}\n`,
+    );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 const base = "a".repeat(40);

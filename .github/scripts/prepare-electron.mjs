@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { appendFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { join } from "node:path";
 import { setTimeout } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 
@@ -18,6 +19,7 @@ export function transientDownloadError(error) {
       "ECONNREFUSED",
       "ETIMEDOUT",
       "EAI_AGAIN",
+      "ENOTFOUND",
       "ENETUNREACH",
       "EHOSTUNREACH",
       "UND_ERR_CONNECT_TIMEOUT",
@@ -62,6 +64,10 @@ async function main() {
   if (process.argv[2] === "cache") {
     // pnpm's frozen installation resolves this exact version from the lockfile.
     appendFileSync(process.env.GITHUB_OUTPUT, `version=${version}\n`);
+    appendFileSync(
+      process.env.GITHUB_ENV,
+      `electron_config_cache=${join(process.env.RUNNER_TEMP, "electron-cache")}\n`,
+    );
     return;
   }
   const { downloadArtifact } = await import("@electron/get");
