@@ -48,7 +48,10 @@ completion is consumed. Settings must load before sound; later settings events t
 precedence over a pending initial load. No terminal text enters audio.
 
 `renderer/sound/web-audio.ts` owns one loop, one verdict voice and an independent
-Refusal voice. Full tile placement no longer calls Refusal. The retained Refusal preview obeys Alerts and its
+Refusal voice. Foreground terminal opens and sidebar preview opens play Refusal
+once when placement hits the tile layout's size limit, while retaining the visual
+message. Background opens and agent-requested previews stay silent. The audio-owning
+window plays forwarded refusals from other windows. Refusal obeys Alerts and its
 volume without verdict settling or debounce. Context resume, gain ramps, asynchronous
 decode cancellation and cleanup are owned here. Audio failure leaves terminals and
 visual status operational. Settings previews stop on replacement/unmount and after

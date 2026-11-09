@@ -340,3 +340,36 @@ test("sidebar footer zoom and master volume stay synchronized and presets are ab
   await expect(footer.getByRole("group", { name: "Zoom", exact: true })).toBeHidden();
   await expect(volume).toBeHidden();
 });
+
+test("secondary window forwards Refusal through windows:refuse to the audio owner", async (context) => {
+  const app = await launchApp(context, { fixture: "empty-board" });
+  const first = await boardPage(app);
+  await installSoundSink(first);
+  await first.evaluate(async () => {
+    const state = await window.desktop.setupState();
+    await window.desktop.saveSetup({
+      sound: { ...state.settings.sound, alerts: true, alertVolume: 0.5, muted: false, volume: 1 },
+    });
+    await window.desktop.appMenu.execute("new-window");
+  });
+  let second;
+  await expect
+    .poll(() => {
+      second = app
+        .windows()
+        .find((page) => page !== first && page.url() === "app://bundle/index.html");
+      return Boolean(second);
+    })
+    .toBe(true);
+  await second.evaluate(() => {
+    window.refusalEvents = 0;
+    window.desktop.windows.audio.onRefuse(() => {
+      window.refusalEvents++;
+    });
+  });
+  assert.equal((await first.evaluate(() => window.desktop.windows.audio.state())).enabled, true);
+  assert.equal((await second.evaluate(() => window.desktop.windows.audio.state())).enabled, false);
+  await second.evaluate(() => window.desktop.windows.audio.refuse());
+  await expect.poll(() => first.evaluate(() => window.soundTones.length)).toBe(1);
+  assert.equal(await second.evaluate(() => window.refusalEvents), 0);
+});
