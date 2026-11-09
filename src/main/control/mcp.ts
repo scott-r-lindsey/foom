@@ -8,7 +8,27 @@ import type { Principal } from "./types";
 import { ControlError, exact, object } from "../../shared/control-validation";
 import { MCP_ID_LIMIT, mcpToolResponse } from "../../node-common/mcp-response";
 
-import { MCP_VERSIONS as versions, negotiateMcpVersion } from "../../shared/mcp-protocol";
+import {
+  type MCP_ERROR_FIELDS,
+  MCP_VERSIONS as versions,
+  negotiateMcpVersion,
+} from "../../shared/mcp-protocol";
+/** Only fixed schema paths cross the HTTP diagnostic boundary; never payload values. */
+export class McpValidationError extends ControlError {
+  constructor(readonly field: (typeof MCP_ERROR_FIELDS)[number]) {
+    super("invalid_request");
+  }
+}
+function record(value: unknown, field: (typeof MCP_ERROR_FIELDS)[number]): Record<string, unknown> {
+  try {
+    return object(value);
+  } catch {
+    throw new McpValidationError(field);
+  }
+}
+function requireField(valid: boolean, field: (typeof MCP_ERROR_FIELDS)[number]): void {
+  if (!valid) throw new McpValidationError(field);
+}
 const REFUSED =
   "forbidden: you are not this repository's Foom orchestrator. Only the human can grant that role; call whoami to check.";
 const instructions =
@@ -27,13 +47,13 @@ export class ControlMcp {
     this.service.assertActive(actor);
     const version = headers["mcp-protocol-version"];
     if (version !== undefined && (typeof version !== "string" || !versions.includes(version)))
-      throw new ControlError("invalid_request");
+      throw new McpValidationError("mcp-protocol-version");
     const id = headers["mcp-session-id"];
     if (id !== undefined || method !== "POST") {
       const session = this.sessions.get(actor.generation);
       if (!session || session.id !== id) throw new ControlError("not_found");
       if (version !== undefined && version !== session.version)
-        throw new ControlError("invalid_request");
+        throw new McpValidationError("mcp-protocol-version");
       if (method === "DELETE") this.sessions.delete(actor.generation);
     }
   }
@@ -44,44 +64,52 @@ export class ControlMcp {
     input: unknown,
   ): Promise<{ status: number; body?: unknown; sessionId?: string }> {
     this.transport(actor, headers, "POST");
-    const request = object(input);
-    exact(request, ["jsonrpc", "id", "method", "params"]);
+    // MCP schemas permit extension properties. Only selected protocol fields are
+    // consumed here; tool arguments still pass the service's exact validators.
+    const request = record(input, "request");
     const id = request["id"];
-    if (
-      request["jsonrpc"] !== "2.0" ||
-      typeof request["method"] !== "string" ||
-      (id !== undefined &&
-        !(typeof id === "string" && id.length <= MCP_ID_LIMIT) &&
-        !(typeof id === "number" && Number.isSafeInteger(id)))
-    )
-      throw new ControlError("invalid_request");
-    const params = object(request["params"] ?? {});
+    requireField(request["jsonrpc"] === "2.0", "jsonrpc");
+    requireField(typeof request["method"] === "string", "method");
+    requireField(
+      id === undefined ||
+        (typeof id === "string" && id.length <= MCP_ID_LIMIT) ||
+        (typeof id === "number" && Number.isSafeInteger(id)),
+      "id",
+    );
+    const params = record(request["params"] === undefined ? {} : request["params"], "params");
     if (params["_meta"] !== undefined) {
-      object(params["_meta"]);
-      delete params["_meta"];
+      const meta = record(params["_meta"], "params._meta");
+      const progress = meta["progressToken"];
+      requireField(
+        id === undefined ||
+          progress === undefined ||
+          typeof progress === "string" ||
+          (typeof progress === "number" && Number.isFinite(progress)),
+        "params._meta.progressToken",
+      );
     }
     const result = (value: unknown) => ({
       status: 200,
       body: { jsonrpc: "2.0", id, result: value },
     });
     if (request["method"] === "initialize") {
-      exact(params, ["protocolVersion", "capabilities", "clientInfo"]);
-      if (
-        id === undefined ||
-        headers["mcp-session-id"] !== undefined ||
-        typeof params["protocolVersion"] !== "string"
-      )
-        throw new ControlError("invalid_request");
-      object(params["capabilities"]);
-      const client = object(params["clientInfo"]);
-      if (typeof client["name"] !== "string" || typeof client["version"] !== "string")
-        throw new ControlError("invalid_request");
+      requireField(id !== undefined, "id");
+      requireField(headers["mcp-session-id"] === undefined, "mcp-session-id");
+      const requestedVersion = params["protocolVersion"];
+      if (typeof requestedVersion !== "string")
+        throw new McpValidationError("params.protocolVersion");
+      record(params["capabilities"], "params.capabilities");
+      const client = record(params["clientInfo"], "params.clientInfo");
+      requireField(typeof client["name"] === "string", "params.clientInfo.name");
+      requireField(typeof client["version"] === "string", "params.clientInfo.version");
+      // Optional implementation metadata and client capabilities are unused. In
+      // particular, never fetch clientInfo icons/URLs or treat capabilities as grants.
       for (const generation of this.sessions.keys()) {
         if (!this.service.live(generation)) this.sessions.delete(generation);
       }
       const session = {
         id: randomUUID(),
-        version: negotiateMcpVersion(params["protocolVersion"]),
+        version: negotiateMcpVersion(requestedVersion),
         ready: false,
       };
       this.sessions.set(actor.generation, session);
@@ -97,16 +125,14 @@ export class ControlMcp {
     }
     const session = this.sessions.get(actor.generation);
     if (!session || headers["mcp-session-id"] !== session.id)
-      throw new ControlError("invalid_request");
+      throw new McpValidationError("mcp-session-id");
     if (id === undefined) {
       if (request["method"] === "notifications/initialized") {
-        exact(params, []);
         session.ready = true;
       }
       return { status: 202 };
     }
     if (request["method"] === "ping") {
-      exact(params, []);
       return result({});
     }
     if (!session.ready) throw new ControlError("invalid_request");
@@ -117,11 +143,18 @@ export class ControlMcp {
       ).filter((tool) => tool.name === name),
     );
     if (request["method"] === "tools/list") {
-      exact(params, []);
+      requireField(
+        params["cursor"] === undefined || typeof params["cursor"] === "string",
+        "params.cursor",
+      );
       return result({ tools: available });
     }
     if (request["method"] === "tools/call") {
-      exact(params, ["name", "arguments", "_meta"]);
+      requireField(typeof params["name"] === "string", "params.name");
+      if (params["arguments"] !== undefined) record(params["arguments"], "params.arguments");
+      // Foom does not advertise task-augmented execution. Never silently run a
+      // requested background task synchronously (which could duplicate effects).
+      requireField(params["task"] === undefined, "params.task");
       try {
         if (
           params["name"] !== "handoff" &&
