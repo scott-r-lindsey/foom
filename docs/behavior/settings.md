@@ -409,12 +409,16 @@ clipboard writes. This preference is available only in Settings, not config file
 ### New SSH host keys (#1059)
 
 An unknown SSH key shows **Host key not trusted** and **Trust host key** in Hosts.
+The SSH row and any Git access to origin row with that same reason use amber text
+and the steady needs-you halo, rather than the magenta failure marker. Changed
+keys and other real SSH failures remain magenta. The output panel's generic
+**Failed** header still describes the unsuccessful check run.
 The trusted confirmation shows the host, key type and fingerprint. Verify it
 against a trusted source before choosing **Trust host key**. Cancel is focused;
 Cancel, Escape and close decline. OpenSSH saves an accepted key, then Foom reruns
 the first check automatically for a host that has never passed. Check output
 appears in the existing read-only panel. Established hosts require an explicit
-Check capabilities after trust. Declining keeps the failed state.
+Check capabilities after trust. Declining keeps the needs-you state.
 
 Changed keys show **Host key changed** with no trust action; repair those manually.
 Authentication failures show **Login rejected**; other failures show **Host

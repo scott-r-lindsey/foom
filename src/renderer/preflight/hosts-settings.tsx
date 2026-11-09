@@ -64,6 +64,9 @@ function HostCheckOutput({ output, dismiss }: { output: HostOutput; dismiss: () 
 }
 
 type Tone = "pass" | "need" | "fail" | "neutral" | "work";
+function failureTone(reason: HostFailure): "need" | "fail" {
+  return reason === "host-key-unknown" ? "need" : "fail";
+}
 function Status({ tone, children }: { tone: Tone; children: ReactNode }) {
   return (
     <span className={`host-status host-${tone}`}>
@@ -156,7 +159,7 @@ function checkPresentation(
   if (check?.state === "pass") return { tone: "pass", text: `Pass · ${pass}` };
   if (check?.state === "fail")
     return {
-      tone: "fail",
+      tone: failureTone(check.reason),
       text: ["host-key-unknown", "host-key-changed", "login-rejected"].includes(check.reason)
         ? reasons[check.reason]
         : `${reasons[check.reason]} · ${check.reason}`,
@@ -380,7 +383,7 @@ function Checklist({
         ![connection?.ssh, connection?.platform, connection?.artifact].some(
           (check) => check?.state === "fail" && check.reason === result.reason,
         ) && (
-          <p className="hosts-failure" role="status">
+          <p className={`host-${failureTone(result.reason)}`} role="status">
             {reasons[result.reason]}
           </p>
         )}
@@ -1241,7 +1244,9 @@ export function HostsSettings({
                 )}
                 {entry.result && !entry.result.ok && preflight?.result.ok && (
                   <p role="status">
-                    <Status tone="fail">{reasons[entry.result.reason]}</Status>
+                    <Status tone={failureTone(entry.result.reason)}>
+                      {reasons[entry.result.reason]}
+                    </Status>
                   </p>
                 )}
                 {entry.result?.ok && (

@@ -2178,11 +2178,36 @@ test("Hosts accepts new SSH keys only through the trusted askpass dialog", {
       (mode) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${mode}` }),
       mode,
     );
+    for (const name of ["SSH", "Git access to origin"]) {
+      const row = card
+        .locator(".host-check-row")
+        .filter({ has: page.getByText(name, { exact: true }) });
+      const status = row.locator(".host-status");
+      await expect(status).toHaveClass(/host-need/u);
+      await expect(status).toHaveCSS(
+        "color",
+        mode === "light" ? "rgb(140, 80, 0)" : "rgb(255, 178, 62)",
+      );
+      const marker = status.locator(".host-symbol");
+      await expect(marker).toHaveText("");
+      await expect(marker).toHaveCSS("border-radius", "50%");
+      await expect(marker).not.toHaveCSS("box-shadow", "none");
+      await expect(marker).toHaveCSS(
+        "background-color",
+        mode === "light" ? "rgb(217, 130, 0)" : "rgb(255, 178, 62)",
+      );
+    }
     await trust.click();
     await expect(
       dialog.getByRole("heading", { name: "Trust host key?", exact: true }),
     ).toBeVisible();
     await expect(dialog.getByRole("button", { name: "Cancel", exact: true })).toBeFocused();
+    await expect(
+      dialog.getByText(
+        "Compare this fingerprint with a trusted source before accepting. OpenSSH will save this key in known_hosts.",
+        { exact: true },
+      ),
+    ).toBeVisible();
     await expect(dialog.getByText(`SHA256:${"a".repeat(43)}`, { exact: true })).toBeVisible();
     if (screenshots)
       await dialog.screenshot({ path: evidencePath(`1059/trust-dialog-${mode}.png`) });
@@ -2199,6 +2224,12 @@ test("Hosts accepts new SSH keys only through the trusted askpass dialog", {
   await updateScenario({ sshFailure: "changed" });
   await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
   await expect(card.getByText("Host key changed", { exact: true }).first()).toBeVisible();
+  const changedStatuses = card.locator(".host-status").filter({ hasText: "Host key changed" });
+  await expect(changedStatuses).toHaveCount(2);
+  for (const status of await changedStatuses.all()) {
+    await expect(status).toHaveClass(/host-fail/u);
+    await expect(status.locator(".host-symbol")).toHaveText("×");
+  }
   await expect(trust).toHaveCount(0);
   assert.equal(await readFile(knownHosts, "utf8"), "fixture-cloud fixture-key\n");
   await updateScenario({ loginRejected: true });

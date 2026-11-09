@@ -1483,3 +1483,41 @@ test("unknown SSH keys offer only the host-specific trust action or copyable fal
     expect(api).toHaveBeenCalledWith({ action: "cancel-trust" });
   }
 });
+
+test.each(["host-key-unknown", "host-key-changed", "login-rejected", "unreachable"] as const)(
+  "SSH and origin rows present %s with the appropriate status shape and tone",
+  async (reason) => {
+    const check = { state: "fail" as const, reason };
+    const result = { ok: false as const, reason: "unreachable" as const };
+    await mount({
+      ...initial,
+      hosts: [{ ...host, result }],
+      preflight: {
+        ...preflight,
+        ssh: check,
+        result,
+        repositories: [{ repository: "/local/project", origin: check, checkout: result }],
+      },
+    });
+    const card = screen.getByRole("region", { name: "worker" });
+    for (const name of ["SSH", "Git access to origin"]) {
+      const row = within(card).getByText(name, { exact: true }).closest(".host-check-row");
+      const status = row?.querySelector(".host-status");
+      expect(
+        status?.classList.contains(reason === "host-key-unknown" ? "host-need" : "host-fail"),
+      ).toBe(true);
+      expect(status?.querySelector(".host-symbol")?.textContent).toBe(
+        reason === "host-key-unknown" ? "" : "×",
+      );
+      expect(status?.textContent).toContain(
+        reason === "host-key-unknown"
+          ? "Host key not trusted"
+          : reason === "host-key-changed"
+            ? "Host key changed"
+            : reason === "login-rejected"
+              ? "Login rejected"
+              : "Host unreachable",
+      );
+    }
+  },
+);
