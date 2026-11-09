@@ -2776,7 +2776,8 @@ test("clone dispatch refuses an origin changed by its final asynchronous read", 
 test("host removal awaits session inventory repair after forgetting registration and supports unsubscribe", async () => {
   await hosts.action({ action: "add", host: "worker", codeFolder: "~/code" });
   const gate = Promise.withResolvers<undefined>();
-  const repair = vi.fn(() => {
+  const repair = vi.fn((host: string) => {
+    expect(host).toBe("worker");
     expect(settings.registeredHosts).toEqual([]);
     return gate.promise;
   });

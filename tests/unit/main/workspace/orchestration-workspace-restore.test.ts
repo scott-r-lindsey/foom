@@ -776,7 +776,7 @@ it("forgetting a host retires child references while preserving owned checkout s
   );
   deps.sessions = { load: () => Promise.resolve(entries), save, flush: () => Promise.resolve() };
   let registered = true;
-  let removed: (() => Promise<void>) | undefined;
+  let removed: ((host: string) => Promise<void>) | undefined;
   const unsubscribe = vi.fn();
   type HostDependencies = NonNullable<WorkspaceDependencies["hosts"]>;
   deps.hosts = {
@@ -809,7 +809,7 @@ it("forgetting a host retires child references while preserving owned checkout s
   });
   registered = false;
   expect(removed).toBeDefined();
-  await removed?.();
+  await removed?.("worker");
   expect(workspace.orchestration.view("child")).toBeUndefined();
   expect(workspace.orchestration.ownedWorktrees("parent")).toEqual(owned);
   expect(workspace.snapshot().terminals.map((row) => row.id)).toEqual(["parent", "live"]);
@@ -821,3 +821,61 @@ it("forgetting a host retires child references while preserving owned checkout s
   await workspace.dispose();
   expect(unsubscribe).toHaveBeenCalledOnce();
 });
+
+it.each(["agent", "shell", "invalid"])(
+  "retains only a validated explicit %s developer host for saved cleanup",
+  async (kind) => {
+    const { readSessions } = await import("../../../../src/main/workspace/session-store");
+    const previous = process.argv;
+    process.argv =
+      kind === "shell"
+        ? ["--remote-shell-spike=worker"]
+        : kind === "invalid"
+          ? ["--remote-agent-spike=worker"]
+          : [
+              "--remote-agent-spike=worker",
+              "--remote-agent-artifact=/fixture/host",
+              "--remote-agent-local-checkout=/different",
+              "--remote-agent-repository=/remote/repo",
+              "--remote-agent-worktree=/remote/tree",
+            ];
+    try {
+      const entries = readSessions([
+        {
+          id: "remote",
+          agent: "claude",
+          repository: repo.path,
+          worktree: child.path,
+          branch: "feature",
+          running: false,
+          remote: true,
+          placement: { kind: "remote", host: "worker" },
+        },
+      ]);
+      type HostDependencies = NonNullable<WorkspaceDependencies["hosts"]>;
+      deps.hosts = {
+        fleet: vi.fn<HostDependencies["fleet"]>(),
+        worktree: vi.fn<HostDependencies["worktree"]>(),
+        requireAgent: vi.fn<HostDependencies["requireAgent"]>(),
+        registered: () => {
+          throw new Error("Not registered");
+        },
+      };
+      deps.sessions = {
+        load: () => Promise.resolve(entries),
+        save: () => Promise.resolve(),
+        flush: () => Promise.resolve(),
+      };
+      const workspace = createWorkspace();
+      await workspace.restore();
+      expect(workspace.snapshot().terminals.map((row) => row.id)).toEqual(
+        kind === "invalid" ? [] : ["remote"],
+      );
+      await workspace.restartSaved();
+      expect(launch).not.toHaveBeenCalled();
+      await workspace.dispose();
+    } finally {
+      process.argv = previous;
+    }
+  },
+);

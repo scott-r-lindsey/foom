@@ -1,3 +1,4 @@
+import { remoteAgentTarget, remoteSpikeTarget } from "../terminals/remote-bootstrap";
 import { CheckoutHolds, worktreeReservation } from "./worktree-reservations";
 import type { CheckoutHold } from "./worktree-reservations";
 import type { StoredSession } from "./session-restore.d";
@@ -289,7 +290,16 @@ export class WorkspaceContext {
                 registeredHosts.registered(host);
                 return true;
               } catch {
-                return false;
+                // Explicit developer overrides retain metadata for manual cleanup,
+                // but never register a host or grant reattachment authority.
+                try {
+                  return (
+                    host === remoteAgentTarget(process.argv)?.target.host ||
+                    host === remoteSpikeTarget(process.argv)?.host
+                  );
+                } catch {
+                  return false;
+                }
               }
             },
             discover: () => discoverRemoteSessions(registeredHosts),
@@ -387,7 +397,9 @@ export class WorkspaceContext {
       },
       onChange: () => deps.onChange?.(),
     });
-    this.unsubscribeHostRemoval = registeredHosts?.onRemoved?.(() => this.sessions.pruneHosts());
+    this.unsubscribeHostRemoval = registeredHosts?.onRemoved?.((host) =>
+      this.sessions.pruneHosts(host),
+    );
     this.agents = deps.agents
       ? deps.agents(prepare, prepareControl)
       : new AgentService(

@@ -144,6 +144,13 @@ profiles left stale by older builds, with Restore sessions disabled as well as
 enabled. Host removal awaits the same inventory/persistence repair. Late remote
 discovery cannot reintroduce forgotten rows. Live attached tiles remain usable until
 exit or Close; all saves, including quit, exclude them, and exit removes their rows.
+Removal marks those specific tiles even if the host is re-enrolled before they exit.
+Runtime exit pruning requires that explicit removal mark: developer-spike sessions
+whose host was never registered retain their ordinary exit/resume behavior in this
+app lifetime. A host named by a currently validated, explicit developer spike
+override also retains its saved metadata for manual Close recovery; this does not
+register it or grant saved restore/fleet authority. Other unregistered placements
+are still pruned at startup.
 No pruning step sends remote stop, kill or session-close or closes a live connection.
 
 Dropped parents confer no saved authority: surviving records lose their parentId.

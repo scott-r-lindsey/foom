@@ -395,7 +395,7 @@ export async function selectHostArtifact(
 /** Explicit one-checkout developer mapping; no renderer/control host selection. */
 export function remoteAgentTarget(
   argv: readonly string[],
-  checkout: string,
+  checkout?: string,
 ): { target: RemoteTarget; repository: string; worktree: string } | undefined {
   const names = [
     "--remote-agent-spike=",
@@ -423,6 +423,6 @@ export function remoteAgentTarget(
     !remotePath(worktree)
   )
     throw new Error("Invalid remote agent mapping");
-  if (checkout !== local) return undefined;
+  if (checkout !== undefined && checkout !== local) return undefined;
   return { target: { host, artifact }, repository, worktree };
 }

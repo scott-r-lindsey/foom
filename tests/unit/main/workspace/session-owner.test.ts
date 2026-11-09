@@ -504,9 +504,13 @@ it("removes forgotten dormant/exited rows, keeps live connections until exit and
     identity: "a".repeat(64),
   });
   registered = false;
-  await f.owner.pruneHosts();
+  await f.owner.pruneHosts("worker");
   expect(removed).toEqual(["dormant", "exited"]);
   expect([...f.rows.keys()]).toEqual(["live", "cleanup", "local"]);
+  expect(f.store.save.mock.lastCall?.[0].map((entry) => entry.id)).toEqual(["cleanup", "local"]);
+  // Re-enrollment cannot resurrect persistence for a tile already forgotten.
+  registered = true;
+  await f.owner.save();
   expect(f.store.save.mock.lastCall?.[0].map((entry) => entry.id)).toEqual(["cleanup", "local"]);
   f.rows.set("live", row("live", { ...remote, exited: true, dormant: false }));
   f.owner.persist();
@@ -528,4 +532,23 @@ it("filters late discovery for forgotten hosts and propagates repair write failu
   await f.owner.restartSaved();
   expect(f.rows.size).toBe(0);
   expect(f.deps.launch).not.toHaveBeenCalled();
+});
+
+it("keeps never-registered developer sessions in runtime inventory until their own Close", async () => {
+  const f = fixture();
+  f.deps.registeredHost = () => false;
+  f.deps.removeRow = (id) => {
+    f.rows.delete(id);
+  };
+  f.rows.set(
+    "spike",
+    row("spike", { remote: true, placement: { kind: "remote", host: "developer" } }),
+  );
+  f.owner.persist();
+  expect(f.rows.has("spike")).toBe(true);
+  await f.owner.pruneHosts("different-host");
+  expect(f.rows.has("spike")).toBe(true);
+  expect(f.store.save.mock.lastCall?.[0]).toEqual([]);
+  await f.owner.pruneHosts("developer");
+  expect(f.rows.has("spike")).toBe(false);
 });

@@ -54,6 +54,7 @@ export class SessionOwner {
   private discovery: Promise<readonly StoredSession[]> | undefined;
   private quitting = false;
   private pruning = false;
+  private readonly forgottenSessions = new Set<string>();
 
   constructor(private readonly deps: SessionOwnerDependencies) {}
 
@@ -101,8 +102,9 @@ export class SessionOwner {
 
   private forgotten(entry: WorkspaceTerminal): boolean {
     return (
-      entry.placement?.kind === "remote" &&
-      this.deps.registeredHost?.(entry.placement.host) === false
+      this.forgottenSessions.has(entry.id) ||
+      (entry.placement?.kind === "remote" &&
+        this.deps.registeredHost?.(entry.placement.host) === false)
     );
   }
 
@@ -118,7 +120,11 @@ export class SessionOwner {
   }
 
   /** Forget metadata only; live connections and cleanup recovery stay intact. */
-  async pruneHosts(): Promise<void> {
+  async pruneHosts(host: string): Promise<void> {
+    for (const entry of this.deps.terminals()) {
+      if (entry.placement?.kind === "remote" && entry.placement.host === host)
+        this.forgottenSessions.add(entry.id);
+    }
     this.pruneRows();
     await this.save();
     this.deps.onChange?.();
@@ -132,7 +138,11 @@ export class SessionOwner {
       this.saved.clear();
       for (const entry of retained) this.saved.set(entry.id, entry);
       for (const entry of this.deps.terminals()) {
-        if (this.forgotten(entry) && !entry.closeState && (entry.exited || entry.dormant)) {
+        if (
+          this.forgottenSessions.has(entry.id) &&
+          !entry.closeState &&
+          (entry.exited || entry.dormant)
+        ) {
           this.restoring.delete(entry.id);
           this.unrestoredRoles.delete(entry.id);
           this.remotePlacements.delete(entry.id);
