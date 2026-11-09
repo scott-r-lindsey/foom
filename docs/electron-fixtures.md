@@ -631,9 +631,45 @@ this false readiness state. It then completes the command and waits for a render
 `REMOTE_LINK_READY` marker, produced with a split printf format so the marker
 cannot match command echo. Only then does it measure and click the OSC link. It
 asserts that the malformed-looking echo target and correct OSC target coexist,
-that the shell emits actual ESC/BEL bytes. Interactive shells may redraw edited
-input, so raw PTY echo is not required to contain the command contiguously. The fixture-only stream is retained in ignored
+and that the shell emits actual ESC/BEL bytes. Interactive shells may redraw edited
+input, so raw PTY echo is not required to contain the command contiguously. The
+fixture-only stream is retained in ignored
 `test-results/remote-link-readiness.json`. A unit regression feeds the echoed
 command and BEL-terminated OSC output through every OSC chunk boundary, keeping
 their targets separate. This distinguishes remote echo readiness from shell
 escape handling and OSC parsing without changing product URL rules.
+
+
+### Remote stream ownership and geometry (#1155)
+
+The link case refits the native window after retaining its initial overlay node,
+asserts that the old node was replaced, and clicks the visible segment through a
+locator for each native gesture. Segments are pointer-transparent decoration, so
+Playwright's force option directs the trusted click to xterm at the current
+segment position. No bounding box or pointer coordinate is retained across an
+output update or resize. This covers the detached/null-bounds signature as well
+as the transient command-echo URL.
+
+SSH fixture traces record bounded request/response metadata, process IDs and
+lifecycles under `test-results/remote-ssh-*.jsonl`; they exclude terminal text,
+input, credentials and full payloads. Daemon stderr is capped at 8192 bytes in the
+matching fixture-only `.daemon.log`. The replay case observes rendered producer
+completion, then requires exactly one owning SSH before deliberately killing it.
+A management request is made after the terminal opens, proving that the most
+recent generic SSH PID cannot identify the PTY connection. Owner selection is
+correlated with that terminal's successful open response. An unsolicited reopen
+before the deliberate loss remains a failure, with the trace retained.
+
+Colour records are keyed by the actual shell PID. The restart case queries two
+live PTYs with different palettes and requires both results independently; one
+PTY can no longer overwrite another's observation. Before quit, an explicit
+query confirms the requested application palette has actually been processed.
+Neither connection failures nor colour assertions are retried.
+
+The historical tail failure occurred at the large-output readiness poll before
+the deliberate SSH kill. Its stack shows `retireConnection` failing an outstanding
+request on SSH child exit, which rules out the later deliberate replay as its
+immediate cause. The old artifacts do not retain daemon exit facts or correlated
+protocol metadata, so they do not establish why that stream exited. The new
+fixture trace preserves those missing observations rather than attributing all
+five signatures to one unproven product race.
