@@ -248,6 +248,8 @@ for (const scenario of [
     ).toBeVisible();
     await confirmation.getByRole("button", { name: "Make orchestrator" }).click();
     await expect.poll(async () => (await call("whoami")).role).toBe("orchestrator");
+    // This fixture explicitly chooses its reviewer; production starts with no provider default.
+    await page.evaluate(() => window.desktop.saveSetup({ defaultAgent: "claude" }));
 
     const tree = await call("create_worktree", {
       ...(["binding", "unresolved"].includes(scenario)

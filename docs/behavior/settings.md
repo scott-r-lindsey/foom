@@ -405,3 +405,8 @@ Clipboard reads are always refused. Only the default or explicit clipboard targe
 is accepted; primary selection and other targets are ignored. Malformed or oversized
 writes are ignored. Showing a hidden terminal or reconnecting never repeats old
 clipboard writes. This preference is available only in Settings, not config files.
+
+General **Default agent** starts at None. It supplies omitted orchestration launch,
+one-shot review and review-loop agent parameters; explicit choices override it.
+Unavailable providers refuse without fallback. Config `defaultAgent` accepts a
+provider ID or null and applies live.

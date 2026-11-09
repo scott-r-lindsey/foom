@@ -134,10 +134,11 @@ const orchestration = (childLimit: number, agents: readonly string[]) =>
     {
       name: "review",
       description:
-        "Run one read-only Claude review in a new detached checkout at an open same-repository PR head. Does not change an author's review loop. Optional since is a full commit SHA; focus is quoted review scope. Returns an operation with the reviewer session ID. Read its structured verdict with read_handoff; stop and close it normally. Capacity, worktree identity and takeover rules apply. No forge writes unless postFindings is true.",
+        "Run one read-only review in a detached open same-repository PR checkout. Optional agent uses Settings default agent; agent_required if unset. since is a full commit SHA; focus is quoted scope. Returns an operation with reviewer ID. Read read_handoff, then stop and close it. The author loop is unchanged. Capacity, identity and takeover rules apply. No forge writes unless postFindings is true.",
       properties: {
         idempotencyKey: key,
         pullRequest: { type: "integer", minimum: 1 },
+        agent: { type: "string", enum: agents },
         since: { type: "string", pattern: "^[a-f0-9]{40}([a-f0-9]{24})?$" },
         focus: { type: "string", maxLength: 4096 },
         postFindings: { type: "boolean", default: false },
@@ -149,7 +150,7 @@ const orchestration = (childLimit: number, agents: readonly string[]) =>
     {
       name: "launch",
       description:
-        "Launch a child after earlier sessions in your worktree exit and close. Give it one task, acceptance criteria and limits. Children cannot orchestrate. PR/review settings persist; pullRequest binds an open same-repository PR before spawn. Review defaults: 3 rounds (max 5), Claude; shares capacity. The 16 KiB prompt includes the author brief. You remain the merge gate. resultId is the child ID. host_busy is retryable: wait, then use a new key or another host. Replies give pressure facts; older daemons allow unmeasured launches.",
+        "Launch a child in your worktree after earlier sessions close. Give it one task, acceptance criteria and limits. Children cannot orchestrate. Omitted agent uses Settings default or agent_required. Review defaults: 3 rounds (max 5), Settings default or review_agent_required; shares capacity. PR/review settings persist; pullRequest binds before spawn. The 16 KiB prompt includes the brief. You remain the merge gate. resultId is the child ID. host_busy: wait, then use a new key or another host. Replies include pressure; older hosts allow unmeasured launches.",
       properties: {
         idempotencyKey: key,
         worktreeId: id,
@@ -171,7 +172,7 @@ const orchestration = (childLimit: number, agents: readonly string[]) =>
             model: selectionToken,
             effort: selectionToken,
             rounds: { type: "integer", minimum: 1, maximum: 5, default: 3 },
-            agent: { type: "string", enum: agents, default: "claude" },
+            agent: { type: "string", enum: agents },
             parentWaitMinutes: {
               type: "integer",
               minimum: 1,
@@ -188,7 +189,7 @@ const orchestration = (childLimit: number, agents: readonly string[]) =>
           },
         },
       },
-      required: ["idempotencyKey", "worktreeId", "agent"],
+      required: ["idempotencyKey", "worktreeId"],
       readOnly: false,
       destructive: false,
     },

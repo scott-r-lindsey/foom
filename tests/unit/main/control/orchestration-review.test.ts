@@ -882,3 +882,68 @@ it("standalone review preserves host_busy facts on its outer launch operation", 
     h.orchestration.disposeUnreadChildren();
   }
 });
+
+it.each(["claude", "codex", "agy", "copilot", "opencode", "pi"])(
+  "uses the chosen default for launch, review and review loops: %s",
+  async (agent) => {
+    const h = fixture();
+    try {
+      h.host.defaultAgent.mockReturnValue(agent);
+      const tree = await h.mutate("create_worktree", { branch: "default-agent" });
+      const launched = await h.mutate("launch", { worktreeId: tree.resultId, review: {} });
+      expect(h.host.launch.mock.calls.at(-1)?.[4]).toBe(agent);
+      expect(h.orchestration.reviews.view(launched.resultId ?? "")?.agent).toBe(agent);
+      await h.mutate("review", { pullRequest: 7 });
+      expect(h.host.launch.mock.calls.at(-1)?.[4]).toBe(agent);
+    } finally {
+      h.orchestration.disposeUnreadChildren();
+    }
+  },
+);
+
+it("refuses unset and unavailable defaults before effects and never substitutes a provider", async () => {
+  const h = fixture();
+  try {
+    h.host.defaultAgent.mockReturnValue(null);
+    const tree = await h.mutate("create_worktree", { branch: "no-default" });
+    await expect(h.mutate("launch", { worktreeId: tree.resultId })).rejects.toThrow(
+      "agent_required",
+    );
+    await expect(h.mutate("review", { pullRequest: 7 })).rejects.toThrow("agent_required");
+    await expect(
+      h.mutate("launch", { worktreeId: tree.resultId, agent: "codex", review: {} }),
+    ).rejects.toThrow("review_agent_required");
+    expect(h.host.adoptWorktree).not.toHaveBeenCalled();
+    expect(h.host.launch).not.toHaveBeenCalled();
+    h.host.defaultAgent.mockReturnValue("not-installed");
+    await expect(h.mutate("launch", { worktreeId: tree.resultId })).rejects.toThrow(
+      "invalid_request",
+    );
+    await expect(h.mutate("review", { pullRequest: 7 })).rejects.toThrow("invalid_request");
+    await expect(h.mutate("review", { pullRequest: 7, agent: null })).rejects.toThrow(
+      "invalid_request",
+    );
+    await h.mutate("launch", {
+      worktreeId: tree.resultId,
+      agent: "codex",
+      review: { agent: "codex" },
+    });
+    expect(h.host.launch.mock.calls.at(-1)?.[4]).toBe("codex");
+  } finally {
+    h.orchestration.disposeUnreadChildren();
+  }
+});
+
+it.each(["claude", "codex", "agy", "copilot", "opencode", "pi"])(
+  "explicit one-shot %s overrides an unavailable default",
+  async (agent) => {
+    const h = fixture();
+    try {
+      h.host.defaultAgent.mockReturnValue("not-installed");
+      await h.mutate("review", { pullRequest: 7, agent });
+      expect(h.host.launch.mock.calls.at(-1)?.[4]).toBe(agent);
+    } finally {
+      h.orchestration.disposeUnreadChildren();
+    }
+  },
+);

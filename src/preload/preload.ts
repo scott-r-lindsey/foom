@@ -617,6 +617,7 @@ const validSettings: Validator<Settings> = shape({
   showNewChildren: boolean,
   closeFinishedAgents: boolean,
   concurrentChildren: range(1, 16, true),
+  defaultAgent: either(nil, text),
   recentRepositoryDays: range(1, 365, true),
   unreadChildMinutes: range(0, 1440, true),
   autoRemoveMergedWorktrees: boolean,

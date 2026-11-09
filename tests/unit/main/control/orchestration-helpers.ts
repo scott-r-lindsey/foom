@@ -37,6 +37,7 @@ export function harness(
   });
   rows.set("parent", row("parent", repo, "main"));
   const host = {
+    defaultAgent: vi.fn<() => string | null>(() => "claude"),
     forge: {
       track: vi.fn(),
       bindPullRequest: vi.fn((_repository: string, _path: string, _number: number) =>

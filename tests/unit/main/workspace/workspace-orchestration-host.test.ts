@@ -23,6 +23,7 @@ function hostFixture() {
     closed: false,
     control: undefined,
     createChildWorktree: vi.fn(),
+    defaultAgent: null,
     defaultArguments: { claude: [], codex: [], agy: [] },
     input: vi.fn(),
     launchChild: vi.fn(),

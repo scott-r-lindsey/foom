@@ -24,6 +24,8 @@ export interface Settings {
   closeFinishedAgents: boolean;
   /** Starting, running and stopping children per orchestrator, integer 1–16. */
   concurrentChildren: number;
+  /** User-chosen provider for omitted orchestration agent parameters; null means require one. */
+  defaultAgent: string | null;
   /** Git activity window in days, integer 1–365, default 30. */
   recentRepositoryDays: number;
   /** Minutes before unread child events need the human; 0 disables, integer 0–1440. */

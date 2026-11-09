@@ -236,7 +236,9 @@ export async function execute(
     }
     const code = error instanceof ControlError ? error.code : "unavailable";
     output({ error: code }, true);
-    return code === "invalid_request"
+    return code === "invalid_request" ||
+      code === "agent_required" ||
+      code === "review_agent_required"
       ? 2
       : code === "unauthorized" || code === "forbidden" || code === "no_parent"
         ? 3

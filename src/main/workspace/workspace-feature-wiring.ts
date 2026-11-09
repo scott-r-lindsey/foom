@@ -637,6 +637,9 @@ export function workspaceFeatureWiring(owner: WorkspaceContext): {
       get createChildWorktree() {
         return owner.createChildWorktree.bind(owner);
       },
+      get defaultAgent() {
+        return owner.defaultAgent;
+      },
       get defaultArguments() {
         return owner.defaultArguments;
       },

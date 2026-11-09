@@ -82,6 +82,7 @@ export class WorkspaceContext {
   agentHooks: Readonly<Record<string, boolean>> = {};
   concurrentChildren = 4;
   showNewChildren = true;
+  defaultAgent: string | null = null;
   defaultArguments = EMPTY_AGENT_ARGUMENTS;
   readonly resumeStarts = new Map<string, Promise<void>>();
   readonly busySessions = new Set<string>();
@@ -408,6 +409,7 @@ export class WorkspaceContext {
           | "showNewChildren"
           | "closeFinishedAgents"
           | "restoreSessions"
+          | "defaultAgent"
           | "concurrentChildren"
           | "unreadChildMinutes"
           | "autoRemoveMergedWorktrees"
@@ -420,6 +422,7 @@ export class WorkspaceContext {
     this.sessions.configure(settings.restoreSessions ?? true);
     this.concurrentChildren = settings.concurrentChildren ?? 4;
     this.showNewChildren = settings.showNewChildren ?? true;
+    this.defaultAgent = settings.defaultAgent ?? null;
     this.orchestration.configureCloseFinished(settings.closeFinishedAgents ?? true);
     const reminderChanged = this.orchestration.unreadChildren.configure(
       settings.unreadChildMinutes ?? 5,

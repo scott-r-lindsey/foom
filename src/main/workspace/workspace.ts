@@ -59,6 +59,7 @@ export class Workspace {
           | "showNewChildren"
           | "closeFinishedAgents"
           | "restoreSessions"
+          | "defaultAgent"
           | "concurrentChildren"
           | "unreadChildMinutes"
           | "autoRemoveMergedWorktrees"
