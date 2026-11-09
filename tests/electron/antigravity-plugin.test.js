@@ -263,7 +263,7 @@ if (!${firstRun}) {
   mcp.stderr.on('data', () => process.exit(6));
   mcp.on('error', () => process.exit(7));
   for (const message of [
-    {jsonrpc:'2.0', id:1, method:'initialize', params:{protocolVersion:'2099-01-01',capabilities:{},clientInfo:{name:'fixture-agy',version:'1'}}},
+    {jsonrpc:'2.0', id:1, method:'initialize', extension:{ignored:true},params:{protocolVersion:'2099-01-01',capabilities:{roots:{listChanged:true},sampling:{},experimental:{'fixture/extension':{}}},clientInfo:{name:'fixture-agy',version:'1',title:'Fixture Antigravity',websiteUrl:'https://example.invalid'},_meta:{progressToken:1,'fixture/metadata':{}},extension:{ignored:true}}},
     {jsonrpc:'2.0', method:'notifications/initialized'},
     {jsonrpc:'2.0', id:2, method:'tools/list'},
     {jsonrpc:'2.0', id:3, method:'tools/call', params:{name:'whoami'}},

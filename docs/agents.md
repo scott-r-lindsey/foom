@@ -113,6 +113,39 @@ as a target, enable as a name, and uninstall reports removing that name. These
 calls were confined to the deleted temporary HOME; use `agy plugin --help` for
 command discovery.
 
+### Antigravity initialize compatibility investigation (#1124)
+
+On 2026-11-08, public-source research did not establish the installed agy
+version's exact initialize shape or MCP SDK revision. The public
+[Antigravity MCP documentation](https://antigravity.google/docs/mcp/)
+describes stdio attachment, but does not specify initialize keys. The public
+[CLI repository](https://github.com/google-antigravity/antigravity-cli)
+contains release documentation rather than its client implementation.
+No real agy was run, and no user configuration or installed plugin was accessed.
+The earlier 1.4.2 measurements above establish launcher inheritance only.
+
+The public [Go MCP SDK v1.4.0 client](https://github.com/modelcontextprotocol/go-sdk/blob/v1.4.0/mcp/client.go)
+constructs initialize with `protocolVersion` (string), `capabilities` (object),
+and `clientInfo` (object). Its
+[protocol declarations](https://github.com/modelcontextprotocol/go-sdk/blob/v1.4.0/mcp/protocol.go)
+also permit `_meta` (object), implementation `title`/`websiteUrl` (strings),
+`icons` (array) and capability sub-objects. This is SDK evidence, **not** proof
+of agy's SDK version or actual wire payload, and those optional nested keys were
+already accepted by Foom. The user's failure has not been reproduced with real agy.
+
+Following the issue's fallback, fixture coverage uses the open parameter/envelope
+shapes in the supported MCP schemas:
+[2025-03-26](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/schema/2025-03-26/schema.ts),
+[2025-06-18](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/schema/2025-06-18/schema.ts),
+and [2025-11-25](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/schema/2025-11-25/schema.ts).
+The fixture stdio client goes through the installed **fixture** plugin launcher,
+sends optional metadata/capabilities plus synthetic envelope and initialize
+extensions, negotiates a version, lists tools and calls `whoami`. These extension
+keys reproduce the previous exact-key rejection; they are not a capture of agy.
+Malformed requests now name the fixed rejected schema field in the bridge error,
+so a later human run can identify any remaining incompatibility without logging
+payload values. Real agy connection and `whoami` remain manual verification.
+
 ### Pi 1.4.0 measurement (#823)
 
 Measured manually on Linux on 2026-10-25, using `/home/slindsey/.local/bin/pi`

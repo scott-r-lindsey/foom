@@ -228,7 +228,7 @@ it("reads every page of escaped Board posts through the bounded MCP bridge", asy
 it("refuses extra arguments before reading stdin", async () => {
   expect((await run(base, [], ["mcp", "--repository", "/repo"])).code).toBe(2);
 });
-it.each(["redirect", "oversize", "malformed", "header", "error", "empty", "protocol"])(
+it.each(["redirect", "oversize", "malformed", "header", "error", "partial", "empty", "protocol"])(
   "fails closed on %s responses",
   async (failure) => {
     const server = createServer((_req, res) => {
@@ -238,7 +238,11 @@ it.each(["redirect", "oversize", "malformed", "header", "error", "empty", "proto
       else if (failure === "header")
         res.writeHead(200, { "mcp-session-id": "bad header!" }).end("{}");
       else if (failure === "error") res.destroy();
-      else if (failure === "empty") res.writeHead(202).end();
+      else if (failure === "partial") {
+        res.writeHead(200, { "content-length": "100" });
+        res.write("{}");
+        setImmediate(() => res.destroy());
+      } else if (failure === "empty") res.writeHead(202).end();
       else res.writeHead(200, { "mcp-session-id": "id" }).end('{"result":{}}');
     });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -258,20 +262,30 @@ it.each(["redirect", "oversize", "malformed", "header", "error", "empty", "proto
     );
     expect(result.code).toBe(failure === "empty" ? 0 : 4);
     if (result.code === 4)
-      expect(result.error).toHaveBeenCalledWith("Foom MCP transport failed.\n");
+      expect(result.error).toHaveBeenCalledWith(
+        expect.stringMatching(
+          /^Foom MCP transport failed: (?:200|302|no_http_response) [a-z_]+ \(initialize\).\n$/u,
+        ),
+      );
   },
 );
 it.each(["x".repeat(65537), `${"x".repeat(65537)}\n`, "{}", "bad\n"])(
   "bounds and validates stdin",
   async (text) => {
+    const error = vi.fn();
     const code = await execute(
       ["mcp"],
       "1",
-      { out: vi.fn(), error: vi.fn(), input: Readable.from([text]) },
+      { out: vi.fn(), error, input: Readable.from([text]) },
       base,
       "foom",
     );
     expect(code).toBe(text === "bad\n" ? 4 : 2);
+    expect(error).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /^Foom MCP transport failed: no_http_response (?:invalid_input|incomplete_input|request_too_large) \(request\).\n$/u,
+      ),
+    );
   },
 );
 it("bounds stalled requests", async () => {
@@ -387,3 +401,60 @@ it.each(["2024-11-05", "2099-01-01", "vendor-version"])(
     expect(headers).toEqual([undefined, version]);
   },
 );
+
+it("reports the HTTP status, fixed code, method and rejected schema field", async () => {
+  const service = new ControlService(
+    new Operations(
+      () => Promise.resolve(),
+      () => {},
+    ),
+  );
+  const http = await ControlHttp.listen(service);
+  cleanup.push(() => http.close());
+  const grant = service.prepare(tmpdir(), tmpdir());
+  grant.bind("terminal");
+  const env = { ...base, ...grant.env, FOOM_CONTROL_URL: http.endpoint };
+  const result = await run(env, [
+    {
+      ...initialize,
+      params: { ...initialize.params, protocolVersion: { secret: base.FOOM_CONTROL_TOKEN } },
+    },
+  ]);
+  expect(result.code).toBe(4);
+  expect(result.error).toHaveBeenCalledWith(
+    "Foom MCP transport failed: 400 invalid_request field=params.protocolVersion (initialize).\n",
+  );
+  grant.dispose();
+  const revoked = await run(env, [initialize]);
+  expect(revoked.error).toHaveBeenCalledWith(
+    "Foom MCP transport failed: 401 unauthorized (initialize).\n",
+  );
+});
+it.each([
+  [
+    { error: "invalid_request", field: "params.clientInfo.name" },
+    "400 invalid_request field=params.clientInfo.name",
+  ],
+  [{ error: "SECRET", field: "SECRET" }, "400 http_error"],
+  ["SECRET", "400 http_error"],
+  [null, "400 http_error"],
+])("never reflects arbitrary HTTP error data %#", async (body, expected) => {
+  const server = createServer((_req, res) => res.writeHead(400).end(JSON.stringify(body)));
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  cleanup.push(
+    () =>
+      new Promise((resolve) =>
+        server.close(() => {
+          resolve();
+        }),
+      ),
+  );
+  const address = server.address();
+  if (!address || typeof address === "string") throw Error("No port");
+  const result = await run(
+    { ...base, FOOM_CONTROL_URL: `http://127.0.0.1:${String(address.port)}/control/v1` },
+    [{ ...initialize, method: "SECRET" }],
+  );
+  expect(result.code).toBe(4);
+  expect(result.error).toHaveBeenCalledWith(`Foom MCP transport failed: ${expected} (request).\n`);
+});
