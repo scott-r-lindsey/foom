@@ -2,9 +2,9 @@ import { agyMcpFiles } from "./agy-mcp";
 import { orderedObserverFiles } from "./ordered-observer";
 /**
  * Static observer assets; no credentials or installation-specific paths in the plugin.
- * Version 5 adds pre-tool progress alongside the environment-only MCP launcher.
+ * Version 6 delegates pre-tool decisions to the next hook or user policy.
  */
-export const AGY_PLUGIN_VERSION = 5;
+export const AGY_PLUGIN_VERSION = 6;
 
 export function agyPluginFiles(platform: NodeJS.Platform): Record<string, string> {
   const command =
@@ -30,7 +30,7 @@ export function agyPluginFiles(platform: NodeJS.Platform): Record<string, string
         Stop: [handler("Stop")],
       },
     }),
-    ...orderedObserverFiles(true),
+    ...orderedObserverFiles(true, true),
     ...agyMcpFiles(platform === "win32", "."),
   };
 }

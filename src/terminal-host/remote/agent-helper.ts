@@ -1,3 +1,4 @@
+import type { Readable } from "node:stream";
 import { negotiateMcpVersion } from "../../shared/mcp-protocol";
 import { mcpTools } from "../../shared/control-tools";
 import { mkdirSync, readFileSync, rmdirSync, writeFileSync, constants } from "node:fs";
@@ -27,12 +28,15 @@ export async function boundedInput(
 }
 export async function observeRemote(
   args: readonly string[],
-  input: NodeJS.ReadableStream = process.stdin,
+  input: Readable = process.stdin,
   output: NodeJS.WritableStream = process.stdout,
   env = process.env,
 ): Promise<void> {
   const [channel, transport, response, order, ...rest] = args;
-  if (response === "empty-json-first") output.write("{}\n");
+  // agy requires a decision for pre-tool hooks. "allow" delegates to its
+  // remaining hooks/default policy; it is never auto_approve.
+  if (response === "empty-json-first")
+    output.write(rest.at(-1) === "PreToolUse" ? '{"decision":"allow"}\n' : "{}\n");
   try {
     if (
       !channel ||
@@ -57,7 +61,16 @@ export async function observeRemote(
         rmdirSync(lock);
       }
     }
-    const raw = transport === "stdin" ? await boundedInput(input) : (rest.at(-1) ?? "");
+    let raw: string;
+    if (transport === "stdin") {
+      // EOF from a stalled client must not consume agy's three-second budget.
+      const deadline = setTimeout(() => input.destroy(), 500);
+      try {
+        raw = await boundedInput(input);
+      } finally {
+        clearTimeout(deadline);
+      }
+    } else raw = rest.at(-1) ?? "";
     if (Buffer.byteLength(raw) > 65536) return;
     const payload: unknown = JSON.parse(raw);
     await endpointRequest(

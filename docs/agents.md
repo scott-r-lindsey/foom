@@ -543,3 +543,51 @@ The installed version-5 observer reported PreInvocation → Stop for a no-tool t
 harmless read-only temp-file attempt. PreToolUse preceded the following invocation
 by about 5 ms. Neither bypass flags nor login/configuration copying were used.
 The disposable homes were removed after capture; only metadata logs remain untracked.
+
+### Antigravity pre-tool decision capture (agy 1.5.3, #1124)
+
+Measured manually on Linux on 2026-11-09 with the authorized default HOME/login,
+no bypass flags and short harmless prompts. A disposable `foom-hook-measure`
+plugin was installed through `agy plugin install PATH`; the existing enabled
+Foom plugin was temporarily disabled through `agy plugin disable foom` to isolate
+its hook. Finally the fixture was uninstalled and `agy plugin enable foom`
+restored the original state. No installed plugin files or `~/.gemini` files were
+read, copied or edited. The probe stripped inherited `FOOM_*` values, supplied
+synthetic credentials and used its own local stdio MCP stand-in, with no real Foom
+endpoint or authority. Only event/method names, field names/types, decisions,
+exit outcomes and timing metadata were retained under untracked
+`test-results/agy-1124-hooks/`.
+
+A fast PreToolUse handler printing `{}` and exiting zero reproduced the empty
+pre-tool denial on both an MCP ping attempt and a harmless `pwd` shell attempt.
+Printing `{"decision":"allow"}` removed the hook denial; the shell attempt then
+reached and was refused by agy's ordinary permission policy. No permission was
+granted or bypassed. Silent success also reached that policy. An allow response
+delayed 3.5 seconds behind the configured three-second hook deadline reproduced a
+hook denial for the shell attempt. Whole print-turn exit codes were zero even
+when the tool was refused, so exit zero alone does not prove tool execution.
+The stand-in did not observe a successful ping call; this capture establishes
+hook gating and default-policy delegation, not successful real Foom `whoami`.
+A separate request for `list_permissions` produced no pre-tool callbacks and
+therefore provides no gating evidence.
+
+Fast hook stdin reached EOF in approximately 2–4 ms. Payload keys/types matched
+#1000: common string fields plus `workspacePaths` array, `stepIdx` number and
+`toolCall` object. There was no evidence that the current input read or counter
+lock caused the reported fast-hook failure. The public
+[PreToolUse contract](https://antigravity.google/docs/hooks?tab=cli#pretooluse)
+requires a `decision`; `allow` delegates to subsequent hooks/default policy,
+whereas `auto_approve` can suppress ordinary prompts. Version 5's `{}` was not a
+neutral pre-tool response in 1.5.3. The earlier #1000 attempted-tool captures did
+not establish successful tool execution and do not establish pre-tool neutrality.
+
+Version 6 emits only `{"decision":"allow"}` for PreToolUse, before reading stdin
+or allocating sequence/transport state. Input waiting is capped at one second
+on POSIX and 500 ms in PowerShell/the remote helper; timeout drops the observation
+and leaves the successful neutral response intact. It emits `{}` for the other lifecycle
+events. It never supplies reasons, argument replacements, permission overrides or
+auto-approval. Native POSIX/PowerShell and remote-helper fixtures cover the output
+and failure paths; the Electron fake agy gates MCP `whoami` on the measured
+response before dispatch. Settings offers the reviewed Update; installed files
+change only through that explicit action. Real macOS/Windows agy behavior remains
+unmeasured, and real Foom tool execution remains the user's manual re-test.

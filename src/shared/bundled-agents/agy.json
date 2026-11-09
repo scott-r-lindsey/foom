@@ -236,7 +236,7 @@
         "observer": {
           "transport": "stdin",
           "placement": "plugin",
-          "version": 5,
+          "version": 6,
           "response": "empty-json-first",
           "delivery": "detached",
           "timeoutMs": 1000,
