@@ -2292,3 +2292,18 @@ test("Hosts kills fixture SSH on live diagnostic overflow and removes its privat
   const state = await page.evaluate(() => window.desktop.hosts({ action: "list" }));
   assert.equal(state.hosts[0].result.connection.ssh.reason, "unreachable");
 });
+
+test("Hosts folder-change alerts keep unknown SSH keys in the needs-you tone", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { page, card, updateScenario } = await hostsFixture(context, false);
+  await updateScenario({ sshFailure: "unknown" });
+  await card.getByRole("button", { name: "Change folder", exact: true }).click();
+  await page.getByLabel("Code folder", { exact: true }).fill("~/another");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  const alert = page.getByRole("alert").filter({ hasText: "Host key not trusted" });
+  await expect(alert).toBeVisible();
+  await expect(alert.locator(".host-status")).toHaveClass(/host-need/u);
+  await expect(alert.locator(".host-symbol")).toHaveText("");
+});

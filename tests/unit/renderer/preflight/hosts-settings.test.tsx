@@ -1521,3 +1521,30 @@ test.each(["host-key-unknown", "host-key-changed", "login-rejected", "unreachabl
     }
   },
 );
+
+test.each([
+  { action: "add", reason: "host-key-unknown", tone: "need", marker: "" },
+  { action: "add", reason: "host-key-changed", tone: "fail", marker: "×" },
+  { action: "change-folder", reason: "host-key-unknown", tone: "need", marker: "" },
+  { action: "change-folder", reason: "host-key-changed", tone: "fail", marker: "×" },
+] as const)(
+  "$action alerts retain the status tone for $reason",
+  async ({ action, reason, tone, marker }) => {
+    const initialState = action === "add" ? { hosts: [], locations: [] } : initial;
+    const { api } = await mount(initialState);
+    if (action === "add") await screen.findByText("No hosts");
+    api.mockResolvedValue({ ...saved(initialState), result: { ok: false, reason } });
+    if (action === "add") {
+      fireEvent.click(screen.getByRole("button", { name: "Add host" }));
+      fireEvent.change(screen.getByLabelText("SSH host"), { target: { value: "worker" } });
+      fireEvent.click(screen.getByRole("button", { name: "Add host" }));
+    } else {
+      fireEvent.click(screen.getByRole("button", { name: "Change folder" }));
+      fireEvent.change(screen.getByLabelText("Code folder"), { target: { value: "~/new" } });
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    }
+    const alert = await screen.findByRole("alert");
+    expect(alert.querySelector(".host-status")?.classList.contains(`host-${tone}`)).toBe(true);
+    expect(alert.querySelector(".host-symbol")?.textContent).toBe(marker);
+  },
+);

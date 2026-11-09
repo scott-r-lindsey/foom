@@ -636,7 +636,7 @@ export function HostsSettings({
   const [changing, setChanging] = useState<{ host: string; folder: string }>();
   const [busy, setBusy] = useState<ReadonlySet<string>>(() => new Set());
   const [addBusy, setAddBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<ReactNode>("");
   const api = source.hosts;
   const [checkingHosts, setCheckingHosts] = useState<ReadonlySet<string>>(() => new Set());
   const [progress, setProgress] = useState<HostCheckProgress>();
@@ -825,14 +825,18 @@ export function HostsSettings({
         setFolder("~/foom");
         setNickname("");
       } else if (action.action === "add" && next.result && !next.result.ok)
-        setError(reasons[next.result.reason]);
+        setError(
+          <Status tone={failureTone(next.result.reason)}>{reasons[next.result.reason]}</Status>,
+        );
       if (action.action === "change-folder") setChanging(undefined);
       if (
         (action.action === "change-folder" || action.action === "create-folder") &&
         next.result &&
         !next.result.ok
       )
-        setError(reasons[next.result.reason]);
+        setError(
+          <Status tone={failureTone(next.result.reason)}>{reasons[next.result.reason]}</Status>,
+        );
       if (action.action !== "preflight" && "host" in action) {
         const observed =
           next.preflight ??
@@ -917,8 +921,8 @@ export function HostsSettings({
           </button>
         )}
       </header>
-      {error && (
-        <p role="alert" className="hosts-failure">
+      {!!error && (
+        <p role="alert" className={typeof error === "string" ? "hosts-failure" : undefined}>
           {error}
         </p>
       )}

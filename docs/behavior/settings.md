@@ -411,7 +411,8 @@ clipboard writes. This preference is available only in Settings, not config file
 An unknown SSH key shows **Host key not trusted** and **Trust host key** in Hosts.
 The SSH row and any Git access to origin row with that same reason use amber text
 and the steady needs-you halo, rather than the magenta failure marker. Changed
-keys and other real SSH failures remain magenta. The output panel's generic
+keys and other real SSH failures remain magenta. Add and folder-change notices
+use the same marker and tone for that reason. The output panel's generic
 **Failed** header still describes the unsuccessful check run.
 The trusted confirmation shows the host, key type and fingerprint. Verify it
 against a trusted source before choosing **Trust host key**. Cancel is focused;
