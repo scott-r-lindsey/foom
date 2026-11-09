@@ -66,6 +66,9 @@ process.stdin.once("data", () => {
   const rows = page.locator(".tile-terminal .xterm-rows");
   await expect(rows).toContainText("REFLOW_FIXTURE_READY");
   await expect(page.locator(".xterm-helper-textarea")).toBeEditable();
+  const cols = () =>
+    app.evaluate(async (_electron, id) => (await globalThis.reflowHost.screen(id)).cols, id);
+  await expect.poll(cols).toBeGreaterThan(prompt.length);
   await page.keyboard.type("q");
   await expect(page.locator(".board-row[data-kind='shell']")).toHaveAttribute(
     "data-exited",
@@ -79,8 +82,6 @@ process.stdin.once("data", () => {
   for (const width of [900, 1500]) {
     await sizeTileBoard(app, page, width, 900);
     // Wait for the actual host resize, not merely the native window's new width.
-    const cols = () =>
-      app.evaluate(async (_electron, id) => (await globalThis.reflowHost.screen(id)).cols, id);
     if (width === 900) await expect.poll(cols).toBeLessThan(prompt.length);
     else await expect.poll(cols).toBeGreaterThan(prompt.length);
     await expect.poll(tail).toBe(prompt);
