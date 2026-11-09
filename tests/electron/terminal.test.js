@@ -138,6 +138,11 @@ test("live Bash redraws a long prompt once and retains narrow command output aft
   await page.keyboard.type("echo SHRINK_MARKER");
   await page.keyboard.press("Enter");
   await expect.poll(tail).toContain("SHRINK_MARKER");
+  await expect.poll(async () => (await tail()).join("").endsWith(prompt)).toBe(true);
+  await expect(
+    page.locator(".xterm-rows > div").filter({ hasText: /^SHRINK_MARKER\s*$/ }),
+  ).toHaveCount(1);
+  await expect.poll(async () => (await renderedText(page)).endsWith(prompt.trimEnd())).toBe(true);
   await sizeTileBoard(app, page, 1500, 900);
   await expect.poll(cols).toBeGreaterThan(96);
   await expect.poll(tail).toContain("SHRINK_MARKER");

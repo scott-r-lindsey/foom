@@ -407,3 +407,11 @@ renderer. This matched run 42646014373's Linux 4 failure at the renderer asserti
 (artifact **13689210376**).
 Waiting for both initial parsers before the resize retains every post-resize
 assertion and changes no product policy or deadline.
+
+The same ordering gate applies before growth: the standalone marker and returned
+narrow prompt must reach both parsers first. Holding that command's view stream
+until after growth reproduced the macOS 4 missing-rendered-marker assertion in
+run 42646014373 (artifact **13689186919**) while the host still retained the marker. The fixture now observes
+the marker and returned prompt before growing, then repeats the retained-marker
+assertions afterwards. Both controlled reproductions remain under ignored
+`test-results/`; neither changes the live/exited product policy.
