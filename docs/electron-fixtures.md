@@ -592,3 +592,107 @@ failure-only trace of menu labels, bounds, pointer transitions and animation eve
 in JUnit diagnostics and `test-results/1150/` to distinguish another cause.
 Native input, real menus, fixture CLIs, sandboxing and process auditing remain in
 use. There are no deadline increases, fixed settling sleeps or retries.
+
+## Remote shell replay phases (#1155)
+
+`remote-host.test.js` gives host preflight/enrollment, terminal links, SSH-loss
+replay, hub restart/recovery, startup palettes and oversized headless replay
+independent cases, with foreign-session Settings administration separate from
+hub restart/recovery. The helpers share fixture construction code only: each case
+owns its HOME, daemon, profile, controlled SSH/tool PATH and process audit. The
+SSH-loss case still uploads the pinned production host, uses native input and
+proves PID/variable/umask continuity, replay acknowledgements, palette retention
+and suppression of replayed OSC 52 clipboard writes. The restart case explicitly
+seeds its approved code folder and expands its own Settings host card; neither
+precondition depends on the enrollment case's filesystem or saved UI state.
+
+Each case emits `Remote phase: {name, ms}` diagnostics into JUnit, measuring
+successive completed phases with a monotonic clock. Fixture/artifact preparation,
+daemon startup, hub launch, upload/bootstrap, replay preparation, reconnect and
+live input are separate phases. The restart case additionally separates hub quit,
+recovery preparation, session replay and Settings cleanup. Harness fixture timing
+still measures setup/body/teardown, including process auditing. These diagnostics
+contain fixed phase names and durations, never terminal or SSH output. Deadlines,
+retry policy, sandboxing and fixture-only CLI rules are unchanged. Superseded
+whole-scenario timings are removed from the shard plan; new cases use the normal
+hash fallback until their CI measurements are recorded.
+
+
+### Remote OSC 8 readiness regression
+
+A matching link alone does not prove that a typed printf command has executed.
+While the PTY is echoing the URL argument, its unfinished plain-text link has the
+same target as the eventual OSC 8 link. Remaining echo appends the literal
+`\007Remote` suffix and moves the actual output to a different row; coordinates
+captured from the transient echo can therefore select the wrong link. Main run
+42664151136 attempt 2 copied exactly that echoed target.
+
+The remote link case deliberately types only through the URL first and observes
+this false readiness state. It then completes the command and waits for a rendered
+`REMOTE_LINK_READY` marker, produced with a split printf format so the marker
+cannot match command echo. Only then does it measure and click the OSC link. It
+asserts that the malformed-looking echo target and correct OSC target coexist,
+and that the shell emits actual ESC/BEL bytes. Interactive shells may redraw edited
+input, so raw PTY echo is not required to contain the command contiguously. The
+fixture-only stream is retained in ignored
+`test-results/remote-link-readiness.json`. A unit regression feeds the echoed
+command and BEL-terminated OSC output through every OSC chunk boundary, keeping
+their targets separate. This distinguishes remote echo readiness from shell
+escape handling and OSC parsing without changing product URL rules.
+
+
+### Remote stream ownership and geometry (#1155)
+
+The link case refits the native window after retaining its initial overlay node,
+asserts that the old node was replaced, and clicks the visible segment through a
+locator for each native gesture. Segments are pointer-transparent decoration, so
+Playwright's force option directs the trusted click to xterm at the current
+segment position. No bounding box or pointer coordinate is retained across an
+output update or resize. This covers the detached/null-bounds signature as well
+as the transient command-echo URL.
+
+SSH fixture traces record bounded request/response metadata, process IDs and
+lifecycles under `test-results/remote-ssh-*.jsonl`. Bulk input/data/ACK traffic is
+aggregated into counters so it cannot exhaust the control-event trace cap. An
+explicit loss marker and PID-scoped RGB reply values identify the intended
+disconnect and the actual replying shell. The traces exclude terminal text,
+input, credentials and full payloads. Daemon stderr is capped at 8192 bytes in the
+matching fixture-only `.daemon.log`. The replay case observes rendered producer
+completion using a split printf format, so its marker cannot match command echo,
+then requires exactly one owning SSH before deliberately killing it.
+A management request is made after the terminal opens, proving that the most
+recent generic SSH PID cannot identify the PTY connection. Owner selection is
+correlated with that terminal's successful open response. Its replay-token
+baseline is captured after the management request, immediately before deliberate
+loss. An unsolicited reopen
+before the deliberate loss remains a failure, with the trace retained.
+
+Colour records are keyed by the actual shell PID. The restart case queries two
+live PTYs with different palettes and requires both results independently; one
+PTY can no longer overwrite another's observation. Before quit, an explicit
+query confirms the requested application palette has actually been processed.
+Neither connection failures nor colour assertions are retried.
+
+The historical tail failure occurred at the large-output readiness poll before
+the deliberate SSH kill. Its stack shows `retireConnection` failing an outstanding
+request on SSH child exit, which rules out the later deliberate replay as its
+immediate cause. The old artifacts do not retain daemon exit facts or correlated
+protocol metadata, so they do not establish why that stream exited. The new
+fixture trace preserves those missing observations rather than attributing all
+five signatures to one unproven product race.
+
+The restart/recovery case ends after proving both restored palettes and session
+identity, then explicitly quits. The separate Settings case seeds its own live
+profile-owned and foreign sessions, exercises copy/check/cancel/confirmed End,
+and proves the owned session remains live. These were separated after a passing
+macOS restart case measured 30.17 seconds, above #1155's 30-second acceptance
+target despite remaining below its unchanged 60-second deadline.
+
+The restart case reuses both the persisted profile and the same isolated HOME;
+reusing only the profile would also change the shared config location. It asserts
+the restored settings, refreshes the unchanged saved terminal choice, keeps a
+light interface and a saved dark terminal palette, and
+checks the same shell PID before and after restoration. Startup applies that saved
+palette before restoring sessions, so a late settings application cannot replace
+the retained application-set background. Built-in and custom startup palettes also
+have a unit regression for this ordering.

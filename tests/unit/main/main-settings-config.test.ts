@@ -96,6 +96,26 @@ test("Settings repository selection uses workspace lifecycle guards", async () =
   expect(mock.workspace.removeRepository).toHaveBeenCalledWith(repository.path);
 });
 
+test.each(["foom-dark", "user:term.json"] as const)(
+  "applies saved terminal palette %s before restoring sessions",
+  async (terminalTheme) => {
+    const settings = { ...mock.settingsStore.get(), terminalTheme };
+    vi.spyOn(mock.settingsStore, "get").mockReturnValue(settings);
+    mock.catalog = {
+      interface: [],
+      terminal: [{ id: "user:term.json", name: "Custom", theme: terminalThemes.dracula }],
+      errors: [],
+    };
+    await start();
+    expect(mock.terminals.setTheme).toHaveBeenCalledWith(
+      terminalTheme === "foom-dark" ? "foom-dark" : terminalThemes.dracula,
+    );
+    const restoredAt = mock.workspace.restore.mock.invocationCallOrder[0];
+    if (restoredAt === undefined) throw new Error("Workspace was not restored");
+    expect(mock.terminals.setTheme.mock.invocationCallOrder[0]).toBeLessThan(restoredAt);
+  },
+);
+
 test("live theme catalog changes update native colors, terminal palettes and all settings subscribers", async () => {
   await start();
   const settings = {

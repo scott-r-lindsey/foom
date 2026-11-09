@@ -14,6 +14,9 @@ or a second message. The palette is metadata, never a process argument or file.
 
 A live session owns its current colors. Reattach ignores startup palette fields,
 and reconnect or hub restart does not replace an unchanged palette after open.
+The hub initializes its terminal service from the saved resolved palette before
+restoring sessions. Starting from the native default and applying saved settings
+after reattach would invent a theme change and erase retained overrides.
 Snapshots replay the retained defaults and application-set overrides. Explicit
 theme changes still replace defaults and reset overrides, as locally. The hub
 retains the latest desired palette and tracks acknowledged replacements. A change
