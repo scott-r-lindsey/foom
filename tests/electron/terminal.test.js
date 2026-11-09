@@ -21,7 +21,7 @@ const {
   stopSession,
 } = require("./harness.js");
 
-test("cursor-row output survives window shrink, grow and Settings reattachment", async (context) => {
+async function exitedCursorResize(context, delayedExit = false) {
   const root = await mkdtemp(path.join(tmpdir(), "foom-cursor-reflow-"));
   removeAfterApps(context, root);
   const prompt = String.raw`PS C:\Users\runneradmin\AppData\Local\Temp\foom-tests-bW5FZf\foom-profile-u5o8i1\shell-fixture> `;
@@ -69,6 +69,22 @@ process.stdin.once("data", () => {
   const cols = () =>
     app.evaluate(async (_electron, id) => (await globalThis.reflowHost.screen(id)).cols, id);
   await expect.poll(cols).toBeGreaterThan(prompt.length);
+  if (delayedExit) {
+    const { observeResize, holdExit, reconcileExitResize } = require("./resize-fixture.js");
+    await observeResize(app);
+    // Install the host probe before the first narrow resize.
+    await app.evaluate(() => {
+      globalThis.resizeProbeHost = globalThis.reflowHost;
+    });
+    const gate = await holdExit(app, page, id);
+    try {
+      await page.keyboard.type("q");
+      await reconcileExitResize(app, page, id, gate, prompt);
+    } finally {
+      await gate.release();
+    }
+    return;
+  }
   await page.keyboard.type("q");
   await expect(page.locator(".board-row[data-kind='shell']")).toHaveAttribute(
     "data-exited",
@@ -97,6 +113,14 @@ process.stdin.once("data", () => {
     .toBeGreaterThan(tokenCount);
   await expect.poll(tail).toBe(prompt);
   await expect.poll(rendered).toBe(prompt.trimEnd());
+}
+
+test("cursor-row output survives window shrink, grow and Settings reattachment", async (context) => {
+  await exitedCursorResize(context);
+});
+
+test("local exit delivery across shrink reconciles the attached cursor row", async (context) => {
+  await exitedCursorResize(context, true);
 });
 
 test("live raw PTY writes after resize without a stale reflow suffix", async (context) => {

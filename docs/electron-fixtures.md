@@ -415,3 +415,21 @@ run 42646014373 (artifact **13689186919**) while the host still retained the mar
 the marker and returned prompt before growing, then repeats the retained-marker
 assertions afterwards. Both controlled reproductions remain under ignored
 `test-results/`; neither changes the live/exited product policy.
+
+The exit/resize regressions hold only `terminal:exit` delivery to the sandboxed
+renderer while native exit, host snapshots, output and resize requests continue.
+Local output uses the 96-column PowerShell-shaped prompt; fixture SSH replaces
+its shell with a raw Node fixture and writes 96 P characters before exiting.
+Both first prove the authoritative host retains the line while the uninformed
+renderer clips it on shrink, then release the exit notification. The attached
+view must recover the complete line automatically while narrow and retain it
+after growth, without a Settings round trip. The remote case has its own isolated
+fixture so it does not extend the SSH continuity scenario's deadline.
+
+Packaged smoke also waits for the replacement Home shell's authoritative workspace
+entry before reading its ID. A shell row can be the optimistic startup placeholder
+while the previous exited session is still finishing asynchronous removal. The
+round-three validation reproduced a read of that old ID after the new row was
+already visible; an unchanged retry passed. The fixture now gates on exactly one
+workspace terminal with a different ID, retaining the new-ID, native prompt,
+cursor reuse and other packaged assertions without changing deadlines.

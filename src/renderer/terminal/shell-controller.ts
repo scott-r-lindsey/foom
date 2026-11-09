@@ -298,6 +298,11 @@ export function createShell(
       visibility(false);
     }
     controls();
+    // The host can exit before this asynchronous event reaches the view. A
+    // resize in that interval clips the still-live renderer's cursor row.
+    // Replay the authoritative exited screen through the selection queue;
+    // later hide/switch/dispose requests cancel it just like any attachment.
+    if (!hostFailed && attached && wantsVisible()) void select(id, true);
   });
   const sendInput = (data: string, origin?: "wheel") => {
     const id = activeId;
@@ -414,7 +419,7 @@ export function createShell(
   board?.addEventListener("transitioncancel", sidebarTransition);
   const observer = new ResizeObserver(resize);
   observer.observe(container);
-  const openView = async (id: string) => {
+  const openView = async (id: string, focus = true) => {
     view.attaching = !view.firstFrame;
     publish();
     // Drain writes from the old attachment before resetting, including delayed ACKs.
@@ -444,7 +449,7 @@ export function createShell(
     if (!wantsVisible()) {
       visibility(false);
       if (isAvailable(id)) await window.desktop.detach(id);
-    } else if (!isDisposed() && focusOnOpen) terminal.focus();
+    } else if (!isDisposed() && focusOnOpen && focus) terminal.focus();
   };
   const toggleView = async () => {
     if (busy || !activeId) return;
@@ -555,7 +560,7 @@ export function createShell(
     if (!isDisposed()) terminal.open(container);
   });
   let ready = autoStart ? initialReady.then(start) : initialReady;
-  const select = (id: string) => {
+  const select = (id: string, refresh = false) => {
     pendingId = id;
     suspended = undefined;
     pruneEvents();
@@ -569,7 +574,8 @@ export function createShell(
       controls();
       try {
         if (attached && activeId === id) {
-          if (focusOnOpen) terminal.focus();
+          if (refresh) await openView(id, false);
+          else if (focusOnOpen) terminal.focus();
           return;
         }
         const previous = attached ? activeId : undefined;
@@ -590,7 +596,7 @@ export function createShell(
         terminalStatus = code === undefined ? "Terminal" : `Terminal exited (${String(code)})`;
         view.state = code === undefined ? "quiet_ok" : code === 0 ? "done" : "failed";
         view.status = terminalStatus;
-        await openView(id);
+        await openView(id, !refresh);
       } catch (error: unknown) {
         visibility(false);
         if (isAvailable(id)) await window.desktop.detach(id).catch(() => {});

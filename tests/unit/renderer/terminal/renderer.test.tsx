@@ -553,7 +553,7 @@ test.each(["startup", "reopen", "hide"])(
     expect(document.querySelector("#status")?.textContent).toBe("replacement shell");
     expect(restart?.disabled).toBe(true);
     // A later unrelated startup error must not reuse the old host failure.
-    act(() => {
+    await settle(() => {
       mock.onExit.mock.calls[0]?.[0]("replacement", 0);
     });
     mock.create.mockRejectedValueOnce(new Error("spawn failed"));
@@ -1162,6 +1162,124 @@ test("exit disables input and hides the cursor across snapshots, reopening and r
   expect(mock.options.reflowCursorLine).toBe(false);
   input?.("working");
   expect(mock.input).toHaveBeenLastCalledWith("two", "working");
+  controller.dispose();
+});
+
+test("exit repairs a cursor row clipped before lifecycle delivery without stealing focus", async () => {
+  const host = new HeadlessTerminal({
+    cols: 139,
+    rows: 24,
+    allowProposedApi: true,
+    reflowCursorLine: false,
+  });
+  const view = new HeadlessTerminal({
+    cols: 139,
+    rows: 24,
+    allowProposedApi: true,
+    reflowCursorLine: false,
+  });
+  const serialize = new SerializeAddon();
+  host.loadAddon(serialize);
+  const write = (terminal: HeadlessTerminal, data: string) =>
+    new Promise<void>((resolve) => {
+      terminal.write(data, resolve);
+    });
+  const text = (terminal: HeadlessTerminal) =>
+    Array.from(
+      { length: terminal.buffer.active.length },
+      (_, index) => terminal.buffer.active.getLine(index)?.translateToString(true) ?? "",
+    ).join("");
+  mock.fitCols = 139;
+  mock.write.mockImplementation((data, done) => {
+    view.options.reflowCursorLine = mock.options.reflowCursorLine ?? false;
+    view.write(data, done);
+  });
+  mock.reset.mockImplementation(() => {
+    view.reset();
+  });
+  mock.resize.mockImplementation((_id: string, cols: number, rows: number) => {
+    host.resize(cols, rows);
+    view.options.reflowCursorLine = mock.options.reflowCursorLine ?? false;
+    view.resize(cols, rows);
+  });
+  const controller = createShell(document.createElement("div"), vi.fn(), false, undefined, false);
+  const receive = mock.onData.mock.calls[0]?.[0];
+  mock.attach.mockImplementation((id: string) => {
+    receive?.(id, "snapshot", `\x1bc${terminalSnapshot(host, serialize)}`);
+    return Promise.resolve();
+  });
+  try {
+    await controller.open("one");
+    await write(host, "P".repeat(96));
+    await write(view, "P".repeat(96));
+    host.options.reflowCursorLine = true; // Native exit; renderer event is still held.
+    mock.fitCols = 68;
+    mock.resizeCallback.mock.calls[0]?.[0]();
+    expect(text(host)).toBe("P".repeat(96));
+    expect(text(view)).toBe("P".repeat(68));
+    mock.focus.mockClear();
+    mock.onExit.mock.calls[0]?.[0]("one", 0);
+    await vi.waitFor(() => {
+      expect(mock.attach).toHaveBeenCalledTimes(2);
+    });
+    await write(view, "");
+    expect(text(view)).toBe(text(host));
+    expect(mock.focus).not.toHaveBeenCalled();
+    mock.fitCols = 139;
+    mock.resizeCallback.mock.calls[0]?.[0]();
+    expect(text(view)).toBe("P".repeat(96));
+    expect(text(view)).toBe(text(host));
+  } finally {
+    controller.dispose();
+    mock.reset.mockReset();
+    mock.resize.mockReset();
+    host.dispose();
+    view.dispose();
+  }
+});
+
+test.each(["hide", "switch", "release", "revoke", "dispose"])(
+  "%s cancels queued exit reconciliation",
+  async (action) => {
+    const controller = createShell(document.createElement("div"), vi.fn(), false, undefined, false);
+    await controller.open("one");
+    mock.attach.mockClear();
+    mock.onExit.mock.calls[0]?.[0]("one", 0);
+    if (action === "hide") await controller.hide();
+    else if (action === "switch") await controller.open("two");
+    else if (action === "release") controller.release("one");
+    else if (action === "revoke") mock.onTerminalAvailability.mock.calls[0]?.[0]("one", false);
+    else controller.dispose();
+    await Promise.resolve();
+    expect(mock.attach).not.toHaveBeenCalledWith("one");
+    if (action === "switch") {
+      expect(mock.attach).toHaveBeenCalledWith("two");
+      expect(mock.options.reflowCursorLine).toBe(false);
+    }
+    controller.dispose();
+  },
+);
+
+test("failed exit reconciliation hides the view and permits another snapshot attempt", async () => {
+  const update = vi.fn();
+  const controller = createShell(document.createElement("div"), update, false, undefined, false);
+  await controller.open("one");
+  mock.attach.mockRejectedValueOnce(new Error("snapshot unavailable"));
+  mock.onExit.mock.calls[0]?.[0]("one", 0);
+  await vi.waitFor(() => {
+    expect(update).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        visible: false,
+        status: "Unable to open terminal",
+        toggleDisabled: false,
+      }),
+    );
+  });
+  expect(mock.detach).toHaveBeenCalledWith("one");
+  await controller.open("one");
+  expect(mock.options.disableStdin).toBe(true);
+  expect(mock.options.reflowCursorLine).toBe(true);
+  expect(update).toHaveBeenLastCalledWith(expect.objectContaining({ visible: true }));
   controller.dispose();
 });
 
