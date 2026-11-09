@@ -132,10 +132,19 @@ test("remote shell fixture copies links and confirms external browser navigation
     };
   });
   await page.evaluate(() => {
-    window.remoteLinkChunks = [];
-    window.stopRemoteLinkChunks = window.desktop.onData((_id, _token, data) =>
-      window.remoteLinkChunks.push(data),
-    );
+    const captureLimit = 64 * 1024;
+    window.remoteLinkCapture = { data: "", bytes: 0, chunks: 0, overflow: false };
+    window.stopRemoteLinkChunks = window.desktop.onData((_id, _token, data) => {
+      const capture = window.remoteLinkCapture;
+      capture.chunks += 1;
+      const bytes = new TextEncoder().encode(data).byteLength;
+      if (capture.overflow || capture.bytes + bytes > captureLimit) {
+        capture.overflow = true;
+        return;
+      }
+      capture.data += data;
+      capture.bytes += bytes;
+    });
   });
   const remoteLink = page.getByRole("link", { name: remoteUrl, exact: true });
   // Reproduce the old readiness false positive: the unfinished command echo
@@ -144,7 +153,10 @@ test("remote shell fixture copies links and confirms external browser navigation
   const suffix = String.raw`\007Remote sign in\033]8;;\007\n'; printf 'REMOTE_LINK_%s\n' READY`;
   await page.keyboard.type(prefix);
   await expect(remoteLink).toHaveCount(1);
-  assert.ok(!(await page.evaluate(() => window.remoteLinkChunks.join(""))).includes("\x1b]8;;"));
+  assert.equal(
+    await page.evaluate(() => window.remoteLinkCapture.data.includes("\x1b]8;;")),
+    false,
+  );
   await page.keyboard.type(suffix);
   await page.keyboard.press("Enter");
   // Native typing completion does not drain the remote PTY echo/output. The
@@ -153,21 +165,26 @@ test("remote shell fixture copies links and confirms external browser navigation
   await expect(remoteLink).toHaveCount(1);
   const echoedTarget = String.raw`${remoteUrl}\007Remote`;
   await expect(page.getByRole("link", { name: echoedTarget, exact: true })).toHaveCount(1);
-  const chunks = await page.evaluate(() => {
+  const capture = await page.evaluate((remoteUrl) => {
     window.stopRemoteLinkChunks();
-    return window.remoteLinkChunks;
-  });
-  await writeFile(
-    evidencePath("remote-link-readiness.json"),
-    JSON.stringify(
-      { chunks, typedParts: [prefix, suffix], echoedTarget, oscTarget: remoteUrl },
-      null,
-      2,
-    ),
-  );
+    const capture = window.remoteLinkCapture;
+    // Keep raw bytes only in bounded memory; diagnostics contain metadata alone.
+    const metadata = {
+      capturedBytes: capture.bytes,
+      chunkCount: capture.chunks,
+      overflow: capture.overflow,
+      containsExpectedOsc: capture.data.includes(
+        `\x1b]8;;${remoteUrl}\x07Remote sign in\x1b]8;;\x07`,
+      ),
+    };
+    capture.data = "";
+    return metadata;
+  }, remoteUrl);
+  await writeFile(evidencePath("remote-link-readiness.json"), JSON.stringify(capture, null, 2));
   // Interactive shells can redraw edited input; raw PTY echo need not be a
   // contiguous copy of the command. The executed printf's OSC bytes are exact.
-  assert.ok(chunks.join("").includes(`\x1b]8;;${remoteUrl}\x07Remote sign in\x1b]8;;\x07`));
+  assert.equal(capture.overflow, false);
+  assert.equal(capture.containsExpectedOsc, true);
   const segment = remoteLink.locator(":scope > span").first();
   await expect(segment).toBeVisible();
   const previousGrid = await page.locator(".terminal-links").getAttribute("data-grid");
