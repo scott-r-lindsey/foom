@@ -11,6 +11,10 @@ const { deadline, expect } = require("./test-policy.js");
 const { boardPage, launchApp, removeAfterApps, assertAccessible } = require("./harness.js");
 
 async function sidebarMachines(context, startupOnly = false, scenario = "standard") {
+  const origin =
+    scenario === "shared-clone"
+      ? `git@forge.test:team/${"shared-repository-".repeat(8)}project.git`
+      : "git@forge.test:team/project.git";
   const root = await mkdtemp(path.join(tmpdir(), "sidebar-machines-"));
   removeAfterApps(context, root);
   const bin = path.join(root, "bin");
@@ -114,7 +118,7 @@ process.stdin.on('data',bytes=>frames.push(bytes,message=>{
  const result={ok:true,facts};
  if(['repository','clone'].includes(message.operation))result.checkout={path:'/remote/code/'+message.directory,state:'clean'};
  if(message.operation==='inspect-worktree')result.worktree={path:message.path,branch:'remote-work',identity:message.identity,changes:''};
- if(message.operation==='list-worktrees')result.inventory={own:[{repository:'/remote/code/repository-'+require('node:crypto').createHash('sha256').update('git@forge.test:team/project.git').digest('hex').slice(0,24),path:'/remote/code/.foom-worktree-fixture',branch:'remote-work',identity:'a'.repeat(64),origin:'git@forge.test:team/project.git'}],other:0};
+ if(message.operation==='list-worktrees')result.inventory={own:[{repository:'/remote/code/repository-'+require('node:crypto').createHash('sha256').update(${JSON.stringify(origin)}).digest('hex').slice(0,24),path:'/remote/code/.foom-worktree-fixture',branch:'remote-work',identity:'a'.repeat(64),origin:${JSON.stringify(origin)}}],other:0};
  send({type:'managed',result});
 }));
 }
@@ -144,7 +148,7 @@ wait();`,
   const repository = await page.evaluate(
     async () => (await window.desktop.workspace()).repositories[0].path,
   );
-  gitSync(["remote", "add", "origin", "git@forge.test:team/project.git"], { cwd: repository });
+  gitSync(["remote", "add", "origin", origin], { cwd: repository });
   const capture = async (name) => {
     for (const mode of ["light", "dark"]) {
       await page.evaluate(
@@ -444,11 +448,158 @@ wait();`,
                 row.branch === "Main checkout",
             ).length,
         );
+      // A short window makes late facts compete with the viewport's bottom edge.
+      await app.evaluate(({ BrowserWindow }) => {
+        BrowserWindow.getAllWindows()
+          .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+          .setContentSize(900, 640);
+      });
+      await page.waitForFunction(() => innerWidth === 900 && innerHeight === 640);
+      // Hold the real opening animation at its first frame. A pointer near the
+      // command's upper edge must keep the same submenu as that animation ends.
+      const animationStyle = await page.addStyleTag({
+        content: ".sidebar-panel { animation-play-state: paused !important; }",
+      });
       const launchAgent = async (name) => {
-        await page.getByRole("button", { name: `Actions for ${name}`, exact: true }).click();
-        await page.getByRole("menuitem", { name: "New agent", exact: true }).hover();
-        await page.getByRole("menuitem", { name: "Builder", exact: true }).hover();
-        await page.getByRole("menuitem", { name: "Claude Code", exact: true }).click();
+        await app.evaluate(({ app }) => {
+          const load = process
+            .getBuiltinModule("node:module")
+            .createRequire(app.getAppPath() + "/package.json");
+          const { WorkspaceContext } = load("./build/main/workspace/workspace-context.js");
+          const original = WorkspaceContext.prototype.panelFacts;
+          const gate = new Promise((resolve) => {
+            globalThis.sharingFactsRelease = resolve;
+          });
+          globalThis.sharingFactsReady = false;
+          WorkspaceContext.prototype.panelFacts = async function (...args) {
+            const facts = await original.apply(this, args);
+            globalThis.sharingFactsReady = true;
+            await gate;
+            return facts;
+          };
+          globalThis.sharingFactsRestore = () => {
+            globalThis.sharingFactsRelease();
+            WorkspaceContext.prototype.panelFacts = original;
+          };
+        });
+        await page.evaluate(() => {
+          const events = [];
+          const describe = (target) => {
+            if (!(target instanceof Element)) return null;
+            const item = target.closest('[role="menuitem"]');
+            const menu = target.closest(".row-menu");
+            return menu
+              ? {
+                  menu: menu.getAttribute("aria-label"),
+                  item: item?.textContent,
+                  bounds: menu.getBoundingClientRect().toJSON(),
+                }
+              : null;
+          };
+          const record = (event) => {
+            const target = describe(event.target);
+            if (target) {
+              events.push({
+                time: performance.now(),
+                type: event.type,
+                target,
+                related: describe(event.relatedTarget),
+              });
+              if (events.length > 80) events.shift();
+            }
+          };
+          const types = ["pointerover", "pointerout", "animationstart", "animationend"];
+          for (const type of types) document.addEventListener(type, record, true);
+          window.sharingMenuTrace = {
+            events,
+            stop: () => {
+              for (const type of types) document.removeEventListener(type, record, true);
+            },
+          };
+        });
+        try {
+          const opener = page.getByRole("button", { name: `Actions for ${name}`, exact: true });
+          // Tree scrolling dismisses panels. Drain the opener's scroll before pinning it.
+          await opener.scrollIntoViewIfNeeded();
+          await opener.evaluate(async () => {
+            await new Promise((resolve) =>
+              requestAnimationFrame(() => requestAnimationFrame(resolve)),
+            );
+          });
+          await opener.click();
+          const panel = page.locator(".sidebar-panel");
+          await panel.evaluate((element) => {
+            const animation = element.getAnimations()[0];
+            if (animation) animation.currentTime = 0;
+          });
+          const newAgent = page.getByRole("menuitem", { name: "New agent", exact: true });
+          await newAgent.hover({ position: { x: 30, y: 1 } });
+          await expect(page.getByRole("menu", { name: "New agent", exact: true })).toBeVisible();
+          await panel.evaluate(async (element) => {
+            for (const animation of element.getAnimations()) animation.finish();
+            await new Promise((resolve) =>
+              requestAnimationFrame(() => requestAnimationFrame(resolve)),
+            );
+          });
+          await expect(newAgent).toHaveAttribute("aria-expanded", "true");
+          const beforeFacts = await panel.boundingBox();
+          await expect.poll(() => app.evaluate(() => globalThis.sharingFactsReady)).toBe(true);
+          await app.evaluate(() => globalThis.sharingFactsRelease());
+          await expect(panel.locator(".panel-facts")).toContainText(origin);
+          await panel.evaluate(async () => {
+            await new Promise((resolve) =>
+              requestAnimationFrame(() => requestAnimationFrame(resolve)),
+            );
+          });
+          await expect(newAgent).toHaveAttribute("aria-expanded", "true");
+          assert.equal(
+            (await panel.boundingBox()).y,
+            beforeFacts.y,
+            "Late facts must not move the command under the pointer",
+          );
+          await expect(panel).toBeInViewport({ ratio: 1 });
+          await expect(page.getByRole("menu", { name: "New agent", exact: true })).toBeVisible();
+          await page.getByRole("menuitem", { name: "Builder", exact: true }).hover();
+          const agentMenu = page.getByRole("menu", { name: "Builder", exact: true });
+          await expect(agentMenu).toBeVisible();
+          const body = panel.locator(".panel-body");
+          const scrollTop = await body.evaluate((element) => element.scrollTop);
+          const factsPoint = await body.evaluate((element) => {
+            const bounds = element.getBoundingClientRect();
+            return { x: bounds.right - 24, y: bounds.top + Math.min(80, bounds.height / 2) };
+          });
+          // Move beyond both submenu portals so the native wheel reaches facts.
+          await page.mouse.move(factsPoint.x, factsPoint.y);
+          await expect(agentMenu).toBeVisible();
+          await page.mouse.wheel(0, 60);
+          await expect
+            .poll(() => body.evaluate((element) => element.scrollTop))
+            .toBeGreaterThan(scrollTop);
+          await expect(panel).toBeVisible();
+          await expect(page.locator(".row-submenu")).toHaveCount(0);
+          await expect(newAgent).toHaveAttribute("aria-expanded", "false");
+          await page.mouse.wheel(0, -60);
+          await expect.poll(() => body.evaluate((element) => element.scrollTop)).toBe(scrollTop);
+          await body.evaluate(async () => {
+            await new Promise((resolve) =>
+              requestAnimationFrame(() => requestAnimationFrame(resolve)),
+            );
+          });
+          await newAgent.hover();
+          await page.getByRole("menuitem", { name: "Builder", exact: true }).hover();
+          await page.getByRole("menuitem", { name: "Claude Code", exact: true }).click();
+        } catch (error) {
+          const trace = await page.evaluate(() => window.sharingMenuTrace.events);
+          context.diagnostic(`Sharing menu ordering: ${JSON.stringify(trace)}`);
+          await writeFile(
+            evidencePath(`1150/${name}-menu-ordering.json`),
+            JSON.stringify(trace, null, 2),
+          );
+          throw error;
+        } finally {
+          await app.evaluate(() => globalThis.sharingFactsRestore());
+          await page.evaluate(() => window.sharingMenuTrace.stop());
+        }
       };
       await launchAgent("shell-fixture");
       await expect.poll(agentCount).toBe(1);
@@ -456,7 +607,7 @@ wait();`,
       const clone = path.join(root, "clone-b");
       await mkdir(clone);
       gitSync(["init", "-q", "-b", "main"], { cwd: clone });
-      gitSync(["remote", "add", "origin", "git@forge.test:team/project.git"], { cwd: clone });
+      gitSync(["remote", "add", "origin", origin], { cwd: clone });
       await app.evaluate(({ dialog }, clone) => {
         dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [clone] });
       }, clone);
@@ -465,6 +616,7 @@ wait();`,
         page.getByRole("button", { name: "Actions for clone-b", exact: true }),
       ).toBeVisible();
       await launchAgent("clone-b");
+      await animationStyle.evaluate((element) => element.remove());
       const armed = page.getByRole("menuitem", {
         name: "Click again for multiple agents here",
         exact: true,
