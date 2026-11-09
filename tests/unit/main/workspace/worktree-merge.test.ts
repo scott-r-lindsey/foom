@@ -1,6 +1,7 @@
 import { mkdir, readFile, realpath, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanupReady } from "../../../helpers/cleanup-feed";
 import { Workspace } from "../../../../src/main/workspace/workspace";
 import type { WorkspaceDependencies } from "../../../../src/main/workspace/workspace-types";
 import { manifestForgeProvider } from "../../../../src/main/control/forge-interpreter";
@@ -888,9 +889,7 @@ it.each(["untracked", "commit", "forge"])(
           async (request) => {
             if (request.kind !== "merged-worktrees" || !request.feed)
               throw new Error("Missing cleanup");
-            await vi.waitFor(() => {
-              expect(request.feed?.current().stage).toBe("ready");
-            });
+            await cleanupReady(request.feed);
             if (change === "forge") merged = false;
             else await writeFile(join(tree, "new.txt"), "must survive");
             if (change === "commit") {
@@ -1029,9 +1028,7 @@ it.each(["detached", "untracked", "unpushed", "tracked", "external", "clean bran
         { kind: "delete-merged-worktrees", repository: repo },
         async (request) => {
           if (request.kind !== "merged-worktrees" || !request.feed) throw new Error("Missing feed");
-          await vi.waitFor(() => {
-            expect(request.feed?.current().stage).toBe("ready");
-          });
+          await cleanupReady(request.feed);
           const items = request.feed.current().progress.items;
           if (mode === "untracked")
             expect(items.find((item) => item.branch === "group-cleanup")?.changes).toBe(
@@ -1116,9 +1113,7 @@ it.each(["tracked edit", "commit", "untracked set"])(
         async (request) => {
           if (request.kind !== "merged-worktrees" || !request.feed)
             throw new Error("Missing cleanup");
-          await vi.waitFor(() => {
-            expect(request.feed?.current().stage).toBe("ready");
-          });
+          await cleanupReady(request.feed);
           return true;
         },
       );
@@ -1138,61 +1133,78 @@ it.each(["tracked edit", "commit", "untracked set"])(
   },
 );
 
-it(
-  "detached group cleanup cannot release a later explicit removal reservation",
-  usingFixture(async () => {
-    const { path } = await service.createWorktree(repo, "detached-a");
-    await execute(["checkout", "--detach"], { cwd: path });
-    await git("clone", "--bare", repo, join(temporary, "remote.git"));
-    await git("remote", "add", "origin", join(temporary, "remote.git"));
-    const branchesEntered = Promise.withResolvers<undefined>();
-    const finishBranches = Promise.withResolvers<undefined>();
-    const confirmationEntered = Promise.withResolvers<undefined>();
-    const finishConfirmation = Promise.withResolvers<boolean>();
-    const deleteBranches = service.deleteMergedBranches.bind(service);
-    vi.spyOn(service, "deleteMergedBranches").mockImplementation(async (...args) => {
-      branchesEntered.resolve(undefined);
-      await finishBranches.promise;
-      return deleteBranches(...args);
-    });
-    const workspace = cleanupWorkspace();
-    const group = workspace.sidebarCommand(
-      { kind: "delete-merged-worktrees", repository: repo },
-      async (request) => {
-        if (request.kind !== "merged-worktrees" || !request.feed)
-          throw new Error("Missing cleanup");
-        await vi.waitFor(() => {
-          expect(request.feed?.current().stage).toBe("ready");
-        });
-        return true;
-      },
-    );
-    let first: ReturnType<typeof workspace.sidebarCommand> | undefined;
-    try {
-      await branchesEntered.promise;
-      await expect(realpath(path)).rejects.toThrow();
-      const other = join(root, "detached-b");
-      await git("worktree", "add", "--detach", other, "HEAD");
-      const command = { kind: "remove-worktree" as const, repository: repo, worktree: other };
-      first = workspace.sidebarCommand(command, () => {
-        confirmationEntered.resolve(undefined);
-        return finishConfirmation.promise;
+it.for(["ready", "confirmation failure"])(
+  "detached group cleanup cannot release a later explicit removal reservation (%s)",
+  async (mode, { signal }) =>
+    usingFixture(async () => {
+      const { path } = await service.createWorktree(repo, "detached-a");
+      await execute(["checkout", "--detach"], { cwd: path });
+      await git("clone", "--bare", repo, join(temporary, "remote.git"));
+      await git("remote", "add", "origin", join(temporary, "remote.git"));
+      const branchesEntered = Promise.withResolvers<undefined>();
+      const finishBranches = Promise.withResolvers<undefined>();
+      const confirmationEntered = Promise.withResolvers<undefined>();
+      const finishConfirmation = Promise.withResolvers<boolean>();
+      const deleteBranches = service.deleteMergedBranches.bind(service);
+      vi.spyOn(service, "deleteMergedBranches").mockImplementation(async (...args) => {
+        branchesEntered.resolve(undefined);
+        await finishBranches.promise;
+        return deleteBranches(...args);
       });
-      await confirmationEntered.promise;
-      finishBranches.resolve(undefined);
-      await group;
-      const secondConfirmation = vi.fn(() => Promise.resolve(false));
-      await expect(workspace.sidebarCommand(command, secondConfirmation)).rejects.toThrow(
-        "This worktree is busy",
+      const aborted = Promise.withResolvers<never>();
+      // Attach a rejection handler even if abort arrives between gate waits.
+      void aborted.promise.catch(() => {});
+      const abort = () => {
+        finishBranches.resolve(undefined);
+        finishConfirmation.resolve(false);
+        aborted.reject(new Error("Test aborted"));
+      };
+      signal.addEventListener("abort", abort, { once: true });
+      const workspace = cleanupWorkspace();
+      const group = workspace.sidebarCommand(
+        { kind: "delete-merged-worktrees", repository: repo },
+        async (request) => {
+          if (request.kind !== "merged-worktrees" || !request.feed)
+            throw new Error("Missing cleanup");
+          await cleanupReady(request.feed);
+          if (mode === "confirmation failure") throw new Error("Confirmation failed");
+          return true;
+        },
       );
-      expect(secondConfirmation).not.toHaveBeenCalled();
-    } finally {
-      finishBranches.resolve(undefined);
-      finishConfirmation.resolve(false);
-      await Promise.allSettled([group, ...(first ? [first] : [])]);
-      await workspace.dispose();
-    }
-  }),
+      let first: ReturnType<typeof workspace.sidebarCommand> | undefined;
+      try {
+        // Observe group rejection immediately; a failed confirmation cannot enter
+        // the branch callback. A timeout must also release all fixture-owned gates.
+        const entered = Promise.race([branchesEntered.promise, group, aborted.promise]);
+        if (mode === "confirmation failure") {
+          await expect(entered).rejects.toThrow("Confirmation failed");
+          return;
+        }
+        await entered;
+        await expect(realpath(path)).rejects.toThrow();
+        const other = join(root, "detached-b");
+        await git("worktree", "add", "--detach", other, "HEAD");
+        const command = { kind: "remove-worktree" as const, repository: repo, worktree: other };
+        first = workspace.sidebarCommand(command, () => {
+          confirmationEntered.resolve(undefined);
+          return finishConfirmation.promise;
+        });
+        await Promise.race([confirmationEntered.promise, first, aborted.promise]);
+        finishBranches.resolve(undefined);
+        await group;
+        const secondConfirmation = vi.fn(() => Promise.resolve(false));
+        await expect(workspace.sidebarCommand(command, secondConfirmation)).rejects.toThrow(
+          "This worktree is busy",
+        );
+        expect(secondConfirmation).not.toHaveBeenCalled();
+      } finally {
+        finishBranches.resolve(undefined);
+        finishConfirmation.resolve(false);
+        await Promise.allSettled([group, ...(first ? [first] : [])]);
+        signal.removeEventListener("abort", abort);
+        await workspace.dispose();
+      }
+    })(),
 );
 
 it.each([
@@ -1246,9 +1258,7 @@ it.each([
       async (request) => {
         if (request.kind !== "merged-worktrees" || !request.feed)
           throw new Error("Missing cleanup");
-        await vi.waitFor(() => {
-          expect(request.feed?.current().stage).toBe("ready");
-        });
+        await cleanupReady(request.feed);
         return true;
       },
     );
@@ -1332,9 +1342,7 @@ it.each(["ignored", "submodule", "private ref", "ignorecase", "rebase"])(
         async (request) => {
           if (request.kind !== "merged-worktrees" || !request.feed)
             throw new Error("Missing cleanup");
-          await vi.waitFor(() => {
-            expect(request.feed?.current().stage).toBe("ready");
-          });
+          await cleanupReady(request.feed);
           const item = request.feed
             .current()
             .progress.items.find((item) => item.branch === "review-state");
@@ -1399,9 +1407,7 @@ it.each(["ignored file", "private ref", ".gitmodules"])(
         async (request) => {
           if (request.kind !== "merged-worktrees" || !request.feed)
             throw new Error("Missing cleanup");
-          await vi.waitFor(() => {
-            expect(request.feed?.current().stage).toBe("ready");
-          });
+          await cleanupReady(request.feed);
           return true;
         },
       );
@@ -1431,9 +1437,7 @@ it("ignored-only leftovers are reviewed and removed without force", async () => 
       async (request) => {
         if (request.kind !== "merged-worktrees" || !request.feed)
           throw new Error("Missing cleanup");
-        await vi.waitFor(() => {
-          expect(request.feed?.current().stage).toBe("ready");
-        });
+        await cleanupReady(request.feed);
         expect(
           request.feed.current().progress.items.find((item) => item.branch === "ignored-only")
             ?.changes,
@@ -1521,9 +1525,7 @@ it("rechecks the full cleanup policy after the final asynchronous merge proof", 
       async (request) => {
         if (request.kind !== "merged-worktrees" || !request.feed)
           throw new Error("Missing cleanup");
-        await vi.waitFor(() => {
-          expect(request.feed?.current().stage).toBe("ready");
-        });
+        await cleanupReady(request.feed);
         return true;
       },
     );

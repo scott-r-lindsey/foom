@@ -1,9 +1,21 @@
+import type * as childProcess from "node:child_process";
 import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { vi } from "vitest";
 import { WorktreeService } from "../../../../src/main/workspace/worktrees";
 import { git } from "../../../helpers/git.js";
+
+// All real Git reached through WorktreeService must obey the same isolation as
+// fixture setup. Production's environment filtering otherwise drops setup.js's
+// GIT_CONFIG_* values before starting the subprocess.
+vi.mock("node:child_process", async (original) => {
+  const { isolatedGitExecFile } = await import("../../../helpers/git.js");
+  return {
+    ...(await original<typeof childProcess>()),
+    execFile: isolatedGitExecFile,
+  };
+});
 
 /** Fresh state per suite; tracked native work settles before fixture removal. */
 export function createWorktreeFixture() {
