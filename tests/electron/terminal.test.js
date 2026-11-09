@@ -21,6 +21,83 @@ const {
   stopSession,
 } = require("./harness.js");
 
+test("cursor-row output survives window shrink, grow and Settings reattachment", async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "foom-cursor-reflow-"));
+  removeAfterApps(context, root);
+  const prompt = String.raw`PS C:\Users\runneradmin\AppData\Local\Temp\foom-tests-bW5FZf\foom-profile-u5o8i1\shell-fixture> `;
+  const script = path.join(root, "prompt.js");
+  await writeFile(
+    script,
+    `
+process.stdin.setRawMode(true);
+process.stdin.resume();
+process.stdout.write(${JSON.stringify("REFLOW_FIXTURE_READY\r\n")});
+process.stdin.once("data", () => {
+  process.stdout.write(${JSON.stringify("\x1b[2J\x1b[H" + prompt)}, () => process.exit(0));
+});
+`,
+  );
+  const app = await launchApp(context, { fixture: "empty-board" });
+  const page = await boardPage(app);
+  await sizeTileBoard(app, page, 1500, 900);
+  await app.evaluate(
+    ({ app }, { command, script }) => {
+      const load = process
+        .getBuiltinModule("node:module")
+        .createRequire(app.getAppPath() + "/package.json");
+      const { TerminalHostClient } = load("./build/main/terminals/terminal-host-client.js");
+      const create = TerminalHostClient.prototype.create;
+      TerminalHostClient.prototype.create = function (spec) {
+        globalThis.reflowHost = this;
+        return create.call(this, { ...spec, command, args: [script], shellIntegration: false });
+      };
+    },
+    { command: process.execPath, script },
+  );
+  await page.evaluate(() => {
+    window.reflowTokens = [];
+    window.desktop.onData((_id, token) => {
+      if (!window.reflowTokens.includes(token)) window.reflowTokens.push(token);
+    });
+  });
+  await launchCheckoutShell(app, page);
+  await expect(page.locator(".board-row[data-kind='shell']")).toHaveCount(1);
+  const id = (await page.evaluate(() => window.desktop.workspace())).terminals[0].id;
+  const rows = page.locator(".tile-terminal .xterm-rows");
+  await expect(rows).toContainText("REFLOW_FIXTURE_READY");
+  await expect(page.locator(".xterm-helper-textarea")).toBeEditable();
+  await page.keyboard.type("q");
+  await expect(page.locator(".board-row[data-kind='shell']")).toHaveAttribute(
+    "data-exited",
+    "true",
+  );
+  const tail = () => page.evaluate(async (id) => (await window.desktop.tail(id, 40)).join(""), id);
+  const rendered = () =>
+    rows.evaluate((rows) => [...rows.children].map((row) => row.textContent.trimEnd()).join(""));
+  await expect.poll(tail).toBe(prompt);
+  await expect.poll(rendered).toBe(prompt.trimEnd());
+  for (const width of [900, 1500]) {
+    await sizeTileBoard(app, page, width, 900);
+    // Wait for the actual host resize, not merely the native window's new width.
+    const cols = () =>
+      app.evaluate(async (_electron, id) => (await globalThis.reflowHost.screen(id)).cols, id);
+    if (width === 900) await expect.poll(cols).toBeLessThan(prompt.length);
+    else await expect.poll(cols).toBeGreaterThan(prompt.length);
+    await expect.poll(tail).toBe(prompt);
+    await expect.poll(rendered).toBe(prompt.trimEnd());
+  }
+  const tokenCount = await page.evaluate(() => window.reflowTokens.length);
+  await openSettingsScreen(page);
+  await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await page.locator(".board-row[data-kind='shell']").click();
+  await expect
+    .poll(() => page.evaluate(() => window.reflowTokens.length))
+    .toBeGreaterThan(tokenCount);
+  await expect.poll(tail).toBe(prompt);
+  await expect.poll(rendered).toBe(prompt.trimEnd());
+});
+
 test("a different tile never attaches a revoked ID while workspace refresh is held", async (context) => {
   const app = await launchApp(context, { fixture: "running-shell" });
   const page = await boardPage(app);

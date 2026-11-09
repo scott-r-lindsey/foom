@@ -27,44 +27,6 @@ async function expectShellReady(page, id, input) {
   await expect(input).toBeEditable();
 }
 
-// xterm deliberately does not reflow the active cursor row. A complete prompt
-// can therefore lose its terminator when the fixture splits a live shell tile.
-test("shrinking a completed PowerShell prompt reproduces the close readiness cutoff", async () => {
-  const { Terminal } = require("@xterm/headless");
-  const screen = new Terminal({ cols: 140, rows: 24, allowProposedApi: true });
-  const prompt = String.raw`PS C:\Users\runneradmin\AppData\Local\Temp\foom-tests-bW5FZf\foom-profile-u5o8i1\shell-fixture> `;
-  const trace = [];
-  const sample = (phase) => {
-    const buffer = screen.buffer.active;
-    trace.push({
-      phase,
-      cols: screen.cols,
-      rows: screen.rows,
-      cursorX: buffer.cursorX,
-      cursorY: buffer.cursorY,
-      line: buffer.getLine(buffer.cursorY)?.translateToString(true),
-    });
-  };
-  try {
-    await new Promise((resolve) => screen.write(prompt, resolve));
-    sample("prompt write completed");
-    assert.match(trace[0].line, /PS [\s\S]*>\s*$/);
-    screen.resize(68, 24);
-    sample("tile split resize");
-    assert.equal(
-      trace[1].line,
-      String.raw`PS C:\Users\runneradmin\AppData\Local\Temp\foom-tests-bW5FZf\foom-pr`,
-    );
-    screen.resize(140, 24);
-    sample("tile enlarged again");
-    assert.equal(trace[2].line, trace[1].line);
-    assert.doesNotMatch(trace[2].line, />\s*$/);
-  } finally {
-    console.log(`1137 completed-prompt resize trace: ${JSON.stringify(trace)}`);
-    screen.dispose();
-  }
-});
-
 test("board starts with live terminals only and focuses rows without opening", async (context) => {
   const app = await launchApp(context, { fixture: "running-shell", shell: "hidden" });
   const page = await boardPage(app);
@@ -947,8 +909,7 @@ test("Close removes the tile and sidebar before slow cleanup and restores a fail
   const id = await page.evaluate(async () => (await window.desktop.workspace()).terminals[0].id);
   const row = page.locator(`[data-drag-session="${id}"]`);
   const input = page.locator(".xterm-helper-textarea");
-  // Finish the real interactive shell before resizing its cursor row. On Windows
-  // a split can clip an already complete PowerShell prompt permanently (#1137).
+  // Complete real shell startup/input before preparing the close layout (#1137).
   try {
     await expectShellReady(page, id, input);
     await input.focus();

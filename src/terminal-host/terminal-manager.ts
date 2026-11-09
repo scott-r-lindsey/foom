@@ -85,6 +85,8 @@ export class TerminalManager {
       throw error;
     }
     const screen = new Terminal({
+      // Tails and replay must preserve cursor-row output without an application redraw.
+      reflowCursorLine: true,
       cursorBlink: true,
       cols: spec.cols,
       rows: spec.rows,

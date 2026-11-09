@@ -356,15 +356,22 @@ output marker and the returned prompt, then types `exit` and observes the exited
 row. Only then does it prepare the two-tile close scenario. The slow-cleanup gate,
 failed-row restoration and close timing assertions remain unchanged.
 
-A deterministic reproduction with the pinned headless xterm writes the complete
-Windows prompt before resizing its active cursor row from 140 to 68 columns.
-The completed line ends in `>` before the resize; afterwards it ends in `foom-pr`,
-exactly matching both reported Windows failures. Growing the screen again does
-not recover the clipped text. The trace records write completion, screen geometry,
-cursor coordinates and the fixed fixture line. The active cursor row is not
-reflowed on shrink, so a prompt terminator in a tail is not a durable shell-ready
-signal across layout changes. This is a fixture ordering defect; changing the
-terminal's resize policy is outside this test fix.
+The original headless reproduction established that xterm's default resize
+policy clips a completed cursor row: shrinking the 96-column Windows prompt to
+68 columns leaves the exact `foom-pr` prefix. This also affects the real app's
+authoritative host screen, tails and attachment snapshots; it is a product data
+loss defect. Both host and renderer now enable normal
+buffer cursor-row reflow so narrowing wraps content rather than discarding it.
+
+Unit regressions exercise live and exited PTYs through shrink, grow and snapshot
+replay, checking complete text. The sandboxed Electron regression launches a controlled Node process through the normal shell-launch
+path, waits for its ready marker, and uses native input to request a cleared
+screen with the fixed 96-column prompt and no newline before process exit.
+It checks the full authoritative tail and rendered text at 1500×900, after
+shrinking to 900×900, after growing, and after Settings forces reattachment.
+The geometry gate observes host columns, so a native window-size update alone
+cannot satisfy the resize regression. The close-test ordering improvement above
+still avoids coupling shell startup/input to unrelated layout changes.
 
 Run 42551903310 attempt 1 artifact **13646043326** failed at readiness in
 37.033 seconds; attempt 2 artifact **13648420047** passed in 7.195 seconds.
@@ -373,4 +380,4 @@ Run 42618694514 attempt 1 artifact **13676860593** repeated the same cutoff in
 ordering, so the deterministic reproduction establishes the clipping mechanism
 without claiming those artifacts contain that ordering trace. Future readiness
 failures also print the bounded fixture tail, renderer grid/cursor geometry,
-input editability and terminal exit state. No deadlines or product code change.
+input editability and terminal exit state. No deadlines change.

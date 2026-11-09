@@ -48,6 +48,8 @@ export function createShell(
   const terminal = new Terminal({
     // Activation is owned by Foom, including primary-button and trusted-gesture checks.
     linkHandler: { activate: () => {} },
+    // Match the authoritative host when fitting a narrower view.
+    reflowCursorLine: true,
     cursorBlink: true,
     fontSize: 14,
     fontFamily: TERMINAL_FONT_FALLBACK,
