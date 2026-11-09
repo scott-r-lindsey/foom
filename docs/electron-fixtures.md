@@ -657,10 +657,13 @@ explicit loss marker and PID-scoped RGB reply values identify the intended
 disconnect and the actual replying shell. The traces exclude terminal text,
 input, credentials and full payloads. Daemon stderr is capped at 8192 bytes in the
 matching fixture-only `.daemon.log`. The replay case observes rendered producer
-completion, then requires exactly one owning SSH before deliberately killing it.
+completion using a split printf format, so its marker cannot match command echo,
+then requires exactly one owning SSH before deliberately killing it.
 A management request is made after the terminal opens, proving that the most
 recent generic SSH PID cannot identify the PTY connection. Owner selection is
-correlated with that terminal's successful open response. An unsolicited reopen
+correlated with that terminal's successful open response. Its replay-token
+baseline is captured after the management request, immediately before deliberate
+loss. An unsolicited reopen
 before the deliberate loss remains a failure, with the trace retained.
 
 Colour records are keyed by the actual shell PID. The restart case queries two

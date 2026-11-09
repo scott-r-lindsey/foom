@@ -219,7 +219,7 @@ test("remote shell fixture uploads a pinned headless host and replays the same P
   // account for reset bytes too, or the first replay ACK would be rejected and
   // subsequent output would stay paused.
   await page.keyboard.type(
-    "i=0; while [ \"$i\" -lt 5000 ]; do printf '%079d\\n' 0; i=$((i+1)); done; printf 'LARGE_REPLAY_READY\\n'",
+    "i=0; while [ \"$i\" -lt 5000 ]; do printf '%079d\\n' 0; i=$((i+1)); done; printf 'LARGE_REPLAY_%s\\n' READY",
   );
   await page.keyboard.press("Enter");
   // Rendering is the producer barrier. Check the SSH ownership trace below as
@@ -240,8 +240,6 @@ test("remote shell fixture uploads a pinned headless host and replays the same P
     manifest.sha256,
   );
   assert.equal((await stat(installed)).mode & 0o777, 0o700);
-  const priorTokens = await page.evaluate(() => window.remoteReplayTokens.size);
-  assert.ok(priorTokens > 0);
   const owners = await fixture.sshOwners(id);
   assert.equal(owners.length, 1, "SSH must remain connected before the deliberate loss");
   const firstSsh = owners[0];
@@ -259,6 +257,9 @@ test("remote shell fixture uploads a pinned headless host and replays the same P
   const sshPids = (await readFile(pidFile, "utf8")).trim().split("\n");
   assert.notEqual(Number(sshPids.at(-1)), firstSsh);
   assert.deepEqual(await fixture.sshOwners(id), [firstSsh]);
+  fixture.phase("artifact verification and management connection");
+  const priorTokens = await page.evaluate(() => window.remoteReplayTokens.size);
+  assert.ok(priorTokens > 0);
   appendFileSync(
     fixture.traceFile,
     `${JSON.stringify({ at: Date.now(), kind: "intentional-loss", id, pid: firstSsh })}\n`,
