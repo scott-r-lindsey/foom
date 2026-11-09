@@ -142,11 +142,22 @@ Before importing saved rows, SessionOwner prunes remote placements whose host is
 no longer registered and awaits the repaired sessions.json write. This also cleans
 profiles left stale by older builds, with Restore sessions disabled as well as
 enabled. Host removal awaits the same inventory/persistence repair. Late remote
-discovery cannot reintroduce forgotten rows. Live attached tiles remain usable until
-exit or Close; all saves, including quit, exclude them, and exit removes their rows.
-Removal marks those specific tiles even if the host is re-enrolled before they exit.
-Runtime exit pruning requires that explicit removal mark: developer-spike sessions
-whose host was never registered retain their ordinary exit/resume behavior in this
+discovery cannot import rows while their host is unregistered. Live attached tiles
+remain usable until exit or Close; all saves in that app run, including quit,
+exclude them, and exit removes their rows. The in-memory removal mark still excludes
+those specific tiles if the host is re-enrolled before they exit, so their old
+authority cannot be re-persisted in that run.
+
+There is no durable suppression of daemon discovery. After re-enrolling the same
+host and restarting Foom, any of this profile's sessions still live on its daemon
+but absent from saved records are recovered under [profile-scoped recovery](hosts.md#persistent-remote-sessions-757-pr-2).
+These are human-owned tiles with no prior parent/child links, control grant,
+orchestrator role or owned worktrees. Forgotten exited sessions are absent from
+both saved records and live discovery and do not return. Retained Close recovery
+rows keep the exception below.
+
+Runtime exit pruning requires the explicit in-memory removal mark: developer-spike
+sessions whose host was never registered retain their ordinary exit/resume behavior in this
 app lifetime. A host named by a currently validated, explicit developer spike
 override also retains its saved metadata for manual Close recovery; this does not
 register it or grant saved restore/fleet authority. Other unregistered placements

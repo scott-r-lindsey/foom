@@ -60,8 +60,13 @@ SSH host-key trust applies; Foom never accepts a key or prompts for credentials.
 Removing a registration forgets its saved session rows and host caches in the same
 operation, without sending stop, kill or session-close, including when the last
 observation reports live sessions. Open attached tiles keep their connections until
-exit or Close, but are no longer persisted or restored. Failed/pending Close
-recovery rows are retained under the [session recovery rule](sessions.md#forgotten-hosts-1152).
+exit or Close and are excluded from saved rows for the rest of that app run.
+While the host is unregistered, its ordinary saved sessions are not restored.
+Re-enrolling the same host later allows startup discovery to recover any of this
+profile's sessions still live on its daemon as human-owned tiles, without their
+prior parent, grant or orchestrator authority. Forgotten exited sessions do not
+return. Failed/pending Close recovery rows are retained under the
+[session recovery rule](sessions.md#forgotten-hosts-1152).
 
 The default code folder is `~/foom`. The remote expands it against its own home,
 creates missing components with mode 0700 only for the explicit `create-folder`
@@ -172,8 +177,11 @@ confirmation are not ended. Legacy End likewise retains its confirmed daemon
 incarnation and never clears a replacement observed while its stop settles.
 Removing a host also prunes its saved rows under the
 [forgotten-host rule](sessions.md#forgotten-hosts-1152), retaining cleanup recovery
-and live connections. A daemon-live invocation saved as exited is
-likewise recovered for the human, without inheriting its stale parent grant.
+and live connections. After re-enrollment and restart, this profile's daemon-live
+sessions missing from saved records are recovered as human-owned tiles with no
+prior authority; forgotten exited sessions are not rediscovered. A daemon-live
+invocation saved as exited is likewise recovered for the human, without inheriting
+its stale parent grant.
 Profile tags classify ownership; they are not credentials or isolation from other
 processes running as the account.
 
