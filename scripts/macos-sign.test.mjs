@@ -834,6 +834,156 @@ if (${JSON.stringify(name)} === 'xcrun' && args[0] === 'notarytool') {
   assert.equal(time, 10);
 });
 
+test("fixture notarytool retries transient info/log failures without disclosing response bodies", {
+  skip: process.platform === "win32",
+}, async (t) => {
+  const { root } = await fixture(t);
+  const tool = join(root, "notarytool.cjs");
+  const callsFile = join(root, "poll-calls.json");
+  const credentials = {
+    appleApiKey: "poll-secret-key",
+    appleApiKeyId: "poll-secret-id",
+    appleApiIssuer: "poll-secret-issuer",
+  };
+  writeFileSync(
+    tool,
+    `
+const fs = require('node:fs');
+const [operation, target] = process.argv.slice(2);
+const calls = JSON.parse(fs.readFileSync(${JSON.stringify(callsFile)}, 'utf8'));
+calls.push([operation, target]);
+fs.writeFileSync(${JSON.stringify(callsFile)}, JSON.stringify(calls));
+if (operation === 'submit') console.log(JSON.stringify({id: 'id-' + target}));
+else {
+  const scenario = JSON.parse(process.env.FIXTURE_POLL_SCENARIO);
+  const count = calls.filter(([op]) => op === operation).length;
+  if (operation === scenario.operation && (scenario.repeat || count === 1)) {
+    console.error(scenario.error + '\\n<html>private-response-body 55555 poll-secret-key poll-secret-id poll-secret-issuer</html>');
+    process.exit(1);
+  }
+  console.log(JSON.stringify(operation === 'log' ? {issues: ['fixture issue']} : {status: scenario.status || 'Accepted'}));
+}
+`,
+  );
+  const previous = process.env.FIXTURE_POLL_SCENARIO;
+  t.after(() => {
+    if (previous === undefined) delete process.env.FIXTURE_POLL_SCENARIO;
+    else process.env.FIXTURE_POLL_SCENARIO = previous;
+  });
+  const cases = [
+    { error: "gatewayTimeout(statusCode: Optional(504))", code: "504" },
+    { error: "HTTP/1.1 503 Service Unavailable", code: "503" },
+    ...[-1001, -1003, -1004, -1005, -1009].map((code) => ({
+      error: `NSURLErrorDomain Code=${code}`,
+      code: String(code),
+    })),
+    { error: "HTTP 502 Bad Gateway", code: "502", repeat: true },
+    ...["info", "log"].flatMap((operation) =>
+      [
+        { error: "HTTP 401 Unauthorized", code: "401" },
+        { error: "HTTP 403 Forbidden", code: "403" },
+        { error: "HTTP 504 certificate failure", code: "504" },
+        { error: "HTTP 504 Invalid signature", code: "504" },
+        { error: "NSURLErrorDomain Code=-1200", code: "-1200" },
+        { error: "unrecognized tool failure", code: "unknown" },
+      ].map((scenario) => ({
+        ...scenario,
+        fatal: true,
+        operation,
+        ...(operation === "log" ? { status: "Invalid" } : {}),
+      })),
+    ),
+    { error: "HTTP 504", code: "504", operation: "log", status: "Invalid" },
+    { error: "HTTP 503", code: "503", operation: "log", status: "Rejected", repeat: true },
+  ];
+  for (const scenario of cases) {
+    const operation = scenario.operation ?? "info";
+    process.env.FIXTURE_POLL_SCENARIO = JSON.stringify({ ...scenario, operation });
+    writeFileSync(callsFile, "[]");
+    let time = 0;
+    const messages = [];
+    const waits = [];
+    const session = notarizationSession({
+      deadlineMs: 100,
+      pollMs: 30,
+      queryTimeoutMs: 50,
+      now: () => time,
+      wait: async (ms) => {
+        waits.push(ms);
+        time += ms;
+      },
+      log: (line) => messages.push(line),
+    });
+    const execute = (_command, args, options) => {
+      assert.equal(options.timeout, args[1] === "submit" ? 100 - time : Math.min(50, 100 - time));
+      assert.equal(options.killSignal, "SIGKILL");
+      return run(process.execPath, [tool, args[1], args[2]]);
+    };
+    // A prior accepted artifact must survive a later poll deadline in the history.
+    if (scenario.repeat && operation === "info") {
+      process.env.FIXTURE_POLL_SCENARIO = JSON.stringify({ operation: "unused" });
+      await session("first.zip", credentials, execute);
+      process.env.FIXTURE_POLL_SCENARIO = JSON.stringify({ ...scenario, operation });
+      writeFileSync(callsFile, "[]");
+    }
+    const action = () => session("second.dmg", credentials, execute);
+    if (scenario.fatal || scenario.repeat || scenario.status) {
+      await assert.rejects(action, (error) => {
+        if (scenario.repeat) {
+          assert.match(error.message, /deadline exceeded/);
+          assert.ok(
+            error.message.includes(
+              `last poll error: notarytool ${operation} id-second.dmg: status code ${scenario.code}`,
+            ),
+          );
+          if (operation === "info") assert.match(error.message, /id-first.zip \(Accepted\)/);
+          assert.match(error.message, /id-second.dmg/);
+        } else if (scenario.status)
+          assert.ok(error.message.includes(`Notarization ${scenario.status}`));
+        messages.push(inspect(error));
+        return true;
+      });
+    } else await action();
+    const calls = JSON.parse(readFileSync(callsFile, "utf8"));
+    assert.equal(calls.filter(([op]) => op === "submit").length, 1);
+    assert.equal(
+      calls.filter(([op]) => op === operation).length,
+      scenario.repeat ? 4 : scenario.fatal ? 1 : 2,
+    );
+    if (scenario.status) assert.equal(calls.filter(([op]) => op === "info").length, 1);
+    assert.deepEqual(waits, scenario.repeat ? [30, 30, 30, 10] : scenario.fatal ? [] : [30]);
+    if (scenario.fatal) {
+      assert.ok(
+        messages
+          .join("\n")
+          .includes(
+            `notarytool ${operation} id-second.dmg: status code ${scenario.code}; exit status 1`,
+          ),
+      );
+      assert.ok(!messages.join("\n").includes("unrecognized tool failure"));
+    }
+    if (!scenario.fatal) {
+      for (const line of messages.filter(
+        (line) =>
+          line.includes("status code") &&
+          !line.includes("deadline exceeded") &&
+          !line.startsWith("Error:"),
+      )) {
+        assert.match(
+          line,
+          new RegExp(
+            `^\\[1970-01-01T00:00:00\\.\\d{3}Z\\] notarytool ${operation} id-second.dmg: status code ${scenario.code}$`,
+          ),
+        );
+      }
+    }
+    for (const body of ["private-response-body", "55555", "<html>"])
+      assert.ok(!messages.join("\n").includes(body));
+    for (const secret of Object.values(credentials))
+      assert.ok(!messages.join("\n").includes(secret));
+  }
+});
+
 test("fixture stapler retries app/DMG staple and validate within the shared deadline", {
   skip: process.platform === "win32",
 }, async (t) => {

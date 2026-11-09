@@ -403,7 +403,16 @@ Rejected submissions print Apple's issues log summary. Both submissions share a
 120-minute deadline defined in `scripts/macos-sign.mjs`; failures include all
 returned IDs and their last statuses. Submit uses the remaining overall budget
 and logs its ID as soon as the tool prints it. Info and log queries are bounded to
-one minute (or the remaining budget). App and DMG stapling and staple validation
+one minute (or the remaining budget). Info and log queries retry HTTP 5xx and
+NSURL transport codes -1001, -1003, -1004, -1005 and -1009 every 30 seconds within
+that shared deadline. Each transient failure logs only its timestamp, submission
+ID, query operation and status code. Fatal info/log failures report only the
+query operation, submission ID, HTTP or NSURL code (or unknown), and tool exit
+status (or unknown); response bodies and credentials never enter poll diagnostics.
+Authentication errors (including 401/403), certificate and signature failures,
+and Invalid or Rejected statuses remain fatal; only retrieving their issues log
+may retry. Deadline exhaustion includes the last poll error and all submission
+IDs and statuses. App and DMG stapling and staple validation
 retry NSURL transport codes -1001, -1003, -1004, -1005 and -1009, missing CloudKit
 records, and tickets not yet available up to six attempts, 30 seconds apart.
 The domain or Error 65/68 alone never triggers retries; certificate and signature
