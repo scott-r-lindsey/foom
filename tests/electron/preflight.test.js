@@ -600,6 +600,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     showNewChildren: true,
     closeFinishedAgents: true,
     concurrentChildren: 4,
+    defaultAgent: null,
     recentRepositoryDays: 30,
     unreadChildMinutes: 5,
     autoRemoveMergedWorktrees: false,
