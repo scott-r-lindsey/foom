@@ -444,11 +444,72 @@ wait();`,
                 row.branch === "Main checkout",
             ).length,
         );
+      // Hold the real opening animation at its first frame. A pointer near the
+      // command's upper edge must keep the same submenu as that animation ends.
+      const animationStyle = await page.addStyleTag({
+        content: ".sidebar-panel { animation-play-state: paused !important; }",
+      });
       const launchAgent = async (name) => {
-        await page.getByRole("button", { name: `Actions for ${name}`, exact: true }).click();
-        await page.getByRole("menuitem", { name: "New agent", exact: true }).hover();
-        await page.getByRole("menuitem", { name: "Builder", exact: true }).hover();
-        await page.getByRole("menuitem", { name: "Claude Code", exact: true }).click();
+        await page.evaluate(() => {
+          const events = [];
+          const describe = (target) => {
+            if (!(target instanceof Element)) return null;
+            const item = target.closest('[role="menuitem"]');
+            const menu = target.closest(".row-menu");
+            return menu ? { menu: menu.getAttribute("aria-label"), item: item?.textContent } : null;
+          };
+          const record = (event) => {
+            const target = describe(event.target);
+            if (target) {
+              events.push({
+                time: performance.now(),
+                type: event.type,
+                target,
+                related: describe(event.relatedTarget),
+              });
+              if (events.length > 80) events.shift();
+            }
+          };
+          const types = ["pointerover", "pointerout", "animationstart", "animationend"];
+          for (const type of types) document.addEventListener(type, record, true);
+          window.sharingMenuTrace = {
+            events,
+            stop: () => {
+              for (const type of types) document.removeEventListener(type, record, true);
+            },
+          };
+        });
+        try {
+          await page.getByRole("button", { name: `Actions for ${name}`, exact: true }).click();
+          const panel = page.locator(".sidebar-panel");
+          await panel.evaluate((element) => {
+            const animation = element.getAnimations()[0];
+            if (animation) animation.currentTime = 0;
+          });
+          const newAgent = page.getByRole("menuitem", { name: "New agent", exact: true });
+          await newAgent.hover({ position: { x: 30, y: 1 } });
+          await expect(page.getByRole("menu", { name: "New agent", exact: true })).toBeVisible();
+          await panel.evaluate(async (element) => {
+            for (const animation of element.getAnimations()) animation.finish();
+            await new Promise((resolve) =>
+              requestAnimationFrame(() => requestAnimationFrame(resolve)),
+            );
+          });
+          await expect(newAgent).toHaveAttribute("aria-expanded", "true");
+          await expect(page.getByRole("menu", { name: "New agent", exact: true })).toBeVisible();
+          await page.getByRole("menuitem", { name: "Builder", exact: true }).hover();
+          await page.getByRole("menuitem", { name: "Claude Code", exact: true }).click();
+        } catch (error) {
+          const trace = await page.evaluate(() => window.sharingMenuTrace.events);
+          context.diagnostic(`Sharing menu ordering: ${JSON.stringify(trace)}`);
+          await writeFile(
+            evidencePath(`1150/${name}-menu-ordering.json`),
+            JSON.stringify(trace, null, 2),
+          );
+          throw error;
+        } finally {
+          await page.evaluate(() => window.sharingMenuTrace.stop());
+        }
       };
       await launchAgent("shell-fixture");
       await expect.poll(agentCount).toBe(1);
@@ -465,6 +526,7 @@ wait();`,
         page.getByRole("button", { name: "Actions for clone-b", exact: true }),
       ).toBeVisible();
       await launchAgent("clone-b");
+      await animationStyle.evaluate((element) => element.remove());
       const armed = page.getByRole("menuitem", {
         name: "Click again for multiple agents here",
         exact: true,

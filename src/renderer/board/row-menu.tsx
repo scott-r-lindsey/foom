@@ -147,8 +147,7 @@ export function RowMenu({
         menu.style.width = `${String(Math.min(720, Math.max(280, placement === "below" ? window.innerWidth - 16 : window.innerWidth - right - 18)))}px`;
       if (placement === "below")
         menu.style.maxHeight = `${String(Math.max(80, window.innerHeight - (point ? 0 : button.bottom) - 16))}px`;
-      // Opening animations transform the border box; placement needs its final
-      // layout size or the expanded menu can extend beyond the window edge.
+      // Fit the layout box within the viewport, independent of decoration.
       const bounds = { width: menu.offsetWidth, height: menu.offsetHeight };
       const top = Math.max(
         8,

@@ -346,3 +346,25 @@ waiting for the run separates native operation completion from UI rendering.
 This establishes the ordering defect without claiming the reports captured the
 underlying Git operation timing. Test deadlines and product deletion policy stay
 unchanged.
+
+## Sharing-menu opening order (#1150)
+
+The remote-clones sharing-warning case holds the real sidebar panel opening
+animation at its first frame, uses native input near New agent's upper edge,
+then completes the animation while the pointer stays still. It asserts that
+New agent and its machine submenu remain selected before hovering Builder and
+launching Claude Code through the real sharing confirmation.
+
+With the original scale/translation keyframes, a controlled Linux trace records
+pointerover New agent at 4453.8 ms, pointerout to New worktree at 4470.8 ms and
+panel animationend at 4471.1 ms. The final regression fails against those original
+styles because New agent's aria-expanded becomes false; it passes with opening
+opacity only. This establishes a product hit-testing defect: the opening transform
+can change the selected command beneath a stationary pointer. Machine inventory
+updates and sharing confirmation are not needed to reproduce it.
+The older macOS reports record Builder instability and detachment but no pointer
+trace, so they do not establish that exact event order. The test retains a bounded,
+failure-only trace of menu labels, pointer transitions and animation events in
+JUnit diagnostics and `test-results/1150/`, for distinguishing another cause.
+It preserves native input, real menus, fixture CLIs, sandboxing and process auditing;
+there are no deadline increases, fixed settling sleeps or retries.

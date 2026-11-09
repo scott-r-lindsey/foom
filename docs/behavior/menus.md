@@ -25,7 +25,9 @@ item; Left or Escape returns to its parent, and hovering opens it without moving
 focus. The submenu flips left when the window has no room on its right. Up and
 Down treat the Size row as one stop; Left and Right move between − and +.
 Escape at the top level returns focus to the wordmark. The menu uses the same
-surface and motion as row actions, with a scrollable list on short windows. The
+surface and motion as row actions, with a scrollable list on short windows. Opening
+fades the surface and commands without translating or scaling their hit areas;
+a stationary pointer keeps its command and submenu while the fade completes. The
 native menu bar is absent on Windows and Linux, including after Alt. On macOS,
 Action Log and Toggle Developer Tools share Developer; Quit Foom is last in the Foom application menu.
 
