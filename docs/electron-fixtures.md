@@ -327,3 +327,22 @@ time. Production builds omit this flag and read real OS facts; there is no runti
 or profile switch. Ordinary app/package builds clear the disposable build tree.
 Daemon unit tests exercise the real admission path with fixture OS measurements,
 including reservations, refusals, disconnects and unreadable observations.
+
+## Group cleanup completion ordering (#1146)
+
+The untracked/detached cleanup case holds delivery of the second detached
+checkout's real removal result. It verifies the trusted progress dialog remains
+at 2/3 with Hide available and no Done, then awaits `CleanupRun.settled()` before
+asserting the finished UI. The gate releases on failure before app shutdown.
+All real Git checks and trusted dirty approval still run.
+
+Both macOS JUnit reports from runs 42601978396 and 42606320501 show the same
+`Deleting merged worktrees` progress dialog at 2/3, with `review-detached-b`
+still removing. The repeated alertdialog interception is the harness's native
+focus readiness handler, not evidence of another unanswered dialog. The original
+Done assertion starts its ten-second UI deadline while native removals are still
+running. Holding that completion reproduces the original failure deterministically;
+waiting for the run separates native operation completion from UI rendering.
+This establishes the ordering defect without claiming the reports captured the
+underlying Git operation timing. Test deadlines and product deletion policy stay
+unchanged.
