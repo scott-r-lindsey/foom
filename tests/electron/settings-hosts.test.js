@@ -2593,7 +2593,9 @@ test("Hosts status classification stays consistent with sealed catalog omission"
   const before = await readFile(calls, "utf8");
   await navigation.getByRole("button", { name: "General", exact: true }).click();
   await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
-  await card.getByRole("button", { name: "Expand fixture-cloud", exact: true }).click();
+  const expand = card.locator(".host-expand");
+  await expect(expand).toBeVisible();
+  if ((await expand.getAttribute("aria-expanded")) === "false") await expand.click();
   await expect(
     page.getByText("This build has no remote host support", { exact: true }),
   ).toHaveCount(1);
@@ -2622,7 +2624,8 @@ test("Hosts status classification stays consistent with sealed catalog omission"
   await expect(card.locator(".host-check-row[aria-busy=true]")).toHaveCount(0);
   await navigation.getByRole("button", { name: "General", exact: true }).click();
   await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
-  await card.getByRole("button", { name: "Expand fixture-cloud", exact: true }).click();
+  await expect(expand).toBeVisible();
+  if ((await expand.getAttribute("aria-expanded")) === "false") await expand.click();
   await expect(unavailable).toHaveClass(/host-neutral/u);
   await expect(card.getByText("Needs you", { exact: true })).toHaveCount(0);
   const operations = (await readFile(calls, "utf8")).slice(before.length).trim();
