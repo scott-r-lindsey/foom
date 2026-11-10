@@ -2424,11 +2424,23 @@ test("Hosts removal prunes saved session rows and startup repairs already forgot
     .getByRole("navigation", { name: "Settings sections" })
     .getByRole("button", { name: "Hosts", exact: true })
     .click();
-  const callsBefore = await readFile(fixture.calls, "utf8");
-  await page
-    .getByRole("region", { name: "fixture-cloud", exact: true })
-    .getByRole("button", { name: "Remove", exact: true })
-    .click();
+  const card = page.getByRole("region", { name: "fixture-cloud", exact: true });
+  await expect(card.locator(".host-checks")).toHaveAttribute("aria-busy", "false");
+  // Restored sidebar discovery can still be finishing when Hosts becomes visible.
+  // Take the baseline only after consecutive polls observe a settled call log.
+  let callsBefore;
+  await expect
+    .poll(
+      async () => {
+        const calls = await readFile(fixture.calls, "utf8");
+        const settled = calls === callsBefore;
+        callsBefore = calls;
+        return settled;
+      },
+      { intervals: [500] },
+    )
+    .toBe(true);
+  await card.getByRole("button", { name: "Remove", exact: true }).click();
   await expect.poll(() => rows(page)).toEqual([]);
   await expect(page.locator(`[data-drag-session="${saved.id}"]`)).toHaveCount(0);
   await expect.poll(async () => JSON.parse(await readFile(sessionsFile, "utf8"))).toEqual([]);
@@ -2438,6 +2450,11 @@ test("Hosts removal prunes saved session rows and startup repairs already forgot
     "Forgetting never contacts SSH or closes a session",
   );
   await quitAndWait(app, () => app.evaluate(({ app }) => app.quit()));
+  assert.equal(
+    await readFile(fixture.calls, "utf8"),
+    callsBefore,
+    "Forgetting must not leave SSH or close calls running after removal",
+  );
   const restarted = await launchApp(context, options);
   const restartedPage = await boardPage(restarted);
   await expect.poll(() => rows(restartedPage)).toEqual([]);
