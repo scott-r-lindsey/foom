@@ -1044,10 +1044,12 @@ export class Hosts {
         this.pending,
         this.hostPending.get(host) ?? Promise.resolve(),
       ]).then(async () => {
+        const generation = this.outputGeneration;
         const registration = this.registered(host);
         const latest = this.results.get(host) ?? registration.observation?.preflight.result;
         const cancelled = () => signal.aborted;
         const report = (reason: HostKeyTrustFailure) => {
+          if (this.outputGeneration !== generation) return;
           this.outputGeneration++;
           this.output = {
             host,
@@ -1141,6 +1143,7 @@ export class Hosts {
     const isCheck = input.action === "preflight" || input.action === "draft-preflight";
     const host = "host" in input ? input.host : undefined;
     let release: (() => void) | undefined;
+    let outputGeneration: number | undefined;
     const hostWork = host ? (this.hostPending.get(host) ?? Promise.resolve()) : Promise.resolve();
     const prior = host
       ? Promise.allSettled(isCheck ? [hostWork] : [this.pending, hostWork])
@@ -1151,7 +1154,7 @@ export class Hosts {
         if (isCheck) release = await this.enterCheck();
         if (input.action === "recipe") this.output = undefined;
         if (showOutput && "host" in input) {
-          this.outputGeneration++;
+          outputGeneration = ++this.outputGeneration;
           this.output = { host: input.host, text: "", running: true, failed: false };
         }
         if (input.action === "list") {
@@ -1628,7 +1631,12 @@ export class Hosts {
       })
       .finally(() => {
         release?.();
-        if (showOutput && this.output && this.output.host === host)
+        if (
+          showOutput &&
+          this.outputGeneration === outputGeneration &&
+          this.output &&
+          this.output.host === host
+        )
           this.output = { ...this.output, running: false };
       })
       .then((state) => ({ ...state, ...(this.output ? { output: this.output } : {}) }));
@@ -1668,17 +1676,21 @@ export class Hosts {
     } = {},
   ): Promise<HostResult> {
     const currentObservation = options.currentObservation ?? (() => true);
+    const generation = this.outputGeneration;
+    const currentOutput = () =>
+      options.output &&
+      this.outputGeneration === generation &&
+      this.output?.running &&
+      this.output.host === host
+        ? this.output
+        : undefined;
     const failed = (
       reason: HostFailure,
       step: "providers" | "connection" | "reply" | "configuration" | "cancellation",
     ): HostResult => {
-      if (
-        options.output &&
-        this.output?.running &&
-        this.output.host === host &&
-        !this.output.failed
-      ) {
-        this.output.failed = true;
+      const output = currentOutput();
+      if (output && !output.failed) {
+        output.failed = true;
         this.appendOutput(`Failed · ${reason}\n`, true);
       }
       console.warn(`Host check failed: reason=${reason} step=${step}`);
@@ -1718,14 +1730,10 @@ export class Hosts {
       // Provider preparation can await. Revoke stale mutation authority before dispatch.
       if (options.beforeDispatch?.() === false) return failed("checkout-refused", "configuration");
       try {
-        const generation = this.outputGeneration;
         const output =
-          options.output &&
-          this.output?.running &&
-          this.output.host === host &&
-          request.operation === "inspect"
+          currentOutput() && request.operation === "inspect"
             ? (text: string, startLine = false) => {
-                if (this.outputGeneration === generation) this.appendOutput(text, startLine);
+                if (currentOutput()) this.appendOutput(text, startLine);
               }
             : undefined;
         const execute =
@@ -1749,7 +1757,8 @@ export class Hosts {
           : await execute(host, { ...request, agents: probes });
         if (output && hostResult(result)) {
           output(result.ok ? "Done\n" : `Failed · ${result.reason}\n`, true);
-          if (this.output && !result.ok) this.output.failed = true;
+          const current = currentOutput();
+          if (current && !result.ok) current.failed = true;
         }
       } catch {
         return cancelled()

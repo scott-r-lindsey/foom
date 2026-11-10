@@ -2967,3 +2967,45 @@ test("late SSH output from a completed batch cannot enter the next check's panel
   held.resolve({ ok: true, facts });
   await pending;
 });
+
+test.each([false, true])(
+  "a failed concurrent check cannot mark another host's output failed (finished=%s)",
+  async (finished) => {
+    settings.registeredHosts = ["first", "second"].map((host) => ({
+      host,
+      codeFolder: facts.codeFolder,
+    }));
+    const first = Promise.withResolvers<HostResult>();
+    const second = Promise.withResolvers<HostResult>();
+    mock.remote.mockImplementation(({ host }) =>
+      host === "first" ? first.promise : second.promise,
+    );
+    const owner = new Hosts(store, () => [], "0.1.0");
+    const check = (host: string) =>
+      owner.action({ action: "preflight", host, codeFolder: facts.codeFolder });
+    const a = check("first");
+    await vi.waitFor(() => {
+      expect(mock.remote).toHaveBeenCalledTimes(1);
+    });
+    const b = check("second");
+    await vi.waitFor(() => {
+      expect(mock.remote).toHaveBeenCalledTimes(2);
+    });
+    mock.remote.mock.calls[1]?.[4]?.("Second host\n");
+    if (finished) {
+      second.resolve({ ok: true, facts });
+      await b;
+    }
+    first.resolve({ ok: false, reason: "unreachable" });
+    await a;
+    mock.remote.mock.calls[0]?.[4]?.("Stale first host\n");
+    const during = (await owner.action({ action: "progress" })).output;
+    expect(during).toMatchObject({ host: "second", failed: false, running: !finished });
+    expect(during?.text).not.toMatch(/Failed|Stale/u);
+    if (!finished) second.resolve({ ok: true, facts });
+    const completed = await b;
+    expect(completed.output).toMatchObject({ host: "second", failed: false, running: false });
+    expect(completed.output?.text).toBe("Second host\nDone\n");
+    owner.dispose();
+  },
+);
