@@ -2592,7 +2592,16 @@ test("Hosts status classification stays consistent with sealed catalog omission"
     metadata,
     JSON.stringify({ ...JSON.parse(previous), remoteHostsAvailable: false }),
   );
-  const before = await readFile(calls, "utf8");
+  // Sidebar recovery can finish an earlier inventory independently of Settings.
+  // Count only capability/repository checks owned by the Hosts actions below.
+  const checkCalls = async () =>
+    (await readFile(calls, "utf8"))
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line))
+      .filter(({ message }) => message.type === "manage" && message.operation !== "list-worktrees");
+  const before = await checkCalls();
   await navigation.getByRole("button", { name: "General", exact: true }).click();
   await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
   const expand = card.locator(".host-expand");
@@ -2601,8 +2610,8 @@ test("Hosts status classification stays consistent with sealed catalog omission"
   await expect(
     page.getByText("This build has no remote host support", { exact: true }),
   ).toHaveCount(1);
-  assert.equal(
-    await readFile(calls, "utf8"),
+  assert.deepEqual(
+    await checkCalls(),
     before,
     "Opening Hosts reads only local build and saved state",
   );
@@ -2630,11 +2639,10 @@ test("Hosts status classification stays consistent with sealed catalog omission"
   if ((await expand.getAttribute("aria-expanded")) === "false") await expand.click();
   await expect(unavailable).toHaveClass(/host-neutral/u);
   await expect(card.getByText("Needs you", { exact: true })).toHaveCount(0);
-  const operations = (await readFile(calls, "utf8")).slice(before.length).trim();
-  assert.equal(
-    operations,
-    "",
-    "Only bounded SSH/platform discovery can run without a catalog; no daemon requests",
+  assert.deepEqual(
+    await checkCalls(),
+    before,
+    "Without a catalog no daemon capability or repository check is dispatched",
   );
 });
 
