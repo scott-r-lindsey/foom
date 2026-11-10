@@ -452,3 +452,75 @@ test("app fixtures isolate inherited Foom variables and retain explicit override
     FOOM_FIXTURE_OVERRIDE: "explicit-fixture",
   });
 });
+
+test("quit ordering diagnostics bound records and redact locator actionability", () => {
+  const { orderingBuffer, actionabilityEvent } = require("./quit-diagnostics.js");
+  const buffer = orderingBuffer();
+  for (let index = 0; index < 250; index++) buffer.record("test", { event: "sample", index });
+  const snapshot = buffer.snapshot();
+  assert.equal(snapshot.events.length, 192);
+  assert.equal(snapshot.total, 250);
+  assert.equal(snapshot.dropped, 58);
+  assert.equal(snapshot.events[0].index, 58);
+  snapshot.events.pop();
+  assert.equal(buffer.snapshot().events.length, 192);
+  buffer.record("test", { event: "private".repeat(1000) });
+  assert.equal(buffer.snapshot().events.at(-1).event, "record:oversized");
+  assert.equal(
+    actionabilityEvent("private selector intercepts pointer events"),
+    "intercepts pointer events",
+  );
+  assert.equal(actionabilityEvent("secret session title"), undefined);
+});
+
+test("quit ordering diagnostics observe native presentation, input and answer before quit", async (context) => {
+  const { startQuitOrdering } = require("./quit-diagnostics.js");
+  const { confirmationPage } = require("./harness.js");
+  const app = await launchApp(context, { fixture: "running-shell" });
+  const child = app.process();
+  const ordering = startQuitOrdering(app);
+  try {
+    await ordering.install();
+    await quitAndWait(app, async () => {
+      await app.evaluate(({ app }) => app.quit());
+      const dialog = await confirmationPage(app);
+      await dialog.getByRole("button", { name: "Stop all and quit" }).click();
+    });
+    // stderr and console are independent transports. Compare native sequence
+    // numbers within main; merged arrival order is not cross-process causality.
+    const events = ordering.snapshot().events;
+    const answer = events.find((item) => item.event === "native:answer");
+    assert.ok(answer);
+    assert.equal(answer.presented, true);
+    assert.equal(answer.matchingRequest, true);
+    assert.equal(answer.topFrame, true);
+    assert.equal(answer.accepted, true);
+    assert.ok(
+      events.some(
+        (item) =>
+          item.event === "native:render" && item.presented && item.sequence < answer.sequence,
+      ),
+    );
+    for (const event of [
+      "native:before-quit",
+      "native:will-quit",
+      "renderer:pointerdown",
+      "renderer:pointerup",
+      "renderer:click",
+      "click action done",
+    ])
+      assert.ok(
+        events.some((item) => item.event === event),
+        event,
+      );
+    assert.ok(
+      events.some(
+        (item) => item.event === "renderer:click" && item.trusted && item.button === "accept",
+      ),
+    );
+    assert.equal(child.exitCode, 0);
+  } finally {
+    ordering.stop();
+    context.diagnostic(`Quit ordering: ${JSON.stringify(ordering.snapshot())}`);
+  }
+});
