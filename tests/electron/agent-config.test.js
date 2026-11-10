@@ -237,3 +237,103 @@ test("config agents receive only the bundled manual and revoke the attachment on
     })
     .toBe(true);
 });
+
+test("fresh profiles adopt shared config without resetting a running profile", {
+  timeout: deadline(60_000),
+}, async (context) => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-config-adoption-")));
+  removeAfterApps(context, root);
+  const home = path.join(root, "home");
+  const profileA = path.join(root, "a");
+  const profileB = path.join(root, "b");
+  const a = await launchApp(context, {
+    fixture: "empty-board",
+    home,
+    args: [`--user-data-dir=${profileA}`],
+  });
+  const pageA = await boardPage(a);
+  await pageA.evaluate(() =>
+    window.desktop.saveSetup({
+      interfaceTheme: "eclipse-dark",
+      terminalFontSize: 19,
+      hooks: false,
+    }),
+  );
+  const file = path.join(home, ".foom", "config", "settings.json");
+  const before = await readFile(file);
+  // A v1 profile and window placement must not overwrite an adopted file either.
+  await mkdir(profileB, { recursive: true });
+  await writeFile(
+    path.join(profileB, "settings.json"),
+    JSON.stringify({
+      version: 1,
+      settings: { interfaceTheme: "eclipse-light", interfaceScale: 110, checkForUpdates: false },
+    }),
+  );
+  const b = await launchApp(context, {
+    fixture: "first-run",
+    home,
+    args: [`--user-data-dir=${profileB}`],
+  });
+  const pageB = await boardPage(b);
+  await pageB.getByRole("button", { name: "Start preflight" }).waitFor();
+  assert.deepEqual(await readFile(file), before);
+  assert.equal(
+    (await pageB.evaluate(() => window.desktop.setupState())).settings.interfaceTheme,
+    "follow",
+  );
+  assert.equal(
+    (await pageA.evaluate(() => window.desktop.setupState())).settings.interfaceTheme,
+    "eclipse-dark",
+  );
+  assert.equal(
+    (await pageB.evaluate(() => window.desktop.configStatus())).pending.detail,
+    "hooks: on → off",
+  );
+  // Wait for A's real scanner to process a later event before checking its theme.
+  await writeFile(path.join(home, ".foom", "config", "themes", "barrier.json"), "{}");
+  await expect
+    .poll(async () =>
+      (await pageA.evaluate(() => window.desktop.configStatus())).rejected.some(
+        (entry) => entry.file === "themes/barrier.json",
+      ),
+    )
+    .toBe(true);
+  assert.equal(
+    (await pageA.evaluate(() => window.desktop.setupState())).settings.interfaceTheme,
+    "eclipse-dark",
+  );
+  assert.deepEqual(await readFile(file), before);
+});
+
+test("start:fresh state isolation keeps config and worktrees inside its temporary profile", async (context) => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-fresh-state-")));
+  removeAfterApps(context, root);
+  const home = path.join(root, "home");
+  const profile = path.join(root, "profile");
+  const shared = path.join(home, ".foom");
+  await mkdir(path.join(shared, "config"), { recursive: true });
+  const sentinel = '{ "kind": "settings", "interfaceTheme": "eclipse-light" }\n';
+  await writeFile(path.join(shared, "config", "settings.json"), sentinel);
+  const app = await launchApp(context, {
+    fixture: "empty-board",
+    home,
+    args: [`--user-data-dir=${profile}`, "--foom-isolated-state"],
+  });
+  const page = await boardPage(app);
+  const status = await page.evaluate(() => window.desktop.configStatus());
+  assert.equal(status.folder, path.join(profile, ".foom", "config"));
+  assert.equal(
+    (await page.evaluate(() => window.desktop.setupState())).worktreeRoot,
+    path.join(profile, ".foom", "worktrees"),
+  );
+  await page.evaluate(() => window.desktop.saveSetup({ interfaceTheme: "eclipse-dark" }));
+  assert.equal(
+    JSON.parse(await readFile(path.join(profile, ".foom", "config", "settings.json"), "utf8"))
+      .interfaceTheme,
+    "eclipse-dark",
+  );
+  assert.equal(await readFile(path.join(shared, "config", "settings.json"), "utf8"), sentinel);
+  const { readdir } = require("node:fs/promises");
+  assert.deepEqual(await readdir(shared), ["config"]);
+});

@@ -394,3 +394,21 @@ test("Settings host locations use the shared registered repository inventory", a
   expect(state.locations).toEqual([]);
   expect(listRepositories).toHaveBeenCalled();
 });
+
+test("adopting an existing shared file never writes legacy scale over a held proposal", async () => {
+  mock.config.settingsCreated = false;
+  mock.settingsStore.legacyConfig.mockReturnValueOnce({ interfaceScale: 110 });
+  mock.config.initialize.mockResolvedValue({});
+  mock.loadPlacements.mockResolvedValue([
+    {
+      id: "first",
+      display: 1,
+      bounds: { x: 0, y: 0, width: 1200, height: 900 },
+      maximized: false,
+      scale: 150,
+    },
+  ]);
+  await start();
+  expect(mock.settingsStore.update).not.toHaveBeenCalled();
+  expect(mock.config.write).not.toHaveBeenCalled();
+});

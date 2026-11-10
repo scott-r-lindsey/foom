@@ -110,6 +110,7 @@ export class ConfigService {
   private error: string | undefined;
   private closed = false;
   private started = false;
+  private createdSettings = false;
 
   private readonly files: ConfigFiles;
   private readonly plugins: ConfigCatalog;
@@ -129,8 +130,7 @@ export class ConfigService {
   }
 
   /**
-   * Creates the layout, refreshes unedited Foom-owned docs, turns the folder into a
-   * repository when it is not one, and moves `legacy` profile values into
+   * Creates the layout, refreshes unedited Foom-owned docs, and moves `legacy` profile values into
    * `settings.json` if that file does not exist yet. Returns the applied values.
    */
   initialize(legacy?: ConfigSettings): Promise<ConfigSettings> {
@@ -149,6 +149,11 @@ export class ConfigService {
   /** True once the folder and its settings are in use. */
   get ready(): boolean {
     return this.started;
+  }
+
+  /** Legacy window migration may write only when this launch created settings. */
+  get settingsCreated(): boolean {
+    return this.createdSettings;
   }
 
   private async setUp(legacy?: ConfigSettings): Promise<ConfigSettings> {
@@ -187,11 +192,12 @@ export class ConfigService {
       }
       const text = `${JSON.stringify({ kind: "settings", ...values }, null, 2)}\n`;
       parseSettingsFile(text);
-      await this.files.writeFile(SETTINGS_FILE, text);
-      migrated = { text, values };
+      this.createdSettings = await this.files.createFile(SETTINGS_FILE, text);
+      if (this.createdSettings) migrated = { text, values };
     }
-    this.applied = (await this.baseline(migrated)) ?? DEFAULTS;
-    if (!migrated && legacy?.agentArguments) {
+    const baseline = await this.baseline(migrated);
+    this.applied = baseline ?? DEFAULTS;
+    if (!migrated && baseline && legacy?.agentArguments) {
       // Trust only the profile's arguments, not other edits made while Foom was closed.
       const bytes = await this.files.read(SETTINGS_FILE);
       if (!bytes) throw new Error("Cannot migrate agent arguments without settings");

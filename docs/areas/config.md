@@ -31,15 +31,30 @@ git command there. The check is installed before saved repositories load, so a
 conflicting saved registration is dropped, and config sessions refuse to start if a
 registered repository contains the folder. `foom config validate` skips the Foom-owned entries and `.gitkeep`.
 
+Development launchers `start:fresh`, interactive `start:samples`, and `start:hosts`
+pass the value-free `--foom-isolated-state` switch. In an unpackaged app this derives
+both the config and managed worktree roots from `<userData>/.foom/`, without
+accepting an arbitrary path. A switch value is rejected; packaged builds ignore
+the switch. `start:fresh` owns a temporary profile and removes all this state on
+exit (unless `--keep`); samples and hosts use the persistent Foom Dev profile.
+Screenshot capture already owns a fixture HOME and temporary profile. Ordinary
+launches continue to share `~/.foom/config` and `~/.foom/worktrees`.
+
 **Settings.** The allowlisted keys from #206 live in `config/settings.json`. On the
 first launch with a version 1 profile, main writes them into a new `settings.json`
-(an existing file wins and the profile values are dropped), then rewrites the
-profile as version 2 without them in the same step. Values the file cannot express,
+(an existing file wins byte for byte and the profile values are dropped).
+Fresh, corrupt, and version 2 profiles without an applied baseline likewise adopt
+an existing file through the ordinary external-edit apply and hold path. Adoption
+grants no approval: off switches, argument changes and attention-conflicting theme
+selections still hold against defaults. Creating a missing file atomically refuses
+to replace one another profile created concurrently. Legacy window-scale migration
+may write only when this launch created the settings file. After initialization,
+main rewrites the profile as version 2 without config settings. Values the file cannot express,
 such as portable palette objects, fall back to the default. A version 2 profile
 stores only profile settings plus `configDigest`, the SHA-256 of the settings file
 this profile last applied, and `configText`, a copy of that file (at most 64 KiB)
 so Keep it on can restore it after a restart. If the folder cannot be prepared, settings stay in the
-version 1 profile and migration is retried at the next launch. On upgrade from either profile version, nonempty validated per-agent launch
+version 1 profile and migration is retried at the next launch. For profiles with a verified applied config baseline, nonempty validated per-agent launch
 arguments move once into settings.json when its key is absent. Invalid profile
 lists retain the existing per-agent drop rule. The migration trusts only the
 profile arguments, preserves other file holds, and records a recoverable approved

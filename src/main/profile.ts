@@ -20,3 +20,18 @@ export function clearParentHooks(env: NodeJS.ProcessEnv): void {
     }
   }
 }
+
+/** Development launchers isolate HOME-keyed state within their selected profile. */
+export function stateRoot(
+  app: Pick<App, "isPackaged" | "getPath"> & {
+    commandLine: Pick<App["commandLine"], "hasSwitch" | "getSwitchValue">;
+  },
+): string {
+  const isolated = app.commandLine.hasSwitch("foom-isolated-state");
+  if (!app.isPackaged && isolated) {
+    if (app.commandLine.getSwitchValue("foom-isolated-state") !== "")
+      throw new Error("--foom-isolated-state does not accept a value");
+    return join(app.getPath("userData"), ".foom");
+  }
+  return join(app.getPath("home"), ".foom");
+}

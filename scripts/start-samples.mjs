@@ -18,7 +18,12 @@ if (capture) {
 } else {
   const child = spawn(
     process.execPath,
-    [createRequire(import.meta.url).resolve("@electron-forge/cli/dist/electron-forge.js"), "start"],
+    [
+      createRequire(import.meta.url).resolve("@electron-forge/cli/dist/electron-forge.js"),
+      "start",
+      "--",
+      "--foom-isolated-state",
+    ],
     { cwd, stdio: "inherit" },
   );
   for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"])
