@@ -1190,7 +1190,7 @@ test.each([
   expect(settings.registeredHosts).toEqual([{ host: "worker", codeFolder: facts.codeFolder }]);
 });
 
-test("preflight preserves independent bootstrap observations and local origin refusal", async () => {
+test("preflight preserves bootstrap observations and leaves dependent origins unrun", async () => {
   run.mockResolvedValue({
     ok: false,
     reason: "artifact-unavailable",
@@ -1212,11 +1212,13 @@ test("preflight preserves independent bootstrap observations and local origin re
     artifact: { state: "fail", reason: "artifact-unavailable" },
     repositories: [
       {
-        origin: { state: "fail", reason: "origin-unavailable" },
-        checkout: { ok: false, reason: "origin-unavailable" },
+        origin: { state: "not-checked" },
+        checkout: { ok: false, reason: "artifact-unavailable" },
       },
     ],
   });
+  expect(mock.execute).not.toHaveBeenCalled();
+  expect(run).toHaveBeenCalledOnce();
   expect(JSON.stringify(state)).not.toContain("raw");
 });
 
@@ -2823,6 +2825,61 @@ test("host removal awaits session inventory repair after forgetting registration
   await hosts.action({ action: "remove", host: "worker" });
   expect(repair).toHaveBeenCalledOnce();
 });
+
+test.each(["origin", "checkout"] as const)(
+  "%s reload invalidates dependent observations on a transport failure after verification",
+  async (kind) => {
+    await hosts.action({ action: "add", host: "worker", codeFolder: facts.codeFolder });
+    await hosts.action({ action: "preflight", host: "worker", codeFolder: facts.codeFolder });
+    const checkedAt = settings.registeredHosts?.[0]?.observation?.checkedAt;
+    run.mockResolvedValue({
+      ok: false,
+      reason: "unreachable",
+      connection: {
+        ssh: { state: "pass" },
+        platform: { state: "pass" },
+        artifact: { state: "pass" },
+      },
+    });
+    const row = await hosts.action({
+      action: "reload",
+      host: "worker",
+      target: { kind, repository: "/local/repo" },
+    });
+    expect(row.preflight?.artifact).toEqual({ state: "fail", reason: "unreachable" });
+    expect(row.preflight?.result.ok).toBe(false);
+    expect(row.preflight?.repositories[0]?.origin).toEqual({ state: "not-checked" });
+    expect(settings.registeredHosts?.[0]?.observation?.checkedAt).toBe(checkedAt);
+    const full = await hosts.action({
+      action: "preflight",
+      host: "worker",
+      codeFolder: facts.codeFolder,
+    });
+    for (const stage of ["ssh", "platform", "artifact", "result"] as const)
+      expect(row.preflight?.[stage]).toEqual(full.preflight?.[stage]);
+  },
+);
+
+test.each(["origin", "checkout"] as const)(
+  "%s row-local origin authentication failure preserves a healthy daemon",
+  async (kind) => {
+    await hosts.action({ action: "add", host: "worker", codeFolder: facts.codeFolder });
+    await hosts.action({ action: "preflight", host: "worker", codeFolder: facts.codeFolder });
+    run.mockResolvedValue({ ok: false, reason: "origin-auth" });
+    const row = await hosts.action({
+      action: "reload",
+      host: "worker",
+      target: { kind, repository: "/local/repo" },
+    });
+    expect(row.preflight?.result.ok).toBe(true);
+    expect(row.preflight?.artifact).toEqual({ state: "pass" });
+    expect(row.preflight?.repositories[0]).toMatchObject(
+      kind === "origin"
+        ? { origin: { state: "fail", reason: "origin-auth" } }
+        : { checkout: { ok: false, reason: "origin-auth" } },
+    );
+  },
+);
 
 test("four host checks run independently, release slots after failure, and keep per-host progress", async () => {
   const names = ["slow", "offline", "fast", "fourth", "fifth"];

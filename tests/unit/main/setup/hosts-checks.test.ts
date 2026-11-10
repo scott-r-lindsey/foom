@@ -276,14 +276,34 @@ test.each([
   }
 });
 test.each(["git", "codex"])("failed reload of %s changes only its state", async (tool) => {
-  checkedHost();
-  execute.mockResolvedValue({ ok: false, reason: "unreachable" });
+  const original = checkedHost();
+  execute.mockResolvedValue({
+    ok: true,
+    facts: {
+      ...original.facts,
+      tools: (original.facts.tools ?? []).map((entry) =>
+        entry.id === tool ? { ...entry, state: "unable" } : entry,
+      ),
+      agents: original.facts.agents.map((entry) =>
+        entry.id === tool ? { ...entry, state: "unable" } : entry,
+      ),
+    },
+  });
   const state = await hosts.action({
     action: "reload",
     host: "fixture",
     target: { kind: "tool", tool },
   });
-  expect(state.preflight?.result.ok).toBe(true);
+  if (!state.preflight?.result.ok) throw new Error("Expected retained capabilities");
+  expect(state.preflight.result.facts).toEqual({
+    ...original.facts,
+    tools: original.facts.tools?.map((entry) =>
+      entry.id === tool ? { ...entry, state: "unable" } : entry,
+    ),
+    agents: original.facts.agents.map((entry) =>
+      entry.id === tool ? { ...entry, state: "unable" } : entry,
+    ),
+  });
   expect(settings.registeredHosts?.[0]?.observation?.checkedAt).toBe(1234);
 });
 test("reload validates enabled tools and registered repositories before remote calls", async () => {
@@ -334,10 +354,10 @@ test("folder actions refresh from their reply, invalidate repositories and prese
 });
 
 test.each(["power", "command-line-tools"] as const)(
-  "failed %s reload preserves other observations",
+  "%s reload without a Mac observation preserves other observations",
   async (kind) => {
     checkedHost();
-    execute.mockResolvedValue({ ok: false, reason: "unreachable" });
+    execute.mockResolvedValue({ ok: true, facts });
     const before = settings.registeredHosts?.[0]?.observation;
     await expect(
       hosts.action({ action: "reload", host: "fixture", target: { kind } }),
@@ -638,3 +658,121 @@ test.each(["missing-tool", "missing-mac"])(
     expect(settings.registeredHosts?.[0]?.observation?.checkedAt).toBe(1234);
   },
 );
+
+test.each(["artifact-unavailable", "unreachable", "version-mismatch", "invalid-reply"] as const)(
+  "daemon failure %s is consistent across full check, row reload and reopen without repository probes",
+  async (reason) => {
+    const connection = {
+      ssh: { state: "pass" as const },
+      platform: { state: "pass" as const },
+      artifact:
+        reason === "artifact-unavailable"
+          ? { state: "fail" as const, reason }
+          : { state: "pass" as const },
+    };
+    execute.mockResolvedValue({ ok: false, reason, connection });
+    settings = { ...settings, registeredHosts: [{ host: "fixture", codeFolder: "/code" }] };
+    const full = await hosts.action({ action: "preflight", host: "fixture", codeFolder: "/code" });
+    const reload = await hosts.action({
+      action: "reload",
+      host: "fixture",
+      target: { kind: "artifact" },
+    });
+    const reopened = await hosts.action({ action: "list" });
+    expect(reload.preflight).toEqual(full.preflight);
+    expect(reopened.hosts[0]?.observation?.preflight).toEqual(full.preflight);
+    expect(full.preflight?.repositories).toEqual([]);
+    expect(execute.mock.calls.every(([, request]) => request.operation === "inspect")).toBe(true);
+    expect(reload.output?.failed).toBe(reason !== "artifact-unavailable");
+  },
+);
+
+test("opening Hosts reports local build capability without a remote check", async () => {
+  hosts.dispose();
+  hosts = new Hosts(
+    { get: () => settings, update: () => Promise.resolve(settings) },
+    () => [],
+    "0.1.0",
+    execute,
+    undefined,
+    () => Promise.resolve(false),
+  );
+  expect((await hosts.action({ action: "list" })).remoteHostsAvailable).toBe(false);
+  expect(execute).not.toHaveBeenCalled();
+});
+
+test("a never-checked host can reload the build limitation without inventing a saved check", async () => {
+  settings = { ...settings, registeredHosts: [{ host: "fixture", codeFolder: "/code" }] };
+  execute.mockResolvedValue({ ok: false, reason: "artifact-unavailable" });
+  const state = await hosts.action({
+    action: "reload",
+    host: "fixture",
+    target: { kind: "artifact" },
+  });
+  expect(state.preflight?.artifact).toEqual({ state: "fail", reason: "artifact-unavailable" });
+  expect(state.hosts[0]?.rowFailures).toBeUndefined();
+  expect(state.hosts[0]?.observation).toBeUndefined();
+});
+
+test.each([
+  { kind: "folder" as const },
+  { kind: "power" as const },
+  { kind: "command-line-tools" as const },
+  { kind: "tool" as const, tool: "git" },
+  { kind: "tool" as const, tool: "codex" },
+  { kind: "sign-in" as const, tool: "gh" },
+  { kind: "sign-in" as const, tool: "codex" },
+])("$kind transport failure invalidates the host like a full check", async (target) => {
+  checkedHost();
+  execute.mockResolvedValue({
+    ok: false,
+    reason: "unreachable",
+    connection: {
+      ssh: { state: "pass" },
+      platform: { state: "pass" },
+      artifact: { state: "pass" },
+    },
+  });
+  const row = await hosts.action({ action: "reload", host: "fixture", target });
+  expect(row.preflight?.artifact).toEqual({ state: "fail", reason: "unreachable" });
+  expect(row.preflight?.result.ok).toBe(false);
+  expect(settings.registeredHosts?.[0]?.observation?.checkedAt).toBe(1234);
+  const full = await hosts.action({
+    action: "preflight",
+    host: "fixture",
+    codeFolder: facts.codeFolder,
+  });
+  for (const stage of ["ssh", "platform", "artifact", "result"] as const)
+    expect(row.preflight?.[stage]).toEqual(full.preflight?.[stage]);
+});
+
+test("a folder-local failure preserves capabilities while an explicit connection failure invalidates them", async () => {
+  checkedHost();
+  execute.mockResolvedValue({ ok: false, reason: "unsafe-folder" });
+  const local = await hosts.action({
+    action: "reload",
+    host: "fixture",
+    target: { kind: "folder" },
+  });
+  expect(local.preflight?.result).toMatchObject({
+    ok: true,
+    facts: { folder: { state: "fail", reason: "unsafe-folder" } },
+  });
+  expect(local.preflight?.artifact).toEqual({ state: "pass" });
+  execute.mockResolvedValue({
+    ok: false,
+    reason: "unreachable",
+    connection: {
+      ssh: { state: "fail", reason: "host-key-changed" },
+      platform: { state: "not-checked" },
+      artifact: { state: "not-checked" },
+    },
+  });
+  const failed = await hosts.action({
+    action: "reload",
+    host: "fixture",
+    target: { kind: "tool", tool: "codex" },
+  });
+  expect(failed.preflight?.result.ok).toBe(false);
+  expect(failed.preflight?.ssh).toEqual({ state: "fail", reason: "host-key-changed" });
+});

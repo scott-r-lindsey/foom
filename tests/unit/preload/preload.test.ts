@@ -1444,6 +1444,7 @@ test("host bridge validates every nested fact and strips undeclared host data", 
         foreignWorktrees: 3,
       },
     ],
+    remoteHostsAvailable: false,
     locations: [{ host: "worker", repository: "/local/repo", result }],
     result: { ok: false, reason: "clone-failed" },
   };
@@ -1453,6 +1454,7 @@ test("host bridge validates every nested fact and strips undeclared host data", 
   for (const bad of [
     {},
     { ...value, result: { ok: false, reason: "secret" } },
+    { ...value, remoteHostsAvailable: "false" },
     { ...value, hosts: [{ host: "worker", codeFolder: facts.codeFolder, nickname: "<invalid>" }] },
     {
       ...value,

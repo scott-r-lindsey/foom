@@ -12,6 +12,7 @@ import {
   hostProgressText,
 } from "../../../../src/renderer/preflight/hosts-settings";
 import type {
+  HostFacts,
   HostFailure,
   HostCheckProgress,
   HostPreflight,
@@ -225,7 +226,7 @@ test("partial facts retain passes and expose Create plus available Install and S
     },
   });
   await screen.findByText("Pass · Host key trusted");
-  expect(screen.getByText(/Code folder does not exist · folder-missing/u)).toBeTruthy();
+  expect(screen.getByText(/Code folder does not exist/u)).toBeTruthy();
   expect(screen.getByLabelText("Git access fixes").textContent).toContain("Use HTTPS through gh");
   expect(screen.getByText("Use HTTPS through gh").getAttribute("title")).toBe(
     "Configure the host's Git to use HTTPS through gh",
@@ -283,33 +284,33 @@ test.each([false, true])(
     }
   },
 );
-const failures: HostFailure[] = [
-  "unreachable",
-  "unsupported",
-  "libc-too-old",
-  "libc-unsupported",
-  "artifact-unavailable",
-  "facts-unavailable",
-  "folder-missing",
-  "folder-refused",
-  "unsafe-folder",
-  "origin-unavailable",
-  "origin-auth",
-  "origin-host-key",
-  "origin-unreachable",
-  "timed-out",
-  "checkout-invalid",
-  "clone-failed",
-  "checkout-refused",
-  "version-mismatch",
-  "provider-invalid",
-  "configuration-changed",
-  "invalid-reply",
-  "cancelled",
+const failures: [HostFailure, string][] = [
+  ["unreachable", "Host unreachable"],
+  ["unsupported", "Unsupported host platform"],
+  ["libc-too-old", "Unsupported · glibc < 2.28"],
+  ["libc-unsupported", "Unsupported · musl libc"],
+  ["artifact-unavailable", "Unavailable in this build"],
+  ["facts-unavailable", "Host daemon needs an update for host facts"],
+  ["folder-missing", "Code folder does not exist"],
+  ["folder-refused", "Code folder unavailable"],
+  ["unsafe-folder", "Code folder ownership or permissions are unsafe"],
+  ["origin-unavailable", "Repository origin unavailable"],
+  ["origin-auth", "Origin authentication failed"],
+  ["origin-host-key", "Origin SSH host key is not trusted"],
+  ["origin-unreachable", "Origin unreachable"],
+  ["timed-out", "Git operation timed out"],
+  ["checkout-invalid", "Checkout validation failed"],
+  ["clone-failed", "Could not clone from origin"],
+  ["checkout-refused", "Checkout unavailable"],
+  ["version-mismatch", "Host version mismatch"],
+  ["provider-invalid", "Agent configuration unavailable"],
+  ["configuration-changed", "Agent configuration changed"],
+  ["invalid-reply", "Invalid host reply"],
+  ["cancelled", "Host check cancelled"],
 ];
 test.each(failures)(
-  "fixed %s reason is visible beside independent unrun checks",
-  async (reason) => {
+  "fixed %s reason appears once beside independent unrun checks",
+  async (reason, label) => {
     const result = { ok: false as const, reason };
     await mount({
       ...initial,
@@ -322,7 +323,9 @@ test.each(failures)(
         repositories: [],
       },
     });
-    await screen.findByText(new RegExp(` · ${reason}$`, "u"));
+    await screen.findAllByText(label);
+    const row = screen.getByText("Platform", { exact: true }).closest(".host-check-row");
+    expect(row?.querySelector(".host-status")?.lastElementChild?.textContent).toBe(label);
     expect(screen.getByText("Pass · Host key trusted")).toBeTruthy();
     expect(screen.getAllByText("Not checked").length).toBeGreaterThan(1);
   },
@@ -594,7 +597,7 @@ test("Mac protected-folder warning never hides a missing-folder failure or its C
     },
   };
   await mount({ ...initial, hosts: [{ ...host, result }], preflight: { ...preflight, result } });
-  await screen.findByText("Code folder does not exist · folder-missing · Protected folder");
+  await screen.findByText("Code folder does not exist · Protected folder");
   expect(screen.getByRole("button", { name: "Create" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Change folder" })).toBeTruthy();
 });
@@ -617,7 +620,11 @@ test("a failed connection row is not repeated as helper copy, and credential tip
       ],
     },
   });
-  await screen.findAllByText("This build has no remote host support · artifact-unavailable");
+  await screen.findByText("Unavailable in this build", { selector: ".host-status span" });
+  const origin = screen.getByText("Git access to origin").closest(".host-check-row");
+  expect(origin?.textContent).toContain("Not checked");
+  expect(origin?.querySelector(".host-fail")).toBeNull();
+  expect(screen.queryByText("Needs you")).toBeNull();
   expect(screen.queryByText("This build has no remote host support", { exact: true })).toBeNull();
   expect(screen.queryByLabelText("Git access fixes")).toBeNull();
   view.unmount();
@@ -1242,7 +1249,7 @@ test("a later live folder reply replaces a transient reload checklist", async ()
   });
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await screen.findByRole("button", { name: "Create" });
-  expect(screen.getByText("Code folder does not exist · folder-missing")).toBeTruthy();
+  expect(screen.getByText("Code folder does not exist")).toBeTruthy();
   expect(screen.queryByText("Pass · Valid")).toBeNull();
   expect(screen.queryByText(/Last checked/u)).toBeNull();
 });
@@ -1528,6 +1535,11 @@ test.each(["host-key-unknown", "host-key-changed", "login-rejected", "unreachabl
     for (const name of reason === "host-key-unknown" ? ["SSH"] : ["SSH", "Git access to origin"]) {
       const row = within(card).getByText(name, { exact: true }).closest(".host-check-row");
       const status = row?.querySelector(".host-status");
+      if (name === "Git access to origin") {
+        expect(status?.classList.contains("host-neutral")).toBe(true);
+        expect(status?.textContent).toContain("Not checked");
+        continue;
+      }
       expect(
         status?.classList.contains(reason === "host-key-unknown" ? "host-need" : "host-fail"),
       ).toBe(true);
@@ -1664,6 +1676,41 @@ test.each(["host-key-unknown", "host-key-changed", "login-rejected", "unreachabl
     else expect(within(panel).getByRole("button", { name: "Dismiss" })).toBeTruthy();
   },
 );
+
+test("sealed build omission is announced once on opening Hosts, including saved ready hosts", async () => {
+  const { api } = await mount({ ...initial, remoteHostsAvailable: false });
+  expect(screen.getAllByText("This build has no remote host support")).toHaveLength(1);
+  expect(screen.getAllByText("Unavailable in this build").length).toBeGreaterThan(0);
+  expect(screen.queryByText("Needs you")).toBeNull();
+  expect(screen.queryByText("Pass · Reachable")).toBeNull();
+  expect(api.mock.calls.map(([action]) => action.action)).toEqual(["list"]);
+});
+
+test("recovered connection stays neutral until dependent capabilities are checked", async () => {
+  const unobserved: HostFacts = { ...facts, folder: { state: "not-checked" }, agents: [] };
+  delete unobserved.tools;
+  delete unobserved.requirements;
+  const recovered: HostPreflight = {
+    ...preflight,
+    result: { ok: true, facts: unobserved },
+    repositories: preflight.repositories.map((repo) => ({
+      ...repo,
+      origin: { state: "not-checked" },
+      checkout: { ok: true, facts: unobserved },
+    })),
+  };
+  await mount({ ...initial, preflight: recovered });
+  expect(screen.queryByText("Needs you", { exact: true })).toBeNull();
+  expect(screen.queryByText("Ready", { exact: true })).toBeNull();
+  expect(screen.queryByText("Host unreachable", { exact: true })).toBeNull();
+  const card = screen.getByRole("region", { name: "worker" });
+  for (const name of ["Code folder", "git / gh", "Agents"]) {
+    const label = within(card)
+      .getAllByText(name, { exact: true })
+      .find((element) => element.closest(".host-check-row"));
+    expect(label?.closest(".host-check-row")?.textContent).toContain("Not checked");
+  }
+});
 
 test("simultaneous host checks show their own progress and completing one retains the other", async () => {
   const state: HostsState = { hosts: [host, { ...host, host: "second" }], locations: [] };

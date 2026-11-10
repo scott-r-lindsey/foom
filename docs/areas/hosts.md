@@ -540,7 +540,29 @@ It returns independent SSH, platform and bundled-artifact checks, the existing
 requirements/tools/agents/sign-in facts, a folder check, and origin-access and
 checkout observations for every registered repository. A row that cannot run is
 `not-checked`; it never becomes a fabricated pass. Missing artifacts do not prevent
-bounded SSH/OS/CPU/libc discovery. A refused folder does not suppress facts or origin
+bounded SSH/OS/CPU/libc discovery. Hosts reads the sealed build capability locally
+on opening and states once, neutrally, “This build has no remote host support”
+when the catalog is omitted (#1131). Explicit checks may still run bounded SSH
+and platform discovery, preserving host-key trust; they dispatch no daemon or
+repository checks without its artifact. Remote daemon says “Unavailable in this
+build” neutrally, and this limitation alone never marks a host Needs you.
+Only sealed local catalog omission or artifact verification selects
+`artifact-unavailable`. Transport exits, unreachable connections, protocol/version
+mismatches and invalid replies retain their own fixed reasons. Checklist rows show
+one fixed readable reason, without appending the internal reason code. Full checks and
+row reloads preserve the same classification across reopening Settings.
+A transport failure from any row invalidates the connection and hides dependent
+observations, including when bootstrap had already verified the artifact. A
+successful SSH, platform or Remote daemon reload clears the superseded failure;
+when recovering from failure it restores only the observed connection stages.
+Folder, tools, agents and repositories remain Not checked until explicitly read,
+and the host summary remains neutral. This partial recovery neither advances Last
+checked nor authorizes a launch from an old full-inventory timestamp. Retain the
+last successful full-check history for agent display and host-key trust decisions.
+A row-local folder, origin or checkout failure does not invalidate the connection.
+A failed daemon inspection stops dependent repository checks; unrun origin checks
+show neutral Not checked, including old saved observations with repeated daemon
+failures. A refused folder does not suppress facts or origin
 checks. Tool and agent discovery and recipes reuse #971/#988 capabilities.
 
 `inspect` with `readOnly: true, partial: true` returns the expanded proposed path

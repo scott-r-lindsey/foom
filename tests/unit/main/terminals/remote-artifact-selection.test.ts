@@ -28,6 +28,7 @@ vi.mock("node:fs", async (original) => {
 vi.mock("node:child_process", () => ({ execFile: mock.execFile, spawn: mock.spawn }));
 import {
   selectHostArtifact,
+  remoteHostsAvailable,
   sshEnvironment,
 } from "../../../../src/main/terminals/remote-bootstrap";
 const roots: string[] = [];
@@ -509,6 +510,32 @@ test("cancelled probes and Windows without a trusted OS root never spawn SSH", a
   await expect(
     selectHostArtifact({ host: "fixture" }, "0.1.0", f.root, f.metadata),
   ).rejects.toMatchObject({ failure: "unreachable" });
+  expect(mock.spawn).not.toHaveBeenCalled();
+});
+
+test("build capability reads only sealed metadata, without SSH", async () => {
+  expect(typeof (await remoteHostsAvailable())).toBe("boolean");
+  const f = await fixture();
+  mock.spawn.mockClear();
+  for (const value of [
+    null,
+    {},
+    { source: "bad", remoteHostsAvailable: true },
+    { source: f.manifest.source },
+    { source: f.manifest.source, remoteHostsAvailable: false },
+  ]) {
+    await writeFile(f.metadata, JSON.stringify(value));
+    expect(await remoteHostsAvailable(f.metadata)).toBe(false);
+  }
+  await writeFile(f.metadata, "invalid json");
+  expect(await remoteHostsAvailable(f.metadata)).toBe(false);
+  await rm(f.metadata);
+  expect(await remoteHostsAvailable(f.metadata)).toBe(false);
+  await writeFile(
+    f.metadata,
+    JSON.stringify({ source: f.manifest.source, remoteHostsAvailable: true }),
+  );
+  expect(await remoteHostsAvailable(f.metadata)).toBe(true);
   expect(mock.spawn).not.toHaveBeenCalled();
 });
 
