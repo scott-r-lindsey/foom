@@ -833,3 +833,36 @@ first check's authentication refusal (the existing unreachable classification fo
 OpenSSH's empty method list), because authentication is disabled. The ordinary
 fixture-SSH case separately verifies all dependent rows are absent while untrusted
 and return after a successful first check.
+
+## Remote acknowledgement bursts (#1138)
+
+The replay fixture keeps an SSH ownership trace and requires exactly one owner
+before its deliberate disconnect. In main run
+[42761463525](https://github.com/scott-r-lindsey/foom/actions/runs/42761463525),
+first-attempt artifact **13738033952** records the original owner exiting before
+that disconnect. Its input count jumps from 669 to 1,059 acknowledgements between
+output observations, while output grows from 245,111 to 248,866 characters. The daemon
+bounds its serialized operation backlog at 256; a single input batch can exceed
+that limit before dispatch gets a turn. Reconnection then renders the completed
+408,669-character snapshot, explaining why the rendered marker alone passed.
+This is a count-bound failure, not evidence of an insufficient deadline.
+
+The main terminal client now sends one remote acknowledgement at a time and
+accumulates subsequent counts for the same token until the reply. A newer token
+supersedes queued counts for an older attachment; detach and failed requests
+clear queued counts. Local utility-host acknowledgements retain their existing
+path. Unit regressions hold replies across 390 acknowledgements, verify exact
+counts and token replacement, and reject replay of retired counts. The Electron
+replay case retains its ownership, rendering, clipboard and same-PTY assertions.
+The daemon's backlog bound, request deadlines and reconnect allowance are unchanged.
+
+## Config probe row identity (#1138)
+
+A probe's parent can display `Probe waiting`, so filtering all config rows by
+`Probe` can select both terminals. The original macOS report names both rows in
+its strict-mode error (artifact **13573054992**, run **42365888837**). The fixture
+now deliberately waits for the parent's visible reminder, then rechecks the
+probe by its workspace terminal ID. A controlled local run with that ordering
+and the old text selector reproduces the same two-row error. The dedicated
+probe row's visibility, credit note, driver label and attention/cleanup checks
+remain independent. No reminder duration or native input behavior changes.
