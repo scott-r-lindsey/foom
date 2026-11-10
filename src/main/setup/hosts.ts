@@ -42,7 +42,7 @@ import type {
 import type { SettingsStore } from "./settings";
 import type { Repository, Worktree } from "../../shared/worktrees";
 import type { RemoteSavedPlacement } from "../workspace/session-restore.d";
-import type { DialogContent } from "../../shared/confirmation";
+import type { DialogContent, DialogOutcome, PlainDialogContent } from "../../shared/confirmation";
 import type { RemoteSessionInfo, RemoteInventoryResult } from "../../shared/remote-host";
 import { locationId } from "../control/metadata";
 import { remoteInventory, remoteManagement } from "../terminals/remote-transport";
@@ -1006,6 +1006,7 @@ export class Hosts {
     confirm?: (content: DialogContent, signal?: AbortSignal) => Promise<boolean>,
     launchRecipe?: (target: RemoteTarget, finished?: () => void) => Promise<unknown>,
     trustSignal?: AbortSignal,
+    confirmHostKey?: (content: PlainDialogContent, signal: AbortSignal) => Promise<DialogOutcome>,
   ): Promise<HostsState> {
     if (!hostsAction(input)) return Promise.reject(new Error("Invalid host action"));
     if (input.action === "cancel-trust") return Promise.resolve(this.state());
@@ -1034,7 +1035,7 @@ export class Hosts {
             report("trust-not-eligible");
             return false;
           }
-          if (!confirm) {
+          if (!confirmHostKey) {
             report("dialog-unavailable");
             return false;
           }
@@ -1046,13 +1047,7 @@ export class Hosts {
             return false;
           }
           this.registered(host, registration.codeFolder);
-          return trustHostKey(
-            host,
-            (content, signal) => confirm(content, signal),
-            signal,
-            undefined,
-            report,
-          ).catch(() => {
+          return trustHostKey(host, confirmHostKey, signal, undefined, report).catch(() => {
             if (!cancelled()) report("trust-unavailable");
             return false;
           });

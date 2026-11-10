@@ -45,14 +45,31 @@ const reasons: Record<HostFailure, string> = {
   "checkout-refused": "Checkout unavailable",
 };
 
-function HostCheckOutput({ output, dismiss }: { output: HostOutput; dismiss: () => void }) {
+function HostCheckOutput({
+  output,
+  dismiss,
+  awaitingTrust = false,
+}: {
+  output: HostOutput;
+  dismiss: () => void;
+  awaitingTrust?: boolean;
+}) {
   return (
     <section className="host-terminal" aria-label="Host check output">
       <header>
-        <span role="status" className={output.failed ? "hosts-failure" : undefined}>
-          {output.running ? "Checking…" : output.failed ? "Failed" : "Done"}
+        <span
+          role="status"
+          className={awaitingTrust ? "host-need" : output.failed ? "hosts-failure" : undefined}
+        >
+          {awaitingTrust
+            ? "Host key not trusted"
+            : output.running
+              ? "Checking…"
+              : output.failed
+                ? "Failed"
+                : "Done"}
         </span>
-        {!output.running && (
+        {!output.running && !awaitingTrust && (
           <button type="button" onClick={dismiss}>
             Dismiss
           </button>
@@ -333,13 +350,14 @@ function Checklist({
           connection?.ssh.state === "fail" && connection.ssh.reason === "host-key-unknown" ? (
             entry.hostKeyTrust === "askpass" ? (
               <button
+                className="primary"
                 type="button"
                 disabled={disabled}
                 onClick={() => {
                   act({ action: "trust-host-key", host: entry.host });
                 }}
               >
-                Trust host key
+                Trust host key…
               </button>
             ) : (
               <CopyValue value={`ssh ${entry.host}`} label="Copy SSH command" copy={copySsh} />
@@ -465,7 +483,7 @@ function Checklist({
                           });
                         }}
                       >
-                        Trust host key
+                        Trust host key…
                       </button>
                     ) : undefined
                   }
@@ -998,7 +1016,14 @@ export function HostsSettings({
             Cancel
           </button>
           {output?.host === host.trim() && (
-            <HostCheckOutput output={output} dismiss={dismissOutput} />
+            <HostCheckOutput
+              output={output}
+              dismiss={dismissOutput}
+              awaitingTrust={
+                state.preflight?.ssh.state === "fail" &&
+                state.preflight.ssh.reason === "host-key-unknown"
+              }
+            />
           )}
         </form>
       )}
@@ -1100,7 +1125,11 @@ export function HostsSettings({
                 </button>
               </div>
               {output?.host === entry.host && (
-                <HostCheckOutput output={output} dismiss={dismissOutput} />
+                <HostCheckOutput
+                  output={output}
+                  dismiss={dismissOutput}
+                  awaitingTrust={awaitingTrust}
+                />
               )}
               {!awaitingTrust && recipe && source.hostTerminal && (
                 <HostTerminal

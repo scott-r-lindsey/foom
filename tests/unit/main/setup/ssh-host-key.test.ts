@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import type * as OS from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import type { DialogOutcome } from "../../../../src/shared/confirmation";
 import type * as ChildProcess from "node:child_process";
 import { hostKeyPrompt, sshAskpass, sshFailure } from "../../../../src/node-common/ssh-askpass";
 const mock = vi.hoisted(() => ({
@@ -232,7 +233,9 @@ unixTest(
       for (const answer of [true, false]) {
         mock.execute.mockResolvedValueOnce({ stdout: config });
         const out = vi.fn();
-        const confirm = vi.fn(() => Promise.resolve(answer));
+        const confirm = vi.fn(() =>
+          Promise.resolve<DialogOutcome>(answer ? "accepted" : "declined"),
+        );
         let directory = "";
         mock.spawn.mockImplementation(
           (
@@ -288,7 +291,7 @@ unixTest(
 unixTest(
   "unrecognized, unauthenticated and replayed helper messages cannot approve trust",
   async () => {
-    const confirm = vi.fn(() => Promise.resolve(true));
+    const confirm = vi.fn(() => Promise.resolve<DialogOutcome>("accepted"));
     mock.spawn.mockImplementation(
       (_file: string, _args: string[], options: { env: NodeJS.ProcessEnv }) => {
         const child = new EventEmitter();
@@ -348,11 +351,11 @@ unixTest(
         "alias",
         async (_content, signal) => {
           ready.resolve(undefined);
-          return new Promise<boolean>((resolve) => {
+          return new Promise<DialogOutcome>((resolve) => {
             signal.addEventListener(
               "abort",
               () => {
-                resolve(false);
+                resolve("cancelled");
               },
               { once: true },
             );
@@ -442,7 +445,7 @@ unixTest("SSH lifetime expiry and spawn failures revoke the run without approval
     const report = vi.fn();
     const work = trustHostKey(
       "alias",
-      () => Promise.resolve(false),
+      () => Promise.resolve("declined"),
       new AbortController().signal,
       undefined,
       report,
@@ -616,5 +619,33 @@ unixTest(
     ).toBe(false);
     expect(report).toHaveBeenCalledExactlyOnceWith("socket-path-too-long");
     expect(await import("node:fs/promises").then(({ readdir }) => readdir(long))).toEqual([]);
+  },
+);
+
+unixTest.each(["unavailable", "declined", "cancelled"] as const)(
+  "typed %s confirmation never approves; only unavailable reports a failure",
+  async (outcome) => {
+    const child = Object.assign(new EventEmitter(), { pid: 12345 });
+    const out = vi.fn();
+    const report = vi.fn();
+    const abort = new AbortController();
+    vi.spyOn(process, "kill").mockImplementation(() => {
+      queueMicrotask(() => child.emit("close", null));
+      return true;
+    });
+    mock.spawn.mockImplementation(
+      (_file: string, _args: string[], options: { env: NodeJS.ProcessEnv }) => {
+        void sshAskpass([question()], options.env, out);
+        return child;
+      },
+    );
+    expect(
+      await trustHostKey("alias", () => Promise.resolve(outcome), abort.signal, undefined, report),
+    ).toBe(false);
+    expect(abort.signal.aborted).toBe(false);
+    expect(out).not.toHaveBeenCalledWith("yes\n");
+    if (outcome === "unavailable")
+      expect(report).toHaveBeenCalledExactlyOnceWith("dialog-unavailable");
+    else expect(report).not.toHaveBeenCalled();
   },
 );

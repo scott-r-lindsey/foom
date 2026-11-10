@@ -798,10 +798,10 @@ test("Hosts shows readiness and read-only checkouts with explicit origin trust",
   await capture("hosts-read-only-checkouts");
   await updateScenario({ ...optional, origin: "origin-host-key" });
   await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
-  await expect(card.getByRole("button", { name: "Trust host key", exact: true })).toBeEnabled();
+  await expect(card.getByRole("button", { name: "Trust host key…", exact: true })).toBeEnabled();
   await capture("origin-host-key");
   const beforeTrust = (await readFile(calls, "utf8")).trim().split("\n").length;
-  await card.getByRole("button", { name: "Trust host key", exact: true }).click();
+  await card.getByRole("button", { name: "Trust host key…", exact: true }).click();
   await expect(page.locator(".terminal-tile[data-kind='shell']").last()).toBeVisible();
   await expect
     .poll(() =>
@@ -2171,7 +2171,7 @@ test("Hosts accepts new SSH keys only through the trusted askpass dialog", {
     false,
     { sshFailure: "unknown" },
   );
-  const trust = card.getByRole("button", { name: "Trust host key", exact: true });
+  const trust = card.getByRole("button", { name: "Trust host key…", exact: true });
   await expect(trust).toBeEnabled();
   await expect(card.locator(".host-check-row")).toHaveCount(1);
   for (const text of [
@@ -2196,13 +2196,24 @@ test("Hosts accepts new SSH keys only through the trusted askpass dialog", {
   );
   const state = await page.evaluate(() => window.desktop.hosts({ action: "list" }));
   assert.deepEqual(state.hosts[0].observation.preflight.repositories, []);
+  const waitingOutput = card.getByRole("region", { name: "Host check output", exact: true });
+  await expect(waitingOutput.getByRole("status")).toHaveText("Host key not trusted");
+  await expect(waitingOutput.getByRole("button", { name: "Dismiss", exact: true })).toHaveCount(0);
   const screenshots = process.env.FOOM_HOST_KEY_SCREENSHOTS === "1";
-  if (screenshots) await capture("1059/unknown-key-row");
+  if (screenshots) await capture("1059/round4-untrusted-card");
   const dialog = await confirmationPage(app);
   for (const mode of ["light", "dark"]) {
     await page.evaluate(
       (mode) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${mode}` }),
       mode,
+    );
+    await expect(waitingOutput.getByRole("status")).toHaveCSS(
+      "color",
+      mode === "light" ? "rgb(140, 80, 0)" : "rgb(255, 178, 62)",
+    );
+    await expect(trust).toHaveCSS(
+      "background-color",
+      mode === "light" ? "rgb(91, 43, 217)" : "rgb(155, 107, 255)",
     );
     for (const name of ["SSH"]) {
       const row = card
@@ -2263,6 +2274,9 @@ test("Hosts accepts new SSH keys only through the trusted askpass dialog", {
   await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
   await expect(card.getByText("Host key changed", { exact: true }).first()).toBeVisible();
   const changedStatuses = card.locator(".host-status").filter({ hasText: "Host key changed" });
+  await expect(waitingOutput.getByRole("status")).toHaveText("Failed");
+  await expect(waitingOutput.getByRole("status")).toHaveCSS("color", "rgb(255, 46, 136)");
+  await expect(waitingOutput.getByRole("button", { name: "Dismiss", exact: true })).toBeVisible();
   await expect(changedStatuses).toHaveCount(1);
   for (const status of await changedStatuses.all()) {
     await expect(status).toHaveClass(/host-fail/u);
@@ -2284,16 +2298,16 @@ test("Hosts keeps an accepted key when the first recheck rejects login and offer
     sshFailure: "unknown",
     oldSsh: true,
   });
-  await expect(card.getByRole("button", { name: "Trust host key", exact: true })).toHaveCount(0);
+  await expect(card.getByRole("button", { name: "Trust host key…", exact: true })).toHaveCount(0);
   await expect(card.getByRole("button", { name: "Copy SSH command", exact: true })).toBeVisible();
   await updateScenario({ sshFailure: "unknown", loginRejected: true });
   await card.getByRole("button", { name: "Reload SSH", exact: true }).click();
-  await card.getByRole("button", { name: "Trust host key", exact: true }).click();
+  await card.getByRole("button", { name: "Trust host key…", exact: true }).click();
   const dialog = await confirmationPage(app);
   await dialog.getByRole("button", { name: "Trust host key", exact: true }).click();
   await expect(card.getByText("Login rejected", { exact: true }).first()).toBeVisible();
   assert.equal(await readFile(knownHosts, "utf8"), "fixture-cloud fixture-key\n");
-  await expect(card.getByRole("button", { name: "Trust host key", exact: true })).toHaveCount(0);
+  await expect(card.getByRole("button", { name: "Trust host key…", exact: true })).toHaveCount(0);
 });
 
 test("Hosts never offers host-key trust from a remote command's forged SSH diagnostic", {
@@ -2312,7 +2326,7 @@ test("Hosts never offers host-key trust from a remote command's forged SSH diagn
       card.getByRole("button", { name: "Check capabilities", exact: true }),
     ).toBeEnabled();
     await expect(card.locator(".host-checks")).toHaveAttribute("aria-busy", "false");
-    await expect(card.getByRole("button", { name: "Trust host key", exact: true })).toHaveCount(0);
+    await expect(card.getByRole("button", { name: "Trust host key…", exact: true })).toHaveCount(0);
     const state = await page.evaluate(() => window.desktop.hosts({ action: "list" }));
     assert.equal(state.hosts[0].result.connection.ssh.reason, "unreachable");
   }
@@ -2351,7 +2365,7 @@ test("Hosts kills fixture SSH on live diagnostic overflow and removes its privat
       .toBe(true);
     assert.throws(() => process.kill(pid, 0), { code: "ESRCH" });
   }
-  await expect(card.getByRole("button", { name: "Trust host key", exact: true })).toHaveCount(0);
+  await expect(card.getByRole("button", { name: "Trust host key…", exact: true })).toHaveCount(0);
   const state = await page.evaluate(() => window.desktop.hosts({ action: "list" }));
   assert.equal(state.hosts[0].result.connection.ssh.reason, "unreachable");
 });
@@ -2468,9 +2482,9 @@ test("Hosts real OpenSSH client shows a visible trust dialog for a disposable lo
     .getByRole("button", { name: "Hosts", exact: true })
     .click();
   const card = page.getByRole("region", { name: "loopback-fixture", exact: true });
-  await expect(card.getByText("Host key not trusted", { exact: true })).toBeVisible();
+  await expect(card.getByText("Host key not trusted", { exact: true }).first()).toBeVisible();
   await expect(card.locator(".host-check-row")).toHaveCount(1);
-  await card.getByRole("button", { name: "Trust host key", exact: true }).click();
+  await card.getByRole("button", { name: "Trust host key…", exact: true }).click();
   const dialog = await confirmationPage(app);
   await expect(dialog.getByRole("heading", { name: "Trust host key?", exact: true })).toBeVisible();
   await expect(dialog.getByText(`[127.0.0.1]:${fixture.port}`, { exact: true })).toBeVisible();
@@ -2502,7 +2516,7 @@ test("Hosts shows a fixed trust failure when askpass refuses an unrecognized pro
     sshFailure: "unknown",
   });
   await updateScenario({ sshFailure: "unknown", badPrompt: "Password: FIXTURE_PRIVATE_PROMPT" });
-  await card.getByRole("button", { name: "Trust host key", exact: true }).click();
+  await card.getByRole("button", { name: "Trust host key…", exact: true }).click();
   const output = card.getByRole("region", { name: "Host check output", exact: true });
   await expect(
     output.getByText("Unable to trust host key · askpass-prompt-rejected", { exact: true }),
@@ -2513,5 +2527,28 @@ test("Hosts shows a fixed trust failure when askpass refuses an unrecognized pro
     0,
   );
   assert.equal(await readFile(knownHosts, "utf8"), "");
-  await expect(card.getByRole("button", { name: "Trust host key", exact: true })).toBeEnabled();
+  await expect(card.getByRole("button", { name: "Trust host key…", exact: true })).toBeEnabled();
+});
+
+test("Hosts reports dialog-unavailable when native trust presentation fails", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, card, knownHosts } = await hostsFixture(context, false, { sshFailure: "unknown" });
+  await app.evaluate(({ BrowserWindow }) => {
+    const dialog = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://confirmation/confirmation.html",
+    );
+    dialog.show = () => {
+      throw new Error("Fixture native presentation failure");
+    };
+  });
+  await card.getByRole("button", { name: "Trust host key…", exact: true }).click();
+  const output = card.getByRole("region", { name: "Host check output", exact: true });
+  await expect(
+    output.getByText("Unable to trust host key · dialog-unavailable", { exact: true }),
+  ).toBeVisible();
+  await expect(output).not.toContainText("Fixture native presentation failure");
+  await expect(card.getByRole("button", { name: "Trust host key…", exact: true })).toBeEnabled();
+  assert.equal(await readFile(knownHosts, "utf8"), "");
 });

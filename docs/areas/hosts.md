@@ -454,7 +454,7 @@ Create explicitly creates the approved folder. Change folder edits its approved
 path and rechecks without creating it. Install uses the existing main-selected
 recipe in the host card; Settings stays open. Sign in retains foreground tile
 placement and closes Settings once the tile is visible. No background install, recipe replay or terminal typing is added.
-Missing recipes show no Install button. Git access to origin and explicit Trust host key remain in each repository’s Git-access group. Origin-auth hints identify HTTPS through gh, a deploy key and ssh-agent as user-configured access options; Foom never applies them or instructs global URL rewrites. Host facts,
+Missing recipes show no Install button. Git access to origin and explicit Trust host key… remain in each repository’s Git-access group. Origin-auth hints identify HTTPS through gh, a deploy key and ssh-agent as user-configured access options; Foom never applies them or instructs global URL rewrites. Host facts,
 foreign session End and foreign worktree counts remain under Host facts.
 
 Repositories → Locations groups existing checkouts beneath Local and each registered host,
@@ -512,7 +512,7 @@ folder/power warnings are neutral. Install and Sign in remain available. Reposit
 their fixed failure rows without making an otherwise usable host unavailable.
 Checkout creation belongs to first-use launch/worktree preparation (#1074), not Settings. The summary says Ready; existing checkouts are a read-only list.
 
-An origin-host-key failure offers Trust host key. Main re-reads the registered
+An origin-host-key failure offers **Trust host key…**. Main re-reads the registered
 repository's validated SSH origin and opens a human-owned tile on the registered
 host. The fixed command is ssh -T with StrictHostKeyChecking=ask, forwarding
 disabled, and the origin's account/host and optional port. HTTPS cannot select this

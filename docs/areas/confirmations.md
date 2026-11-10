@@ -262,3 +262,11 @@ The board can request trust for an eligible registration but cannot supply an
 answer. Run cancellation aborts visible or queued confirmation via its signal.
 Foom relays only an explicit trusted-window answer; OpenSSH owns known_hosts.
 See [host-key lifetime and helper boundary](hosts.md#accepting-a-new-ssh-host-key-1059).
+
+
+Plain confirmations also expose a main-only typed outcome: accepted, declined,
+cancelled or unavailable. SSH host-key trust uses this API so renderer readiness
+failure, native presentation failure and exhausted reachability report
+`dialog-unavailable`; an explicit Cancel/native close or caller cancellation stays
+quiet. The existing boolean `request` API and removal batching retain their
+behavior. No outcome is supplied by the renderer or added to IPC.

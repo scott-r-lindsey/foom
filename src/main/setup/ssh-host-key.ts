@@ -8,7 +8,7 @@ import type { Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { hostKeyPrompt } from "../../node-common/ssh-askpass";
-import type { DialogContent } from "../../shared/confirmation";
+import type { PlainDialogContent, DialogOutcome } from "../../shared/confirmation";
 import { hostAlias } from "../../shared/registered-hosts";
 import { sshArguments, sshEnvironment } from "../terminals/remote-bootstrap";
 
@@ -92,7 +92,7 @@ export type HostKeyTrustFailure =
 /** One detached SSH run, one authenticated local socket, one explicit answer. */
 export async function trustHostKey(
   host: string,
-  confirm: (content: DialogContent, signal: AbortSignal) => Promise<boolean>,
+  confirm: (content: PlainDialogContent, signal: AbortSignal) => Promise<DialogOutcome>,
   signal: AbortSignal,
   executable = askpassExecutable,
   report: (reason: HostKeyTrustFailure) => void = () => undefined,
@@ -217,10 +217,11 @@ export async function trustHostKey(
         ).then(
           (answer) => {
             if (!active || lifetime.aborted || socket.destroyed) return;
-            answerState.accepted = answer;
-            answerState.declined = !answer;
-            socket.end(answer ? "yes\n" : "no\n");
-            if (!answer) controller.abort();
+            answerState.accepted = answer === "accepted";
+            answerState.declined = answer === "declined" || answer === "cancelled";
+            if (answer === "unavailable") failure.reason = "dialog-unavailable";
+            socket.end(answerState.accepted ? "yes\n" : "no\n");
+            if (!answerState.accepted) controller.abort();
           },
           () => {
             failure.reason ??= "dialog-unavailable";

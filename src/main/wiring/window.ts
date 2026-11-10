@@ -323,6 +323,8 @@ export async function buildWindow(
       }
     },
     copyText: (text) => clipboard.writeText(text),
+    confirmHostKey: (content, signal) =>
+      confirmations.requestOutcome(content, signal, { activate: true }),
     confirmRemoteSessions: (content, signal) =>
       confirmations.request(content, signal, { activate: true }),
     hosts: hostsForStore(

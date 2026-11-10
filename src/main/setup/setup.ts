@@ -1,6 +1,6 @@
 import { hostsAction } from "../../shared/registered-hosts";
 import type { RemoteTarget } from "../../shared/remote-host";
-import type { DialogContent } from "../../shared/confirmation";
+import type { DialogContent, DialogOutcome, PlainDialogContent } from "../../shared/confirmation";
 import type { Hosts } from "./hosts";
 import type { UpdateState } from "../../shared/updates";
 import type { ReadinessReport } from "../../shared/readiness";
@@ -26,6 +26,7 @@ export interface SetupDependencies {
   hostsChanged?: () => void;
   launchHostRecipe?: (target: RemoteTarget, finished?: () => void) => Promise<unknown>;
   copyText?: (value: string) => void | Promise<void>;
+  confirmHostKey?: (content: PlainDialogContent, signal: AbortSignal) => Promise<DialogOutcome>;
   confirmRemoteSessions?: (content: DialogContent, signal?: AbortSignal) => Promise<boolean>;
   updates?: () => UpdateState;
   restartToUpdate?: () => Promise<void>;
@@ -85,6 +86,7 @@ export class Setup {
         this.deps.confirmRemoteSessions,
         this.deps.launchHostRecipe,
         this.hostTrust.signal,
+        this.deps.confirmHostKey,
       )
       .then((state) => {
         if (hostsAction(input)) {

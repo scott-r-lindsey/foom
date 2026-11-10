@@ -59,11 +59,8 @@ afterEach(() => {
 });
 const enroll = () => hosts.action({ action: "add", host: "box", codeFolder: "/code" });
 const trust = (signal?: AbortSignal) =>
-  hosts.action(
-    { action: "trust-host-key", host: "box" },
-    () => Promise.resolve(true),
-    undefined,
-    signal,
+  hosts.action({ action: "trust-host-key", host: "box" }, undefined, undefined, signal, () =>
+    Promise.resolve("accepted"),
   );
 
 test("unknown keys offer trust for registered hosts and accepted new hosts run their first check", async () => {

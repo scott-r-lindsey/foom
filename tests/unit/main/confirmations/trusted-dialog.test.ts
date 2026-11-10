@@ -1559,3 +1559,65 @@ test("plugin consent retains the window, rejects running close, and dismisses th
   expect(off).toHaveBeenCalledOnce();
   dialog.dispose();
 });
+
+test("typed readiness failure is unavailable without aborting the caller", async () => {
+  mock.load.mockRejectedValueOnce(new Error("renderer failed"));
+  const dialog = setup();
+  const abort = new AbortController();
+  await expect(dialog.requestOutcome(content, abort.signal)).resolves.toBe("unavailable");
+  expect(abort.signal.aborted).toBe(false);
+  expect(window().show).not.toHaveBeenCalled();
+  dialog.dispose();
+});
+
+test("typed presentation exceptions are unavailable without aborting the caller", async () => {
+  const dialog = setup();
+  const abort = new AbortController();
+  window().show.mockImplementation(() => {
+    throw new Error("native failure");
+  });
+  await expect(dialog.requestOutcome(content, abort.signal)).resolves.toBe("unavailable");
+  expect(abort.signal.aborted).toBe(false);
+  expect(parent.webContents.listenerCount("before-input-event")).toBe(0);
+  dialog.dispose();
+});
+
+test("typed exhausted reachability is unavailable without aborting the caller", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  const dialog = setup();
+  const abort = new AbortController();
+  window().isFocused.mockReturnValue(false);
+  const result = dialog.requestOutcome(content, abort.signal);
+  await vi.advanceTimersByTimeAsync(2100);
+  await expect(result).resolves.toBe("unavailable");
+  expect(abort.signal.aborted).toBe(false);
+  expect(parent.webContents.listenerCount("before-input-event")).toBe(0);
+  dialog.dispose();
+});
+
+test.each(["answer", "native-close", "abort"] as const)(
+  "typed deliberate %s is distinct from unavailable",
+  async (cause) => {
+    const dialog = setup();
+    const abort = new AbortController();
+    const result = dialog.requestOutcome(content, abort.signal);
+    const id = await shown();
+    if (cause === "answer") answer(id, false);
+    else if (cause === "native-close") window().emit("close", { preventDefault: vi.fn() });
+    else abort.abort();
+    await expect(result).resolves.toBe(cause === "abort" ? "cancelled" : "declined");
+    dialog.dispose();
+  },
+);
+
+test("typed acceptance and pre-cancelled or disposed requests preserve their distinct outcomes", async () => {
+  const dialog = setup();
+  const accepted = dialog.requestOutcome(content);
+  answer(await shown(), true);
+  await expect(accepted).resolves.toBe("accepted");
+  const abort = new AbortController();
+  abort.abort();
+  await expect(dialog.requestOutcome(content, abort.signal)).resolves.toBe("cancelled");
+  dialog.dispose();
+  await expect(dialog.requestOutcome(content)).resolves.toBe("unavailable");
+});

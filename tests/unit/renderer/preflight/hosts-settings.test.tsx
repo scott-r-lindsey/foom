@@ -865,11 +865,11 @@ test("host-key fix identifies only the repository", async () => {
   };
   const { api } = await mount(state);
   await waitFor(() => {
-    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Trust host key" }).disabled).toBe(
-      false,
-    );
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Trust host key…" }).disabled,
+    ).toBe(false);
   });
-  fireEvent.click(screen.getByRole("button", { name: "Trust host key" }));
+  fireEvent.click(screen.getByRole("button", { name: "Trust host key…" }));
   await waitFor(() => {
     expect(api).toHaveBeenCalledWith({
       action: "trust-origin",
@@ -1468,14 +1468,14 @@ test("unknown SSH keys offer only the host-specific trust action or copyable fal
     );
     await screen.findByRole("region", { name: "worker" });
     expandHosts();
-    await screen.findByText("Host key not trusted");
+    await screen.findAllByText("Host key not trusted");
     if (supported) {
-      fireEvent.click(screen.getByRole("button", { name: "Trust host key" }));
+      fireEvent.click(screen.getByRole("button", { name: "Trust host key…" }));
       await waitFor(() => {
         expect(api).toHaveBeenCalledWith({ action: "trust-host-key", host: "worker" });
       });
     } else {
-      expect(screen.queryByRole("button", { name: "Trust host key" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Trust host key…" })).toBeNull();
       fireEvent.click(screen.getByRole("button", { name: "Copy SSH command" }));
       expect(copyHost).toHaveBeenCalledWith({ kind: "copy-host-ssh-command", host: "worker" });
     }
@@ -1574,7 +1574,7 @@ test("untrusted hosts hide dependent checks and stale failures until acceptance 
   );
   render(<HostsSettings source={{ hosts: api }} headingRef={createRef()} />);
   const card = await screen.findByRole("region", { name: "worker" });
-  await screen.findByText("Host key not trusted");
+  await screen.findAllByText("Host key not trusted");
   expect(card.querySelectorAll(".host-check-row")).toHaveLength(1);
   for (const text of [
     "Platform",
@@ -1592,7 +1592,7 @@ test("untrusted hosts hide dependent checks and stale failures until acceptance 
   expect(card.querySelector(".host-footer")).toBeNull();
   expect(within(card).getByRole("button", { name: "Remove" })).toBeTruthy();
   expect(within(card).getByRole("region", { name: "Host check output" })).toBeTruthy();
-  fireEvent.click(within(card).getByRole("button", { name: "Trust host key" }));
+  fireEvent.click(within(card).getByRole("button", { name: "Trust host key…" }));
   await within(card).findByText("Pass · Host key trusted");
   for (const text of [
     "Platform",
@@ -1608,3 +1608,34 @@ test("untrusted hosts hide dependent checks and stale failures until acceptance 
   }
   expect(card.querySelector(".host-footer")).toBeTruthy();
 });
+
+test.each(["host-key-unknown", "host-key-changed", "login-rejected", "unreachable"] as const)(
+  "check output for %s distinguishes waiting from failure and dismissal",
+  async (reason) => {
+    const result = { ok: false as const, reason };
+    const output = {
+      host: "worker",
+      text: "Read-only SSH diagnostic",
+      running: false,
+      failed: true,
+    };
+    await mount({
+      ...initial,
+      hosts: [{ ...host, result, hostKeyTrust: "askpass" }],
+      preflight: { ...preflight, result, ssh: { state: "fail", reason } },
+      output,
+    });
+    const panel = screen.getByRole("region", { name: "Host check output" });
+    const status = within(panel).getByRole("status");
+    expect(status.textContent).toBe(
+      reason === "host-key-unknown" ? "Host key not trusted" : "Failed",
+    );
+    expect(
+      status.classList.contains(reason === "host-key-unknown" ? "host-need" : "hosts-failure"),
+    ).toBe(true);
+    expect(panel.textContent).toContain(output.text);
+    if (reason === "host-key-unknown")
+      expect(within(panel).queryByRole("button", { name: "Dismiss" })).toBeNull();
+    else expect(within(panel).getByRole("button", { name: "Dismiss" })).toBeTruthy();
+  },
+);

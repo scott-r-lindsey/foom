@@ -11,7 +11,12 @@ import type {
   WebContents,
   WebContentsDidStartNavigationEventParams,
 } from "electron";
-import type { DialogContent, DialogRequest } from "../../shared/confirmation";
+import type {
+  DialogContent,
+  DialogRequest,
+  DialogOutcome,
+  PlainDialogContent,
+} from "../../shared/confirmation";
 import type { InterfaceTheme } from "../../shared/interface-theme";
 
 import {
@@ -22,6 +27,12 @@ import {
   declineOnAbort,
 } from "./removal-review";
 
+interface Admission {
+  controller: AbortController;
+  active: boolean;
+  outcome: DialogOutcome;
+}
+
 export const CONFIRMATION_URL = "app://confirmation/confirmation.html";
 /** Dedicated session and origin prevent process sharing or board access to this page. */
 export class TrustedDialog {
@@ -31,7 +42,7 @@ export class TrustedDialog {
     | {
         id: string;
         request: DialogRequest;
-        resolve: (answer: boolean) => void;
+        resolve: (answer: boolean, outcome: DialogOutcome) => void;
         activate: boolean;
       }
     | undefined;
@@ -43,7 +54,7 @@ export class TrustedDialog {
   private queue: Promise<unknown> = Promise.resolve();
   private size: { width: number; height: number } | undefined;
   private disposed = false;
-  private readonly admissions = new Set<{ controller: AbortController; active: boolean }>();
+  private readonly admissions = new Set<Admission>();
   private readonly parentContents: WebContents;
   private parentEnabled = true;
   private parentFocusable = true;
@@ -74,8 +85,15 @@ export class TrustedDialog {
     this.dispose();
   };
   private readonly cancelQueued = () => {
-    for (const admission of this.admissions) if (!admission.active) admission.controller.abort();
+    this.cancelAdmissions("cancelled");
   };
+  private cancelAdmissions(outcome: DialogOutcome): void {
+    for (const admission of this.admissions)
+      if (!admission.active) {
+        admission.outcome = outcome;
+        admission.controller.abort();
+      }
+  }
   private readonly ownerNavigating = ({
     isMainFrame,
     isSameDocument,
@@ -109,7 +127,7 @@ export class TrustedDialog {
     }
     if (this.removalFeed) {
       if (accepted === false) {
-        this.finish(false, true);
+        this.finish(false, true, "declined");
         return;
       }
       const ids = new Set(this.pending.request.removals?.map((item) => item.id));
@@ -136,7 +154,7 @@ export class TrustedDialog {
       this.feed.act();
       return;
     }
-    this.finish(accepted, true);
+    this.finish(accepted, true, accepted ? "accepted" : "declined");
   };
   private readonly copyPath = (event: IpcMainEvent, ...args: unknown[]) => {
     const contents = this.window?.webContents;
@@ -278,16 +296,16 @@ export class TrustedDialog {
     window.on("closed", () => {
       if (this.window !== window) return;
       this.window = undefined;
-      this.cancelQueued();
+      this.cancelAdmissions("unavailable");
       this.finish(false);
     });
     window.on("close", (event) => {
       event.preventDefault();
-      if (this.pluginFeed?.current()?.phase !== "running") this.finish(false, true);
+      if (this.pluginFeed?.current()?.phase !== "running") this.finish(false, true, "declined");
     });
     window.webContents.on("render-process-gone", () => {
       if (this.window !== window) return;
-      this.cancelQueued();
+      this.cancelAdmissions("unavailable");
       this.finish(false);
       window.destroy();
       this.window = undefined;
@@ -296,7 +314,7 @@ export class TrustedDialog {
     // A failed preload/page never approves; allow the next request to retry.
     void this.ready.catch(() => {
       if (this.window !== window) return;
-      this.cancelQueued();
+      this.cancelAdmissions("unavailable");
       this.finish(false);
       window.destroy();
       this.window = undefined;
@@ -311,19 +329,46 @@ export class TrustedDialog {
     signal?: AbortSignal,
     { activate = false }: { activate?: boolean } = {},
   ): Promise<boolean> {
-    if (this.disposed || signal?.aborted) return Promise.resolve(false);
+    return this.requestImpl(content, signal, { activate });
+  }
+  /** Distinguishes user intent from failure to make a plain decision reachable. */
+  requestOutcome(
+    content: PlainDialogContent,
+    signal?: AbortSignal,
+    options: { activate?: boolean } = {},
+  ): Promise<DialogOutcome> {
+    let outcome: DialogOutcome = "unavailable";
+    return this.requestImpl(content, signal, options, (value) => {
+      outcome = value;
+    }).then(() => outcome);
+  }
+  private requestImpl(
+    content: DialogContent,
+    signal?: AbortSignal,
+    { activate = false }: { activate?: boolean } = {},
+    report?: (outcome: DialogOutcome) => void,
+  ): Promise<boolean> {
+    if (this.disposed || signal?.aborted) {
+      report?.(signal?.aborted ? "cancelled" : "unavailable");
+      return Promise.resolve(false);
+    }
     if (content.removal)
       return this.removals.request(content.removal.group, content.removal.item, signal);
-    const admission = { controller: new AbortController(), active: false };
+    const admission: Admission = {
+      controller: new AbortController(),
+      active: false,
+      outcome: "cancelled",
+    };
     this.admissions.add(admission);
     const cancellation = signal
       ? AbortSignal.any([signal, admission.controller.signal])
       : admission.controller.signal;
     const result = declineOnAbort(
-      this.enqueue(content, cancellation, activate, admission),
+      this.enqueue(content, cancellation, activate, admission, report),
       cancellation,
     );
     return result.finally(() => {
+      if (cancellation.aborted) report?.(signal?.aborted ? "cancelled" : admission.outcome);
       this.admissions.delete(admission);
     });
   }
@@ -334,7 +379,8 @@ export class TrustedDialog {
     content: DialogContent,
     signal: AbortSignal,
     activate: boolean,
-    admission: { active: boolean },
+    admission: Admission,
+    report?: (outcome: DialogOutcome) => void,
   ): Promise<boolean> {
     const present = async () => {
       if (this.parent.isDestroyed() || this.isCancelled(signal)) return false;
@@ -370,7 +416,15 @@ export class TrustedDialog {
       this.bounds = undefined;
       const answer = new Promise<boolean>((resolve) => {
         admission.active = true;
-        this.pending = { id, request, resolve, activate };
+        this.pending = {
+          id,
+          request,
+          resolve: (answer, outcome) => {
+            report?.(outcome);
+            resolve(answer);
+          },
+          activate,
+        };
       });
       this.unsubscribe = feed?.subscribe(() => {
         if (this.pending?.id !== id) return;
@@ -408,7 +462,7 @@ export class TrustedDialog {
           this.refresh();
         });
       const cancel = () => {
-        if (this.pending && this.removalFeed === removalFeed) this.finish(false, true);
+        if (this.pending && this.removalFeed === removalFeed) this.finish(false, true, "cancelled");
       };
       signal.addEventListener("abort", cancel, { once: true });
       if (this.isCancelled(signal)) {
@@ -621,7 +675,11 @@ export class TrustedDialog {
     this.present();
     this.watchReachability();
   };
-  private finish(accepted: boolean, restoreFocus = false): void {
+  private finish(
+    accepted: boolean,
+    restoreFocus = false,
+    outcome: DialogOutcome = accepted ? "accepted" : "unavailable",
+  ): void {
     const pending = this.pending;
     if (!pending) return;
     // Decide before hide() relinquishes native focus. Availability failures must
@@ -676,7 +734,7 @@ export class TrustedDialog {
     }
     // Leave Electron's native IPC/close callback before resuming shutdown work.
     setImmediate(() => {
-      pending.resolve(accepted);
+      pending.resolve(accepted, outcome);
     });
   }
   dispose(): void {
