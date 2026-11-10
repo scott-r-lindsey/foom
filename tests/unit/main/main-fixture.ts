@@ -728,7 +728,10 @@ vi.mock("electron", () => ({
     get isPackaged() {
       return mock.packaged;
     },
-    commandLine: { hasSwitch: () => mock.explicitProfile },
+    commandLine: {
+      hasSwitch: (name: string) => name === "user-data-dir" && mock.explicitProfile,
+      getSwitchValue: () => "",
+    },
     setPath: mock.setPath,
     requestSingleInstanceLock: mock.lock,
     getPath: () => "/test/user-data",

@@ -33,7 +33,7 @@ import type { PreviewBroker } from "../control/previews";
 import { addTailSecrets } from "../evaluator/terminal-tail";
 import type { PreviewHost } from "../previews/host";
 import type { PreviewPlacement } from "../previews/placement";
-import { clearParentHooks, selectProfile } from "../profile";
+import { clearParentHooks, selectProfile, stateRoot } from "../profile";
 import { EnvironmentStore, safeStorageCipher } from "../setup/environment";
 import { DEFAULT_SETTINGS, SettingsStore } from "../setup/settings";
 import type { Setup } from "../setup/setup";
@@ -568,10 +568,11 @@ export function runApplication() {
 }
 
 async function startApplication(wiring: ApplicationWiring): Promise<void> {
-  wiring.configRoot = path.join(app.getPath("home"), ".foom", "config");
+  const root = stateRoot(app);
+  wiring.configRoot = path.join(root, "config");
   wiring.worktrees = await WorktreeService.open(
     app.getPath("userData"),
-    undefined,
+    path.join(root, "worktrees"),
     [wiring.configRoot],
     wiring.forgeRuntime.provider,
   );
@@ -648,16 +649,17 @@ async function startApplication(wiring: ApplicationWiring): Promise<void> {
     wiring.themes.dispose();
   };
   try {
-    const values = await wiring.config.initialize(legacy);
+    // Include the old window scale only in no-clobber initial creation. Never
+    // follow initialization with a Settings save: another profile may replace
+    // the file while the approved baseline is being persisted.
+    const values = await wiring.config.initialize(
+      migratedScale === undefined ? legacy : { ...legacy, interfaceScale: migratedScale },
+    );
     await wiring.settings.attachConfig(
       (patch) => wiring.config.write(patch),
       values,
       wiring.settings.configDigest(),
     );
-    // Existing shared choices win. Otherwise adopt the first legacy window once,
-    // through the shared writer, before any window can paint at a different size.
-    if (values.interfaceScale === undefined && migratedScale !== undefined)
-      await wiring.settings.update({ interfaceScale: migratedScale });
   } catch (error) {
     // Settings stay in the profile until the folder is usable.
     console.error("Foom config is unavailable:", error);

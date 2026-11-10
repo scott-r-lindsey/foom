@@ -129,8 +129,7 @@ export class ConfigService {
   }
 
   /**
-   * Creates the layout, refreshes unedited Foom-owned docs, turns the folder into a
-   * repository when it is not one, and moves `legacy` profile values into
+   * Creates the layout, refreshes unedited Foom-owned docs, and moves `legacy` profile values into
    * `settings.json` if that file does not exist yet. Returns the applied values.
    */
   initialize(legacy?: ConfigSettings): Promise<ConfigSettings> {
@@ -187,26 +186,19 @@ export class ConfigService {
       }
       const text = `${JSON.stringify({ kind: "settings", ...values }, null, 2)}\n`;
       parseSettingsFile(text);
-      await this.files.writeFile(SETTINGS_FILE, text);
-      migrated = { text, values };
+      if (await this.files.createFile(SETTINGS_FILE, text)) migrated = { text, values };
     }
-    this.applied = (await this.baseline(migrated)) ?? DEFAULTS;
-    if (!migrated && legacy?.agentArguments) {
+    const baseline = await this.baseline(migrated);
+    this.applied = baseline ?? DEFAULTS;
+    if (!migrated && baseline && legacy?.agentArguments) {
       // Trust only the profile's arguments, not other edits made while Foom was closed.
-      const bytes = await this.files.read(SETTINGS_FILE);
-      if (!bytes) throw new Error("Cannot migrate agent arguments without settings");
-      const text = decode(bytes);
-      const values = parseSettingsFile(text);
       const baseline = { ...this.applied.values, agentArguments: legacy.agentArguments };
       const approvedText = `${JSON.stringify({ kind: "settings", ...baseline }, null, 2)}\n`;
       parseSettingsFile(approvedText);
       this.applied = { values: baseline, text: approvedText };
-      if (values.agentArguments === undefined) {
-        const migratedText = `${JSON.stringify({ kind: "settings", ...values, agentArguments: legacy.agentArguments }, null, 2)}\n`;
-        parseSettingsFile(migratedText);
-        await this.files.writeFile(SETTINGS_FILE, migratedText);
-      }
-      // Keep a recoverable approved baseline even when the working file has a held edit.
+      // Preserve a recoverable approved baseline without rewriting working bytes.
+      // They remain an external proposal, including a missing arguments key, and
+      // must pass the scan below even if replaced during baseline persistence.
       await this.recordBaseline(this.applied.text);
     }
     if (migrated && this.applied === migrated) await this.recordBaseline(migrated.text);

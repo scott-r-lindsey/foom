@@ -106,11 +106,20 @@ export async function startHosts(
   { execute = execFileSync, launch = spawn, log = console.info } = {},
 ) {
   const cache = await prepareHosts(root, execute, log);
-  const child = launch("pnpm", ["start", ...args], {
-    cwd: root,
-    stdio: "inherit",
-    env: { ...process.env, FOOM_REMOTE_HOST_ARTIFACTS: cache },
-  });
+  const child = launch(
+    "pnpm",
+    [
+      "start",
+      "--",
+      ...args.filter((arg, index) => index !== 0 || arg !== "--"),
+      "--foom-isolated-state",
+    ],
+    {
+      cwd: root,
+      stdio: "inherit",
+      env: { ...process.env, FOOM_REMOTE_HOST_ARTIFACTS: cache },
+    },
+  );
   const forward = (signal) => child.kill(signal);
   const interrupt = () => forward("SIGINT");
   const terminate = () => forward("SIGTERM");

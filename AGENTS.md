@@ -55,7 +55,9 @@ use the persistent **Foom Dev** profile; packaged builds use the everyday profil
 Only one app can own each profile. A repeated launch focuses the existing window,
 so quit Foom Dev before testing a rebuilt version. To run another development app
 alongside it, pass a distinct `--user-data-dir` to Electron. `pnpm run start:fresh`
-uses an isolated disposable profile and deletes it on exit.
+uses an isolated disposable profile and deletes it on exit. `start:fresh`,
+`start:samples`, and `start:hosts` keep config and managed worktrees inside their
+selected profile; they do not use the everyday `~/.foom` state.
 
 ## Planning and tasks
 

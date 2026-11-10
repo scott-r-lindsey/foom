@@ -16,7 +16,7 @@ test("loads worktree state from userData before creating a window", async () => 
   await start(false);
   expect(mock.openWorktrees).toHaveBeenCalledWith(
     "/test/user-data",
-    undefined,
+    join("/test/user-data", ".foom", "worktrees"),
     [join("/test/user-data", ".foom", "config")],
     expect.any(Function),
   );
