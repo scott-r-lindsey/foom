@@ -1,3 +1,4 @@
+import { remoteAgentTarget, remoteSpikeTarget } from "../terminals/remote-bootstrap";
 import { CheckoutHolds, worktreeReservation } from "./worktree-reservations";
 import type { CheckoutHold } from "./worktree-reservations";
 import type { StoredSession } from "./session-restore.d";
@@ -60,6 +61,7 @@ export class WorkspaceContext {
   probeHttp: Promise<ProbeHttp> | undefined;
   readonly configTokens = new Map<string, string>();
   readonly sessions: SessionOwner;
+  private readonly unsubscribeHostRemoval: (() => void) | undefined;
   readonly cleanup: CleanupOwner;
   readonly launched = new Map<string, WorkspaceTerminal>();
   readonly executionOwner: ExecutionOwner;
@@ -283,6 +285,23 @@ export class WorkspaceContext {
     this.sessions = new SessionOwner({
       ...(registeredHosts
         ? {
+            registeredHost: (host) => {
+              try {
+                registeredHosts.registered(host);
+                return true;
+              } catch {
+                // Explicit developer overrides retain metadata for manual cleanup,
+                // but never register a host or grant reattachment authority.
+                try {
+                  return (
+                    host === remoteAgentTarget(process.argv)?.target.host ||
+                    host === remoteSpikeTarget(process.argv)?.host
+                  );
+                } catch {
+                  return false;
+                }
+              }
+            },
             discover: () => discoverRemoteSessions(registeredHosts),
             rememberRemote: (entry: StoredSession) => {
               if (entry.remoteCheckout && entry.placement?.kind === "remote")
@@ -300,6 +319,9 @@ export class WorkspaceContext {
       orchestration: this.orchestration,
       terminals: () => this.snapshot().terminals,
       terminal: (id) => this.launched.get(id),
+      removeRow: (id) => {
+        this.removed(id);
+      },
       restoreRow: (row) => {
         this.launched.set(row.id, row);
         this.executionOwner.markExited(row.id, -1);
@@ -375,6 +397,9 @@ export class WorkspaceContext {
       },
       onChange: () => deps.onChange?.(),
     });
+    this.unsubscribeHostRemoval = registeredHosts?.onRemoved?.((host) =>
+      this.sessions.pruneHosts(host),
+    );
     this.agents = deps.agents
       ? deps.agents(prepare, prepareControl)
       : new AgentService(
@@ -910,6 +935,7 @@ export class WorkspaceContext {
   /** Call after terminals have stopped. Revokes every launch and closes the receiver. */
   async dispose(): Promise<void> {
     if (this.closed) return;
+    this.unsubscribeHostRemoval?.();
     this.closed = true;
     this.launchAbort.abort();
     await (await this.probeHttp?.catch(() => undefined))?.close();

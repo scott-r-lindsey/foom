@@ -23,6 +23,7 @@ const {
   boardCommand,
   fixtureCleanup,
   launchApp,
+  quitAndWait,
   openSettingsScreen,
   removeAfterApps,
   assertAccessible,
@@ -319,6 +320,7 @@ process.stdin.on('data', bytes => {
   if (captureEnrollment) await capture("partial-facts");
   return {
     app,
+    bin,
     page,
     card,
     navigation,
@@ -2331,4 +2333,70 @@ test("Hosts folder-change alerts keep unknown SSH keys in the needs-you tone", {
   await expect(alert).toBeVisible();
   await expect(alert.locator(".host-status")).toHaveClass(/host-need/u);
   await expect(alert.locator(".host-symbol")).toHaveText("");
+});
+
+test("Hosts removal prunes saved session rows and startup repairs already forgotten hosts", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const fixture = await hostsFixture(context);
+  const profile = await fixture.app.evaluate(({ app }) => app.getPath("userData"));
+  const repository = await fixture.page.evaluate(
+    async () => (await window.desktop.workspace()).repositories[0].path,
+  );
+  await fixture.page.evaluate(() => window.desktop.saveSetup({ restoreSessions: false }));
+  await quitAndWait(fixture.app, () => fixture.app.evaluate(({ app }) => app.quit()));
+  const saved = {
+    id: "forgotten-host-session",
+    agent: "claude",
+    repository,
+    worktree: repository,
+    branch: "main",
+    running: false,
+    remote: true,
+    placement: { kind: "remote", host: "fixture-cloud" },
+  };
+  const sessionsFile = path.join(profile, "sessions.json");
+  await writeFile(sessionsFile, JSON.stringify([saved]));
+  const options = {
+    fixture: "restored",
+    args: [`--user-data-dir=${profile}`],
+    env: { PATH: fixture.bin },
+  };
+  const app = await launchApp(context, options);
+  const page = await boardPage(app);
+  const rows = (page) =>
+    page.evaluate(async () => (await window.desktop.workspace()).terminals.map((row) => row.id));
+  await expect.poll(() => rows(page)).toEqual([saved.id]);
+  await expect(page.locator(`[data-drag-session="${saved.id}"]`)).toBeVisible();
+  await openSettingsScreen(page);
+  await page
+    .getByRole("navigation", { name: "Settings sections" })
+    .getByRole("button", { name: "Hosts", exact: true })
+    .click();
+  const callsBefore = await readFile(fixture.calls, "utf8");
+  await page
+    .getByRole("region", { name: "fixture-cloud", exact: true })
+    .getByRole("button", { name: "Remove", exact: true })
+    .click();
+  await expect.poll(() => rows(page)).toEqual([]);
+  await expect(page.locator(`[data-drag-session="${saved.id}"]`)).toHaveCount(0);
+  await expect.poll(async () => JSON.parse(await readFile(sessionsFile, "utf8"))).toEqual([]);
+  assert.equal(
+    await readFile(fixture.calls, "utf8"),
+    callsBefore,
+    "Forgetting never contacts SSH or closes a session",
+  );
+  await quitAndWait(app, () => app.evaluate(({ app }) => app.quit()));
+  const restarted = await launchApp(context, options);
+  const restartedPage = await boardPage(restarted);
+  await expect.poll(() => rows(restartedPage)).toEqual([]);
+  await quitAndWait(restarted, () => restarted.evaluate(({ app }) => app.quit()));
+  // Reproduce a profile written by an older build: no registration, but a saved row.
+  await writeFile(sessionsFile, JSON.stringify([saved]));
+  const stale = await launchApp(context, options);
+  const stalePage = await boardPage(stale);
+  await expect.poll(() => rows(stalePage)).toEqual([]);
+  await expect(stalePage.locator(`[data-drag-session="${saved.id}"]`)).toHaveCount(0);
+  await expect.poll(async () => JSON.parse(await readFile(sessionsFile, "utf8"))).toEqual([]);
 });

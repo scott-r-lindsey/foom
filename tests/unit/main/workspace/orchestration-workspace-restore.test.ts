@@ -736,3 +736,308 @@ it.each(["unchanged", "repository", "worktree"])(
     }
   },
 );
+
+it("forgetting a host retires child references while preserving owned checkout state and live tiles", async () => {
+  const { readSessions } = await import("../../../../src/main/workspace/session-store");
+  const remote = { remote: true, placement: { kind: "remote", host: "worker" } };
+  const entries = readSessions([
+    {
+      id: "parent",
+      conversationId: "parent-conversation",
+      agent: "claude",
+      repository: repo.path,
+      worktree: repo.path,
+      branch: "main",
+      running: true,
+      orchestrator: { identity: "identity", history: [] },
+    },
+    {
+      id: "child",
+      agent: "claude",
+      repository: repo.path,
+      worktree: child.path,
+      branch: "feature",
+      running: false,
+      parentId: "parent",
+      ...remote,
+    },
+    {
+      id: "live",
+      agent: "shell",
+      repository: repo.path,
+      worktree: repo.path,
+      branch: "main",
+      running: true,
+      ...remote,
+    },
+  ]);
+  const save = vi.fn<NonNullable<WorkspaceDependencies["sessions"]>["save"]>(() =>
+    Promise.resolve(),
+  );
+  deps.sessions = { load: () => Promise.resolve(entries), save, flush: () => Promise.resolve() };
+  let registered = true;
+  let removed: ((host: string) => Promise<void>) | undefined;
+  const unsubscribe = vi.fn();
+  type HostDependencies = NonNullable<WorkspaceDependencies["hosts"]>;
+  deps.hosts = {
+    fleet: vi.fn<HostDependencies["fleet"]>(),
+    worktree: vi.fn<HostDependencies["worktree"]>(),
+    requireAgent: vi.fn<HostDependencies["requireAgent"]>(),
+    registered: () => {
+      if (!registered) throw new Error("Host forgotten");
+      return { host: "worker", codeFolder: "/remote/code" };
+    },
+    onRemoved: (listener) => {
+      removed = listener;
+      return unsubscribe;
+    },
+  };
+  const kill = vi.fn(() => Promise.resolve());
+  deps.terminals.kill = kill;
+  const workspace = createWorkspace();
+  workspace.configure({ hooks: false, agents: { claude: true, codex: true, agy: true } });
+  await workspace.restore();
+  await workspace.restartSaved();
+  expect(workspace.orchestration.view("child")).toMatchObject({
+    role: "child",
+    parentId: "parent",
+  });
+  const owned = workspace.orchestration.ownedWorktrees("parent");
+  expect(owned).toEqual([expect.objectContaining({ path: child.path, state: "used" })]);
+  expect(workspace.snapshot().terminals.find((row) => row.id === "live")).toMatchObject({
+    exited: false,
+  });
+  registered = false;
+  expect(removed).toBeDefined();
+  await removed?.("worker");
+  expect(workspace.orchestration.view("child")).toBeUndefined();
+  expect(workspace.orchestration.ownedWorktrees("parent")).toEqual(owned);
+  expect(workspace.snapshot().terminals.map((row) => row.id)).toEqual(["parent", "live"]);
+  expect(save.mock.lastCall?.[0].map((row) => row.id)).toEqual(["parent"]);
+  expect(stop).not.toHaveBeenCalled();
+  expect(kill).not.toHaveBeenCalled();
+  await workspace.exited("live", 0);
+  expect(workspace.snapshot().terminals.map((row) => row.id)).toEqual(["parent"]);
+  await workspace.dispose();
+  expect(unsubscribe).toHaveBeenCalledOnce();
+});
+
+it.each(["agent", "shell", "invalid"])(
+  "retains only a validated explicit %s developer host for saved cleanup",
+  async (kind) => {
+    const { readSessions } = await import("../../../../src/main/workspace/session-store");
+    const previous = process.argv;
+    process.argv =
+      kind === "shell"
+        ? ["--remote-shell-spike=worker"]
+        : kind === "invalid"
+          ? ["--remote-agent-spike=worker"]
+          : [
+              "--remote-agent-spike=worker",
+              "--remote-agent-artifact=/fixture/host",
+              "--remote-agent-local-checkout=/different",
+              "--remote-agent-repository=/remote/repo",
+              "--remote-agent-worktree=/remote/tree",
+            ];
+    try {
+      const entries = readSessions([
+        {
+          id: "remote",
+          agent: "claude",
+          repository: repo.path,
+          worktree: child.path,
+          branch: "feature",
+          running: false,
+          remote: true,
+          placement: { kind: "remote", host: "worker" },
+        },
+      ]);
+      type HostDependencies = NonNullable<WorkspaceDependencies["hosts"]>;
+      deps.hosts = {
+        fleet: vi.fn<HostDependencies["fleet"]>(),
+        worktree: vi.fn<HostDependencies["worktree"]>(),
+        requireAgent: vi.fn<HostDependencies["requireAgent"]>(),
+        registered: () => {
+          throw new Error("Not registered");
+        },
+      };
+      deps.sessions = {
+        load: () => Promise.resolve(entries),
+        save: () => Promise.resolve(),
+        flush: () => Promise.resolve(),
+      };
+      const workspace = createWorkspace();
+      await workspace.restore();
+      expect(workspace.snapshot().terminals.map((row) => row.id)).toEqual(
+        kind === "invalid" ? [] : ["remote"],
+      );
+      await workspace.restartSaved();
+      expect(launch).not.toHaveBeenCalled();
+      await workspace.dispose();
+    } finally {
+      process.argv = previous;
+    }
+  },
+);
+
+it("recovers only daemon-live forgotten sessions as human tiles after re-enrollment and restart", async () => {
+  const { readSessions } = await import("../../../../src/main/workspace/session-store");
+  const remotePath = "/foom-remote/forgotten";
+  const checkout = {
+    host: "worker",
+    codeFolder: "/remote/code",
+    localRepository: repo.path,
+    repository: "/remote/code/repo",
+    path: "/remote/code/.foom-worktree-forgotten",
+    branch: "forgotten",
+    identity: "a".repeat(64),
+  };
+  let records: readonly StoredSession[] = readSessions([
+    {
+      id: "parent",
+      agent: "claude",
+      repository: repo.path,
+      worktree: repo.path,
+      branch: "main",
+      conversationId: "parent-conversation",
+      running: true,
+      orchestrator: { identity: "identity", history: [] },
+    },
+    ...["live", "exited"].map((id) => ({
+      id,
+      agent: "claude",
+      repository: repo.path,
+      worktree: remotePath,
+      branch: "forgotten",
+      running: id === "live",
+      remote: true,
+      placement: { kind: "remote", host: "worker" },
+      parentId: "parent",
+    })),
+  ]);
+  const save = vi.fn<NonNullable<WorkspaceDependencies["sessions"]>["save"]>((entries) => {
+    records = entries;
+    return Promise.resolve();
+  });
+  deps.sessions = {
+    load: () => Promise.resolve([...records]),
+    save,
+    flush: () => Promise.resolve(),
+  };
+  let registered = true;
+  let discoverLive = false;
+  let removed: ((host: string) => Promise<void>) | undefined;
+  deps.hosts = {
+    registered: () => {
+      if (!registered) throw new Error("Host forgotten");
+      return { host: "worker", codeFolder: checkout.codeFolder };
+    },
+    fleet: () => Promise.resolve([]),
+    requireAgent: () => Promise.resolve(),
+    worktree: () =>
+      Promise.resolve({ ...checkout, changes: "", sourceOrigin: "git@forge.test:me/repo.git" }),
+    placement: (path) => (registered && path === remotePath ? checkout : undefined),
+    sessions: () =>
+      Promise.resolve(
+        registered && discoverLive
+          ? [
+              {
+                host: "worker",
+                session: {
+                  id: "live",
+                  context: {
+                    agent: "claude",
+                    repository: repo.path,
+                    worktree: remotePath,
+                    branch: "forgotten",
+                  },
+                },
+              },
+            ]
+          : [],
+      ),
+    onRemoved: (listener) => {
+      removed = listener;
+      return () => {
+        removed = undefined;
+      };
+    },
+  };
+  const create = vi.fn<WorkspaceDependencies["terminals"]["create"]>((spec) =>
+    Promise.resolve(spec.id ?? "new"),
+  );
+  deps.terminals.create = create;
+  launch.mockImplementation((request) =>
+    Promise.resolve({ id: request.terminalId ?? "new", attention: "evaluator" }),
+  );
+  const settings = { hooks: false, agents: { claude: true, codex: true, agy: true } };
+  const first = createWorkspace();
+  first.configure(settings);
+  await first.restore();
+  await first.restartSaved();
+  expect(first.orchestration.view("live")).toMatchObject({ role: "child", parentId: "parent" });
+  expect(first.orchestration.view("exited")).toMatchObject({ role: "child", parentId: "parent" });
+  expect(first.orchestration.ownedWorktrees("parent")).toEqual([
+    expect.objectContaining({ path: remotePath, state: "used" }),
+  ]);
+
+  registered = false;
+  if (!removed) throw new Error("Missing removal listener");
+  await removed("worker");
+  expect(first.snapshot().terminals.map((row) => row.id)).toEqual(["parent", "live"]);
+  expect(records.map((row) => row.id)).toEqual(["parent"]);
+  registered = true;
+  await first.prepareQuit();
+  // The old child authority is still live in memory, but its row is not saved.
+  expect(first.orchestration.view("live")).toMatchObject({ role: "child", parentId: "parent" });
+  expect(records.map((row) => row.id)).toEqual(["parent"]);
+  await first.dispose();
+
+  discoverLive = true;
+  launch.mockClear();
+  create.mockClear();
+  const restarted = createWorkspace();
+  restarted.configure(settings);
+  await restarted.restore();
+  expect(restarted.snapshot().terminals.map((row) => row.id)).toEqual(["parent"]);
+  await restarted.restartSaved();
+  const recovered = restarted.snapshot().terminals.find((row) => row.id === "live");
+  expect(recovered).toMatchObject({ remote: true, exited: false, dormant: false });
+  expect(recovered).not.toHaveProperty("parentId");
+  expect(recovered).not.toHaveProperty("orchestrator");
+  expect(recovered?.orchestration).toBeUndefined();
+  expect(restarted.orchestration.view("parent")).toMatchObject({
+    role: "orchestrator",
+    active: true,
+    children: 0,
+  });
+  expect(restarted.orchestration.view("live")).toBeUndefined();
+  expect(restarted.orchestration.identity("live")).toBeUndefined();
+  expect(restarted.orchestration.ownedWorktrees("live")).toEqual([]);
+  expect(restarted.snapshot().terminals.map((row) => row.id)).toEqual(["parent", "live"]);
+  // Recovery takes the human attachment path, without invoking an agent/control launch.
+  expect(launch.mock.calls.map(([request]) => request.terminalId)).toEqual(["parent"]);
+  expect(create).toHaveBeenCalledOnce();
+  expect(create.mock.calls[0]?.[0]).toMatchObject({
+    id: "live",
+    env: {},
+    remote: { host: "worker", reattach: true, human: true },
+  });
+  expect(create.mock.calls[0]?.[0].remote?.agent).toBeUndefined();
+  await expect(
+    restarted.orchestration.call(
+      principal(),
+      "tail",
+      { id: "live" },
+      new Operations(
+        async () => {},
+        () => 1000,
+      ),
+    ),
+  ).rejects.toThrow();
+  await restarted.prepareQuit();
+  expect(records.find((row) => row.id === "live")).toMatchObject({ running: true });
+  expect(records.find((row) => row.id === "live")).not.toHaveProperty("parentId");
+  expect(records.find((row) => row.id === "live")).not.toHaveProperty("orchestrator");
+  expect(records.some((row) => row.id === "exited")).toBe(false);
+});

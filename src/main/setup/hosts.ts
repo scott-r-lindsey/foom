@@ -90,6 +90,14 @@ interface PendingHostRow {
 }
 
 export class Hosts {
+  private readonly removalListeners = new Set<(host: string) => Promise<void>>();
+  onRemoved(listener: (host: string) => Promise<void>): () => void {
+    this.removalListeners.add(listener);
+    return () => {
+      this.removalListeners.delete(listener);
+    };
+  }
+
   private readonly savedPlacements = new Map<
     string,
     {
@@ -1452,6 +1460,7 @@ export class Hosts {
           this.invalidateWorktrees(host.host);
           for (const [path, entry] of this.savedPlacements)
             if (entry.host === host.host) this.savedPlacements.delete(path);
+          for (const listener of this.removalListeners) await listener(host.host);
           return this.state();
         }
         if (input.action === "refresh") {
