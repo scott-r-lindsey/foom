@@ -664,6 +664,45 @@ test("routes remote shell capabilities independently while leaving local termina
   await client.dispose();
   await expect(client.create({ ...spec, remote: target })).rejects.toThrow("disposed");
 });
+test("remote acknowledgement bursts retain counts behind one reply and discard retired streams", async () => {
+  const remote = remoteChild();
+  mock.remote.mockReturnValue(remote);
+  const id = await client.create({
+    ...spec,
+    remote: { host: "fixture", artifact: "/fixture/host" },
+  });
+  remote.postMessage.mockReset();
+  client.acknowledge(id, "view", 2);
+  for (let i = 0; i < 390; i++) client.acknowledge(id, "view", 3);
+  expect(remote.postMessage).toHaveBeenCalledTimes(1);
+  remote.reply();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(remote.postMessage).toHaveBeenLastCalledWith(
+    expect.objectContaining({ type: "acknowledge", token: "view", count: 1170 }),
+  );
+  client.acknowledge(id, "view", 5);
+  client.acknowledge(id, "fresh", 7);
+  client.acknowledge(id, "fresh", -1);
+  client.acknowledge(id, "fresh", Number.MAX_SAFE_INTEGER);
+  remote.reply();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(remote.postMessage).toHaveBeenLastCalledWith(
+    expect.objectContaining({ type: "acknowledge", token: "fresh", count: 7 }),
+  );
+  client.acknowledge(id, "fresh", 9);
+  remote.reply(undefined, { type: "error" });
+  await vi.advanceTimersByTimeAsync(0);
+  expect(remote.postMessage).toHaveBeenCalledTimes(3);
+  client.acknowledge(id, "replacement", 11);
+  expect(remote.postMessage).toHaveBeenCalledTimes(4);
+  client.acknowledge(id, "replacement", 13);
+  client.detach(id);
+  remote.reply(3);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(remote.postMessage).toHaveBeenCalledTimes(5); // detach only; no stale ACK
+  remote.reply();
+  remote.emit("exit", 0);
+});
 test("remote quit disconnects without requesting PTY termination; failed remote creates release their transport", async () => {
   const remote = remoteChild();
   mock.remote.mockReturnValue(remote);

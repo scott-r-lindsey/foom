@@ -214,6 +214,42 @@ test.skipIf(process.platform === "win32")(
   },
 );
 test.skipIf(process.platform === "win32")(
+  "a coalesced acknowledgement burst preserves bytes without overflowing the operation backlog",
+  async () => {
+    await start();
+    const burst = await open();
+    const closed = once(burst.socket, "close");
+    // One socket read can contain more frames than the serialized backlog allows.
+    burst.socket.write(
+      Buffer.concat(
+        Array.from({ length: 390 }, (_, index) =>
+          remoteFrame({
+            type: "acknowledge",
+            id: "one",
+            token: "view",
+            count: 3,
+            request: index + 2,
+          }),
+        ),
+      ),
+    );
+    await closed;
+    const coalesced = await open("one", true);
+    coalesced.send({ type: "acknowledge", id: "one", token: "view", count: 1170, request: 2 });
+    await coalesced.wait(3);
+    expect(mock.acknowledge).toHaveBeenLastCalledWith("one", "view", 1170);
+    expect(coalesced.socket.destroyed).toBe(false);
+    coalesced.send({ type: "tail", id: "one", request: 3, lines: 1 });
+    await coalesced.wait(4);
+    expect(coalesced.messages.at(-1)).toEqual({
+      type: "result",
+      id: "one",
+      request: 3,
+      lines: ["tail"],
+    });
+  },
+);
+test.skipIf(process.platform === "win32")(
   "refuses build mismatches, repeated negotiation, invalid operations and foreign IDs",
   async () => {
     await start();
