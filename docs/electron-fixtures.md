@@ -696,3 +696,21 @@ checks the same shell PID before and after restoration. Startup applies that sav
 palette before restoring sessions, so a late settings application cannot replace
 the retained application-set background. Built-in and custom startup palettes also
 have a unit regression for this ordering.
+
+## Preview navigation focus ordering (#1133)
+
+The user-clicked preview navigation case records a test-only ordering trace in
+JUnit diagnostics and `test-results/preview-focus-PID.jsonl`, both included in the
+existing Electron artifact upload. Native and board DOM streams each retain at
+most 128 events and report dropped counts. Records use epoch milliseconds for
+cross-process comparison; they are observations, not synchronization barriers.
+
+The trace covers native window/WebContents and document focus, preview creation,
+navigation and native attachment/removal by WebContents generation, cancellation
+blur requests/completions, native mouse-down versus DOM mousedown, and the
+requested terminal click coordinates, native view bounds/zoom and DOM hit geometry.
+Records contain no key values or terminal/model output. Final DOM hit testing uses the requested
+click point, including when DOM mouse delivery is absent. Observers and wrapped
+native methods are removed/restored before app teardown, including body failures.
+The existing native input, focus assertions and exact PTY-byte checks are unchanged;
+this instrumentation neither diagnoses the historical cause nor adds a focus gate.
