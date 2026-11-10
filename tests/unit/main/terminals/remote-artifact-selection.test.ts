@@ -102,7 +102,7 @@ test("uses bounded SSH discovery and a fixed catalog path, validates version and
     expect.arrayContaining(["--", "fixture", "uname -s; uname -m"]),
     expect.objectContaining({
       detached: process.platform !== "win32",
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["pipe", "pipe", "pipe"],
       shell: false,
     }),
   );
@@ -511,3 +511,73 @@ test("cancelled probes and Windows without a trusted OS root never spawn SSH", a
   ).rejects.toMatchObject({ failure: "unreachable" });
   expect(mock.spawn).not.toHaveBeenCalled();
 });
+
+test.each(["FOOM-LIBC-OK", "FOOM-LIBC-TOO-OLD", "FOOM-LIBC-UNSUPPORTED", "unexpected"])(
+  "retains the platform SSH stream and consumes its libc observation: %s",
+  async (libc) => {
+    const f = await fixture();
+    mock.execFile.mockClear();
+    const child = probeChild();
+    mock.spawn.mockImplementation(() => {
+      queueMicrotask(() => child.stdout.write(`Linux\nx86_64\n${libc}\nFOOM-PROBED\n`));
+      return child;
+    });
+    const retain = vi.fn();
+    const observe = vi.fn();
+    const output = vi.fn();
+    try {
+      const selected = selectHostArtifact(
+        { host: "fixture" },
+        "0.1.0",
+        f.root,
+        f.metadata,
+        undefined,
+        observe,
+        output,
+        retain,
+      );
+      if (libc === "FOOM-LIBC-OK")
+        await expect(selected).resolves.toMatchObject({ platform: "linux" });
+      else await expect(selected).rejects.toThrow();
+      expect(retain).toHaveBeenCalledWith(child);
+      expect(output).toHaveBeenCalledWith("Linux\nx86_64\n");
+      expect(JSON.stringify(output.mock.calls)).not.toContain("FOOM-PROBED");
+      expect(mock.spawn).toHaveBeenCalledTimes(1);
+      expect(mock.execFile).not.toHaveBeenCalled();
+    } finally {
+      child.emit("exit", 0);
+      child.emit("close", 0);
+    }
+  },
+);
+
+test.each(["Darwin\narm64\n", "Linux\nx86_64\nFOOM-LIBC-OK\nextra\nFOOM-PROBED\n"])(
+  "a missing or malformed check prelude cannot fall back to another SSH connection: %j",
+  async (stdout) => {
+    const f = await fixture();
+    const child = probeChild();
+    mock.spawn.mockImplementation(() => {
+      queueMicrotask(() => {
+        child.stdout.write(stdout);
+        child.emit("exit", 0);
+        child.emit("close", 0);
+      });
+      return child;
+    });
+    const retain = vi.fn();
+    await expect(
+      selectHostArtifact(
+        { host: "fixture" },
+        "0.1.0",
+        f.root,
+        f.metadata,
+        undefined,
+        vi.fn(),
+        undefined,
+        retain,
+      ),
+    ).rejects.toThrow("Invalid check prelude");
+    expect(retain).not.toHaveBeenCalled();
+    expect(mock.spawn).toHaveBeenCalledTimes(1);
+  },
+);

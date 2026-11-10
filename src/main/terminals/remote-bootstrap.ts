@@ -9,7 +9,7 @@ import { mkdtemp, open, rm } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { dirname, isAbsolute, join } from "node:path";
 import { tmpdir } from "node:os";
-import { execFile, spawn } from "node:child_process";
+import { execFile, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { promisify } from "node:util";
 import { gzip, gunzip } from "node:zlib";
 import { remoteHost } from "../../shared/remote-host-protocol";
@@ -260,6 +260,7 @@ export function sshEnvironment(): NodeJS.ProcessEnv {
 }
 
 export class UnsupportedRemotePlatform extends Error {}
+export class InvalidRemoteProbe extends Error {}
 /** A main-owned OpenSSH diagnostic, including checks without checklist observers. */
 export class SshConnectionFailure extends LaunchFailure {
   constructor(readonly failure: ReturnType<typeof sshFailure>) {
@@ -267,10 +268,36 @@ export class SshConnectionFailure extends LaunchFailure {
   }
 }
 
-async function platformProbe(host: string, signal?: AbortSignal, output?: (text: string) => void) {
+// The fixed prelude reads a bounded, hub-generated bootstrap command, then leaves
+// stdin to the existing upload/framed protocol. No checkout code is evaluated.
+const CHECK_PRELUDE = `uname -s; uname -m
+if test "$(uname -s)" = Linux; then
+  (${LINUX_LIBC_CHECK}) && printf 'FOOM-LIBC-OK\\n'
+else printf 'FOOM-LIBC-OK\\n'; fi
+printf 'FOOM-PROBED\\n'
+IFS= read -r size || exit 1
+case "$size" in ''|*[!0-9]*) exit 1;; esac
+test "$size" -le 65536 && test "$size" -gt 0 || exit 1
+script=$(head -c "$size") || exit 1
+exec sh -c "$script"`;
+
+async function platformProbe(
+  host: string,
+  signal?: AbortSignal,
+  output?: (text: string) => void,
+  retain?: (child: ChildProcessWithoutNullStreams) => void,
+) {
   const directory = await mkdtemp(join(tmpdir(), "foom-ssh-probe-"));
   const diagnostic = join(directory, "ssh.log");
   let handle: Awaited<ReturnType<typeof open>> | undefined;
+  const lifetime = { retained: false };
+  const dispose = async () => {
+    try {
+      await handle?.close();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  };
   try {
     handle = await open(diagnostic, "wx", 0o600);
     const fd = handle.fd;
@@ -279,7 +306,7 @@ async function platformProbe(host: string, signal?: AbortSignal, output?: (text:
     if (!detached && (!systemRoot || !isAbsolute(systemRoot)))
       throw new SshConnectionFailure("unreachable");
     if (signal?.aborted) throw new SshConnectionFailure("unreachable");
-    return await new Promise<{ stdout: string }>((resolve, reject) => {
+    return await new Promise<{ stdout: string; libc?: string }>((resolve, reject) => {
       // -E keeps client diagnostics separate from remote stderr. execFile does
       // not forward detached, so use spawn for an owned POSIX process group.
       const child = spawn(
@@ -291,18 +318,24 @@ async function platformProbe(host: string, signal?: AbortSignal, output?: (text:
           "LogLevel=ERROR",
           "-o",
           "StrictHostKeyChecking=yes",
+          ...(retain
+            ? ["-o", "ControlMaster=no", "-o", "ControlPath=none", "-o", "ControlPersist=no"]
+            : []),
           ...sshArguments(host),
-          "uname -s; uname -m",
+          ...(retain
+            ? ["sh", "-c", `'${CHECK_PRELUDE.replaceAll("'", "'\\''")}'`]
+            : ["uname -s; uname -m"]),
         ],
         {
           env: { ...sshEnvironment(), LC_ALL: "C" },
           shell: false,
           detached,
           windowsHide: true,
-          stdio: ["ignore", "pipe", "pipe"],
+          stdio: ["pipe", "pipe", "pipe"],
         },
       );
       let failed = false;
+      let invalid = false;
       let stopped = false;
       let cleanup: Promise<void> | undefined;
       const stdout: string[] = [];
@@ -348,21 +381,36 @@ async function platformProbe(host: string, signal?: AbortSignal, output?: (text:
       const monitor = setInterval(check, 10);
       const deadline = setTimeout(fail, 10000);
       signal?.addEventListener("abort", fail, { once: true });
-      child.stdout.setEncoding("utf8");
-      child.stderr.setEncoding("utf8");
       const collect = (stream: "stdout" | "stderr", data: string) => {
         sizes[stream] += Buffer.byteLength(data);
         if (sizes[stream] > 16384) fail();
         else {
           if (stream === "stdout") stdout.push(data);
-          output?.(data);
+          if (!retain || stream === "stderr") output?.(data);
+          if (retain && stream === "stdout" && stdout.join("").endsWith("FOOM-PROBED\n")) {
+            check();
+            if (failed) return;
+            const lines = stdout.join("").split("\n");
+            if (lines.length !== 5 || lines[3] !== "FOOM-PROBED") {
+              invalid = true;
+              fail();
+              return;
+            }
+            output?.(`${lines[0] ?? ""}\n${lines[1] ?? ""}\n`);
+            lifetime.retained = true;
+            clearTimeout(deadline);
+            child.stdout.removeAllListeners("data");
+            child.stderr.removeAllListeners("data");
+            retain(child);
+            resolve({ stdout: `${lines[0] ?? ""}\n${lines[1] ?? ""}\n`, libc: lines[2] ?? "" });
+          }
         }
       };
-      child.stdout.on("data", (data: string) => {
-        collect("stdout", data);
+      child.stdout.on("data", (data: Buffer) => {
+        collect("stdout", data.toString("utf8"));
       });
-      child.stderr.on("data", (data: string) => {
-        collect("stderr", data);
+      child.stderr.on("data", (data: Buffer) => {
+        collect("stderr", data.toString("utf8"));
       });
       child.on("error", fail);
       child.on("exit", () => {
@@ -379,7 +427,13 @@ async function platformProbe(host: string, signal?: AbortSignal, output?: (text:
           const text = failed
             ? undefined
             : await boundedFile(diagnostic, 16384).catch(() => undefined);
-          if (failed || code !== 0) {
+          if (lifetime.retained) {
+            await dispose();
+            return;
+          }
+          if (invalid || (retain && !failed && code === 0)) {
+            reject(new InvalidRemoteProbe("Invalid check prelude"));
+          } else if (failed || code !== 0) {
             if (text) output?.(text.toString("utf8"));
             reject(
               new SshConnectionFailure(
@@ -392,11 +446,7 @@ async function platformProbe(host: string, signal?: AbortSignal, output?: (text:
       if (signal?.aborted) fail();
     });
   } finally {
-    try {
-      await handle?.close();
-    } finally {
-      await rm(directory, { recursive: true, force: true });
-    }
+    if (!lifetime.retained) await dispose();
   }
 }
 
@@ -427,6 +477,7 @@ export async function selectHostArtifact(
   signal?: AbortSignal,
   observe?: (stage: keyof HostConnectionChecks, result: HostCheck) => void,
   output?: (text: string, startLine?: boolean) => void,
+  retain?: (child: ChildProcessWithoutNullStreams) => void,
 ) {
   let missingArtifact = false;
   let expectedSource: string | undefined;
@@ -450,7 +501,16 @@ export async function selectHostArtifact(
     }
   }
   output?.("Connecting…\nPlatform\n", true);
-  const { stdout } = await platformProbe(target.host, signal, output).catch((error: unknown) => {
+  const { stdout, libc: combinedLibc } = await platformProbe(
+    target.host,
+    signal,
+    output,
+    retain,
+  ).catch((error: unknown) => {
+    if (error instanceof InvalidRemoteProbe) {
+      observe?.("ssh", { state: "pass" });
+      throw error;
+    }
     const failure = error instanceof SshConnectionFailure ? error.failure : "unreachable";
     observe?.("ssh", { state: "fail", reason: failure });
     throw new SshConnectionFailure(failure);
@@ -464,30 +524,43 @@ export async function selectHostArtifact(
     throw error;
   }
   if (observe && remote.platform === "linux") {
-    const libc = await promisify(execFile)(
-      "ssh",
-      [...sshArguments(target.host), "sh", "-c", `'${LINUX_LIBC_CHECK.replaceAll("'", "'\\''")}'`],
-      {
-        env: sshEnvironment(),
-        shell: false,
-        timeout: 10000,
-        maxBuffer: 256,
-        encoding: "utf8",
-        ...(signal ? { signal } : {}),
-      },
-    )
-      .then(() => undefined)
-      .catch((error: unknown) => {
-        const output =
-          error instanceof Error && "stdout" in error && typeof error.stdout === "string"
-            ? error.stdout
-            : "";
-        return output.includes("FOOM-LIBC-TOO-OLD")
-          ? ("libc-too-old" as const)
-          : output.includes("FOOM-LIBC-UNSUPPORTED")
-            ? ("libc-unsupported" as const)
-            : ("unreachable" as const);
-      });
+    const libc = retain
+      ? combinedLibc === "FOOM-LIBC-OK"
+        ? undefined
+        : combinedLibc === "FOOM-LIBC-TOO-OLD"
+          ? "libc-too-old"
+          : combinedLibc === "FOOM-LIBC-UNSUPPORTED"
+            ? "libc-unsupported"
+            : "unreachable"
+      : await promisify(execFile)(
+          "ssh",
+          [
+            ...sshArguments(target.host),
+            "sh",
+            "-c",
+            `'${LINUX_LIBC_CHECK.replaceAll("'", "'\\''")}'`,
+          ],
+          {
+            env: sshEnvironment(),
+            shell: false,
+            timeout: 10000,
+            maxBuffer: 256,
+            encoding: "utf8",
+            ...(signal ? { signal } : {}),
+          },
+        )
+          .then(() => undefined)
+          .catch((error: unknown) => {
+            const output =
+              error instanceof Error && "stdout" in error && typeof error.stdout === "string"
+                ? error.stdout
+                : "";
+            return output.includes("FOOM-LIBC-TOO-OLD")
+              ? ("libc-too-old" as const)
+              : output.includes("FOOM-LIBC-UNSUPPORTED")
+                ? ("libc-unsupported" as const)
+                : ("unreachable" as const);
+          });
     if (libc === "unreachable") {
       observe("ssh", { state: "fail", reason: "unreachable" });
       observe("platform", { state: "not-checked" });

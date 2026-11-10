@@ -152,8 +152,9 @@ if (current.loginRejected) { clientError('user@fixture-cloud: Permission denied 
 for (const flag of ['BatchMode=yes','ClearAllForwardings=yes','ForwardAgent=no','ForwardX11=no','ConnectTimeout=10']) assert.ok(args.includes(flag));
 const split = args.indexOf('--'); const host = args[split+1];
 assert.ok(['fixture-cloud','other-cloud','offline-cloud','version-cloud','invalid-cloud','provider-cloud','configuration-cloud','cancelled-cloud'].includes(host));
+appendFileSync(${JSON.stringify(calls)},JSON.stringify({host,message:{type:'ssh'},pid:process.pid})+'\\n');
 if (host === 'offline-cloud') { process.stderr.write('RAW SSH SECRET'); process.exit(1); }
-if (args.at(-1) === 'uname -s; uname -m' && current.diagnosticOverflow) {
+if ((args.at(-1) === 'uname -s; uname -m' || args.at(-1).includes('FOOM-PROBED')) && current.diagnosticOverflow) {
  const diagnostic = args[args.indexOf('-E') + 1];
  assert.ok(diagnostic);
  require('node:fs').appendFileSync(${JSON.stringify(overflowInfo)}, JSON.stringify({diagnostic, pid:process.pid})+'\\n');
@@ -161,18 +162,24 @@ if (args.at(-1) === 'uname -s; uname -m' && current.diagnosticOverflow) {
  setInterval(() => {}, 1000);
  return;
 }
-if (args.at(-1) === 'uname -s; uname -m' && current.remoteHostKeyExit) { process.stderr.write('No ED25519 host key is known for fixture-cloud and you have requested strict checking.\\nHost key verification failed.\\n'); process.exit(current.remoteHostKeyExit); }
+if ((args.at(-1) === 'uname -s; uname -m' || args.at(-1).includes('FOOM-PROBED')) && current.remoteHostKeyExit) { process.stderr.write('No ED25519 host key is known for fixture-cloud and you have requested strict checking.\\nHost key verification failed.\\n'); process.exit(current.remoteHostKeyExit); }
 if (args.at(-1) === 'uname -s; uname -m') { process.stdout.write(${JSON.stringify(`${platform === "darwin" ? "Darwin" : "Linux"}\n${process.arch === "x64" ? "x86_64" : platform === "darwin" ? "arm64" : "aarch64"}\n`)}); process.exit(0); }
 // Standalone fixed libc preflight has no daemon protocol handshake.
-if (args.at(-1).includes('FOOM-LIBC-UNSUPPORTED') && !args.at(-1).includes('FOOM-READY')) { if(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8').includes('musl')) { process.stdout.write('FOOM-LIBC-UNSUPPORTED'); process.exit(1); } process.exit(0); }
-process.stdout.write('FOOM-READY\\n');
+if (args.at(-1).includes('FOOM-LIBC-UNSUPPORTED') && !args.at(-1).includes('FOOM-READY') && !args.at(-1).includes('FOOM-PROBED')) { if(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8').includes('musl')) { process.stdout.write('FOOM-LIBC-UNSUPPORTED'); process.exit(1); } process.exit(0); }
+const checking=args.at(-1).includes('FOOM-PROBED');
+if(checking) for(const option of ['ControlMaster=no','ControlPath=none','ControlPersist=no']) assert.ok(args.includes(option));
+if(checking) process.stdout.write(${JSON.stringify(`${platform === "darwin" ? "Darwin" : "Linux"}\n${process.arch === "x64" ? "x86_64" : platform === "darwin" ? "arm64" : "aarch64"}\n`)}+(JSON.stringify(current).includes('musl')?'FOOM-LIBC-UNSUPPORTED':'FOOM-LIBC-OK')+'\\nFOOM-PROBED\\n');
+else process.stdout.write('FOOM-READY\\n');
+let bootstrapPending=checking;
 let input=Buffer.alloc(0), terminalOutput='', recipeInput='', recipeEnded=false, finishTimer;
 const {spawnSync}=require('node:child_process');
 const {selectHostRecipe}=require(${JSON.stringify(path.resolve("build/shared/registered-host-recipes.js"))});
 function frame(message) { const data=Buffer.from(JSON.stringify({version:3,message})); const head=Buffer.alloc(4); head.writeUInt32BE(data.length); return Buffer.concat([head,data]); }
 function send(message) { process.stdout.write(frame(message)); }
+function sendReady() {process.stdout.write('FOOM-READY\\n');}
 process.stdin.on('data', bytes => {
  input=Buffer.concat([input,bytes]);
+ if(bootstrapPending) {const end=input.indexOf(10);if(end<0)return; const size=Number(input.subarray(0,end).toString());if(input.length<end+1+size)return;input=input.subarray(end+1+size);bootstrapPending=false;sendReady();}
  while(input.length>=4 && input.length>=4+input.readUInt32BE(0)) {
   const n=input.readUInt32BE(0); const {message}=JSON.parse(input.subarray(4,4+n)); input=input.subarray(4+n);
   if(message.type==='open') {
@@ -226,7 +233,7 @@ process.stdin.on('data', bytes => {
     continue;
   }
   assert.equal('id' in message,false); appendFileSync(${JSON.stringify(calls)},JSON.stringify({host,message})+'\\n');
-  if(message.type==='hello') { const settings=JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8')); send({type:'hello',agentSettings:1,...(settings.compatibleBuild?{build:'b'.repeat(64),compatible:2,startupTheme:1,hostFacts:1,hostPreflight:1,hostRowCheck:1}:{build:host==='version-cloud'?'b'.repeat(64):${JSON.stringify(manifest.sha256)}})}); continue; }
+  if(message.type==='hello') { const settings=JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8')); send({type:'hello',hostCheckConnection:settings.oldCheckConnection?undefined:1,agentSettings:1,...(settings.compatibleBuild?{build:'b'.repeat(64),compatible:2,startupTheme:1,hostFacts:1,hostPreflight:1,hostRowCheck:1}:{build:host==='version-cloud'?'b'.repeat(64):${JSON.stringify(manifest.sha256)}})}); continue; }
   if(message.type==='inventory') {send({type:'inventory-result',own:[],foreign:[]}); continue;}
   assert.equal(message.type,'manage');
   const scenario=require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8'); const settings=JSON.parse(scenario);
@@ -245,7 +252,7 @@ process.stdin.on('data', bytes => {
   if(host==='invalid-cloud') result={ok:true,facts:{}};
   const failures={'provider-cloud':'provider-invalid','configuration-cloud':'configuration-changed','cancelled-cloud':'cancelled'};
   if(failures[host]) result={ok:false,reason:failures[host]};
-  const held = settings.hold && message.operation===(settings.hold===true?'inspect':settings.hold);
+  const held = settings.hold && (!settings.holdHost || settings.holdHost===host) && message.operation===(settings.hold===true?'inspect':settings.hold);
   const heldClone = settings.holdClone && message.operation==='clone';
   if(held || heldClone) { appendFileSync(${JSON.stringify(calls)},JSON.stringify({host,message,phase:'held'})+'\\n'); const timer=setInterval(()=>{ const next=JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8')); if((!held || next.hold!==settings.hold) && (!heldClone || !next.holdClone)) {clearInterval(timer);send({type:'managed',result});}},20); } else send({type:'managed',result});
  }
@@ -2571,4 +2578,153 @@ test("Hosts reports dialog-unavailable when native trust presentation fails", {
   await expect(output).not.toContainText("Fixture native presentation failure");
   await expect(card.getByRole("button", { name: "Trust host key…", exact: true })).toBeEnabled();
   assert.equal(await readFile(knownHosts, "utf8"), "");
+});
+
+test("Hosts capability checks share one SSH connection and hosts finish independently", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { page, app, calls, updateScenario } = await hostsFixture(context);
+  const rows = async () =>
+    (await readFile(calls, "utf8"))
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+  const check = (host) =>
+    page.evaluate(
+      (host) =>
+        window.desktop.hosts({ action: "preflight", host, codeFolder: "/remote/account/foom" }),
+      host,
+    );
+  await updateScenario({ facts: { tools: [{ id: "git", state: "ready", signIn: "unknown" }] } });
+  const repositories = await page.evaluate(
+    async () => (await window.desktop.workspace()).repositories,
+  );
+  const measure = async (mode) => {
+    const before = (await rows()).length;
+    const measured = await app.evaluate(
+      async ({ app }, { repositories, mode }) => {
+        const load = process
+          .getBuiltinModule("node:module")
+          .createRequire(app.getAppPath() + "/package.json");
+        const { Hosts } = load("./build/main/setup/hosts.js");
+        const { DEFAULT_SETTINGS } = load("./build/main/setup/settings.js");
+        const { remoteManagement } = load("./build/main/terminals/remote-transport.js");
+        let settings = {
+          ...DEFAULT_SETTINGS,
+          agents: {
+            claude: false,
+            codex: false,
+            agy: false,
+            copilot: false,
+            opencode: false,
+            pi: false,
+          },
+          registeredHosts: [{ host: "other-cloud", codeFolder: "/remote/account/foom" }],
+        };
+        const store = {
+          get: () => settings,
+          update: async (patch) => {
+            settings = { ...settings, ...patch };
+            return settings;
+          },
+        };
+        // Reconstruct the old per-request transport with the same checks/fixture.
+        // A separate alias excludes the app's ordinary sidebar inventory reads.
+        const execute =
+          mode === "before"
+            ? (host, request) => remoteManagement({ host }, app.getVersion(), request)
+            : undefined;
+        const hosts = new Hosts(
+          store,
+          () => repositories,
+          app.getVersion(),
+          execute,
+          "f".repeat(32),
+        );
+        const started = performance.now();
+        try {
+          const state = await hosts.action({
+            action: "preflight",
+            host: "other-cloud",
+            codeFolder: "/remote/account/foom",
+          });
+          return {
+            elapsedMs: performance.now() - started,
+            repositories: state.preflight.repositories.length,
+          };
+        } finally {
+          hosts.dispose();
+        }
+      },
+      { repositories, mode },
+    );
+    const requests = (await rows()).slice(before).filter(({ host }) => host === "other-cloud");
+    const sshConnections = requests.filter(({ message }) => message.type === "ssh").length;
+    assert.equal(measured.repositories, repositories.length);
+    assert.equal(
+      sshConnections,
+      mode === "before" ? (process.platform === "linux" ? 7 : 6) + 4 * repositories.length : 1,
+    );
+    assert.equal(
+      requests.filter(({ message }) => message.operation === "origin").length,
+      repositories.length,
+    );
+    assert.equal(
+      requests.filter(({ message }) => message.operation === "repository").length,
+      repositories.length,
+    );
+    assert.equal(requests.filter(({ message }) => message.type === "inventory").length, 1);
+    assert.equal(
+      requests.filter(({ message }) => message.operation === "list-worktrees").length,
+      1,
+    );
+    context.diagnostic(JSON.stringify({ mode, ...measured, sshConnections }));
+  };
+  await measure("before");
+  await measure("after");
+  const extra = await mkdtemp(path.join(tmpdir(), "hosts-batch-repositories-"));
+  removeAfterApps(context, extra);
+  for (let index = 0; index < 2; index++) {
+    const repository = path.join(extra, `project-${index}`);
+    await mkdir(repository);
+    gitSync(["init", "-q", "-b", "main"], { cwd: repository });
+    gitSync(["remote", "add", "origin", `git@forge.test:team/project-${index}.git`], {
+      cwd: repository,
+    });
+    repositories.push({ path: repository, name: `project-${index}` });
+  }
+  await measure("before");
+  await measure("after");
+  await updateScenario({ hold: "inspect", holdHost: "fixture-cloud" });
+  await page.evaluate(() => {
+    window.hostChecks = {};
+    for (const host of ["fixture-cloud", "other-cloud", "offline-cloud"])
+      window.desktop
+        .hosts({ action: "draft-preflight", host, codeFolder: "/remote/account/foom" })
+        .then((state) => {
+          window.hostChecks[host] = state;
+        });
+  });
+  await expect
+    .poll(async () =>
+      (await rows()).some(({ host, phase }) => host === "fixture-cloud" && phase === "held"),
+    )
+    .toBe(true);
+  await expect
+    .poll(() => page.evaluate(() => Object.keys(window.hostChecks).sort()))
+    .toEqual(["offline-cloud", "other-cloud"]);
+  const state = await page.evaluate(() => window.desktop.hosts({ action: "progress" }));
+  assert.equal(state.progress.length, 1);
+  assert.equal(state.progress[0].host, "fixture-cloud");
+  assert.equal(
+    await page.evaluate(() => window.hostChecks["offline-cloud"].preflight.result.reason),
+    "unreachable",
+  );
+  await updateScenario({});
+  await expect.poll(() => page.evaluate(() => !!window.hostChecks["fixture-cloud"])).toBe(true);
+  await updateScenario({ compatibleBuild: true, oldCheckConnection: true });
+  assert.equal((await check("fixture-cloud")).preflight.result.reason, "version-mismatch");
+  await quitAndWait(app, () => app.evaluate(({ app }) => app.quit()));
 });

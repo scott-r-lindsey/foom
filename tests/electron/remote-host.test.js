@@ -704,14 +704,14 @@ const split = args.indexOf('--');
 if (split < 0 || !['fixture-cloud', 'fixture-unreachable', 'fixture-unsupported', 'fixture-no-artifact', 'fixture-old-libc'].includes(args[split + 1])) process.exit(2);
 const host = args[split + 1];
 if (host === 'fixture-unreachable') { process.stderr.write('private fixture SSH output'); process.exit(255); }
-if (host === 'fixture-unsupported') { process.stdout.write('Plan9\\nx86_64\\n'); process.exit(0); }
-if (host === 'fixture-no-artifact') { process.stdout.write('Darwin\\n' + (process.platform === 'darwin' && process.arch === 'arm64' ? 'x86_64' : 'arm64') + '\\n'); process.exit(0); }
-if (host === 'fixture-old-libc' && args.at(-1).includes('FOOM-LIBC-TOO-OLD')) { process.stdout.write('FOOM-LIBC-TOO-OLD\\n'); process.exit(1); }
+if (host === 'fixture-unsupported') { process.stdout.write('Plan9\\nx86_64\\n' + (args.at(-1).includes('FOOM-PROBED') ? 'FOOM-LIBC-OK\\nFOOM-PROBED\\n' : '')); process.exit(0); }
+if (host === 'fixture-no-artifact') { process.stdout.write('Darwin\\n' + (process.platform === 'darwin' && process.arch === 'arm64' ? 'x86_64' : 'arm64') + '\\n' + (args.at(-1).includes('FOOM-PROBED') ? 'FOOM-LIBC-OK\\nFOOM-PROBED\\n' : '')); process.exit(0); }
+if (host === 'fixture-old-libc' && args.at(-1).includes('FOOM-LIBC-TOO-OLD')) { process.stdout.write(args.at(-1).includes('FOOM-PROBED') ? 'Linux\\nx86_64\\nFOOM-LIBC-TOO-OLD\\nFOOM-PROBED\\n' : 'FOOM-LIBC-TOO-OLD\\n'); process.exit(1); }
 if (args.at(-1) === 'uname -s; uname -m') { process.stdout.write(require('node:os').type() + '\\n' + (process.arch === 'x64' ? 'x86_64' : process.platform === 'darwin' ? 'arm64' : 'aarch64') + '\\n'); process.exit(0); }
 appendFileSync(${JSON.stringify(pidFile)}, process.pid + '\\n');
 appendFileSync(${JSON.stringify(sshLog)}, 'fixture ssh started\\n');
 const child = spawn('/bin/sh', ['-c', 'exec ' + args.slice(split + 2).join(' ')], { env: { HOME: ${JSON.stringify(remoteHome)}, PATH: ${JSON.stringify(bin)}, SHELL: ${JSON.stringify(shell)}, LANG: 'C' }, stdio: ['pipe', 'pipe', 'pipe'] });
-const record = require(${JSON.stringify(path.resolve("tests/electron/remote-wire-fixture.js"))}).observeRemoteSsh(process.stdin, child.stdout, ${JSON.stringify(traceFile)}, ${JSON.stringify(manifest.gzipSize)});
+const record = require(${JSON.stringify(path.resolve("tests/electron/remote-wire-fixture.js"))}).observeRemoteSsh(process.stdin, child.stdout, ${JSON.stringify(traceFile)}, ${JSON.stringify(manifest.gzipSize)}, args.at(-1).includes('FOOM-PROBED'));
 process.stdin.pipe(child.stdin); child.stdout.pipe(process.stdout); child.stderr.pipe(process.stderr);
 child.stdin.on('error', () => {});
 process.on('SIGTERM', () => child.kill('SIGTERM'));

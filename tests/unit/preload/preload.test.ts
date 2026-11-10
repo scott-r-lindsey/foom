@@ -1808,7 +1808,7 @@ test("host progress is projected and rejects malformed steps and observations", 
       { repository: "/next" },
     ],
   };
-  const value = { hosts: [], locations: [], progress };
+  const value = { hosts: [], locations: [], progress: [progress, { ...progress, host: "second" }] };
   mock.invoke.mockResolvedValue(withUndeclaredFields(value));
   await expect(api.hosts({ action: "progress" })).resolves.toEqual(value);
   for (const bad of [
@@ -1820,7 +1820,7 @@ test("host progress is projected and rejects malformed steps and observations", 
     },
     { ...progress, result: { ok: false, reason: "raw" } },
   ]) {
-    mock.invoke.mockResolvedValue({ ...value, progress: bad });
+    mock.invoke.mockResolvedValue({ ...value, progress: [bad] });
     await expect(api.hosts({ action: "progress" })).rejects.toThrow();
   }
 });

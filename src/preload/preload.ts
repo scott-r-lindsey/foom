@@ -547,19 +547,21 @@ const validHostCheckTarget: Validator<HostCheckTarget> = either(
 const validHostsState: Validator<HostsState> = shape({
   progress: either(
     absent,
-    shape({
-      host: hostAlias,
-      phase: literal("inspect", "origin", "checkout"),
-      repository: either(absent, text),
-      result: either(absent, validHostResult),
-      repositories: array(
-        shape({
-          repository: text,
-          origin: either(absent, validHostCheck),
-          checkout: either(absent, validHostResult),
-        }),
-      ),
-    }),
+    array(
+      shape({
+        host: hostAlias,
+        phase: literal("inspect", "origin", "checkout"),
+        repository: either(absent, text),
+        result: either(absent, validHostResult),
+        repositories: array(
+          shape({
+            repository: text,
+            origin: either(absent, validHostCheck),
+            checkout: either(absent, validHostResult),
+          }),
+        ),
+      }),
+    ),
   ),
   preflight: either(absent, validHostPreflight),
   recipeSession: either(absent, (value): value is string => nonempty(value) && value.length <= 200),

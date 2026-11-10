@@ -663,7 +663,7 @@ export function HostsSettings({
   const [error, setError] = useState<ReactNode>("");
   const api = source.hosts;
   const [checkingHosts, setCheckingHosts] = useState<ReadonlySet<string>>(() => new Set());
-  const [progress, setProgress] = useState<HostCheckProgress>();
+  const [progress, setProgress] = useState<readonly HostCheckProgress[]>();
   const [rowPending, setRowPending] = useState<ReadonlySet<string>>(() => new Set());
   const [output, setOutput] = useState<HostOutput>();
   const [recipes, setRecipes] = useState<ReadonlyMap<string, { id: string; finished: boolean }>>(
@@ -773,7 +773,7 @@ export function HostsSettings({
           next.delete(host);
           return next;
         });
-        setProgress((previous) => (previous?.host === host ? undefined : previous));
+        setProgress((previous) => previous?.filter((entry) => entry.host !== host));
       }
     },
     [api],
@@ -1031,7 +1031,7 @@ export function HostsSettings({
       {state.hosts.map((entry) => {
         const recipe = recipes.get(entry.host);
         const preflight = checks.get(entry.host) ?? entry.observation?.preflight;
-        const hostProgress = progress?.host === entry.host ? progress : undefined;
+        const hostProgress = progress?.find((item) => item.host === entry.host);
         const connection = hostProgress?.result
           ? hostProgress.result.connection
           : (preflight ?? entry.result?.connection);
@@ -1086,7 +1086,7 @@ export function HostsSettings({
                 {busy.has(entry.host) ? (
                   <span className="host-check-progress host-work" role="status">
                     <span className="host-throbber" aria-hidden="true" />
-                    {hostProgressText(progress?.host === entry.host ? progress : undefined)}
+                    {hostProgressText(progress?.find((item) => item.host === entry.host))}
                   </span>
                 ) : (
                   summary
@@ -1173,7 +1173,7 @@ export function HostsSettings({
                   openAgents={openAgents}
                   entry={entry}
                   preflight={preflight}
-                  progress={progress?.host === entry.host ? progress : undefined}
+                  progress={progress?.find((item) => item.host === entry.host)}
                   checking={checkingHosts.has(entry.host)}
                   disabled={busy.has(entry.host)}
                   act={(action) => {
