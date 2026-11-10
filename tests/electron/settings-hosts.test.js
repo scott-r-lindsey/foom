@@ -915,7 +915,7 @@ test("Repositories lists existing checkouts and opens fixed repair recipes witho
   skip: process.platform === "win32",
   timeout: deadline(60000),
 }, async (context) => {
-  const { page, card, navigation, calls, recipeCalls, capture, updateScenario } =
+  const { app, page, card, navigation, calls, recipeCalls, capture, updateScenario } =
     await hostsFixture(context);
   await card.getByRole("button", { name: "Change folder", exact: true }).click();
   await card.getByLabel("Code folder", { exact: true }).fill("~/new-code");
@@ -1039,6 +1039,8 @@ test("Repositories lists existing checkouts and opens fixed repair recipes witho
   if (await expandSignedIn.count()) await expandSignedIn.click();
   await expect(card.getByRole("button", { name: "Remove", exact: true })).toBeEnabled();
   await card.getByRole("button", { name: "Remove", exact: true }).click();
+  const removeRecipes = await confirmationPage(app);
+  await removeRecipes.getByRole("button", { name: "Remove and forget", exact: true }).click();
   await expect(card).toHaveCount(0);
   await expect(page.getByText("No hosts", { exact: true })).toBeVisible();
   await assert.rejects(page.evaluate(() => window.desktop.saveSetup({ registeredHosts: [] })));
@@ -2426,6 +2428,12 @@ test("Hosts removal prunes saved session rows and startup repairs already forgot
     .click();
   const card = page.getByRole("region", { name: "fixture-cloud", exact: true });
   await expect(card.locator(".host-checks")).toHaveAttribute("aria-busy", "false");
+  await card.getByRole("button", { name: "Remove", exact: true }).click();
+  const cancelledRemoval = await confirmationPage(app);
+  await expect(cancelledRemoval.getByText("Dormant", { exact: true })).toBeVisible();
+  await cancelledRemoval.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect.poll(() => rows(page)).toEqual([saved.id]);
+  await expect(card).toBeVisible();
   // Drain startup sidebar discovery before measuring requests caused by Forget.
   await page.evaluate(() => window.desktop.sidebarInventory());
   // Take the baseline only after consecutive polls observe a settled call log.
@@ -2442,6 +2450,8 @@ test("Hosts removal prunes saved session rows and startup repairs already forgot
     )
     .toBe(true);
   await card.getByRole("button", { name: "Remove", exact: true }).click();
+  const removal = await confirmationPage(app);
+  await removal.getByRole("button", { name: "Remove and forget", exact: true }).click();
   await expect.poll(() => rows(page)).toEqual([]);
   await expect(page.locator(`[data-drag-session="${saved.id}"]`)).toHaveCount(0);
   await expect.poll(async () => JSON.parse(await readFile(sessionsFile, "utf8"))).toEqual([]);

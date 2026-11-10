@@ -240,7 +240,7 @@ const orchestration = (childLimit: number, agents: readonly string[]) =>
     {
       name: "close",
       description:
-        "Close one of your exited children, removing its tile and sidebar row. Discards its final screen; tail first if needed. Keeps ordinary worktrees, branches and review state. A Foom-created detached review checkout is removed if unchanged and clean with no other sessions; failed safety proofs require trusted confirmation. Running or stopping children return conflict, taken-over children forbidden, and other parents' children not_found.",
+        "Close one of your exited children, removing its tile and sidebar row. Discards its final screen; tail first if needed. Keeps ordinary worktrees, branches and review state. A Foom-created detached review checkout is removed if unchanged and clean with no other sessions; failed safety proofs require trusted confirmation. Unavailable hosts return host_unavailable; the human can use Forget in the session menu to remove local metadata without stopping a remote process. Running or stopping children return conflict, taken-over children forbidden, and other parents' children not_found.",
       properties: { idempotencyKey: key, id },
       required: ["idempotencyKey", "id"],
       readOnly: false,

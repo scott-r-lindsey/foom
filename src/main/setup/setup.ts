@@ -1,3 +1,4 @@
+import type { WorkspaceTerminal } from "../../shared/workspace";
 import { hostsAction } from "../../shared/registered-hosts";
 import type { RemoteTarget } from "../../shared/remote-host";
 import type { DialogContent, DialogOutcome, PlainDialogContent } from "../../shared/confirmation";
@@ -24,6 +25,7 @@ import type { WorktreeService } from "../workspace/worktrees";
 export interface SetupDependencies {
   hosts?: Hosts;
   hostsChanged?: () => void;
+  hostSessions?: () => readonly WorkspaceTerminal[];
   localAgentInstall?: (
     id: unknown,
   ) => Promise<{ available: readonly string[]; recipeSession?: string }>;
@@ -84,9 +86,50 @@ export class Setup {
     this.hostTrust.abort();
     this.hostTrust = new AbortController();
   }
-  hosts(input: unknown) {
+  async hosts(input: unknown) {
     if (hostsAction(input) && input.action === "cancel-trust") this.cancelHostTrust();
     if (!this.deps.hosts) throw new Error("Hosts unavailable");
+    if (hostsAction(input) && input.action === "remove") {
+      const sessions = () =>
+        (this.deps.hostSessions?.() ?? []).filter(
+          (row) =>
+            row.placement?.kind === "remote" &&
+            row.placement.host === input.host &&
+            (row.exited || row.dormant) &&
+            !row.closeState,
+        );
+      const rows = sessions();
+      if (rows.length) {
+        if (
+          !(await this.deps.confirmRemoteSessions?.({
+            title: "Remove host and forget sessions?",
+            accept: "Remove and forget",
+            subject: input.host,
+            detail:
+              "Forgets these saved sessions on this computer. No request is sent to the host; remote processes may still be running. Worktrees and files are kept.",
+            sessions: rows.map((row) => ({
+              id: row.id,
+              name: row.agent,
+              location: row.worktree,
+              state: "dormant",
+            })),
+          }))
+        )
+          return this.deps.hosts.state();
+        const current = sessions();
+        if (
+          current.length !== rows.length ||
+          current.some(
+            (row) =>
+              !rows.some(
+                (approved) =>
+                  approved.id === row.id && approved.launchVersion === row.launchVersion,
+              ),
+          )
+        )
+          throw new Error("Host sessions changed");
+      }
+    }
     return this.deps.hosts
       .action(
         input,

@@ -373,11 +373,11 @@ export function createAppSource(): BoardSource {
           (!checkout || checkout.prunable) &&
           !(
             entry.placement?.kind === "remote" &&
-            machines.some(
+            !machines.some(
               (machine) =>
                 machine.host ===
                   (entry.placement?.kind === "remote" ? entry.placement.host : undefined) &&
-                !machine.available,
+                machine.available,
             )
           ),
         exited: entry.exited ?? exits.has(entry.id),
@@ -385,11 +385,11 @@ export function createAppSource(): BoardSource {
         conversationId: entry.conversationId,
         unavailable:
           entry.placement?.kind === "remote" &&
-          machines.some(
+          !machines.some(
             (machine) =>
               machine.host ===
                 (entry.placement?.kind === "remote" ? entry.placement.host : undefined) &&
-              !machine.available,
+              machine.available,
           ),
         dormant:
           entry.dormant === true ||
@@ -466,7 +466,7 @@ export function createAppSource(): BoardSource {
     errors = reporter;
     let disposed = false;
     let revision = 0;
-    const refresh = async () => {
+    const refresh = async (localOnly = false) => {
       const current = ++revision;
       const active = () => !disposed && current === revision;
       await Promise.all([
@@ -481,6 +481,7 @@ export function createAppSource(): BoardSource {
           }
         })(),
         (async () => {
+          if (localOnly) return;
           if (!(await refreshInventory({ active: () => !disposed, reportFailure: true }))) return;
           if (workspaceSnapshot) snapshot(workspaceSnapshot);
           else {
@@ -490,7 +491,7 @@ export function createAppSource(): BoardSource {
         })(),
       ]);
     };
-    const offWorkspace = window.desktop.onWorkspaceChange(() => void refresh());
+    const offWorkspace = window.desktop.onWorkspaceChange((localOnly) => void refresh(localOnly));
     // Main publishes reset after revoking the old host and before forwarding
     // replacement events. Old snapshots must not cross this launch boundary.
     const offAvailability = window.desktop.onTerminalAvailability((id, available, reset) => {
@@ -730,14 +731,14 @@ export function createAppSource(): BoardSource {
           snapshot(await window.desktop.workspace(), command.id);
       }
       if (
-        command.kind === "close" &&
+        (command.kind === "close" || command.kind === "forget") &&
         !(await window.desktop.workspace()).terminals.some((row) => row.id === command.id)
       ) {
         forget(command.id);
         rows = rows.filter((row) => row.id !== command.id);
         if (command.id === shellId) shellId = pendingShell;
       }
-      await refreshInventory();
+      if (command.kind !== "forget") await refreshInventory();
       snapshot(await window.desktop.workspace());
       return result;
     },

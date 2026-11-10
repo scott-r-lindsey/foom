@@ -89,6 +89,7 @@ export class WorkspaceContext {
   defaultAgent: string | null = null;
   defaultArguments = EMPTY_AGENT_ARGUMENTS;
   readonly resumeStarts = new Map<string, Promise<void>>();
+  private localOnlyChange = false;
   readonly busySessions = new Set<string>();
   readonly busyWorktrees = new Set<string>();
   readonly checkoutHolds = new CheckoutHolds();
@@ -320,7 +321,13 @@ export class WorkspaceContext {
       terminals: () => this.snapshot().terminals,
       terminal: (id) => this.launched.get(id),
       removeRow: (id) => {
-        this.removed(id);
+        const previous = this.localOnlyChange;
+        this.localOnlyChange = true;
+        try {
+          this.removed(id);
+        } finally {
+          this.localOnlyChange = previous;
+        }
       },
       restoreRow: (row) => {
         this.launched.set(row.id, row);
@@ -395,7 +402,7 @@ export class WorkspaceContext {
           identity,
         );
       },
-      onChange: () => deps.onChange?.(),
+      onChange: (localOnly) => deps.onChange?.(localOnly),
     });
     this.unsubscribeHostRemoval = registeredHosts?.onRemoved?.((host) =>
       this.sessions.pruneHosts(host),
@@ -551,7 +558,7 @@ export class WorkspaceContext {
     this.orchestration.syncUnreadChildEvents();
     this.orchestration.childEvents.publish();
     this.deps.watcher?.sync(this.deps.worktrees.listRepositories());
-    this.deps.onChange?.();
+    this.deps.onChange?.(this.localOnlyChange || undefined);
   }
 
   known(repository: string): void {
@@ -752,6 +759,60 @@ export class WorkspaceContext {
     } finally {
       if (retainBranchLock && removed) retainBranchLock(release);
       else release();
+    }
+  }
+
+  /** Forget unavailable dormant or locally exited metadata without a remote request. */
+  async forgetSession(id: string): Promise<void> {
+    const entry = this.launched.get(id);
+    const validate = (reserved = false) => {
+      if (
+        this.closed ||
+        this.sessions.isQuitting ||
+        this.launched.get(id) !== entry ||
+        !entry?.remote ||
+        (!entry.dormant && this.executionOwner.view(id).exitCode === undefined) ||
+        entry.placement?.kind !== "remote" ||
+        (!reserved && this.busySessions.has(id)) ||
+        this.sessions.isRestoring(id)
+      )
+        throw new ApplicationError("session-busy");
+    };
+    validate();
+    const unavailable = async () => {
+      const fleet = await this.deps.hosts?.fleet(false);
+      return !fleet?.some(
+        ({ host, result }) =>
+          entry?.placement?.kind === "remote" && host === entry.placement.host && result.ok,
+      );
+    };
+    if (!(await unavailable())) throw new ApplicationError("session-busy");
+    if (
+      !(await this.deps.dialog?.(
+        {
+          title: "Forget session?",
+          accept: "Forget",
+          subject: id,
+          detail:
+            "Removes saved session metadata from Foom on this computer and discards any retained screen. No request is sent to the host. The remote process may still be running.",
+          note: "If the host returns, a live daemon session can be recovered as human-owned, without its previous orchestrator or parent authority. Worktrees and files are kept.",
+        },
+        new AbortController().signal,
+      ))
+    )
+      return;
+    validate();
+    if (!(await unavailable())) throw new ApplicationError("session-busy");
+    validate();
+    this.busySessions.add(id);
+    try {
+      await this.sessions.forget(id, async () => {
+        validate(true);
+        if (!(await unavailable())) throw new ApplicationError("session-busy");
+        validate(true);
+      });
+    } finally {
+      this.busySessions.delete(id);
     }
   }
 

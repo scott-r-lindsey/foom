@@ -948,3 +948,45 @@ test.each(["sidebar command", "worktree create"])(
     }
   },
 );
+
+test("Forget and local-only workspace notifications refresh no host inventory", async () => {
+  mock.workspace.mockResolvedValue({ repositories: [], terminals: [] });
+  const source = createAppSource();
+  const off = source.connect?.();
+  await settle();
+  const reads = mock.sidebarInventory.mock.calls.length;
+  mock.changed?.(true);
+  await settle();
+  expect(mock.sidebarInventory).toHaveBeenCalledTimes(reads);
+  await source.sidebarCommand?.({ kind: "forget", id: "offline" });
+  expect(mock.sidebarInventory).toHaveBeenCalledTimes(reads);
+  expect(mock.sidebarCommand).toHaveBeenCalledWith({ kind: "forget", id: "offline" });
+  off?.();
+});
+
+test("retained dormant Close recovery rows on removed hosts can still be forgotten", async () => {
+  mock.workspace.mockResolvedValue({
+    repositories: [],
+    terminals: [
+      {
+        ...agent("offline"),
+        remote: true,
+        placement: { kind: "remote", host: "removed-host" },
+        dormant: true,
+        exited: true,
+        closeState: "failed",
+      },
+    ],
+  });
+  mock.sidebarInventory.mockResolvedValue({ repositories: [], shell: "bash", machines: [] });
+  const source = createAppSource();
+  const off = source.connect?.();
+  await settle();
+  expect(source.getSnapshot().find((row) => row.id === "offline")).toMatchObject({
+    dormant: true,
+    unavailable: true,
+    closeFailed: true,
+    worktreeRemoved: false,
+  });
+  off?.();
+});

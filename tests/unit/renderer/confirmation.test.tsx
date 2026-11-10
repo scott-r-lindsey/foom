@@ -427,10 +427,14 @@ test("structured disclosures, git status words and pairing countdown render safe
       receive({
         ...base,
         changes: "",
-        sessions: [{ id: "s", name: "shell", location: "x".repeat(60), state: "unknown" }],
+        sessions: [
+          { id: "s", name: "shell", location: "x".repeat(60), state: "unknown" },
+          { id: "dormant", name: "saved shell", location: "/saved", state: "dormant" },
+        ],
       });
     });
     expect(view.getByRole("img", { name: "Quiet" })).toBeTruthy();
+    expect(view.getByRole("img", { name: "Dormant" })).toBeTruthy();
     expect(view.getByText("x".repeat(60))).toBeTruthy();
     act(() => {
       receive(null);

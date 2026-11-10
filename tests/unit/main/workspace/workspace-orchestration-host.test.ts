@@ -615,3 +615,88 @@ it("remote removal retains its canonical lease through review and its own post-d
   expect(await removing).toBe(true);
   expect(caps.checkoutHolds.busy(created.path)).toBe(false);
 });
+
+it("close availability uses only cached host facts and never probes local or missing rows", async () => {
+  const { caps, host, hosts } = fleetFixture();
+  const remote = {
+    id: "remote",
+    kind: "shell" as const,
+    agent: "shell" as const,
+    repository: "/repo",
+    worktree: "/tree",
+    branch: "topic",
+    attention: "evaluator" as const,
+    state: null,
+    remote: true as const,
+    placement: { kind: "remote" as const, host: "worker" },
+  };
+  caps.snapshot = () => ({ repositories: [], terminals: [remote] });
+  expect(await host.unavailable?.("missing")).toBe(false);
+  expect(hosts.fleet).not.toHaveBeenCalled();
+  expect(await host.unavailable?.("remote")).toBe(true);
+  expect(hosts.fleet).toHaveBeenCalledExactlyOnceWith(false);
+  hosts.fleet.mockResolvedValue([
+    {
+      host: "worker",
+      result: {
+        ok: true,
+        facts: {
+          codeFolder: "/code",
+          version: "0.1.0",
+          sessions: 1,
+          cores: 4,
+          load: [0, 0, 0],
+          memoryTotal: 8000,
+          memoryAvailable: 4000,
+          agents: [],
+        },
+      },
+    },
+  ]);
+  expect(await host.unavailable?.("remote")).toBe(false);
+  const bare = { ...hostFixture(), snapshot: caps.snapshot };
+  expect(await workspaceOrchestrationHost(bare).unavailable?.("remote")).toBe(true);
+});
+
+it.each(["shell", "agent"])(
+  "does not require fleet registration for an explicit %s transport",
+  async (kind) => {
+    const { caps, host, hosts } = fleetFixture();
+    caps.snapshot = () => ({
+      repositories: [],
+      terminals: [
+        {
+          id: "remote",
+          kind: "shell",
+          agent: "shell",
+          repository: "/repo",
+          worktree: "/tree",
+          branch: "topic",
+          attention: "evaluator",
+          state: null,
+          remote: true,
+          placement: { kind: "remote", host: "worker" },
+        },
+      ],
+    });
+    const previous = process.argv;
+    process.argv =
+      kind === "shell"
+        ? ["node", "foom", "--remote-shell-spike=worker", "--remote-host-artifact=/artifact"]
+        : [
+            "node",
+            "foom",
+            "--remote-agent-spike=worker",
+            "--remote-agent-artifact=/artifact",
+            "--remote-agent-local-checkout=/tree",
+            "--remote-agent-repository=/repo",
+            "--remote-agent-worktree=/tree",
+          ];
+    try {
+      expect(await host.unavailable?.("remote")).toBe(false);
+      expect(hosts.fleet).not.toHaveBeenCalled();
+    } finally {
+      process.argv = previous;
+    }
+  },
+);

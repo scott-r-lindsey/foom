@@ -181,3 +181,28 @@ under Background Close; dropping them would silently lose the explicit retry.
 Startup presents them as failed/dormant and never retries automatically. Re-enroll
 the same host before explicitly retrying Close, with the existing membership and
 identity checks. This exception also covers Close racing registration removal.
+
+## Forget unavailable dormant sessions (#1114)
+
+The human-only `forget` sidebar command validates an owned remote row that is
+dormant or locally exited,
+cached host unavailability and the absence of restore/close operations. A trusted
+dialog explains local metadata removal and the possibility of a running remote
+process. Main rechecks eligibility after consent and after the durable write,
+before removing the row. SessionOwner writes the filtered
+records before retiring the row through the normal local lifecycle/orchestration
+path; failed writes retain the row. If the row becomes live or the host returns
+during that write, Forget aborts and repairs the saved record. It drops the saved record, remote placement,
+restore markers and parent links, retaining surviving worktree provenance.
+No terminal, SSH or checkout cleanup capability is invoked. Forget can explicitly
+discard a failed Close recovery row, keeping its files and checkout. Host removal
+continues to retain those recovery rows under #1152.
+
+Pending and completed Forget IDs are suppressed during discovery and restore.
+An in-flight reattach prevents Forget until it settles; its delayed completion
+cannot republish a row deleted by Forget. Pending discovery cannot re-import an
+explicitly forgotten ID in that app run.
+There is no durable daemon suppression: later startup discovery recovers a live
+session as human-owned, without saved parent links, grants or worktree ownership.
+Local-only change notifications refresh all board snapshots without triggering
+remote sidebar inventory. The renderer also skips inventory refresh for Forget.

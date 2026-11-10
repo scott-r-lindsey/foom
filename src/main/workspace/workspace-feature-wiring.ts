@@ -346,6 +346,9 @@ export function workspaceFeatureWiring(owner: WorkspaceContext): {
       get confirmAgentLaunch() {
         return owner.confirmAgentLaunch.bind(owner);
       },
+      get forgetSession() {
+        return owner.forgetSession.bind(owner);
+      },
       get closeSession() {
         return owner.closeSession.bind(owner);
       },

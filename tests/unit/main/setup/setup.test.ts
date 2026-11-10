@@ -520,7 +520,7 @@ test("host authorizations cannot be written through general settings", async () 
   await expect(
     setup.save({ registeredHosts: [{ host: "worker", codeFolder: "/code" }] }),
   ).rejects.toThrow();
-  expect(() => setup.hosts({ action: "list" })).toThrow("Hosts unavailable");
+  await expect(setup.hosts({ action: "list" })).rejects.toThrow("Hosts unavailable");
 });
 
 test("host copies require both registered host service and main clipboard capability", async () => {
@@ -598,4 +598,56 @@ test("local install delegation has no fallback when the capability is absent", a
   const configured = new Setup({ ...deps, localAgentInstall: install });
   await configured.localAgentInstall(undefined);
   expect(install).toHaveBeenCalledExactlyOnceWith(undefined);
+});
+
+test("host removal lists dormant sessions, cancels safely and sends no remote request", async () => {
+  const { Hosts } = await import("../../../../src/main/setup/hosts");
+  settings.registeredHosts = [{ host: "worker", codeFolder: "/code" }];
+  const remote = vi.fn();
+  const hosts = new Hosts(deps.store, () => [], "0.1.0", remote);
+  const rows = [
+    {
+      id: "offline",
+      kind: "shell" as const,
+      agent: "shell" as const,
+      repository: "/repo",
+      worktree: "/tree",
+      branch: "feature",
+      attention: "evaluator" as const,
+      state: null,
+      dormant: true,
+      exited: true,
+      remote: true as const,
+      placement: { kind: "remote" as const, host: "worker" },
+    },
+  ];
+  const confirm = vi.fn(() => Promise.resolve(false));
+  const setup = new Setup({
+    ...deps,
+    hosts,
+    hostSessions: () => rows,
+    confirmRemoteSessions: confirm,
+  });
+  await setup.hosts({ action: "remove", host: "worker" });
+  expect(settings.registeredHosts).toHaveLength(1);
+  expect(confirm).toHaveBeenCalledWith(
+    expect.objectContaining({
+      title: "Remove host and forget sessions?",
+      sessions: [{ id: "offline", name: "shell", location: "/tree", state: "dormant" }],
+    }),
+  );
+  confirm.mockResolvedValueOnce(true);
+  await setup.hosts({ action: "remove", host: "worker" });
+  expect(settings.registeredHosts).toEqual([]);
+  expect(remote).not.toHaveBeenCalled();
+  settings.registeredHosts = [{ host: "worker", codeFolder: "/code" }];
+  confirm.mockImplementationOnce(() => {
+    rows.pop();
+    return Promise.resolve(true);
+  });
+  await expect(setup.hosts({ action: "remove", host: "worker" })).rejects.toThrow(
+    "Host sessions changed",
+  );
+  expect(settings.registeredHosts).toHaveLength(1);
+  hosts.dispose();
 });

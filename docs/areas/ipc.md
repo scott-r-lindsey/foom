@@ -227,3 +227,12 @@ exclusive attachment, bounds and decodes the body independently of the renderer,
 and checks the current profile-only `terminalClipboardWrites` preference before
 writing text through Electron's main-owned clipboard API. The bridge returns void;
 it exposes no reads or query replies. See [terminal policy](terminals.md#osc-52-clipboard-writes-1073).
+
+## Local session forgetting (#1114)
+
+`workspace:sidebar-command` accepts `{kind: "forget", id}` through the existing
+registered-board sender and owned-session checks. Main validates dormancy and cached
+host unavailability and asks through the trusted dialog. No renderer-supplied
+cleanup or force field is accepted as authority. A `workspace:changed` notification
+may carry `true` to request a snapshot-only refresh; preload treats every other
+value as an ordinary full refresh. This hint grants no capability.

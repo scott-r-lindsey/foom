@@ -1,3 +1,5 @@
+import { TileMenu } from "../../../../src/renderer/board/tile-menu";
+import { initialLayout } from "../../../../src/renderer/board/tiles";
 import type { BoardRow } from "../../../../src/renderer/board/board.d";
 import { ApplicationError } from "../../../../src/shared/application-errors";
 // @vitest-environment jsdom
@@ -718,4 +720,56 @@ test("accepted Close moves focus before cleanup and settlement preserves a later
   });
   expect(document.activeElement).toBe(laterFocus);
   expect(views[2]?.focus).toHaveBeenCalledTimes(focusedBefore + 1);
+});
+
+test("a stale tile action uses current dormant availability when choosing Forget", async () => {
+  const { screen, click, data, source } = setup();
+  click(0);
+  act(() => {
+    data.update("permission", { exited: true });
+  });
+  const currentRows = data
+    .getSnapshot()
+    .map((row) => (row.id === "permission" ? { ...row, dormant: true, unavailable: true } : row));
+  source.getSnapshot = () => currentRows;
+  source.sidebarCommand = vi.fn(() => Promise.resolve());
+  fireEvent.click(screen.getByRole("button", { name: "Close" }));
+  await act(async () => {});
+  expect(source.sidebarCommand).toHaveBeenCalledWith({ kind: "forget", id: "permission" });
+});
+
+test("unavailable exited tile menus label local metadata removal as Forget", () => {
+  const row = {
+    id: "offline",
+    kind: "agent" as const,
+    agent: "claude",
+    repository: "repo",
+    branch: "topic",
+    state: "quiet_ok" as const,
+    reason: "Unavailable",
+    rate: 0,
+    waitingSince: 0,
+    seen: false,
+    tail: [],
+    exited: true,
+    dormant: false,
+    unavailable: true,
+  };
+  const action = vi.fn();
+  const view = render(
+    <TileMenu
+      anchor={document.body}
+      point={undefined}
+      layout={initialLayout()}
+      row={row}
+      name="Offline"
+      number={1}
+      view={undefined}
+      popout={false}
+      close={() => {}}
+      action={action}
+    />,
+  );
+  fireEvent.click(view.getByRole("menuitem", { name: "Forget…" }));
+  expect(action).toHaveBeenCalledWith("close");
 });

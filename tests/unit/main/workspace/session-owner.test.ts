@@ -552,3 +552,157 @@ it("keeps never-registered developer sessions in runtime inventory until their o
   await f.owner.pruneHosts("developer");
   expect(f.rows.has("spike")).toBe(false);
 });
+
+it("forgets locally after a durable write, rejects late discovery and permits human recovery on restart", async () => {
+  const remote = row("remote", { remote: true, placement: { kind: "remote", host: "worker" } });
+  const f = fixture([remote]);
+  f.deps.discover = () => Promise.resolve([remote]);
+  f.deps.removeRow = (id) => {
+    f.rows.delete(id);
+  };
+  f.owner.configure(false);
+  await f.owner.restore();
+  f.store.save.mockRejectedValueOnce(new Error("disk full"));
+  await expect(f.owner.forget(remote.id)).rejects.toThrow("disk full");
+  expect(f.rows.has(remote.id)).toBe(true);
+  await f.owner.forget(remote.id);
+  await f.owner.restartSaved();
+  expect(f.rows.size).toBe(0);
+  expect(f.deps.launch).not.toHaveBeenCalled();
+  expect(f.store.save).toHaveBeenLastCalledWith([]);
+  const recovered = fixture();
+  recovered.deps.discover = () => Promise.resolve([{ ...remote, recovered: true }]);
+  await recovered.owner.restore();
+  await recovered.owner.restartSaved();
+  expect(recovered.deps.launch).toHaveBeenCalledWith(
+    expect.objectContaining({ id: remote.id }),
+    undefined,
+    undefined,
+  );
+  expect(recovered.orchestration.restoreChild).not.toHaveBeenCalled();
+  expect(recovered.orchestration.reserve).not.toHaveBeenCalled();
+});
+
+it("background saves during Forget cannot resurrect its row or surviving children's parent links", async () => {
+  const remote = row("remote", {
+    remote: true,
+    placement: { kind: "remote", host: "worker" },
+    closeState: "failed",
+  });
+  const f = fixture([remote, row("child")]);
+  f.deps.removeRow = (id) => {
+    f.rows.delete(id);
+    f.owner.persist();
+  };
+  f.orchestration.view.mockImplementation((id) =>
+    id === "child" ? { role: "child", parentId: "remote", takenOver: false } : undefined,
+  );
+  await f.owner.restore();
+  const pending = Promise.withResolvers<undefined>();
+  f.store.save.mockReturnValueOnce(pending.promise);
+  const forget = f.owner.forget("remote");
+  expect(f.rows.has("remote")).toBe(true);
+  f.owner.persist();
+  expect(f.store.save.mock.lastCall?.[0]).toEqual([expect.objectContaining({ id: "child" })]);
+  expect(f.store.save.mock.lastCall?.[0][0]).not.toHaveProperty("parentId");
+  pending.resolve(undefined);
+  await forget;
+  expect(f.rows.has("remote")).toBe(false);
+  await f.owner.prepareQuit();
+  expect(f.store.save.mock.lastCall?.[0]).toEqual([expect.objectContaining({ id: "child" })]);
+  expect(f.store.save.mock.lastCall?.[0][0]).not.toHaveProperty("parentId");
+});
+
+it.each(["during-save", "after-save"])(
+  "suppresses daemon discovery %s when a dormant session is forgotten",
+  async (ordering) => {
+    const remote = row("remote", {
+      running: false,
+      remote: true,
+      placement: { kind: "remote", host: "worker" },
+    });
+    const f = fixture([remote]);
+    const discovery = Promise.withResolvers<readonly StoredSession[]>();
+    f.deps.discover = () => discovery.promise;
+    f.deps.removeRow = (id) => {
+      f.rows.delete(id);
+    };
+    await f.owner.restore();
+    const restoring = f.owner.restartSaved();
+    expect(f.owner.isRestoring(remote.id)).toBe(false);
+    const write = Promise.withResolvers<undefined>();
+    f.store.save.mockReturnValueOnce(write.promise);
+    const forgetting = f.owner.forget(remote.id);
+    if (ordering === "after-save") {
+      write.resolve(undefined);
+      await forgetting;
+    }
+    discovery.resolve([{ ...remote, running: true, recovered: true }]);
+    await restoring;
+    expect(f.deps.launch).not.toHaveBeenCalled();
+    expect(f.owner.isRestoring(remote.id)).toBe(false);
+    if (ordering === "during-save") {
+      expect(f.rows.get(remote.id)).toMatchObject({ dormant: true, exited: true });
+      write.resolve(undefined);
+      await forgetting;
+    }
+    expect(f.rows.has(remote.id)).toBe(false);
+    expect(f.store.save).toHaveBeenLastCalledWith([]);
+  },
+);
+
+it("refuses Forget while an earlier reattach is pending and keeps its eventual live row", async () => {
+  const remote = row("remote", { remote: true, placement: { kind: "remote", host: "worker" } });
+  const f = fixture([remote]);
+  const attaching = Promise.withResolvers<undefined>();
+  const attached = Promise.withResolvers<undefined>();
+  f.deps.launch = vi.fn<SessionOwnerDependencies["launch"]>(async (entry) => {
+    attaching.resolve(undefined);
+    await attached.promise;
+    f.rows.set(entry.id, { ...entry, dormant: false, exited: false });
+    return entry.id;
+  });
+  f.deps.removeRow = (id) => {
+    f.rows.delete(id);
+  };
+  await f.owner.restore();
+  const restoring = f.owner.restartSaved();
+  await attaching.promise;
+  try {
+    await expect(f.owner.forget(remote.id)).rejects.toThrow("session-busy");
+    expect(f.store.save).not.toHaveBeenCalled();
+  } finally {
+    attached.resolve(undefined);
+    await restoring;
+  }
+  expect(f.rows.get(remote.id)).toMatchObject({ dormant: false, exited: false });
+  expect(f.store.save).toHaveBeenLastCalledWith([
+    expect.objectContaining({ id: remote.id, running: true }),
+  ]);
+});
+
+it("aborts Forget and repairs its saved record when the dormant row becomes live during the write", async () => {
+  const remote = row("remote", {
+    running: false,
+    remote: true,
+    placement: { kind: "remote", host: "worker" },
+  });
+  const f = fixture([remote]);
+  f.deps.removeRow = (id) => {
+    f.rows.delete(id);
+  };
+  await f.owner.restore();
+  const write = Promise.withResolvers<undefined>();
+  f.store.save.mockReturnValueOnce(write.promise);
+  const forgetting = f.owner.forget(remote.id);
+  const current = f.rows.get(remote.id);
+  if (!current) throw new Error("Missing row");
+  current.dormant = false;
+  current.exited = false;
+  write.resolve(undefined);
+  await expect(forgetting).rejects.toThrow("session-busy");
+  expect(f.rows.get(remote.id)).toBe(current);
+  expect(f.store.save).toHaveBeenLastCalledWith([
+    expect.objectContaining({ id: remote.id, running: true }),
+  ]);
+});
