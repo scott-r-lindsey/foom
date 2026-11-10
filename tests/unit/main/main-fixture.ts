@@ -242,12 +242,14 @@ vi.mock("../../../src/main/window/attention-badge", () => ({ updateAttention: vi
 
 import type { WorkspaceDependencies } from "../../../src/main/workspace/workspace-types";
 
-import type { DialogContent } from "../../../src/shared/confirmation";
+import type { DialogContent, DialogOutcome } from "../../../src/shared/confirmation";
 
 vi.mock("../../../src/main/confirmations/trusted-dialog", () => ({
   TrustedDialog: class {
     refresh = vi.fn();
     request: (content: unknown, signal?: AbortSignal) => Promise<boolean>;
+    requestOutcome = async (content: unknown, signal?: AbortSignal): Promise<DialogOutcome> =>
+      (await this.request(content, signal)) ? "accepted" : "declined";
     constructor(parent: unknown, _session: unknown, theme: () => unknown) {
       theme();
       this.request = async (content: unknown, signal?: AbortSignal) => {

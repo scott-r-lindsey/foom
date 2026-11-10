@@ -28,7 +28,7 @@ Add host accepts an optional nickname with the same validation and inline errors
 main validates it again and saves it only together with a successful enrollment. Folder changes and canonical expansion preserve nicknames.
 
 `setup:hosts` accepts one closed action from the registered board main frame:
-list, progress, dismiss-output, test, add, rename, preflight, draft-preflight, create-folder, change-folder, refresh, remove, locations, clone, trust-origin, end, recipe or reload. Main selects enabled agent
+list, progress, dismiss-output, test, add, rename, preflight, draft-preflight, create-folder, change-folder, refresh, remove, locations, clone, trust-origin, trust-host-key, cancel-trust, end, recipe or reload. Main selects enabled agent
 executables from its validated manifest catalog. Renderer inputs cannot choose
 remote commands, probe arguments, origins or checkout destinations. Replies are
 validated in preload and rebuilt from declared fields. Failures retain fixed states/reasons. Explicit Add and check actions additionally
@@ -55,8 +55,7 @@ for its private cache work. The daemon retains that mask before applying 077 to
 its own files. Every new remote shell or agent PTY, on a machine or in a repository,
 starts with the captured mask; login shell startup may then override it. Foom's
 cache, sockets, control files and other private artifacts remain 0700/0600.
-Reattachment retains the existing PTY and its current mask (#1047). A management request has no terminal ID and creates no PTY. Existing
-SSH host-key trust applies; Foom never accepts a key or prompts for credentials.
+Reattachment retains the existing PTY and its current mask (#1047). A management request has no terminal ID and creates no PTY. OpenSSH owns host-key trust. Foom relays only the user’s explicit answer to its unknown-host question and never reads or writes known_hosts itself; credential prompts are refused.
 Removing a registration forgets its saved session rows and host caches in the same
 operation, without sending stop, kill or session-close, including when the last
 observation reports live sessions. Open attached tiles keep their connections until
@@ -559,7 +558,7 @@ Create explicitly creates the approved folder. Change folder edits its approved
 path and rechecks without creating it. Install uses the existing main-selected
 recipe in the host card; Settings stays open. Other agents’ Sign in retains foreground tile
 placement and closes Settings once the tile is visible. No background install, recipe replay or terminal typing is added.
-Missing recipes show no Install button. Git access to origin and explicit Trust host key remain in each repository’s Git-access group. Origin-auth hints identify HTTPS through gh, a deploy key and ssh-agent as user-configured access options; Foom never applies them or instructs global URL rewrites. Host facts,
+Missing recipes show no Install button. Git access to origin and explicit Trust host key… remain in each repository’s Git-access group. Origin-auth hints identify HTTPS through gh, a deploy key and ssh-agent as user-configured access options; Foom never applies them or instructs global URL rewrites. Host facts,
 foreign session End and foreign worktree counts remain under Host facts.
 
 Repositories → Locations groups existing checkouts beneath Local and each registered host,
@@ -617,7 +616,7 @@ folder/power warnings are neutral. Install and Sign in remain available. Reposit
 their fixed failure rows without making an otherwise usable host unavailable.
 Checkout creation belongs to first-use launch/worktree preparation (#1074), not Settings. The summary says Ready; existing checkouts are a read-only list.
 
-An origin-host-key failure offers Trust host key. Main re-reads the registered
+An origin-host-key failure offers **Trust host key…**. Main re-reads the registered
 repository's validated SSH origin and opens a human-owned tile on the registered
 host. The fixed command is ssh -T with StrictHostKeyChecking=ask, forwarding
 disabled, and the origin's account/host and optional port. HTTPS cannot select this
@@ -826,3 +825,85 @@ share the machine budget. Fresh measurements and reservations are separate from
 cached host checks and inventory. Humans remain unrestricted. Older daemons and
 unreadable measurements allow unmeasured starts. See the [wire facts, thresholds
 and retry rules](../contracts/control-mutations.md#child-host-pressure-1046).
+
+## Accepting a new SSH host key (#1059)
+
+Add and Check capabilities retain BatchMode=yes. The bounded platform probe uses
+StrictHostKeyChecking=yes and the C locale so OpenSSH reports an unknown key
+explicitly. OpenSSH's local diagnostics go through `-E` into a private per-run
+0600 file beneath a 0700 temporary directory, removed on completion or failure.
+The open file's size is checked every 10 ms while SSH runs and again on exit,
+including successful exits. Exceeding 16 KiB kills the detached SSH process group
+(Windows uses the fixed OS tree terminator) and permanently fails the probe;
+overflowed text can never enable trust. Polling can allow a burst between checks,
+but never waits for the connection deadline to enforce the limit. The monitor,
+file handle and directory are removed on completion, failure or cancellation.
+LogLevel=ERROR overrides user verbosity. Only exit status 255 and at most 16 KiB
+from that client-owned channel can classify host-key-unknown, host-key-changed or
+login-rejected. Remote command/login-shell stderr remains display-only, including
+when the remote exits 255; it never offers trust. Generic verification failures
+never offer trust. Daemon replies cannot supply local SSH classifications or
+connection observations. Legacy saved unreachable observations still load.
+
+Background inventory retains an unknown-key SSH observation without attempting
+another inspection until an explicit trust/check clears it. A missing local
+artifact cannot supersede this pending trust state or silently revoke the button.
+A full check stops at any explicit failed SSH observation: no repository origin or
+checkout requests run and no dependent failures are synthesized. An unavailable
+local artifact catalog is reported only after SSH and platform checks succeed.
+While SSH reports host-key-unknown, Settings hides every dependent section,
+including stale repository failures, tools/agents, checkout rows, Last checked and
+Host facts. Only the header, address/folder/Remove line, output and SSH trust row
+remain. The full card returns when the accepted key's normal first check runs.
+Changed-key and other SSH failures retain their current presentation, but likewise
+skip dependent repository checks because no connection was established.
+
+Only a registered host whose latest SSH observation is host-key-unknown can
+request trust-host-key. Main checks OpenSSH >= 8.4 and the bundled console helper
+using detached, bounded reads that share cancellation with the requesting run;
+Windows and unsupported clients show a copyable `ssh HOST` fallback. No other
+SSH call receives askpass variables or changes its environment allowlist.
+
+Main resolves the host through bounded `ssh -G` output, including HostKeyAlias and
+nonstandard ports. One detached SSH process runs a fixed `true` command with
+BatchMode=no, StrictHostKeyChecking=ask, forced SSH_ASKPASS, password and
+keyboard-interactive authentication disabled, no forwarding, no control-master
+reuse, no local/remote configured command, no terminal and ignored stdio. Display
+and terminal variables are absent. OpenSSH fetches the key and writes known_hosts.
+
+The packaged Node SEA console dispatches ssh-askpass without Electron RunAsNode.
+SSH invokes that verified binary directly; the per-run environment selects its
+askpass adapter, without a temporary executable or shell launcher.
+A 0700 mkdtemp directory holds a Unix socket, authenticated
+by a random per-run credential. Both ends strictly parse the complete unknown-host
+question; main also matches its host and port to the resolved registered target.
+Nonstandard ports use OpenSSH's bracketed host and IP forms, including IPv6;
+address fields must contain a valid IP and any port must be 1–65535 and match the
+registered target. HostKeyAlias still retains the resolved port for this check. Only parsed
+host, key type and SHA256 fingerprint reach the trusted main-owned confirmation.
+Non-host-key, changed-key, secret, malformed and unmatched prompts fail closed.
+OpenSSH 8.4's original question and 8.5+'s other-names notice are accepted,
+including the historical `ommitted` spelling and newer `omitted`. Questions are
+bounded to 4096 characters, 13 lines and 512 characters per line, with at most
+eight file/line/name entries. Those entries are discarded, never rendered.
+`get_hostfile_hostname_ipaddr` supplies HostKeyAlias verbatim when set, otherwise
+the lowercased resolved HostName with the nondefault port; `ssh -G` supplies those
+expected values. The typed command-line alias need not equal the displayed host.
+See [8.4 source](https://raw.githubusercontent.com/openssh/openssh-portable/V_8_4_P1/sshconnect.c)
+and [8.5 source](https://raw.githubusercontent.com/openssh/openssh-portable/V_8_5_P1/sshconnect.c).
+Unexpected OpenSSH question variants are refused rather than displayed verbatim.
+An authenticated helper rejection reports only a fixed code, without forwarding
+the rejected prompt. Non-decline failures publish fixed trust reason codes in the
+check output panel; raw SSH prompts, host-file entries and exceptions are excluded.
+Only one question can receive an answer per run. Cancel is focused by default;
+Cancel, Escape and close decline. No renderer payload can provide the answer.
+
+The run expires after two minutes. Cancellation, Settings section exit, board
+navigation/loss, window disposal and quit abort the dialog and kill the detached
+SSH group, revoke its credential and remove its directory. Accepted first-time
+hosts rerun their first full check automatically, using the existing output panel.
+An earlier successful observation (including retained lastAgents) prevents an
+automatic full check; Check capabilities remains explicit for established hosts.
+Declining preserves the failed observation. Changed keys require manual repair.
+The human reviews light/dark row and dialog screenshots and merges; a real new
+host must be verified manually before merge because automated tests use fixtures.

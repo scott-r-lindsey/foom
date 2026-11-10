@@ -149,7 +149,7 @@ HTTPS/host check and allow normal web paths, including Gerrit's `+` paths.
 Copying reads no file bytes, clipboard contents, credentials or provider state.
 
 `setup:copy-host` invokes a void capability with exactly one `HostCopyCommand`:
-`copy-host-alias` and `copy-host-code-folder` name a registered host;
+`copy-host-alias`, `copy-host-ssh-command` and `copy-host-code-folder` name a registered host; the SSH command is main-authored `ssh HOST`;
 `copy-checkout-path` names a registered repository and a host (null for Local).
 Main resolves registrations and the last validated location observation without
 SSH or network work, refuses absent observations and unregistered objects, and

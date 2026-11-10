@@ -406,6 +406,9 @@ const hostNickname: Validator<string> = (value): value is string =>
   /^[\p{L}\p{N} ._-]+$/u.test(value);
 const validHostFailure = literal(
   "unreachable",
+  "host-key-unknown",
+  "host-key-changed",
+  "login-rejected",
   "version-mismatch",
   "provider-invalid",
   "configuration-changed",
@@ -586,6 +589,7 @@ const validHostsState: Validator<HostsState> = shape({
         ),
       ),
       result: either(absent, validHostResult),
+      hostKeyTrust: either(absent, literal("askpass", "manual")),
       recipes: either(
         absent,
         array(

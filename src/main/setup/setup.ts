@@ -1,7 +1,7 @@
 import type { GithubSignInState } from "../../shared/registered-hosts.d";
 import { hostsAction } from "../../shared/registered-hosts";
 import type { RemoteTarget } from "../../shared/remote-host";
-import type { DialogContent } from "../../shared/confirmation";
+import type { DialogContent, DialogOutcome, PlainDialogContent } from "../../shared/confirmation";
 import type { Hosts } from "./hosts";
 import type { UpdateState } from "../../shared/updates";
 import type { ReadinessReport } from "../../shared/readiness";
@@ -31,7 +31,8 @@ export interface SetupDependencies {
   ) => Promise<{ available: readonly string[]; recipeSession?: string }>;
   launchHostRecipe?: (target: RemoteTarget, finished?: () => void) => Promise<unknown>;
   copyText?: (value: string) => void | Promise<void>;
-  confirmRemoteSessions?: (content: DialogContent) => Promise<boolean>;
+  confirmHostKey?: (content: PlainDialogContent, signal: AbortSignal) => Promise<DialogOutcome>;
+  confirmRemoteSessions?: (content: DialogContent, signal?: AbortSignal) => Promise<boolean>;
   updates?: () => UpdateState;
   restartToUpdate?: () => Promise<void>;
   gitReadiness?: () => Promise<ReadinessReport>;
@@ -84,14 +85,28 @@ export class Setup {
     if (!this.deps.githubSignIn) throw new Error("Sign-in unavailable");
     return this.deps.githubSignIn(id, action);
   }
+  private hostTrust = new AbortController();
+  cancelHostTrust(): void {
+    this.hostTrust.abort();
+    this.hostTrust = new AbortController();
+  }
   hosts(input: unknown) {
+    if (hostsAction(input) && input.action === "cancel-trust") this.cancelHostTrust();
     if (!this.deps.hosts) throw new Error("Hosts unavailable");
     return this.deps.hosts
-      .action(input, this.deps.confirmRemoteSessions, this.deps.launchHostRecipe)
+      .action(
+        input,
+        this.deps.confirmRemoteSessions,
+        this.deps.launchHostRecipe,
+        this.hostTrust.signal,
+        this.deps.confirmHostKey,
+      )
       .then((state) => {
         if (hostsAction(input)) {
           if (input.action === "rename") this.refresh();
-          if (!["progress", "dismiss-output", "list", "reload"].includes(input.action))
+          if (
+            !["progress", "dismiss-output", "cancel-trust", "list", "reload"].includes(input.action)
+          )
             this.deps.hostsChanged?.();
         }
         return state;

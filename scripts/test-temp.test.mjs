@@ -16,7 +16,7 @@ import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import gitHelper from "../tests/helpers/git.js";
-import { fixtureEnvironment } from "../tests/helpers/environment.js";
+import { fixtureEnvironment, runnerEnvironment } from "../tests/helpers/environment.js";
 
 const wrapper = fileURLToPath(new URL("./test-temp.mjs", import.meta.url));
 function fixture(context, beforeRemove) {
@@ -355,3 +355,14 @@ assert.equal(child.status, 0, child.stderr);
     assert.equal(child.status, 0, child.stderr);
   });
 }
+
+test("SSH host-key screenshot opt-in reaches the runner but never the app fixture", () => {
+  const source = {
+    PATH: "/fixture/bin",
+    FOOM_HOST_KEY_SCREENSHOTS: "1",
+    FOOM_CONTROL_TOKEN: "fixture-session-value",
+  };
+  assert.equal(runnerEnvironment(source).FOOM_HOST_KEY_SCREENSHOTS, "1");
+  assert.equal(runnerEnvironment(source).FOOM_CONTROL_TOKEN, undefined);
+  assert.deepEqual(fixtureEnvironment(source), { PATH: "/fixture/bin" });
+});

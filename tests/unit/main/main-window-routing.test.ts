@@ -618,3 +618,36 @@ test("gh sign-in stays in its Settings window and binds output, clipboard and fi
   });
   expect(finished).toHaveBeenCalledOnce();
 });
+
+test("gh Cancel retains its session after a refused stop and clears only its own clipboard code on retry", async () => {
+  await start();
+  const { clipboard } = await import("electron");
+  mock.terminals.screen.mockResolvedValue({
+    lines: ["! First copy your one-time code: ABCD-1234"],
+    title: "Recipe",
+  });
+  vi.mocked(clipboard).readText.mockResolvedValue("ABCD-1234");
+  const id = await mock.setup.deps?.launchHostRecipe?.(
+    {
+      host: "worker",
+      human: true,
+      recipe: { tool: "gh", action: "sign-in", distro: "debian", digest: "a".repeat(64) },
+    },
+    vi.fn(),
+  );
+  expect(id).toBe("recipe");
+  await vi.waitFor(() => {
+    expect(vi.mocked(clipboard).writeText.mock.calls).toContainEqual(["ABCD-1234"]);
+  });
+  mock.terminals.stop.mockResolvedValueOnce(false);
+  await expect(mock.setup.deps?.githubSignIn?.("recipe", "cancel")).rejects.toThrow(
+    "Unable to stop sign-in",
+  );
+  expect(vi.mocked(clipboard).clear.mock.calls).toHaveLength(0);
+  await expect(mock.setup.deps?.githubSignIn?.("recipe", "cancel")).resolves.toMatchObject({
+    phase: "cancelled",
+    code: undefined,
+  });
+  expect(mock.terminals.stop).toHaveBeenCalledTimes(2);
+  expect(vi.mocked(clipboard).clear.mock.calls).toHaveLength(1);
+});

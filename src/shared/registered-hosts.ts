@@ -369,6 +369,9 @@ export function hostResult(value: unknown): value is HostResult {
       typeof value["reason"] === "string" &&
       [
         "unreachable",
+        "host-key-unknown",
+        "host-key-changed",
+        "login-rejected",
         "version-mismatch",
         "provider-invalid",
         "configuration-changed",
@@ -523,7 +526,8 @@ export function hostsAction(value: unknown): value is HostsAction {
     value["action"] === "list" ||
     value["action"] === "locations" ||
     value["action"] === "progress" ||
-    value["action"] === "dismiss-output"
+    value["action"] === "dismiss-output" ||
+    value["action"] === "cancel-trust"
   )
     return keys(value, ["action"]);
   if (!hostAlias(value["host"])) return false;
@@ -544,6 +548,7 @@ export function hostsAction(value: unknown): value is HostsAction {
         (value["operation"] === "install-plugin" && value["tool"] === "agy"))
     );
   if (
+    value["action"] === "trust-host-key" ||
     value["action"] === "refresh" ||
     value["action"] === "remove" ||
     value["action"] === "end" ||

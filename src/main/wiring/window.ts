@@ -403,7 +403,10 @@ export async function buildWindow(
     githubSignIn: (id, action) => githubSignIn.action(id, action),
     launchHostRecipe: launchRecipe,
     copyText: (text) => clipboard.writeText(text),
-    confirmRemoteSessions: (content) => confirmations.request(content),
+    confirmHostKey: (content, signal) =>
+      confirmations.requestOutcome(content, signal, { activate: true }),
+    confirmRemoteSessions: (content, signal) =>
+      confirmations.request(content, signal, { activate: true }),
     hosts: hostsForStore(
       wiring.settings,
       wiring.worktrees.listRepositories.bind(wiring.worktrees),
