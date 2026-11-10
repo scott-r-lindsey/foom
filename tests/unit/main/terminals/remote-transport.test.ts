@@ -1,7 +1,10 @@
 import { terminalThemes } from "../../../../src/shared/terminal-themes";
 import { ApplicationError } from "../../../../src/shared/application-errors";
 import { LaunchFailure } from "../../../../src/shared/launch-failure";
-import { UnsupportedRemotePlatform } from "../../../../src/main/terminals/remote-bootstrap";
+import {
+  UnsupportedRemotePlatform,
+  SshConnectionFailure,
+} from "../../../../src/main/terminals/remote-bootstrap";
 import type { RemoteTarget } from "../../../../src/shared/remote-host";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
@@ -16,6 +19,11 @@ const mock = vi.hoisted(() => ({ spawn: vi.fn(), artifact: vi.fn() }));
 vi.mock("node:child_process", () => ({ spawn: mock.spawn }));
 vi.mock("../../../../src/main/terminals/remote-bootstrap", () => ({
   UnsupportedRemotePlatform: class extends Error {},
+  SshConnectionFailure: class extends Error {
+    constructor(readonly failure: string) {
+      super();
+    }
+  },
   selectHostArtifact: mock.artifact,
   sshEnvironment: () => ({ PATH: "/fixture" }),
   bootstrapArguments: (...args: unknown[]) => args,
@@ -2000,4 +2008,42 @@ test("host_busy remote failures retain validated facts without retrying the star
   expect(transport.launchFailure).toMatchObject({ reason: "host_busy", pressure });
   await vi.advanceTimersByTimeAsync(1000);
   expect(mock.spawn).toHaveBeenCalledTimes(starts);
+});
+
+test.each(["host-key-unknown", "host-key-changed", "login-rejected"] as const)(
+  "background management preserves the classified SSH failure %s without checklist fields",
+  async (reason) => {
+    transport.kill();
+    mock.artifact.mockRejectedValueOnce(new SshConnectionFailure(reason));
+    const pending = remoteManagement({ host: "fixture" }, "0.1.0", {
+      type: "manage",
+      operation: "inspect",
+      codeFolder: "~/foom",
+    });
+    await expect(pending).resolves.toEqual({ ok: false, reason });
+  },
+);
+
+test.each([
+  { ok: false as const, reason: "host-key-unknown" as const },
+  {
+    ok: false as const,
+    reason: "folder-missing" as const,
+    connection: {
+      ssh: { state: "fail" as const, reason: "host-key-unknown" as const },
+      platform: { state: "not-checked" as const },
+      artifact: { state: "not-checked" as const },
+    },
+  },
+])("daemon messages cannot invent a local SSH trust failure", async (result) => {
+  transport.kill();
+  const pending = remoteManagement({ host: "fixture" }, "0.1.0", {
+    type: "manage",
+    operation: "inspect",
+    codeFolder: "~/foom",
+  });
+  await Promise.resolve();
+  child.greet();
+  child.message({ type: "managed", result });
+  await expect(pending).resolves.toEqual({ ok: false, reason: "invalid-reply" });
 });

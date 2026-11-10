@@ -86,6 +86,24 @@ scenarios. Their native attachment, focus, identity and cleanup assertions remai
 in the shared implementations. Scenario-specific frame helpers, stuck handoffs,
 agent setup and moved-pixel inspection stay in their owning suites.
 
+## Preview navigation focus ordering (#1133)
+
+The user-clicked preview navigation and stuck handoff cases record a test-only
+ordering trace in JUnit diagnostics and `test-results/preview-focus-PID.jsonl`, both included in the
+existing Electron artifact upload. Native and board DOM streams each retain at
+most 128 events and report dropped counts. Records use epoch milliseconds for
+cross-process comparison; they are observations, not synchronization barriers.
+
+The trace covers native window/WebContents and document focus, preview creation,
+navigation and native attachment/removal by WebContents generation, cancellation
+blur requests/completions, native mouse-down versus DOM mousedown, and the
+requested terminal click coordinates, native view bounds/zoom and DOM hit geometry.
+Records contain no key values or terminal/model output. Final DOM hit testing uses
+the requested click point, including when DOM mouse delivery is absent. Observers and wrapped
+native methods are removed/restored before app teardown, including body failures.
+The existing native input, focus assertions and exact PTY-byte checks are unchanged;
+this instrumentation neither diagnoses the historical cause nor adds a focus gate.
+
 ## Chromium session storage
 
 `createMemoryFixture(context, prefix)` owns all shared-memory fixture allocation
@@ -416,6 +434,13 @@ or profile switch. Ordinary app/package builds clear the disposable build tree.
 Daemon unit tests exercise the real admission path with fixture OS measurements,
 including reservations, refusals, disconnects and unreadable observations.
 
+## SSH host-key review captures (#1059)
+
+Set `FOOM_HOST_KEY_SCREENSHOTS=1` for the Settings Hosts askpass acceptance case
+to save the six light/dark unknown-key row, trusted dialog and accepted-key row
+captures under `test-results/1059/`. Ordinary regression runs retain all
+functional assertions without overwriting previously reviewed evidence.
+
 ## Group cleanup completion ordering (#1146)
 
 The untracked/detached cleanup case holds delivery of the second detached
@@ -697,20 +722,22 @@ palette before restoring sessions, so a late settings application cannot replace
 the retained application-set background. Built-in and custom startup palettes also
 have a unit regression for this ordering.
 
-## Preview navigation focus ordering (#1133)
 
-The user-clicked preview navigation case records a test-only ordering trace in
-JUnit diagnostics and `test-results/preview-focus-PID.jsonl`, both included in the
-existing Electron artifact upload. Native and board DOM streams each retain at
-most 128 events and report dropped counts. Records use epoch milliseconds for
-cross-process comparison; they are observations, not synchronization barriers.
+## Real OpenSSH trust boundary (#1059)
 
-The trace covers native window/WebContents and document focus, preview creation,
-navigation and native attachment/removal by WebContents generation, cancellation
-blur requests/completions, native mouse-down versus DOM mousedown, and the
-requested terminal click coordinates, native view bounds/zoom and DOM hit geometry.
-Records contain no key values or terminal/model output. Final DOM hit testing uses the requested
-click point, including when DOM mouse delivery is absent. Observers and wrapped
-native methods are removed/restored before app teardown, including body failures.
-The existing native input, focus assertions and exact PTY-byte checks are unchanged;
-this instrumentation neither diagnoses the historical cause nor adds a focus gate.
+The Hosts real-client regression is an explicit exception to fixture-SSH emulation:
+it launches a disposable unprivileged sshd on a high 127.0.0.1 port, with a generated
+host key and private sshd/client configs. The controlled SSH wrapper always passes
+that client config with `-F`, an isolated UserKnownHostsFile, no global known-hosts
+file, no identity file or agent, and all server authentication disabled. No real
+user SSH files, keys, agent CLIs or non-loopback endpoints are used. The case skips
+cleanly when sshd is unavailable or cannot run unprivileged on the runner.
+
+The test deliberately omits the local remote-host artifact catalog, reproducing
+start:fresh's pending unknown-key observation being replaced by background
+artifact-unavailable before Trust. It asserts a visible native trusted dialog,
+OpenSSH's write to the fixture known-hosts file after acceptance, and the normal
+first check's authentication refusal (the existing unreachable classification for
+OpenSSH's empty method list), because authentication is disabled. The ordinary
+fixture-SSH case separately verifies all dependent rows are absent while untrusted
+and return after a successful first check.

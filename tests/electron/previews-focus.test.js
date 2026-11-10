@@ -300,91 +300,93 @@ test("preview host keeps keyboard focus after a user-clicked link navigation", a
 async function stuckPreviewHandoff(context, cancellation) {
   const app = await launchApp(context, { fixture: "running-shell" });
   const page = await boardPage(app);
-  const terminal = (await page.evaluate(() => window.desktop.workspace())).terminals[0];
-  const input = await recordTerminalInput(page, terminal.worktree);
-  await writeFile(
-    path.join(terminal.worktree, "stuck.html"),
-    '<a href="never.md" style="display:block;width:200px;height:100px">Continue</a>',
-  );
-  await writeFile(path.join(terminal.worktree, "never.md"), "Never loaded");
-  await app.evaluate(({ app }) => {
-    app.on("session-created", (partition) => {
-      const handle = partition.protocol.handle.bind(partition.protocol);
-      partition.protocol.handle = (scheme, handler) =>
-        handle(scheme, (request) => {
-          if (!request.url.endsWith("/never.md")) return handler(request);
-          globalThis.stuckPreviewRequested = true;
-          return new Promise(() => {});
-        });
+  await withPreviewFocusTrace(context, app, page, async () => {
+    const terminal = (await page.evaluate(() => window.desktop.workspace())).terminals[0];
+    const input = await recordTerminalInput(page, terminal.worktree);
+    await writeFile(
+      path.join(terminal.worktree, "stuck.html"),
+      '<a href="never.md" style="display:block;width:200px;height:100px">Continue</a>',
+    );
+    await writeFile(path.join(terminal.worktree, "never.md"), "Never loaded");
+    await app.evaluate(({ app }) => {
+      app.on("session-created", (partition) => {
+        const handle = partition.protocol.handle.bind(partition.protocol);
+        partition.protocol.handle = (scheme, handler) =>
+          handle(scheme, (request) => {
+            if (!request.url.endsWith("/never.md")) return handler(request);
+            globalThis.stuckPreviewRequested = true;
+            return new Promise(() => {});
+          });
+      });
     });
-  });
-  await page.locator(".xterm-helper-textarea").focus();
-  const id = await pickPreviewFile(app, page, terminal.worktree, "stuck.html");
-  await page.evaluate(
-    (id) =>
-      window.desktop.previews.bounds(id, {
-        x: 350,
-        y: 100,
-        width: 400,
-        height: 250,
-        visible: true,
-      }),
-    id,
-  );
-  await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
-  await app.evaluate(({ webContents }, id) => {
-    const contents = webContents
-      .getAllWebContents()
-      .find((entry) => entry.getURL().startsWith(`foom-preview://${id}/`));
-    contents.sendInputEvent({ type: "mouseDown", x: 30, y: 30, button: "left", clickCount: 1 });
-    contents.sendInputEvent({ type: "mouseUp", x: 30, y: 30, button: "left", clickCount: 1 });
-  }, id);
-  await expect.poll(() => app.evaluate(() => globalThis.stuckPreviewRequested)).toBe(true);
-  // Exercise board fallback while its terminal textarea still holds DOM focus.
-  await app.evaluate(({ BrowserWindow }) => {
-    BrowserWindow.getAllWindows()
-      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
-      .webContents.focus();
-  });
-  await expect
-    .poll(() => app.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL()))
-    .toBe("app://bundle/index.html");
-  await typeIntoFocusedContents(app, "gap");
-  if (cancellation === "Escape") {
+    await page.locator(".xterm-helper-textarea").focus();
+    const id = await pickPreviewFile(app, page, terminal.worktree, "stuck.html");
+    await page.evaluate(
+      (id) =>
+        window.desktop.previews.bounds(id, {
+          x: 350,
+          y: 100,
+          width: 400,
+          height: 250,
+          visible: true,
+        }),
+      id,
+    );
+    await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
+    await app.evaluate(({ webContents }, id) => {
+      const contents = webContents
+        .getAllWebContents()
+        .find((entry) => entry.getURL().startsWith(`foom-preview://${id}/`));
+      contents.sendInputEvent({ type: "mouseDown", x: 30, y: 30, button: "left", clickCount: 1 });
+      contents.sendInputEvent({ type: "mouseUp", x: 30, y: 30, button: "left", clickCount: 1 });
+    }, id);
+    await expect.poll(() => app.evaluate(() => globalThis.stuckPreviewRequested)).toBe(true);
+    // Exercise board fallback while its terminal textarea still holds DOM focus.
+    await app.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows()
+        .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+        .webContents.focus();
+    });
+    await expect
+      .poll(() => app.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL()))
+      .toBe("app://bundle/index.html");
+    await typeIntoFocusedContents(app, "gap");
+    if (cancellation === "Escape") {
+      await app.evaluate(({ webContents }) => {
+        const contents = webContents.getFocusedWebContents();
+        contents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
+        contents.sendInputEvent({ type: "keyUp", keyCode: "Escape" });
+      });
+    }
+    await expect(page.locator(".xterm-helper-textarea")).not.toBeFocused();
+    assert.equal((await previewViewState(app, id)).attached, false);
+    await typeIntoFocusedContents(app, "after");
+    // A real main-process shortcut works without any intervening mouse click.
+    const collapsed = await page
+      .locator(".sidebar-shell")
+      .evaluate((element) => element.getAttribute("data-compact") === "true");
     await app.evaluate(({ webContents }) => {
       const contents = webContents.getFocusedWebContents();
-      contents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
-      contents.sendInputEvent({ type: "keyUp", keyCode: "Escape" });
+      const modifiers = process.platform === "darwin" ? ["meta"] : ["control", "shift"];
+      contents.sendInputEvent({ type: "keyDown", keyCode: "B", modifiers });
+      contents.sendInputEvent({ type: "keyUp", keyCode: "B", modifiers });
     });
-  }
-  await expect(page.locator(".xterm-helper-textarea")).not.toBeFocused();
-  assert.equal((await previewViewState(app, id)).attached, false);
-  await typeIntoFocusedContents(app, "after");
-  // A real main-process shortcut works without any intervening mouse click.
-  const collapsed = await page
-    .locator(".sidebar-shell")
-    .evaluate((element) => element.getAttribute("data-compact") === "true");
-  await app.evaluate(({ webContents }) => {
-    const contents = webContents.getFocusedWebContents();
-    const modifiers = process.platform === "darwin" ? ["meta"] : ["control", "shift"];
-    contents.sendInputEvent({ type: "keyDown", keyCode: "B", modifiers });
-    contents.sendInputEvent({ type: "keyUp", keyCode: "B", modifiers });
+    await expect
+      .poll(() =>
+        page
+          .locator(".sidebar-shell")
+          .evaluate((element) => element.getAttribute("data-compact") === "true"),
+      )
+      .toBe(!collapsed);
+    assert.deepEqual(await input(), Buffer.alloc(0));
+    // A deliberate native terminal click restores input after cancellation, and
+    // the barrier proves that the recorder is live and prior input has drained.
+    await clickTerminal(app, page);
+    await typeIntoFocusedContents(app, "resumedb");
+    await expect(page.locator(".xterm-rows")).toContainText("INPUT_BARRIER");
+    assert.deepEqual(await input(), Buffer.from("resumedb"));
+    await page.evaluate((id) => window.desktop.previews.close(id), id);
   });
-  await expect
-    .poll(() =>
-      page
-        .locator(".sidebar-shell")
-        .evaluate((element) => element.getAttribute("data-compact") === "true"),
-    )
-    .toBe(!collapsed);
-  assert.deepEqual(await input(), Buffer.alloc(0));
-  // A deliberate native terminal click restores input after cancellation, and
-  // the barrier proves that the recorder is live and prior input has drained.
-  await clickTerminal(app, page);
-  await typeIntoFocusedContents(app, "resumedb");
-  await expect(page.locator(".xterm-rows")).toContainText("INPUT_BARRIER");
-  assert.deepEqual(await input(), Buffer.from("resumedb"));
-  await page.evaluate((id) => window.desktop.previews.close(id), id);
 }
 
 test("preview handoff Escape restores board keyboard input during a never-finishing local load", async (context) => {

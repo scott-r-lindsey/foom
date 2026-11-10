@@ -119,3 +119,8 @@ export type WorkspaceConfirmation =
       replacing?: string;
     };
 export type ConfirmWorkspace = (request: WorkspaceConfirmation) => Promise<boolean>;
+
+/** Main-only outcome; never supplied by a renderer or sent over IPC. */
+export type DialogOutcome = "accepted" | "declined" | "cancelled" | "unavailable";
+/** Item removals retain the existing batching/boolean request API. */
+export type PlainDialogContent = Omit<DialogContent, "removal"> & { removal?: never };

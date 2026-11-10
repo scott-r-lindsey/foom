@@ -865,11 +865,11 @@ test("host-key fix identifies only the repository", async () => {
   };
   const { api } = await mount(state);
   await waitFor(() => {
-    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Trust host key" }).disabled).toBe(
-      false,
-    );
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Trust host key…" }).disabled,
+    ).toBe(false);
   });
-  fireEvent.click(screen.getByRole("button", { name: "Trust host key" }));
+  fireEvent.click(screen.getByRole("button", { name: "Trust host key…" }));
   await waitFor(() => {
     expect(api).toHaveBeenCalledWith({
       action: "trust-origin",
@@ -1440,3 +1440,202 @@ test("returning to Hosts reattaches the window's install without starting anothe
   expect(disposed).toHaveBeenCalledOnce();
   expect(close).not.toHaveBeenCalled();
 });
+
+test("unknown SSH keys offer only the host-specific trust action or copyable fallback", async () => {
+  for (const supported of [true, false]) {
+    const copyHost = vi.fn(() => Promise.resolve());
+    const state: HostsState = {
+      ...initial,
+      hosts: [
+        {
+          ...host,
+          hostKeyTrust: supported ? "askpass" : "manual",
+          result: {
+            ok: false,
+            reason: "unreachable",
+            connection: {
+              ssh: { state: "fail", reason: "host-key-unknown" },
+              platform: { state: "not-checked" },
+              artifact: { state: "not-checked" },
+            },
+          },
+        },
+      ],
+    };
+    const api = vi.fn(() => Promise.resolve(state));
+    const view = render(
+      <HostsSettings source={{ hosts: api, copyHost }} headingRef={createRef()} />,
+    );
+    await screen.findByRole("region", { name: "worker" });
+    expandHosts();
+    await screen.findAllByText("Host key not trusted");
+    if (supported) {
+      fireEvent.click(screen.getByRole("button", { name: "Trust host key…" }));
+      await waitFor(() => {
+        expect(api).toHaveBeenCalledWith({ action: "trust-host-key", host: "worker" });
+      });
+    } else {
+      expect(screen.queryByRole("button", { name: "Trust host key…" })).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Copy SSH command" }));
+      expect(copyHost).toHaveBeenCalledWith({ kind: "copy-host-ssh-command", host: "worker" });
+    }
+    view.unmount();
+    expect(api).toHaveBeenCalledWith({ action: "cancel-trust" });
+  }
+});
+
+test.each(["host-key-unknown", "host-key-changed", "login-rejected", "unreachable"] as const)(
+  "SSH and origin rows present %s with the appropriate status shape and tone",
+  async (reason) => {
+    const check = { state: "fail" as const, reason };
+    const result = { ok: false as const, reason: "unreachable" as const };
+    await mount({
+      ...initial,
+      hosts: [{ ...host, result }],
+      preflight: {
+        ...preflight,
+        ssh: check,
+        result,
+        repositories: [{ repository: "/local/project", origin: check, checkout: result }],
+      },
+    });
+    const card = screen.getByRole("region", { name: "worker" });
+    for (const name of reason === "host-key-unknown" ? ["SSH"] : ["SSH", "Git access to origin"]) {
+      const row = within(card).getByText(name, { exact: true }).closest(".host-check-row");
+      const status = row?.querySelector(".host-status");
+      expect(
+        status?.classList.contains(reason === "host-key-unknown" ? "host-need" : "host-fail"),
+      ).toBe(true);
+      expect(status?.querySelector(".host-symbol")?.textContent).toBe(
+        reason === "host-key-unknown" ? "" : "×",
+      );
+      expect(status?.textContent).toContain(
+        reason === "host-key-unknown"
+          ? "Host key not trusted"
+          : reason === "host-key-changed"
+            ? "Host key changed"
+            : reason === "login-rejected"
+              ? "Login rejected"
+              : "Host unreachable",
+      );
+    }
+  },
+);
+
+test.each([
+  { action: "add", reason: "host-key-unknown", tone: "need", marker: "" },
+  { action: "add", reason: "host-key-changed", tone: "fail", marker: "×" },
+  { action: "change-folder", reason: "host-key-unknown", tone: "need", marker: "" },
+  { action: "change-folder", reason: "host-key-changed", tone: "fail", marker: "×" },
+] as const)(
+  "$action alerts retain the status tone for $reason",
+  async ({ action, reason, tone, marker }) => {
+    const initialState = action === "add" ? { hosts: [], locations: [] } : initial;
+    const { api } = await mount(initialState);
+    if (action === "add") await screen.findByText("No hosts");
+    api.mockResolvedValue({ ...saved(initialState), result: { ok: false, reason } });
+    if (action === "add") {
+      fireEvent.click(screen.getByRole("button", { name: "Add host" }));
+      fireEvent.change(screen.getByLabelText("SSH host"), { target: { value: "worker" } });
+      fireEvent.click(screen.getByRole("button", { name: "Add host" }));
+    } else {
+      fireEvent.click(screen.getByRole("button", { name: "Change folder" }));
+      fireEvent.change(screen.getByLabelText("Code folder"), { target: { value: "~/new" } });
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    }
+    const alert = await screen.findByRole("alert");
+    expect(alert.querySelector(".host-status")?.classList.contains(`host-${tone}`)).toBe(true);
+    expect(alert.querySelector(".host-symbol")?.textContent).toBe(marker);
+  },
+);
+
+test("untrusted hosts hide dependent checks and stale failures until acceptance completes the first check", async () => {
+  const failed = { ok: false as const, reason: "artifact-unavailable" as const };
+  const state = saved({
+    ...initial,
+    hosts: [{ ...host, result: failed, hostKeyTrust: "askpass" }],
+    preflight: {
+      ...preflight,
+      ssh: { state: "fail", reason: "host-key-unknown" },
+      artifact: { state: "fail", reason: "artifact-unavailable" },
+      result: failed,
+      repositories: [
+        {
+          repository: "/local/project",
+          origin: { state: "fail", reason: "origin-unavailable" },
+          checkout: failed,
+        },
+      ],
+    },
+    output: { host: "worker", text: "Host key verification failed", running: false, failed: true },
+  });
+  const api = vi.fn((action: HostsAction) =>
+    Promise.resolve(action.action === "trust-host-key" ? saved(initial) : state),
+  );
+  render(<HostsSettings source={{ hosts: api }} headingRef={createRef()} />);
+  const card = await screen.findByRole("region", { name: "worker" });
+  await screen.findAllByText("Host key not trusted");
+  expect(card.querySelectorAll(".host-check-row")).toHaveLength(1);
+  for (const text of [
+    "Platform",
+    "Remote daemon",
+    "Code folder",
+    "git",
+    "gh",
+    "Agents",
+    "Git access to origin",
+    "Checked out repositories",
+    "Host facts",
+  ]) {
+    expect(within(card).queryByText(text, { exact: true })).toBeNull();
+  }
+  expect(card.querySelector(".host-footer")).toBeNull();
+  expect(within(card).getByRole("button", { name: "Remove" })).toBeTruthy();
+  expect(within(card).getByRole("region", { name: "Host check output" })).toBeTruthy();
+  fireEvent.click(within(card).getByRole("button", { name: "Trust host key…" }));
+  await within(card).findByText("Pass · Host key trusted");
+  for (const text of [
+    "Platform",
+    "Remote daemon",
+    "Code folder",
+    "git",
+    "gh",
+    "Agents",
+    "Checked out repositories",
+    "Host facts",
+  ]) {
+    expect(within(card).getByText(text, { exact: true })).toBeTruthy();
+  }
+  expect(card.querySelector(".host-footer")).toBeTruthy();
+});
+
+test.each(["host-key-unknown", "host-key-changed", "login-rejected", "unreachable"] as const)(
+  "check output for %s distinguishes waiting from failure and dismissal",
+  async (reason) => {
+    const result = { ok: false as const, reason };
+    const output = {
+      host: "worker",
+      text: "Read-only SSH diagnostic",
+      running: false,
+      failed: true,
+    };
+    await mount({
+      ...initial,
+      hosts: [{ ...host, result, hostKeyTrust: "askpass" }],
+      preflight: { ...preflight, result, ssh: { state: "fail", reason } },
+      output,
+    });
+    const panel = screen.getByRole("region", { name: "Host check output" });
+    const status = within(panel).getByRole("status");
+    expect(status.textContent).toBe(
+      reason === "host-key-unknown" ? "Host key not trusted" : "Failed",
+    );
+    expect(
+      status.classList.contains(reason === "host-key-unknown" ? "host-need" : "hosts-failure"),
+    ).toBe(true);
+    expect(panel.textContent).toContain(output.text);
+    if (reason === "host-key-unknown")
+      expect(within(panel).queryByRole("button", { name: "Dismiss" })).toBeNull();
+    else expect(within(panel).getByRole("button", { name: "Dismiss" })).toBeTruthy();
+  },
+);
