@@ -1,0 +1,26 @@
+{
+  "name": "foom-data-spike",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "generate": "drizzle-kit generate --config drizzle.config.ts",
+    "audit": "pnpm audit --audit-level=low"
+  },
+  "dependencies": {
+    "better-sqlite3": "13.0.3",
+    "drizzle-orm": "1.0.0-rc.5"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "7.6.13",
+    "drizzle-kit": "1.0.0-rc.5"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "esbuild"
+    ],
+    "overrides": {
+      "esbuild": "0.28.2"
+    }
+  }
+}
