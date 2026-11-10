@@ -302,7 +302,7 @@ export interface WorkspaceDependencies {
   prepareWorktreeRemoval?(worktree: string): Promise<() => void>;
   onExecution?(event: ExecutionTransition): void;
   onState(state: TerminalState): void;
-  onChange?(): void;
+  onChange?(localOnly?: boolean): void;
   watcher?: Pick<InventoryWatch, "sync" | "dispose">;
   acknowledgeAgyPluginOffer?(): Promise<void>;
   forge?: ForgeTracking;

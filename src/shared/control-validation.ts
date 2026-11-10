@@ -11,6 +11,7 @@ export class ControlError extends Error {
       | "forbidden"
       | "no_parent"
       | "not_found"
+      | "host_unavailable"
       | "conflict"
       | "capacity"
       | "unavailable"

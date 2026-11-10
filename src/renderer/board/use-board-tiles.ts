@@ -507,7 +507,12 @@ export function useBoardTiles({
         const attempt = Symbol();
         if (source.sidebarCommand) closingTilesRef.current.set(session, attempt);
         void source
-          .sidebarCommand?.({ kind: "close", id: session })
+          .sidebarCommand?.({
+            kind: source.getSnapshot().some((row) => row.id === session && row.unavailable)
+              ? "forget"
+              : "close",
+            id: session,
+          })
           .then(() => {
             if (
               !source.getSnapshot().some((row) => row.id === session) &&

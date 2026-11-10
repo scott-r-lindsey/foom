@@ -200,6 +200,14 @@ test("completed host checks refresh workspace inventory immediately", async () =
   expect(mock.workspace.refresh).toHaveBeenCalledOnce();
 });
 
+test("host removal confirmation reads current sessions without refreshing remote inventory", async () => {
+  await start();
+  expect(mock.setup.deps?.hostSessions?.().map((row) => row.id)).toEqual(["t1", "t2"]);
+  forgeUi.rows = [];
+  expect(mock.setup.deps?.hostSessions?.()).toEqual([]);
+  expect(mock.workspace.refresh).not.toHaveBeenCalled();
+});
+
 test("new windows share one workspace and route reservations, focus and popout independently", async () => {
   await start();
   await newWindow();

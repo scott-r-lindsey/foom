@@ -520,6 +520,8 @@ export class OrchestrationMutations extends OrchestrationAuthority {
     if (!child) return this.refuse(actor, parent, operations, operation, label, "not_found");
     if (child.takenOver)
       return this.refuse(actor, parent, operations, operation, label, "forbidden");
+    if (await this.host.unavailable?.(id))
+      return this.refuse(actor, parent, operations, operation, label, "host_unavailable");
     if (!child.exited) return this.refuse(actor, parent, operations, operation, label, "conflict");
     this.note(parent, this.entry(operation, label));
     const scope = this.closeScope(actor, id);

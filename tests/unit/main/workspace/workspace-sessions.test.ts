@@ -1,6 +1,7 @@
 import { expect, test, vi } from "vitest";
 import { WorktreeService } from "../../../../src/main/workspace/worktrees";
 import { Workspace } from "../../../../src/main/workspace/workspace";
+import type { StoredSession } from "../../../../src/main/workspace/session-restore.d";
 import type { Launched } from "./workspace-fixture";
 import {
   agents,
@@ -86,7 +87,10 @@ test("restores metadata without PTYs, allows Resume and Close, and drains persis
   vi.mocked(deps.terminals).kill.mockClear();
   vi.mocked(deps.worktrees.reviewIdentity).mockClear();
   await restored.sidebarCommand({ kind: "close", id: "t1" }, () => Promise.resolve(true));
-  expect(deps.worktrees.reviewIdentity).toHaveBeenCalledExactlyOnceWith(repo.path, tree.path);
+  expect(vi.mocked(deps.worktrees, true).reviewIdentity).toHaveBeenCalledExactlyOnceWith(
+    repo.path,
+    tree.path,
+  );
   expect(vi.mocked(deps.terminals, true).kill.mock.calls).toHaveLength(0);
   await restored.dispose();
 });
@@ -288,4 +292,197 @@ test("explicit remote spike routes only home shells and sends no local environme
     process.argv = original;
     await workspace.dispose();
   }
+});
+
+test("Forget removes only unavailable dormant remote metadata without terminal or Git requests", async () => {
+  const saved = {
+    id: "offline",
+    kind: "agent" as const,
+    agent: "claude" as const,
+    repository: repo.path,
+    worktree: tree.path,
+    branch: tree.branch,
+    attention: "evaluator" as const,
+    state: null,
+    exited: true,
+    dormant: true,
+    remote: true as const,
+    placement: { kind: "remote" as const, host: "worker" },
+    closeState: "failed" as const,
+  };
+  const fleet = vi.fn(() =>
+    Promise.resolve([
+      { host: "worker", result: { ok: false as const, reason: "unreachable" as const } },
+    ]),
+  );
+  deps.hosts = {
+    fleet,
+    registered: () => ({ host: "worker", codeFolder: "/code" }),
+    worktree: vi.fn(),
+    requireAgent: vi.fn(),
+  };
+  const save = vi.fn(() => Promise.resolve());
+  deps.sessions = { load: () => Promise.resolve([saved]), save, flush: vi.fn() };
+  deps.dialog = vi.fn(() => Promise.resolve(true));
+  const changed = vi.fn<(localOnly?: boolean) => void>();
+  deps.onChange = changed;
+  const workspace = new Workspace(deps);
+  await workspace.restore();
+  changed.mockClear();
+  await workspace.sidebarCommand({ kind: "forget", id: saved.id }, () => Promise.resolve(true));
+  expect(workspace.snapshot().terminals).toEqual([]);
+  expect(save).toHaveBeenLastCalledWith([]);
+  expect(fleet.mock.calls).toEqual([[false], [false]]);
+  expect(vi.mocked(deps.terminals, true).kill.mock.calls).toHaveLength(0);
+  expect(vi.mocked(deps.terminals, true).stop.mock.calls).toHaveLength(0);
+  expect(vi.mocked(deps.terminals, true).create.mock.calls).toHaveLength(0);
+  expect(vi.mocked(deps.worktrees, true).reviewIdentity.mock.calls).toHaveLength(0);
+  expect(vi.mocked(deps.worktrees, true).removeWorktree.mock.calls).toHaveLength(0);
+  expect(vi.mocked(deps.hosts, true).worktree.mock.calls).toHaveLength(0);
+  expect(changed.mock.calls.every(([localOnly]) => localOnly === true)).toBe(true);
+  await workspace.dispose();
+});
+
+test("Forget refuses local, live and missing rows, preserves cancelled and failed writes", async () => {
+  const saved = {
+    id: "offline",
+    kind: "shell" as const,
+    agent: "shell" as const,
+    repository: repo.path,
+    worktree: tree.path,
+    branch: tree.branch,
+    attention: "evaluator" as const,
+    state: null,
+    exited: true,
+    dormant: true,
+    remote: true as const,
+    placement: { kind: "remote" as const, host: "worker" },
+  };
+  const save = vi.fn(() => Promise.resolve());
+  const local: StoredSession = { ...saved, id: "local" };
+  delete local.remote;
+  delete local.placement;
+  deps.sessions = {
+    load: () => Promise.resolve([saved, local]),
+    save,
+    flush: vi.fn(),
+  };
+  deps.dialog = vi.fn(() => Promise.resolve(false));
+  const workspace = new Workspace(deps);
+  await workspace.restore();
+  const forget = (id: string) =>
+    workspace.sidebarCommand({ kind: "forget", id }, () => Promise.resolve(true));
+  await expect(forget("local")).rejects.toThrow("session-busy");
+  await expect(forget("missing")).rejects.toThrow("session-busy");
+  await forget("offline");
+  expect(workspace.ownsSession("offline")).toBe(true);
+  vi.mocked(deps.dialog).mockResolvedValue(true);
+  save.mockRejectedValueOnce(new Error("disk full"));
+  await expect(forget("offline")).rejects.toThrow("disk full");
+  expect(workspace.ownsSession("offline")).toBe(true);
+  await workspace.sidebarCommand({ kind: "restart", id: "local" }, () => Promise.resolve(true));
+  await expect(forget("local")).rejects.toThrow("session-busy");
+  await workspace.dispose();
+});
+
+test("Forget rechecks host availability after consent and refuses busy or quitting sessions", async () => {
+  const saved = {
+    id: "offline",
+    kind: "shell" as const,
+    agent: "shell" as const,
+    repository: repo.path,
+    worktree: tree.path,
+    branch: tree.branch,
+    attention: "evaluator" as const,
+    state: null,
+    exited: true,
+    dormant: true,
+    remote: true as const,
+    placement: { kind: "remote" as const, host: "worker" },
+  };
+  const offline = {
+    host: "worker",
+    result: { ok: false as const, reason: "unreachable" as const },
+  };
+  const online = {
+    host: "worker",
+    result: {
+      ok: true as const,
+      facts: {
+        codeFolder: "/code",
+        version: "0.1.0",
+        sessions: 1,
+        cores: 4,
+        load: [0, 0, 0],
+        memoryTotal: 8000,
+        memoryAvailable: 4000,
+        agents: [],
+      },
+    },
+  };
+  const fleet = vi.fn<NonNullable<typeof deps.hosts>["fleet"]>(() => Promise.resolve([online]));
+  deps.hosts = {
+    fleet,
+    registered: () => ({ host: "worker", codeFolder: "/code" }),
+    worktree: vi.fn(),
+    requireAgent: vi.fn(),
+  };
+  deps.sessions = {
+    load: () => Promise.resolve([saved]),
+    save: vi.fn(() => Promise.resolve()),
+    flush: vi.fn(() => Promise.resolve()),
+  };
+  deps.dialog = vi.fn(() => Promise.resolve(true));
+  const workspace = new Workspace(deps);
+  await workspace.restore();
+  const forget = () =>
+    workspace.sidebarCommand({ kind: "forget", id: saved.id }, () => Promise.resolve(true));
+  await expect(forget()).rejects.toThrow("session-busy");
+  expect(deps.dialog).not.toHaveBeenCalled();
+  fleet.mockResolvedValueOnce([offline]);
+  await expect(forget()).rejects.toThrow("session-busy");
+  expect(workspace.ownsSession(saved.id)).toBe(true);
+  fleet.mockResolvedValue([offline]);
+  vi.mocked(deps.dialog).mockImplementationOnce(async () => {
+    await workspace.prepareQuit();
+    return true;
+  });
+  await expect(forget()).rejects.toThrow("session-busy");
+  workspace.cancelQuit();
+  await workspace.prepareQuit();
+  await expect(forget()).rejects.toThrow("session-busy");
+  await workspace.dispose();
+});
+
+test("Forget also handles an unavailable local exit without restarting Foom, while refusing a live session", async () => {
+  const result = {
+    id: "t1",
+    attention: "evaluator" as const,
+    remote: true as const,
+    placement: { kind: "remote" as const, host: "worker" },
+  };
+  agents.launch.mockResolvedValueOnce(result);
+  deps.hosts = {
+    fleet: vi.fn(() =>
+      Promise.resolve([
+        { host: "worker", result: { ok: false as const, reason: "unreachable" as const } },
+      ]),
+    ),
+    registered: () => ({ host: "worker", codeFolder: "/code" }),
+    worktree: vi.fn(),
+    requireAgent: vi.fn(),
+  };
+  deps.dialog = vi.fn(() => Promise.resolve(true));
+  const workspace = await launched();
+  const forget = () =>
+    workspace.sidebarCommand({ kind: "forget", id: "t1" }, () => Promise.resolve(true));
+  await expect(forget()).rejects.toThrow("session-busy");
+  expect(deps.dialog).not.toHaveBeenCalled();
+  await workspace.exited("t1", -1);
+  expect(workspace.snapshot().terminals[0]?.dormant).not.toBe(true);
+  await forget();
+  expect(workspace.ownsSession("t1")).toBe(false);
+  expect(vi.mocked(deps.terminals, true).kill.mock.calls).toHaveLength(0);
+  expect(vi.mocked(deps.terminals, true).stop.mock.calls).toHaveLength(0);
+  await workspace.dispose();
 });

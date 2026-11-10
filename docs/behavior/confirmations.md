@@ -85,3 +85,7 @@ SSH host-key trust shows only the registered host, parsed key type and fingerpri
 from OpenSSH’s unknown-host question. **Trust host key** relays yes to OpenSSH;
 **Cancel**, Escape and close relay no or end the run. Cancel is focused by default.
 Foom never displays raw askpass text or asks for a password or passphrase.
+
+Host-removal confirmations list the dormant/exited sessions whose saved metadata
+will be forgotten. A neutral hollow ring and **Dormant** label describe the local
+row, without claiming that a remote process has stopped.

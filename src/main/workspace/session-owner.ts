@@ -40,7 +40,7 @@ export interface SessionOwnerDependencies {
     control?: AgentLaunch["control"],
     identity?: ParentIdentity,
   ) => Promise<string | undefined>;
-  onChange?: () => void;
+  onChange?: (localOnly?: boolean) => void;
 }
 
 /** Main-owned session metadata, restoration lifecycle and pre-shutdown persistence. */
@@ -55,6 +55,7 @@ export class SessionOwner {
   private quitting = false;
   private pruning = false;
   private readonly forgottenSessions = new Set<string>();
+  private readonly forgettingSessions = new Set<string>();
 
   constructor(private readonly deps: SessionOwnerDependencies) {}
 
@@ -130,6 +131,27 @@ export class SessionOwner {
     this.deps.onChange?.();
   }
 
+  /** Caller has validated human intent; no terminal or host capability is used. */
+  async forget(id: string): Promise<void> {
+    // Concurrent background saves must not reintroduce this row while the
+    // removal write is pending. Keep the visible row until persistence succeeds.
+    this.forgettingSessions.add(id);
+    try {
+      await this.save();
+    } catch (error) {
+      this.forgettingSessions.delete(id);
+      throw error;
+    }
+    this.forgottenSessions.add(id);
+    this.saved.delete(id);
+    this.restoring.delete(id);
+    this.unrestoredRoles.delete(id);
+    this.remotePlacements.delete(id);
+    this.deps.removeRow?.(id);
+    this.forgettingSessions.delete(id);
+    this.deps.onChange?.(true);
+  }
+
   private pruneRows(): void {
     if (this.pruning) return;
     this.pruning = true;
@@ -157,6 +179,7 @@ export class SessionOwner {
   private importEntries(entries: readonly StoredSession[], discovered = false): void {
     for (const entry of this.retained(entries)) {
       if (discovered) {
+        if (this.forgottenSessions.has(entry.id)) continue;
         const previous = this.saved.get(entry.id);
         const reconcile =
           previous?.remote &&
@@ -208,7 +231,7 @@ export class SessionOwner {
       if (!ids.has(id)) this.remotePlacements.delete(id);
     return this.retained(
       entries
-        .filter((entry) => !entry.probe)
+        .filter((entry) => !entry.probe && !this.forgettingSessions.has(entry.id))
         .map((entry) => {
           const remoteCheckout = entry.remote ? this.remotePlacements.get(entry.id) : undefined;
           const role = this.deps.orchestration.view(entry.id);

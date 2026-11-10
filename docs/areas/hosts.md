@@ -56,7 +56,9 @@ its own files. Every new remote shell or agent PTY, on a machine or in a reposit
 starts with the captured mask; login shell startup may then override it. Foom's
 cache, sockets, control files and other private artifacts remain 0700/0600.
 Reattachment retains the existing PTY and its current mask (#1047). A management request has no terminal ID and creates no PTY. OpenSSH owns host-key trust. Foom relays only the user’s explicit answer to its unknown-host question and never reads or writes known_hosts itself; credential prompts are refused.
-Removing a registration forgets its saved session rows and host caches in the same
+Removing a registration lists its dormant/exited saved sessions in a trusted
+**Remove host and forget sessions?** confirmation. Approval forgets those rows
+and host caches in the same
 operation, without sending stop, kill or session-close, including when the last
 observation reports live sessions. Open attached tiles keep their connections until
 exit or Close and are excluded from saved rows for the rest of that app run.
@@ -66,6 +68,15 @@ profile's sessions still live on its daemon as human-owned tiles, without their
 prior parent, grant or orchestrator authority. Forgotten exited sessions do not
 return. Failed/pending Close recovery rows are retained under the
 [session recovery rule](sessions.md#forgotten-hosts-1152).
+
+A dormant or locally exited session on an unavailable host can also be forgotten independently
+from its sidebar or tile menu. **Forget…** asks through the trusted dialog,
+then durably removes only local session metadata. Availability comes from cached
+main-owned host observations (`fleet(false)`), with no refresh, SSH, stop, kill,
+session-close or worktree removal. A failed profile write retains the row for retry.
+Local-only workspace notifications refresh snapshots without host inventory reads.
+If its daemon session remains live, normal later profile discovery can recover it
+as human-owned, without prior orchestration authority.
 
 The default code folder is `~/foom`. The remote expands it against its own home,
 creates missing components with mode 0700 only for the explicit `create-folder`

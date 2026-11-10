@@ -552,3 +552,63 @@ it("keeps never-registered developer sessions in runtime inventory until their o
   await f.owner.pruneHosts("developer");
   expect(f.rows.has("spike")).toBe(false);
 });
+
+it("forgets locally after a durable write, rejects late discovery and permits human recovery on restart", async () => {
+  const remote = row("remote", { remote: true, placement: { kind: "remote", host: "worker" } });
+  const f = fixture([remote]);
+  f.deps.discover = () => Promise.resolve([remote]);
+  f.deps.removeRow = (id) => {
+    f.rows.delete(id);
+  };
+  f.owner.configure(false);
+  await f.owner.restore();
+  f.store.save.mockRejectedValueOnce(new Error("disk full"));
+  await expect(f.owner.forget(remote.id)).rejects.toThrow("disk full");
+  expect(f.rows.has(remote.id)).toBe(true);
+  await f.owner.forget(remote.id);
+  await f.owner.restartSaved();
+  expect(f.rows.size).toBe(0);
+  expect(f.deps.launch).not.toHaveBeenCalled();
+  expect(f.store.save).toHaveBeenLastCalledWith([]);
+  const recovered = fixture();
+  recovered.deps.discover = () => Promise.resolve([{ ...remote, recovered: true }]);
+  await recovered.owner.restore();
+  await recovered.owner.restartSaved();
+  expect(recovered.deps.launch).toHaveBeenCalledWith(
+    expect.objectContaining({ id: remote.id }),
+    undefined,
+    undefined,
+  );
+  expect(recovered.orchestration.restoreChild).not.toHaveBeenCalled();
+  expect(recovered.orchestration.reserve).not.toHaveBeenCalled();
+});
+
+it("background saves during Forget cannot resurrect its row or surviving children's parent links", async () => {
+  const remote = row("remote", {
+    remote: true,
+    placement: { kind: "remote", host: "worker" },
+    closeState: "failed",
+  });
+  const f = fixture([remote, row("child")]);
+  f.deps.removeRow = (id) => {
+    f.rows.delete(id);
+    f.owner.persist();
+  };
+  f.orchestration.view.mockImplementation((id) =>
+    id === "child" ? { role: "child", parentId: "remote", takenOver: false } : undefined,
+  );
+  await f.owner.restore();
+  const pending = Promise.withResolvers<undefined>();
+  f.store.save.mockReturnValueOnce(pending.promise);
+  const forget = f.owner.forget("remote");
+  expect(f.rows.has("remote")).toBe(true);
+  f.owner.persist();
+  expect(f.store.save.mock.lastCall?.[0]).toEqual([expect.objectContaining({ id: "child" })]);
+  expect(f.store.save.mock.lastCall?.[0][0]).not.toHaveProperty("parentId");
+  pending.resolve(undefined);
+  await forget;
+  expect(f.rows.has("remote")).toBe(false);
+  await f.owner.prepareQuit();
+  expect(f.store.save.mock.lastCall?.[0]).toEqual([expect.objectContaining({ id: "child" })]);
+  expect(f.store.save.mock.lastCall?.[0][0]).not.toHaveProperty("parentId");
+});

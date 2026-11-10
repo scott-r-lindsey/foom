@@ -364,6 +364,14 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
       const identity = await caps.deps.worktrees.launchIdentity(repository, path);
       return { branch, identity };
     },
+    unavailable: async (id) => {
+      const row = caps.snapshot().terminals.find((row) => row.id === id);
+      if (!row?.remote || row.placement?.kind !== "remote") return false;
+      const host = row.placement.host;
+      return !(await caps.deps.hosts?.fleet(false))?.some(
+        (entry) => entry.host === host && entry.result.ok,
+      );
+    },
     stop: (id) => caps.deps.terminals.stop(id),
     close: async (id, validate, signal, onReview) => {
       await caps.sidebarCommand(

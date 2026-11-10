@@ -197,7 +197,13 @@ Successful `launch` results include `placement: {kind: "local"}` or
 current developer mapping flags never relabel an existing session. Legacy remote
 rows without a recorded alias cannot claim successful remote cleanup.
 
-Closing a dormant remote row reconnects through the bounded agent cleanup protocol
+An orchestrator closing its own child on a cached unavailable host receives
+`host_unavailable` before the exited/running check or any cleanup request. Unknown,
+foreign and taken-over IDs retain their existing authorization errors. The human
+can use **Forget…** in a dormant session's menu to discard local metadata without
+claiming the remote process stopped. There is no agent Forget capability.
+
+Closing a dormant remote row on an available host reconnects through the bounded agent cleanup protocol
 and removes the remote process and private assets before deleting the local row.
 A failed cleanup retains the row; the close operation and session reason report
 `remote_host_unreachable`. Remote authority and routing remain phase-2 restricted.

@@ -964,6 +964,16 @@ test("tile removal chooses Hide for live sessions and exited resumable agents on
   const row = boardRows(100)[0];
   if (!row) throw new Error("Missing fixture row");
   expect(tileRemovalAction(undefined)).toBe("hide");
+  expect(
+    tileRemovalAction({
+      ...row,
+      kind: "agent",
+      exited: true,
+      dormant: true,
+      unavailable: true,
+      conversationId: "saved",
+    }),
+  ).toBe("close");
   for (const kind of ["agent", "shell"] as const) {
     expect(tileRemovalAction({ ...row, kind, exited: false })).toBe("hide");
     expect(tileRemovalAction({ ...row, kind, exited: true, conversationId: undefined })).toBe(

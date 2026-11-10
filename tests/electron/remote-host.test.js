@@ -610,6 +610,123 @@ test("remote exit delivery across shrink reconciles the attached cursor row", {
   await exitResizeRace(app, page, id, root);
 });
 
+test("Forget removes an unavailable host session locally and recovers its live daemon session as human-owned", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const fixture = await remoteFixture(context);
+  const { root, remoteHome, bin, cleanup, closeDaemon } = fixture;
+  const { app, page, profilePath, hubHome } = await remoteApp(context, fixture);
+  await mkdir(path.join(remoteHome, "code"), { mode: 0o700 });
+  await page.evaluate(
+    (codeFolder) => window.desktop.hosts({ action: "add", host: "fixture-cloud", codeFolder }),
+    path.join(remoteHome, "code"),
+  );
+  const { id } = await remoteShell(page, fixture.phase);
+  await quitAndWait(app, async () => {
+    await app.evaluate(({ app }) => app.quit());
+    await (await confirmationPage(app)).getByRole("button", { name: "Stop all and quit" }).click();
+  });
+  const offline = path.join(root, "offline");
+  await writeFile(offline, "offline");
+  const restart = async () => {
+    const app = await launchApp(context, {
+      fixture: "restored",
+      home: hubHome,
+      env: { PATH: bin, SSH_AUTH_SOCK: "" },
+      args: [`--user-data-dir=${profilePath}`, "--remote-shell-spike=fixture-cloud"],
+    });
+    cleanup.apps.splice(cleanup.apps.indexOf(closeDaemon), 1);
+    cleanup.apps.push(closeDaemon);
+    return { app, page: await boardPage(app) };
+  };
+  const restored = await restart();
+  await expect
+    .poll(
+      async () =>
+        (await restored.page.evaluate(() => window.desktop.workspace())).terminals.find(
+          (row) => row.id === id,
+        )?.dormant,
+    )
+    .toBe(true);
+  const row = restored.page
+    .locator(".board-row")
+    .filter({ hasText: "Unavailable" })
+    .filter({ hasText: "Shell" });
+  await expect(row).toHaveCount(1);
+  await row.getByRole("button", { name: /Actions for/ }).click();
+  await restored.page.getByRole("menuitem", { name: "Forget…" }).click();
+  const dialog = await confirmationPage(restored.app);
+  await expect(dialog.getByText(/remote process may still be running/)).toBeVisible();
+  await dialog.screenshot({ path: evidencePath("1114-forget-session.png") });
+  const before = await readFile(fixture.sshLog, "utf8");
+  await dialog.getByRole("button", { name: "Forget", exact: true }).click();
+  await expect
+    .poll(async () =>
+      (await restored.page.evaluate(() => window.desktop.workspace())).terminals.some(
+        (row) => row.id === id,
+      ),
+    )
+    .toBe(false);
+  assert.equal(await readFile(fixture.sshLog, "utf8"), before);
+  const saved = JSON.parse(await readFile(path.join(profilePath, "sessions.json"), "utf8"));
+  assert.ok(!JSON.stringify(saved).includes(id));
+  await quitAndWait(restored.app, () => restored.app.evaluate(({ app }) => app.quit()));
+  await require("node:fs/promises").rm(offline);
+  const recovered = await restart();
+  await expect
+    .poll(
+      async () =>
+        (await recovered.page.evaluate(() => window.desktop.workspace())).terminals.find(
+          (row) => row.id === id,
+        )?.dormant,
+    )
+    .toBe(false);
+  const session = (await recovered.page.evaluate(() => window.desktop.workspace())).terminals.find(
+    (row) => row.id === id,
+  );
+  assert.equal(session.exited, false);
+  assert.equal(session.orchestration, undefined);
+  assert.equal(fixture.daemon.exitCode, null);
+  // Host removal reviews the same local dormant metadata, including when the
+  // daemon is reachable and still owns the process.
+  await recovered.page.evaluate(() => window.desktop.saveSetup({ restoreSessions: false }));
+  await quitAndWait(recovered.app, async () => {
+    await recovered.app.evaluate(({ app }) => app.quit());
+    await (await confirmationPage(recovered.app))
+      .getByRole("button", { name: "Stop all and quit" })
+      .click();
+  });
+  const dormant = await restart();
+  await expect
+    .poll(
+      async () =>
+        (await dormant.page.evaluate(() => window.desktop.workspace())).terminals.find(
+          (row) => row.id === id,
+        )?.dormant,
+    )
+    .toBe(true);
+  const removal = dormant.page.evaluate(() =>
+    window.desktop.hosts({ action: "remove", host: "fixture-cloud" }),
+  );
+  const removalDialog = await confirmationPage(dormant.app);
+  await expect(
+    removalDialog.getByRole("heading", { name: "Remove host and forget sessions?" }),
+  ).toBeVisible();
+  await expect(removalDialog.getByText("Dormant", { exact: true })).toBeVisible();
+  await removalDialog.screenshot({ path: evidencePath("1114-remove-host.png") });
+  await removalDialog.getByRole("button", { name: "Remove and forget" }).click();
+  assert.deepEqual((await removal).hosts, []);
+  await expect
+    .poll(async () =>
+      (await dormant.page.evaluate(() => window.desktop.workspace())).terminals.some(
+        (row) => row.id === id,
+      ),
+    )
+    .toBe(false);
+  assert.equal(fixture.daemon.exitCode, null);
+});
+
 async function remoteFixture(context) {
   let phaseStarted = performance.now();
   const phase = (name) => {
@@ -703,6 +820,7 @@ const args = process.argv.slice(2);
 const split = args.indexOf('--');
 if (split < 0 || !['fixture-cloud', 'fixture-unreachable', 'fixture-unsupported', 'fixture-no-artifact', 'fixture-old-libc'].includes(args[split + 1])) process.exit(2);
 const host = args[split + 1];
+if (require('node:fs').existsSync(${JSON.stringify(path.join(root, "offline"))})) { appendFileSync(${JSON.stringify(sshLog)}, 'fixture offline request\\n'); process.exit(255); }
 if (host === 'fixture-unreachable') { process.stderr.write('private fixture SSH output'); process.exit(255); }
 if (host === 'fixture-unsupported') { process.stdout.write('Plan9\\nx86_64\\n'); process.exit(0); }
 if (host === 'fixture-no-artifact') { process.stdout.write('Darwin\\n' + (process.platform === 'darwin' && process.arch === 'arm64' ? 'x86_64' : 'arm64') + '\\n'); process.exit(0); }
@@ -770,6 +888,7 @@ child.on('close', (code, signal) => { record({ kind: 'exit', code, signal }); ap
   assert.equal((await stat(path.dirname(socket))).mode & 0o777, 0o700);
   assert.equal(stderr, "");
   return {
+    sshLog,
     root,
     cleanup,
     remoteHome,

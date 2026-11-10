@@ -329,6 +329,7 @@ export async function buildWindow(
   };
   let localInstallPending = false;
   const setup = new Setup({
+    hostSessions: () => wiring.workspace.snapshot().terminals,
     hostsChanged: () => {
       wiring.workspace.refresh();
     },
