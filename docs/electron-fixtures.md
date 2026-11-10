@@ -363,6 +363,40 @@ asserts that native drag-start selected the shell and reports a bounded input-ev
 trace only on failure, so CI can distinguish a different native drag defect.
 No product hit testing, animation duration or test deadline changes.
 
+## Agent-preview capacity reload ordering (#1135)
+
+The protected-capacity case replaces the workspace snapshot with 65 dormant
+fixture sessions. Writing their layout into localStorage in the live document
+races that document's pending workspace publications: its in-memory layout still
+contains the original sessions. A publication removes those now-unknown assignments
+and saves that old layout, overwriting the seed before reload.
+
+The regression deliberately sends `workspace:changed` after the old-style seed
+and observes zero occupied leaves in storage **before** reloading. With the old
+reload setup this deterministically reproduces the zero-of-65 DOM failure on
+Linux; it does not require renderer starvation, restore rejection or pruning in
+the replacement document. The fixed fixture stages a one-shot layout in
+sessionStorage and consumes it in the replacement document's init script before
+app code reads localStorage. The same late-publication regression then restores
+65 occupied leaves at depth 64. The later free-space reload uses the same staging.
+The normal preview placement, refusal, tree-preservation and explicit-reopen
+assertions remain unchanged, as do deadlines, native input, sandboxing, fixture
+CLIs and process auditing. No product behavior changes.
+
+Original macOS evidence from
+[run 42552709991](https://github.com/scott-r-lindsey/foom/actions/runs/42552709991):
+
+| Attempt | Numeric artifact ID | Case result / seconds |
+| --- | --- | --- |
+| 1 | 13646935699 | Failed, zero of 65 occupied tiles / 17.523 |
+| 2 | 13649560206 | Passed / 10.628 |
+
+Both original ZIPs were compared. Neither records the retiring document's storage
+or publication order, so the controlled reproduction establishes the fixture race
+without claiming to identify the particular event in the historical macOS run.
+JUnit diagnostics now record the forced pre-reload overwrite and the replacement
+document's successful restore as separate facts.
+
 ## Quit acknowledgement ordering (#1056)
 
 The harness cancels an unprevented native `will-quit` after Foom's save, PTY
