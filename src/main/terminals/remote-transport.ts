@@ -34,6 +34,7 @@ import {
 } from "../../shared/remote-host-protocol";
 import {
   UnsupportedRemotePlatform,
+  SshConnectionFailure,
   bootstrapArguments,
   selectHostArtifact,
   sshEnvironment,
@@ -135,11 +136,13 @@ export class RemoteTransport extends EventEmitter {
         this.launchFailure =
           error instanceof LaunchFailure ? error : new LaunchFailure("remote_artifact_mismatch");
         this.managementFailure =
-          error instanceof UnsupportedRemotePlatform
-            ? "unsupported"
-            : error instanceof LaunchFailure && error.reason === "remote_host_unreachable"
-              ? "unreachable"
-              : "version-mismatch";
+          error instanceof SshConnectionFailure
+            ? error.failure
+            : error instanceof UnsupportedRemotePlatform
+              ? "unsupported"
+              : error instanceof LaunchFailure && error.reason === "remote_host_unreachable"
+                ? "unreachable"
+                : "version-mismatch";
         this.artifactUnavailable =
           error instanceof ApplicationError && error.code === "remote-host-unavailable";
         this.kill();
@@ -546,6 +549,14 @@ export class RemoteTransport extends EventEmitter {
           if (value.type === "managed") {
             if (!this.management || this.management.type !== "manage")
               throw new Error("Unexpected management result");
+            if (
+              value.result.connection !== undefined ||
+              (!value.result.ok &&
+                ["host-key-unknown", "host-key-changed", "login-rejected"].includes(
+                  value.result.reason,
+                ))
+            )
+              throw new Error("Host supplied a local SSH observation");
             clearTimeout(deadline);
             this.emit("managed", value.result);
             this.kill();

@@ -1,13 +1,15 @@
+import { sshFailure } from "../../node-common/ssh-askpass";
 import { LaunchFailure } from "../../shared/launch-failure";
 import { remotePath } from "../../shared/remote-agent-protocol";
 import { ApplicationError } from "../../shared/application-errors";
 import type { HostCheck, HostConnectionChecks } from "../../shared/registered-hosts.d";
 import type { RemoteTarget } from "../../shared/remote-host";
-import { constants } from "node:fs";
-import { open } from "node:fs/promises";
+import { constants, fstatSync } from "node:fs";
+import { mkdtemp, open, rm } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { dirname, isAbsolute, join } from "node:path";
-import { execFile } from "node:child_process";
+import { tmpdir } from "node:os";
+import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { gzip, gunzip } from "node:zlib";
 import { remoteHost } from "../../shared/remote-host-protocol";
@@ -258,6 +260,145 @@ export function sshEnvironment(): NodeJS.ProcessEnv {
 }
 
 export class UnsupportedRemotePlatform extends Error {}
+/** A main-owned OpenSSH diagnostic, including checks without checklist observers. */
+export class SshConnectionFailure extends LaunchFailure {
+  constructor(readonly failure: ReturnType<typeof sshFailure>) {
+    super("remote_host_unreachable");
+  }
+}
+
+async function platformProbe(host: string, signal?: AbortSignal, output?: (text: string) => void) {
+  const directory = await mkdtemp(join(tmpdir(), "foom-ssh-probe-"));
+  const diagnostic = join(directory, "ssh.log");
+  let handle: Awaited<ReturnType<typeof open>> | undefined;
+  try {
+    handle = await open(diagnostic, "wx", 0o600);
+    const fd = handle.fd;
+    const detached = process.platform !== "win32";
+    const systemRoot = process.env["SystemRoot"] ?? "";
+    if (!detached && (!systemRoot || !isAbsolute(systemRoot)))
+      throw new SshConnectionFailure("unreachable");
+    if (signal?.aborted) throw new SshConnectionFailure("unreachable");
+    return await new Promise<{ stdout: string }>((resolve, reject) => {
+      // -E keeps client diagnostics separate from remote stderr. execFile does
+      // not forward detached, so use spawn for an owned POSIX process group.
+      const child = spawn(
+        "ssh",
+        [
+          "-E",
+          diagnostic,
+          "-o",
+          "LogLevel=ERROR",
+          "-o",
+          "StrictHostKeyChecking=yes",
+          ...sshArguments(host),
+          "uname -s; uname -m",
+        ],
+        {
+          env: { ...sshEnvironment(), LC_ALL: "C" },
+          shell: false,
+          detached,
+          windowsHide: true,
+          stdio: ["ignore", "pipe", "pipe"],
+        },
+      );
+      let failed = false;
+      let stopped = false;
+      let cleanup: Promise<void> | undefined;
+      const stdout: string[] = [];
+      const sizes = { stdout: 0, stderr: 0 };
+      const stop = () => {
+        if (stopped) return;
+        stopped = true;
+        const pid = child.pid;
+        if (!detached && pid !== undefined) {
+          cleanup = new Promise<void>((done) => {
+            execFile(
+              join(systemRoot, "System32", "taskkill.exe"),
+              ["/pid", String(pid), "/T", "/F"],
+              { windowsHide: true, timeout: 5000 },
+              () => {
+                child.kill("SIGKILL");
+                done();
+              },
+            );
+          });
+        } else {
+          try {
+            if (pid !== undefined) process.kill(-pid, "SIGKILL");
+            else child.kill("SIGKILL");
+          } catch {
+            // The owned process group may already have exited.
+          }
+        }
+      };
+      const fail = () => {
+        failed = true;
+        stop();
+      };
+      const check = () => {
+        try {
+          if (fstatSync(fd).size > 16384) fail();
+        } catch {
+          fail();
+        }
+      };
+      // Monitor even successful probes. A final synchronous check catches a
+      // short-lived writer before the first tick; failures can never offer trust.
+      const monitor = setInterval(check, 10);
+      const deadline = setTimeout(fail, 10000);
+      signal?.addEventListener("abort", fail, { once: true });
+      child.stdout.setEncoding("utf8");
+      child.stderr.setEncoding("utf8");
+      const collect = (stream: "stdout" | "stderr", data: string) => {
+        sizes[stream] += Buffer.byteLength(data);
+        if (sizes[stream] > 16384) fail();
+        else {
+          if (stream === "stdout") stdout.push(data);
+          output?.(data);
+        }
+      };
+      child.stdout.on("data", (data: string) => {
+        collect("stdout", data);
+      });
+      child.stderr.on("data", (data: string) => {
+        collect("stderr", data);
+      });
+      child.on("error", fail);
+      child.on("exit", () => {
+        check();
+        if (detached) stop();
+      });
+      child.on("close", (code) => {
+        check();
+        clearInterval(monitor);
+        clearTimeout(deadline);
+        signal?.removeEventListener("abort", fail);
+        void (async () => {
+          await cleanup;
+          const text = failed
+            ? undefined
+            : await boundedFile(diagnostic, 16384).catch(() => undefined);
+          if (failed || code !== 0) {
+            if (text) output?.(text.toString("utf8"));
+            reject(
+              new SshConnectionFailure(
+                sshFailure(!failed && code === 255 ? text?.toString("utf8") : undefined),
+              ),
+            );
+          } else resolve({ stdout: stdout.join("") });
+        })();
+      });
+      if (signal?.aborted) fail();
+    });
+  } finally {
+    try {
+      await handle?.close();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  }
+}
 
 /** Strict uname output mapping; remote text is never used as a path or shell code. */
 export function remotePlatform(output: string) {
@@ -304,31 +445,15 @@ export async function selectHostArtifact(
         throw new ApplicationError("remote-host-unavailable");
       expectedSource = value.source;
     } catch {
-      observe?.("artifact", { state: "fail", reason: "artifact-unavailable" });
       if (!observe) throw new ApplicationError("remote-host-unavailable");
       missingArtifact = true;
     }
   }
   output?.("Connecting…\nPlatform\n", true);
-  const probe = promisify(execFile)("ssh", [...sshArguments(target.host), "uname -s; uname -m"], {
-    env: sshEnvironment(),
-    shell: false,
-    timeout: 10000,
-    maxBuffer: 256,
-    encoding: "utf8",
-    ...(signal ? { signal } : {}),
-  });
-  if (output) {
-    probe.child.stdout?.on("data", (text: string) => {
-      output(text);
-    });
-    probe.child.stderr?.on("data", (text: string) => {
-      output(text);
-    });
-  }
-  const { stdout } = await probe.catch(() => {
-    observe?.("ssh", { state: "fail", reason: "unreachable" });
-    throw new LaunchFailure("remote_host_unreachable");
+  const { stdout } = await platformProbe(target.host, signal, output).catch((error: unknown) => {
+    const failure = error instanceof SshConnectionFailure ? error.failure : "unreachable";
+    observe?.("ssh", { state: "fail", reason: failure });
+    throw new SshConnectionFailure(failure);
   });
   observe?.("ssh", { state: "pass" });
   let remote: ReturnType<typeof remotePlatform>;
@@ -371,7 +496,10 @@ export async function selectHostArtifact(
     observe("platform", libc ? { state: "fail", reason: libc } : { state: "pass" });
     if (libc) throw new UnsupportedRemotePlatform("Unsupported remote host platform");
   } else observe?.("platform", { state: "pass" });
-  if (missingArtifact) throw new ApplicationError("remote-host-unavailable");
+  if (missingArtifact) {
+    observe?.("artifact", { state: "fail", reason: "artifact-unavailable" });
+    throw new ApplicationError("remote-host-unavailable");
+  }
   output?.("Verifying daemon artifact…\n", true);
   const artifact = await hostArtifact(
     target.artifact ?? join(catalog, `${remote.platform}-${remote.arch}`, "foom-host.gz"),
