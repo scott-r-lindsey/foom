@@ -372,7 +372,7 @@ export class Hosts {
     return entry;
   }
   async requireAgent(host: string, agent: string): Promise<void> {
-    if (this.store.get().agents[agent] === false) throw new LaunchFailure("agent_disabled");
+    if (this.store.get().agents[agent] !== true) throw new LaunchFailure("agent_disabled");
     if (agentProviders().find((provider) => provider.id === agent)?.origin !== "bundled")
       throw new LaunchFailure("remote_agent_unsupported");
     const result = await this.inventory(host);
@@ -677,7 +677,7 @@ export class Hosts {
     this.registered(host);
     const system = result?.ok ? result.facts.requirements : undefined;
     if (!hostRequirements(system) || system.distro === "unknown") return undefined;
-    if (this.store.get().agents[tool] === false) return undefined;
+    if (tool !== "git" && tool !== "gh" && this.store.get().agents[tool] !== true) return undefined;
     const model = bundledAgentData
       .map((data) => parseAgentManifest(JSON.stringify(data), "bundled").model)
       .find((model) => model.id === tool);
@@ -709,7 +709,7 @@ export class Hosts {
             "git",
             "gh",
             ...agentProviders()
-              .filter((provider) => this.store.get().agents[provider.id] !== false)
+              .filter((provider) => this.store.get().agents[provider.id] === true)
               .map((provider) => provider.id),
           ].map((tool) => ({
             tool,
@@ -768,7 +768,7 @@ export class Hosts {
         "git",
         "gh",
         ...agentProviders()
-          .filter((provider) => this.store.get().agents[provider.id] !== false)
+          .filter((provider) => this.store.get().agents[provider.id] === true)
           .map((provider) => provider.id),
       ].includes(target.tool)
     )
@@ -1503,7 +1503,7 @@ export class Hosts {
       const changed = () =>
         providerRevision() !== revision || JSON.stringify(this.store.get().agents) !== enabled;
       const providers = agentProviders().filter(
-        (provider) => this.store.get().agents[provider.id] !== false,
+        (provider) => this.store.get().agents[provider.id] === true,
       );
       try {
         for (const provider of providers) await provider.validate?.();

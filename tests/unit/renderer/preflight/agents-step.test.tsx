@@ -209,7 +209,7 @@ test("registry-only agent cards save literal defaults and hook choices, with fac
   expect(f.save).toHaveBeenLastCalledWith({ agentHooks: { fixture: true } });
   fireEvent.click(within(card).getByRole("switch"));
   expect(f.save).toHaveBeenCalledWith({
-    agents: { claude: true, codex: true, agy: true, fixture: false },
+    agents: { claude: true, codex: true, agy: true, fixture: true },
   });
   fireEvent.change(within(card).getByRole("textbox"), { target: { value: "--yolo\na model\n" } });
   expect(within(card).getByText(/Bypass approvals/)).toBeTruthy();
@@ -251,7 +251,7 @@ test("setup controls request main's fixed action and refresh status, with failur
 });
 
 test.each(["claude", "custom"])(
-  "missing %s stays off without saving its preference and follows it after discovery",
+  "missing %s retains explicit enablement across discovery without an automatic save",
   (id) => {
     const f = fixture();
     const agent = { ...installation("claude"), id, name: "Test agent", path: null, version: null };
@@ -260,15 +260,15 @@ test.each(["claude", "custom"])(
     const card = screen.getByRole("region", {
       name: id === "claude" ? "Claude Code" : "Test agent",
     });
-    expect(within(card).getByRole("switch")).toHaveProperty("checked", false);
-    expect(within(card).getByRole("switch")).toHaveProperty("disabled", true);
-    expect(within(card).getByText("Off")).toBeTruthy();
+    expect(within(card).getByRole("switch")).toHaveProperty("checked", id === "claude");
+    expect(within(card).getByRole("switch")).toHaveProperty("disabled", false);
+    expect(within(card).getByText(id === "claude" ? "On" : "Off")).toBeTruthy();
     expect(within(card).getByText("Not found")).toBeTruthy();
     expect(f.save).not.toHaveBeenCalled();
     expect(f.scan).not.toHaveBeenCalled();
     const installed = report({ ...agent, path: "/fixture/agent" });
     view.rerender(<AgentsStep {...props} report={installed} />);
-    expect(within(card).getByRole("switch")).toHaveProperty("checked", true);
+    expect(within(card).getByRole("switch")).toHaveProperty("checked", id === "claude");
     expect(within(card).getByRole("switch")).toHaveProperty("disabled", false);
     const state = {
       ...props.state,
@@ -279,7 +279,7 @@ test.each(["claude", "custom"])(
     };
     view.rerender(<AgentsStep {...props} state={state} />);
     expect(within(card).getByText("Not found")).toBeTruthy();
-    expect(within(card).getByRole("switch")).toHaveProperty("disabled", true);
+    expect(within(card).getByRole("switch")).toHaveProperty("disabled", false);
     view.rerender(<AgentsStep {...props} state={state} report={installed} />);
     expect(within(card).getByRole("switch")).toHaveProperty("checked", false);
     expect(within(card).getByRole("switch")).toHaveProperty("disabled", false);
@@ -504,4 +504,21 @@ test("a failed local installer launch reports a fixed failure and can be retried
   fireEvent.click(button);
   await screen.findByText("Unable to start installer");
   expect(button).toHaveProperty("disabled", false);
+});
+
+test("first run can enable an uninstalled agent without adding other provider keys", () => {
+  const f = fixture();
+  render(
+    <AgentsStep
+      {...f.props}
+      state={setupState({ agents: {} })}
+      report={report(installation("claude", false))}
+      source={undefined}
+    />,
+  );
+  const toggle = within(screen.getByRole("region", { name: "Claude Code" })).getByRole("switch");
+  expect(toggle).toHaveProperty("checked", false);
+  expect(toggle).toHaveProperty("disabled", false);
+  fireEvent.click(toggle);
+  expect(f.save).toHaveBeenCalledExactlyOnceWith({ agents: { claude: true } });
 });

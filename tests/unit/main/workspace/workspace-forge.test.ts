@@ -1,3 +1,4 @@
+import { ENABLED_AGENTS } from "../../../helpers/enabled-agents";
 import { expect, test, vi } from "vitest";
 import { Workspace } from "../../../../src/main/workspace/workspace";
 import { deps, launched, prepare, receiver, repo, tree } from "./workspace-fixture";
@@ -25,6 +26,7 @@ test("board forge inventory validates checkout identity and opens only main-owne
   const open = vi.fn(() => Promise.resolve());
   deps.openExternal = open;
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   try {
     vi.mocked(deps.worktrees.launchIdentity).mockClear();
     await workspace.sidebarInventory();
@@ -143,6 +145,7 @@ test.each([
   const open = vi.fn(() => Promise.resolve());
   deps.openExternal = open;
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   try {
     workspace.configure({
       hooks: true,

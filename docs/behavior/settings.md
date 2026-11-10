@@ -63,6 +63,11 @@ never run. Requests resolve native executables through the main-owned lifecycle.
 General offers Foom’s folder or a location next to each repository for new worktrees, with an example
 destination. Changes apply to future creation; existing worktrees stay where they are.
 
+Every agent is off until explicitly enabled. Provider keys in `agents` and
+`agentArguments` are optional: a missing key means off or no extra arguments.
+Existing values are retained, including Environment variables and encrypted
+secrets. Global lists all providers by name, without provider-specific ordering.
+
 Settings → Agents opens on **Global**, alongside **Machines**. Global lists each
 agent with enable/disable and default arguments, custom manifest paths, **Open
 config folder**, and **Attach hooks**. It shows no machine status. Enablement does
@@ -303,7 +308,7 @@ settings edits and tell the human when a write is held; validation alone does no
 mean the settings applied.
 
 `agentArguments` in settings.json contains literal lists keyed by provider ID,
-including the required `claude`, `codex` and `agy` entries. Every file-originated argument change waits for Allow, including removing
+with every provider key optional. Every file-originated argument change waits for Allow, including removing
 arguments. Allow opens the trusted dialog with each changed agent's before and
 after lists, one argument per line, and names known bypass flags. Accepting also
 records bypass acknowledgement. Settings edits write the same file directly and

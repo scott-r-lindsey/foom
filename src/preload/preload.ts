@@ -628,30 +628,9 @@ const validSettings: Validator<Settings> = shape({
   terminalClipboardWrites: boolean,
   forges: dictionary(boolean),
   forgeHosts: dictionary(text),
-  agents: both(
-    shape({
-      claude: boolean,
-      codex: boolean,
-      agy: boolean,
-    }),
-    dictionary(boolean),
-  ),
-  agentArguments: both(
-    shape({
-      claude: array(text),
-      codex: array(text),
-      agy: array(text),
-    }),
-    dictionary(array(text)),
-  ),
-  agentBypassAcknowledged: both(
-    shape({
-      claude: boolean,
-      codex: boolean,
-      agy: boolean,
-    }),
-    dictionary(boolean),
-  ),
+  agents: dictionary(boolean),
+  agentArguments: dictionary(array(text)),
+  agentBypassAcknowledged: dictionary(boolean),
   agentBypassIdentities: either(absent, dictionary(text)),
   worktreeLocation: literal("root", "adjacent"),
   panelColor: literal("vivid", "subtle", "plain"),
@@ -1261,9 +1240,6 @@ const validEnvironmentRow: Validator<EnvironmentRow> = copying(
 const validEnvironmentState: Validator<EnvironmentState> = shape({
   lists: both(
     shape({
-      claude: array(validEnvironmentRow),
-      codex: array(validEnvironmentRow),
-      agy: array(validEnvironmentRow),
       all: array(validEnvironmentRow),
     }),
     dictionary(array(validEnvironmentRow)),

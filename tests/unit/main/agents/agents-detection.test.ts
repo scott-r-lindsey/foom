@@ -259,3 +259,12 @@ it("a selected refresh probes only that CLI and retains other observations, incl
     0,
   );
 });
+
+it("an empty enablement map retains catalog cards without running provider probes", async () => {
+  const scan = await agentFixture.service.scan({});
+  expect(scan.agents).toHaveLength(BUILTIN_AGENTS.length);
+  expect(
+    scan.agents.every((agent) => agent.reason === "Turned off" && agent.version === null),
+  ).toBe(true);
+  expect(execFile).toHaveBeenCalledTimes(1); // Only the fixture login PATH query.
+});

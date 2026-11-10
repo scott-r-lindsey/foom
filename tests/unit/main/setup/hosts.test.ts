@@ -1,3 +1,4 @@
+import { ENABLED_AGENTS } from "../../../helpers/enabled-agents";
 import { restartedBrewHost } from "./hosts-saved-fixture";
 import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -60,7 +61,10 @@ let repositories = [{ path: "/local/repo", name: "repo" }];
 const run = vi.fn<(host: string, request: HostManagement) => Promise<HostResult>>();
 beforeEach(() => {
   vi.clearAllMocks();
-  settings = { ...DEFAULT_SETTINGS };
+  settings = {
+    ...DEFAULT_SETTINGS,
+    agents: ENABLED_AGENTS,
+  };
   repositories = [{ path: "/local/repo", name: "repo" }];
   run.mockReset().mockResolvedValue({ ok: true, facts });
   mock.execute.mockReset().mockResolvedValue({ stdout: "git@forge.test:me/repo.git\n" });
@@ -678,6 +682,7 @@ test("forge inspection binds registered host, folder, checkout identity, branch,
 });
 
 test("unsupported remote providers refuse with a fixed listed reason before SSH inventory", async () => {
+  settings.agents = { ...settings.agents, custom: true };
   settings = { ...settings, registeredHosts: [{ host: "worker", codeFolder: facts.codeFolder }] };
   await expect(hosts.requireAgent("worker", "custom")).rejects.toMatchObject({
     reason: "remote_agent_unsupported",
@@ -686,6 +691,7 @@ test("unsupported remote providers refuse with a fixed listed reason before SSH 
 });
 
 test("a config provider cannot appear ready from a remote installation probe", async () => {
+  settings.agents = { ...settings.agents, custom: true };
   const base = agentProvider("claude");
   replaceConfigProviders([
     { ...base, id: "custom", origin: "config", model: { ...base.model, id: "custom" } },
@@ -2696,6 +2702,7 @@ test.each(["folder", "host", "repository"] as const)(
           ? reading.promise
           : Promise.resolve({ stdout: origin });
       });
+      settings.agents = { ...settings.agents, "guard-fixture": true };
       const base = agentProvider("claude");
       replaceConfigProviders([
         {

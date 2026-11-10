@@ -125,8 +125,10 @@ test("every worked guide attachment validates on its first pass", async () => {
 });
 
 test("the previous settings schema remains refreshable after adding close finished agents", () => {
-  const current = OWNED_FILES["schemas/settings.schema.json"] ?? "";
-  const previous = themeRecord(JSON.parse(current), "$");
+  const previous = themeRecord(
+    JSON.parse(readFileSync("tests/fixtures/config/settings-schema-2026-11-10.txt", "utf8")),
+    "$",
+  );
   const properties = themeRecord(previous["properties"], "$.properties");
   delete properties["closeFinishedAgents"];
   delete properties["defaultAgent"];
@@ -168,3 +170,22 @@ test("the previous agent schema remains refreshable after adding bundled-only in
   expect(refreshable(file, new TextEncoder().encode(bytes))).toBe(true);
   expect(refreshable(file, new TextEncoder().encode(`${bytes} `))).toBe(false);
 });
+
+test.each(["claude", "codex", "agy", "copilot", "opencode", "pi", "custom-agent"])(
+  "settings schema accepts optional keys for %s and preserves modified schemas",
+  (id) => {
+    const file = "schemas/settings.schema.json";
+    const validate = new Ajv2020().compile(JSON.parse(OWNED_FILES[file] ?? ""));
+    expect(validate({ kind: "settings", agents: {}, agentArguments: {} })).toBe(true);
+    expect(
+      validate({
+        kind: "settings",
+        agents: { [id]: true },
+        agentArguments: { [id]: ["--model", "example"] },
+      }),
+    ).toBe(true);
+    const previous = readFileSync("tests/fixtures/config/settings-schema-2026-11-10.txt");
+    expect(refreshable(file, previous)).toBe(true);
+    expect(refreshable(file, Buffer.concat([previous, Buffer.from("\n")]))).toBe(false);
+  },
+);

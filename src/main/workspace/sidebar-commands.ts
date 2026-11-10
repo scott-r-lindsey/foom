@@ -62,7 +62,7 @@ export async function sidebarInventory(this: SidebarCommandsContext): Promise<Si
           name: "localhost",
           available: true,
           agents: (scan?.agents ?? [])
-            .filter((agent) => agent.path && this.enabled[agent.id] !== false)
+            .filter((agent) => agent.path && this.enabled[agent.id] === true)
             .map((agent) => ({
               id: agent.id,
               name:
@@ -89,7 +89,7 @@ export async function sidebarInventory(this: SidebarCommandsContext): Promise<Si
             ? agentProviders()
                 .filter(
                   (provider) =>
-                    this.enabled[provider.id] !== false &&
+                    this.enabled[provider.id] === true &&
                     result.facts.agents.some(
                       (agent) => agent.id === provider.id && agent.state === "ready",
                     ),
@@ -914,7 +914,7 @@ export async function startConfig(
     }
     return;
   }
-  if (this.enabled[run] === false) throw new Error("This agent is turned off in preflight");
+  if (this.enabled[run] !== true) throw new Error("This agent is turned off in preflight");
   await this.scanAgents(false);
   if (replacement) {
     const old = this.launched.get(replacement.id);

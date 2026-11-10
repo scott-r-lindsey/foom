@@ -155,7 +155,9 @@ export class AgentService {
   }
 
   async scan(
-    enabled: Readonly<Record<string, boolean>> = {},
+    enabled: Readonly<Record<string, boolean>> = Object.fromEntries(
+      agentProviders().map(({ id }) => [id, true]),
+    ),
     selected?: string,
   ): Promise<AgentScan> {
     const resolved = await loginPath();
@@ -168,7 +170,7 @@ export class AgentService {
                 ? this.scanResult?.agents.find((agent) => agent.id === provider.id)
                 : undefined) ?? (await detect(provider.id, resolved.path, false)),
             )
-          : enabled[provider.id] === false
+          : enabled[provider.id] !== true
             ? detect(provider.id, resolved.path, false)
             : provider.enrich(await detect(provider.id, resolved.path), this.agyPlugin)
         ).then((agent) => ({

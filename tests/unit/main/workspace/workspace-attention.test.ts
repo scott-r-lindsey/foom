@@ -1,3 +1,4 @@
+import { ENABLED_AGENTS } from "../../../helpers/enabled-agents";
 import { expect, test, vi } from "vitest";
 import { Workspace } from "../../../../src/main/workspace/workspace";
 import type { VerdictRecord } from "../../../../src/shared/evaluator";
@@ -386,6 +387,7 @@ test("identical dismissed prompt alerts again in a later turn", async () => {
 
 test("provider stalls recover on a working title while the provider line remains visible", async () => {
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   await workspace.launch({
     agent: "codex",
     repository: repo.path,

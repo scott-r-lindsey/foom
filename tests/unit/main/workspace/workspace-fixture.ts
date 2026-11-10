@@ -1,3 +1,4 @@
+import { ENABLED_AGENTS } from "../../../helpers/enabled-agents";
 import { worktreeFake } from "./worktree-fake";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -174,6 +175,10 @@ export async function launched(agent: AgentId = "claude"): Promise<Workspace> {
       agents: [{ id: "agy", path: "/bin/agy", version: "1.3.3", hooks: true, reason: "installed" }],
     });
   const workspace = new Workspace(deps);
+  workspace.configure({
+    hooks: true,
+    agents: { ...ENABLED_AGENTS, [agent]: true },
+  });
   await workspace.launch({
     agent,
     repository: repo.path,
@@ -276,6 +281,7 @@ export async function codexWorkspace() {
     ],
   });
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   await workspace.launch({
     agent: "codex",
     repository: repo.path,

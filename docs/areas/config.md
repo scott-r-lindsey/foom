@@ -31,7 +31,11 @@ git command there. The check is installed before saved repositories load, so a
 conflicting saved registration is dropped, and config sessions refuse to start if a
 registered repository contains the folder. `foom config validate` skips the Foom-owned entries and `.gitkeep`.
 
-**Settings.** The allowlisted keys from #206 live in `config/settings.json`. On the
+**Settings.** The allowlisted keys from #206 live in `config/settings.json`.
+Provider-ID keys in `agents` and `agentArguments` are optional: absence means
+disabled or no extra arguments. Existing explicit entries are retained without
+filling other provider keys. See [profile downgrade recovery](settings.md#settings-and-setup)
+for the private one-time backup retained before profile migration. On the
 first launch with a version 1 profile, main writes them into a new `settings.json`
 (an existing file wins and the profile values are dropped), then rewrites the
 profile as version 2 without them in the same step. Values the file cannot express,

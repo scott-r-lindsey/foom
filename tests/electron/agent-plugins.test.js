@@ -177,6 +177,10 @@ process.stdin.resume();`,
     );
   require("../../build/shared/agent-plugin-parser.js").parseAgentManifest(JSON.stringify(manifest));
   await writeFile(file, JSON.stringify(manifest));
+  await page.evaluate(async (id) => {
+    const { settings } = await window.desktop.setupState();
+    await window.desktop.saveSetup({ agents: { ...settings.agents, [id]: true } });
+  }, manifest.id);
   const card = page
     .locator(".agent-card")
     .filter({ has: page.getByRole("heading", { name: "Fixture agent", exact: true }) });
@@ -393,6 +397,10 @@ else process.exit(2);
     path.join(home, ".foom/config/agents/foom-test-agent.json"),
     JSON.stringify(manifest),
   );
+  await page.evaluate(async (id) => {
+    const { settings } = await window.desktop.setupState();
+    await window.desktop.saveSetup({ agents: { ...settings.agents, [id]: true } });
+  }, manifest.id);
   const card = page
     .locator(".agent-card")
     .filter({ has: page.getByRole("heading", { name: "Setup fixture", exact: true }) });
@@ -610,6 +618,10 @@ if (fs.existsSync(gate)) {
     execution: { completion: "attached", completionChannels: [] },
   };
   await writeFile(file, JSON.stringify(manifest));
+  await page.evaluate(async (id) => {
+    const { settings } = await window.desktop.setupState();
+    await window.desktop.saveSetup({ agents: { ...settings.agents, [id]: true } });
+  }, manifest.id);
   const card = page.locator("#agent-card-late-agent");
   await expect(card.getByText("Not found", { exact: true })).toBeVisible();
   await expect(card.getByRole("switch")).toHaveCount(0);
@@ -627,7 +639,7 @@ if (fs.existsSync(gate)) {
   await expect(card.locator(".agent-path")).toHaveText(executable);
   assert.equal(
     (await page.evaluate(() => window.desktop.setupState())).settings.agents["late-agent"],
-    undefined,
+    true,
   );
   const atCardReady = await discovery();
   await waitForDiscovery();

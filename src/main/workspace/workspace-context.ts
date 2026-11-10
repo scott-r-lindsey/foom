@@ -94,7 +94,7 @@ export class WorkspaceContext {
   readonly checkoutHolds = new CheckoutHolds();
   readonly repositoryOperations = new Map<string, Set<symbol>>();
   readonly removingRepositories = new Set<string>();
-  enabled: Readonly<Record<AgentId, boolean>> = { claude: true, codex: true, agy: true };
+  enabled: Readonly<Record<AgentId, boolean>> = {};
   readonly now: () => number;
 
   /** Publish credential-free discovery for humans even before the first agent launch. */

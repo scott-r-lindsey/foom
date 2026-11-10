@@ -150,7 +150,7 @@ test("Settings persists literal agent defaults and discloses bypass once per age
     "Unable to update settings.",
   );
   assert.deepEqual(
-    (await page.evaluate(() => window.desktop.setupState())).settings.agentArguments.claude,
+    (await page.evaluate(() => window.desktop.setupState())).settings.agentArguments.claude ?? [],
     [],
   );
   await input.focus();
@@ -923,3 +923,81 @@ globalThis.fetch=async()=>new Response(${JSON.stringify(body)});
     }
   });
 }
+
+test("Settings Agents and Environment work without Claude Codex or Antigravity keys", {
+  timeout: deadline(45_000),
+}, async (context) => {
+  const { copyFile, chmod } = require("node:fs/promises");
+  const root = await mkdtemp(path.join(tmpdir(), "foom-optional-agents-"));
+  removeAfterApps(context, root);
+  const profile = path.join(root, "profile");
+  const bin = path.join(root, "bin");
+  const home = path.join(root, "home");
+  await Promise.all([profile, bin, home].map((directory) => mkdir(directory)));
+  const executable = path.join(bin, process.platform === "win32" ? "opencode.exe" : "opencode");
+  await copyFile(process.execPath, executable);
+  await chmod(executable, 0o755);
+  await writeFile(
+    path.join(profile, "settings.json"),
+    JSON.stringify({
+      version: 1,
+      settings: {
+        setupComplete: true,
+        checkForUpdates: false,
+        agents: { opencode: true },
+        agentArguments: { opencode: [] },
+        agentBypassAcknowledged: {},
+      },
+    }),
+  );
+  await writeFile(
+    path.join(profile, "environment.json"),
+    JSON.stringify({ version: 1, lists: {} }),
+  );
+  const app = await launchApp(context, {
+    fixture: "agent",
+    args: [`--user-data-dir=${profile}`],
+    env: { HOME: home, PATH: bin },
+  });
+  const page = await boardPage(app);
+  await openSettingsScreen(page);
+  await page.getByRole("button", { name: "Agents", exact: true }).click();
+  await expect(page.getByRole("checkbox", { name: "Enable OpenCode", exact: true })).toBeChecked();
+  for (const name of ["Claude Code", "Codex", "Antigravity", "GitHub Copilot", "Pi"])
+    await expect(
+      page.getByRole("checkbox", { name: `Enable ${name}`, exact: true }),
+    ).not.toBeChecked();
+  await page.getByLabel("OpenCode default arguments").fill("--model\nexample");
+  await page.getByLabel("OpenCode default arguments").blur();
+  await page.waitForFunction(
+    async () =>
+      (await window.desktop.setupState()).settings.agentArguments.opencode?.[1] === "example",
+  );
+  await page.screenshot({ path: evidencePath("1122/optional-agent-settings.png") });
+  await page.getByRole("tab", { name: "Machines", exact: true }).click();
+  await expect(page.locator(".agent-card")).toHaveCount(1);
+  const agentName = page.getByRole("textbox", { name: "New OpenCode variable name", exact: true });
+  await agentName.fill("AGENT_SETTING");
+  const row = page.getByRole("group", { name: "AGENT_SETTING", exact: true });
+  await row.getByRole("textbox", { name: "AGENT_SETTING value", exact: true }).fill("scoped");
+  await row.getByRole("textbox", { name: "AGENT_SETTING value", exact: true }).blur();
+  await page.waitForFunction(
+    async () => (await window.desktop.environmentState()).lists.opencode?.[0]?.value === "scoped",
+  );
+  await page.getByRole("button", { name: "Environment", exact: true }).click();
+  await page
+    .getByRole("textbox", { name: "New All sessions variable name", exact: true })
+    .fill("GLOBAL_SETTING");
+  const global = page.getByRole("group", { name: "GLOBAL_SETTING", exact: true });
+  await global.getByRole("textbox", { name: "GLOBAL_SETTING value", exact: true }).fill("shared");
+  await global.getByRole("textbox", { name: "GLOBAL_SETTING value", exact: true }).blur();
+  await page.waitForFunction(
+    async () => (await window.desktop.environmentState()).lists.all[0]?.value === "shared",
+  );
+  await page.screenshot({ path: evidencePath("1122/optional-agent-environment.png") });
+  const settings = await page.evaluate(async () => (await window.desktop.setupState()).settings);
+  assert.deepEqual(settings.agents, { opencode: true });
+  assert.deepEqual(settings.agentArguments, { opencode: ["--model", "example"] });
+  const environment = JSON.parse(await readFile(path.join(profile, "environment.json"), "utf8"));
+  assert.deepEqual(Object.keys(environment.lists).sort(), ["all", "opencode"]);
+});

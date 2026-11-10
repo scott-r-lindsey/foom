@@ -191,6 +191,12 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
     env: { HOME: home, PATH: bin },
   });
   const page = await boardPage(app);
+  await page.evaluate(async () => {
+    const { settings } = await window.desktop.setupState();
+    await window.desktop.saveSetup({
+      agents: { ...settings.agents, "config-driver": true, fixturecode: true },
+    });
+  });
   await page.evaluate(() =>
     window.desktop.sidebarCommand({ kind: "config-launch", run: "config-driver" }),
   );
@@ -530,6 +536,10 @@ test("config guide add-agent workflow verifies captures resume hooks and MCP wit
     env: { HOME: home, PATH: bin },
   });
   const page = await boardPage(app);
+  await page.evaluate(async () => {
+    const { settings } = await window.desktop.setupState();
+    await window.desktop.saveSetup({ agents: { ...settings.agents, "config-driver": true } });
+  });
   await page.evaluate(() =>
     window.desktop.sidebarCommand({ kind: "config-launch", run: "config-driver" }),
   );

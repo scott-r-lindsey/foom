@@ -98,7 +98,7 @@ export function SidebarPanel({
                 <ResumeField
                   identities={options?.agents ?? []}
                   patterns={(options?.agents ?? [])
-                    .filter((agent) => agent.path && options?.enabled[agent.id] !== false)
+                    .filter((agent) => agent.path && options?.enabled[agent.id] === true)
                     .flatMap((agent) =>
                       (agent.resumePaste ?? []).map((pattern) => ({
                         ...pattern,
@@ -110,9 +110,7 @@ export function SidebarPanel({
                   agents={(options?.agents ?? [])
                     .filter(
                       (agent) =>
-                        agent.path &&
-                        options?.enabled[agent.id] !== false &&
-                        agent.resume !== false,
+                        agent.path && options?.enabled[agent.id] === true && agent.resume !== false,
                     )
                     .map((agent) => agent.id)}
                   back={() => {

@@ -1,3 +1,4 @@
+import { ENABLED_AGENTS } from "../../../helpers/enabled-agents";
 import { expect, test, vi } from "vitest";
 import { replaceConfigProviders } from "../../../../src/main/agents/providers/registry";
 import { v2Provider } from "../../../../src/main/agents/providers/v2";
@@ -9,6 +10,7 @@ import { bound, cleanupCommand, deps, launched, repo, tree } from "./workspace-f
 
 test("merged cleanup lists every skip rule and continues after a changed candidate", async () => {
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   const other = (name: string) => ({ ...tree, path: `/trees/${name}`, branch: name });
   const changed = other("changed");
   const dirty = other("dirty");
@@ -88,6 +90,7 @@ test.each(["dirty", "unmerged", "replaced", "renamed", "missing"])(
   "merged cleanup revalidates %s after confirmation",
   async (change) => {
     const workspace = new Workspace(deps);
+    workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
     vi.mocked(deps.worktrees.mergedCommit).mockResolvedValue(true);
     await expect(
       cleanupCommand(
@@ -116,6 +119,7 @@ test.each(["dirty", "unmerged", "replaced", "renamed", "missing"])(
 
 test("merged cleanup cancels, refuses stale fetches and hides ineligible inventory", async () => {
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   const command = { kind: "delete-merged-worktrees", repository: repo.path } as const;
   vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([{ ...tree, path: repo.path }]);
   expect((await workspace.sidebarInventory()).repositories[0]?.canDeleteMerged).toBe(false);
@@ -200,6 +204,7 @@ test.each(["unmerged", "dirty", "replaced", "commit", "branch"])(
 
 test("a session launched during confirmation is skipped", async () => {
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   vi.mocked(deps.worktrees.mergedCommit).mockResolvedValue(true);
   await expect(
     cleanupCommand(
@@ -231,6 +236,7 @@ test("local inventory and launches proceed while a remote check is pending; comp
   let now = 0;
   deps.now = () => now;
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   const inventory = await workspace.sidebarInventory();
   expect(inventory.repositories).toEqual([{ ...repo, worktrees: [tree], canDeleteMerged: false }]);
   await workspace.sidebarInventory();
@@ -272,6 +278,7 @@ test.each([new Error("offline"), "offline"])(
     const changed = vi.fn();
     deps.onChange = changed;
     const workspace = new Workspace(deps);
+    workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
     expect((await workspace.sidebarInventory()).repositories[0]?.mergedError).toBeUndefined();
     fail(error);
     await vi.waitFor(() => {
@@ -299,6 +306,7 @@ test.each(["new inventory", "main only", "removed", "disposed"])(
     const changed = vi.fn();
     deps.onChange = changed;
     const workspace = new Workspace(deps);
+    workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
     await workspace.sidebarInventory();
     if (change === "new inventory") {
       vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([{ ...tree, head: "new" }]);
@@ -343,6 +351,7 @@ test("one slow remote does not delay another repository's inventory or eligibili
   );
   vi.mocked(deps.worktrees.mergedCommit).mockResolvedValue(true);
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   expect((await workspace.sidebarInventory()).repositories).toHaveLength(2);
   await expect
     .poll(async () => (await workspace.sidebarInventory()).repositories[1]?.canDeleteMerged)
@@ -360,6 +369,7 @@ test("fresh cached plan opens without fetching, stale plan opens checking, and a
   deps.now = () => now;
   vi.mocked(deps.worktrees.mergedCommit).mockResolvedValue(true);
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   await expect
     .poll(async () => (await workspace.sidebarInventory()).repositories[0]?.canDeleteMerged)
     .toBe(true);
@@ -400,6 +410,7 @@ test("fresh cached plan opens without fetching, stale plan opens checking, and a
 test("hidden finished cleanup reopens its retained results without another fetch", async () => {
   vi.mocked(deps.worktrees.mergedCommit).mockResolvedValue(true);
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   const command = { kind: "delete-merged-worktrees", repository: repo.path } as const;
   await cleanupCommand(workspace, command, () => Promise.resolve(true));
   const fetches = vi.mocked(deps.worktrees.mergedDefault).mock.calls.length;
@@ -416,6 +427,7 @@ test("hidden finished cleanup reopens its retained results without another fetch
 test("cleanup retains branch reservations until the checked-ref transaction settles", async () => {
   vi.mocked(deps.worktrees.mergedCommit).mockResolvedValue(true);
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   vi.mocked(deps.worktrees.deleteMergedBranches).mockImplementation(async () => {
     await expect(workspace.createWorktree(repo.path, "feature")).rejects.toThrow("busy");
     throw new Error("ref lock failed");
@@ -442,6 +454,7 @@ test("cleanup drains superseded eligibility scans and does not rescan while remo
   }
   vi.mocked(deps.worktrees.mergedCommit).mockResolvedValue(true);
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   await workspace.sidebarInventory();
   await vi.waitFor(() => {
     expect(releases).toHaveLength(1);
@@ -524,6 +537,7 @@ test("an unavailable config plugin still protects its recorded conversation from
 
 test("approved merged cleanup retries one pending removal without Git authorization or branch deletion", async () => {
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([
     { ...tree, branch: null, head: null, prunable: true, removalFailed: true },
   ]);

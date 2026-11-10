@@ -693,6 +693,7 @@ for (const mode of ["light", "dark"]) {
       JSON.stringify({
         version: 1,
         settings: {
+          agents: { agy: true },
           setupComplete: true,
           checkForUpdates: false,
           interfaceTheme: `eclipse-${mode}`,

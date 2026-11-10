@@ -20,15 +20,29 @@ in the profile. Validation alone grants no approval.
 | `terminalFont` | Validated family name, default Hack Nerd Font Mono |
 | `terminalFontSize` | Integer 10–32 |
 | `sound` | Exact current `shared/sounds.ts` settings format |
-| `agents` | Boolean provider-ID map, at most 100 entries; `claude`, `codex`, `agy` are required |
+| `agents` | Boolean provider-ID map, at most 100 entries; every key is optional; missing means disabled |
 | `defaultAgent` | Provider ID or null (initially unset); shared orchestration default, no automatic vendor selection |
-| `agentArguments` | Literal argument lists keyed by valid provider IDs, at most 100 entries; `claude`, `codex`, `agy` are required; validated by `parseAgentDefaults`; every file change requires Allow |
+| `agentArguments` | Literal argument lists keyed by valid provider IDs, at most 100 entries; every key is optional; missing means no extra arguments; validated by `parseAgentDefaults`; every file change requires Allow |
 | `hooks` | Boolean |
 | `closeFinishedAgents` | Boolean, default `true`; close eligible finished children; no Allow required |
 | `showNewChildren` | Boolean, default `true`; display-only, no Allow required |
 | `restoreSessions` | Boolean, default `true`; enabling through the file requires Allow |
 | `concurrentChildren` | Integer 1–16, default 4 |
 | `recentRepositoryDays` | Integer 1–365, default 30 |
+
+Agent maps start empty. Existing explicit provider values load unchanged; saves add
+only configured keys. Environment uses the same optional provider-ID lists for all
+agents, preserving stored ciphertext and absent lists. Removing an enabled key from
+a config proposal counts as disabling it and requires Allow.
+
+On the first valid existing-profile load after #1122, main publishes a private,
+one-time `settings-before-optional-agents.json` backup before rewriting the profile.
+It excludes retired inference fields and is never overwritten. Failure to preserve
+it stops loading before any profile rewrite. Older builds reject sparse config
+maps and leave their file intact, but their profile validator can fall back to
+and save defaults for sparse consent maps. To recover after a downgrade, quit
+Foom and restore that backup as the profile's `settings.json` before reopening
+the current build. Environment ciphertext remains in its separate file.
 
 `shared/config-settings.ts` supplies the same value validation to main's settings
 patch parser and the file parser; theme files use `shared/theme-files.ts` directly.
@@ -194,6 +208,8 @@ consistent status icons and card-sized text; status never relies on color alone.
 Offline observations are dimmed and actions are disabled; Hosts retains explicit
 connection recovery. There is no Off summary or Global shortcut below the cards.
 First-run setup keeps the shared local card view and does not enumerate hosts.
+Its switches select enablement independently of installation, so an initially
+missing agent can be enabled before using its Install action.
 Install uses package-manager recipes first and bundled vendor scripts otherwise
 on Linux/macOS, including This computer; Sign in uses declared recipes. See
 [vendor installer boundaries](hosts.md#vendor-agent-installers-1071). Remote plugin installation retains its exact

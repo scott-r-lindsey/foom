@@ -1,3 +1,4 @@
+import { ENABLED_AGENTS } from "../../../helpers/enabled-agents";
 import { agentProvider } from "../../../../src/main/agents/providers/registry";
 import { afterEach, beforeEach, vi } from "vitest";
 import { Workspace } from "../../../../src/main/workspace/workspace";
@@ -121,6 +122,7 @@ export function principal(): Principal {
 const workspaces = new Set<Workspace>();
 export function createWorkspace(dependencies: WorkspaceDependencies = deps): Workspace {
   const workspace = new Workspace(dependencies);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   workspaces.add(workspace);
   return workspace;
 }

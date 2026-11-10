@@ -89,6 +89,10 @@ console.log('Extension ready');`,
     path.join(home, ".foom/config/agents/foom-test-agent.json"),
     JSON.stringify(manifest),
   );
+  await page.evaluate(async () => {
+    const { settings } = await window.desktop.setupState();
+    await window.desktop.saveSetup({ agents: { ...settings.agents, "foom-test-agent": true } });
+  });
   await expect
     .poll(async () =>
       (await page.evaluate(() => window.desktop.scanAgents(true))).agents.some(

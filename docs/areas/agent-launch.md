@@ -31,7 +31,8 @@ of other providers.
 ### Launch environment (#215)
 
 `src/main/setup/environment.ts` owns Environment settings. `environment.json` in user
-data holds an All sessions list and one per agent; secret values are stored only as
+data holds an All sessions list and optional lists keyed by provider ID;
+missing provider lists are empty, and no provider slots are inserted on save; secret values are stored only as
 `safeStorage` ciphertext, never in `settings.json`, and Linux's `basic_text` fallback
 counts as unavailable, so secrets are refused there. Loading drops invalid rows and
 secrets that cannot be decrypted. Replies carry names, plain values and null for saved

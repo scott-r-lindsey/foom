@@ -2031,3 +2031,27 @@ test("local installer bridge validates availability and terminal IDs", async () 
     await expect(api.localAgentInstall()).rejects.toThrow();
   }
 });
+
+test.each(["claude", "codex", "agy", "copilot", "opencode", "pi", "custom-agent"])(
+  "bridge accepts settings and Environment containing only %s",
+  async (id) => {
+    const api = await bridge();
+    const settings = {
+      ...setup.settings,
+      agents: { [id]: true },
+      agentArguments: { [id]: [] },
+      agentBypassAcknowledged: {},
+    };
+    mock.invoke.mockResolvedValue({ ...setup, settings });
+    await expect(api.setupState()).resolves.toEqual({ ...setup, settings });
+    const state = {
+      lists: { all: [], [id]: [{ name: "TOKEN", value: null, secret: true }] },
+      windows: false,
+      secrets: true,
+    };
+    mock.invoke.mockResolvedValue(state);
+    await expect(api.environmentState()).resolves.toEqual(state);
+    mock.invoke.mockResolvedValue({ ...state, lists: { all: [] } });
+    await expect(api.environmentState()).resolves.toEqual({ ...state, lists: { all: [] } });
+  },
+);

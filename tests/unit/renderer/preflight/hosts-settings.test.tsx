@@ -1440,3 +1440,27 @@ test("returning to Hosts reattaches the window's install without starting anothe
   expect(disposed).toHaveBeenCalledOnce();
   expect(close).not.toHaveBeenCalled();
 });
+
+test.each([
+  [{}, "0 of 0 ready"],
+  [{ opencode: true, claude: false }, "0 of 1 ready"],
+  [{ claude: true }, "1 of 1 ready"],
+  [{ claude: true, opencode: true }, "1 of 2 ready"],
+] as const)("host readiness counts only explicitly enabled agents %j", async (agents, text) => {
+  const state = saved(initial);
+  const hosts = vi.fn(() => Promise.resolve(state));
+  const openAgents = vi.fn();
+  render(
+    <HostsSettings
+      source={{ hosts }}
+      headingRef={createRef()}
+      agents={agents}
+      openAgents={openAgents}
+    />,
+  );
+  await screen.findByRole("region", { name: "worker" });
+  expandHosts();
+  expect(screen.getByText(text)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Open" }));
+  expect(openAgents).toHaveBeenCalledExactlyOnceWith("worker");
+});
