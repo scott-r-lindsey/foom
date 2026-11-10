@@ -207,10 +207,20 @@ function startQuitOrdering(app) {
     async install() {
       await app.evaluate(installNativeOrdering, options);
       for (const page of app.windows()) {
-        if (page.url() === "app://confirmation/confirmation.html") {
-          pages.push(page);
-          page.on("console", onConsole);
+        if (page.url() !== "app://confirmation/confirmation.html") continue;
+        // Fixture owners may dispose their dialog before the app cleanup runs.
+        // Playwright can still enumerate its cached page during that close.
+        if (page.isClosed()) {
+          record("harness", { event: "harness:renderer-closed-before-install" });
+          continue;
+        }
+        pages.push(page);
+        page.on("console", onConsole);
+        try {
           await page.evaluate(installRendererOrdering, options);
+        } catch (error) {
+          if (!page.isClosed()) throw error;
+          record("harness", { event: "harness:renderer-closed-before-install" });
         }
       }
     },

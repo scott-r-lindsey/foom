@@ -752,7 +752,8 @@ Events are:
 
 - `harness:native-wait-start`, `harness:native-wait-end`, `harness:click-start`,
   `harness:click-end`, `harness:locator-handler-start`,
-  `harness:locator-handler-end`, and the existing quit acknowledgement/shutdown phases.
+  `harness:locator-handler-end`, `harness:renderer-closed-before-install`, and the
+  existing quit acknowledgement/shutdown phases.
 - `native:installed`, `native:render`, `native:focus`, `native:blur`, `native:show`,
   `native:hide`, `native:move`, `native:resize`, `native:minimize`, `native:restore`,
   `native:closed`, `native:mouseDown`, `native:mouseUp`, `native:answer`,
@@ -789,6 +790,12 @@ completion or failure. `record:oversized` and `record:malformed` identify reject
 records. The real Electron harness regression verifies presentation, trusted
 renderer input, answer identity, actionability logging and quit lifecycle together.
 
+
+Fixture-owned dialogs may already have been disposed when app teardown starts.
+A cached closed page, or a page that closes during recorder attachment, emits
+`harness:renderer-closed-before-install` and is skipped without retrying. An
+evaluation error in a live page still fails; the recorder never hides a live
+renderer failure or reopens a disposed dialog.
 
 ## Real OpenSSH trust boundary (#1059)
 

@@ -524,3 +524,45 @@ test("quit ordering diagnostics observe native presentation, input and answer be
     context.diagnostic(`Quit ordering: ${JSON.stringify(ordering.snapshot())}`);
   }
 });
+
+test("quit ordering diagnostics tolerate disposed pages and retain live renderer failures", async () => {
+  const { EventEmitter } = require("node:events");
+  const { PassThrough } = require("node:stream");
+  const { startQuitOrdering } = require("./quit-diagnostics.js");
+  for (const mode of ["closed", "closes", "live-error"]) {
+    let closed = mode === "closed";
+    let evaluations = 0;
+    const failure = new Error("fixture renderer evaluation failed");
+    const stderr = new PassThrough();
+    const page = Object.assign(new EventEmitter(), {
+      url: () => "app://confirmation/confirmation.html",
+      isClosed: () => closed,
+      evaluate: async () => {
+        evaluations++;
+        if (mode === "closes") closed = true;
+        throw failure;
+      },
+    });
+    const app = {
+      process: () => ({ stderr }),
+      evaluate: async () => {},
+      windows: () => [page],
+    };
+    const ordering = startQuitOrdering(app);
+    try {
+      if (mode === "live-error")
+        await assert.rejects(ordering.install(), (error) => error === failure);
+      else await ordering.install();
+      assert.equal(evaluations, mode === "closed" ? 0 : 1);
+      assert.equal(
+        ordering
+          .snapshot()
+          .events.some((item) => item.event === "harness:renderer-closed-before-install"),
+        mode !== "live-error",
+      );
+    } finally {
+      ordering.stop();
+      stderr.destroy();
+    }
+  }
+});
