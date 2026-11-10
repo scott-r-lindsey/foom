@@ -1,4 +1,5 @@
 import { BUILTIN_AGENTS } from "../../shared/providers/catalog";
+import { GithubSignInPanel } from "./github-sign-in";
 import { HostTerminal } from "./host-terminal";
 import { hostDisplayName, hostNicknameError } from "../../shared/registered-hosts";
 import { Fragment, createContext, use, useCallback, useEffect, useRef, useState } from "react";
@@ -225,8 +226,12 @@ function Checklist({
   changeFolder,
   openAgents,
   enabledAgents,
+  ghPanel,
+  ghRunning,
   copySsh,
 }: {
+  ghPanel?: ReactNode;
+  ghRunning?: boolean;
   awaitingTrust: boolean;
   copySsh: () => Promise<unknown>;
   openAgents?: ((host: string) => void) | undefined;
@@ -257,13 +262,18 @@ function Checklist({
   const recipe = (id: string, operation: "install" | "sign-in") => (
     <button
       type="button"
-      disabled={disabled}
-      aria-label={`${operation === "install" ? "Install" : "Sign in"} ${id}`}
+      disabled={disabled || (id === "gh" && ghRunning)}
+      aria-label={`${operation === "install" ? (id === "gh" ? "Install & sign in" : "Install") : "Sign in"} ${id}`}
       onClick={() => {
-        act({ action: "recipe", host: entry.host, tool: id, operation });
+        act({
+          action: "recipe",
+          host: entry.host,
+          tool: id,
+          operation: id === "gh" && operation === "install" ? "install-sign-in" : operation,
+        });
       }}
     >
-      {operation === "install" ? "Install" : "Sign in"}
+      {operation === "install" ? (id === "gh" ? "Install & sign in" : "Install") : "Sign in"}
     </button>
   );
   const tools = (
@@ -303,7 +313,8 @@ function Checklist({
                 : undefined
             }
           />
-          {agent.id !== "git" && agent.state === "ready" && (
+          {agent.id === "gh" && agent.state === "missing" && ghPanel}
+          {agent.id !== "git" && agent.state === "ready" && !(agent.id === "gh" && ghPanel) && (
             <Row
               target={{ kind: "sign-in", tool: agent.id }}
               name={
@@ -326,6 +337,12 @@ function Checklist({
                   : undefined
               }
             />
+          )}
+          {agent.id === "gh" && agent.state === "ready" && ghPanel}
+          {agent.id === "gh" && agent.signIn !== "signed-in" && (
+            <p className="github-token-note">
+              Without a keyring, gh may store your token in plain text on this host.
+            </p>
           )}
         </Fragment>
       );
@@ -644,7 +661,10 @@ export function HostsSettings({
 }: {
   agents?: Readonly<Record<string, boolean>>;
   openAgents?: (host: string) => void;
-  source: Pick<SetupSource, "hosts" | "copyHost" | "hostTerminal" | "installs">;
+  source: Pick<
+    SetupSource,
+    "hosts" | "copyHost" | "hostTerminal" | "installs" | "githubSignIn" | "githubSignInSessions"
+  >;
   headingRef: RefObject<HTMLHeadingElement | null>;
 }) {
   const [state, setState] = useState<HostsState>({ hosts: [], locations: [] });
@@ -666,12 +686,24 @@ export function HostsSettings({
   const [progress, setProgress] = useState<HostCheckProgress>();
   const [rowPending, setRowPending] = useState<ReadonlySet<string>>(() => new Set());
   const [output, setOutput] = useState<HostOutput>();
-  const [recipes, setRecipes] = useState<ReadonlyMap<string, { id: string; finished: boolean }>>(
+  const [recipes, setRecipes] = useState<
+    ReadonlyMap<string, { id: string; finished: boolean; gh?: "install" | "sign-in" }>
+  >(
     () =>
       new Map(
         [...(source.installs?.sessions() ?? [])].map(([host, id]) => [
           host,
-          { id, finished: false },
+          {
+            id,
+            finished: false,
+            ...(source.githubSignInSessions?.().has(id)
+              ? {
+                  gh: source.githubSignInSessions().get(id)
+                    ? ("install" as const)
+                    : ("sign-in" as const),
+                }
+              : {}),
+          },
         ]),
       ),
   );
@@ -688,13 +720,13 @@ export function HostsSettings({
     void api?.({ action: "dismiss-output" });
   };
   const recipeFinished = useCallback(
-    (id: string) => {
+    async (id: string, succeeded?: boolean) => {
       setRecipes((previous) => {
         for (const [host, recipe] of previous)
           if (recipe.id === id) return new Map(previous).set(host, { ...recipe, finished: true });
         return previous;
       });
-      void api?.({ action: "list" })
+      await api?.({ action: "list" })
         .then((next) => {
           setState(next);
           setChecks(new Map());
@@ -702,6 +734,8 @@ export function HostsSettings({
         .catch(() => {
           setError("Unable to refresh tool");
         });
+      if (succeeded)
+        setRecipes((previous) => new Map([...previous].filter(([, recipe]) => recipe.id !== id)));
     },
     [api],
   );
@@ -840,7 +874,20 @@ export function HostsSettings({
       }
       if (next.recipeSession && "host" in action) {
         const id = next.recipeSession;
-        setRecipes((previous) => new Map(previous).set(action.host, { id, finished: false }));
+        setRecipes((previous) =>
+          new Map(previous).set(action.host, {
+            id,
+            finished: false,
+            ...(action.action === "recipe" && action.tool === "gh"
+              ? {
+                  gh:
+                    action.operation === "install-sign-in"
+                      ? ("install" as const)
+                      : ("sign-in" as const),
+                }
+              : {}),
+          }),
+        );
       }
       if (next.recipeFailure) setError("Recipe unavailable for this host");
       if (action.action === "add" && next.hosts.some((entry) => entry.host === action.host)) {
@@ -1131,7 +1178,7 @@ export function HostsSettings({
                   awaitingTrust={awaitingTrust}
                 />
               )}
-              {!awaitingTrust && recipe && source.hostTerminal && (
+              {!awaitingTrust && recipe && !recipe.gh && source.hostTerminal && (
                 <HostTerminal
                   key={recipe.id}
                   id={recipe.id}
@@ -1164,6 +1211,26 @@ export function HostsSettings({
                 }}
               >
                 <Checklist
+                  ghRunning={!!recipe?.gh && !recipe.finished}
+                  ghPanel={
+                    !awaitingTrust && recipe?.gh ? (
+                      <GithubSignInPanel
+                        key={recipe.id}
+                        id={recipe.id}
+                        source={source}
+                        finished={recipeFinished}
+                        installing={recipe.gh === "install"}
+                        retry={() => {
+                          void act({
+                            action: "recipe",
+                            host: entry.host,
+                            tool: "gh",
+                            operation: recipe.gh === "install" ? "install-sign-in" : "sign-in",
+                          });
+                        }}
+                      />
+                    ) : undefined
+                  }
                   awaitingTrust={awaitingTrust}
                   copySsh={() =>
                     source.copyHost?.({ kind: "copy-host-ssh-command", host: entry.host }) ??

@@ -1,3 +1,4 @@
+import type { GithubSignInState } from "../../shared/registered-hosts.d";
 import { hostsAction } from "../../shared/registered-hosts";
 import type { RemoteTarget } from "../../shared/remote-host";
 import type { DialogContent, DialogOutcome, PlainDialogContent } from "../../shared/confirmation";
@@ -22,6 +23,7 @@ import type {
 import type { WorktreeService } from "../workspace/worktrees";
 
 export interface SetupDependencies {
+  githubSignIn?: (id: unknown, action: unknown) => Promise<GithubSignInState>;
   hosts?: Hosts;
   hostsChanged?: () => void;
   localAgentInstall?: (
@@ -78,6 +80,10 @@ export class Setup {
   async copyHost(input: unknown): Promise<void> {
     if (!this.deps.hosts || !this.deps.copyText) throw new Error("Copy unavailable");
     await this.deps.copyText(this.deps.hosts.copyValue(input));
+  }
+  githubSignIn(id: unknown, action: unknown) {
+    if (!this.deps.githubSignIn) throw new Error("Sign-in unavailable");
+    return this.deps.githubSignIn(id, action);
   }
   private hostTrust = new AbortController();
   cancelHostTrust(): void {

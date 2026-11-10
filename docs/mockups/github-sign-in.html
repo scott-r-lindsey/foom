@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GitHub Sign-in Mockup</title>
+<style>
+:root {
+  --bg:#f3f0fa; --surface:#e9e4f5; --line:#ddd6ee; --ink:#14101f; --muted:#625a7a;
+  --accent:#5b2bd9; --attention:#d98200; --attention-ink:#8c5000; --done-ink:#0e6b3c;
+  --failed:#d6166e; --failed-ink:#b0105a; --badge-fill:#d6cfe9; --badge-ink:#14101f;
+  --term:#14101f; --term-ink:#f4efff; --term-muted:#b5abd1;
+  --ui:"Geist",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"Geist Mono",ui-monospace,"DejaVu Sans Mono",Menlo,monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg:#05040a; --surface:#0d0a17; --line:#251d3f; --ink:#f4efff; --muted:#9d93bd;
+  --accent:#9b6bff; --attention:#ffb23e; --attention-ink:#ffb23e; --done-ink:#6fe0a3;
+  --failed:#ff2e88; --failed-ink:#ff2e88; --badge-fill:#1c1632; --badge-ink:#f4efff;
+  --term:#05040a; --term-ink:#f4efff; --term-muted:#9d93bd; color-scheme:dark;
+} }
+:root[data-theme="dark"] {
+  --bg:#05040a; --surface:#0d0a17; --line:#251d3f; --ink:#f4efff; --muted:#9d93bd;
+  --accent:#9b6bff; --attention:#ffb23e; --attention-ink:#ffb23e; --done-ink:#6fe0a3;
+  --failed:#ff2e88; --failed-ink:#ff2e88; --badge-fill:#1c1632; --badge-ink:#f4efff;
+  --term:#05040a; --term-ink:#f4efff; --term-muted:#9d93bd; color-scheme:dark;
+}
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.45 var(--ui); padding:16px; }
+.wrap { max-width:760px; margin:0 auto; display:grid; gap:16px; }
+button { font:inherit; color:var(--ink); background:transparent; border:1px solid var(--line); border-radius:6px; padding:4px 11px; cursor:pointer; white-space:nowrap; }
+button:hover { border-color:var(--accent); }
+button:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+:root[data-theme="dark"] button.primary { color:#05040a; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) button.primary { color:#05040a; } }
+
+.controls { border:1px dashed var(--muted); border-radius:8px; padding:10px 12px; display:grid; gap:8px; }
+.controls-label { font:600 11px/1 var(--mono); letter-spacing:.08em; text-transform:uppercase; color:var(--muted); }
+.controls-row { display:flex; flex-wrap:wrap; gap:6px; }
+.controls button { font-size:12px; padding:3px 9px; }
+.controls button[aria-pressed="true"] { border-color:var(--accent); color:var(--accent); font-weight:600; }
+#approve[hidden] { display:none; }
+#approve { border-color:var(--accent); color:var(--accent); font-weight:600; }
+
+.card { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:14px 16px; display:grid; gap:12px; min-width:0; }
+.card-head { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
+.card-head h3 { margin:0; font-size:15px; }
+.card-head code { font:12px var(--mono); color:var(--muted); }
+.group-title { font:600 11px/1 var(--mono); letter-spacing:.08em; text-transform:uppercase; color:var(--muted); margin:0 0 2px; }
+.checks { display:grid; gap:0; }
+.row { display:grid; grid-template-columns:minmax(0,190px) minmax(0,1fr) auto; gap:12px; align-items:center; min-height:38px; padding:5px 0; border-top:1px solid var(--line); }
+.row:first-of-type { border-top:0; }
+.name { display:flex; gap:7px; align-items:center; flex-wrap:wrap; min-width:0; }
+.tag { font:10px/1 var(--mono); background:var(--badge-fill); color:var(--badge-ink); padding:3px 5px; border-radius:4px; }
+.status { display:flex; align-items:center; gap:8px; min-width:0; }
+.sym { flex:none; width:14px; height:14px; display:inline-flex; align-items:center; justify-content:center; }
+.pass { color:var(--done-ink); } .neutral { color:var(--muted); } .need { color:var(--attention-ink); font-weight:600; } .fail { color:var(--failed-ink); font-weight:600; } .work { color:var(--accent); }
+.dot-neutral { width:10px; height:10px; border:1.5px solid var(--muted); border-radius:50%; }
+.dot-need { width:10px; height:10px; background:var(--attention); border-radius:50%; box-shadow:0 0 0 3px color-mix(in srgb, var(--attention) 30%, transparent); }
+.square-fail { width:10px; height:10px; background:var(--failed); }
+.spin { width:12px; height:12px; border:2px solid color-mix(in srgb, var(--accent) 25%, transparent); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spin { animation:none; border-color:var(--accent); } }
+.actions { display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
+
+.panel { padding:10px 0 12px; display:grid; gap:10px; min-width:0; }
+.code-line { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+.code { font:600 26px/1.1 var(--mono); letter-spacing:.06em; user-select:all; }
+.facts { display:flex; flex-wrap:wrap; gap:6px; }
+.fact { font:11px/1 var(--mono); background:var(--badge-fill); color:var(--badge-ink); padding:4px 6px; border-radius:4px; display:inline-flex; gap:5px; align-items:center; }
+.fact.missing { background:transparent; outline:1px solid var(--line); color:var(--muted); }
+.panel-buttons { display:flex; flex-wrap:wrap; gap:6px; }
+.disclosure { background:none; border:0; padding:2px 0; color:var(--muted); font-size:12px; display:inline-flex; gap:5px; align-items:center; justify-self:start; }
+.disclosure:hover { color:var(--ink); }
+.term { background:var(--term); color:var(--term-ink); font:12px/1.5 var(--mono); padding:10px 12px; border-radius:6px; overflow-x:auto; white-space:pre; margin:0; border:1px solid var(--line); min-height:64px; max-height:190px; }
+.term .dim { color:var(--term-muted); }
+
+.notes { font-size:13px; color:var(--muted); }
+.notes b { color:var(--ink); font-weight:600; }
+@media (max-width:560px) { .row { grid-template-columns:minmax(0,1fr) auto; } .status { grid-column:1 / -1; grid-row:2; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <section class="controls" aria-label="Mockup controls">
+    <div class="controls-label">Mockup only</div>
+    <div class="controls-row" id="states"></div>
+    <div class="controls-row">
+      <button id="approve" hidden>Simulate: Authorize clicked on GitHub</button>
+      <button id="theme">Light / dark</button>
+    </div>
+  </section>
+
+  <section class="card" aria-label="Host cloud-build">
+    <div class="card-head"><h3>cloud-build</h3><code>admin@ec2 · Debian 13</code></div>
+    <div class="checks">
+      <p class="group-title">Tools</p>
+      <div class="row">
+        <div class="name">Git</div>
+        <div class="status pass"><span class="sym">✓</span>Pass · Installed</div><div class="actions"></div>
+      </div>
+      <div id="gh"></div>
+      <div class="row">
+        <div class="name">Codex</div>
+        <div class="status neutral"><span class="sym"><span class="dot-neutral"></span></span>Not found</div><div class="actions"><button>Install</button></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="notes" id="note" aria-label="What Foom does in this state"></section>
+</div>
+
+<script>
+const CODE = "7F2K-9QXD";
+const URL_ = "https://github.com/login/device";
+const STATES = [
+  ["out","Signed out"],["starting","Starting"],["waiting","Waiting for you"],["finishing","Finishing"],["done","Signed in"],
+  ["blocked","Browser & clipboard blocked"],["expired","Code expired"],["failed","Failed"],["missing","gh not installed"],["installing","Installing first"],
+];
+const NOTES = {
+  out:"<b>One click.</b> Nothing else on this card changes when you press Sign in, and no full check runs.",
+  starting:"<b>Automatic:</b> Foom runs <code>gh auth login</code> on the host, with no prompts to answer.",
+  waiting:"<b>Automatic:</b> the code is on your clipboard and GitHub is open in your browser. <b>You:</b> paste, then Authorize.",
+  finishing:"<b>Automatic:</b> gh notices the approval and saves the login, then Foom sets up git and re-checks this row only.",
+  done:"<b>Automatic:</b> the panel closes and the row updates. If your clipboard still holds the code, Foom clears it.",
+  blocked:"<b>Fallback:</b> when Foom can't open the browser or write the clipboard, the same panel offers both as buttons.",
+  expired:"<b>Failure:</b> the code timed out. Try again starts a new sign-in. The terminal opens so nothing is hidden.",
+  failed:"<b>Failure:</b> the outcome and exit code are stated, and the terminal stays open.",
+  missing:"<b>One click, if gh is missing:</b> the button installs gh and continues straight into sign-in.",
+  installing:"<b>Automatic:</b> install output stays in this row's terminal. A sudo prompt, if any, is answered here. Sign-in follows on success.",
+};
+const TERM_START = '<span class="dim">$ gh auth login --web --expiring --hostname github.com --git-protocol https --skip-ssh-key --scopes workflow</span>\n';
+const TERM_CODE = TERM_START + "! First copy your one-time code: " + CODE + "\nOpen this URL to continue in your web browser: " + URL_ + "\n";
+const TERM_DONE = TERM_CODE + "✓ Authentication complete.\n✓ Logged in as scott-r-lindsey\n<span class=\"dim\">$ gh auth setup-git --hostname github.com</span>\n";
+let state = "out", termOpen = false, timer;
+
+const sym = { pass:'✓', neutral:'<span class="dot-neutral"></span>', need:'<span class="dot-need"></span>', fail:'<span class="square-fail"></span>', work:'<span class="spin"></span>' };
+const status = (tone, text) => `<div class="status ${tone}" role="status"><span class="sym">${sym[tone]}</span>${text}</div>`;
+const row = (name, st, actions = "") => `<div class="row"><div class="name">${name}</div>${st}<div class="actions">${actions}</div></div>`;
+const SIGNIN = 'GitHub CLI sign-in <span class="tag">PRs</span>';
+const INSTALLED = row("GitHub CLI", status("pass","Pass · Installed"));
+const disclosure = () => `<button class="disclosure" data-act="term" aria-expanded="${termOpen}">${termOpen ? "▾" : "▸"} Terminal</button>`;
+const term = (html) => termOpen ? `<pre class="term" tabindex="0">${html}</pre>` : "";
+const panel = (inner) => `<div class="panel">${inner}</div>`;
+
+function render() {
+  let html = "";
+  switch (state) {
+    case "out":
+      html = INSTALLED + row(SIGNIN, status("neutral","Signed out"), '<button class="primary" data-act="signin">Sign in</button>'); break;
+    case "starting":
+      html = INSTALLED + row(SIGNIN, status("work","Starting"), '<button data-act="cancel">Cancel</button>') + panel(disclosure() + term(TERM_START)); break;
+    case "waiting":
+      html = INSTALLED + row(SIGNIN, status("need","Needs you · Authorize on GitHub"), '<button data-act="cancel">Cancel</button>')
+        + panel(`<div class="code-line"><span class="code">${CODE}</span><span class="facts"><span class="fact">✓ Copied</span><span class="fact">✓ Browser opened</span></span></div>
+          <div class="panel-buttons"><button>Copy code</button><button>Open GitHub</button></div>${disclosure()}${term(TERM_CODE)}`); break;
+    case "blocked":
+      html = INSTALLED + row(SIGNIN, status("need","Needs you · Copy code, open GitHub"), '<button data-act="cancel">Cancel</button>')
+        + panel(`<div class="code-line"><span class="code">${CODE}</span><span class="facts"><span class="fact missing">Not copied</span><span class="fact missing">Browser not opened</span></span></div>
+          <div class="panel-buttons"><button class="primary">Copy code</button><button class="primary">Open GitHub</button></div>${disclosure()}${term(TERM_CODE)}`); break;
+    case "finishing":
+      html = INSTALLED + row(SIGNIN, status("work","Finishing"), "") + panel(disclosure() + term(TERM_DONE)); break;
+    case "done":
+      html = INSTALLED + row(SIGNIN, status("pass","Pass · Signed in")); break;
+    case "expired":
+      termOpen = true;
+      html = INSTALLED + row(SIGNIN, status("fail","Failed · Code expired"), '<button class="primary" data-act="signin">Try again</button>')
+        + panel(disclosure() + term(TERM_CODE + "error: the device code has expired\n<span class=\"dim\">exit 1</span>\n")); break;
+    case "failed":
+      termOpen = true;
+      html = INSTALLED + row(SIGNIN, status("fail","Failed · Exit 1"), '<button class="primary" data-act="signin">Try again</button>')
+        + panel(disclosure() + term(TERM_START + "error connecting to github.com\n<span class=\"dim\">exit 1</span>\n")); break;
+    case "missing":
+      html = row("GitHub CLI", status("neutral","Not found"), '<button class="primary" data-act="install">Install &amp; sign in</button>'); break;
+    case "installing":
+      html = row("GitHub CLI", status("work","Installing"), '<button data-act="cancel">Cancel</button>')
+        + panel(disclosure() + term('<span class="dim">$ sudo apt-get update</span>\nReading package lists... Done\n<span class="dim">$ sudo apt-get install -y extrepo</span>\nSetting up extrepo ...\n<span class="dim">$ sudo extrepo enable github-cli</span>\n<span class="dim">$ sudo apt-get update</span>\n<span class="dim">$ sudo apt-get install -y gh</span>\nSetting up gh ...\n')); break;
+  }
+  document.getElementById("gh").innerHTML = html;
+  document.getElementById("note").innerHTML = NOTES[state];
+  document.getElementById("approve").hidden = !(state === "waiting" || state === "blocked");
+  document.querySelectorAll("#states button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.state === state)));
+}
+function go(next, keepTerm) {
+  clearTimeout(timer);
+  state = next;
+  if (!keepTerm) termOpen = next === "installing";
+  render();
+  if (next === "starting") timer = setTimeout(() => go("waiting", true), 1400);
+  if (next === "finishing") timer = setTimeout(() => go("done"), 1500);
+  if (next === "installing") timer = setTimeout(() => go("starting"), 2600);
+}
+const statesEl = document.getElementById("states");
+for (const [id, label] of STATES) {
+  const b = document.createElement("button");
+  b.textContent = label; b.dataset.state = id;
+  b.addEventListener("click", () => { clearTimeout(timer); state = id; termOpen = id === "installing"; render(); });
+  statesEl.append(b);
+}
+document.getElementById("gh").addEventListener("click", (e) => {
+  const act = e.target.closest("[data-act]")?.dataset.act;
+  if (act === "signin") go("starting");
+  if (act === "install") go("installing");
+  if (act === "cancel") go("out");
+  if (act === "term") { termOpen = !termOpen; render(); }
+});
+document.getElementById("approve").addEventListener("click", () => go("finishing", true));
+document.getElementById("theme").addEventListener("click", () => {
+  const root = document.documentElement;
+  const dark = root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  root.dataset.theme = dark ? "light" : "dark";
+});
+if (location.hash.slice(1)) { state = location.hash.slice(1); termOpen = state === "installing"; }
+render();
+</script>
+</body>
+</html>
+

@@ -344,8 +344,8 @@ Mac whose login Keychain may be locked over SSH.
 Settings → Hosts uses the Add → Check → Fix checklist described below.
 Main selects checked-in recipes from the observed closed distro and the enabled
 bundled catalog. Install opens the human-owned terminal inside its host card in
-Settings and the preflight rail. Sign in retains its foreground human-owned tile;
-foreground placement waits for the refreshed row before closing Settings. The remote executable verifies a main-supplied SHA-256 digest of the fixed argv sequence before running it, without shell
+Settings and the preflight rail. gh uses the device panel below. Other agents’
+Sign in retains its foreground human-owned tile; foreground placement waits for the refreshed row before closing Settings. The remote executable verifies a main-supplied SHA-256 digest of the fixed argv sequence before running it, without shell
 source or typing into an existing tile. Multi-step package repository preparation
 stops on the first failure. Every Debian install starts with fixed
 `/usr/bin/sudo /usr/bin/apt-get update`, including manifest-provided package
@@ -556,7 +556,7 @@ limited to the existing closed observations; no OS version or CPU is invented.
 
 Create explicitly creates the approved folder. Change folder edits its approved
 path and rechecks without creating it. Install uses the existing main-selected
-recipe in the host card; Settings stays open. Sign in retains foreground tile
+recipe in the host card; Settings stays open. Other agents’ Sign in retains foreground tile
 placement and closes Settings once the tile is visible. No background install, recipe replay or terminal typing is added.
 Missing recipes show no Install button. Git access to origin and explicit Trust host key… remain in each repository’s Git-access group. Origin-auth hints identify HTTPS through gh, a deploy key and ssh-agent as user-configured access options; Foom never applies them or instructs global URL rewrites. Host facts,
 foreign session End and foreign worktree counts remain under Host facts.
@@ -748,7 +748,7 @@ it to finish, then closes Settings and disposes the views. Failed termination
 keeps Settings open. Installs still launching are included in the check. Section
 changes retain window ownership and reattach the install when Hosts is reopened.
 Closing the whole window or quitting uses the existing main-owned confirmation,
-without this additional Settings dialog. Sign-in tiles are unchanged.
+without this additional Settings dialog. Other agents’ sign-in tiles are unchanged. gh sign-in uses the same window ownership and exit guard.
 The panel retains its screen until dismissed or a
 new install replaces it. Its own header states Installing, Done, or Failed with
 the exit code; recipe tiles also state the final outcome in Foom chrome, never
@@ -765,6 +765,57 @@ content, never instructions, parsed facts, error diagnostics or a saved profile
 field. Background inventory and repository/agent probe output are excluded.
 Completion retains output until dismissed or the next check; failures retain
 the fixed failure state alongside the output.
+
+## GitHub device sign-in (#1067)
+
+An explicit **Sign in** on a registered host’s gh row starts a window-owned
+Settings panel. No full check runs: launch inspects only platform requirements to select the
+recipe, preserves other checklist rows and Last checked, and completion rechecks
+only gh sign-in. **Install & sign in** uses one digest-bound recipe: install gh,
+then sign in only if every install step succeeds. Completion refreshes gh’s tool
+and sign-in rows. Sudo retains interactive terminal stdin during installation;
+gh auth login and setup-git have ignored stdin. Foom never types into the terminal.
+
+The preferred fixed argv is `gh auth login --web --expiring --hostname github.com
+--git-protocol https --skip-ssh-key --scopes workflow`, followed by
+`gh auth setup-git --hostname github.com`. The recipe SHA-256 binds both complete fixed argv variants (with and without
+`--expiring`), including setup-git. A bounded `gh --version` probe on the resolved host executable removes
+only `--expiring` for versions before 2.103.0 or an unrecognized/unavailable
+version; authentication failures never trigger a retry or downgrade. No token
+files are read. The requested scopes match interactive HTTPS login: gh’s
+`repo`, `read:org`, `gist` baseline plus `workflow`. Expiring credentials remain
+subject to GitHub support; the host CLI owns access and rotating refresh tokens.
+
+Main accepts a strict `XXXX-XXXX` uppercase alphanumeric code only from parsed
+headless screen cells of the gh recipe that this Settings window explicitly
+started. Main copies it once and opens the checked-in
+`https://github.com/login/device` once. Nothing from terminal output selects the
+destination. Output stays untrusted: a compromised host can display a fake code,
+so GitHub’s approval page is the human’s last check. No ordinary terminal, agent,
+control tool, remote message or other window can invoke these effects.
+`setup:github-sign-in` accepts that window’s recipe ID and a closed read/copy/open/cancel
+action, with the registered board main-frame/URL check and preload reply validation.
+No renderer-provided URL or clipboard text is accepted. State and code remain
+in memory only; nothing is logged or persisted. The exception does not enable
+OSC 52 clipboard writes or expose clipboard reads.
+
+While waiting, amber **Needs you · Authorize on GitHub**, the selectable code,
+Copied/Browser opened markers, and **Copy code**/**Open GitHub** fallback buttons
+remain visible. The terminal starts collapsed for sign-in and open for installation;
+failures open it with the exit code, and code expiry has its own label. A new
+Sign in starts a fresh recipe. Cancel stops the selected process. Success closes
+the panel after the row refresh. Exit, cancellation or window disposal clears the
+clipboard only if it still holds that sign-in’s code; a changed clipboard is preserved.
+The short note next to the action says that without a keyring gh may store the
+token in plain text on the host. Foom stores no token itself. Other agents’ sign-in
+flows keep their existing foreground tiles.
+
+Plain HTTP(S) terminal links already use the shared click/copy/confirmation rules
+on current main; no additional automatic terminal-URL relay is added here.
+The [approved mockup](../mockups/github-sign-in.html) covers the device states.
+Real EC2 qualification remains a human step: sign in, inspect expiry with
+`gh auth status`, and verify HTTPS Git and gh after the first access token expires.
+Fixture tests and upstream source inspection cannot establish that outcome.
 
 ## Child pressure admission (#1046)
 

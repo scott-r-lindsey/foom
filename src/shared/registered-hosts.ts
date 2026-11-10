@@ -542,7 +542,8 @@ export function hostsAction(value: unknown): value is HostsAction {
     return (
       keys(value, ["action", "host", "tool", "operation"]) &&
       agentId(value["tool"]) &&
-      (value["operation"] === "install" ||
+      ((value["operation"] === "install-sign-in" && value["tool"] === "gh") ||
+        value["operation"] === "install" ||
         value["operation"] === "sign-in" ||
         (value["operation"] === "install-plugin" && value["tool"] === "agy"))
     );

@@ -1,12 +1,17 @@
 import type * as VendorInstall from "../../../../src/node-common/vendor-install";
+import { promisify } from "node:util";
 import { userInfo } from "node:os";
 import { createHash } from "node:crypto";
-import { selectHostRecipe } from "../../../../src/shared/registered-host-recipes";
+import {
+  recipeDigestInput,
+  selectHostRecipe,
+} from "../../../../src/shared/registered-host-recipes";
 import { parseAgentManifest } from "../../../../src/shared/agent-plugin-parser";
 import codex from "../../../../src/shared/bundled-agents/codex.json";
 import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 const mock = vi.hoisted(() => ({
+  version: vi.fn(),
   vendor: vi.fn(),
   stage: vi.fn(),
   plugin: vi.fn(),
@@ -33,7 +38,16 @@ vi.mock("../../../../src/terminal-host/remote/agent-launch", () => ({
 vi.mock("../../../../src/terminal-host/remote/plugin-status", () => ({
   remotePluginState: mock.plugin,
 }));
-vi.mock("node:child_process", () => ({ spawn: mock.spawn }));
+vi.mock("node:child_process", () => ({ spawn: mock.spawn, execFile: mock.version }));
+Object.defineProperty(mock.version, promisify.custom, {
+  value: async (...args: unknown[]) =>
+    new Promise((resolve, reject) => {
+      mock.version(...args, (error: Error | null, stdout: string, stderr: string) => {
+        if (error) reject(error);
+        else resolve({ stdout, stderr });
+      });
+    }),
+});
 vi.mock("../../../../src/terminal-host/remote/daemon", () => ({
   remoteShell: () => "/fixture/shell",
 }));
@@ -53,7 +67,10 @@ async function runHostRecipe(args: readonly string[], home: string) {
   const [tool, action, distro] = args;
   const recipe =
     tool &&
-    (action === "install" || action === "sign-in" || action === "install-plugin") &&
+    (action === "install" ||
+      action === "sign-in" ||
+      action === "install-plugin" ||
+      action === "install-sign-in") &&
     (distro === "debian" || distro === "rhel" || distro === "arch" || distro === "darwin")
       ? selectHostRecipe(
           { tool, action, distro },
@@ -67,7 +84,7 @@ async function runHostRecipe(args: readonly string[], home: string) {
     [
       ...args,
       createHash("sha256")
-        .update(JSON.stringify(recipe?.steps ?? []))
+        .update(recipe ? recipeDigestInput(recipe) : "[]")
         .digest("hex"),
     ],
     home,
@@ -75,6 +92,18 @@ async function runHostRecipe(args: readonly string[], home: string) {
 }
 afterEach(() => vi.unstubAllEnvs());
 beforeEach(() => {
+  mock.version
+    .mockReset()
+    .mockImplementation(
+      (
+        _command: string,
+        _args: string[],
+        _options: unknown,
+        callback: (error: Error | null, stdout: string, stderr: string) => void,
+      ) => {
+        callback(null, "gh version 2.103.3 (fixture)\n", "");
+      },
+    );
   mock.vendor.mockReset();
   mock.stage.mockReset();
   mock.plugin.mockReset();
@@ -127,7 +156,19 @@ test("status and device-code sign-in use the host's resolved executable", async 
   expect(await runHostRecipe(["gh", "sign-in", "debian"], "/fixture/home")).toBe(0);
   expect(mock.spawn).toHaveBeenCalledWith(
     "/fixture/gh",
-    ["auth", "login", "--web", "--git-protocol", "https", "--skip-ssh-key"],
+    [
+      "auth",
+      "login",
+      "--web",
+      "--expiring",
+      "--hostname",
+      "github.com",
+      "--git-protocol",
+      "https",
+      "--skip-ssh-key",
+      "--scopes",
+      "workflow",
+    ],
     expect.any(Object),
   );
   mock.discovery.mockResolvedValue({ command: "/fixture/codex" });
@@ -311,7 +352,7 @@ test.each([true, false])(
           "codex",
           "install",
           "debian",
-          createHash("sha256").update(JSON.stringify(recipe.steps)).digest("hex"),
+          createHash("sha256").update(recipeDigestInput(recipe)).digest("hex"),
         ],
         "/fixture/home",
       ),
@@ -333,3 +374,73 @@ test.each([true, false])(
     expect(mock.spawn).not.toHaveBeenCalled();
   },
 );
+
+test.each(["2.102.9", "2.103.0", "3.0.0", "1.99.0", "unknown"])(
+  "gh version %s selects only the fixed expiry variant and ignores auth stdin",
+  async (version) => {
+    mock.version.mockImplementation(
+      (
+        _command: string,
+        _args: string[],
+        _options: unknown,
+        callback: (error: Error | null, stdout: string, stderr: string) => void,
+      ) => {
+        callback(null, `gh version ${version}\n`, "");
+      },
+    );
+    expect(await runHostRecipe(["gh", "sign-in", "debian"], "/fixture/home")).toBe(0);
+    const login = mock.spawn.mock.calls[0];
+    expect(login?.[1].includes("--expiring")).toBe(["2.103.0", "3.0.0"].includes(version));
+    expect(login?.[2]).toMatchObject({ shell: false, stdio: ["ignore", "inherit", "inherit"] });
+    expect(mock.spawn.mock.lastCall?.[1]).toEqual([
+      "auth",
+      "setup-git",
+      "--hostname",
+      "github.com",
+    ]);
+    expect(mock.version).toHaveBeenCalledWith(
+      "/fixture/gh",
+      ["--version"],
+      expect.objectContaining({ timeout: 5000, maxBuffer: 4096 }),
+      expect.any(Function),
+    );
+  },
+);
+test("a failed version probe keeps compatible login, but failed login never runs setup-git", async () => {
+  mock.version.mockImplementation(
+    (
+      _command: string,
+      _args: string[],
+      _options: unknown,
+      callback: (error: Error | null) => void,
+    ) => {
+      callback(new Error("failed"));
+    },
+  );
+  mock.spawn.mockImplementation(() => {
+    const child = new EventEmitter();
+    queueMicrotask(() => child.emit("exit", 7));
+    return child;
+  });
+  expect(await runHostRecipe(["gh", "sign-in", "debian"], "/fixture/home")).toBe(7);
+  expect(mock.spawn).toHaveBeenCalledOnce();
+  expect(mock.spawn.mock.calls[0]?.[1]).not.toContain("--expiring");
+});
+
+test("install & sign in keeps install stdin interactive, auth stdin ignored, and stops on installation failure", async () => {
+  mock.spawn.mockImplementationOnce(() => {
+    const child = new EventEmitter();
+    queueMicrotask(() => child.emit("exit", 23));
+    return child;
+  });
+  expect(await runHostRecipe(["gh", "install-sign-in", "debian"], "/fixture/home")).toBe(23);
+  expect(mock.spawn).toHaveBeenCalledOnce();
+  expect(mock.version).not.toHaveBeenCalled();
+  mock.spawn.mockClear();
+  expect(await runHostRecipe(["gh", "install-sign-in", "debian"], "/fixture/home")).toBe(0);
+  expect(mock.spawn.mock.calls[0]?.[2]).toMatchObject({ stdio: "inherit" });
+  expect(mock.spawn.mock.calls.at(-2)?.[2]).toMatchObject({
+    stdio: ["ignore", "inherit", "inherit"],
+  });
+  expect(mock.spawn.mock.lastCall?.[1]).toEqual(["auth", "setup-git", "--hostname", "github.com"]);
+});

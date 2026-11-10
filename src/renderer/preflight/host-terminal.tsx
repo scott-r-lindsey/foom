@@ -1,6 +1,6 @@
 import { TerminalMenu } from "../terminal/terminal-menu";
 import type { TerminalContextMenu } from "../terminal/terminal-view-source.d";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import type { SetupSource } from "./setup-source.d";
 
 /** The existing human-owned PTY, attached to this Settings window only. */
@@ -8,10 +8,14 @@ export function HostTerminal({
   id,
   source,
   finished,
+  label = "Install terminal",
+  activeLabel = "Installing…",
 }: {
+  label?: string;
+  activeLabel?: string;
   id: string;
   source: NonNullable<SetupSource["hostTerminal"]>;
-  finished: (id: string) => void;
+  finished: (id: string) => void | Promise<void>;
 }) {
   const [view] = useState(() => source.createView());
   const [menu, setMenu] = useState<TerminalContextMenu>();
@@ -29,20 +33,20 @@ export function HostTerminal({
       void view.hide();
     };
   }, [view, id, dismissed, observed]);
+  const completedRef = useRef<string | undefined>(undefined);
   useEffect(() => {
-    let completed = false;
     return source.observe(id, (next) => {
       setExit(next);
       setObserved(true);
-      if (next.exited && !completed) {
-        completed = true;
-        finished(id);
+      if (next.exited && completedRef.current !== id) {
+        completedRef.current = id;
+        void finished(id);
       }
     });
   }, [source, id, finished]);
   if (dismissed) return null;
   return (
-    <section className="host-terminal" aria-label="Install terminal">
+    <section className="host-terminal" aria-label={label}>
       <header>
         <span
           role="status"
@@ -52,7 +56,7 @@ export function HostTerminal({
             ? exit.code === 0
               ? "Done"
               : `Failed · exit code ${String(exit.code ?? "unknown")}`
-            : "Installing…"}
+            : activeLabel}
         </span>
         {exit.exited && (
           <button

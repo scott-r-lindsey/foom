@@ -3,12 +3,17 @@ import { remotePluginState } from "./plugin-status";
 import { stageRemotePlugin } from "./agent-launch";
 import { originSshArgs } from "../../shared/registered-hosts";
 import { createHash } from "node:crypto";
-import { spawn } from "node:child_process";
+import { promisify } from "node:util";
+import { execFile, spawn } from "node:child_process";
 import { homedir } from "node:os";
 import { posix } from "node:path";
 import { bundledAgentData } from "../../shared/bundled-agent-data";
 import { parseAgentManifest } from "../../shared/agent-plugin-parser";
-import { recipeRequest, selectHostRecipe } from "../../shared/registered-host-recipes";
+import {
+  recipeDigestInput,
+  recipeRequest,
+  selectHostRecipe,
+} from "../../shared/registered-host-recipes";
 import { hostDiscovery, hostLoginEnvironment } from "./agent-discovery";
 import { executable, requirements } from "./host-facts";
 import { remoteShell } from "./daemon";
@@ -20,14 +25,17 @@ export async function runHostRecipe(argv: readonly string[], home = homedir()): 
   const request = { tool, action, distro };
   if (argv.length !== 4 || !recipeRequest(request)) return 2;
   const login = await hostLoginEnvironment(remoteShell(), home, undefined, true);
-  if (request.action === "install" && !login["PATH"]) return 2;
-  const env = request.action === "install" ? installerEnvironment(home, login) : login;
+  if (["install", "install-sign-in"].includes(request.action) && !login["PATH"]) return 2;
+  const env =
+    request.action === "install" || request.action === "install-sign-in"
+      ? installerEnvironment(home, login)
+      : login;
   const facts = await requirements(process.platform, home, home, env);
   const model = bundledAgentData
     .map((data) => parseAgentManifest(JSON.stringify(data), "bundled").model)
     .find((model) => model.id === tool);
   const recipe = selectHostRecipe(request, facts, model?.hostSetup);
-  if (!recipe || createHash("sha256").update(JSON.stringify(recipe.steps)).digest("hex") !== digest)
+  if (!recipe || createHash("sha256").update(recipeDigestInput(recipe)).digest("hex") !== digest)
     return 2;
   if (request.action === "install-plugin") {
     const found = await hostDiscovery({ executables: ["agy"] }, remoteShell(), home);
@@ -67,12 +75,38 @@ export async function runHostRecipe(argv: readonly string[], home = homedir()): 
       ).command;
     }
     if (!command) return 2;
+    const ghLogin =
+      request.tool === "gh" &&
+      ["sign-in", "install-sign-in"].includes(request.action) &&
+      argv[0] === "gh";
+    if (ghLogin && argv.includes("--expiring")) {
+      // The digest binds both fixed variants; the only permitted downgrade removes
+      // this one flag after a bounded version probe, never after an auth failure.
+      let expiring = false;
+      try {
+        const { stdout } = await promisify(execFile)(command, ["--version"], {
+          cwd: home,
+          env: login,
+          shell: false,
+          timeout: 5000,
+          maxBuffer: 4096,
+          encoding: "utf8",
+        });
+        const version = /^gh version (\d+)\.(\d+)\.(\d+)(?:[ \r\n]|$)/u.exec(stdout);
+        expiring =
+          !!version &&
+          (Number(version[1]) > 2 || (Number(version[1]) === 2 && Number(version[2]) >= 103));
+      } catch {
+        /* Unknown versions retain the compatible recipe. */
+      }
+      if (!expiring) argv.splice(argv.indexOf("--expiring"), 1);
+    }
     const code = await new Promise<number>((resolve) => {
       const child = spawn(command, argv.slice(1), {
         cwd: home,
-        env,
+        env: ghLogin ? login : env,
         shell: false,
-        stdio: "inherit",
+        stdio: ghLogin ? ["ignore", "inherit", "inherit"] : "inherit",
       });
       child.once("error", () => {
         resolve(1);

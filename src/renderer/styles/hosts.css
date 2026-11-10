@@ -53,3 +53,38 @@
   outline: 2px solid var(--highlight);
   outline-offset: 2px;
 }
+
+.github-sign-in {
+  display: grid;
+  grid-template-columns: subgrid;
+  gap: 10px;
+  padding: 0 0 12px;
+  min-width: 0;
+}
+.github-sign-in > * {
+  grid-column: 1 / -1;
+}
+.github-sign-in .host-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.github-code-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.host-card .github-device-code {
+  font: 600 26px / 1.1 var(--font-mono);
+  letter-spacing: 0.06em;
+  user-select: all;
+}
+.github-terminal-toggle {
+  justify-self: start;
+}
+.github-token-note {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 4px 0 10px;
+}

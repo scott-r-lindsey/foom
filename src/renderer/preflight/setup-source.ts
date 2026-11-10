@@ -6,6 +6,7 @@ export function createSetupSource(
   closeSession?: (id: string) => Promise<void>,
 ): SetupSource {
   const desktop = window.desktop;
+  const ghSessions = new Map<string, boolean>();
   const installs = new Map<string, string>();
   const launches = new Set<Promise<unknown>>();
   const exited = new Set<string>();
@@ -112,6 +113,7 @@ export function createSetupSource(
             if (snapshot.terminals.some((row) => row.id === id))
               await (closeSession?.(id) ?? desktop.kill(id));
             installs.delete(id);
+            ghSessions.delete(id);
             exited.delete(id);
           }
           releaseObserver();
@@ -120,11 +122,23 @@ export function createSetupSource(
         }
       },
     },
+    githubSignInSessions: () => new Map(ghSessions),
+    githubSignIn: (id, action) => desktop.githubSignIn(id, action),
     copyHost: (command) => desktop.copyHost(command),
     hosts: (action) => {
-      if (action.action !== "recipe" || action.operation !== "install")
+      if (
+        action.action !== "recipe" ||
+        (action.operation !== "install" &&
+          action.operation !== "install-sign-in" &&
+          !(action.tool === "gh" && action.operation === "sign-in"))
+      )
         return desktop.hosts(action);
-      return trackInstall(action.host, () => desktop.hosts(action));
+      return trackInstall(action.host, async () => {
+        const state = await desktop.hosts(action);
+        if (state.recipeSession && action.tool === "gh" && action.operation !== "install")
+          ghSessions.set(state.recipeSession, action.operation === "install-sign-in");
+        return state;
+      });
     },
     localAgentInstall: (id) =>
       id === undefined

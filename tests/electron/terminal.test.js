@@ -797,6 +797,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
           "onConfigChange",
           "copyHost",
           "localAgentInstall",
+          "githubSignIn",
           "hosts",
           "listTerminalFonts",
           "listThemes",

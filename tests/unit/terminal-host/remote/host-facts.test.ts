@@ -200,3 +200,12 @@ test.each([
   expect(mock.probe).toHaveBeenCalledTimes(1);
   expect(mock.probe.mock.calls[0]?.[0]).toBe(command);
 });
+
+test("scoped Mac platform requirements discover Homebrew without tool or sign-in probes", async () => {
+  mock.paths.add("/opt/homebrew/bin/brew");
+  expect(
+    (await requirements("darwin", root, root, { PATH: "/opt/homebrew/bin" }, undefined, "platform"))
+      .packageManager,
+  ).toBe("brew");
+  expect(mock.probe).not.toHaveBeenCalled();
+});

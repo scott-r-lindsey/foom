@@ -65,6 +65,13 @@ export function attachSetup(
         return setup.copyHost(args[0]);
       },
     ],
+    [
+      "setup:github-sign-in",
+      (...args) => {
+        if (args.length !== 2) throw new Error("Invalid sign-in request");
+        return setup.githubSignIn(args[0], args[1]);
+      },
+    ],
     ["setup:state", () => setup.state()],
     [
       "setup:local-agent-install",

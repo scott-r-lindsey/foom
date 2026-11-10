@@ -421,12 +421,12 @@ test("install recipes stay in Settings and native exit refreshes their rows once
   expect(off).toHaveBeenCalledOnce();
 });
 
-test("sign-in recipes keep the human foreground tile", async () => {
+test("other agents’ sign-in recipes keep the human foreground tile", async () => {
   await start();
   await mock.setup.deps?.launchHostRecipe?.({
     host: "worker",
     human: true,
-    recipe: { tool: "gh", action: "sign-in", distro: "debian", digest: "a".repeat(64) },
+    recipe: { tool: "codex", action: "sign-in", distro: "debian", digest: "a".repeat(64) },
   });
   await vi.waitFor(() => {
     expect(mock.window.webContents.send).toHaveBeenCalledWith("app-menu:session", "recipe");
@@ -567,4 +567,87 @@ test("local install clicks enforce bundled enablement, serialize launch and refr
   listener?.("local-install", 7);
   expect(mock.workspace.scanAgents).toHaveBeenLastCalledWith(true, "claude");
   expect((await install("codex")).recipeSession).toBe("local-install");
+});
+
+test("gh sign-in stays in its Settings window and binds output, clipboard and fixed browser effects", async () => {
+  await start();
+  const { shell, clipboard } = await import("electron");
+  mock.terminals.screen.mockResolvedValue({
+    lines: ["! First copy your one-time code: ABCD-1234", "Open https://evil.test/"],
+    title: "Recipe",
+  });
+  const finished = vi.fn();
+  const id = await mock.setup.deps?.launchHostRecipe?.(
+    {
+      host: "worker",
+      human: true,
+      recipe: { tool: "gh", action: "sign-in", distro: "debian", digest: "a".repeat(64) },
+    },
+    finished,
+  );
+  expect(id).toBe("recipe");
+  expect(mock.window.webContents.send).not.toHaveBeenCalledWith("app-menu:session", "recipe");
+  await vi.waitFor(() => {
+    expect(vi.mocked(clipboard).writeText.mock.calls).toContainEqual(["ABCD-1234"]);
+  });
+  expect(vi.mocked(shell).openExternal.mock.calls).toContainEqual([
+    "https://github.com/login/device",
+  ]);
+  await expect(mock.setup.deps?.githubSignIn?.("foreign", "open")).rejects.toThrow(
+    "Sign-in unavailable",
+  );
+  expect(await mock.setup.deps?.githubSignIn?.("recipe", "read")).toMatchObject({
+    phase: "waiting",
+    copied: true,
+    opened: true,
+  });
+  const output = mock.terminals.onOutput.mock.calls.at(-1)?.[0];
+  const reads = mock.terminals.screen.mock.calls.length;
+  output?.("other");
+  expect(mock.terminals.screen).toHaveBeenCalledTimes(reads);
+  output?.("recipe");
+  await vi.waitFor(() => {
+    expect(mock.terminals.screen).toHaveBeenCalledTimes(reads + 1);
+  });
+  mock.terminals.onExit.mock.calls.at(-1)?.[0]("recipe", 0);
+  await vi.waitFor(async () => {
+    expect(await mock.setup.deps?.githubSignIn?.("recipe", "read")).toMatchObject({
+      phase: "done",
+      code: undefined,
+    });
+  });
+  expect(finished).toHaveBeenCalledOnce();
+});
+
+test("gh Cancel retains its session after a refused stop and clears only its own clipboard code on retry", async () => {
+  await start();
+  const { clipboard } = await import("electron");
+  mock.terminals.screen.mockResolvedValue({
+    lines: ["! First copy your one-time code: ABCD-1234"],
+    title: "Recipe",
+  });
+  vi.mocked(clipboard).readText.mockResolvedValue("ABCD-1234");
+  const id = await mock.setup.deps?.launchHostRecipe?.(
+    {
+      host: "worker",
+      human: true,
+      recipe: { tool: "gh", action: "sign-in", distro: "debian", digest: "a".repeat(64) },
+    },
+    vi.fn(),
+  );
+  expect(id).toBe("recipe");
+  await vi.waitFor(() => {
+    expect(vi.mocked(clipboard).writeText.mock.calls).toContainEqual(["ABCD-1234"]);
+  });
+  mock.terminals.stop.mockResolvedValueOnce(false);
+  await expect(mock.setup.deps?.githubSignIn?.("recipe", "cancel")).rejects.toThrow(
+    "Unable to stop sign-in",
+  );
+  expect(vi.mocked(clipboard).clear.mock.calls).toHaveLength(0);
+  await expect(mock.setup.deps?.githubSignIn?.("recipe", "cancel")).resolves.toMatchObject({
+    phase: "cancelled",
+    code: undefined,
+  });
+  expect(mock.terminals.stop).toHaveBeenCalledTimes(2);
+  expect(vi.mocked(clipboard).clear.mock.calls).toHaveLength(1);
 });

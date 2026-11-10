@@ -1,7 +1,7 @@
 import { askpassSupported, trustHostKey } from "./ssh-host-key";
 import type { HostKeyTrustFailure } from "./ssh-host-key";
 import type { HostOutput } from "../../shared/registered-hosts.d";
-import { selectHostRecipe } from "../../shared/registered-host-recipes";
+import { recipeDigestInput, selectHostRecipe } from "../../shared/registered-host-recipes";
 import type { RemoteTarget } from "../../shared/remote-host";
 import { bundledAgentData } from "../../shared/bundled-agent-data";
 import { parseAgentManifest } from "../../shared/agent-plugin-parser";
@@ -686,7 +686,7 @@ export class Hosts {
   private recipe(
     host: string,
     tool: string,
-    action: "install" | "sign-in" | "install-plugin",
+    action: "install" | "sign-in" | "install-plugin" | "install-sign-in",
     result: HostResult | undefined,
   ) {
     this.registered(host);
@@ -1183,28 +1183,26 @@ export class Hosts {
           )
             return this.state();
           const registration = this.registered(input.host);
-          this.results.set(
-            input.host,
-            await this.run(input.host, {
-              type: "manage",
-              operation: "inspect",
-              readOnly: true,
-              partial: true,
-              codeFolder: registration.codeFolder,
-            }),
-          );
+          const ghSignIn =
+            input.tool === "gh" && ["sign-in", "install-sign-in"].includes(input.operation);
+          const inspected = await this.run(input.host, {
+            type: "manage",
+            operation: "inspect",
+            readOnly: true,
+            partial: true,
+            ...(ghSignIn ? { target: { kind: "platform" as const } } : {}),
+            codeFolder: registration.codeFolder,
+          });
           this.registered(input.host, registration.codeFolder);
-          await this.expandRegistration(input.host);
-          const recipe = this.recipe(
-            input.host,
-            input.tool,
-            input.operation,
-            this.results.get(input.host),
-          );
+          if (!ghSignIn) {
+            this.results.set(input.host, inspected);
+            await this.expandRegistration(input.host);
+          }
+          const recipe = this.recipe(input.host, input.tool, input.operation, inspected);
           if (!recipe || !launchRecipe || !this.profile)
             return { ...this.state(), recipeFailure: "recipe-unavailable" as const };
           const targets: HostCheckTarget[] = [
-            ...(["install", "install-plugin"].includes(input.operation)
+            ...(["install", "install-plugin", "install-sign-in"].includes(input.operation)
               ? [{ kind: "tool" as const, tool: input.tool }]
               : []),
             ...(input.tool !== "git" ? [{ kind: "sign-in" as const, tool: input.tool }] : []),
@@ -1218,7 +1216,7 @@ export class Hosts {
                 tool: recipe.tool,
                 action: recipe.action,
                 distro: recipe.distro,
-                digest: createHash("sha256").update(JSON.stringify(recipe.steps)).digest("hex"),
+                digest: createHash("sha256").update(recipeDigestInput(recipe)).digest("hex"),
               },
             },
             () => {
@@ -1242,7 +1240,7 @@ export class Hosts {
           if (typeof recipeSession !== "string") this.queueRows(input.host, targets);
           return {
             ...this.state(),
-            ...(input.operation === "install" && typeof recipeSession === "string"
+            ...((input.operation === "install" || ghSignIn) && typeof recipeSession === "string"
               ? { recipeSession }
               : {}),
           };
