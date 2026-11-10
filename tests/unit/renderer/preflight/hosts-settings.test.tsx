@@ -225,7 +225,7 @@ test("partial facts retain passes and expose Create plus available Install and S
     },
   });
   await screen.findByText("Pass · Host key trusted");
-  expect(screen.getByText(/Code folder does not exist · folder-missing/u)).toBeTruthy();
+  expect(screen.getByText(/Code folder does not exist/u)).toBeTruthy();
   expect(screen.getByLabelText("Git access fixes").textContent).toContain("Use HTTPS through gh");
   expect(screen.getByText("Use HTTPS through gh").getAttribute("title")).toBe(
     "Configure the host's Git to use HTTPS through gh",
@@ -283,33 +283,33 @@ test.each([false, true])(
     }
   },
 );
-const failures: HostFailure[] = [
-  "unreachable",
-  "unsupported",
-  "libc-too-old",
-  "libc-unsupported",
-  "artifact-unavailable",
-  "facts-unavailable",
-  "folder-missing",
-  "folder-refused",
-  "unsafe-folder",
-  "origin-unavailable",
-  "origin-auth",
-  "origin-host-key",
-  "origin-unreachable",
-  "timed-out",
-  "checkout-invalid",
-  "clone-failed",
-  "checkout-refused",
-  "version-mismatch",
-  "provider-invalid",
-  "configuration-changed",
-  "invalid-reply",
-  "cancelled",
+const failures: [HostFailure, string][] = [
+  ["unreachable", "Host unreachable"],
+  ["unsupported", "Unsupported host platform"],
+  ["libc-too-old", "Unsupported · glibc < 2.28"],
+  ["libc-unsupported", "Unsupported · musl libc"],
+  ["artifact-unavailable", "Unavailable in this build"],
+  ["facts-unavailable", "Host daemon needs an update for host facts"],
+  ["folder-missing", "Code folder does not exist"],
+  ["folder-refused", "Code folder unavailable"],
+  ["unsafe-folder", "Code folder ownership or permissions are unsafe"],
+  ["origin-unavailable", "Repository origin unavailable"],
+  ["origin-auth", "Origin authentication failed"],
+  ["origin-host-key", "Origin SSH host key is not trusted"],
+  ["origin-unreachable", "Origin unreachable"],
+  ["timed-out", "Git operation timed out"],
+  ["checkout-invalid", "Checkout validation failed"],
+  ["clone-failed", "Could not clone from origin"],
+  ["checkout-refused", "Checkout unavailable"],
+  ["version-mismatch", "Host version mismatch"],
+  ["provider-invalid", "Agent configuration unavailable"],
+  ["configuration-changed", "Agent configuration changed"],
+  ["invalid-reply", "Invalid host reply"],
+  ["cancelled", "Host check cancelled"],
 ];
 test.each(failures)(
-  "fixed %s reason is visible beside independent unrun checks",
-  async (reason) => {
+  "fixed %s reason appears once beside independent unrun checks",
+  async (reason, label) => {
     const result = { ok: false as const, reason };
     await mount({
       ...initial,
@@ -322,11 +322,9 @@ test.each(failures)(
         repositories: [],
       },
     });
-    await screen.findAllByText(
-      reason === "artifact-unavailable"
-        ? "Unavailable in this build"
-        : new RegExp(` · ${reason}$`, "u"),
-    );
+    await screen.findAllByText(label);
+    const row = screen.getByText("Platform", { exact: true }).closest(".host-check-row");
+    expect(row?.querySelector(".host-status")?.lastElementChild?.textContent).toBe(label);
     expect(screen.getByText("Pass · Host key trusted")).toBeTruthy();
     expect(screen.getAllByText("Not checked").length).toBeGreaterThan(1);
   },
@@ -598,7 +596,7 @@ test("Mac protected-folder warning never hides a missing-folder failure or its C
     },
   };
   await mount({ ...initial, hosts: [{ ...host, result }], preflight: { ...preflight, result } });
-  await screen.findByText("Code folder does not exist · folder-missing · Protected folder");
+  await screen.findByText("Code folder does not exist · Protected folder");
   expect(screen.getByRole("button", { name: "Create" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Change folder" })).toBeTruthy();
 });
@@ -1248,7 +1246,7 @@ test("a later live folder reply replaces a transient reload checklist", async ()
   });
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await screen.findByRole("button", { name: "Create" });
-  expect(screen.getByText("Code folder does not exist · folder-missing")).toBeTruthy();
+  expect(screen.getByText("Code folder does not exist")).toBeTruthy();
   expect(screen.queryByText("Pass · Valid")).toBeNull();
   expect(screen.queryByText(/Last checked/u)).toBeNull();
 });

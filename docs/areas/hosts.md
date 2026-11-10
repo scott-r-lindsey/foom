@@ -508,7 +508,8 @@ repository checks without its artifact. Remote daemon says “Unavailable in thi
 build” neutrally, and this limitation alone never marks a host Needs you.
 Only sealed local catalog omission or artifact verification selects
 `artifact-unavailable`. Transport exits, unreachable connections, protocol/version
-mismatches and invalid replies retain their own fixed reasons. Full checks and
+mismatches and invalid replies retain their own fixed reasons. Checklist rows show
+one fixed readable reason, without appending the internal reason code. Full checks and
 row reloads preserve the same classification across reopening Settings.
 A failed daemon inspection stops dependent repository checks; unrun origin checks
 show neutral Not checked, including old saved observations with repeated daemon

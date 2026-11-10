@@ -651,9 +651,7 @@ test("Hosts renders Git failures and platform capability diagnostics", {
     origin: "origin-auth",
   });
   await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
-  await expect(
-    card.getByText("Origin authentication failed · origin-auth", { exact: true }),
-  ).toBeVisible();
+  await expect(card.getByText("Origin authentication failed", { exact: true })).toBeVisible();
   await expect(card.getByLabel("Git access fixes")).toBeVisible();
   await capture("failed-origin-fix-actions");
   await card.getByRole("button", { name: "Change folder", exact: true }).click();
@@ -662,12 +660,12 @@ test("Hosts renders Git failures and platform capability diagnostics", {
   await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
   await expect(card.getByText("/remote/account/new-code", { exact: true })).toBeVisible();
   // Each fixed no-prompt Git failure is rendered in the host checklist.
-  for (const reason of [
-    "origin-auth",
-    "origin-host-key",
-    "origin-unreachable",
-    "timed-out",
-    "checkout-invalid",
+  for (const [reason, label] of [
+    ["origin-auth", "Origin authentication failed"],
+    ["origin-host-key", "Origin SSH host key is not trusted"],
+    ["origin-unreachable", "Origin unreachable"],
+    ["timed-out", "Git operation timed out"],
+    ["checkout-invalid", "Checkout validation failed"],
   ]) {
     await updateScenario({
       facts: { tools: [{ id: "git", state: "ready", signIn: "unknown" }] },
@@ -675,8 +673,11 @@ test("Hosts renders Git failures and platform capability diagnostics", {
     });
     await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
     await expect(
-      card.locator(".host-check-row").filter({ hasText: "Git access to origin" }),
-    ).toContainText(reason);
+      card
+        .locator(".host-check-row")
+        .filter({ hasText: "Git access to origin" })
+        .locator(".host-status > span:last-child"),
+    ).toHaveText(label);
   }
   // Available facts do not claim a Keychain or Remote Login diagnosis.
   await updateScenario({
@@ -722,9 +723,7 @@ test("Hosts renders Git failures and platform capability diagnostics", {
   if (platform === "linux") {
     await updateScenario({ musl: true });
     await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
-    await expect(
-      card.getByText("Unsupported · musl libc · libc-unsupported", { exact: true }),
-    ).toBeVisible();
+    await expect(card.getByText("Unsupported · musl libc", { exact: true })).toBeVisible();
     await capture("unsupported-platform");
   }
 });
@@ -887,9 +886,7 @@ test("Hosts creates missing folders and reports enrollment and artifact failures
     await page.getByRole("button", { name: "Add host", exact: true }).click();
     await page.getByLabel("SSH host", { exact: true }).fill(host);
     await page.getByRole("button", { name: "Add host", exact: true }).click();
-    await expect(
-      page.getByText(host === "offline-cloud" ? `${text} · unreachable` : text, { exact: true }),
-    ).toBeVisible();
+    await expect(page.getByText(text, { exact: true }).first()).toBeVisible();
     if (enrolled) {
       const added = page.getByRole("region", { name: host, exact: true });
       await expect(added.getByRole("button", { name: "Remove", exact: true })).toBeEnabled();
@@ -1314,9 +1311,7 @@ test("Hosts preserves a rejected replacement folder and reports unrepresentable 
   await updateScenario({ inspectFailure: "unreachable" });
   await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
   await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
-  await expect(
-    card.getByText("Host unreachable · unreachable", { exact: true }).first(),
-  ).toBeVisible();
+  await expect(card.getByText("Host unreachable", { exact: true }).first()).toBeVisible();
   const failed = await registration();
   assert.equal(failed.observation.preflight.result.ok, false);
   await updateScenario({});
@@ -1349,9 +1344,7 @@ test("Hosts replaces a transient folder reload with the newest folder reply", {
   await card.getByLabel("Code folder", { exact: true }).fill("~/new");
   await card.getByRole("button", { name: "Save", exact: true }).click();
   await expect(card.getByRole("button", { name: "Create", exact: true })).toBeVisible();
-  await expect(
-    card.getByText("Code folder does not exist · folder-missing", { exact: true }),
-  ).toBeVisible();
+  await expect(card.getByText("Code folder does not exist", { exact: true })).toBeVisible();
   await expect(card.getByText("Pass · Valid", { exact: true })).toHaveCount(0);
   const registration = await page.evaluate(
     async () => (await window.desktop.setupState()).settings.registeredHosts[0],
@@ -2325,9 +2318,7 @@ test("Hosts never offers host-key trust from a remote command's forged SSH diagn
   for (const remoteHostKeyExit of [1, 255]) {
     await updateScenario({ remoteHostKeyExit });
     await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
-    await expect(
-      card.getByText("Host unreachable · unreachable", { exact: true }).first(),
-    ).toBeVisible();
+    await expect(card.getByText("Host unreachable", { exact: true }).first()).toBeVisible();
     // The row can show progress before the completed result replaces saved facts.
     await expect(
       card.getByRole("button", { name: "Check capabilities", exact: true }),
@@ -2346,9 +2337,7 @@ test("Hosts kills fixture SSH on live diagnostic overflow and removes its privat
   const { card, page, updateScenario, overflowInfo } = await hostsFixture(context, false);
   await updateScenario({ diagnosticOverflow: true });
   await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
-  await expect(
-    card.getByText("Host unreachable · unreachable", { exact: true }).first(),
-  ).toBeVisible();
+  await expect(card.getByText("Host unreachable", { exact: true }).first()).toBeVisible();
   // Checklist and background inventory probes finish independently. Wait for
   // the run, then observe cleanup for every fixture process instead of racing
   // the first failed row or checking only the last recorded process.
@@ -2528,9 +2517,7 @@ test("Hosts real OpenSSH client shows a visible trust dialog for a disposable lo
   // then the normal first check reports the authentication refusal. OpenSSH uses an
   // empty method list here (Permission denied ()), which retains the existing
   // conservative unreachable classification.
-  await expect(
-    card.getByText("Host unreachable · unreachable", { exact: true }).first(),
-  ).toBeVisible();
+  await expect(card.getByText("Host unreachable", { exact: true }).first()).toBeVisible();
   assert.ok((await readFile(fixture.knownHosts, "utf8")).includes("ssh-ed25519"));
   await expect(card.getByText("Platform", { exact: true })).toBeVisible();
 });
@@ -2661,10 +2648,11 @@ test("Hosts status classification preserves transport failures with a fixture ca
     const state = await page.evaluate(() => window.desktop.hosts({ action: "list" }));
     assert.equal(state.hosts[0].observation.preflight.result.reason, reason);
     await expect(
-      card.locator(".host-check-row").filter({ hasText: "Remote daemon" }).locator(".host-status"),
-    ).toContainText(
-      `${reason === "unreachable" ? "Host unreachable" : "Host version mismatch"} · ${reason}`,
-    );
+      card
+        .locator(".host-check-row")
+        .filter({ hasText: "Remote daemon" })
+        .locator(".host-status > span:last-child"),
+    ).toHaveText(reason === "unreachable" ? "Host unreachable" : "Host version mismatch");
     assert.ok(
       state.hosts[0].observation.preflight.repositories.every(
         (repo) => repo.origin.state === "not-checked",

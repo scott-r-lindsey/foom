@@ -181,14 +181,7 @@ function checkPresentation(
   if (check?.state === "fail")
     return {
       tone: failureTone(check.reason),
-      text: [
-        "host-key-unknown",
-        "host-key-changed",
-        "login-rejected",
-        "artifact-unavailable",
-      ].includes(check.reason)
-        ? reasons[check.reason]
-        : `${reasons[check.reason]} · ${check.reason}`,
+      text: reasons[check.reason],
     };
   return { tone: "neutral", text: "Not checked" };
 }

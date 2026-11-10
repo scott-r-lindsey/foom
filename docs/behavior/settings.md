@@ -389,7 +389,8 @@ saved state. Explicit checks still allow bounded SSH/platform discovery, includi
 host-key trust, but cannot dispatch daemon or repository checks without an artifact.
 Full checks, row reloads and reopening Settings keep the same classification.
 Transport failures retain their fixed connectivity/protocol reason rather than
-claiming a missing artifact. Checks blocked by daemon inspection show neutral
+claiming a missing artifact. Fixed failure labels appear once, without appended
+internal reason codes. Checks blocked by daemon inspection show neutral
 **Not checked**, without a failure cross or repeated daemon reason.
 
 ### Hosts checklist refresh (#1061)
