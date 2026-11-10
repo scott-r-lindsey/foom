@@ -12,6 +12,8 @@ const mock = vi.hoisted(() => ({
   construct: vi.fn(),
   load: vi.fn<() => Promise<void>>(),
   activate: vi.fn(),
+  focusedWindow: vi.fn<() => FakeWindow | null>(),
+  app: undefined as EventEmitter | undefined,
   power: undefined as EventEmitter | undefined,
   screen: undefined as EventEmitter | undefined,
 }));
@@ -55,10 +57,18 @@ class FakeWindow extends EventEmitter {
 }
 vi.mock("electron", () => ({
   clipboard: { writeText: mock.copy },
-  app: { focus: mock.activate },
-  BrowserWindow: vi.fn(function (options: BrowserWindowConstructorOptions) {
-    return new FakeWindow(options);
-  }),
+  app: {
+    focus: mock.activate,
+    on: (event: string, listener: () => void) => mock.app?.on(event, listener),
+    removeListener: (event: string, listener: () => void) =>
+      mock.app?.removeListener(event, listener),
+  },
+  BrowserWindow: Object.assign(
+    vi.fn(function (options: BrowserWindowConstructorOptions) {
+      return new FakeWindow(options);
+    }),
+    { getFocusedWindow: mock.focusedWindow },
+  ),
   powerMonitor: {
     on: (event: string, listener: () => void) => mock.power?.on(event, listener),
     removeListener: (event: string, listener: () => void) =>
@@ -136,6 +146,8 @@ async function shown() {
 }
 beforeEach(() => {
   vi.clearAllMocks();
+  mock.app = new EventEmitter();
+  mock.focusedWindow.mockImplementation(() => window());
   mock.power = new EventEmitter();
   mock.screen = new EventEmitter();
   mock.autoSize = true;
@@ -1621,3 +1633,123 @@ test("typed acceptance and pre-cancelled or disposed requests preserve their dis
   dialog.dispose();
   await expect(dialog.requestOutcome(content)).resolves.toBe("unavailable");
 });
+
+test.each(["linux", "darwin", "win32"] as const)(
+  "%s user confirmation waits outside Foom and recovers when any Foom window gains focus",
+  async (platform) => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const dialog = setup(platform);
+    const pending = dialog.request(content, undefined, { activate: true });
+    await vi.advanceTimersByTimeAsync(1000);
+    const id = await shown();
+    const shows = window().show.mock.calls.length;
+    const activations = mock.activate.mock.calls.length;
+    window().isFocused.mockReturnValue(false);
+    mock.focusedWindow.mockReturnValue(null);
+    await vi.advanceTimersByTimeAsync(35_000);
+    expect(window().show).toHaveBeenCalledTimes(shows);
+    expect(window().hide).not.toHaveBeenCalled();
+    expect(mock.activate).toHaveBeenCalledTimes(activations);
+    mock.focusedWindow.mockReturnValue(window());
+    window().focus.mockImplementation(() => {
+      window().isFocused.mockReturnValue(true);
+      mock.app?.emit("browser-window-focus");
+    });
+    mock.app?.emit("browser-window-focus");
+    expect(window().show).toHaveBeenCalledTimes(shows + 1);
+    await vi.advanceTimersByTimeAsync(1000);
+    answer(id, true);
+    expect(await pending).toBe(true);
+    expect(mock.app?.listenerCount("browser-window-focus")).toBe(0);
+    dialog.dispose();
+  },
+);
+
+test.each([
+  "inactive answer",
+  "another Foom window",
+  "return without recovery",
+  "non-user request",
+])("%s still fails closed after a successful initial reachability check", async (failure) => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  const dialog = setup();
+  const pending = dialog.request(content, undefined, { activate: failure !== "non-user request" });
+  await vi.advanceTimersByTimeAsync(1000);
+  const id = await shown();
+  window().isFocused.mockReturnValue(false);
+  if (failure !== "another Foom window") mock.focusedWindow.mockReturnValue(null);
+  if (failure === "inactive answer") answer(id, true);
+  else {
+    if (failure === "return without recovery") {
+      await vi.advanceTimersByTimeAsync(35_000);
+      mock.focusedWindow.mockReturnValue(window());
+      mock.app?.emit("browser-window-focus");
+    }
+    await vi.advanceTimersByTimeAsync(7000);
+  }
+  expect(await pending).toBe(false);
+  expect(parent.webContents.send).toHaveBeenLastCalledWith("confirmation:scrim", false);
+  dialog.dispose();
+});
+
+test("switching apps during the final periodic recovery check pauses its cancellation", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  const dialog = setup();
+  const pending = dialog.request(content, undefined, { activate: true });
+  await vi.advanceTimersByTimeAsync(1000);
+  const id = await shown();
+  window().isFocused.mockReturnValue(false);
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(window().show).toHaveBeenCalledTimes(2);
+  mock.focusedWindow.mockReturnValue(null);
+  await vi.advanceTimersByTimeAsync(35_000);
+  expect(window().show).toHaveBeenCalledTimes(2);
+  expect(window().hide).not.toHaveBeenCalled();
+  answer(id, false);
+  expect(await pending).toBe(false);
+  dialog.dispose();
+});
+
+test.each(["linux", "darwin", "win32"] as const)(
+  "%s typed SSH trust stays pending while paused and distinguishes recovery from real failure",
+  async (platform) => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    for (const failure of [false, true]) {
+      const dialog = setup(platform);
+      const abort = new AbortController();
+      const resolved = vi.fn();
+      const pending = dialog.requestOutcome(
+        { title: "Trust host key?", accept: "Trust host key" },
+        abort.signal,
+        { activate: true },
+      );
+      void pending.then(resolved);
+      await vi.advanceTimersByTimeAsync(1000);
+      const id = await shown();
+      const child = window();
+      const shows = child.show.mock.calls.length;
+      child.isFocused.mockReturnValue(false);
+      mock.focusedWindow.mockReturnValue(null);
+      await vi.advanceTimersByTimeAsync(35_000);
+      expect(resolved).not.toHaveBeenCalled();
+      expect(abort.signal.aborted).toBe(false);
+      expect(child.show).toHaveBeenCalledTimes(shows);
+      expect(child.hide).not.toHaveBeenCalled();
+      mock.focusedWindow.mockReturnValue(child);
+      if (failure)
+        child.show.mockImplementation(() => {
+          throw new Error("native presentation failed after pause");
+        });
+      else child.focus.mockImplementation(() => child.isFocused.mockReturnValue(true));
+      mock.app?.emit("browser-window-focus");
+      if (!failure) {
+        await vi.advanceTimersByTimeAsync(1000);
+        answer(id, true);
+      }
+      await expect(pending).resolves.toBe(failure ? "unavailable" : "accepted");
+      expect(abort.signal.aborted).toBe(false);
+      expect(mock.app?.listenerCount("browser-window-focus")).toBe(0);
+      dialog.dispose();
+    }
+  },
+);
