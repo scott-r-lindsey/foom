@@ -541,3 +541,30 @@ test("OSC 52 permission reads the live main-owned profile setting", async () => 
   enabled = false;
   expect(mock.clipboardWrites()).toBe(false);
 });
+
+test("local install clicks enforce bundled enablement, serialize launch and refresh just that agent", async () => {
+  await start();
+  const install = mock.setup.deps?.localAgentInstall;
+  if (!install) throw new Error("Missing Settings installer");
+  const available = await install(undefined);
+  if (process.platform === "win32") {
+    expect(available.available).toEqual([]);
+    await expect(install("claude")).rejects.toThrow("unavailable");
+    return;
+  }
+  expect(available.available).toContain("claude");
+  for (const id of ["unknown", { id: "claude" }, "claude;id"])
+    await expect(install(id)).rejects.toThrow("unavailable");
+  mock.workspace.startLocalAgentInstall.mockRejectedValueOnce(new Error("fixture failure"));
+  await expect(install("claude")).rejects.toThrow("fixture failure");
+  expect((await install("claude")).recipeSession).toBe("local-install");
+  await expect(install("codex")).rejects.toThrow("already running");
+  expect(mock.window.webContents.send).not.toHaveBeenCalledWith(
+    "app-menu:session",
+    "local-install",
+  );
+  const listener = mock.terminals.onExit.mock.calls.at(-1)?.[0];
+  listener?.("local-install", 7);
+  expect(mock.workspace.scanAgents).toHaveBeenLastCalledWith(true, "claude");
+  expect((await install("codex")).recipeSession).toBe("local-install");
+});

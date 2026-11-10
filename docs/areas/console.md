@@ -61,3 +61,15 @@ The internal `ssh-askpass` entry point (#1059) runs only the bounded, per-run Un
 socket exchange for [host-key confirmation](hosts.md#accepting-a-new-ssh-host-key-1059).
 It opens no profile/discovery files, accepts no secret prompts, and requires the
 private run credential. Its --probe mode verifies helper availability without SSH.
+
+## Internal Settings installer (#1071)
+
+The bundled executable's private `--install-agent ID` entry point accepts only
+bundled manifest IDs. Foom invokes it from Settings. It checks the internal
+`FOOM_SETTINGS_INSTALL=1` accidental-use marker, which is removed before invoking
+a vendor script or package manager. This marker is not authorization: same-user
+processes can set it. Foom itself launches installers only from trusted Settings
+actions handled by main; there is no control/agent install capability. It does
+not pair, discover control services or use inherited Foom credentials. It is not a control/MCP command and
+adds no agent or orchestrator capability. Linux/macOS execution uses the same
+[bounded vendor downloader](hosts.md#vendor-agent-installers-1071) as foom-host.

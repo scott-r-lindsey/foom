@@ -325,6 +325,7 @@ vi.mock("../../../src/main/workspace/workspace", () => ({
       ],
     });
     startHostRecipe = mock.workspace.startHostRecipe;
+    startLocalAgentInstall = mock.workspace.startLocalAgentInstall;
     output = mock.workspace.output;
     evidence = mock.workspace.evidence;
     foreground = mock.workspace.foreground;
@@ -503,6 +504,9 @@ const mock = vi.hoisted(() => {
   const workspace = {
     restore: vi.fn<() => Promise<void>>(() => Promise.resolve()),
     deps: undefined as WorkspaceDependencies | undefined,
+    startLocalAgentInstall: vi.fn<(_id: string) => Promise<string>>(() =>
+      Promise.resolve("local-install"),
+    ),
     startHostRecipe: vi.fn<(target: RemoteTarget) => Promise<string>>(() =>
       Promise.resolve("recipe"),
     ),
@@ -620,7 +624,7 @@ const mock = vi.hoisted(() => {
       update: vi.fn(() => Promise.resolve()),
       get: (): Pick<
         Settings,
-        "interfaceScale" | "interfaceTheme" | "forges" | "forgeHosts" | "copyOnSelect"
+        "interfaceScale" | "interfaceTheme" | "forges" | "forgeHosts" | "copyOnSelect" | "agents"
       > &
         Partial<
           Pick<
@@ -628,6 +632,7 @@ const mock = vi.hoisted(() => {
             "agentBypassAcknowledged" | "showPullRequests" | "setupComplete" | "checkForUpdates"
           >
         > => ({
+        agents: { claude: true, codex: true, agy: true },
         forges: { github: true },
         forgeHosts: { "github.com": "github" },
         showPullRequests: false,

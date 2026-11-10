@@ -9,7 +9,7 @@ keeps an agent inside its worktree is the agent's own sandbox or permission prom
 
 | Boundary | Required behavior |
 | --- | --- |
-| Bundled manifests | Trusted as build inputs; same validator/engine/features as config. Build provenance cannot be claimed in JSON |
+| Bundled manifests | Trusted as build inputs; same launch validator/engine as config; vendor installers are bundled-only (#1071). Build provenance cannot be claimed in JSON |
 | Config manifest | Valid original bytes load on the scan that reads them; invalid bytes are rejected whole and never probed or launched |
 | Edits/removal/restart | An edit reloads the provider; re-read before probe/preparation/spawn/action and refuse bytes changed since loading; registry revision invalidates caches. Running sessions retain immutable mapping/argv binding; removal removes the provider |
 | Diagnostics | Invalid diagnostics are fixed JSON path/reason, no raw exception or secret |
@@ -26,8 +26,10 @@ load. Bundled Codex declares no disclosure and attaches notify per launch withou
 
 Copy a bundled manifest from `src/shared/bundled-agents/` into the config folder's
 `agents/` folder and give it a new root `id` and `name`; the file name must be
-`<id>.json`. The copy keeps every manifest field, including hooks, setup, resume and
-protections. Foom offers no Settings action for this; #424's **Duplicate as plugin**
+`<id>.json`. Remove `hostSetup.script`: vendor installer declarations are
+bundled-only, and config copies retaining that field are rejected (#1071). The
+copy can retain hooks, plugin setup, resume, protections and the other supported
+manifest fields. Foom offers no Settings action for this; #424's **Duplicate as plugin**
 was removed in #538.
 
 A copy gains no trust: no profile digest, bundled observer provenance, hook observation, per-agent defaults or environment
@@ -57,5 +59,6 @@ New per-provider enable/default/environment scopes use loaded provider IDs, incl
 No operations named claude/codex/agy/copilot, no manifest-loaded modules, no
 built-in-only capability bit. Adding a provider requires JSON and measurements,
 not workspace/renderer branches. ABI-level observer versioning is generic code;
-custom manifests can express every bundled selection. Product
+custom manifests can express every bundled launch selection; vendor installer
+addresses remain bundled-only. Product
 privacy, context isolation, sandboxing and terminal ownership are unchanged.

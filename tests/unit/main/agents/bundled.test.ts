@@ -58,7 +58,13 @@ it("accepts only locked v2 build inputs and immutable data, never JSON-declared 
 });
 
 it("launches a complete renamed copy on the same engine without carrying bundled authority", async () => {
-  const parsed = parseAgentManifest(JSON.stringify({ ...data, id: "claude-custom" }));
+  const parsed = parseAgentManifest(
+    JSON.stringify({
+      ...data,
+      hostSetup: { ...data.hostSetup, script: undefined },
+      id: "claude-custom",
+    }),
+  );
   const copy = v2Provider(parsed.model, () => Promise.resolve());
   expect(copy.origin).toBe("config");
   const installation = provider.discover(

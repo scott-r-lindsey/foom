@@ -24,6 +24,35 @@ export function createSetupSource(
   const settled = async () => {
     while (launches.size) await Promise.allSettled([...launches]);
   };
+  const trackInstall = <T extends { recipeSession?: string }>(
+    host: string,
+    start: () => Promise<T>,
+  ): Promise<T> => {
+    if (closing) return Promise.reject(new Error("Settings is closing"));
+    launchVersion++;
+    offExit ??= desktop.onExit((id) => {
+      if (installs.has(id)) exited.add(id);
+      else {
+        earlyExits.add(id);
+        if (earlyExits.size > 256) {
+          const oldest = earlyExits.values().next().value;
+          if (oldest !== undefined) earlyExits.delete(oldest);
+        }
+      }
+    });
+    const work = start().then((state) => {
+      if (state.recipeSession) {
+        installs.set(state.recipeSession, host);
+        if (earlyExits.delete(state.recipeSession)) exited.add(state.recipeSession);
+      }
+      return state;
+    });
+    launches.add(work);
+    return work.finally(() => {
+      launches.delete(work);
+      releaseObserver();
+    });
+  };
   return {
     hostTerminal: {
       createView: () => createView(),
@@ -95,31 +124,12 @@ export function createSetupSource(
     hosts: (action) => {
       if (action.action !== "recipe" || action.operation !== "install")
         return desktop.hosts(action);
-      if (closing) return Promise.reject(new Error("Settings is closing"));
-      launchVersion++;
-      offExit ??= desktop.onExit((id) => {
-        if (installs.has(id)) exited.add(id);
-        else {
-          earlyExits.add(id);
-          if (earlyExits.size > 256) {
-            const oldest = earlyExits.values().next().value;
-            if (oldest !== undefined) earlyExits.delete(oldest);
-          }
-        }
-      });
-      const work = desktop.hosts(action).then((state) => {
-        if (state.recipeSession) {
-          installs.set(state.recipeSession, action.host);
-          if (earlyExits.delete(state.recipeSession)) exited.add(state.recipeSession);
-        }
-        return state;
-      });
-      launches.add(work);
-      return work.finally(() => {
-        launches.delete(work);
-        releaseObserver();
-      });
+      return trackInstall(action.host, () => desktop.hosts(action));
     },
+    localAgentInstall: (id) =>
+      id === undefined
+        ? desktop.localAgentInstall()
+        : trackInstall(`local:${id}`, () => desktop.localAgentInstall(id)),
     checkReadiness: () => desktop.checkReadiness(),
     listTerminalFonts: (refresh) => desktop.listTerminalFonts(refresh),
     openThemesFolder: (kind) => desktop.openThemesFolder(kind),

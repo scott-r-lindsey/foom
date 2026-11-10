@@ -24,6 +24,9 @@ import type { WorktreeService } from "../workspace/worktrees";
 export interface SetupDependencies {
   hosts?: Hosts;
   hostsChanged?: () => void;
+  localAgentInstall?: (
+    id: unknown,
+  ) => Promise<{ available: readonly string[]; recipeSession?: string }>;
   launchHostRecipe?: (target: RemoteTarget, finished?: () => void) => Promise<unknown>;
   copyText?: (value: string) => void | Promise<void>;
   confirmHostKey?: (content: PlainDialogContent, signal: AbortSignal) => Promise<DialogOutcome>;
@@ -68,6 +71,10 @@ export class Setup {
     this.deps.apply(this.deps.store.get());
   }
 
+  localAgentInstall(id: unknown) {
+    if (!this.deps.localAgentInstall) throw new Error("Installer unavailable");
+    return this.deps.localAgentInstall(id);
+  }
   async copyHost(input: unknown): Promise<void> {
     if (!this.deps.hosts || !this.deps.copyText) throw new Error("Copy unavailable");
     await this.deps.copyText(this.deps.hosts.copyValue(input));

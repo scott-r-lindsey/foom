@@ -1,3 +1,6 @@
+import { parseAgentManifest } from "../../shared/agent-plugin-parser";
+import type { RemoteTarget } from "../../shared/remote-host";
+import { bundledAgentData } from "../../shared/bundled-agent-data";
 import { hostsForStore } from "../setup/hosts";
 import { checkReadiness } from "../setup/readiness";
 import { clipboard, app, BrowserWindow, dialog, nativeTheme, screen, session } from "electron";
@@ -273,55 +276,91 @@ export async function buildWindow(
     previewHost.refresh();
     confirmations.refresh();
   };
+  const launchRecipe = async (
+    target: RemoteTarget | { localAgent: string },
+    finished?: () => void,
+  ) => {
+    let id: string | undefined;
+    // Creation and exit can share one host frame, before the launch promise settles.
+    const earlyExits = new Map<string, number>();
+    const off: (() => void) | undefined = finished
+      ? wiring.terminals.onExit((exitedId, code) => {
+          if (id === undefined) {
+            earlyExits.set(exitedId, code);
+            if (earlyExits.size > 256) {
+              const oldest = earlyExits.keys().next().value;
+              if (oldest !== undefined) earlyExits.delete(oldest);
+            }
+          } else if (exitedId === id) {
+            off?.();
+            finished();
+          }
+        })
+      : undefined;
+    try {
+      id =
+        "localAgent" in target
+          ? await wiring.workspace.startLocalAgentInstall(target.localAgent)
+          : await wiring.workspace.startHostRecipe(target);
+      const code = earlyExits.get(id);
+      earlyExits.clear();
+      if (finished && code !== undefined) {
+        off?.();
+        try {
+          await wiring.workspace.exited(id, code);
+        } catch {
+          console.warn("Unable to settle recipe exit");
+        }
+        finished();
+      } else if (
+        finished &&
+        wiring.workspace.snapshot().terminals.find((row) => row.id === id)?.exited
+      ) {
+        off?.();
+        finished();
+      }
+      if ("localAgent" in target || target.recipe?.action === "install") return id;
+      wiring.revealSession(id);
+      return id;
+    } catch (error) {
+      off?.();
+      throw error;
+    }
+  };
+  let localInstallPending = false;
   const setup = new Setup({
     hostsChanged: () => {
       wiring.workspace.refresh();
     },
-    launchHostRecipe: async (target, finished) => {
-      let id: string | undefined;
-      // Creation and exit can share one host frame, before the launch promise settles.
-      const earlyExits = new Map<string, number>();
-      const off: (() => void) | undefined = finished
-        ? wiring.terminals.onExit((exitedId, code) => {
-            if (id === undefined) {
-              earlyExits.set(exitedId, code);
-              if (earlyExits.size > 256) {
-                const oldest = earlyExits.keys().next().value;
-                if (oldest !== undefined) earlyExits.delete(oldest);
-              }
-            } else if (exitedId === id) {
-              off?.();
-              finished();
-            }
-          })
-        : undefined;
+    localAgentInstall: async (id) => {
+      const available =
+        process.platform === "linux" || process.platform === "darwin"
+          ? bundledAgentData
+              .map((data) => parseAgentManifest(JSON.stringify(data), "bundled").model)
+              .filter(
+                (data) => data.hostSetup?.script && wiring.settings.get().agents[data.id] !== false,
+              )
+              .map((data) => data.id)
+          : [];
+      if (id === undefined) return { available };
+      if (typeof id !== "string" || !available.includes(id))
+        throw new Error("Installer unavailable");
+      if (localInstallPending) throw new Error("Installer already running");
+      localInstallPending = true;
       try {
-        id = await wiring.workspace.startHostRecipe(target);
-        const code = earlyExits.get(id);
-        earlyExits.clear();
-        if (finished && code !== undefined) {
-          off?.();
-          try {
-            await wiring.workspace.exited(id, code);
-          } catch {
-            console.warn("Unable to settle recipe exit");
-          }
-          finished();
-        } else if (
-          finished &&
-          wiring.workspace.snapshot().terminals.find((row) => row.id === id)?.exited
-        ) {
-          off?.();
-          finished();
-        }
-        if (target.recipe?.action === "install") return id;
-        wiring.revealSession(id);
-        return id;
+        const recipeSession = await launchRecipe({ localAgent: id }, () => {
+          localInstallPending = false;
+          void wiring.workspace.scanAgents(true, id).catch(() => {
+            console.warn("Installer row refresh failed");
+          });
+        });
+        return { available, recipeSession };
       } catch (error) {
-        off?.();
+        localInstallPending = false;
         throw error;
       }
     },
+    launchHostRecipe: launchRecipe,
     copyText: (text) => clipboard.writeText(text),
     confirmHostKey: (content, signal) =>
       confirmations.requestOutcome(content, signal, { activate: true }),

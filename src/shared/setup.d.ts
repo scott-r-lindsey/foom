@@ -120,6 +120,7 @@ export interface SetupState {
 }
 
 export interface SetupApi extends HostsApi {
+  localAgentInstall(id?: string): Promise<{ available: readonly string[]; recipeSession?: string }>;
   restartToUpdate(): Promise<void>;
   checkReadiness(): Promise<ReadinessReport>;
   listTerminalFonts(refresh?: boolean): Promise<readonly string[]>;

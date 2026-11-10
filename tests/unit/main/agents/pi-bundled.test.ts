@@ -197,13 +197,20 @@ it("validates active-screen sampling without changing older manifest identities"
   const { sampleWhileActive: enabled, ...attention } = data.attention;
   expect(enabled).toBe(true);
   expect(
-    parseAgentManifest(JSON.stringify({ ...data, id: "pi-copy", attention })).model.attention
-      .sampleWhileActive,
+    parseAgentManifest(
+      JSON.stringify({
+        ...data,
+        hostSetup: { ...data.hostSetup, script: undefined },
+        id: "pi-copy",
+        attention,
+      }),
+    ).model.attention.sampleWhileActive,
   ).toBeUndefined();
   expect(() =>
     parseAgentManifest(
       JSON.stringify({
         ...data,
+        hostSetup: { ...data.hostSetup, script: undefined },
         id: "pi-copy",
         attention: { ...attention, sampleWhileActive: "true" },
       }),

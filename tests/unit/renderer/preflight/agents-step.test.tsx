@@ -426,3 +426,82 @@ test.each([false, true])(
     expect(screen.queryByRole("status")).toBeNull();
   },
 );
+
+test("local Install requires a click, retains its terminal, and reloads only its row", async () => {
+  const f = fixture();
+  f.config.status.mockResolvedValue({ ...pending, agentPlugins: [] });
+  const installs = new Map<string, string>();
+  const install = vi.fn((id?: string) => {
+    if (id) installs.set(`local:${id}`, "local-install");
+    return Promise.resolve({
+      available: ["claude"],
+      ...(id ? { recipeSession: "local-install" } : {}),
+    });
+  });
+  f.source.localAgentInstall = install;
+  f.source.installs = {
+    sessions: () => installs,
+    hasSessions: () => installs.size > 0,
+    running: () => Promise.resolve(false),
+    close: () => Promise.resolve(),
+    dispose: () => {},
+  };
+  let terminalExit: { exited: boolean; code?: number } = { exited: false };
+  const listeners = new Set<(exit: { exited: boolean; code?: number }) => void>();
+  f.source.hostTerminal = {
+    createView: () => ({
+      mount: () => () => {},
+      open: () => Promise.resolve(),
+      hide: () => Promise.resolve(),
+      focus: () => {},
+      subscribe: () => () => {},
+      getSnapshot: () => ({
+        status: "",
+        state: "quiet_ok",
+        visible: true,
+        attaching: false,
+        toggleLabel: "",
+        toggleDisabled: false,
+        restartDisabled: false,
+      }),
+    }),
+    observe: (_id, receive) => {
+      listeners.add(receive);
+      receive(terminalExit);
+      return () => {
+        listeners.delete(receive);
+      };
+    },
+  };
+  const view = render(
+    <AgentsStep {...f.props} machine report={report({ ...installation("claude"), path: null })} />,
+  );
+  const button = await screen.findByRole("button", { name: "Install" });
+  expect(install).toHaveBeenCalledExactlyOnceWith();
+  fireEvent.click(button);
+  await screen.findByRole("region", { name: "Install terminal" });
+  expect(install).toHaveBeenLastCalledWith("claude");
+  expect(button).toHaveProperty("disabled", true);
+  act(() => {
+    terminalExit = { exited: true, code: 7 };
+    for (const receive of listeners) receive(terminalExit);
+  });
+  expect(await screen.findByText("Failed · exit code 7")).toBeTruthy();
+  expect(f.scan).toHaveBeenLastCalledWith(false);
+  view.unmount();
+  expect(listeners.size).toBe(0);
+});
+
+test("a failed local installer launch reports a fixed failure and can be retried", async () => {
+  const f = fixture();
+  f.source.localAgentInstall = vi.fn((id?: string) =>
+    id ? Promise.reject(new Error("private")) : Promise.resolve({ available: ["claude"] }),
+  );
+  render(
+    <AgentsStep {...f.props} machine report={report({ ...installation("claude"), path: null })} />,
+  );
+  const button = await screen.findByRole("button", { name: "Install" });
+  fireEvent.click(button);
+  await screen.findByText("Unable to start installer");
+  expect(button).toHaveProperty("disabled", false);
+});

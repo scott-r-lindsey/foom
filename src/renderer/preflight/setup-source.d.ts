@@ -33,6 +33,9 @@ export interface SetupSource {
   };
   copyHost?: HostsApi["copyHost"];
   hosts?: HostsApi["hosts"];
+  localAgentInstall?: (
+    id?: string,
+  ) => Promise<{ available: readonly string[]; recipeSession?: string }>;
   restartToUpdate?(): Promise<void>;
   checkReadiness?(): Promise<ReadinessReport>;
   listTerminalFonts?(refresh?: boolean): Promise<readonly string[]>;

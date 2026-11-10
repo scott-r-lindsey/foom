@@ -24,6 +24,7 @@ const window = { webContents: contents } as unknown as BrowserWindow;
 const trusted = { sender: contents, senderFrame: frame };
 const setup = {
   cancelHostTrust: vi.fn(),
+  localAgentInstall: vi.fn(() => "installer"),
   copyHost: vi.fn(),
   hosts: vi.fn(() => "hosts"),
   restartToUpdate: vi.fn(() => Promise.resolve()),
@@ -57,6 +58,7 @@ test("every channel rejects untrusted senders", () => {
     "setup:readiness",
     "setup:copy-host",
     "setup:state",
+    "setup:local-agent-install",
     "setup:hosts",
     "setup:restart-update",
     "setup:save",
@@ -203,4 +205,11 @@ test("navigation, renderer loss and disposal cancel only the window's host trust
   expect(setup.cancelHostTrust).toHaveBeenCalledTimes(3);
   attached.dispose();
   expect(setup.cancelHostTrust).toHaveBeenCalledTimes(4);
+});
+
+test("local installer IPC accepts exactly one payload and delegates validation", () => {
+  expect(invoke("setup:local-agent-install", [undefined])).toBe("installer");
+  expect(invoke("setup:local-agent-install", ["claude"])).toBe("installer");
+  for (const args of [[], ["claude", "extra"]])
+    expect(() => invoke("setup:local-agent-install", args)).toThrow("Invalid installer request");
 });

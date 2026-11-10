@@ -972,6 +972,9 @@ export function serveHost(
                         : message.trustOrigin
                           ? ["--trust-origin", message.trustOrigin]
                           : ["-i", "-l"],
+                      ...(message.recipe?.action === "install"
+                        ? { env: { FOOM_SETTINGS_INSTALL: "1" } }
+                        : {}),
                       cwd: message.checkout?.path ?? home,
                       cols: message.cols,
                       rows: message.rows,

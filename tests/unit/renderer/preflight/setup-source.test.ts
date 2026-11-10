@@ -334,3 +334,27 @@ test("native install exits override delayed workspace metadata, including exits 
   expect(off).toHaveBeenCalledTimes(2);
   source.installs.dispose();
 });
+
+test("local installs share Settings ownership and cannot escape Stop/Keep open", async () => {
+  const localAgentInstall = vi.fn((id?: string) =>
+    Promise.resolve({ available: ["claude"], ...(id ? { recipeSession: "local-install" } : {}) }),
+  );
+  const kill = vi.fn(() => Promise.resolve());
+  Object.defineProperty(window, "desktop", {
+    configurable: true,
+    value: {
+      localAgentInstall,
+      kill,
+      workspace: () => Promise.resolve({ terminals: [{ id: "local-install" }] }),
+      onExit: () => () => {},
+    },
+  });
+  const source = createSetupSource();
+  await source.localAgentInstall?.();
+  expect(source.installs?.hasSessions()).toBe(false);
+  await source.localAgentInstall?.("claude");
+  expect(source.installs?.sessions()).toEqual(new Map([["local:claude", "local-install"]]));
+  await expect(source.installs?.running()).resolves.toBe(true);
+  await source.installs?.close();
+  expect(kill).toHaveBeenCalledExactlyOnceWith("local-install");
+});

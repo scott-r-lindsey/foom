@@ -1,8 +1,9 @@
+import { HostTerminal } from "./host-terminal";
 import { AgentStatus } from "./agent-status";
 import { AgentReload } from "./agent-reload";
 import { PluginSourceIcon } from "./plugin-source-icon";
 import { ActionError, useBackgroundErrors } from "../board/error-presentation";
-import { useEffect, useEffectEvent, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useState } from "react";
 import { builtinAgent } from "../../shared/providers/catalog";
 import type { AgyPluginAction } from "../../shared/agy-plugin";
 import type { SetupState } from "../../shared/setup";
@@ -16,6 +17,69 @@ import { AgentArguments } from "./agent-default-arguments";
 import { EnvironmentSettings } from "./environment-settings";
 import { agentChoices, signal, versionNumber } from "./preflight";
 import { message } from "./message";
+
+function LocalInstall({
+  id,
+  source,
+  scan,
+  disabled,
+}: {
+  id: string;
+  source: SetupSource;
+  scan: (refresh: boolean, agent?: string) => Promise<unknown>;
+  disabled: boolean;
+}) {
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+  const [running, setRunning] = useState(false);
+  const [session, setSession] = useState(() => source.installs?.sessions().get(`local:${id}`));
+  useEffect(() => {
+    if (session && source.hostTerminal)
+      return source.hostTerminal.observe(session, (exit) => {
+        setRunning(!exit.exited);
+      });
+  }, [session, source.hostTerminal]);
+  const finished = useCallback(() => {
+    // Main already started the scoped re-check on exit; read that observation.
+    void scan(false);
+  }, [scan]);
+  return (
+    <>
+      <button
+        type="button"
+        disabled={disabled || pending || running}
+        onClick={() => {
+          setPending(true);
+          setError("");
+          void source
+            .localAgentInstall?.(id)
+            .then(
+              (result) => {
+                setRunning(!!result.recipeSession);
+                setSession(result.recipeSession);
+              },
+              () => {
+                setError("Unable to start installer");
+              },
+            )
+            .finally(() => {
+              setPending(false);
+            });
+        }}
+      >
+        Install
+      </button>
+      {error && (
+        <span role="status" className="preflight-error">
+          {error}
+        </span>
+      )}
+      {session && source.hostTerminal && (
+        <HostTerminal key={session} id={session} source={source.hostTerminal} finished={finished} />
+      )}
+    </>
+  );
+}
 
 export function AgentsStep({
   machine = false,
@@ -44,6 +108,21 @@ export function AgentsStep({
     saveArguments: (id: string, args: readonly string[]) => Promise<void>;
   }) {
   const { report: reportFailure, clear } = useBackgroundErrors();
+  const [installable, setInstallable] = useState<readonly string[]>([]);
+  const installer = source?.localAgentInstall;
+  useEffect(() => {
+    let active = true;
+    if (installer)
+      void installer().then(
+        (result) => {
+          if (active) setInstallable(result.available);
+        },
+        () => undefined,
+      );
+    return () => {
+      active = false;
+    };
+  }, [installer, state.settings.agents]);
   const [config, setConfig] = useState<ConfigStatus>();
   const [error, setError] = useState("");
   const [results, setResults] = useState<Readonly<Record<string, { text: string; epoch: number }>>>(
@@ -224,6 +303,18 @@ export function AgentsStep({
                   </div>
                   <code className="agent-path">{agent?.path ?? command}</code>
                 </div>
+                {source &&
+                  installable.includes(id) &&
+                  !blocked &&
+                  state.settings.agents[id] !== false &&
+                  (missing || source.installs?.sessions().has(`local:${id}`)) && (
+                    <LocalInstall
+                      id={id}
+                      source={source}
+                      scan={scan}
+                      disabled={actionsDisabled || scanning}
+                    />
+                  )}
                 {machine && installed && (
                   <div className="agent-setting">
                     <span className="agent-label">Sign-in</span>

@@ -185,3 +185,30 @@ test("only agy's explicit install-plugin selector can choose the fixed two-step 
   ]);
   expect(selectHostRecipe({ ...request, tool: "other" }, facts)).toBeUndefined();
 });
+
+test("vendor script recipes bind address, interpreter and arguments and need no package manager", () => {
+  const request = { tool: "fixture", action: "install", distro: "darwin" } as const;
+  const script = {
+    url: "https://vendor.test/install",
+    interpreter: "bash",
+    arguments: ["stable"],
+  } as const;
+  const setup = { script, install: { darwin: ["brew", "install", "fixture"] } };
+  expect(
+    selectHostRecipe(
+      request,
+      { distro: "darwin", libc: "supported", packageManager: "brew" },
+      setup,
+    )?.steps,
+  ).toEqual([["brew", "install", "fixture"]]);
+  expect(
+    selectHostRecipe(
+      request,
+      { distro: "darwin", libc: "supported", packageManager: "none" },
+      setup,
+    )?.steps,
+  ).toEqual([["foom-host", "--vendor-script", script.url, "bash", "stable"]]);
+  expect(selectHostRecipe({ ...request, distro: "debian" }, facts, setup)?.steps).toEqual([
+    ["foom-host", "--vendor-script", script.url, "bash", "stable"],
+  ]);
+});

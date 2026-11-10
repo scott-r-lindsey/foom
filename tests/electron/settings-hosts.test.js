@@ -2426,7 +2426,8 @@ test("Hosts removal prunes saved session rows and startup repairs already forgot
     .click();
   const card = page.getByRole("region", { name: "fixture-cloud", exact: true });
   await expect(card.locator(".host-checks")).toHaveAttribute("aria-busy", "false");
-  // Restored sidebar discovery can still be finishing when Hosts becomes visible.
+  // Drain startup sidebar discovery before measuring requests caused by Forget.
+  await page.evaluate(() => window.desktop.sidebarInventory());
   // Take the baseline only after consecutive polls observe a settled call log.
   let callsBefore;
   await expect
@@ -2444,6 +2445,8 @@ test("Hosts removal prunes saved session rows and startup repairs already forgot
   await expect.poll(() => rows(page)).toEqual([]);
   await expect(page.locator(`[data-drag-session="${saved.id}"]`)).toHaveCount(0);
   await expect.poll(async () => JSON.parse(await readFile(sessionsFile, "utf8"))).toEqual([]);
+  // Include the inventory refresh published by removal in the no-SSH assertion.
+  await page.evaluate(() => window.desktop.sidebarInventory());
   assert.equal(
     await readFile(fixture.calls, "utf8"),
     callsBefore,

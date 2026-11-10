@@ -28,6 +28,7 @@ import { agentProvider, knownAgentId, providerRevision } from "../agents/provide
 import { buildLaunchEnvironment, inheritedEnvironment } from "../setup/environment";
 import type { AgentSetupContext, WorktreeLaunchContext } from "./workspace-capabilities";
 import { homeDirectory, shellPath } from "./home-shell";
+import { installerEnvironment } from "../../node-common/vendor-install";
 
 export async function confirmAgentLaunch(
   this: WorktreeLaunchContext,
@@ -296,6 +297,7 @@ export async function startShell(
   validateLaunch?: () => void,
   signal?: AbortSignal,
   parentHold?: CheckoutHold,
+  localRecipe?: { command: string; args: readonly string[] },
 ): Promise<string> {
   const hold =
     location.home || location.config
@@ -303,21 +305,35 @@ export async function startShell(
       : this.checkoutHolds.acquire(location.worktree, parentHold);
   if (!location.home && !location.config && !hold) throw new Error("This worktree is busy");
   try {
-    const remote =
-      remoteOverride ??
-      (checkout
+    const remote = localRecipe
+      ? undefined
+      : (remoteOverride ??
+        (checkout
+          ? {
+              ...checkout.target,
+              checkout: {
+                repository: checkout.repository,
+                path: checkout.worktree,
+                identity: checkout.identity,
+              },
+            }
+          : location.home
+            ? remoteSpikeTarget(process.argv)
+            : undefined));
+    const environment = remote
+      ? { env: {}, names: [] }
+      : localRecipe
         ? {
-            ...checkout.target,
-            checkout: {
-              repository: checkout.repository,
-              path: checkout.worktree,
-              identity: checkout.identity,
-            },
+            // replaceEnvironment requires a complete environment; the ordinary
+            // builder returns only overrides layered over the host's inheritance.
+            env: installerEnvironment(
+              homeDirectory,
+              inheritedEnvironment(),
+              (await loginPath()).path,
+            ),
+            names: [],
           }
-        : location.home
-          ? remoteSpikeTarget(process.argv)
-          : undefined);
-    const environment = remote ? { env: {}, names: [] } : await this.shellEnvironment(pathFirst);
+        : await this.shellEnvironment(pathFirst);
     if (restoreId !== undefined) this.executionOwner.reset(restoreId);
     await checkout?.validate();
     validateLaunch?.();
@@ -353,9 +369,9 @@ export async function startShell(
             },
           }
         : {}),
-      command: remote ? `ssh ${remote.host}` : shellPath(),
-      args: process.platform === "win32" ? ["-NoLogo"] : ["-l"],
-      shellIntegration: true,
+      command: localRecipe?.command ?? (remote ? `ssh ${remote.host}` : shellPath()),
+      args: localRecipe?.args ?? (process.platform === "win32" ? ["-NoLogo"] : ["-l"]),
+      ...(localRecipe ? { replaceEnvironment: true } : { shellIntegration: true }),
       env: { ...environment.env, ...configEnvironment },
       cwd: checkout?.worktree ?? location.worktree,
       cols: 80,
@@ -370,7 +386,7 @@ export async function startShell(
       ...(remote
         ? { remote: true, placement: { kind: "remote" as const, host: remote.host } }
         : {}),
-      ...(remote?.recipe ? { recipe: true } : {}),
+      ...(remote?.recipe || localRecipe ? { recipe: true } : {}),
       ...(checkout ? { branch: `${checkout.branch} · ${checkout.target.host}` } : {}),
       ...(environment.names.length ? { environment: environment.names } : {}),
       attention: "evaluator",

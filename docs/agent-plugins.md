@@ -467,12 +467,21 @@ darwin. Remote status probes use only bundled manifests; config providers remain
 unsupported remotely. Exit 0 is signed-in, 1 signed-out, otherwise unknown; output
 is discarded, and credential files/Keychain APIs are never consulted by Foom.
 Install argv must be one package name after the fixed sudo apt-get/dnf install -y,
-sudo pacman -S --noconfirm, or brew install prefix (optionally --cask). No shell, vendor installer or
-interpolation is permitted. The recipe selector prepends a fixed sudo apt-get update
+sudo pacman -S --noconfirm, or brew install prefix (optionally --cask). No shell source or interpolation is permitted in package-manager argv. The recipe selector prepends a fixed sudo apt-get update
 step for Debian installs. This step is part of the fixed argv digest; manifests
 do not need multi-step argv or broader validation permissions. Arch install argv
 is used unchanged and does not refresh package databases.
-No bundled agent currently declares a Debian or Arch install recipe; unavailable
-platforms remain unavailable. Sign-in argv starts with the agent executable name.
-Main selects the recipe, and a user click opens a visible human-owned remote tile.
+No bundled agent currently declares a Debian or Arch package-manager recipe;
+bundled vendor scripts supply the fallback described below. Sign-in argv starts with the agent executable name.
+Main selects the recipe, and an Install click opens a human-owned embedded terminal.
 Missing recipes are unavailable, never inferred from discovery or another distro.
+
+
+Bundled origin only: `hostSetup.script` is `{ "url": "https://vendor.example/install",
+"interpreter": "bash", "arguments": [] }`, with interpreter `sh` or `bash` and at
+most eight fixed arguments. URL credentials/fragments and non-HTTPS addresses
+are refused. Config-origin manifests naming this field are rejected with
+`bundled-only`, including under custom IDs. This is not a config-plugin capability.
+Package-manager argv wins when that manager exists, otherwise the bundled script
+is selected. The recipe digest covers URL/interpreter/arguments. See
+[download, privacy and cleanup rules](areas/hosts.md#vendor-agent-installers-1071).
