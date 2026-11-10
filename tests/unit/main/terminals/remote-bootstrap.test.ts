@@ -10,6 +10,7 @@ import {
   LINUX_LIBC_CHECK,
   hostArtifact,
   remoteSpikeTarget,
+  remoteAgentTarget,
   remotePlatform,
 } from "../../../../src/main/terminals/remote-bootstrap";
 const roots: string[] = [];
@@ -283,3 +284,23 @@ test.skipIf(process.platform === "win32")(
     }
   },
 );
+
+test("validates a complete developer mapping before inspecting its host independently of checkout routing", () => {
+  const args = [
+    "--remote-agent-spike=fixture",
+    "--remote-agent-artifact=/fixture/host",
+    "--remote-agent-local-checkout=/local/repo",
+    "--remote-agent-repository=/remote/repo",
+    "--remote-agent-worktree=/remote/tree",
+  ];
+  expect(remoteAgentTarget(args)?.target.host).toBe("fixture");
+  expect(remoteAgentTarget(args, "/local/repo")?.target.host).toBe("fixture");
+  expect(remoteAgentTarget(args, "/different")).toBeUndefined();
+  expect(remoteAgentTarget([])).toBeUndefined();
+  for (const invalid of [
+    args.slice(1),
+    [...args, args[0] ?? ""],
+    args.map((arg) => arg.replace("=fixture", "=-oProxyCommand=id")),
+  ])
+    expect(() => remoteAgentTarget(invalid)).toThrow("Invalid remote agent mapping");
+});
