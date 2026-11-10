@@ -2772,3 +2772,29 @@ test("clone dispatch refuses an origin changed by its final asynchronous read", 
   await expect(hosts.repositoryTarget("worker", "/local/repo")).rejects.toThrow();
   expect(run.mock.calls.filter(([, request]) => request.operation === "clone")).toHaveLength(0);
 });
+
+test("host removal awaits session inventory repair after forgetting registration and supports unsubscribe", async () => {
+  await hosts.action({ action: "add", host: "worker", codeFolder: "~/code" });
+  const gate = Promise.withResolvers<undefined>();
+  const repair = vi.fn((host: string) => {
+    expect(host).toBe("worker");
+    expect(settings.registeredHosts).toEqual([]);
+    return gate.promise;
+  });
+  const unsubscribe = hosts.onRemoved(repair);
+  const removal = hosts.action({ action: "remove", host: "worker" });
+  await vi.waitFor(() => {
+    expect(repair).toHaveBeenCalledOnce();
+  });
+  let settled = false;
+  void removal.then(() => {
+    settled = true;
+  });
+  expect(settled).toBe(false);
+  gate.resolve(undefined);
+  await removal;
+  unsubscribe();
+  await hosts.action({ action: "add", host: "worker", codeFolder: "~/code" });
+  await hosts.action({ action: "remove", host: "worker" });
+  expect(repair).toHaveBeenCalledOnce();
+});

@@ -8,6 +8,8 @@ import type { StoredSession, RemoteSavedPlacement } from "./session-restore.d";
 import type { SessionStore } from "./session-store";
 
 export interface SessionOwnerDependencies {
+  registeredHost?: (host: string) => boolean;
+  removeRow?: (id: string) => void;
   discover?: () => Promise<readonly StoredSession[]>;
   rememberRemote?: (entry: StoredSession) => void;
   store?: Pick<SessionStore, "load" | "save" | "flush">;
@@ -51,6 +53,8 @@ export class SessionOwner {
   private restoreWork: Promise<void> | undefined;
   private discovery: Promise<readonly StoredSession[]> | undefined;
   private quitting = false;
+  private pruning = false;
+  private readonly forgottenSessions = new Set<string>();
 
   constructor(private readonly deps: SessionOwnerDependencies) {}
 
@@ -89,11 +93,69 @@ export class SessionOwner {
   async restore(): Promise<void> {
     // Network discovery must not delay creating the board windows.
     this.discovery = this.deps.discover?.().catch(() => []);
-    this.importEntries((await this.deps.store?.load()) ?? []);
+    const loaded = (await this.deps.store?.load()) ?? [];
+    const retained = this.retained(loaded);
+    // Repair stale profiles before importing rows or granting saved authority.
+    if (retained.length !== loaded.length) await this.deps.store?.save(retained);
+    this.importEntries(retained);
+  }
+
+  private forgotten(entry: WorkspaceTerminal): boolean {
+    return (
+      this.forgottenSessions.has(entry.id) ||
+      (entry.placement?.kind === "remote" &&
+        this.deps.registeredHost?.(entry.placement.host) === false)
+    );
+  }
+
+  private retained(entries: readonly StoredSession[]): StoredSession[] {
+    const retained = entries.filter((entry) => !this.forgotten(entry) || entry.closeState);
+    const ids = new Set(retained.map((entry) => entry.id));
+    return retained.map((entry) => {
+      if (!entry.parentId || ids.has(entry.parentId)) return entry;
+      const row = { ...entry };
+      delete row.parentId;
+      return row;
+    });
+  }
+
+  /** Forget metadata only; live connections and cleanup recovery stay intact. */
+  async pruneHosts(host: string): Promise<void> {
+    for (const entry of this.deps.terminals()) {
+      if (entry.placement?.kind === "remote" && entry.placement.host === host)
+        this.forgottenSessions.add(entry.id);
+    }
+    this.pruneRows();
+    await this.save();
+    this.deps.onChange?.();
+  }
+
+  private pruneRows(): void {
+    if (this.pruning) return;
+    this.pruning = true;
+    try {
+      const retained = this.retained([...this.saved.values()]);
+      this.saved.clear();
+      for (const entry of retained) this.saved.set(entry.id, entry);
+      for (const entry of this.deps.terminals()) {
+        if (
+          this.forgottenSessions.has(entry.id) &&
+          !entry.closeState &&
+          (entry.exited || entry.dormant)
+        ) {
+          this.restoring.delete(entry.id);
+          this.unrestoredRoles.delete(entry.id);
+          this.remotePlacements.delete(entry.id);
+          this.deps.removeRow?.(entry.id);
+        }
+      }
+    } finally {
+      this.pruning = false;
+    }
   }
 
   private importEntries(entries: readonly StoredSession[], discovered = false): void {
-    for (const entry of entries) {
+    for (const entry of this.retained(entries)) {
       if (discovered) {
         const previous = this.saved.get(entry.id);
         const reconcile =
@@ -144,38 +206,41 @@ export class SessionOwner {
     const ids = new Set(entries.map((entry) => entry.id));
     for (const id of this.remotePlacements.keys())
       if (!ids.has(id)) this.remotePlacements.delete(id);
-    return entries
-      .filter((entry) => !entry.probe)
-      .map((entry) => {
-        const remoteCheckout = entry.remote ? this.remotePlacements.get(entry.id) : undefined;
-        const role = this.deps.orchestration.view(entry.id);
-        const identity = this.deps.orchestration.identity(entry.id);
-        const saved = this.restoring.has(entry.id) ? this.saved.get(entry.id) : undefined;
-        return {
-          ...entry,
-          ...(remoteCheckout ? { remoteCheckout } : {}),
-          handoffs: this.deps.orchestration.handoffs.entries(entry.id),
-          ...(saved?.orchestrator ? { orchestrator: saved.orchestrator } : {}),
-          ...(saved?.parentId ? { parentId: saved.parentId } : {}),
-          running: this.restoring.has(entry.id) || !entry.exited,
-          ...(role?.role === "orchestrator" && role.active && identity !== undefined
-            ? {
-                orchestrator: {
-                  identity: identity.repository,
-                  worktreeIdentity: identity.worktree,
-                  history: role.history,
-                  worktrees: this.deps.orchestration.ownedWorktrees(entry.id),
-                  uncertain: this.deps.orchestration.uncertainWorktrees(entry.id),
-                },
-              }
-            : {}),
-          ...(role?.role === "child" && !role.takenOver ? { parentId: role.parentId } : {}),
-        };
-      });
+    return this.retained(
+      entries
+        .filter((entry) => !entry.probe)
+        .map((entry) => {
+          const remoteCheckout = entry.remote ? this.remotePlacements.get(entry.id) : undefined;
+          const role = this.deps.orchestration.view(entry.id);
+          const identity = this.deps.orchestration.identity(entry.id);
+          const saved = this.restoring.has(entry.id) ? this.saved.get(entry.id) : undefined;
+          return {
+            ...entry,
+            ...(remoteCheckout ? { remoteCheckout } : {}),
+            handoffs: this.deps.orchestration.handoffs.entries(entry.id),
+            ...(saved?.orchestrator ? { orchestrator: saved.orchestrator } : {}),
+            ...(saved?.parentId ? { parentId: saved.parentId } : {}),
+            running: this.restoring.has(entry.id) || !entry.exited,
+            ...(role?.role === "orchestrator" && role.active && identity !== undefined
+              ? {
+                  orchestrator: {
+                    identity: identity.repository,
+                    worktreeIdentity: identity.worktree,
+                    history: role.history,
+                    worktrees: this.deps.orchestration.ownedWorktrees(entry.id),
+                    uncertain: this.deps.orchestration.uncertainWorktrees(entry.id),
+                  },
+                }
+              : {}),
+            ...(role?.role === "child" && !role.takenOver ? { parentId: role.parentId } : {}),
+          };
+        }),
+    );
   }
 
   persist(): void {
     if (this.quitting) return;
+    this.pruneRows();
     void this.deps.store?.save(this.records()).catch((error: unknown) => {
       console.error("Unable to save sessions:", error);
     });
