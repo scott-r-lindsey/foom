@@ -749,7 +749,9 @@ test("first check renders pending repository rows and replaces them with observa
   const api = vi.fn((action: HostsAction) =>
     action.action === "preflight"
       ? pending
-      : Promise.resolve(action.action === "progress" ? { ...initial, progress } : initial),
+      : Promise.resolve(
+          action.action === "progress" ? { ...initial, progress: [progress] } : initial,
+        ),
   );
   const view = render(<HostsSettings source={{ hosts: api }} headingRef={createRef()} />);
   await screen.findByRole("region", { name: "worker" });
@@ -810,7 +812,7 @@ test("progress polling failures leave the authoritative check running; unmount i
   act(() => {
     resolveProgress?.({
       ...initial,
-      progress: { host: "worker", phase: "inspect", repositories: [] },
+      progress: [{ host: "worker", phase: "inspect", repositories: [] }],
     });
   });
 });
@@ -1662,3 +1664,55 @@ test.each(["host-key-unknown", "host-key-changed", "login-rejected", "unreachabl
     else expect(within(panel).getByRole("button", { name: "Dismiss" })).toBeTruthy();
   },
 );
+
+test("simultaneous host checks show their own progress and completing one retains the other", async () => {
+  const state: HostsState = { hosts: [host, { ...host, host: "second" }], locations: [] };
+  const held = new Map<string, (state: HostsState) => void>();
+  const progress: readonly HostCheckProgress[] = [
+    {
+      host: "worker",
+      phase: "origin",
+      repository: "/local/first",
+      repositories: [{ repository: "/local/first" }],
+    },
+    {
+      host: "second",
+      phase: "checkout",
+      repository: "/local/next",
+      repositories: [{ repository: "/local/next" }],
+    },
+  ];
+  const api = vi.fn((action: HostsAction) =>
+    action.action === "preflight"
+      ? new Promise<HostsState>((resolve) => held.set(action.host, resolve))
+      : Promise.resolve(action.action === "progress" ? { ...state, progress } : state),
+  );
+  const view = render(<HostsSettings source={{ hosts: api }} headingRef={createRef()} />);
+  await screen.findByRole("region", { name: "second" });
+  expandHosts();
+  for (const name of ["worker", "second"])
+    fireEvent.click(
+      within(screen.getByRole("region", { name })).getByRole("button", {
+        name: "Check capabilities",
+      }),
+    );
+  await screen.findByText("Checking Git access · first (1 of 1)");
+  await screen.findByText("Checking checkout · next (1 of 1)");
+  act(() => {
+    held.get("worker")?.(state);
+  });
+  await waitFor(() => {
+    expect(
+      within(screen.getByRole("region", { name: "worker" })).queryByText(
+        "Checking Git access · first (1 of 1)",
+      ),
+    ).toBeNull();
+  });
+  expect(screen.getByText("Checking checkout · next (1 of 1)")).toBeTruthy();
+  act(() => {
+    held.get("second")?.(state);
+  });
+  await waitFor(() => {
+    expect(view.container.querySelector(".host-throbber")).toBeNull();
+  });
+});

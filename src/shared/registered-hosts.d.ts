@@ -185,7 +185,7 @@ export interface HostOutput {
 export interface HostsState {
   output?: HostOutput;
   recipeSession?: string;
-  progress?: HostCheckProgress;
+  progress?: readonly HostCheckProgress[];
   preflight?: HostPreflight;
   recipeFailure?: "recipe-unavailable";
   hosts: readonly HostRow[];

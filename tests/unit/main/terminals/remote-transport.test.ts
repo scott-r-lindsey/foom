@@ -3,6 +3,7 @@ import { ApplicationError } from "../../../../src/shared/application-errors";
 import { LaunchFailure } from "../../../../src/shared/launch-failure";
 import {
   UnsupportedRemotePlatform,
+  InvalidRemoteProbe,
   SshConnectionFailure,
 } from "../../../../src/main/terminals/remote-bootstrap";
 import type { RemoteTarget } from "../../../../src/shared/remote-host";
@@ -19,6 +20,7 @@ const mock = vi.hoisted(() => ({ spawn: vi.fn(), artifact: vi.fn() }));
 vi.mock("node:child_process", () => ({ spawn: mock.spawn }));
 vi.mock("../../../../src/main/terminals/remote-bootstrap", () => ({
   UnsupportedRemotePlatform: class extends Error {},
+  InvalidRemoteProbe: class extends Error {},
   SshConnectionFailure: class extends Error {
     constructor(readonly failure: string) {
       super();
@@ -28,7 +30,11 @@ vi.mock("../../../../src/main/terminals/remote-bootstrap", () => ({
   sshEnvironment: () => ({ PATH: "/fixture" }),
   bootstrapArguments: (...args: unknown[]) => args,
 }));
-import { RemoteTransport, remoteManagement } from "../../../../src/main/terminals/remote-transport";
+import {
+  RemoteTransport,
+  RemoteCheckConnection,
+  remoteManagement,
+} from "../../../../src/main/terminals/remote-transport";
 class Child extends EventEmitter {
   stdin = new PassThrough();
   stdout = new PassThrough();
@@ -2046,4 +2052,181 @@ test.each([
   child.greet();
   child.message({ type: "managed", result });
   await expect(pending).resolves.toEqual({ ok: false, reason: "invalid-reply" });
+});
+
+async function checkFixture() {
+  await Promise.resolve();
+  transport.kill();
+  await Promise.resolve();
+  child = new Child();
+  mock.spawn.mockClear().mockReturnValue(child);
+  const abort = new AbortController();
+  const connection = new RemoteCheckConnection({ host: "fixture" }, "0.1.0", abort.signal);
+  return { connection, abort };
+}
+const checkInspect = {
+  type: "manage",
+  operation: "inspect",
+  codeFolder: "/code",
+  readOnly: true,
+  partial: true,
+} as const;
+
+test("a capability check reuses one stream for management and profile inventory and closes explicitly", async () => {
+  const { connection } = await checkFixture();
+  try {
+    const first = connection.manage(checkInspect);
+    await Promise.resolve();
+    child.header();
+    child.message({ type: "hello", build: "a".repeat(64), hostCheckConnection: 1 });
+    child.message({ type: "managed", result: { ok: false, reason: "folder-missing" } });
+    await expect(first).resolves.toMatchObject({ ok: false, reason: "folder-missing" });
+    expect(child.kill).not.toHaveBeenCalled();
+    const second = connection.manage({
+      type: "manage",
+      operation: "origin",
+      codeFolder: "/code",
+      origin: "https://forge.test/a.git",
+      directory: "repository-a",
+    });
+    child.message({ type: "managed", result: { ok: false, reason: "origin-auth" } });
+    await expect(second).resolves.toMatchObject({ reason: "origin-auth" });
+    const inventory = connection.inventory({ type: "inventory", profile: "f".repeat(32) });
+    child.message({ type: "inventory-result", own: [], foreign: [] });
+    await expect(inventory).resolves.toEqual({ type: "inventory-result", own: [], foreign: [] });
+    expect(mock.spawn).toHaveBeenCalledTimes(1);
+    expect(child.messages).toHaveLength(4);
+    connection.close();
+    expect(child.kill).toHaveBeenCalledWith("SIGTERM");
+    await expect(connection.manage(checkInspect)).rejects.toThrow("Check unavailable");
+  } finally {
+    connection.close();
+  }
+});
+
+test.each(["old", "cancel", "invalid", "deadline", "upgrade"])(
+  "check stream fails closed on %s",
+  async (scenario) => {
+    const { connection, abort } = await checkFixture();
+    try {
+      const first = connection.manage(checkInspect);
+      await expect(connection.manage(checkInspect)).rejects.toThrow("Check unavailable");
+      await Promise.resolve();
+      child.header();
+      child.message(
+        scenario === "upgrade"
+          ? { type: "upgrade", build: "b".repeat(64) }
+          : {
+              type: "hello",
+              build: "a".repeat(64),
+              ...(scenario === "old" ? {} : { hostCheckConnection: 1 }),
+            },
+      );
+      if (scenario === "cancel") abort.abort();
+      if (scenario === "invalid")
+        child.message({ type: "managed", result: { ok: false, reason: "host-key-unknown" } });
+      if (scenario === "deadline") await vi.advanceTimersByTimeAsync(7 * 60 * 1000);
+      await expect(first).resolves.toMatchObject({
+        ok: false,
+        reason:
+          scenario === "old" || scenario === "upgrade"
+            ? "version-mismatch"
+            : scenario === "cancel"
+              ? "cancelled"
+              : scenario === "invalid"
+                ? "invalid-reply"
+                : "unreachable",
+      });
+      if (scenario === "old" || scenario === "upgrade")
+        await expect(connection.manage(checkInspect)).resolves.toMatchObject({
+          ok: false,
+          reason: "version-mismatch",
+        });
+      expect(mock.spawn).toHaveBeenCalledTimes(1);
+    } finally {
+      connection.close();
+    }
+  },
+);
+
+test("cancellation rejects an inventory request and never reopens a failed check", async () => {
+  const { connection, abort } = await checkFixture();
+  try {
+    const first = connection.manage(checkInspect);
+    await Promise.resolve();
+    child.header();
+    child.message({ type: "hello", build: "a".repeat(64), hostCheckConnection: 1 });
+    child.message({ type: "managed", result: { ok: false, reason: "folder-missing" } });
+    await first;
+    const inventory = connection.inventory({ type: "inventory", profile: "f".repeat(32) });
+    const refused = expect(inventory).rejects.toThrow("Check unavailable");
+    abort.abort();
+    await refused;
+    await expect(connection.manage(checkInspect)).rejects.toThrow();
+  } finally {
+    connection.close();
+  }
+});
+
+test("a check sends bootstrap and management on the retained platform-probe child", async () => {
+  const { connection, abort } = await checkFixture();
+  child.stdin.removeAllListeners("data");
+  const writes: Buffer[] = [];
+  child.stdin.on("data", (bytes: Buffer) => writes.push(bytes));
+  mock.artifact.mockImplementationOnce(
+    (
+      _target: unknown,
+      _version: unknown,
+      _catalog: unknown,
+      _metadata: unknown,
+      _signal: unknown,
+      _observe: unknown,
+      _output: unknown,
+      retain: (child: unknown) => void,
+    ) => {
+      retain(child);
+      return Promise.resolve({
+        bytes: Buffer.from("artifact"),
+        upload: Buffer.from("artifact"),
+        platform: "linux",
+        arch: "x64",
+        version: "0.1.0",
+        sha256: "a".repeat(64),
+      });
+    },
+  );
+  try {
+    const pending = connection.manage(checkInspect);
+    await Promise.resolve();
+    expect(mock.spawn).not.toHaveBeenCalled();
+    const prelude = writes[0]?.toString() ?? "";
+    const end = prelude.indexOf("\n");
+    expect(Number(prelude.slice(0, end))).toBe(Buffer.byteLength(prelude.slice(end + 1)));
+    child.header();
+    child.message({ type: "hello", build: "a".repeat(64), hostCheckConnection: 1 });
+    child.message({ type: "managed", result: { ok: false, reason: "folder-missing" } });
+    await expect(pending).resolves.toMatchObject({ reason: "folder-missing" });
+    abort.abort();
+    await expect(connection.manage(checkInspect)).rejects.toThrow("Check unavailable");
+    expect(child.kill).toHaveBeenCalledWith("SIGTERM");
+  } finally {
+    connection.close();
+  }
+});
+
+test("invalid check preludes and missing artifacts keep their reason without another connection", async () => {
+  for (const [error, reason] of [
+    [new InvalidRemoteProbe(), "invalid-reply"],
+    [new ApplicationError("remote-host-unavailable"), "artifact-unavailable"],
+  ] as const) {
+    const { connection } = await checkFixture();
+    mock.artifact.mockRejectedValueOnce(error);
+    try {
+      await expect(connection.manage(checkInspect)).resolves.toMatchObject({ ok: false, reason });
+      await expect(connection.manage(checkInspect)).resolves.toMatchObject({ ok: false, reason });
+      expect(mock.spawn).not.toHaveBeenCalled();
+    } finally {
+      connection.close();
+    }
+  }
 });

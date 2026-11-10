@@ -2,7 +2,7 @@ const { appendFileSync } = require("node:fs");
 
 // Observe the fixture's real bootstrap/protocol without changing its bytes.
 // Never retain terminal text, commands, credentials or whole protocol payloads.
-function observeRemoteSsh(input, output, file, uploadSize) {
+function observeRemoteSsh(input, output, file, uploadSize, checkPrelude = false) {
   const { RemoteFrames, remoteRequest, remoteResponse } =
     require("../../build/shared/remote-host-protocol.js");
   let records = 0;
@@ -93,7 +93,20 @@ function observeRemoteSsh(input, output, file, uploadSize) {
     }
     observe(responses, bytes, "response", remoteResponse);
   });
+  let prelude = Buffer.alloc(0);
   input.on("data", (bytes) => {
+    if (checkPrelude) {
+      prelude = Buffer.concat([prelude, bytes]);
+      const end = prelude.indexOf(10);
+      if (end < 0) return;
+      const size = Number(prelude.subarray(0, end).toString());
+      if (!Number.isInteger(size) || size < 1 || size > 65536)
+        throw new Error("Invalid fixture prelude");
+      if (prelude.length < end + 1 + size) return;
+      bytes = prelude.subarray(end + 1 + size);
+      prelude = Buffer.alloc(0);
+      checkPrelude = false;
+    }
     const skip = Math.min(uploadRemaining, bytes.length);
     uploadRemaining -= skip;
     observe(requests, bytes.subarray(skip), "request", remoteRequest);

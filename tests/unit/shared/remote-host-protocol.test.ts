@@ -486,3 +486,11 @@ test("child-pressure protocol accepts bounded numeric facts and rejects unknown 
     expect(remoteResponse({ ...base, pressure: { ...pressure, sessions: -1 } })).toBe(false);
   }
 });
+
+test("check-connection negotiation accepts only its declared capability version", () => {
+  const hello = { type: "hello", build: "a".repeat(64) };
+  expect(remoteResponse(hello)).toBe(true);
+  expect(remoteResponse({ ...hello, hostCheckConnection: 1 })).toBe(true);
+  for (const hostCheckConnection of [0, 2, "1", null])
+    expect(remoteResponse({ ...hello, hostCheckConnection })).toBe(false);
+});
