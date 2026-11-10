@@ -12,6 +12,7 @@ import {
   hostProgressText,
 } from "../../../../src/renderer/preflight/hosts-settings";
 import type {
+  HostFacts,
   HostFailure,
   HostCheckProgress,
   HostPreflight,
@@ -1658,4 +1659,30 @@ test("sealed build omission is announced once on opening Hosts, including saved 
   expect(screen.queryByText("Needs you")).toBeNull();
   expect(screen.queryByText("Pass · Reachable")).toBeNull();
   expect(api.mock.calls.map(([action]) => action.action)).toEqual(["list"]);
+});
+
+test("recovered connection stays neutral until dependent capabilities are checked", async () => {
+  const unobserved: HostFacts = { ...facts, folder: { state: "not-checked" }, agents: [] };
+  delete unobserved.tools;
+  delete unobserved.requirements;
+  const recovered: HostPreflight = {
+    ...preflight,
+    result: { ok: true, facts: unobserved },
+    repositories: preflight.repositories.map((repo) => ({
+      ...repo,
+      origin: { state: "not-checked" },
+      checkout: { ok: true, facts: unobserved },
+    })),
+  };
+  await mount({ ...initial, preflight: recovered });
+  expect(screen.queryByText("Needs you", { exact: true })).toBeNull();
+  expect(screen.queryByText("Ready", { exact: true })).toBeNull();
+  expect(screen.queryByText("Host unreachable", { exact: true })).toBeNull();
+  const card = screen.getByRole("region", { name: "worker" });
+  for (const name of ["Code folder", "git / gh", "Agents"]) {
+    const label = within(card)
+      .getAllByText(name, { exact: true })
+      .find((element) => element.closest(".host-check-row"));
+    expect(label?.closest(".host-check-row")?.textContent).toContain("Not checked");
+  }
 });

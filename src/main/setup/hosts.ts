@@ -94,6 +94,36 @@ function connectionChecks(
   };
 }
 
+/** Row-local failures do not invalidate a healthy connection. Everything else does. */
+function connectionFailure(result: Extract<HostResult, { ok: false }>): boolean {
+  return (
+    [result.connection?.ssh, result.connection?.platform, result.connection?.artifact].some(
+      (check) => check?.state === "fail",
+    ) ||
+    ![
+      "folder-missing",
+      "folder-refused",
+      "unsafe-folder",
+      "origin-unavailable",
+      "origin-auth",
+      "origin-host-key",
+      "origin-unreachable",
+      "timed-out",
+      "checkout-invalid",
+      "clone-failed",
+      "checkout-refused",
+    ].includes(result.reason)
+  );
+}
+
+/** A recovered connection has not rechecked dependent capabilities or repositories. */
+function recoveredConnection(result: Extract<HostResult, { ok: true }>): HostResult {
+  const facts: HostFacts = { ...result.facts, folder: { state: "not-checked" }, agents: [] };
+  delete facts.tools;
+  delete facts.requirements;
+  return { ok: true, facts, connection: connectionChecks(result) };
+}
+
 /** Only the folder observation (including macOS's path warning) changes. */
 function folderObservation(facts: HostFacts, result: HostResult): HostFacts {
   const observed = result.ok ? result.facts : undefined;
@@ -843,7 +873,21 @@ export class Hosts {
       await this.updateRegistrations((hosts) =>
         hosts.map((entry) =>
           entry.host === host && entry.observation
-            ? { ...entry, observation: { ...entry.observation, preflight: saved } }
+            ? {
+                ...entry,
+                observation: {
+                  ...entry.observation,
+                  ...(!saved.result.ok && entry.observation.preflight.result.ok
+                    ? {
+                        lastAgents: entry.observation.lastAgents ?? {
+                          checkedAt: entry.observation.checkedAt,
+                          result: entry.observation.preflight.result,
+                        },
+                      }
+                    : {}),
+                  preflight: saved,
+                },
+              }
             : entry,
         ),
       );
@@ -862,7 +906,10 @@ export class Hosts {
         result: current,
       };
       const updated = change({ ...base, result: current });
-      if (!this.inventoryReads.has(host)) this.results.set(host, updated.result);
+      if (!this.inventoryReads.has(host)) {
+        if (!current.ok && updated.result.ok) this.observed.delete(host);
+        this.results.set(host, updated.result);
+      }
       // Return a transient display update even when enrollment has no saved
       // checklist. This neither saves an observation nor invents Last checked.
       preflight ??= updated;
@@ -910,36 +957,63 @@ export class Hosts {
         { output },
       );
     }
+    const previous = registration.observation?.preflight;
+    const displayed = previous?.result ?? this.results.get(host);
+    const connectionRow = ["ssh", "platform", "artifact"].includes(target.kind);
+    const failedConnection = !result.ok && (connectionRow || connectionFailure(result));
+    if (!previous && !this.results.has(host) && failedConnection)
+      return { ...connectionChecks(result), result, repositories: [] };
     if (
+      !failedConnection &&
       (target.kind === "power" || target.kind === "command-line-tools") &&
       (!result.ok || !result.facts.requirements?.mac)
     )
       throw new HostRowUnavailable("Unable to check host row");
-    const previous = registration.observation?.preflight;
-    const displayed = previous?.result ?? this.results.get(host);
-    const connectionRow = ["ssh", "platform", "artifact"].includes(target.kind);
-    if (!previous && connectionRow && !result.ok && result.reason === "artifact-unavailable")
-      return { ...connectionChecks(result), result, repositories: [] };
-
     if (
-      (!previous && (!displayed?.ok || "repository" in target)) ||
-      ("repository" in target &&
-        !previous?.repositories.some((repo) => repo.repository === target.repository)) ||
-      (!connectionRow && !("repository" in target) && !displayed?.ok) ||
-      ("tool" in target &&
-        displayed?.ok &&
-        ![...displayed.facts.agents, ...(displayed.facts.tools ?? [])].some(
-          (entry) => entry.id === target.tool,
-        )) ||
-      ((target.kind === "power" || target.kind === "command-line-tools") &&
-        displayed?.ok &&
-        !displayed.facts.requirements?.mac)
+      !failedConnection &&
+      ((!previous && (!displayed?.ok || "repository" in target)) ||
+        ("repository" in target &&
+          !previous?.repositories.some((repo) => repo.repository === target.repository)) ||
+        (!connectionRow && !("repository" in target) && !displayed?.ok) ||
+        ("tool" in target &&
+          displayed?.ok &&
+          ![...displayed.facts.agents, ...(displayed.facts.tools ?? [])].some(
+            (entry) => entry.id === target.tool,
+          )) ||
+        ((target.kind === "power" || target.kind === "command-line-tools") &&
+          displayed?.ok &&
+          !displayed.facts.requirements?.mac))
     )
       throw new HostRowUnavailable("Unable to display host row without a full check");
     const check: HostCheck = result.ok
       ? { state: "pass" }
       : { state: "fail", reason: result.reason };
     const change = (previous: HostPreflight): HostPreflight => {
+      if (failedConnection || connectionRow) {
+        const connection = connectionChecks(result);
+        const recovering = result.ok && !previous.result.ok;
+        const next = !result.ok
+          ? result
+          : recovering
+            ? recoveredConnection(result)
+            : {
+                ...previous.result,
+                connection,
+              };
+        return {
+          ...previous,
+          ...connection,
+          result: next,
+          repositories:
+            failedConnection || recovering
+              ? previous.repositories.map((repo) => ({
+                  ...repo,
+                  origin: { state: "not-checked" as const },
+                  checkout: next,
+                }))
+              : previous.repositories,
+        };
+      }
       if ("repository" in target)
         return {
           ...previous,
@@ -951,37 +1025,6 @@ export class Hosts {
                 }
               : repo,
           ),
-        };
-      if (target.kind === "ssh") {
-        const ssh = connectionChecks(result).ssh;
-        return {
-          ...previous,
-          ssh,
-          result: {
-            ...previous.result,
-            connection: {
-              ssh,
-              platform: previous.platform,
-              artifact: previous.artifact,
-            },
-          },
-        };
-      }
-      if (target.kind === "platform" || target.kind === "artifact")
-        return {
-          ...previous,
-          [target.kind]: connectionChecks(result)[target.kind],
-          ...(!result.ok
-            ? {
-                ...connectionChecks(result),
-                result,
-                repositories: previous.repositories.map((repo) => ({
-                  ...repo,
-                  origin: { state: "not-checked" as const },
-                  checkout: result,
-                })),
-              }
-            : {}),
         };
       if (!previous.result.ok) return previous;
       const facts = previous.result.facts;
@@ -1034,10 +1077,13 @@ export class Hosts {
       }
       return { ...previous, result: { ...previous.result, facts: next } };
     };
-    const save = () => {
+    const save = async () => {
       if (this.registeredRow(host, target).codeFolder !== registration.codeFolder)
-        return Promise.reject(new HostRowUnavailable("Folder changed"));
-      return this.updateChecklist(host, change);
+        throw new HostRowUnavailable("Folder changed");
+      const updated = await this.updateChecklist(host, change);
+      if (connectionRow && result.ok && this.resourceResults.get(host)?.ok === false)
+        this.resourceResults.delete(host);
+      return updated;
     };
     try {
       return await save();
@@ -1362,14 +1408,16 @@ export class Hosts {
                         ...entry,
                         observation: {
                           ...(!preflight.result.ok && entry.observation
-                            ? {
-                                lastAgents: entry.observation.preflight.result.ok
-                                  ? {
+                            ? entry.observation.lastAgents
+                              ? { lastAgents: entry.observation.lastAgents }
+                              : entry.observation.preflight.result.ok
+                                ? {
+                                    lastAgents: {
                                       checkedAt: entry.observation.checkedAt,
                                       result: entry.observation.preflight.result,
-                                    }
-                                  : entry.observation.lastAgents,
-                              }
+                                    },
+                                  }
+                                : {}
                             : {}),
                           checkedAt: Date.now(),
                           preflight: { ...preflight, result: row?.result ?? preflight.result },

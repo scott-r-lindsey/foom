@@ -171,7 +171,8 @@ test("an explicit SSH row reload offers trust while preserving the successful fu
   run.mockResolvedValue(unknownKey);
   const state = await hosts.action({ action: "reload", host: "box", target: { kind: "ssh" } });
   expect(state.hosts[0]?.hostKeyTrust).toBe("askpass");
-  expect(settings.registeredHosts?.[0]?.observation?.preflight.result.ok).toBe(true);
+  expect(settings.registeredHosts?.[0]?.observation?.preflight.result.ok).toBe(false);
+  expect(settings.registeredHosts?.[0]?.observation?.lastAgents?.result.ok).toBe(true);
   run.mockClear();
   await trust();
   expect(mock.trust).toHaveBeenCalledOnce();

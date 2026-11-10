@@ -532,6 +532,15 @@ Only sealed local catalog omission or artifact verification selects
 mismatches and invalid replies retain their own fixed reasons. Checklist rows show
 one fixed readable reason, without appending the internal reason code. Full checks and
 row reloads preserve the same classification across reopening Settings.
+A transport failure from any row invalidates the connection and hides dependent
+observations, including when bootstrap had already verified the artifact. A
+successful SSH, platform or Remote daemon reload clears the superseded failure;
+when recovering from failure it restores only the observed connection stages.
+Folder, tools, agents and repositories remain Not checked until explicitly read,
+and the host summary remains neutral. This partial recovery neither advances Last
+checked nor authorizes a launch from an old full-inventory timestamp. Retain the
+last successful full-check history for agent display and host-key trust decisions.
+A row-local folder, origin or checkout failure does not invalidate the connection.
 A failed daemon inspection stops dependent repository checks; unrun origin checks
 show neutral Not checked, including old saved observations with repeated daemon
 failures. A refused folder does not suppress facts or origin

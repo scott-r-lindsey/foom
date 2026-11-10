@@ -2670,6 +2670,84 @@ test("Hosts status classification preserves transport failures with a fixture ca
     await navigation.getByRole("button", { name: "General", exact: true }).click();
     await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
     await expect(card.getByText("Unavailable in this build", { exact: true })).toHaveCount(0);
+    await expect(card.locator(".host-expand")).toBeVisible();
+    if ((await card.locator(".host-expand").getAttribute("aria-expanded")) === "false")
+      await card.locator(".host-expand").click();
+    await expect(
+      card
+        .locator(".host-check-row")
+        .filter({ hasText: "Remote daemon" })
+        .locator(".host-status > span:last-child"),
+    ).toHaveText(reason === "unreachable" ? "Host unreachable" : "Host version mismatch");
     if (transportFailure === "exit") await capture("1131/daemon-exit");
   }
+});
+
+test("Hosts row reloads recover daemon state without inventing capability passes", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { page, card, navigation, capture, updateScenario } = await hostsFixture(context);
+  const ready = {
+    facts: {
+      tools: [
+        { id: "git", state: "ready", signIn: "unknown" },
+        { id: "gh", state: "ready", signIn: "signed-in" },
+      ],
+      agents: [
+        { id: "claude", state: "ready", signIn: "signed-in" },
+        { id: "codex", state: "ready", signIn: "signed-in" },
+      ],
+      folder: { state: "pass" },
+    },
+    checkout: "clean",
+  };
+  const registration = () =>
+    page.evaluate(async () => (await window.desktop.setupState()).settings.registeredHosts[0]);
+  const row = (name) =>
+    card.locator(".host-check-row").filter({
+      has: page.getByRole("button", { name: `Reload ${name}`, exact: true }),
+    });
+  await updateScenario(ready);
+  await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
+  await expect(card.getByText("Ready", { exact: true })).toBeVisible();
+  const checkedAt = (await registration()).observation.checkedAt;
+  await updateScenario({ transportFailure: "exit" });
+  await card.getByRole("button", { name: "Reload SSH", exact: true }).click();
+  await expect(card.locator(".host-check-row[aria-busy=true]")).toHaveCount(0);
+  await expect(row("Remote daemon").locator(".host-status > span:last-child")).toHaveText(
+    "Host unreachable",
+  );
+  await expect(row("SSH")).toContainText("Pass · Host key trusted");
+  assert.equal((await registration()).observation.preflight.result.ok, false);
+  await capture("1131/ssh-daemon-failure");
+
+  // Even a fixture returning full ready facts for a scoped read cannot make
+  // unrun dependent rows pass during recovery.
+  await updateScenario(ready);
+  await card.getByRole("button", { name: "Reload Remote daemon", exact: true }).click();
+  await expect(card.locator(".host-check-row[aria-busy=true]")).toHaveCount(0);
+  const recovered = await registration();
+  assert.equal(recovered.observation.preflight.result.ok, true);
+  assert.equal(recovered.observation.checkedAt, checkedAt);
+  assert.equal(recovered.observation.preflight.result.facts.tools, undefined);
+  assert.deepEqual(recovered.observation.preflight.result.facts.agents, []);
+  for (const name of ["SSH", "Platform", "Remote daemon"])
+    await expect(row(name)).toContainText("Pass");
+  for (const name of ["Code folder", "git / gh", "Agents"])
+    await expect(
+      card.locator(".host-check-row").filter({ has: page.getByText(name, { exact: true }) }),
+    ).toContainText("Not checked");
+  await expect(card.getByText("Host unreachable", { exact: true })).toHaveCount(0);
+  await expect(card.getByText("Needs you", { exact: true })).toHaveCount(0);
+  await expect(card.getByText("Ready", { exact: true })).toHaveCount(0);
+  await navigation.getByRole("button", { name: "General", exact: true }).click();
+  await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
+  assert.deepEqual(await registration(), recovered);
+  await card.getByRole("button", { name: "Expand fixture-cloud", exact: true }).click();
+  await expect(card.getByText("Needs you", { exact: true })).toHaveCount(0);
+  await expect(card.getByText("Ready", { exact: true })).toHaveCount(0);
+  await capture("1131/daemon-recovery");
+  await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
+  await expect(card.getByText("Ready", { exact: true })).toBeVisible();
 });

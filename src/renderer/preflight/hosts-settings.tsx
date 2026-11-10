@@ -218,6 +218,8 @@ function hostSummary(preflight: HostPreflight | undefined) {
     return result.reason === "artifact-unavailable" ? "Unavailable in this build" : "Needs you";
   const facts = result.facts;
   const checks = [preflight.ssh, preflight.platform, preflight.artifact, facts.folder];
+  if (checks.some((check) => check?.state === "fail")) return "Needs you";
+  if (facts.tools === undefined && facts.agents.length === 0) return "Not checked";
   const ready =
     checks.every((check) => check?.state === "pass") &&
     facts.tools?.some((tool) => tool.id === "git" && tool.state === "ready") &&
@@ -263,6 +265,8 @@ function Checklist({
 }) {
   const result = progress?.result ?? preflight?.result ?? entry.result;
   const facts = result?.ok ? result.facts : undefined;
+  const agents =
+    facts && (facts.tools !== undefined || facts.agents.length > 0) ? facts.agents : undefined;
   const mac = facts?.requirements?.mac;
   const connection = progress?.result
     ? progress.result.connection
@@ -448,11 +452,11 @@ function Checklist({
             <Row name="git / gh" tone="neutral" text="Not checked" />
           )}
           <Group>Agents</Group>
-          {openAgents && facts ? (
+          {openAgents && agents ? (
             <Row
               name="Agents"
               tone="neutral"
-              text={`${String(facts.agents.filter((agent) => enabledAgents?.[agent.id] !== false && agent.state === "ready" && agent.signIn !== "signed-out").length)} of ${String([...new Set([...BUILTIN_AGENTS.map((agent) => agent.id), ...Object.keys(enabledAgents ?? {})])].filter((id) => enabledAgents?.[id] !== false).length)} ready`}
+              text={`${String(agents.filter((agent) => enabledAgents?.[agent.id] !== false && agent.state === "ready" && agent.signIn !== "signed-out").length)} of ${String([...new Set([...BUILTIN_AGENTS.map((agent) => agent.id), ...Object.keys(enabledAgents ?? {})])].filter((id) => enabledAgents?.[id] !== false).length)} ready`}
               action={
                 <button
                   type="button"
@@ -464,8 +468,8 @@ function Checklist({
                 </button>
               }
             />
-          ) : facts ? (
-            tools(facts.agents)
+          ) : agents ? (
+            tools(agents)
           ) : (
             <Row name="Agents" tone="neutral" text="Not checked" />
           )}
@@ -1173,7 +1177,8 @@ export function HostsSettings({
                   reload: (target) => {
                     void reload(entry.host, target);
                   },
-                  needsFullCheck: (preflight?.result ?? entry.result)?.ok !== true,
+                  needsFullCheck:
+                    (preflight?.result ?? entry.result)?.ok !== true || summary === "Not checked",
                   saveFailed: new Set(
                     (entry.rowFailures ?? [])
                       .filter((row) => row.reason === "save-failed")
