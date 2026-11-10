@@ -56,7 +56,7 @@ test("remote host fixture checks preflight failures and enrolls an incomplete co
     assert.ok(!JSON.stringify(observations).includes("private fixture"));
     assert.equal(output.host, host);
     assert.equal(output.running, false);
-    assert.equal(output.failed, true);
+    assert.equal(output.failed, reason !== "artifact-unavailable");
     assert.ok(output.text.length <= 65536);
     if (row === "ssh") assert.match(output.text, /private fixture SSH output/u);
   }

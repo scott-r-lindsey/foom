@@ -1314,7 +1314,9 @@ test("Hosts preserves a rejected replacement folder and reports unrepresentable 
   await updateScenario({ inspectFailure: "unreachable" });
   await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
   await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
-  await expect(card.getByText("Host unreachable", { exact: true }).first()).toBeVisible();
+  await expect(
+    card.getByText("Host unreachable · unreachable", { exact: true }).first(),
+  ).toBeVisible();
   const failed = await registration();
   assert.equal(failed.observation.preflight.result.ok, false);
   await updateScenario({});

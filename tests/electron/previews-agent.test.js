@@ -562,6 +562,14 @@ test("agent reopen is visible with free space and reports sidebar only at protec
     ipcMain.removeHandler("windows:sync");
     ipcMain.handle("windows:sync", (_event, ids) => ids);
   }, snapshot);
+  // Seed only after the retiring document (and its pending layout saves) is gone.
+  // Consume once so ordinary later reloads still exercise persisted app state.
+  await page.addInitScript(() => {
+    const pending = sessionStorage.getItem("foom.test.next-layout");
+    if (pending === null) return;
+    sessionStorage.removeItem("foom.test.next-layout");
+    localStorage.setItem(`foom.tiles.v1.${window.desktop.windows.id}`, pending);
+  });
   await page.evaluate((count) => {
     const tree = (start, count) =>
       count === 1
@@ -578,16 +586,40 @@ test("agent reopen is visible with free space and reports sidebar only at protec
             first: tree(start, 1),
             second: tree(start + 1, count - 1),
           };
-    localStorage.setItem(
-      `foom.tiles.v1.${window.desktop.windows.id}`,
-      JSON.stringify({
-        version: 2,
-        tree: tree(0, count),
-        focused: "tile-0",
-        maximized: null,
-      }),
-    );
+    const seed = JSON.stringify({
+      version: 2,
+      tree: tree(0, count),
+      focused: "tile-0",
+      maximized: null,
+    });
+    sessionStorage.setItem("foom.test.next-layout", seed);
+    // Reproduce the old fixture ordering as a regression: this write can be
+    // overwritten by a publication still targeting the old in-memory layout.
+    localStorage.setItem(`foom.tiles.v1.${window.desktop.windows.id}`, seed);
   }, protectedCount);
+  // Deterministically deliver a pending publication to the retiring renderer.
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .webContents.send("workspace:changed");
+  });
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const saved = JSON.parse(
+          localStorage.getItem(`foom.tiles.v1.${window.desktop.windows.id}`),
+        );
+        const occupied = (node) =>
+          node.kind === "tile"
+            ? Number(node.content !== null)
+            : occupied(node.first) + occupied(node.second);
+        return occupied(saved.tree);
+      }),
+    )
+    .toBe(0);
+  context.diagnostic(
+    "Capacity fixture: retiring renderer overwrote the 65-occupied seed with zero occupied tiles before reload.",
+  );
   await page.reload();
   await expect(page.locator('.terminal-tile[data-empty="false"]')).toHaveCount(protectedCount);
   await app.evaluate(({ BrowserWindow }, snapshot) => {
@@ -605,6 +637,9 @@ test("agent reopen is visible with free space and reports sidebar only at protec
     return { tree: layout.tree, depth: depth(layout.tree) };
   });
   assert.equal(protectedTree.depth, 64);
+  context.diagnostic(
+    "Capacity fixture: replacement document restored 65 occupied tiles at depth 64.",
+  );
   const full = await requestPreview("full-reopen", "notes.md");
   assert.equal(full.placement, "sidebar");
   assert.equal(full.reused, false);
@@ -634,8 +669,8 @@ test("agent reopen is visible with free space and reports sidebar only at protec
   );
   // A later explicit open retries ordinary placement when room becomes available.
   await page.evaluate(() =>
-    localStorage.setItem(
-      `foom.tiles.v1.${window.desktop.windows.id}`,
+    sessionStorage.setItem(
+      "foom.test.next-layout",
       JSON.stringify({
         version: 2,
         tree: { kind: "tile", id: "available", content: null },
