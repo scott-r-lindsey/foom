@@ -657,3 +657,46 @@ it("close availability uses only cached host facts and never probes local or mis
   const bare = { ...hostFixture(), snapshot: caps.snapshot };
   expect(await workspaceOrchestrationHost(bare).unavailable?.("remote")).toBe(true);
 });
+
+it.each(["shell", "agent"])(
+  "does not require fleet registration for an explicit %s transport",
+  async (kind) => {
+    const { caps, host, hosts } = fleetFixture();
+    caps.snapshot = () => ({
+      repositories: [],
+      terminals: [
+        {
+          id: "remote",
+          kind: "shell",
+          agent: "shell",
+          repository: "/repo",
+          worktree: "/tree",
+          branch: "topic",
+          attention: "evaluator",
+          state: null,
+          remote: true,
+          placement: { kind: "remote", host: "worker" },
+        },
+      ],
+    });
+    const previous = process.argv;
+    process.argv =
+      kind === "shell"
+        ? ["node", "foom", "--remote-shell-spike=worker", "--remote-host-artifact=/artifact"]
+        : [
+            "node",
+            "foom",
+            "--remote-agent-spike=worker",
+            "--remote-agent-artifact=/artifact",
+            "--remote-agent-local-checkout=/tree",
+            "--remote-agent-repository=/repo",
+            "--remote-agent-worktree=/tree",
+          ];
+    try {
+      expect(await host.unavailable?.("remote")).toBe(false);
+      expect(hosts.fleet).not.toHaveBeenCalled();
+    } finally {
+      process.argv = previous;
+    }
+  },
+);
