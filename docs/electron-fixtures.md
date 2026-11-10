@@ -363,6 +363,40 @@ asserts that native drag-start selected the shell and reports a bounded input-ev
 trace only on failure, so CI can distinguish a different native drag defect.
 No product hit testing, animation duration or test deadline changes.
 
+## Agent-preview capacity reload ordering (#1135)
+
+The protected-capacity case replaces the workspace snapshot with 65 dormant
+fixture sessions. Writing their layout into localStorage in the live document
+races that document's pending workspace publications: its in-memory layout still
+contains the original sessions. A publication removes those now-unknown assignments
+and saves that old layout, overwriting the seed before reload.
+
+The regression deliberately sends `workspace:changed` after the old-style seed
+and observes zero occupied leaves in storage **before** reloading. With the old
+reload setup this deterministically reproduces the zero-of-65 DOM failure on
+Linux; it does not require renderer starvation, restore rejection or pruning in
+the replacement document. The fixed fixture stages a one-shot layout in
+sessionStorage and consumes it in the replacement document's init script before
+app code reads localStorage. The same late-publication regression then restores
+65 occupied leaves at depth 64. The later free-space reload uses the same staging.
+The normal preview placement, refusal, tree-preservation and explicit-reopen
+assertions remain unchanged, as do deadlines, native input, sandboxing, fixture
+CLIs and process auditing. No product behavior changes.
+
+Original macOS evidence from
+[run 42552709991](https://github.com/scott-r-lindsey/foom/actions/runs/42552709991):
+
+| Attempt | Numeric artifact ID | Case result / seconds |
+| --- | --- | --- |
+| 1 | 13646935699 | Failed, zero of 65 occupied tiles / 17.523 |
+| 2 | 13649560206 | Passed / 10.628 |
+
+Both original ZIPs were compared. Neither records the retiring document's storage
+or publication order, so the controlled reproduction establishes the fixture race
+without claiming to identify the particular event in the historical macOS run.
+JUnit diagnostics now record the forced pre-reload overwrite and the replacement
+document's successful restore as separate facts.
+
 ## Quit acknowledgement ordering (#1056)
 
 The harness cancels an unprevented native `will-quit` after Foom's save, PTY
@@ -415,6 +449,13 @@ time. Production builds omit this flag and read real OS facts; there is no runti
 or profile switch. Ordinary app/package builds clear the disposable build tree.
 Daemon unit tests exercise the real admission path with fixture OS measurements,
 including reservations, refusals, disconnects and unreadable observations.
+
+## SSH host-key review captures (#1059)
+
+Set `FOOM_HOST_KEY_SCREENSHOTS=1` for the Settings Hosts askpass acceptance case
+to save the six light/dark unknown-key row, trusted dialog and accepted-key row
+captures under `test-results/1059/`. Ordinary regression runs retain all
+functional assertions without overwriting previously reviewed evidence.
 
 ## Group cleanup completion ordering (#1146)
 
@@ -696,3 +737,23 @@ checks the same shell PID before and after restoration. Startup applies that sav
 palette before restoring sessions, so a late settings application cannot replace
 the retained application-set background. Built-in and custom startup palettes also
 have a unit regression for this ordering.
+
+
+## Real OpenSSH trust boundary (#1059)
+
+The Hosts real-client regression is an explicit exception to fixture-SSH emulation:
+it launches a disposable unprivileged sshd on a high 127.0.0.1 port, with a generated
+host key and private sshd/client configs. The controlled SSH wrapper always passes
+that client config with `-F`, an isolated UserKnownHostsFile, no global known-hosts
+file, no identity file or agent, and all server authentication disabled. No real
+user SSH files, keys, agent CLIs or non-loopback endpoints are used. The case skips
+cleanly when sshd is unavailable or cannot run unprivileged on the runner.
+
+The test deliberately omits the local remote-host artifact catalog, reproducing
+start:fresh's pending unknown-key observation being replaced by background
+artifact-unavailable before Trust. It asserts a visible native trusted dialog,
+OpenSSH's write to the fixture known-hosts file after acceptance, and the normal
+first check's authentication refusal (the existing unreachable classification for
+OpenSSH's empty method list), because authentication is disabled. The ordinary
+fixture-SSH case separately verifies all dependent rows are absent while untrusted
+and return after a successful first check.

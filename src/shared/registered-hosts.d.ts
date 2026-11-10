@@ -16,6 +16,9 @@ export type HostGitFailureReason =
 export type HostFailure =
   | HostGitFailureReason
   | "unreachable"
+  | "host-key-unknown"
+  | "host-key-changed"
+  | "login-rejected"
   | "version-mismatch"
   | "provider-invalid"
   | "configuration-changed"
@@ -143,6 +146,7 @@ export type HostResult = { connection?: HostConnectionChecks } & (
     }
 );
 export interface HostRow extends RegisteredHost {
+  hostKeyTrust?: "askpass" | "manual";
   rowFailures?: readonly { target: HostCheckTarget; reason: "save-failed" | "check-failed" }[];
   recipes?: readonly {
     tool: string;
@@ -189,6 +193,8 @@ export interface HostsState {
   result?: HostResult | undefined;
 }
 export type HostsAction =
+  | { action: "trust-host-key"; host: string }
+  | { action: "cancel-trust" }
   | { action: "reload"; host: string; target: HostCheckTarget }
   | { action: "rename"; host: string; nickname: string }
   | { action: "trust-origin"; host: string; repository: string }
@@ -220,6 +226,7 @@ export interface HostsApi {
 /** Copy requests identify registered objects, never clipboard text. */
 export type HostCopyCommand =
   | { kind: "copy-host-alias"; host: string }
+  | { kind: "copy-host-ssh-command"; host: string }
   | { kind: "copy-host-code-folder"; host: string }
   | { kind: "copy-checkout-path"; host: string | null; repository: string };
 

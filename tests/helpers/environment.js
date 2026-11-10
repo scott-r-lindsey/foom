@@ -9,6 +9,7 @@ const runnerControls = new Set([
   "FOOM_TEST_SHARED_MEMORY_ROOT",
   // Existing opt-in evidence controls belong to the runner, not the app fixture.
   "FOOM_SCREENSHOTS",
+  "FOOM_HOST_KEY_SCREENSHOTS",
   "FOOM_AGY_SCREENSHOTS",
   "FOOM_CONFIRMATION_SCREENSHOTS",
   "FOOM_FORGE_SCREENSHOTS",
