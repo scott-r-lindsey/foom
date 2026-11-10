@@ -1,0 +1,59 @@
+name: Data architecture spike
+
+on:
+  pull_request:
+    paths: ['spikes/data/**', '.github/workflows/data-spike.yml']
+  push:
+    branches: [main]
+    paths: ['spikes/data/**', '.github/workflows/data-spike.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: data-spike-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  spike:
+    name: SQLite and Drizzle (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2025]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir spikes/data install --frozen-lockfile
+      - run: pnpm exec tsc -p spikes/data/tsconfig.json
+      - run: pnpm run audit
+      - run: pnpm --dir spikes/data run audit
+      - name: Prepare pinned Electron outside the measured runner
+        timeout-minutes: 3
+        run: node spikes/data/prepare.mjs
+      - name: Prepare Linux sandbox
+        if: runner.os == 'Linux'
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Measure Node, SEA, Electron main and packaged ASAR on Linux
+        if: runner.os == 'Linux'
+        run: xvfb-run -a node spikes/data/run.mjs
+      - name: Measure Node, SEA, Electron main and packaged ASAR on macOS and Windows
+        if: runner.os != 'Linux'
+        run: node spikes/data/run.mjs
+      - name: Upload measurements even on failure
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: data-spike-${{ matrix.os }}
+          path: test-results/data-spike/*.json
+          if-no-files-found: warn
+          retention-days: 3

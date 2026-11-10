@@ -7,6 +7,10 @@ surface. These are decided rules; changing a decision needs its own PR and docs.
 
 ## Selection rules
 
+[Data ownership and synchronization](areas/data.md) is required for persistence,
+main-owned data views, schema and importer work across the process routes below.
+It records the decided #1153 target and which phases remain unimplemented.
+
 The first column contains full repository-relative paths, directory prefixes ending
 in `/` (all descendants), or globs (`*` matches within one path segment, `**`
 spans directories). No sibling abbreviations are implied. Read the **union** of
@@ -26,6 +30,7 @@ a generic process route alone does not identify feature policy.
 
 | Area / source owner | Responsibility and entry points | Required area rules / behavior |
 | --- | --- | --- |
+| `src/main/setup/settings.ts`, `src/main/setup/environment.ts`, `src/main/workspace/session-store.ts`, `src/main/workspace/worktree-store.ts`, `src/main/control/store.ts`, `src/main/config/service.ts`, `src/renderer/board/live-board-source.ts` | Existing persistence and main-owned data projections; phased SQLite/Drizzle and subscribed-query transition | [Data ownership](areas/data.md) |
 | `src/renderer/board/error-presentation.tsx`, `src/shared/application-error.d.ts`, `src/shared/application-errors.ts` | Fixed coded failures, action dialogs, focus restoration and operation-scoped background marks | [Errors](areas/errors.md), [behavior](behavior/errors.md) |
 | `src/main/main.ts`, `src/main/wiring/`, `src/main/profile.ts`, `src/main/installer.ts` | Entry delegates to `application.ts` (startup/security/quit), `window.ts` (per-board composition), `workspace.ts` (app-wide services); live bindings in `application-wiring.d.ts` | [Boundaries](areas/boundaries.md), [profiles](areas/application.md) |
 | `src/main/updates.ts`, `src/main/update-http.ts`, `src/main/update-activity.ts`, `src/main/update-package.ts` | App-owned update checks, fixed channel notices, native quit-time installation and anonymous metadata GETs | [Application](areas/application.md#updates-603), [settings](areas/settings.md), [privacy](areas/privacy.md#update-requests-603), [update policy](product.md#updates-603) |

@@ -86,6 +86,24 @@ scenarios. Their native attachment, focus, identity and cleanup assertions remai
 in the shared implementations. Scenario-specific frame helpers, stuck handoffs,
 agent setup and moved-pixel inspection stay in their owning suites.
 
+## Preview navigation focus ordering (#1133)
+
+The user-clicked preview navigation and stuck handoff cases record a test-only
+ordering trace in JUnit diagnostics and `test-results/preview-focus-PID.jsonl`, both included in the
+existing Electron artifact upload. Native and board DOM streams each retain at
+most 128 events and report dropped counts. Records use epoch milliseconds for
+cross-process comparison; they are observations, not synchronization barriers.
+
+The trace covers native window/WebContents and document focus, preview creation,
+navigation and native attachment/removal by WebContents generation, cancellation
+blur requests/completions, native mouse-down versus DOM mousedown, and the
+requested terminal click coordinates, native view bounds/zoom and DOM hit geometry.
+Records contain no key values or terminal/model output. Final DOM hit testing uses
+the requested click point, including when DOM mouse delivery is absent. Observers and wrapped
+native methods are removed/restored before app teardown, including body failures.
+The existing native input, focus assertions and exact PTY-byte checks are unchanged;
+this instrumentation neither diagnoses the historical cause nor adds a focus gate.
+
 ## Chromium session storage
 
 `createMemoryFixture(context, prefix)` owns all shared-memory fixture allocation
@@ -738,6 +756,64 @@ palette before restoring sessions, so a late settings application cannot replace
 the retained application-set background. Built-in and custom startup palettes also
 have a unit regression for this ordering.
 
+## Quit ordering diagnostics (#1134)
+
+Every harness teardown observes quit without changing native focus, input, consent,
+shutdown behavior, deadlines or retries. `Quit ordering: { ... }` is emitted with
+`context.diagnostic` on success and failure into the existing Electron JUnit report
+uploaded by CI. Main and renderer each emit at most 192 records; the merged buffer
+retains the last 192 and reports `total` and `dropped`. Each accepted event payload is
+capped at 2,048 characters; oversized/malformed records become fixed diagnostics.
+No dialog text, session names, selectors or IPC payloads are retained.
+
+Events are:
+
+- `harness:native-wait-start`, `harness:native-wait-end`, `harness:click-start`,
+  `harness:click-end`, `harness:locator-handler-start`,
+  `harness:locator-handler-end`, `harness:renderer-closed-before-install`, and the
+  existing quit acknowledgement/shutdown phases.
+- `native:installed`, `native:render`, `native:focus`, `native:blur`, `native:show`,
+  `native:hide`, `native:move`, `native:resize`, `native:minimize`, `native:restore`,
+  `native:closed`, `native:mouseDown`, `native:mouseUp`, `native:answer`,
+  `native:before-quit` and `native:will-quit`.
+- `renderer:installed`, `renderer:render`, `renderer:pointerdown`,
+  `renderer:pointerup` and `renderer:click`.
+- Playwright actionability phrases: `waiting for locator`, `locator resolved`,
+  `element is outside of the viewport`, `waiting for element to be visible, enabled
+  and stable`, `element is not visible`, `element is not enabled`, `element is not
+  stable`, `element is visible, enabled and stable`, `scrolling into view if
+  needed`, `done scrolling`, `intercepts pointer events`, `element was detached
+  from the DOM`, `retrying click action`, `performing click action`, `click action
+  done`, `waiting for scheduled navigations to finish`, `navigations have finished`.
+
+Native records include focus, visibility, minimization, web-content focus, child
+bounds, parent content bounds and display work area. `native:render` records the
+main-owned `presented` flag before forwarding the unchanged render message.
+`native:answer` observes IPC before the product handler and records that flag,
+request equality, top-frame identity and boolean acceptance. Presentation and
+request equality are null until the recorder observes a render publication, so
+a dialog already open at installation is not mislabeled as unpresented. It grants nothing.
+Renderer input records include native trust, an accept/other/none button category,
+disabled state and document focus. The recorder never calls the answer bridge.
+
+Main and renderer have independent sequence numbers and monotonic clocks; Node
+adds its observation clock. Pipe/console delivery can reorder across processes:
+use main sequence numbers for presentation versus answer IPC, and renderer
+sequence numbers for render versus input. A missing record after a source reaches
+its cap is not evidence that its event never happened. Playwright's pinned,
+exported `lib/utilsBundle` debug transport supplies in-flight server actionability
+progress; the public API logger omits these messages. Only the fixed phrases
+above are retained during teardown, and its debug sink/settings are restored on
+completion or failure. `record:oversized` and `record:malformed` identify rejected
+records. The real Electron harness regression verifies presentation, trusted
+renderer input, answer identity, actionability logging and quit lifecycle together.
+
+
+Fixture-owned dialogs may already have been disposed when app teardown starts.
+A cached closed page, or a page that closes during recorder attachment, emits
+`harness:renderer-closed-before-install` and is skipped without retrying. An
+evaluation error in a live page still fails; the recorder never hides a live
+renderer failure or reopens a disposed dialog.
 
 ## Real OpenSSH trust boundary (#1059)
 

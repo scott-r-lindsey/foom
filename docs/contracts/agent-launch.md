@@ -202,10 +202,12 @@ file's condition; plugin-scope files cannot be referenced.
 
 Names are refused ignoring case for prefixes `LD_`, `DYLD_`, `NODE_`, `PYTHON`,
 `BUN_`, `DENO_`, `NPM_CONFIG_`, `YARN_`, `PNPM_`, `LUA_`, `PERL5`, `RUBY`,
-`GIT_`, `SSH_`, `AWS_`, `GITHUB_`, `GH_`, `FOOM_`, `ELECTRON_`;
-any name containing `TOKEN`, `SECRET`, `KEY`, `PASSWORD` or `PROXY`; and the exact
+`GIT_`, `SSH_`, `AWS_`, `GITHUB_`, `GH_`, `FOOM_`, `ELECTRON_`, `BASH_`;
+any name containing `TOKEN`, `SECRET`, `KEY`, `PASSWORD`, `CREDENTIAL` or `PROXY`; and the exact
 names `JAVA_TOOL_OPTIONS`, `_JAVA_OPTIONS`, `JDK_JAVA_OPTIONS`, `PATH`, `HOME`,
-`SHELL`, `BASH_ENV`, `ENV`, `PS4`, `IFS`, `ZDOTDIR`, `PROMPT_COMMAND`, `CLAUDECODE`,
+`SHELL`, `BASH_ENV`, `ENV`, `PS4`, `IFS`, `SHELLOPTS`, `BASHOPTS`, `CDPATH`,
+`FPATH`, `GLOBIGNORE`, `BASH_COMPAT`, `BASH_XTRACEFD`, `INPUTRC`,
+`ZDOTDIR`, `PROMPT_COMMAND`, `CLAUDECODE`,
 `EDITOR`, `VISUAL`, `PAGER`, `BROWSER`, `MANPAGER`, `LESSOPEN`, `LESSCLOSE`,
 `PERLLIB`, `GCONV_PATH`, `LOCPATH`, `HOSTALIASES`, `RES_OPTIONS`, `LOCALDOMAIN`,
 `TMPDIR`, `TERM`, `COLORTERM`, `TERM_PROGRAM`, `CONSTRUCTOR`, `PROTOTYPE`, `__PROTO__`.

@@ -19,6 +19,7 @@ const { deadline, expect } = require("./test-policy.js");
 const { auditProcesses } = require("./process-audit.js");
 const { isolatedEnvironment } = require("./agent-isolation.js");
 const { electronLaunch } = require("./display-isolation.js");
+const { startQuitOrdering, recordQuitOrdering } = require("./quit-diagnostics.js");
 const { createFixtureStorage } = require("./fixture-storage.js");
 
 // Opt-in native-window evidence on the isolated Linux test display (ImageMagick).
@@ -331,8 +332,14 @@ function prepareConfirmationActions(app, page) {
     ready = page.addLocatorHandler(
       page.getByRole("alertdialog"),
       async () => {
-        if (page.url() === "app://confirmation/confirmation.html")
-          await waitForNativeConfirmation(app, page);
+        if (page.url() === "app://confirmation/confirmation.html") {
+          recordQuitOrdering(app, "harness:locator-handler-start");
+          try {
+            await waitForNativeConfirmation(app, page);
+          } finally {
+            recordQuitOrdering(app, "harness:locator-handler-end");
+          }
+        }
       },
       { noWaitAfter: true },
     );
@@ -841,14 +848,17 @@ async function launchApp(context, options = { fixture: "running-shell" }) {
     console.info("Closing app");
     let timer;
     let shutdownPhase = "starting";
+    let ordering;
     try {
       if (child.exitCode !== null || child.signalCode !== null) {
         assert.equal(child.exitCode, 0, "Electron must exit normally");
         clearTimeout(watchdog);
         return;
       }
+      ordering = startQuitOrdering(app);
       await Promise.race([
         (async () => {
+          await ordering.install();
           // Use the real quit dialog, including when the board has crashed.
           await quitAndWait(
             app,
@@ -879,14 +889,19 @@ async function launchApp(context, options = { fixture: "running-shell" }) {
               if (!(await app.evaluate(() => globalThis.readyToQuit))) {
                 const dialog = quittingDialog ?? (await confirmationPage(app));
                 shutdownPhase = "wait for native quit presentation";
+                ordering.record("harness:native-wait-start");
                 await waitForNativeConfirmation(app, dialog);
+                ordering.record("harness:native-wait-end");
                 shutdownPhase = "accept quit dialog";
+                ordering.record("harness:click-start");
                 await dialog.getByRole("button", { name: "Stop all and quit" }).click();
+                ordering.record("harness:click-end");
               }
             },
             (phase) => {
               shutdownPhase = phase;
               recordQuit(`Harness phase: ${phase}`);
+              ordering.record(`harness:${phase}`);
             },
           );
         })(),
@@ -918,6 +933,10 @@ async function launchApp(context, options = { fixture: "running-shell" }) {
       });
       throw error;
     } finally {
+      if (ordering) {
+        ordering.stop();
+        context.diagnostic(`Quit ordering: ${JSON.stringify(ordering.snapshot())}`);
+      }
       quitLines.close();
       clearTimeout(timer);
       // If graceful shutdown failed, fail the test and terminate the process tree.
