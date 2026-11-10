@@ -23,6 +23,15 @@ export function attachSetup(
   ipc: WindowIpc = ipcMain,
 ): { dispose(): void; zoom(direction: ZoomDirection): Promise<void> } {
   const contents = window.webContents;
+  const cancelTrust = () => {
+    setup.cancelHostTrust();
+  };
+  const navigating = (_event: unknown, _url: string, inPlace: boolean, mainFrame: boolean) => {
+    if (!inPlace && mainFrame) cancelTrust();
+  };
+  contents.on("destroyed", cancelTrust);
+  contents.on("render-process-gone", cancelTrust);
+  contents.on("did-start-navigation", navigating);
   const trusted = (event: IpcMainInvokeEvent) =>
     event.sender === contents &&
     event.senderFrame !== null &&
@@ -119,6 +128,10 @@ export function attachSetup(
     });
   return {
     dispose() {
+      cancelTrust();
+      contents.removeListener("destroyed", cancelTrust);
+      contents.removeListener("render-process-gone", cancelTrust);
+      contents.removeListener("did-start-navigation", navigating);
       for (const channel of handlers.keys()) ipc.removeHandler(channel);
     },
     /** A zoom shortcut: save the next scale and tell the renderer what changed. */

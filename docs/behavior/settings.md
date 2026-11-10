@@ -329,7 +329,7 @@ See the [channel and privacy policy](../product.md#updates-603).
 ## Hosts and repository locations (#757 PR 1)
 
 Ordinary opening of Hosts makes no SSH connections. Returning after a foreground
-Install, Sign in or Trust host key action refreshes only its affected rows.
+Install, Sign in or Trust host key… action refreshes only its affected rows.
 Hosts shows the last saved results, including
 session and worktree inventory even when stale, with Last checked and a timestamp,
 or Not checked. Check capabilities refreshes the full checklist and remote
@@ -353,7 +353,7 @@ appear as each step finishes. Reduced motion keeps the throbber still while the
 step text continues to update. Check capabilities retries without creating directories.
 Missing folders offer Create, and Change folder selects a replacement. Install
 and Sign in appear only for available recipes and open a visible terminal tile;
-the user answers prompts there. Origin SSH host-key failures offer Trust host key
+the user answers prompts there. Origin SSH host-key failures offer Trust host key…
 in a human-owned tile; the user verifies and accepts the fingerprint. Other Git
 access fixes remain user-run instructions. Ready means the host checks and Git
 pass with at least one installed agent; optional missing agents, gh sign-in and
@@ -371,7 +371,7 @@ session/worktree counts and Refresh facts. Ready tool/agent checks mean installe
 and probeable; Not found and Unable to check are fixed states. Declared bounded
 status probes report sign-in separately; unknown status never becomes a pass.
 
-Repositories lists existing checkouts under Local and each registered host with copyable paths. Choose repositories opens the local selection controls. Foom clones automatically on first repository launch or worktree creation, using only the registered origin and approved code folder. Each missing checkout gets one clone attempt using the host’s own Git routing, with no automatic transport or authentication fallback. Foom changes no Git credentials or configuration. Failures appear where the action started with a fixed reason. Git access to origin and Trust host key remain in Hosts. Authentication failures show hints for user-configured HTTPS through gh, a deploy key or ssh-agent wherever the action started; Foom does not act on these hints.
+Repositories lists existing checkouts under Local and each registered host with copyable paths. Choose repositories opens the local selection controls. Foom clones automatically on first repository launch or worktree creation, using only the registered origin and approved code folder. Each missing checkout gets one clone attempt using the host’s own Git routing, with no automatic transport or authentication fallback. Foom changes no Git credentials or configuration. Failures appear where the action started with a fixed reason. Git access to origin and Trust host key… remain in Hosts. Authentication failures show hints for user-configured HTTPS through gh, a deploy key or ssh-agent wherever the action started; Foom does not act on these hints.
 This profile’s live remote sessions survive hub restarts with screen replay.
 Profile-owned worktrees remain in the sidebar without a session, including after
 the last session closes or a create reply is lost. Recovery launches nothing and
@@ -382,7 +382,7 @@ for the profile and cleanup rules.
 ### Hosts checklist refresh (#1061)
 
 **Check capabilities** checks the whole host; Add performs its first check.
-Other Hosts actions never start a full check. Rename is local. Folder actions
+Accepting a new SSH key may rerun the first check only if the host has never had a successful check. Other Hosts actions never start a full check. Rename is local. Folder actions
 refresh the folder from their successful reply and mark affected repositories **Not checked**.
 A failed replacement reports the attempted change and preserves the registered folder's result.
 Clone/Trust origin update that repository. Install stays in Settings in an
@@ -423,3 +423,43 @@ General **Default agent** starts at None. It supplies omitted orchestration laun
 one-shot review and review-loop agent parameters; explicit choices override it.
 Unavailable providers refuse without fallback. Config `defaultAgent` accepts a
 provider ID or null and applies live.
+
+### New SSH host keys (#1059)
+
+An unknown SSH key shows **Host key not trusted** and the primary **Trust host key…** action in Hosts.
+While the key is untrusted, the expanded card shows only its host header, address,
+folder and Remove line, check output, and the SSH row with amber text and the
+steady needs-you halo. Platform, daemon, folder checks, tools, agents, Git access,
+checked out repositories, Last checked/refresh and Host facts are absent, including
+any older dependent failures. Accepting the key restores the full card as the
+normal first check runs. Changed
+keys and other real SSH failures remain magenta. Add and folder-change notices
+use the same marker and tone for that reason. While host-key trust is pending,
+the read-only output panel has an amber **Host key not trusted** header and no
+Dismiss button. Changed keys, rejected login and unreachable hosts retain the
+magenta **Failed** header and Dismiss. Dialog-opening trust actions, including Git
+access and launch-failure guidance, read **Trust host key…**; the dialog's own
+accept button remains **Trust host key**. The card action uses the existing primary
+button style; no new style or status color is introduced.
+The trusted confirmation shows the host, key type and fingerprint. Verify it
+against a trusted source before choosing **Trust host key**. Cancel is focused;
+Cancel, Escape and close decline. OpenSSH saves an accepted key, then Foom reruns
+the first check automatically for a host that has never passed. Check output
+appears in the existing read-only panel. Established hosts require an explicit
+Check capabilities after trust. Declining keeps the needs-you state.
+
+Changed keys show **Host key changed** with no trust action; repair those manually.
+Authentication failures show **Login rejected**; other failures show **Host
+unreachable**. On unsupported SSH clients or Windows, copy `ssh HOST` and verify
+the key in a terminal. Foom never handles passwords or writes known_hosts itself.
+
+Trust never fails silently: when no confirmation can be shown, the check output
+panel shows **Unable to trust host key** with a fixed reason code. Codes distinguish
+trust-not-eligible, invalid-alias, ssh-config-failed, ssh-config-invalid, socket-path-too-long,
+askpass-prompt-rejected, prompt-host-mismatch, ssh-exited-without-prompt,
+trust-timeout, ssh-start-failed, dialog-unavailable and trust-unavailable.
+Renderer readiness failures, presentation failures and a dialog that cannot become
+reachable report `dialog-unavailable`. Declining or leaving Settings is not reported as an error. No raw prompt, host-file
+path, other-name entry or exception text appears in these diagnostics.
+OpenSSH's bounded other-names/addresses notice is accepted without displaying it;
+the confirmation still shows only the validated target, key type and fingerprint.

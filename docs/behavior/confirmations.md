@@ -80,3 +80,8 @@ Done returns to Settings, where Scan again and the available plugin actions rema
 When an agent removal finishes while its review is visible or waiting, that item
 leaves the review automatically. Other pending items still need approval. If none
 remain, the dialog closes and the board becomes usable without an extra click.
+
+SSH host-key trust shows only the registered host, parsed key type and fingerprint
+from OpenSSH’s unknown-host question. **Trust host key** relays yes to OpenSSH;
+**Cancel**, Escape and close relay no or end the run. Cancel is focused by default.
+Foom never displays raw askpass text or asks for a password or passphrase.

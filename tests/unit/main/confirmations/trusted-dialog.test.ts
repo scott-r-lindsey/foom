@@ -1572,6 +1572,68 @@ test("plugin consent retains the window, rejects running close, and dismisses th
   dialog.dispose();
 });
 
+test("typed readiness failure is unavailable without aborting the caller", async () => {
+  mock.load.mockRejectedValueOnce(new Error("renderer failed"));
+  const dialog = setup();
+  const abort = new AbortController();
+  await expect(dialog.requestOutcome(content, abort.signal)).resolves.toBe("unavailable");
+  expect(abort.signal.aborted).toBe(false);
+  expect(window().show).not.toHaveBeenCalled();
+  dialog.dispose();
+});
+
+test("typed presentation exceptions are unavailable without aborting the caller", async () => {
+  const dialog = setup();
+  const abort = new AbortController();
+  window().show.mockImplementation(() => {
+    throw new Error("native failure");
+  });
+  await expect(dialog.requestOutcome(content, abort.signal)).resolves.toBe("unavailable");
+  expect(abort.signal.aborted).toBe(false);
+  expect(parent.webContents.listenerCount("before-input-event")).toBe(0);
+  dialog.dispose();
+});
+
+test("typed exhausted reachability is unavailable without aborting the caller", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  const dialog = setup();
+  const abort = new AbortController();
+  window().isFocused.mockReturnValue(false);
+  const result = dialog.requestOutcome(content, abort.signal);
+  await vi.advanceTimersByTimeAsync(2100);
+  await expect(result).resolves.toBe("unavailable");
+  expect(abort.signal.aborted).toBe(false);
+  expect(parent.webContents.listenerCount("before-input-event")).toBe(0);
+  dialog.dispose();
+});
+
+test.each(["answer", "native-close", "abort"] as const)(
+  "typed deliberate %s is distinct from unavailable",
+  async (cause) => {
+    const dialog = setup();
+    const abort = new AbortController();
+    const result = dialog.requestOutcome(content, abort.signal);
+    const id = await shown();
+    if (cause === "answer") answer(id, false);
+    else if (cause === "native-close") window().emit("close", { preventDefault: vi.fn() });
+    else abort.abort();
+    await expect(result).resolves.toBe(cause === "abort" ? "cancelled" : "declined");
+    dialog.dispose();
+  },
+);
+
+test("typed acceptance and pre-cancelled or disposed requests preserve their distinct outcomes", async () => {
+  const dialog = setup();
+  const accepted = dialog.requestOutcome(content);
+  answer(await shown(), true);
+  await expect(accepted).resolves.toBe("accepted");
+  const abort = new AbortController();
+  abort.abort();
+  await expect(dialog.requestOutcome(content, abort.signal)).resolves.toBe("cancelled");
+  dialog.dispose();
+  await expect(dialog.requestOutcome(content)).resolves.toBe("unavailable");
+});
+
 test.each(["linux", "darwin", "win32"] as const)(
   "%s user confirmation waits outside Foom and recovers when any Foom window gains focus",
   async (platform) => {
@@ -1647,3 +1709,47 @@ test("switching apps during the final periodic recovery check pauses its cancell
   expect(await pending).toBe(false);
   dialog.dispose();
 });
+
+test.each(["linux", "darwin", "win32"] as const)(
+  "%s typed SSH trust stays pending while paused and distinguishes recovery from real failure",
+  async (platform) => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    for (const failure of [false, true]) {
+      const dialog = setup(platform);
+      const abort = new AbortController();
+      const resolved = vi.fn();
+      const pending = dialog.requestOutcome(
+        { title: "Trust host key?", accept: "Trust host key" },
+        abort.signal,
+        { activate: true },
+      );
+      void pending.then(resolved);
+      await vi.advanceTimersByTimeAsync(1000);
+      const id = await shown();
+      const child = window();
+      const shows = child.show.mock.calls.length;
+      child.isFocused.mockReturnValue(false);
+      mock.focusedWindow.mockReturnValue(null);
+      await vi.advanceTimersByTimeAsync(35_000);
+      expect(resolved).not.toHaveBeenCalled();
+      expect(abort.signal.aborted).toBe(false);
+      expect(child.show).toHaveBeenCalledTimes(shows);
+      expect(child.hide).not.toHaveBeenCalled();
+      mock.focusedWindow.mockReturnValue(child);
+      if (failure)
+        child.show.mockImplementation(() => {
+          throw new Error("native presentation failed after pause");
+        });
+      else child.focus.mockImplementation(() => child.isFocused.mockReturnValue(true));
+      mock.app?.emit("browser-window-focus");
+      if (!failure) {
+        await vi.advanceTimersByTimeAsync(1000);
+        answer(id, true);
+      }
+      await expect(pending).resolves.toBe(failure ? "unavailable" : "accepted");
+      expect(abort.signal.aborted).toBe(false);
+      expect(mock.app?.listenerCount("browser-window-focus")).toBe(0);
+      dialog.dispose();
+    }
+  },
+);
