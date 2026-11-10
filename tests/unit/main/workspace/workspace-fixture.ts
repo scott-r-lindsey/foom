@@ -54,6 +54,7 @@ export let agents: {
   launch: ReturnType<typeof vi.fn<(request: AgentLaunch) => Promise<Launched>>>;
   release: ReturnType<typeof vi.fn<(id: string) => void>>;
   dispose: ReturnType<typeof vi.fn<() => void>>;
+  setEnabled: ReturnType<typeof vi.fn<(enabled: Readonly<Record<string, boolean>>) => void>>;
   setHooksEnabled: ReturnType<typeof vi.fn<(enabled: boolean) => void>>;
   setBypassIdentities: ReturnType<
     typeof vi.fn<(identities?: Readonly<Record<string, string>>) => void>
@@ -120,6 +121,7 @@ beforeEach(async () => {
       .mockResolvedValue({ id: "t1", attention: "hooks" }),
     release: vi.fn<(id: string) => void>(),
     dispose: vi.fn<() => void>(),
+    setEnabled: vi.fn(),
     setHooksEnabled: vi.fn<(enabled: boolean) => void>(),
     setBypassIdentities: vi.fn(),
   };

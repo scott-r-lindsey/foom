@@ -1,4 +1,6 @@
+import { ENABLED_AGENTS } from "../../../helpers/enabled-agents";
 import {
+  enabledAgentService,
   create,
   launchIdentity,
   listWorktrees,
@@ -13,8 +15,9 @@ import { ChildProcess, execFile } from "node:child_process";
 import { statSync } from "node:fs";
 import { access, stat } from "node:fs/promises";
 import { homedir, userInfo } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { PluginSetup } from "../../../../src/main/agents/plugin-setup";
 import { AgentService, loginPath } from "../../../../src/main/agents/agents";
 import { replaceConfigProviders } from "../../../../src/main/agents/providers/registry";
 import { v2Provider } from "../../../../src/main/agents/providers/v2";
@@ -23,7 +26,7 @@ import pluginFixture from "../../../fixtures/agent-plugin.json";
 
 describe("detection", () => {
   it("preserves full versions and probes help before advertising hooks", async () => {
-    const scan = await agentFixture.service.scan();
+    const scan = await agentFixture.service.scan(ENABLED_AGENTS);
     expect(scan.path).toBe(root);
     expect(scan.agents.map((agent) => [agent.id, agent.version, agent.hooks])).toEqual(
       BUILTIN_AGENTS.map(({ id }) => [id, versions[id] ?? null, id === "claude" || id === "codex"]),
@@ -55,7 +58,7 @@ describe("detection", () => {
     try {
       versions.claude = claude;
       versions.codex = codex;
-      const scan = await agentFixture.service.scan();
+      const scan = await agentFixture.service.scan(ENABLED_AGENTS);
       expect(scan.agents.slice(0, 2).map((agent) => agent.hooks)).toEqual([hooks, hooks]);
       expect(scan.agents[0]?.version).toBe(claude);
       await expect(agentFixture.service.launch(request)).resolves.toHaveProperty(
@@ -70,19 +73,25 @@ describe("detection", () => {
     "requires complete help flags (%s)",
     async (text) => {
       agentFixture.help = text;
-      expect((await agentFixture.service.scan()).agents.every((agent) => !agent.hooks)).toBe(true);
+      expect(
+        (await agentFixture.service.scan(ENABLED_AGENTS)).agents.every((agent) => !agent.hooks),
+      ).toBe(true);
     },
   );
   it("reports missing executables and rescans without retaining stale results", async () => {
     vi.mocked(access).mockRejectedValue(new Error("missing"));
-    expect((await agentFixture.service.scan()).agents.every((agent) => agent.path === null)).toBe(
-      true,
-    );
+    expect(
+      (await agentFixture.service.scan(ENABLED_AGENTS)).agents.every(
+        (agent) => agent.path === null,
+      ),
+    ).toBe(true);
     await expect(agentFixture.service.launch(request)).rejects.toThrow("not installed");
     vi.mocked(access).mockResolvedValue();
-    expect((await agentFixture.service.scan()).agents.every((agent) => agent.path !== null)).toBe(
-      true,
-    );
+    expect(
+      (await agentFixture.service.scan(ENABLED_AGENTS)).agents.every(
+        (agent) => agent.path !== null,
+      ),
+    ).toBe(true);
     await expect(agentFixture.service.launch(request)).resolves.toMatchObject({
       id: "terminal-id",
       attention: "hooks",
@@ -92,18 +101,22 @@ describe("detection", () => {
     vi.mocked(stat).mockResolvedValue(
       Object.assign(statSync(process.execPath, { bigint: true }), { isFile: () => false }),
     );
-    expect((await agentFixture.service.scan()).agents.every((agent) => agent.path === null)).toBe(
-      true,
-    );
+    expect(
+      (await agentFixture.service.scan(ENABLED_AGENTS)).agents.every(
+        (agent) => agent.path === null,
+      ),
+    ).toBe(true);
   });
   it("falls back for failed probes, empty versions, and unsupported help", async () => {
     agentFixture.failed = "--help";
     expect(
-      (await agentFixture.service.scan()).agents.every((agent) => !agent.hooks && agent.version),
+      (await agentFixture.service.scan(ENABLED_AGENTS)).agents.every(
+        (agent) => !agent.hooks && agent.version,
+      ),
     ).toBe(true);
     agentFixture.failed = "--version";
     expect(
-      (await agentFixture.service.scan()).agents.every(
+      (await agentFixture.service.scan(ENABLED_AGENTS)).agents.every(
         (agent) => !agent.hooks && agent.version === null,
       ),
     ).toBe(true);
@@ -111,13 +124,15 @@ describe("detection", () => {
     const previous = versions.claude;
     versions.claude = "";
     agentFixture.help = "--other";
-    expect((await agentFixture.service.scan()).agents.every((agent) => !agent.hooks)).toBe(true);
+    expect(
+      (await agentFixture.service.scan(ENABLED_AGENTS)).agents.every((agent) => !agent.hooks),
+    ).toBe(true);
     versions.claude = previous;
   });
   it("keeps unknown versions on evaluator fallback", async () => {
     const previous = versions.codex;
     versions.codex = "codex-cli unknown";
-    expect((await agentFixture.service.scan()).agents[1]?.hooks).toBe(false);
+    expect((await agentFixture.service.scan(ENABLED_AGENTS)).agents[1]?.hooks).toBe(false);
     versions.codex = previous;
     await agentFixture.service.launch({ ...request, agent: "codex" });
     expect(prepare).not.toHaveBeenCalled();
@@ -131,9 +146,11 @@ describe("detection", () => {
         path: ":relative:",
         warning: "Login shell PATH unavailable; using the inherited PATH.",
       });
-      expect((await agentFixture.service.scan()).agents.every((agent) => agent.path === null)).toBe(
-        true,
-      );
+      expect(
+        (await agentFixture.service.scan(ENABLED_AGENTS)).agents.every(
+          (agent) => agent.path === null,
+        ),
+      ).toBe(true);
       expect(access).not.toHaveBeenCalled();
       vi.stubEnv("PATH", undefined);
       expect((await loginPath()).path).toBe("");
@@ -176,11 +193,13 @@ it("discards a discovery result when a loaded plugin changes during probing", as
     return Promise.resolve();
   });
   replaceConfigProviders([original]);
-  await expect(agentFixture.service.scan()).rejects.toThrow("Agent plugins changed. Scan again.");
+  await expect(
+    agentFixture.service.scan({ ...ENABLED_AGENTS, [manifest.id]: true }),
+  ).rejects.toThrow("Agent plugins changed. Scan again.");
   replaceConfigProviders([]);
-  expect((await agentFixture.service.scan()).agents.some((agent) => agent.id === "claude")).toBe(
-    true,
-  );
+  expect(
+    (await agentFixture.service.scan(ENABLED_AGENTS)).agents.some((agent) => agent.id === "claude"),
+  ).toBe(true);
 });
 
 it("v2 preserves successful discovery data when only the independent version probe fails", async () => {
@@ -198,8 +217,8 @@ it("v2 preserves successful discovery data when only the independent version pro
   replaceConfigProviders([v2Provider(parsed.model, () => Promise.resolve())]);
   agentFixture.help = "--inline --prompt";
   agentFixture.failed = "--version";
-  agentFixture.service = new AgentService({ listWorktrees, launchIdentity }, { create });
-  const scan = await agentFixture.service.scan();
+  agentFixture.service = enabledAgentService({ listWorktrees, launchIdentity }, { create });
+  const scan = await agentFixture.service.scan({ [parsed.model.id]: true });
   expect(scan.agents.find((agent) => agent.id === parsed.model.id)?.version).toBeNull();
   const result = await agentFixture.service.launch({
     ...request,
@@ -246,11 +265,11 @@ it("disabled agents retain card identity but run no discovery or setup probes, a
 });
 
 it("a selected refresh probes only that CLI and retains other observations, including before a full scan", async () => {
-  const first = await agentFixture.service.scan({}, "claude");
+  const first = await agentFixture.service.scan(ENABLED_AGENTS, "claude");
   expect(first.checkedAt).toBeUndefined();
-  const baseline = await agentFixture.service.scan();
+  const baseline = await agentFixture.service.scan(ENABLED_AGENTS);
   vi.mocked(execFile).mockClear();
-  const next = await agentFixture.service.scan({}, "claude");
+  const next = await agentFixture.service.scan(ENABLED_AGENTS, "claude");
   expect(next.checkedAt).toBeTypeOf("number");
   expect(next.agents.find((agent) => agent.id === "codex")).toEqual(
     baseline.agents.find((agent) => agent.id === "codex"),
@@ -267,4 +286,59 @@ it("an empty enablement map retains catalog cards without running provider probe
     scan.agents.every((agent) => agent.reason === "Turned off" && agent.version === null),
   ).toBe(true);
   expect(execFile).toHaveBeenCalledTimes(1); // Only the fixture login PATH query.
+});
+
+it.each([{}, { codex: false }])(
+  "registry-triggered launch rescans only saved enabled providers (%j)",
+  async (disabled) => {
+    const enabled = { claude: true, agy: false, ...disabled };
+    await agentFixture.service.scan(enabled);
+    // A caller changing its map cannot enable another provider in the saved snapshot.
+    enabled.agy = true;
+    replaceConfigProviders([
+      v2Provider(parseAgentManifest(JSON.stringify(pluginFixture)).model, () => Promise.resolve()),
+    ]);
+    const setup = vi.spyOn(PluginSetup.prototype, "status");
+    vi.mocked(execFile).mockClear();
+    await expect(agentFixture.service.launch(request)).resolves.toHaveProperty("id", "terminal-id");
+    const probes = vi
+      .mocked(execFile)
+      .mock.calls.filter(([, args]) => args?.[0] === "--version" || args?.[0] === "--help")
+      .map(([file, args]) => [basename(file).replace(/\.exe$/u, ""), args]);
+    expect(probes).toEqual([
+      ["claude", ["--version"]],
+      ["claude", ["--help"]],
+    ]);
+    expect(setup).not.toHaveBeenCalled();
+    agentFixture.service.release("terminal-id");
+    setup.mockRestore();
+  },
+);
+
+it("a launch before explicit configuration runs no provider probes", async () => {
+  const service = new AgentService({ listWorktrees, launchIdentity }, { create }, prepare);
+  await service.launch(request);
+  expect(
+    vi
+      .mocked(execFile)
+      .mock.calls.filter(([, args]) => args?.[0] === "--version" || args?.[0] === "--help"),
+  ).toEqual([]);
+  expect(prepare).not.toHaveBeenCalled();
+  service.dispose();
+});
+
+it("saved settings replace previous scan enablement before the next launch", async () => {
+  await agentFixture.service.scan(ENABLED_AGENTS);
+  agentFixture.service.setEnabled({ claude: true });
+  vi.mocked(execFile).mockClear();
+  await agentFixture.service.launch(request);
+  const probes = vi
+    .mocked(execFile)
+    .mock.calls.filter(([, args]) => args?.[0] === "--version" || args?.[0] === "--help")
+    .map(([file, args]) => [basename(file).replace(/\.exe$/u, ""), args]);
+  expect(probes).toEqual([
+    ["claude", ["--version"]],
+    ["claude", ["--help"]],
+  ]);
+  agentFixture.service.release("terminal-id");
 });

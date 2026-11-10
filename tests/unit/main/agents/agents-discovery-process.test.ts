@@ -1,3 +1,4 @@
+import { ENABLED_AGENTS } from "../../../helpers/enabled-agents";
 import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import * as os from "node:os";
@@ -38,7 +39,7 @@ it.skipIf(process.platform === "win32").each(["timeout", "version", "stdout", "s
     );
     let watchdog: ReturnType<typeof setTimeout> | undefined;
     const started = Date.now();
-    const scan = service.scan();
+    const scan = service.scan(ENABLED_AGENTS);
     const pids = async () =>
       (await readFile(join(directory, "pids"), "utf8")).trim().split("\n").map(Number);
     try {

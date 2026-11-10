@@ -88,6 +88,7 @@ beforeEach(() => {
       launch,
       release: vi.fn(),
       dispose: vi.fn(),
+      setEnabled: vi.fn(),
       setHooksEnabled: vi.fn(),
       setBypassIdentities: vi.fn(),
     }),
