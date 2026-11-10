@@ -2116,3 +2116,81 @@ test("inactive agent confirmation dismissal preserves the other application's na
     await app.evaluate(() => globalThis.focusRestoreDialog.dispose());
   }
 });
+
+test("user-started trusted confirmation stays pending during simulated app deactivation", {
+  timeout: deadline(60_000),
+}, async (context) => {
+  const app = await launchApp(context, { fixture: "running-shell" });
+  const board = await boardPage(app);
+  const dialog = await confirmationPage(app);
+  await app.evaluate(({ app }) => app.quit());
+  await expect(
+    dialog.getByRole("button", { name: "Stop all and quit", exact: true }),
+  ).toBeEnabled();
+  await assertConfirmationFocus(
+    app,
+    dialog,
+    dialog.getByRole("button", { name: "Cancel", exact: true }),
+  );
+  // Allow the initial one-second native reachability check to succeed. The
+  // elapsed interval is the policy under test, rather than a readiness wait.
+  await new Promise((resolve) => setTimeout(resolve, 1200));
+  await app.evaluate(({ BrowserWindow }) => {
+    const dialog = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://confirmation/confirmation.html",
+    );
+    const originals = {
+      getFocusedWindow: BrowserWindow.getFocusedWindow,
+      isFocused: dialog.isFocused,
+      moveTop: dialog.moveTop,
+      focus: dialog.focus,
+    };
+    globalThis.inactiveConfirmation = { originals, presentations: 0 };
+    // An isolated Xvfb desktop has no other application. Simulate its native
+    // focus observations while retaining real windows, geometry and IPC.
+    BrowserWindow.getFocusedWindow = () => null;
+    dialog.isFocused = () => false;
+    dialog.moveTop = () => {
+      globalThis.inactiveConfirmation.presentations++;
+    };
+    dialog.focus = () => {
+      globalThis.inactiveConfirmation.presentations++;
+    };
+  });
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 35_000));
+    assert.equal(await app.evaluate(() => globalThis.inactiveConfirmation.presentations), 0);
+    await expect(board.locator(".board-confirmation-scrim")).toBeVisible();
+    // Dialog locators require native focus in the harness. Observe availability
+    // directly until the simulated external application relinquishes focus.
+    assert.equal(
+      await app.evaluate(({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows()
+          .find((window) => window.webContents.getURL() === "app://confirmation/confirmation.html")
+          .isVisible(),
+      ),
+      true,
+    );
+  } finally {
+    await app.evaluate(({ app, BrowserWindow }) => {
+      const dialog = BrowserWindow.getAllWindows().find(
+        (window) => window.webContents.getURL() === "app://confirmation/confirmation.html",
+      );
+      const { originals } = globalThis.inactiveConfirmation;
+      BrowserWindow.getFocusedWindow = originals.getFocusedWindow;
+      dialog.isFocused = originals.isFocused;
+      dialog.moveTop = originals.moveTop;
+      dialog.focus = originals.focus;
+      app.emit("browser-window-focus", {}, dialog);
+      delete globalThis.inactiveConfirmation;
+    });
+  }
+  await assertConfirmationFocus(
+    app,
+    dialog,
+    dialog.getByRole("button", { name: "Cancel", exact: true }),
+  );
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(board.locator(".board-confirmation-scrim")).toHaveCount(0);
+  assert.equal(app.process().exitCode, null, "Returning to Foom must not approve quit");
+});

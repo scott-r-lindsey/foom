@@ -29,8 +29,12 @@ the dialog as before. Click-again confirmations still require at least 300 ms.
 Escape cancels, Tab stays within the dialog and Enter activates
 the focused button. The card-sized window follows Interface scale and stays centered on the board’s content.
 The board stays visible under a translucent scrim and regains focus on dismissal.
-It remains usable if the board renderer crashes or hangs. Confirmation buttons
-use solid ink; amber and magenta retain their status meanings.
+It remains usable if the board renderer crashes or hangs.
+After a user-started confirmation is shown and checked, switching to another app
+leaves it pending without taking focus back. Returning to Foom brings the dialog
+forward again; confirming still requires it to be focused and fully on screen.
+Agent, CLI pairing, preview and workspace requests still cancel when Foom is inactive.
+Confirmation buttons use solid ink; amber and magenta retain their status meanings.
 
 Folder pickers stay native. The New worktree branch field collects input and does not
 grant destructive approval.
