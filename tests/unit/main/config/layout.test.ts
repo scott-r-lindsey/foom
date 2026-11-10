@@ -129,6 +129,7 @@ test("the previous settings schema remains refreshable after adding close finish
   const previous = themeRecord(JSON.parse(current), "$");
   const properties = themeRecord(previous["properties"], "$.properties");
   delete properties["closeFinishedAgents"];
+  delete properties["defaultAgent"];
   properties["colorMode"] = { enum: ["system", "light", "dark"] };
   // The shipped schema placed colorMode immediately after kind and used the old palette order.
   previous["properties"] = {

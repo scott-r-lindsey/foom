@@ -71,9 +71,13 @@ port.on("message", (event: { data: unknown }) => {
           manager.setTheme(id, message.theme ?? message.dark);
           break;
         case "attach":
-          await manager.attach(id, (token, data) => {
-            send({ type: "data", id, view: message.view, token, data });
-          });
+          await manager.attach(
+            id,
+            (token, data) => {
+              send({ type: "data", id, view: message.view, token, data });
+            },
+            true,
+          );
           break;
         case "detach":
           manager.detach(id);

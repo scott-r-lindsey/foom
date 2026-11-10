@@ -77,7 +77,7 @@ test("static plugin installs only observer events on both native shells", () => 
       platform === "win32" ? "powershell.exe" : "sh ./observer.sh",
     );
     expect(files["hooks.json"]).toContain('"timeout":3');
-    expect(files["plugin.json"]).toContain('"foomObserverVersion":5');
+    expect(files["plugin.json"]).toContain('"foomObserverVersion":6');
   }
 });
 
@@ -121,7 +121,9 @@ test.each(["PreInvocation", "PreToolUse", "PostToolUse", "Stop"])(
           output: "$(touch no) `no` é 🌑",
         }),
       );
-      expect(JSON.parse(result.stdout)).toEqual({});
+      expect(JSON.parse(result.stdout)).toEqual(
+        event === "PreToolUse" ? { decision: "allow" } : {},
+      );
       expect(result.stderr).toBe("");
       expect(await readFile(join(dir, "order"), "utf8")).toBe("10");
       await vi.waitFor(
@@ -316,3 +318,52 @@ test.skipIf(process.platform !== "win32")(
     expect(message).not.toContain(dir);
   },
 );
+
+test.each(["FOOM_HOOK_ORDER", "lock", "invalid", "maximum"])(
+  "pre-tool delegates on %s failure without consuming open stdin",
+  { timeout: nativeDeadline(15000) },
+  async (failure) => {
+    const dir = await fixture();
+    if (failure === "lock") await mkdir(join(dir, "order.lock"));
+    if (failure === "invalid") await writeFile(join(dir, "order"), "invalid");
+    if (failure === "maximum") await writeFile(join(dir, "order"), "2147483647");
+    // A missing credential is already covered above; exercise counter failures
+    // with every transport credential present and an intentionally open pipe.
+    if (failure === "FOOM_HOOK_ORDER") await rm(join(dir, "order"));
+    expect(
+      await run(
+        dir,
+        {
+          ...process.env,
+          FOOM_HOOK_URL: "http://127.0.0.1:1/hooks",
+          FOOM_SESSION: "fixture-session",
+          FOOM_TOKEN: "fixture-token",
+        },
+        "PreToolUse",
+      ),
+    ).toEqual({
+      stdout: process.platform === "win32" ? '{"decision":"allow"}\r\n' : '{"decision":"allow"}\n',
+      stderr: "",
+    });
+  },
+);
+
+test("pre-tool delegates and exits within its deadline when credentialed stdin stays open", {
+  timeout: nativeDeadline(15000),
+}, async () => {
+  expect(
+    await run(
+      await fixture(),
+      {
+        ...process.env,
+        FOOM_HOOK_URL: "http://127.0.0.1:1/hooks",
+        FOOM_SESSION: "fixture-session",
+        FOOM_TOKEN: "fixture-token",
+      },
+      "PreToolUse",
+    ),
+  ).toEqual({
+    stdout: process.platform === "win32" ? '{"decision":"allow"}\r\n' : '{"decision":"allow"}\n',
+    stderr: "",
+  });
+});

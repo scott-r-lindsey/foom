@@ -145,6 +145,8 @@ function serverError(value: unknown): ControlError {
   const codes = [
     "unsupported",
     "invalid_request",
+    "agent_required",
+    "review_agent_required",
     "unauthorized",
     "forbidden",
     "no_parent",

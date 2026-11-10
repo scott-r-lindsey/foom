@@ -35,6 +35,7 @@ export interface TerminalControl
   /** Main-only launch: the window may use the new terminal like one it created. */
   create(spec: TerminalSpec): Promise<string>;
   kill(id: string, remoteHost?: string): Promise<void>;
+  setClosing(id: string, closing: boolean): void;
   tail(id: string, lines: number): Promise<string[]>;
   screen(id: string): Promise<{ lines: string[]; title: string; cols?: number; rows?: number }>;
   owns(id: string): boolean;
@@ -103,6 +104,7 @@ export function attachTerminal(
   };
   // Capture before BrowserWindow is destroyed; its getter throws during closed.
   const owned = new Set<string>();
+  const closing = new Set<string>();
   const running = new Map<string, { id: string; command: string; cwd: string }>();
   const trusted = (event: IpcMainEvent | IpcMainInvokeEvent) =>
     windows.has(event.sender) &&
@@ -174,9 +176,19 @@ export function attachTerminal(
     return { id, title: `${command} — ${cwd}` };
   });
   for (const operation of ["attach", "detach", "kill"] as const) {
-    handlers.set(`terminal:${operation}`, async (event, id) => {
+    handlers.set(`terminal:${operation}`, async (event, id, mode) => {
       if (!trusted(event)) throw new Error("Untrusted IPC sender");
+      if (operation === "attach" && mode !== undefined) {
+        if (mode !== "refresh") throw new Error("Invalid terminal attachment mode");
+        if (typeof id !== "string" || id.length === 0 || id.length > 256)
+          throw new Error("Invalid terminal ID");
+        // A normal exit can revoke a temporary PTY before its renderer learns
+        // removal. Refresh only the caller's retained attachment; never acquire
+        // a new capability or race ordinary teardown with a stale attach.
+        if (!validId(id) || attached.get(id) !== event.sender || closing.has(id)) return;
+      }
       if (!validId(id)) throw new Error("Unknown or foreign terminal ID");
+      if (operation !== "detach" && closing.has(id)) throw new Error("Session is closing");
       if (operation === "attach") {
         if (!allowView(event.sender, id))
           throw new Error("Terminal view belongs to another window");
@@ -192,7 +204,9 @@ export function attachTerminal(
               event.sender.send("terminal:data", id, token, data);
           });
         } catch (error) {
-          if (attached.get(id) === event.sender) {
+          // A refresh replaces an existing snapshot, not its capability. Retain
+          // ownership so a failed optional replay can be retried in place.
+          if (mode !== "refresh" && attached.get(id) === event.sender) {
             invalidatePaste(id);
             attached.delete(id);
           }
@@ -350,6 +364,7 @@ export function attachTerminal(
     if (
       trusted(event) &&
       validId(id) &&
+      !closing.has(id) &&
       (!attached.has(id) || attached.get(id) === event.sender) &&
       typeof data === "string" &&
       data.length <= 65536
@@ -523,6 +538,12 @@ export function attachTerminal(
       broadcast("terminal:availability", [id], true, true);
       return id;
     },
+    setClosing(id: string, value: boolean) {
+      if (value) {
+        closing.add(id);
+        invalidatePaste(id);
+      } else closing.delete(id);
+    },
     async kill(id: string, remoteHost?: string) {
       if (remoteHost === undefined) await manager.kill(id);
       else if (remoteProfile) await manager.kill(id, remoteHost, remoteProfile);
@@ -545,10 +566,12 @@ export function attachTerminal(
     },
     reply: async (id: string, data: string) => {
       if (!owned.has(id)) throw new Error("Unknown terminal");
+      if (closing.has(id)) throw new Error("Session is closing");
       await manager.reply(id, data);
     },
     childInput: async (id: string, data: ChildInput) => {
       if (!owned.has(id)) throw new Error("Unknown terminal");
+      if (closing.has(id)) throw new Error("Session is closing");
       if (!isChildInput(data)) throw new Error("Invalid child input");
       await manager.childInput(id, data);
     },

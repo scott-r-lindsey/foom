@@ -11,7 +11,10 @@ bridge to the same authenticated `/mcp` endpoint. It has no discovery/pairing pa
 and no additional policy or listener. It forwards newline-delimited JSON with
 64 KiB request and 256 KiB response bounds and a 65-second request deadline;
 HTTP session/protocol headers stay in memory. Redirects, invalid endpoints and
-missing/malformed launch credentials fail closed.
+missing/malformed launch credentials fail closed. Rejected HTTP requests report
+the status, allowlisted error code and fixed schema field path when available;
+local transport failures use fixed reason codes without response/request bodies,
+URLs, credentials or raw exception text. See [MCP validation](../areas/mcp.md#mcp).
 
 Authenticate every request, including initialization, tool listing, and stream
 reconnection. Reject browser Origin headers and any Host other than the actual

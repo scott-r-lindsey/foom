@@ -1,4 +1,5 @@
-import { worktreeReservation } from "./worktree-reservations";
+import { CheckoutHolds, worktreeReservation } from "./worktree-reservations";
+import type { CheckoutHold } from "./worktree-reservations";
 import type { StoredSession } from "./session-restore.d";
 import {
   discoverRemoteSessions,
@@ -7,6 +8,7 @@ import {
 } from "./remote-session-restore";
 import type { OrchestrationHost } from "../control/orchestration.d";
 import { RemovalError } from "./worktree-outcome";
+import { ApplicationError } from "../../shared/application-errors";
 import { workspaceFeatureWiring } from "./workspace-feature-wiring";
 import { workspaceOrchestrationHost } from "./workspace-orchestration-host";
 import * as orchestrationCommands from "./orchestration-commands";
@@ -82,10 +84,12 @@ export class WorkspaceContext {
   agentHooks: Readonly<Record<string, boolean>> = {};
   concurrentChildren = 4;
   showNewChildren = true;
+  defaultAgent: string | null = null;
   defaultArguments = EMPTY_AGENT_ARGUMENTS;
   readonly resumeStarts = new Map<string, Promise<void>>();
   readonly busySessions = new Set<string>();
   readonly busyWorktrees = new Set<string>();
+  readonly checkoutHolds = new CheckoutHolds();
   readonly repositoryOperations = new Map<string, Set<symbol>>();
   readonly removingRepositories = new Set<string>();
   enabled: Readonly<Record<AgentId, boolean>> = { claude: true, codex: true, agy: true };
@@ -242,6 +246,7 @@ export class WorkspaceContext {
     });
     const prepareWorktreeRemoval = deps.prepareWorktreeRemoval?.bind(deps);
     this.cleanup = new CleanupOwner({
+      checkoutHolds: this.checkoutHolds,
       worktrees: deps.worktrees,
       inventory: (repository) => this.worktrees(repository),
       known: (repository) => {
@@ -408,6 +413,7 @@ export class WorkspaceContext {
           | "showNewChildren"
           | "closeFinishedAgents"
           | "restoreSessions"
+          | "defaultAgent"
           | "concurrentChildren"
           | "unreadChildMinutes"
           | "autoRemoveMergedWorktrees"
@@ -420,6 +426,7 @@ export class WorkspaceContext {
     this.sessions.configure(settings.restoreSessions ?? true);
     this.concurrentChildren = settings.concurrentChildren ?? 4;
     this.showNewChildren = settings.showNewChildren ?? true;
+    this.defaultAgent = settings.defaultAgent ?? null;
     this.orchestration.configureCloseFinished(settings.closeFinishedAgents ?? true);
     const reminderChanged = this.orchestration.unreadChildren.configure(
       settings.unreadChildMinutes ?? 5,
@@ -659,6 +666,7 @@ export class WorkspaceContext {
     retainBranchLock?: (release: () => void) => void,
     autoApprove?: () => Promise<boolean>,
     readSnapshot?: () => Promise<string>,
+    parentHold?: CheckoutHold,
   ): Promise<boolean> {
     if (worktree.startsWith("/foom-remote/")) {
       const tree = this.deps.hosts?.placement?.(worktree, repository);
@@ -692,6 +700,8 @@ export class WorkspaceContext {
     }
     const key = worktreeReservation(repository, worktree, branch);
     if (this.busyWorktrees.has(key)) throw new RemovalError("busy", "This worktree is busy");
+    const hold = this.checkoutHolds.acquire(worktree, parentHold);
+    if (!hold) throw new RemovalError("busy", "This worktree is busy");
     this.busyWorktrees.add(key);
     // This capability belongs to this acquisition, not to whichever operation
     // happens to own the same branch key when a delayed release runs.
@@ -700,6 +710,7 @@ export class WorkspaceContext {
       if (released) return;
       released = true;
       this.busyWorktrees.delete(key);
+      hold.release();
     };
     let removed = false;
     try {
@@ -716,6 +727,37 @@ export class WorkspaceContext {
     } finally {
       if (retainBranchLock && removed) retainBranchLock(release);
       else release();
+    }
+  }
+
+  /** Publish acceptance before filesystem or SSH work, retaining the session until settlement. */
+  async closeSession(
+    entry: WorkspaceTerminal,
+    cleanup: (hold?: CheckoutHold) => Promise<void>,
+    parentHold?: CheckoutHold,
+  ): Promise<void> {
+    if (this.sessions.isQuitting) throw new Error("Workspace is quitting");
+    const checkout = !entry.home && !entry.config;
+    const hold = checkout ? this.checkoutHolds.acquire(entry.worktree, parentHold) : undefined;
+    if (checkout && !hold) throw new ApplicationError("session-busy");
+    try {
+      this.busySessions.add(entry.id);
+      entry.closeState = "closing";
+      this.deps.terminals.setClosing?.(entry.id, true);
+      this.refresh();
+      // Persist the interrupted-cleanup marker before any destructive effect.
+      await this.sessions.save();
+      await cleanup(hold);
+      if (this.launched.get(entry.id) === entry) delete entry.closeState;
+    } catch (error) {
+      if (this.launched.get(entry.id) === entry) entry.closeState = "failed";
+      throw error;
+    } finally {
+      this.busySessions.delete(entry.id);
+      hold?.release();
+      this.deps.terminals.setClosing?.(entry.id, false);
+      this.persist();
+      this.refresh();
     }
   }
 

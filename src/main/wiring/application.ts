@@ -115,12 +115,15 @@ export function runApplication() {
   function applyThemeSettings(next: Settings = settings.get()) {
     const catalog = themes.snapshot();
     nativeTheme.themeSource = interfaceThemeSource(next.interfaceTheme, catalog);
-    if (initialized)
-      terminals.setTheme(
-        isUserThemeId(next.terminalTheme)
-          ? (catalog.terminal.find((entry) => entry.id === next.terminalTheme)?.theme ?? "follow")
-          : next.terminalTheme,
-      );
+    if (initialized) applyTerminalThemeSettings(next);
+  }
+  function applyTerminalThemeSettings(next: Settings = settings.get()) {
+    const catalog = themes.snapshot();
+    terminals.setTheme(
+      isUserThemeId(next.terminalTheme)
+        ? (catalog.terminal.find((entry) => entry.id === next.terminalTheme)?.theme ?? "follow")
+        : next.terminalTheme,
+    );
   }
   function themesChanged() {
     applyThemeSettings();
@@ -427,6 +430,7 @@ export function runApplication() {
       agentPreviews = value;
     },
     applyThemeSettings,
+    applyTerminalThemeSettings,
     attention,
     audio,
     get config() {

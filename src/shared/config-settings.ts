@@ -18,6 +18,7 @@ export const CONFIG_SETTINGS = [
   "sound",
   "agents",
   "agentArguments",
+  "defaultAgent",
   "hooks",
   "restoreSessions",
   "showNewChildren",
@@ -35,6 +36,8 @@ export function parseConfigSettings(value: unknown): ConfigSettings {
   for (const [key, entry] of Object.entries(data)) {
     if (!isConfigSetting(key)) throw new ThemeValidationError("$", "unknown-key");
     if (key === "agentArguments") result.agentArguments = parseAgentDefaults(entry);
+    else if (key === "defaultAgent" && (entry === null || validAgentId(entry)))
+      result.defaultAgent = entry;
     else if (key === "interfaceTheme") result.interfaceTheme = parseInterfaceTheme(entry);
     else if (key === "terminalFont" && isTerminalFont(entry)) result.terminalFont = entry;
     else if (key === "terminalTheme") result.terminalTheme = parseTerminalThemeChoice(entry);

@@ -31,6 +31,11 @@ export function createAppSource(): BoardSource {
     tail: [],
   };
   const owners = new Map<string, ReturnType<typeof createShell>>();
+  // Capabilities can be revoked before a launch reply or workspace refresh
+  // mounts its view. Keep that fact outside individual controller lifetimes;
+  // neither stale rows nor a new controller may restore a revoked capability.
+  const revoked = new Set<string>();
+  const available = (id: string) => !revoked.has(id);
   let viewQueue = Promise.resolve();
   const scheduleView = (operation: () => Promise<void>) => {
     viewQueue = viewQueue.then(operation, operation);
@@ -251,6 +256,8 @@ export function createAppSource(): BoardSource {
   };
   const latest = (row: BoardRow): BoardRow => {
     const current = executionRow(latestVerdict(row));
+    if (row.closeFailed)
+      return { ...current, state: "failed", reason: "Close failed · cleanup may be incomplete" };
     return row.unavailable ? { ...current, reason: "Unavailable" } : current;
   };
   const latestVerdict = (row: BoardRow): BoardRow => {
@@ -279,7 +286,8 @@ export function createAppSource(): BoardSource {
     loaded = true;
     repositories = next.repositories.map((repo) => repo.name);
     const known = new Map(rows.map((row) => [row.id, row]));
-    const live = next.terminals.map((entry): BoardRow => {
+    const visible = next.terminals.filter((entry) => entry.closeState !== "closing");
+    const live = visible.map((entry): BoardRow => {
       const previous = known.get(entry.id);
       const version = entry.launchVersion ?? 0;
       if (previous && (previous.launchVersion ?? 0) > version) {
@@ -392,6 +400,7 @@ export function createAppSource(): BoardSource {
                   (entry.placement?.kind === "remote" ? entry.placement.host : undefined) &&
                 !machine.available,
             )),
+        closeFailed: entry.closeState === "failed",
         launchVersion: entry.launchVersion ?? 0,
       });
     });
@@ -485,6 +494,8 @@ export function createAppSource(): BoardSource {
     // Main publishes reset after revoking the old host and before forwarding
     // replacement events. Old snapshots must not cross this launch boundary.
     const offAvailability = window.desktop.onTerminalAvailability((id, available, reset) => {
+      if (available) revoked.delete(id);
+      else revoked.add(id);
       if (!available || !reset) return;
       states.delete(id);
       snapshotStates.delete(id);
@@ -627,7 +638,7 @@ export function createAppSource(): BoardSource {
         : {}),
     },
     connect,
-    createHostView: () => createTerminalView(scheduleView, owners),
+    createHostView: () => createTerminalView(scheduleView, owners, available),
     closeHostSession: async (id) => {
       await window.desktop.kill(id);
       forget(id);
@@ -637,13 +648,13 @@ export function createAppSource(): BoardSource {
       const view = createTerminalView(
         scheduleView,
         owners,
-        (id) => rows.some((row) => row.id === id && !row.dormant),
+        (id) => available(id) && rows.some((row) => row.id === id && !row.dormant),
         (id) => rows.some((row) => row.id === id && row.exited === true),
       );
       return {
         ...view,
         open: (id) =>
-          id !== pendingShell && rows.some((row) => row.id === id && !row.dormant)
+          id !== pendingShell && available(id) && rows.some((row) => row.id === id && !row.dormant)
             ? view.open(id)
             : view.hide(),
       };
@@ -684,7 +695,6 @@ export function createAppSource(): BoardSource {
         return;
       }
       if (
-        command.kind === "close" ||
         command.kind === "restart" ||
         command.kind === "resume" ||
         command.kind === "new-conversation"
@@ -719,7 +729,10 @@ export function createAppSource(): BoardSource {
         if (command.kind === "resume" || command.kind === "new-conversation")
           snapshot(await window.desktop.workspace(), command.id);
       }
-      if (command.kind === "close") {
+      if (
+        command.kind === "close" &&
+        !(await window.desktop.workspace()).terminals.some((row) => row.id === command.id)
+      ) {
         forget(command.id);
         rows = rows.filter((row) => row.id !== command.id);
         if (command.id === shellId) shellId = pendingShell;

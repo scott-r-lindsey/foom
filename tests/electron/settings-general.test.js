@@ -417,3 +417,26 @@ test("General close finished agents defaults on and saves immediately", {
   }
   await assertAccessible(page);
 });
+
+test("General default agent starts unset and saves an explicit provider or None", async (context) => {
+  const app = await launchApp(context, { fixture: "empty-board" });
+  const page = await boardPage(app);
+  await openSettingsScreen(page);
+  const control = page.getByRole("combobox", { name: "Default agent", exact: true });
+  await expect(control).toHaveValue("");
+  await control.selectOption("codex");
+  await expect
+    .poll(
+      async () => (await page.evaluate(() => window.desktop.setupState())).settings.defaultAgent,
+    )
+    .toBe("codex");
+  await control.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: evidencePath("1121-default-agent.png") });
+  await control.selectOption("");
+  await expect
+    .poll(
+      async () => (await page.evaluate(() => window.desktop.setupState())).settings.defaultAgent,
+    )
+    .toBe(null);
+  await assertAccessible(page);
+});

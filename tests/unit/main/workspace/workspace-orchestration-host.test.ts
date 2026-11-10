@@ -1,3 +1,4 @@
+import { CheckoutHolds } from "../../../../src/main/workspace/worktree-reservations";
 import type { Hosts } from "../../../../src/main/setup/hosts";
 import { localResources } from "../../../../src/main/setup/local-host";
 import { describe, expect, it, vi } from "vitest";
@@ -19,10 +20,12 @@ vi.mock("../../../../src/main/setup/local-host", () => ({
 function hostFixture() {
   const capabilities: OrchestrationHostContext = {
     busyWorktrees: new Set(),
+    checkoutHolds: new CheckoutHolds(),
     cleanup: { removeOwnedTree: vi.fn() },
     closed: false,
     control: undefined,
     createChildWorktree: vi.fn(),
+    defaultAgent: null,
     defaultArguments: { claude: [], codex: [], agy: [] },
     input: vi.fn(),
     launchChild: vi.fn(),
@@ -490,4 +493,125 @@ it("branch changes retain checkout authority and use the current branch in launc
     false,
   );
   expect(confirm).toHaveBeenCalledWith("Detached HEAD · worker", "");
+});
+
+it.each(["before inspection", "during confirmation"])(
+  "remote owned removal refuses a closing session %s without losing its checkout",
+  async (phase) => {
+    const { caps, hosts, host } = fleetFixture();
+    const created = await host.createWorktree("/local/repo", "feature", "worker");
+    let closing = phase === "before inspection";
+    caps.snapshot = () => ({
+      repositories: [],
+      terminals: closing
+        ? [
+            {
+              id: "closing-child",
+              repository: "/local/repo",
+              worktree: created.path,
+              branch: "feature",
+              agent: "claude",
+              kind: "agent",
+              exited: true,
+              remote: true,
+              placement: { kind: "remote", host: "worker" },
+              closeState: "closing",
+              attention: "evaluator",
+              state: null,
+            },
+          ]
+        : [],
+    });
+    hosts.worktree.mockClear();
+    const confirm = vi.fn(() => {
+      closing = true;
+      return Promise.resolve(true);
+    });
+    await expect(
+      host.remove("/local/repo", created.path, created.identity, confirm, () => {}),
+    ).rejects.toMatchObject({ code: "conflict" });
+    expect(hosts.worktree).not.toHaveBeenCalledWith(
+      "worker",
+      "/local/repo",
+      expect.objectContaining({ operation: "remove-worktree" }),
+    );
+    expect(caps.sidebarCommand).not.toHaveBeenCalled();
+    expect(host.worktreeHost?.(created.path)).toBe("worker");
+    expect(caps.busyWorktrees.size).toBe(0);
+    if (phase === "before inspection") {
+      expect(confirm).not.toHaveBeenCalled();
+      expect(hosts.worktree).not.toHaveBeenCalled();
+      expect(() =>
+        host.launch("parent", "/local/repo", created.path, created.identity, "codex", undefined),
+      ).toThrow("conflict");
+      expect(caps.launchChild).not.toHaveBeenCalled();
+      expect(hosts.worktree).not.toHaveBeenCalled();
+    }
+    closing = false;
+    expect(
+      await host.remove(
+        "/local/repo",
+        created.path,
+        created.identity,
+        () => Promise.resolve(true),
+        () => {},
+      ),
+    ).toBe(true);
+  },
+);
+
+it("remote removal retains its canonical lease through review and its own post-delete Close", async () => {
+  const { caps, host } = fleetFixture();
+  const created = await host.createWorktree("/local/repo", "feature", "worker");
+  caps.snapshot = () => ({
+    repositories: [],
+    terminals: [
+      {
+        id: "remote-child",
+        repository: "/local/repo",
+        worktree: created.path,
+        branch: "old-name",
+        kind: "agent",
+        agent: "claude",
+        attention: "evaluator",
+        state: null,
+        exited: true,
+        remote: true,
+        placement: { kind: "remote", host: "worker" },
+      },
+    ],
+  });
+  const answer = Promise.withResolvers<boolean>();
+  const teardown = Promise.withResolvers<undefined>();
+  const confirm = vi.fn(() => answer.promise);
+  const close = vi.fn<NonNullable<typeof caps.sidebarCommand>>(async (...args) => {
+    const borrowed = caps.checkoutHolds.acquire(created.path, args[7]);
+    if (!borrowed) throw new Error("Removal could not authorize its Close");
+    try {
+      await teardown.promise;
+    } finally {
+      borrowed.release();
+    }
+  });
+  caps.sidebarCommand = close;
+  const removing = host.remove("/local/repo", created.path, created.identity, confirm, () => {});
+  try {
+    await vi.waitFor(() => {
+      expect(confirm).toHaveBeenCalledOnce();
+    });
+    expect(caps.checkoutHolds.acquire(created.path)).toBeUndefined();
+    expect(() =>
+      host.launch("parent", "/local/repo", created.path, created.identity, "codex", undefined),
+    ).toThrow("conflict");
+    answer.resolve(true);
+    await vi.waitFor(() => {
+      expect(close).toHaveBeenCalledOnce();
+    });
+    expect(caps.checkoutHolds.acquire(created.path)).toBeUndefined();
+  } finally {
+    answer.resolve(false);
+    teardown.resolve(undefined);
+  }
+  expect(await removing).toBe(true);
+  expect(caps.checkoutHolds.busy(created.path)).toBe(false);
 });

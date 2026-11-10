@@ -12,7 +12,7 @@ Every channel checks the sender (a registered app window, its main frame, `app:/
 | `app-menu:version` | renderer → main (invoke) | no payload → `{ app, electron }`; trusted board frame, preload validates bounded version strings |
 | `board:command` | main → renderer | registry board actions (including Tidy tiles and new worktree); preload rejects unknown commands, covered boards ignore them |
 | `terminal:create` | renderer → main (invoke) | `cols`, `rows` → `{ id, title }` |
-| `terminal:attach` / `terminal:detach` | renderer → main | `id` → snapshot via `terminal:data` on attach |
+| `terminal:attach` / `terminal:detach` | renderer → main | `id` → snapshot via `terminal:data` on attach; attach optionally accepts the fixed `refresh` mode, which only replays the caller’s existing, non-closing attachment and quietly does nothing after detach or revocation; malformed modes/IDs and untrusted senders still reject |
 | `terminal:kill` | renderer → main (invoke) | `id` |
 | `terminal:input` | renderer → main | `id`, `data` (≤ 64 KB; chunked on code-point boundaries) |
 | `terminal:write-clipboard` | renderer → main (invoke) | owned attached `id`, bounded OSC 52 body; main validates base64/UTF-8 and profile consent before writing at most 65,536 bytes of text; no reads |

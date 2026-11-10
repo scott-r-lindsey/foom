@@ -1,3 +1,4 @@
+import discover from "../../../fixtures/agy-1.5.3-discover.json";
 import { replaceConfigProviders } from "../../../../src/main/agents/providers/registry";
 import { v2Provider } from "../../../../src/main/agents/providers/v2";
 import { parseAgentManifest } from "../../../../src/shared/agent-plugin-parser";
@@ -145,7 +146,6 @@ it("validates protocol envelopes, initialization and readiness", async () => {
     {},
     { ...initialize, id: null },
     { ...initialize, id: true },
-    { ...initialize, extra: true },
     { ...initialize, params: {} },
     { ...initialize, params: { ...initialize.params, protocolVersion: 1 } },
     { ...initialize, params: { ...initialize.params, clientInfo: {} } },
@@ -359,3 +359,167 @@ it.each(["2024-11-05", "2099-01-01", "unknown", "2025-03-26", "2025-06-18", "202
     ).toBe(400);
   },
 );
+
+it.each(["2025-03-26", "2025-06-18", "2025-11-25"])(
+  "accepts optional metadata and protocol extensions for %s without granting authority",
+  async (version) => {
+    const response = await send({
+      ...initialize,
+      extension: { ignored: true },
+      params: {
+        ...initialize.params,
+        protocolVersion: version,
+        extension: { ignored: true },
+        _meta: { progressToken: "init", "vendor/key": { ignored: true } },
+        clientInfo: {
+          name: "fixture-agy",
+          version: "1",
+          title: "Fixture",
+          description: "Ignored",
+          websiteUrl: "https://example.invalid",
+          icons: [{ src: "https://example.invalid/icon.png" }],
+        },
+        capabilities: {
+          roots: { listChanged: true },
+          sampling: { context: {}, tools: {} },
+          elicitation: { form: {}, url: {} },
+          experimental: { "vendor/key": {} },
+          tasks: { list: {}, cancel: {}, requests: { sampling: { createMessage: {} } } },
+          "vendor/capability": {},
+        },
+      },
+    });
+    expect(response.status).toBe(200);
+    session = response.headers.get("mcp-session-id") ?? "";
+    const headers = { "Mcp-Protocol-Version": version };
+    expect(
+      (
+        await send(
+          {
+            jsonrpc: "2.0",
+            method: "notifications/initialized",
+            params: { _meta: { progressToken: { notificationMetadata: true } }, extension: true },
+          },
+          headers,
+        )
+      ).status,
+    ).toBe(202);
+    expect(
+      (
+        await send(
+          { jsonrpc: "2.0", id: 2, method: "ping", params: { _meta: {}, extension: true } },
+          headers,
+        )
+      ).status,
+    ).toBe(200);
+    expect(
+      await (
+        await send(
+          {
+            jsonrpc: "2.0",
+            id: 3,
+            method: "tools/list",
+            params: { cursor: "", _meta: {}, extension: true },
+          },
+          headers,
+        )
+      ).text(),
+    ).toContain('"name":"whoami"');
+    expect(
+      await (
+        await send(
+          {
+            jsonrpc: "2.0",
+            id: 4,
+            method: "tools/call",
+            params: { name: "whoami", _meta: { "vendor/key": {} }, extension: true },
+          },
+          headers,
+        )
+      ).json(),
+    ).toMatchObject({ result: { structuredContent: { role: "agent" } } });
+    expect(
+      await (
+        await send(
+          {
+            jsonrpc: "2.0",
+            id: 5,
+            method: "tools/call",
+            params: { name: "whoami", arguments: { role: "orchestrator" } },
+          },
+          headers,
+        )
+      ).json(),
+    ).toMatchObject({ result: { isError: true } });
+  },
+);
+it.each([
+  [null, "request"],
+  [{ ...initialize, jsonrpc: "1" }, "jsonrpc"],
+  [{ ...initialize, method: 1 }, "method"],
+  [{ ...initialize, id: null }, "id"],
+  [{ ...initialize, id: undefined }, "id"],
+  [{ ...initialize, params: null }, "params"],
+  [
+    { ...initialize, params: { ...initialize.params, protocolVersion: 1 } },
+    "params.protocolVersion",
+  ],
+  [{ ...initialize, params: { ...initialize.params, capabilities: null } }, "params.capabilities"],
+  [{ ...initialize, params: { ...initialize.params, clientInfo: [] } }, "params.clientInfo"],
+  [
+    { ...initialize, params: { ...initialize.params, clientInfo: { name: 1, version: "1" } } },
+    "params.clientInfo.name",
+  ],
+  [
+    {
+      ...initialize,
+      params: { ...initialize.params, clientInfo: { name: "fixture", version: 1 } },
+    },
+    "params.clientInfo.version",
+  ],
+  [{ ...initialize, params: { ...initialize.params, _meta: [] } }, "params._meta"],
+  [
+    { ...initialize, params: { ...initialize.params, _meta: { progressToken: {} } } },
+    "params._meta.progressToken",
+  ],
+])("returns only a fixed rejected field for malformed initialize %#", async (body, field) => {
+  const response = await send(body);
+  expect(response.status).toBe(400);
+  expect(await response.json()).toEqual({ error: "invalid_request", field });
+});
+it.each([
+  ["tools/list", { cursor: 1 }, "params.cursor"],
+  ["tools/call", { name: 1 }, "params.name"],
+  ["tools/call", { name: "whoami", arguments: [] }, "params.arguments"],
+  ["tools/call", { name: "whoami", task: { ttl: 1000 } }, "params.task"],
+])(
+  "rejects malformed or unnegotiated %s params %# before effects",
+  async (method, params, field) => {
+    await init();
+    const call = vi.spyOn(service, "call");
+    const response = await send({ jsonrpc: "2.0", id: 2, method, params });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "invalid_request", field });
+    expect(call).not.toHaveBeenCalled();
+  },
+);
+
+it("answers agy 1.5.3 discovery before initialize without granting a session", async () => {
+  const response = await send(discover);
+  expect(response.status).toBe(200);
+  expect(response.headers.get("mcp-session-id")).toBeNull();
+  expect(await response.json()).toEqual({
+    jsonrpc: "2.0",
+    id: 0,
+    error: { code: -32601, message: "Method not found" },
+  });
+  expect((await send({ jsonrpc: "2.0", id: 2, method: "tools/list" })).status).toBe(400);
+  expect((await send(discover, { Authorization: "Bearer bad" })).status).toBe(401);
+  expect((await send(discover, { "Mcp-Session-Id": "foreign" })).status).not.toBe(200);
+  expect((await send({ ...discover, params: {} })).status).toBe(200);
+  expect((await send({ ...discover, id: undefined })).status).toBe(400);
+  expect((await send({ ...discover, params: { _meta: [] } })).status).toBe(400);
+  await init();
+  expect((await send(discover)).status).toBe(200);
+  expect((await send({ jsonrpc: "2.0", id: 2, method: "tools/list" })).status).toBe(200);
+});

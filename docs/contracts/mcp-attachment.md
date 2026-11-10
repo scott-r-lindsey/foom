@@ -108,6 +108,18 @@ install/uninstall/enable commands. Older installations show Update; nothing is
 installed silently. See [agy 1.4.2 measurements](../agents.md#antigravity-plugin-mcp-agy-142-855)
 for manifest keys, inherited environment evidence and probe isolation limits.
 
+agy 1.5.3 first sends `server/discover` with object `params._meta` containing
+`io.modelcontextprotocol/clientCapabilities`, `io.modelcontextprotocol/clientInfo`
+and `io.modelcontextprotocol/protocolVersion`. Foom supports the legacy initialize
+protocols and returns JSON-RPC Method not found for this authenticated probe,
+without allocating a protocol session. agy then sends `initialize`,
+`notifications/initialized`, `tools/list` and `notifications/roots/list_changed`.
+The measured initialize has `clientInfo.name`/`version`, `protocolVersion` and
+`capabilities.elicitation`/`roots`. See the
+[agy 1.5.3 capture](../agents.md#antigravity-discovery-capture-agy-153-reopened-1124)
+for types, isolation and limits. Discovery metadata never grants capabilities;
+authentication and legacy session checks still apply to tool requests.
+
 The launcher and bridge fail closed without valid `FOOM_CONTROL_URL`,
 `FOOM_CONTROL_TOKEN`, and `FOOM_SESSION`. No token is written into plugin files,
 argv, logs or configuration. The bridge uses only that environment's literal

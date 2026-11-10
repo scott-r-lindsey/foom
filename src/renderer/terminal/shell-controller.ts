@@ -48,6 +48,8 @@ export function createShell(
   const terminal = new Terminal({
     // Activation is owned by Foom, including primary-button and trusted-gesture checks.
     linkHandler: { activate: () => {} },
+    // Live programs own redraw; exited views preserve their retained cursor row.
+    reflowCursorLine: false,
     cursorBlink: true,
     fontSize: 14,
     fontFamily: TERMINAL_FONT_FALLBACK,
@@ -125,6 +127,7 @@ export function createShell(
   let busy = false;
   let fontResizePending = false;
   let exited = false;
+  let failedExitRefresh: string | undefined;
   let hostFailed = false;
   let terminalStatus = "Starting shell…";
   const showOperationError = (prefix: string, _error: unknown) => {
@@ -220,6 +223,7 @@ export function createShell(
   };
   const controls = () => {
     // Match the input guard: focus/paint can precede the attachment RPC settling.
+    terminal.options.reflowCursorLine = exited;
     terminal.options.disableStdin = exited || busy;
     if (exited) terminal.options.cursorBlink = false;
     if (fontResizePending) resize();
@@ -240,6 +244,7 @@ export function createShell(
     if (lastLiveViewId === id) lastLiveViewId = undefined;
     exits.delete(id);
     removed.delete(id);
+    if (failedExitRefresh === id) failedExitRefresh = undefined;
     if (pendingId === id) {
       pendingId = undefined;
       ++request;
@@ -295,6 +300,11 @@ export function createShell(
       visibility(false);
     }
     controls();
+    // The host can exit before this asynchronous event reaches the view. A
+    // resize in that interval clips the still-live renderer's cursor row.
+    // Replay the authoritative exited screen through the selection queue;
+    // later hide/switch/dispose requests cancel it just like any attachment.
+    if (!hostFailed && attached && wantsVisible()) void select(id, true);
   });
   const sendInput = (data: string, origin?: "wheel") => {
     const id = activeId;
@@ -348,7 +358,10 @@ export function createShell(
     view.rows = terminal.rows;
     publish();
     fontResizePending = false;
-    if (activeId && resizeHost) window.desktop.resize(activeId, terminal.cols, terminal.rows);
+    if (activeId && resizeHost) {
+      window.desktop.resize(activeId, terminal.cols, terminal.rows);
+      if (failedExitRefresh === activeId && wantsVisible()) void select(activeId, true);
+    }
   };
   // Subscribe before loading so a late initial response cannot undo a live change.
   let settingsChanged = false;
@@ -411,7 +424,7 @@ export function createShell(
   board?.addEventListener("transitioncancel", sidebarTransition);
   const observer = new ResizeObserver(resize);
   observer.observe(container);
-  const openView = async (id: string) => {
+  const openView = async (id: string, refresh = false) => {
     view.attaching = !view.firstFrame;
     publish();
     // Drain writes from the old attachment before resetting, including delayed ACKs.
@@ -420,7 +433,10 @@ export function createShell(
     });
     if (isDisposed() || !wantsVisible() || !isAvailable(id)) return;
     wheel.reset();
-    terminal.reset();
+    // Current hosts send a self-resetting snapshot. A retained-attachment
+    // refresh can be skipped after revocation, so keep its old cells/colors
+    // until that snapshot actually arrives. Normal opens also support old hosts.
+    if (!refresh) terminal.reset();
     terminal.options.cursorBlink = !exited;
     // xterm reset retains cursor hiding. Preserve it for the same live session
     // on older hosts without DECTCEM; a different session starts visible.
@@ -429,7 +445,7 @@ export function createShell(
     else if (lastLiveViewId !== id) terminal.write("\x1b[?25h");
     lastLiveViewId = exited ? undefined : id;
     controls();
-    updateTheme();
+    if (!refresh) updateTheme();
     visibility(true);
     fit.fit();
     view.cols = terminal.cols;
@@ -437,11 +453,13 @@ export function createShell(
     publish();
     fontResizePending = false;
     window.desktop.resize(id, terminal.cols, terminal.rows);
-    await window.desktop.attach(id);
+    if (refresh) await window.desktop.attach(id, "refresh");
+    else await window.desktop.attach(id);
+    if (failedExitRefresh === id) failedExitRefresh = undefined;
     if (!wantsVisible()) {
       visibility(false);
       if (isAvailable(id)) await window.desktop.detach(id);
-    } else if (!isDisposed() && focusOnOpen) terminal.focus();
+    } else if (!isDisposed() && focusOnOpen && !refresh) terminal.focus();
   };
   const toggleView = async () => {
     if (busy || !activeId) return;
@@ -552,21 +570,27 @@ export function createShell(
     if (!isDisposed()) terminal.open(container);
   });
   let ready = autoStart ? initialReady.then(start) : initialReady;
-  const select = (id: string) => {
+  const select = (id: string, refresh = false) => {
     pendingId = id;
     suspended = undefined;
     pruneEvents();
     const current = ++request;
-    visibleRequested = false;
+    // Recovery must not make an in-flight wanted attachment detach itself.
+    if (!refresh) visibleRequested = false;
     selection = selection.then(async () => {
       await ready;
       if (isDisposed() || current !== request || !isAvailable(id)) return;
+      if (refresh && (!attached || activeId !== id)) return;
       visibleRequested = true;
       busy = true;
       controls();
       try {
         if (attached && activeId === id) {
-          if (focusOnOpen) terminal.focus();
+          if (refresh) {
+            await openView(id, true);
+            view.status = terminalStatus;
+            publish();
+          } else if (focusOnOpen) terminal.focus();
           return;
         }
         const previous = attached ? activeId : undefined;
@@ -589,9 +613,16 @@ export function createShell(
         view.status = terminalStatus;
         await openView(id);
       } catch (error: unknown) {
-        visibility(false);
-        if (isAvailable(id)) await window.desktop.detach(id).catch(() => {});
-        showOperationError("Unable to open terminal", error);
+        if (refresh) {
+          // Optional replay must not discard a view that was already attached.
+          // Keep its last cells and retry on a later resize or normal reattach.
+          if (activeId === id && attached && isAvailable(id)) failedExitRefresh = id;
+          showOperationError("Unable to refresh terminal", error);
+        } else {
+          visibility(false);
+          if (isAvailable(id)) await window.desktop.detach(id).catch(() => {});
+          showOperationError("Unable to open terminal", error);
+        }
       } finally {
         busy = false;
         controls();

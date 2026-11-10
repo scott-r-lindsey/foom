@@ -5,6 +5,8 @@ export class ControlError extends Error {
     readonly code:
       | "unsupported"
       | "invalid_request"
+      | "agent_required"
+      | "review_agent_required"
       | "unauthorized"
       | "forbidden"
       | "no_parent"

@@ -343,6 +343,10 @@ function BoardContents({
       soundControllerRef.current = undefined;
     };
   }, [source, soundSetup, audioEnabled]);
+  const refusePlacement = useCallback(() => {
+    if (audioEnabled) soundControllerRef.current?.refuse();
+    else void source.windows?.audio?.refuse().catch(() => {});
+  }, [audioEnabled, source]);
   const sidebarRef = useRef<HTMLElement>(null);
   useBoardActivity(source, buttonsRef);
   const [restoreFocusRequest, setRestoreFocusRequest] = useState<TerminalFocusRestoration>();
@@ -427,7 +431,10 @@ function BoardContents({
               "The tile layout has reached its size limit.",
               row.id,
             );
-          else setRemoveError("The tile layout has reached its size limit.");
+          else {
+            refusePlacement();
+            setRemoveError("The tile layout has reached its size limit.");
+          }
           return;
         }
         clearBackground(`placement:${row.id}`);
@@ -467,6 +474,7 @@ function BoardContents({
       layoutRef,
       setFocusRequest,
       reportBackground,
+      refusePlacement,
       clearBackground,
       setRemoveError,
     ],
@@ -911,7 +919,10 @@ function BoardContents({
               if (next) {
                 changeLayout(next);
                 setFocusRequest((value) => value + 1);
-              } else setRemoveError("The tile layout has reached its size limit.");
+              } else {
+                refusePlacement();
+                setRemoveError("The tile layout has reached its size limit.");
+              }
             }
           }}
           revealRef={revealRef}

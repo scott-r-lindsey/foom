@@ -1,3 +1,4 @@
+const { measureClose, closeTiming } = require("./close-timing.js");
 const { colorQueryFixture, oscColor } = require("./color-query-fixture.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
@@ -182,18 +183,22 @@ process.stdin.resume();
     { mode: 0o700 },
   );
   const pids = path.join(root, "ssh-pids");
+  const slowClose = path.join(root, "slow-close");
   await writeFile(
     path.join(bin, "ssh"),
     `#!${process.execPath}
 const {spawn} = require('node:child_process');
-const {appendFileSync} = require('node:fs');
+const {appendFileSync, existsSync} = require('node:fs');
 const args = process.argv.slice(2); const split = args.indexOf('--');
 if (args.at(-1) === 'uname -s; uname -m') { process.stdout.write(require('node:os').type() + '\\n' + (process.arch === 'x64' ? 'x86_64' : process.platform === 'darwin' ? 'arm64' : 'aarch64') + '\\n'); process.exit(0); }
 if (args[split+1] !== 'fixture-agents') process.exit(2);
 appendFileSync(${JSON.stringify(pids)}, process.pid + '\\n');
+function connect() {
 const child = spawn('/bin/sh',['-c','exec '+args.slice(split+2).join(' ')],{env:{HOME:${JSON.stringify(remoteHome)},PATH:${JSON.stringify(remoteBin)},SHELL:${JSON.stringify(shell)},LANG:'C'},stdio:['pipe','pipe','pipe']});
 process.stdin.pipe(child.stdin); child.stdout.pipe(process.stdout); child.stderr.pipe(process.stderr);
 child.stdin.on('error',()=>{}); process.on('SIGTERM',()=>child.kill('SIGTERM')); child.on('close',code=>process.exit(code??1));
+}
+if (existsSync(${JSON.stringify(slowClose)})) setTimeout(connect, 1500); else connect();
 `,
     { mode: 0o700 },
   );
@@ -550,7 +555,18 @@ child.stdin.on('error',()=>{}); process.on('SIGTERM',()=>child.kill('SIGTERM'));
   assert.equal((await call("session_state", { id })).reason, "remote_host_unreachable");
   process.kill(resumed.pid, 0);
   await rename(path.join(bin, "ssh-hidden"), path.join(bin, "ssh"));
-  await settle("close", { id, idempotencyKey: "close-after-restart" });
+  await writeFile(slowClose, "delay fixture SSH by 1500ms");
+  await measureClose(app, page, id);
+  const closeStarted = Date.now();
+  const closing = settle("close", { id, idempotencyKey: "close-after-restart" });
+  await expect.poll(async () => (await row())?.closeState).toBe("closing");
+  await expect(page.locator(`[data-drag-session="${id}"]`)).toHaveCount(0);
+  const hiddenMs = Date.now() - closeStarted;
+  assert.equal((await call("session_state", { id })).closeState, "closing");
+  await closing;
+  console.log(
+    `1048 remote fixture: row hidden in ${hiddenMs}ms; close with slow SSH ${Date.now() - closeStarted}ms (1500ms injected connection delay); ${JSON.stringify(await closeTiming(app, page))}`,
+  );
   await expect
     .poll(() => {
       try {

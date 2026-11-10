@@ -113,6 +113,83 @@ as a target, enable as a name, and uninstall reports removing that name. These
 calls were confined to the deleted temporary HOME; use `agy plugin --help` for
 command discovery.
 
+### Antigravity initialize compatibility investigation (#1124)
+
+On 2026-11-08, public-source research did not establish the installed agy
+version's exact initialize shape or MCP SDK revision. The public
+[Antigravity MCP documentation](https://antigravity.google/docs/mcp/)
+describes stdio attachment, but does not specify initialize keys. The public
+[CLI repository](https://github.com/google-antigravity/antigravity-cli)
+contains release documentation rather than its client implementation.
+No real agy was run, and no user configuration or installed plugin was accessed.
+The earlier 1.4.2 measurements above establish launcher inheritance only.
+
+The public [Go MCP SDK v1.4.0 client](https://github.com/modelcontextprotocol/go-sdk/blob/v1.4.0/mcp/client.go)
+constructs initialize with `protocolVersion` (string), `capabilities` (object),
+and `clientInfo` (object). Its
+[protocol declarations](https://github.com/modelcontextprotocol/go-sdk/blob/v1.4.0/mcp/protocol.go)
+also permit `_meta` (object), implementation `title`/`websiteUrl` (strings),
+`icons` (array) and capability sub-objects. This is SDK evidence, **not** proof
+of agy's SDK version or actual wire payload, and those optional nested keys were
+already accepted by Foom. The user's failure has not been reproduced with real agy.
+
+Following the issue's fallback, fixture coverage uses the open parameter/envelope
+shapes in the supported MCP schemas:
+[2025-03-26](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/schema/2025-03-26/schema.ts),
+[2025-06-18](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/schema/2025-06-18/schema.ts),
+and [2025-11-25](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/schema/2025-11-25/schema.ts).
+The fixture stdio client goes through the installed **fixture** plugin launcher,
+sends optional metadata/capabilities plus synthetic envelope and initialize
+extensions, negotiates a version, lists tools and calls `whoami`. These extension
+keys reproduce the previous exact-key rejection; they are not a capture of agy.
+Malformed requests now name the fixed rejected schema field in the bridge error,
+so a later human run can identify any remaining incompatibility without logging
+payload values. Real agy connection and `whoami` remain manual verification.
+
+### Antigravity discovery capture (agy 1.5.3, reopened #1124)
+
+Measured manually on Linux on 2026-11-09 with the default HOME and Google login,
+using the installed plugin without changing its files. All inherited `FOOM_*`
+variables were removed; synthetic `FOOM_CONTROL_URL`, `FOOM_CONTROL_TOKEN`,
+`FOOM_SESSION` and `FOOM_CLI_DIRECTORY` selected a logging bridge wrapper and
+isolated loopback stand-in. A short print prompt requested no tools; no bypass
+flags were used. The operator did not inspect, copy or edit files under
+`~/.gemini`, user Foom profiles, credentials or shell rc files; agy accessed its
+own login/history normally. Only method names, field names/types,
+message order and process/connection counts were recorded, never payload values.
+
+Both captures observed one bridge process and this order:
+
+1. `server/discover`: `jsonrpc` (string), `id` (number), `method` (string),
+   `params` (object). Its `params._meta` (object) contains
+   `io.modelcontextprotocol/clientCapabilities` (object),
+   `io.modelcontextprotocol/clientInfo` (object) and
+   `io.modelcontextprotocol/protocolVersion` (string).
+2. `initialize`: the same envelope field types; params contain `clientInfo`
+   (object with `name`/`version` strings), `protocolVersion` (string) and
+   `capabilities` (object with `elicitation`/`roots` objects).
+3. `notifications/initialized`, then `tools/list`, then
+   `notifications/roots/list_changed`, each with object params; notifications
+   omit `id`, while `tools/list` has a numeric `id`.
+
+The wrapper's HTTP header names were `content-type`, `x-capture-process`,
+`authorization`, `host`, `connection` and `content-length`; these belong to the
+stand-in, not agy's stdio wire format. One HTTP connection was observed per run.
+On the second run the stand-in returned JSON-RPC `-32601` for discovery and
+answered initialize with Foom's latest supported legacy version, `2025-11-25`.
+agy completed initialization and requested tools. This verifies the
+[stdio legacy fallback](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/docs/specification/2026-07-28/basic/transports/stdio.mdx#backward-compatibility),
+not implementation of the newer stateless protocol.
+
+The captured discovery shape reproduces main's HTTP 400
+`invalid_request field=mcp-session-id` and the bridge's `(request)` diagnostic
+before the fix. Fixtures use synthetic values and never run real agy. The control
+and manual-only adapters now return Method not found for this authenticated
+pre-initialize probe, allowing legacy negotiation without minting a session or
+using client metadata as authority. Fixture Electron coverage waits for that
+error before initializing through the installed fixture plugin, listing tools and
+calling `whoami`. A live Foom-launched connection remains for the user to verify.
+
 ### Pi 1.4.0 measurement (#823)
 
 Measured manually on Linux on 2026-10-25, using `/home/slindsey/.local/bin/pi`
@@ -466,3 +543,51 @@ The installed version-5 observer reported PreInvocation → Stop for a no-tool t
 harmless read-only temp-file attempt. PreToolUse preceded the following invocation
 by about 5 ms. Neither bypass flags nor login/configuration copying were used.
 The disposable homes were removed after capture; only metadata logs remain untracked.
+
+### Antigravity pre-tool decision capture (agy 1.5.3, #1124)
+
+Measured manually on Linux on 2026-11-09 with the authorized default HOME/login,
+no bypass flags and short harmless prompts. A disposable `foom-hook-measure`
+plugin was installed through `agy plugin install PATH`; the existing enabled
+Foom plugin was temporarily disabled through `agy plugin disable foom` to isolate
+its hook. Finally the fixture was uninstalled and `agy plugin enable foom`
+restored the original state. No installed plugin files or `~/.gemini` files were
+read, copied or edited. The probe stripped inherited `FOOM_*` values, supplied
+synthetic credentials and used its own local stdio MCP stand-in, with no real Foom
+endpoint or authority. Only event/method names, field names/types, decisions,
+exit outcomes and timing metadata were retained under untracked
+`test-results/agy-1124-hooks/`.
+
+A fast PreToolUse handler printing `{}` and exiting zero reproduced the empty
+pre-tool denial on both an MCP ping attempt and a harmless `pwd` shell attempt.
+Printing `{"decision":"allow"}` removed the hook denial; the shell attempt then
+reached and was refused by agy's ordinary permission policy. No permission was
+granted or bypassed. Silent success also reached that policy. An allow response
+delayed 3.5 seconds behind the configured three-second hook deadline reproduced a
+hook denial for the shell attempt. Whole print-turn exit codes were zero even
+when the tool was refused, so exit zero alone does not prove tool execution.
+The stand-in did not observe a successful ping call; this capture establishes
+hook gating and default-policy delegation, not successful real Foom `whoami`.
+A separate request for `list_permissions` produced no pre-tool callbacks and
+therefore provides no gating evidence.
+
+Fast hook stdin reached EOF in approximately 2–4 ms. Payload keys/types matched
+#1000: common string fields plus `workspacePaths` array, `stepIdx` number and
+`toolCall` object. There was no evidence that the current input read or counter
+lock caused the reported fast-hook failure. The public
+[PreToolUse contract](https://antigravity.google/docs/hooks?tab=cli#pretooluse)
+requires a `decision`; `allow` delegates to subsequent hooks/default policy,
+whereas `auto_approve` can suppress ordinary prompts. Version 5's `{}` was not a
+neutral pre-tool response in 1.5.3. The earlier #1000 attempted-tool captures did
+not establish successful tool execution and do not establish pre-tool neutrality.
+
+Version 6 emits only `{"decision":"allow"}` for PreToolUse, before reading stdin
+or allocating sequence/transport state. Input waiting is capped at one second
+on POSIX and 500 ms in PowerShell/the remote helper; timeout drops the observation
+and leaves the successful neutral response intact. It emits `{}` for the other lifecycle
+events. It never supplies reasons, argument replacements, permission overrides or
+auto-approval. Native POSIX/PowerShell and remote-helper fixtures cover the output
+and failure paths; the Electron fake agy gates MCP `whoami` on the measured
+response before dispatch. Settings offers the reviewed Update; installed files
+change only through that explicit action. Real macOS/Windows agy behavior remains
+unmeasured, and real Foom tool execution remains the user's manual re-test.

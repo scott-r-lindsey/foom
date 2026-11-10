@@ -1,3 +1,4 @@
+import discover from "../../../fixtures/agy-1.5.3-discover.json";
 import { connect } from "node:net";
 import * as limits from "../../../../src/main/control/http-limits";
 import { request } from "node:http";
@@ -153,7 +154,7 @@ it("rejects invalid transport and protocol input and supports deletion and reini
     ).status,
   ).toBe(400);
   expect((await send({ jsonrpc: "2.0", id: "ping", method: "ping" })).status).toBe(200);
-  expect((await send({ jsonrpc: "2.0", method: "notifications/other" })).status).toBe(400);
+  expect((await send({ jsonrpc: "2.0", method: "notifications/other" })).status).toBe(202);
   expect(await (await send({ jsonrpc: "2.0", id: 2, method: "unknown" })).json()).toMatchObject({
     error: { code: -32601 },
   });
@@ -316,3 +317,23 @@ it.each(["2024-11-05", "2099-01-01", "unknown", "2025-03-26", "2025-06-18", "202
     ).toBe(400);
   },
 );
+
+it("answers agy 1.5.3 discovery before initialize without granting a session", async () => {
+  const response = await send(discover);
+  expect(response.status).toBe(200);
+  expect(response.headers.get("mcp-session-id")).toBeNull();
+  expect(await response.json()).toEqual({
+    jsonrpc: "2.0",
+    id: 0,
+    error: { code: -32601, message: "Method not found" },
+  });
+  expect((await send({ jsonrpc: "2.0", id: 2, method: "tools/list" })).status).toBe(400);
+  expect((await send(discover, { Authorization: "Bearer bad" })).status).toBe(401);
+  expect((await send(discover, { "Mcp-Session-Id": "foreign" })).status).not.toBe(200);
+  expect((await send({ ...discover, params: {} })).status).toBe(200);
+  expect((await send({ ...discover, id: undefined })).status).toBe(400);
+  expect((await send({ ...discover, params: { _meta: [] } })).status).toBe(400);
+  await init();
+  expect((await send(discover)).status).toBe(200);
+  expect((await send({ jsonrpc: "2.0", id: 2, method: "tools/list" })).status).toBe(200);
+});

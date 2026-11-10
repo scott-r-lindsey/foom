@@ -196,7 +196,7 @@ it("maps child and reviewer selections without accepting free-form argv", () => 
     model: "test/model",
     effort: "high",
     idempotencyKey: "retry-1",
-    review: { rounds: 3, agent: "claude", postFindings: false, model: "reviewer", effort: "low" },
+    review: { rounds: 3, postFindings: false, model: "reviewer", effort: "low" },
   });
   for (const flag of ["--model", "--effort", "--review-model", "--review-effort"])
     expect(() =>
@@ -266,7 +266,20 @@ it.each([
   ["review", "--pull-request", "1", "--since", "HEAD;echo", ...key],
   ["review", "--pull-request", "1", "--focus", "bad\0", ...key],
   ["review", "--pull-request", "1", "--post-findings", "yes", ...key],
-  ["review", "--pull-request", "1", "--agent", "claude", ...key],
+  ["review", "--pull-request", "1", "--agent", "--evil", ...key],
 ])("refuses malformed review request %j", (...args) => {
   expect(() => command(args)).toThrow("invalid_request");
 });
+
+it.each(["claude", "codex", "agy", "copilot", "opencode", "pi"])(
+  "preserves explicit and omitted provider choices for %s",
+  (agent) => {
+    expect(
+      command(["review", "--pull-request", "1", "--agent", agent, ...key]).params,
+    ).toMatchObject({ agent });
+    expect(command(["launch", "tree", ...key]).params).not.toHaveProperty("agent");
+    expect(
+      command(["launch", "tree", "--review-rounds", "2", ...key]).params["review"],
+    ).not.toHaveProperty("agent");
+  },
+);

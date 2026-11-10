@@ -169,3 +169,30 @@ it("records automatic close waiting for review and running before approved delet
   await settleAutomation();
   expect(h.owned.note).toHaveBeenCalledWith(expect.objectContaining({ status: "succeeded" }));
 });
+
+it.each(["closing", "failed"] as const)(
+  "keeps %s cleanup visible without an automatic retry",
+  async (closeState) => {
+    const h = fixture();
+    h.row.closeState = closeState;
+    await h.sync();
+    await h.sync();
+    expect(h.host.close).not.toHaveBeenCalled();
+    expect(h.persist).not.toHaveBeenCalled();
+    delete h.row.closeState;
+    await h.sync();
+    expect(h.host.close).toHaveBeenCalledOnce();
+  },
+);
+
+it("revalidates its own accepted close while main retains the closing record", async () => {
+  const h = fixture();
+  h.host.close.mockImplementation((_id, validate) => {
+    h.row.closeState = "closing";
+    validate?.();
+    return Promise.resolve(true);
+  });
+  await h.sync();
+  expect(h.host.close).toHaveBeenCalledOnce();
+  expect(h.owned.note).toHaveBeenCalledWith(expect.objectContaining({ status: "succeeded" }));
+});

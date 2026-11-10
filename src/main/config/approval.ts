@@ -73,6 +73,7 @@ const LABELS: Record<ConfigSetting, string> = {
   terminalFont: "Terminal font",
   sound: "Sound",
   agents: "Agents",
+  defaultAgent: "Default agent",
   agentArguments: "Agent launch arguments",
   hooks: "Hooks",
   restoreSessions: "Restore sessions on launch",

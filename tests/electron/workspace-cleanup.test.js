@@ -1,3 +1,4 @@
+const { measureClose, closeTiming } = require("./close-timing.js");
 const { evidencePath } = require("../helpers/evidence.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
 const { AxeBuilder } = require("@axe-core/playwright");
@@ -329,6 +330,46 @@ test("group cleanup reviews untracked files and removes detached checkouts insid
   const remoteRoot = await mkdtemp(path.join(tmpdir(), "foom-729-remote-"));
   removeAfterApps(context, remoteRoot);
   const app = await launchApp(context, { fixture: "repository" });
+  fixtureCleanup(context).apps.unshift(async () => {
+    await app.evaluate(() => globalThis.groupCleanupRestore?.()).catch(() => {});
+  });
+  await app.evaluate(({ app }) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { CleanupRun } = load("./build/main/workspace/cleanup-run.js");
+    const { WorkspaceContext } = load("./build/main/workspace/workspace-context.js");
+    const act = CleanupRun.prototype.act;
+    const remove = WorkspaceContext.prototype.removeTree;
+    const gate = new Promise((resolve) => {
+      globalThis.groupCleanupRelease = resolve;
+    });
+    let reached;
+    globalThis.groupCleanupReached = new Promise((resolve) => {
+      reached = resolve;
+    });
+    globalThis.groupCleanupWaitStarted = false;
+    globalThis.groupCleanupSettled = false;
+    CleanupRun.prototype.act = function (...args) {
+      globalThis.groupCleanupRun = this;
+      return act.apply(this, args);
+    };
+    WorkspaceContext.prototype.removeTree = async function (...args) {
+      // Hold only completion delivery, after the real removal and every safety
+      // check. The checklist must remain at 2/3 until this result is delivered.
+      const result = await remove.apply(this, args);
+      if (args[1].endsWith("review-detached-b")) {
+        reached();
+        await gate;
+      }
+      return result;
+    };
+    globalThis.groupCleanupRestore = () => {
+      globalThis.groupCleanupRelease();
+      CleanupRun.prototype.act = act;
+      WorkspaceContext.prototype.removeTree = remove;
+    };
+  });
   const page = await boardPage(app);
   const repository = await page.evaluate(
     async () => (await window.desktop.workspace()).repositories[0].path,
@@ -423,6 +464,33 @@ test("group cleanup reviews untracked files and removes detached checkouts insid
     confirmation.getByRole("checkbox", { name: "Close when completed" }),
   ).not.toBeChecked();
   await confirmation.getByRole("button", { name: "Force delete 3", exact: true }).click();
+  await app.evaluate(() => globalThis.groupCleanupReached);
+  await expect(confirmation.getByRole("progressbar", { name: "Cleanup progress" })).toHaveAttribute(
+    "value",
+    "2",
+  );
+  await expect(
+    confirmation.getByRole("alertdialog", { name: "Deleting merged worktrees" }),
+  ).toBeVisible();
+  await expect(confirmation.getByRole("button", { name: "Hide", exact: true })).toBeVisible();
+  assert.equal(await confirmation.getByRole("button", { name: "Done", exact: true }).count(), 0);
+  // Git completion is not dialog readiness. Await the main-owned run before
+  // starting the ordinary UI assertion deadline, including for slow native Git.
+  const settled = app.evaluate(async () => {
+    globalThis.groupCleanupWaitStarted = true;
+    await globalThis.groupCleanupRun.settled();
+    globalThis.groupCleanupSettled = true;
+  });
+  try {
+    await expect.poll(() => app.evaluate(() => globalThis.groupCleanupWaitStarted)).toBe(true);
+    assert.equal(await app.evaluate(() => globalThis.groupCleanupSettled), false);
+  } finally {
+    await app.evaluate(() => globalThis.groupCleanupRelease());
+    await settled;
+    context.diagnostic(
+      `Group cleanup completion: ${await confirmation.locator("body").innerText()}`,
+    );
+  }
   await expect(confirmation.getByRole("button", { name: "Done", exact: true })).toBeVisible();
   await expect(confirmation.locator('[data-cleanup="removed"]')).toHaveCount(3);
   for (const tree of trees) await assert.rejects(realpath(tree.path), { code: "ENOENT" });
@@ -1100,4 +1168,304 @@ test("detached removals share one review per checkout and approve independently"
   await retry.getByRole("button", { name: "Remove worktree", exact: true }).click();
   await expect.poll(() => app.evaluate(() => globalThis.detachedAnswers.retry)).toBe(true);
   assert.equal(require("node:fs").existsSync(paths[1]), false);
+});
+
+test("Close hides a review session before slow worktree removal finishes", {
+  timeout: deadline(45000),
+}, async (context) => {
+  const app = await launchApp(context, { fixture: "repository" });
+  const page = await boardPage(app);
+  const repo = await page.evaluate(
+    async () => (await window.desktop.workspace()).repositories[0].path,
+  );
+  isolatedGit(
+    [
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "--allow-empty",
+      "-qm",
+      "init",
+    ],
+    { cwd: repo },
+  );
+  const head = isolatedGit(["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8" }).trim();
+  await app.evaluate(({ app }) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { Workspace } = load("./build/main/workspace/workspace.js");
+    const snapshot = Workspace.prototype.snapshot;
+    Workspace.prototype.snapshot = function (...args) {
+      globalThis.closeOwner = this.owner;
+      return snapshot.apply(this, args);
+    };
+  });
+  await page.evaluate(() => window.desktop.workspace());
+  const tree = await app.evaluate(
+    async (_, { repo, head }) => {
+      const service = globalThis.closeOwner.deps.worktrees;
+      const tree = await service.createWorktree(repo, "close-review", {
+        detachedHead: head,
+        reviewBranch: "Close review",
+      });
+      globalThis.closeRemovalTiming = {};
+      const remove = service.removeWorktree.bind(service);
+      service.removeWorktree = async (...args) => {
+        globalThis.closeRemovalTiming.removalStarted = Date.now();
+        await new Promise((resolve) => {
+          globalThis.releaseRemoval = resolve;
+        });
+        await remove(...args);
+        globalThis.closeRemovalTiming.finished = Date.now();
+      };
+      return tree.path;
+    },
+    { repo, head },
+  );
+  await page.evaluate(
+    ({ repo, tree }) =>
+      window.desktop.sidebarCommand({
+        kind: "launch",
+        repository: repo,
+        worktree: tree,
+        run: "shell",
+      }),
+    { repo, tree },
+  );
+  const row = page.locator(".board-row[data-kind='shell']");
+  await row.press("Enter");
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+  await page.keyboard.type("exit");
+  await page.keyboard.press("Enter");
+  await expect(row).toHaveAttribute("data-exited", "true");
+  const id = await page.evaluate(async () => (await window.desktop.workspace()).terminals[0].id);
+  const changedFile = path.join(tree, "kept-until-approved.txt");
+  await writeFile(changedFile, "keep until approved");
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(row).toHaveCount(0);
+  const declined = await confirmationPage(app);
+  await expect(declined.getByText("kept-until-approved.txt", { exact: true })).toBeVisible();
+  await declined.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(row).toHaveCount(1);
+  assert.equal(await readFile(changedFile, "utf8"), "keep until approved");
+  await row.press("Enter");
+  await measureClose(app, page, id);
+  const started = Date.now();
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(row).toHaveCount(0);
+  await expect(page.locator(".tile-terminal")).toBeHidden();
+  const hiddenMs = Date.now() - started;
+  const approved = await confirmationPage(app);
+  await approved.getByRole("button", { name: "Discard changes and remove", exact: true }).click();
+  await expect
+    .poll(() => app.evaluate(() => globalThis.closeRemovalTiming.removalStarted))
+    .toBeTruthy();
+  assert.equal(await app.evaluate(() => globalThis.closeRemovalTiming.finished), undefined);
+  await page.screenshot({
+    animations: "disabled",
+    path: evidencePath("1048-close-removal-background.png"),
+  });
+  await app.evaluate(() => globalThis.releaseRemoval());
+  await expect.poll(() => app.evaluate(() => globalThis.closeRemovalTiming.finished)).toBeTruthy();
+  const timing = await app.evaluate(() => globalThis.closeRemovalTiming);
+  console.log(
+    `1048 local removal fixture: tile+row hidden in ${hiddenMs}ms; gated removal ${timing.finished - timing.removalStarted}ms; ${JSON.stringify(await closeTiming(app, page))}`,
+  );
+  assert.equal((await page.evaluate(() => window.desktop.workspace())).terminals.length, 0);
+});
+
+test("ordinary Close refuses a second owned or sidebar removal until terminal teardown settles", {
+  timeout: deadline(45000),
+}, async (context) => {
+  const app = await launchApp(context, { fixture: "repository" });
+  const page = await boardPage(app);
+  const repo = await page.evaluate(
+    async () => (await window.desktop.workspace()).repositories[0].path,
+  );
+  isolatedGit(
+    [
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "--allow-empty",
+      "-qm",
+      "init",
+    ],
+    { cwd: repo },
+  );
+  await app.evaluate(({ app }) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { Workspace } = load("./build/main/workspace/workspace.js");
+    const snapshot = Workspace.prototype.snapshot;
+    Workspace.prototype.snapshot = function (...args) {
+      globalThis.ordinaryCloseOwner = this.owner;
+      return snapshot.apply(this, args);
+    };
+  });
+  await page.evaluate(() => window.desktop.workspace());
+  const tree = await app.evaluate(async (_, repo) => {
+    const owner = globalThis.ordinaryCloseOwner;
+    const tree = await owner.deps.worktrees.createWorktree(repo, "ordinary-close-race");
+    const identity = await owner.deps.worktrees.launchIdentity(repo, tree.path);
+    const kill = owner.deps.terminals.kill.bind(owner.deps.terminals);
+    globalThis.ordinaryCloseKills = 0;
+    owner.deps.terminals.kill = async (...args) => {
+      globalThis.ordinaryCloseKills++;
+      await new Promise((resolve) => {
+        globalThis.releaseOrdinaryClose = resolve;
+      });
+      return kill(...args);
+    };
+    return { path: tree.path, identity };
+  }, repo);
+  context.after(async () => {
+    await app.evaluate(() => globalThis.releaseOrdinaryClose?.()).catch(() => {});
+  });
+  const launched = await page.evaluate(
+    ({ repo, tree }) =>
+      window.desktop.sidebarCommand({
+        kind: "launch",
+        repository: repo,
+        worktree: tree,
+        run: "shell",
+      }),
+    { repo, tree: tree.path },
+  );
+  const id = launched.terminalId;
+  await page.locator(`[data-drag-session="${id}"]`).press("Enter");
+  await expect(page.locator(".xterm-helper-textarea")).toBeEditable();
+  await page.evaluate((id) => window.desktop.input(id, "exit\r"), id);
+  await expect(page.locator(`[data-drag-session="${id}"]`)).toHaveAttribute("data-exited", "true");
+  isolatedGit(["checkout", "-b", "changed-ordinary-close"], { cwd: tree.path });
+  const keptFile = path.join(tree.path, "held-removal.txt");
+  await writeFile(keptFile, "kept until removal is approved");
+  for (const detached of [false, true]) {
+    if (detached) isolatedGit(["checkout", "--detach"], { cwd: tree.path });
+    await page.evaluate(
+      ({ repo, tree }) => {
+        globalThis.pendingIdleRemoval = window.desktop.sidebarCommand({
+          kind: "remove-worktree",
+          repository: repo,
+          worktree: tree,
+        });
+      },
+      { repo, tree: tree.path },
+    );
+    const review = await confirmationPage(app);
+    await expect(review.getByText("held-removal.txt", { exact: true })).toBeVisible();
+    try {
+      const closeRefused = await page.evaluate(async (id) => {
+        try {
+          await window.desktop.sidebarCommand({ kind: "close", id });
+          return false;
+        } catch {
+          return true;
+        }
+      }, id);
+      assert.equal(closeRefused, true);
+      assert.equal(await app.evaluate(() => globalThis.ordinaryCloseKills), 0);
+      const entry = await page.evaluate(
+        async (id) => (await window.desktop.workspace()).terminals.find((row) => row.id === id),
+        id,
+      );
+      assert.equal(entry.closeState, undefined);
+      assert.equal(await readFile(keptFile, "utf8"), "kept until removal is approved");
+    } finally {
+      await review.getByRole("button", { name: "Cancel", exact: true }).click();
+      await page.evaluate(() => globalThis.pendingIdleRemoval);
+    }
+  }
+  isolatedGit(["checkout", "changed-ordinary-close"], { cwd: tree.path });
+  await page.evaluate((id) => {
+    globalThis.pendingOrdinaryClose = window.desktop.sidebarCommand({ kind: "close", id });
+  }, id);
+  await expect.poll(() => app.evaluate(() => globalThis.ordinaryCloseKills)).toBe(1);
+  for (const detached of [false, true]) {
+    if (detached) isolatedGit(["checkout", "--detach"], { cwd: tree.path });
+    const current = await page.evaluate(
+      async ({ repo, tree }) => {
+        const inventory = await window.desktop.sidebarInventory();
+        return inventory.repositories
+          .find((entry) => entry.path === repo)
+          .worktrees.find((entry) => entry.path === tree);
+      },
+      { repo, tree: tree.path },
+    );
+    assert.equal(current.branch, detached ? null : "changed-ordinary-close");
+    const launchRefused = await page.evaluate(
+      async ({ repo, tree }) => {
+        try {
+          await window.desktop.sidebarCommand({
+            kind: "launch",
+            repository: repo,
+            worktree: tree,
+            run: "shell",
+          });
+          return false;
+        } catch {
+          return true;
+        }
+      },
+      { repo, tree: tree.path },
+    );
+    assert.equal(launchRefused, true);
+    assert.equal(
+      await page.evaluate(async () => (await window.desktop.workspace()).terminals.length),
+      1,
+    );
+    assert.equal(
+      await app.evaluate(
+        async (_, { repo, tree }) =>
+          globalThis.ordinaryCloseOwner.deps.worktrees.launchIdentity(repo, tree.path),
+        { repo, tree },
+      ),
+      tree.identity,
+    );
+  }
+  const reason = await app.evaluate(
+    async (_, { repo, tree }) => {
+      try {
+        await globalThis.ordinaryCloseOwner.cleanup.removeOwnedTree(
+          repo,
+          tree.path,
+          tree.identity,
+          () => Promise.resolve(true),
+          () => {},
+        );
+        return "unexpected success";
+      } catch (error) {
+        return error.reason;
+      }
+    },
+    { repo, tree },
+  );
+  assert.equal(reason, "busy");
+  const refused = await page.evaluate(
+    async ({ repo, tree }) => {
+      try {
+        await window.desktop.sidebarCommand({
+          kind: "remove-worktree",
+          repository: repo,
+          worktree: tree,
+        });
+        return false;
+      } catch {
+        return true;
+      }
+    },
+    { repo, tree: tree.path },
+  );
+  assert.equal(refused, true);
+  assert.equal(await app.evaluate(() => globalThis.ordinaryCloseKills), 1);
+  assert.equal(await readFile(path.join(tree.path, ".git"), "utf8").then(() => true), true);
+  await app.evaluate(() => globalThis.releaseOrdinaryClose());
+  await page.evaluate(() => globalThis.pendingOrdinaryClose);
+  await expect(page.locator(`[data-drag-session="${id}"]`)).toHaveCount(0);
 });

@@ -65,7 +65,8 @@ Tile panels reuse the sidebar panel's portal, keyboard navigation and styling.
 Hide clears the leaf in place (subject to minimum-size repair) and records it as the
 landing spot without stopping
 its session, including exited agents with saved conversations; other exited sessions offer Close. Close uses the
-existing validated sidebar command and retains the view if that command fails.
+existing validated sidebar command; refused closes retain the view, while accepted
+closes release it before cleanup and restore a sidebar row if cleanup fails.
 Placement fills space, then grows a rightmost column with proportional existing
 column widths, or selects the least recently focused non-attention tile when
 columns would fall below 12 terminal cells. The board measures the available area
@@ -204,3 +205,23 @@ frame rendered. Loading ends on host or attachment failure so the existing failu
 status remains available. Hiding and reshowing a session that already rendered
 does not show the skeleton again. Live tiles retain their split geometry and
 hidden-space rules.
+
+## Terminal capability revocation (#1143)
+
+The live board source retains terminal availability revocations across controller
+unmounts and queued view work. Workspace snapshots and launch replies may still
+contain a revoked ID; they cannot authorize attachment. Both board and host views
+check the source's revocation state when their queued work runs. Only main's
+availability event restores that capability, including restoration after failed
+shutdown without a launch reset.
+
+## Close projection (#1048)
+
+The live board source omits main-owned `closeState: "closing"` sessions from rows
+and tiles as soon as the workspace snapshot arrives, independently of the pending
+Close IPC response. Explicit tile closes apply the existing space and keyboard-focus
+transition when acceptance removes the row; later cleanup settlement cannot move
+focus again. Main retains those sessions for control inventory and cleanup.
+Failures return a row with a fixed failure reason that live terminal verdicts cannot
+overwrite. Only successful removal discards the session caches; a declined review
+retains the session and files.

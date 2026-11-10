@@ -192,11 +192,22 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Electron cache identity
+        id: electron
+        shell: bash
+        run: node .github/scripts/prepare-electron.mjs cache
+      - name: Cache Electron downloads
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: ${{ runner.temp }}/electron-cache
+          key: electron-${{ runner.os }}-${{ runner.arch }}-${{ steps.electron.outputs.version }}
       - name: Prepare Electron binary
         timeout-minutes: 3
+        env:
+          DEBUG: '@electron/get:index'
         # Electron 44 can download lazily on require; keep network setup outside
         # the first Playwright launch deadline and the desktop test budget.
-        run: node -e "require('electron')"
+        run: node .github/scripts/prepare-electron.mjs
       - name: Prepare Linux display and sandbox
         timeout-minutes: 3
         if: runner.os == 'Linux'
@@ -220,7 +231,7 @@ jobs:
       # See docs/electron-shards.md for measurements and the checked-in plan.
       # Per-test deadlines and the Electron worker watchdog still bound hangs.
       - name: Test Electron on Linux
-        timeout-minutes: 10
+        timeout-minutes: 14
         if: runner.os == 'Linux'
         run: xvfb-run -a pnpm run test:electron
       - name: Test Electron on macOS and Windows
@@ -375,11 +386,22 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Electron cache identity
+        id: electron
+        shell: bash
+        run: node .github/scripts/prepare-electron.mjs cache
+      - name: Cache Electron downloads
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: ${{ runner.temp }}/electron-cache
+          key: electron-${{ runner.os }}-${{ runner.arch }}-${{ steps.electron.outputs.version }}
       - name: Prepare Electron binary
         timeout-minutes: 3
+        env:
+          DEBUG: '@electron/get:index'
         # Electron 44 can download lazily on require; keep network setup outside
         # the first Playwright launch deadline and the desktop test budget.
-        run: node -e "require('electron')"
+        run: node .github/scripts/prepare-electron.mjs packaging
       - name: Prepare Windows PowerShell runtime
         if: runner.os == 'Windows'
         timeout-minutes: 3
@@ -442,6 +464,8 @@ jobs:
           path: .cache/remote-host-inputs
           merge-multiple: true
       - name: Package desktop application
+        env:
+          DEBUG: '@electron/get:index'
         run: pnpm run make
       - name: Verify macOS ad-hoc signature after packaging and fuses
         if: runner.os == 'macOS'

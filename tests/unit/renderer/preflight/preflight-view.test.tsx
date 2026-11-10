@@ -656,6 +656,16 @@ test("Settings shares setup controls, saves immediately and exposes planned sect
   expect(screen.queryByRole("button", { name: "Themes" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Worktrees" })).toBeNull();
   fireEvent.click(button("General"));
+  const defaultAgent = screen.getByRole("combobox", { name: "Default agent" });
+  expect(defaultAgent).toHaveProperty("value", "");
+  fireEvent.change(defaultAgent, { target: { value: "codex" } });
+  await waitFor(() => {
+    expect(source.save).toHaveBeenCalledWith({ defaultAgent: "codex" });
+  });
+  fireEvent.change(defaultAgent, { target: { value: "" } });
+  await waitFor(() => {
+    expect(source.save).toHaveBeenCalledWith({ defaultAgent: null });
+  });
   const children = screen.getByRole("checkbox", { name: "Show new children on the board" });
   expect(children).toHaveProperty("checked", true);
   fireEvent.click(children);

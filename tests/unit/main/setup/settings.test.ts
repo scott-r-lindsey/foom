@@ -1003,3 +1003,24 @@ test("terminal clipboard writes default off, validate booleans and persist in th
   await store.update(parseSettingsPatch({ terminalClipboardWrites: false }));
   expect((await SettingsStore.open(dir)).get().terminalClipboardWrites).toBe(false);
 });
+
+test("default agent is opt-in, persists and can be cleared without choosing another provider", async () => {
+  const dir = await directory();
+  const store = await SettingsStore.open(dir);
+  expect(store.get().defaultAgent).toBeNull();
+  for (const defaultAgent of [
+    "claude",
+    "codex",
+    "agy",
+    "copilot",
+    "opencode",
+    "pi",
+    "custom-provider",
+    null,
+  ]) {
+    await store.update({ defaultAgent });
+    expect((await SettingsStore.open(dir)).get().defaultAgent).toBe(defaultAgent);
+  }
+  for (const defaultAgent of ["", "shell", "--bad", 7, {}, false])
+    expect(() => parseSettingsPatch({ defaultAgent })).toThrow();
+});

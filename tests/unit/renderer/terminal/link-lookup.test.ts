@@ -99,3 +99,22 @@ test("canonical ASCII OAuth URL preserves percent escapes and ampersands across 
     for (let row = 0; row < 20; row++) expect(linksOnRow(terminal, row)[0]).toMatchObject({ url });
   }
 });
+
+test("BEL-terminated OSC links stay distinct from printf echo at every chunk boundary", async () => {
+  const url = "https://remote.example.test/oauth?state=fixture";
+  const echo = String.raw`printf '\033]8;;${url}\007Remote sign in\033]8;;\007\n'`;
+  const output = `\x1b]8;;${url}\x07Remote sign in\x1b]8;;\x07`;
+  for (let split = 1; split < output.length; split++) {
+    const terminal = await fixture(`${echo}\r\n`, 160);
+    const write = (data: string) =>
+      new Promise<void>((resolve) => {
+        terminal.write(data, resolve);
+      });
+    await write(output.slice(0, split));
+    await write(output.slice(split));
+    expect(linksOnRow(terminal, 0).map((link) => link.url)).toEqual([String.raw`${url}\007Remote`]);
+    expect(linksOnRow(terminal, 1)).toEqual([
+      { url, rows: [{ y: 1, start: 0, end: "Remote sign in".length }] },
+    ]);
+  }
+});

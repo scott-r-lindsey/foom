@@ -10,7 +10,11 @@ Main panel facts remain in `workspace-context.ts`; sidebar dispatch is in `sideb
 suppression. The sidebar derives panel subjects and commands from its source;
 `RowMenu` shares positioning, keyboard and main-owned confirmations between the
 application menu and labelled sidebar dialogs. Panel facts load through the
-source and ignore superseded replies. Values render as inert text, with narrow
+source and ignore superseded replies. Normal row panels retain their opening top
+position when late facts change their height; the body scrolls within the remaining
+viewport rather than moving commands beneath a stationary pointer. An explicit
+retained-window resize refits placement; the config panel keeps bottom alignment.
+Values render as inert text, with narrow
 identifier-scoped copy controls for the listed facts. Session title edits
 remain local view preferences. The theme subscription applies the validated
 `panelColor` setting as root metadata; CSS forces undecorated panels for High

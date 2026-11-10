@@ -280,19 +280,35 @@ four-unused-worktree limit until launch succeeds. Review is read-only by intent:
 reviewers report findings; editing or pushing requires a deliberate decision.
 
 Creation metadata stores the fetched head, checkout identity and the initial local
-ref inventory. These records persist with managed worktree history and are claims
+ref inventory and a SHA-256 exclusion baseline. These records persist with managed worktree history and are claims
 that must be validated again against Git and the filesystem. Closing a session in
 such a checkout uses the existing removal lock and trusted removal path. A narrow
 exception permits confirmation-free removal independently of the merged-worktree
 setting and PR state: the identity must match, HEAD must remain detached at the
-captured commit, config-neutral status must show no tracked, untracked or ignored
-content, and local refs and worktree reflogs must contain no new history beyond
-that head. Unchanged pre-existing shared refs are not reviewer work. Private root refs such as `ORIG_HEAD` are checked too. HEAD reflogs
+captured commit, config-neutral status must show no tracked or non-ignored
+untracked changes (only the fixed ignored output roots below are disposable), and local
+refs and worktree reflogs must contain no new history beyond that head. Unchanged pre-existing shared refs are not reviewer work. Private root refs such as `ORIG_HEAD` are checked too. HEAD reflogs
 protect commits followed by reset; missing, malformed or unreadable evidence fails
 closed. Index concealment, in-progress Git operations and unsafe configuration also
 refuse automatic removal. No other session may occupy it; launch/removal operations
 share the existing reservations. The closing exited session is released by removal.
 The proof is repeated before deletion, including after checkout resources close.
+
+Disposable ignored output is limited to these root directories: `node_modules/`, `build/`, `out/`, `.cache/`, `test-results/`, `.husky/_/` and `coverage/`.
+Prefix lookalikes, nested copies and other ignored paths require confirmation.
+Any untracked `.gitignore`, including one hidden inside an ignored output directory,
+or a modified tracked `.gitignore` refuses automatic cleanup. Tracked files under
+an ignored output directory still participate in tracked-change checks.
+The exclusion baseline pins the resolved Git `info/exclude` path and bytes plus
+the checkout's effective local/worktree `core.excludesFile` setting (global/system
+configuration is disabled). The fixed metadata file is read without following
+symlinks and with a 64 KiB cap; only its digest is persisted. A missing metadata
+file has a distinct digest. `core.excludesFile` is disabled for review status reads;
+the referenced file's contents are never read for this proof. The baseline and
+untracked `.gitignore` check run before both status reads, including the final
+before-remove proof after resource shutdown. Unavailable/changed evidence, legacy
+records without the digest and malformed digests require confirmation. Existing
+membership/identity checks still gate the metadata read.
 
 Every unsuccessful proof falls back to trusted confirmation; identity/membership,
 locks, active sessions and changed-snapshot guards still forbid unsafe deletion
@@ -301,6 +317,21 @@ worktrees retain the existing merged-clean opt-in policy. Branches are never
 created for review or deleted by this path. This remains subject to the existing
 local concurrent-filesystem-mutation limitation.
 
+Closing uses profile-owned creation provenance, regardless of the orchestrator
+grant that launched the session. This does not transfer old child authority.
+With board PR tracking enabled, retained review checkouts
+continue tracking their recorded source PR branch even if their HEAD changed.
+The source branch without a HEAD argument is display/offer provenance only;
+restore and confirmation-free removal still require the exact captured head.
+When an available observation is CLOSED or MERGED, idle retained review
+checkouts are offered together in the existing trusted removal batch. Each
+identity is offered once per app lifetime; unavailable/offline evidence waits for
+later inventory. Running or closing sessions are skipped. Offers use the same
+canonical-path hold as Close and other removals across confirmation and final
+revalidation; they cannot begin a second cleanup while Close is pending. Approval retains identity,
+membership, session, reservation and final snapshot guards; it grants no new
+automatic deletion exception. Decline or a failed removal is never retried
+automatically in that app lifetime. No directory scan or new polling is added.
 
 ## Partial sidebar inventory (#890)
 
@@ -375,3 +406,44 @@ Removal failed state and a manual Clean up action; success removes the row and
 record, then prunes only recorded empty parent directories. Group retry requires
 no sessions in the directory and uses the repository operation reservation.
 Each refusal reason and restart recovery are covered with temporary fixtures.
+
+## Close presentation and retained cleanup (#1048)
+
+Accepted Close hides its session from board presentation before owned-review
+removal performs inventory, proofs, confirmation or deletion. Main retains the
+session and a persisted interrupted-close marker throughout; failures or declines
+restore the row. The original trusted review, automatic-removal policy, identity
+rechecks and refusal rules are unchanged. Closing records additionally reserve
+their checkout against launches before the removal owner acquires its ordinary
+branch lock. Idle removal refuses a closing checkout, and merged cleanup skips it;
+explicit identity-matched owned removals can still join the original removal. Control inventory keeps those records until actual cleanup settles,
+so removal still conflicts with outstanding sessions. Interrupted cleanup surfaces
+as a failed saved row after restart and grants no new deletion authority.
+
+An ordinary Close also reserves its checkout against separately initiated owned
+removal, locally and remotely. Removal refuses with busy/conflict before inspection
+or deletion when a session is closing, and rechecks after confirmation. Only a
+matching join to an already-running owned removal shares that operation; the
+review Close that owns the removal may retain its own closing session.
+
+`WorkspaceContext` owns `CheckoutHolds`, the shared canonical-path lease registry.
+Close, idle/owned/merged removal, remote removal, prune/broken-cleanup retries and
+known-checkout launch/resume/restart preparation, including shared-agent startup
+confirmation, acquire a lease before awaiting
+confirmation or effects. A pending removal refuses Close before its row is hidden;
+a closing session refuses removal at confirmation, post-confirmation and final
+service revalidation. Renaming a branch, detaching HEAD or replacing filesystem
+identity cannot release a path lease. Existing identity authorization remains.
+
+Nested preparation and cleanup borrow only a live, main-only lease capability.
+Each borrow retains the path independently until released; stale capabilities and
+independent operations cannot borrow it. An owned review Close passes its lease
+into its own removal, and remote removal passes its lease to its post-delete Close.
+Identity-matched owned-removal joins share the existing operation and consent.
+Success, decline and failure release every lease; a retained merged-branch cleanup
+also retains its path lease until its existing release callback runs.
+
+Branch reservations remain secondary locks for branch creation/adoption before a
+path is known and for branch cleanup. Every resolved path also checks the shared
+registry; an already-held branch key cannot waive a path hold. Home/config sessions
+retain their independent lifecycle and grant no managed-checkout deletion authority.

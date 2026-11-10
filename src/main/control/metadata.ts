@@ -120,6 +120,7 @@ export class SessionMetadata {
       worktree: locationId(row.worktree),
       name: metadataName(row.branch ?? basename(row.worktree)),
       state: reported,
+      ...(row.closeState ? { closeState: row.closeState } : {}),
       reason:
         row.remoteCleanup === "unreachable"
           ? "remote_host_unreachable"
@@ -134,6 +135,7 @@ export class SessionMetadata {
             handoff ?? null,
             row.placement ?? null,
             row.remoteCleanup ?? null,
+            row.closeState ?? null,
             row.launchVersion ?? 0,
             execution?.launch ?? 0,
             execution?.revision ?? 0,

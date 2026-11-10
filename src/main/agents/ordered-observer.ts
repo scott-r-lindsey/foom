@@ -1,11 +1,21 @@
 /** Version-2 ordered, detached native transport ABI. */
-export function orderedObserverFiles(preToolProgress = false): Record<string, string> {
+export function orderedObserverFiles(
+  preToolProgress = false,
+  delegatePreTool = false,
+): Record<string, string> {
   return {
     "observer.sh": `#!/bin/sh
 if [ -n "$FOOM_REMOTE_HELPER" ] && [ -n "$FOOM_REMOTE_SOCKET" ]; then
   exec "$FOOM_REMOTE_HELPER" --observe lifecycle stdin empty-json-first ordered "$@"
 fi
-printf '{}\\n'
+${
+  delegatePreTool
+    ? `case "$1" in
+  PreToolUse) printf '{"decision":"allow"}\\n' ;;
+  *) printf '{}\\n' ;;
+esac`
+    : "printf '{}\\n'"
+}
 [ -n "$FOOM_HOOK_URL" ] && [ -n "$FOOM_SESSION" ] && [ -n "$FOOM_TOKEN" ] || exit 0
 case "$1" in PreInvocation${preToolProgress ? "|PreToolUse" : ""}|PostToolUse|Stop) ;; *) exit 0 ;; esac
 # Sequence allocation is local and fast; only the network runs in the background.
@@ -22,7 +32,30 @@ rmdir "$FOOM_HOOK_ORDER.lock" 2>/dev/null || exit 0
 trap - 0
 # Bound stdin before detaching. All worker descriptors are private, so the agent
 # observes EOF immediately instead of waiting for curl's network timeout.
-payload=$(head -c 65537) || exit 0
+${
+  delegatePreTool
+    ? `# Bound an agent that leaves stdin open too. The watchdog owns/reaps its
+# sleep process; success cancels it before starting detached transport.
+payload=$(
+  exec 3<&0
+  head -c 65537 <&3 &
+  reader=$!
+  (
+    trap 'kill "$sleeper" 2>/dev/null; wait "$sleeper" 2>/dev/null; exit 0' TERM
+    sleep 1 &
+    sleeper=$!
+    wait "$sleeper"
+    kill "$reader" 2>/dev/null
+  ) >/dev/null 2>&1 &
+  watchdog=$!
+  wait "$reader" 2>/dev/null
+  result=$?
+  kill "$watchdog" 2>/dev/null
+  wait "$watchdog" 2>/dev/null
+  exit "$result"
+) || exit 0`
+    : "payload=$(head -c 65537) || exit 0"
+}
 (printf '%s' "$payload" | curl -q --noproxy '*' --connect-timeout 1 --max-time 1 --silent --output /dev/null \\
   --request POST --header 'Content-Type: application/json' \\
   --header "Authorization: $FOOM_TOKEN" --header "X-Foom-Session: $FOOM_SESSION" \\
@@ -30,7 +63,13 @@ payload=$(head -c 65537) || exit 0
 exit 0
 `,
     "observer.ps1": `# Return the neutral result before reading input or starting transport.
-[Console]::Out.WriteLine('{}')
+${
+  delegatePreTool
+    ? `if ($args.Count -eq 1 -and $args[0] -eq 'PreToolUse') {
+  [Console]::Out.WriteLine('{"decision":"allow"}')
+} else { [Console]::Out.WriteLine('{}') }`
+    : "[Console]::Out.WriteLine('{}')"
+}
 [Console]::Out.Flush()
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -54,7 +93,10 @@ try {
     $order.Flush()
   } finally { $order.Dispose() }
   [Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false)
-  $buffer = New-Object char[] 65537
+${
+  delegatePreTool
+    ? ""
+    : `  $buffer = New-Object char[] 65537
   $count = 0
   while ($count -lt $buffer.Length) {
     $read = [Console]::In.Read($buffer, $count, $buffer.Length - $count)
@@ -62,6 +104,8 @@ try {
     $count += $read
   }
   if ($count -gt 65536) { exit 0 }
+`
+}
   # .NET Framework Process.Start inherits unrelated PowerShell host handles.
   # Give the worker an explicit handle allowlist: its stdin and NUL only.
   Add-Type -TypeDefinition @'
@@ -70,6 +114,21 @@ using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Text;
 public static class FoomObserverTransport {
+${
+  delegatePreTool
+    ? `  // Read on a CLR worker, never a PowerShell runspace. A missing EOF drops
+  // this observation after 500ms; the successful parent exit owns permission.
+  public static string ReadInput() {
+    var input = System.Threading.Tasks.Task.Run(() => {
+      char[] buffer = new char[65537];
+      int count = 0, read;
+      while (count < buffer.Length && (read = Console.In.Read(buffer, count, buffer.Length - count)) > 0) count += read;
+      return count > 65536 ? null : new string(buffer, 0, count);
+    });
+    return input.Wait(500) ? input.Result : null;
+  }`
+    : ""
+}
   [StructLayout(LayoutKind.Sequential)]
   private struct Security { public int Size; public IntPtr Descriptor; public int Inherit; }
   [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
@@ -142,7 +201,13 @@ public static class FoomObserverTransport {
   }
 }
 '@
-  $payload = [System.Text.Encoding]::UTF8.GetBytes($buffer, 0, $count)
+${
+  delegatePreTool
+    ? `  $inputText = [FoomObserverTransport]::ReadInput()
+  if ($null -eq $inputText) { exit 0 }
+  $payload = [System.Text.Encoding]::UTF8.GetBytes($inputText)`
+    : "  $payload = [System.Text.Encoding]::UTF8.GetBytes($buffer, 0, $count)"
+}
   [FoomObserverTransport]::Send(($PSHOME + '\\powershell.exe'), ($PSScriptRoot + '\\send.ps1'), $args[0], $sequence, $payload)
 } catch { }
 exit 0

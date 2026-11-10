@@ -330,3 +330,108 @@ test("an unarmed launch dismisses before dispatch and does not wait for startup"
   expect(order).toEqual(["close", "launch"]);
   anchor.remove();
 });
+
+test("late panel facts and pinning keep commands stationary; explicit resize refits the viewport", () => {
+  const anchor = document.createElement("button");
+  document.body.append(anchor);
+  let resized = () => {};
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      constructor(callback: () => void) {
+        resized = callback;
+      }
+      observe() {}
+      disconnect() {}
+    },
+  );
+  const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+    x: 100,
+    y: 650,
+    left: 100,
+    top: 650,
+    bottom: 670,
+    right: 120,
+    width: 20,
+    height: 20,
+    toJSON: () => ({}),
+  });
+  const height = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(100);
+  const props = {
+    anchor,
+    keepOnResize: true,
+    close: vi.fn(),
+    actions: [{ label: "New agent", run: () => {} }],
+    panel: {
+      title: "Repository",
+      kind: "Repository",
+      mark: "repository",
+      facts: null,
+      pinned: false,
+    },
+  };
+  const view = render(<RowMenu {...props} />);
+  try {
+    const panel = view.getByRole("dialog");
+    expect(panel.style.top).toBe("650px");
+    expect(panel.style.maxHeight).toBe(`${String(window.innerHeight - 658)}px`);
+    height.mockReturnValue(200);
+    act(() => {
+      resized();
+    });
+    expect(panel.style.top).toBe("650px");
+    view.rerender(<RowMenu {...props} panel={{ ...props.panel, pinned: true }} />);
+    expect(panel.style.top).toBe("650px");
+    // A requested resize is allowed to re-anchor; content arrival and pinning are not.
+    fireEvent.resize(window);
+    expect(panel.style.top).toBe(`${String(window.innerHeight - 208)}px`);
+    expect(panel.style.maxHeight).toBe("200px");
+  } finally {
+    view.unmount();
+    rect.mockRestore();
+    height.mockRestore();
+    vi.unstubAllGlobals();
+    anchor.remove();
+  }
+});
+
+test("scrolling a panel body dismisses every submenu while retaining the panel", () => {
+  const anchor = document.createElement("button");
+  document.body.append(anchor);
+  const close = vi.fn();
+  const view = render(
+    <RowMenu
+      anchor={anchor}
+      close={close}
+      panel={{
+        title: "Repository",
+        kind: "Repository",
+        mark: "repository",
+        facts: null,
+        pinned: true,
+      }}
+      actions={[
+        {
+          label: "New agent",
+          run: () => {},
+          submenu: [
+            { label: "Builder", run: () => {}, submenu: [{ label: "Claude Code", run: () => {} }] },
+          ],
+        },
+      ]}
+    />,
+  );
+  fireEvent.pointerEnter(view.getByRole("menuitem", { name: "New agent" }));
+  fireEvent.pointerEnter(view.getByRole("menuitem", { name: "Builder" }));
+  expect(view.getByRole("menu", { name: "Builder" })).toBeTruthy();
+  const panel = view.getByRole("dialog");
+  const body = panel.querySelector(".panel-body");
+  expect(body).not.toBeNull();
+  if (body) fireEvent.scroll(body);
+  expect(view.queryByRole("menu", { name: "New agent" })).toBeNull();
+  expect(view.queryByRole("menu", { name: "Builder" })).toBeNull();
+  expect(view.getByRole("dialog")).toBe(panel);
+  expect(close).not.toHaveBeenCalled();
+  view.unmount();
+  anchor.remove();
+});

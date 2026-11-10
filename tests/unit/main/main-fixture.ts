@@ -298,7 +298,7 @@ vi.mock("../../../src/main/setup/environment-ipc", () => ({
 
 vi.mock("../../../src/main/workspace/workspace", () => ({
   Workspace: class {
-    restore = async () => {};
+    restore = mock.workspace.restore;
     restartSaved = async () => {};
     prepareQuit = async () => {};
     cancelQuit = () => {};
@@ -499,6 +499,7 @@ const mock = vi.hoisted(() => {
   }
   const instances: BrowserWindow[] = [];
   const workspace = {
+    restore: vi.fn<() => Promise<void>>(() => Promise.resolve()),
     deps: undefined as WorkspaceDependencies | undefined,
     startHostRecipe: vi.fn<(target: RemoteTarget) => Promise<string>>(() =>
       Promise.resolve("recipe"),

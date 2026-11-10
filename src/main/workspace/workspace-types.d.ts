@@ -1,3 +1,4 @@
+import type { CheckoutHold } from "./worktree-reservations";
 import type { ParentIdentity } from "../control/orchestration.d";
 import type { RemoteTarget } from "../../shared/remote-host";
 import type { ReviewSnapshot } from "../control/review-loops.d";
@@ -82,6 +83,7 @@ export interface WorkspaceMethods {
       | "selection"
       | "remoteCheckout"
     >,
+    parentHold?: CheckoutHold,
   ): Promise<{ id: string; attention: "hooks" | "evaluator" }>;
   startWorktree(request: StartWorktreeRequest, confirm?: ConfirmWorkspace): Promise<string | null>;
   shellEnvironment(pathFirst?: string): Promise<{ env: Record<string, string>; names: string[] }>;
@@ -95,6 +97,7 @@ export interface WorkspaceMethods {
     remoteOverride?: RemoteTarget,
     validateLaunch?: () => void,
     signal?: AbortSignal,
+    parentHold?: CheckoutHold,
   ): Promise<string>;
   startMachine(
     host: string | null,
@@ -106,6 +109,7 @@ export interface WorkspaceMethods {
     validateLaunch?: () => void,
     signal?: AbortSignal,
     heldReservation?: string,
+    parentHold?: CheckoutHold,
   ): Promise<string | undefined>;
   startHomeShell(
     restoreId?: string,
@@ -130,6 +134,7 @@ export interface WorkspaceMethods {
     validateLaunch?: () => void,
     signal?: AbortSignal,
     heldReservation?: string,
+    parentHold?: CheckoutHold,
   ): Promise<string | undefined>;
   revokeConfig(id: string): void;
   bindConfig(id: string, token: string): void;
@@ -146,6 +151,7 @@ export interface WorkspaceMethods {
     startup?: SidebarStartup,
     heldReservation?: string,
     onCloseReview?: (pending: boolean) => Promise<void>,
+    heldCheckout?: CheckoutHold,
   ): Promise<SidebarCommandResult>;
   auditHuman(
     action: string,
@@ -177,6 +183,7 @@ export interface WorkspaceMethods {
       validate(): void;
     },
     remote?: AgentLaunch["remoteCheckout"],
+    parentHold?: CheckoutHold,
   ): Promise<string>;
   known(repository: string): void;
   reserveRepositoryRemoval(repository: string, validate: () => void): () => void;
@@ -263,6 +270,7 @@ export interface WorkspaceDependencies {
   terminals: {
     create(spec: TerminalSpec): Promise<string>;
     kill(id: string, remoteHost?: string): Promise<void>;
+    setClosing?(id: string, closing: boolean): void;
     stop(id: string): Promise<boolean>;
     tail(id: string, lines: number): Promise<string[]>;
     childInput?(id: string, data: ChildInput): Promise<void>;

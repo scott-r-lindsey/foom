@@ -213,7 +213,7 @@ export function SoundControls({
           {picker("refusal")}
           <p className="preflight-note">
             Needs you repeats every 2 minutes until answered or dismissed. The terminal you are
-            looking at does not alert. Refusal plays when no tile is empty.
+            looking at does not alert. Refusal plays when the tile layout is full.
           </p>
         </section>
       </div>

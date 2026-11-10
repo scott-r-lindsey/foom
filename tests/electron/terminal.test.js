@@ -21,6 +21,297 @@ const {
   stopSession,
 } = require("./harness.js");
 
+async function exitedCursorResize(context, delayedExit = false, rejectRefresh = false) {
+  const root = await mkdtemp(path.join(tmpdir(), "foom-cursor-reflow-"));
+  removeAfterApps(context, root);
+  const prompt = String.raw`PS C:\Users\runneradmin\AppData\Local\Temp\foom-tests-bW5FZf\foom-profile-u5o8i1\shell-fixture> `;
+  const script = path.join(root, "prompt.js");
+  await writeFile(
+    script,
+    `
+process.stdin.setRawMode(true);
+process.stdin.resume();
+process.stdout.write(${JSON.stringify("REFLOW_FIXTURE_READY\r\n")});
+process.stdin.once("data", () => {
+  process.stdout.write(${JSON.stringify("\x1b[2J\x1b[H" + prompt)}, () => process.exit(0));
+});
+`,
+  );
+  const app = await launchApp(context, { fixture: "empty-board" });
+  const page = await boardPage(app);
+  await sizeTileBoard(app, page, 1500, 900);
+  await app.evaluate(
+    ({ app }, { command, script }) => {
+      const load = process
+        .getBuiltinModule("node:module")
+        .createRequire(app.getAppPath() + "/package.json");
+      const { TerminalHostClient } = load("./build/main/terminals/terminal-host-client.js");
+      const create = TerminalHostClient.prototype.create;
+      TerminalHostClient.prototype.create = function (spec) {
+        globalThis.reflowHost = this;
+        return create.call(this, { ...spec, command, args: [script], shellIntegration: false });
+      };
+    },
+    { command: process.execPath, script },
+  );
+  await page.evaluate(() => {
+    window.reflowTokens = [];
+    window.desktop.onData((_id, token) => {
+      if (!window.reflowTokens.includes(token)) window.reflowTokens.push(token);
+    });
+  });
+  await launchCheckoutShell(app, page);
+  await expect(page.locator(".board-row[data-kind='shell']")).toHaveCount(1);
+  const id = (await page.evaluate(() => window.desktop.workspace())).terminals[0].id;
+  const rows = page.locator(".tile-terminal .xterm-rows");
+  await expect(rows).toContainText("REFLOW_FIXTURE_READY");
+  await expect(page.locator(".xterm-helper-textarea")).toBeEditable();
+  const cols = () =>
+    app.evaluate(async (_electron, id) => (await globalThis.reflowHost.screen(id)).cols, id);
+  await expect.poll(cols).toBeGreaterThan(prompt.length);
+  if (delayedExit) {
+    const { observeResize, holdExit, reconcileExitResize } = require("./resize-fixture.js");
+    await observeResize(app);
+    // Install the host probe before the first narrow resize.
+    await app.evaluate(() => {
+      globalThis.resizeProbeHost = globalThis.reflowHost;
+    });
+    const gate = await holdExit(app, page, id);
+    try {
+      if (rejectRefresh) {
+        await app.evaluate(({ app }, id) => {
+          const load = process
+            .getBuiltinModule("node:module")
+            .createRequire(app.getAppPath() + "/package.json");
+          const { TerminalHostClient } = load("./build/main/terminals/terminal-host-client.js");
+          const attach = TerminalHostClient.prototype.attach;
+          globalThis.refreshAttachAttempts = 0;
+          TerminalHostClient.prototype.attach = function (candidate, send) {
+            if (candidate === id && ++globalThis.refreshAttachAttempts === 1)
+              return Promise.reject(new Error("Fixture snapshot unavailable"));
+            return attach.call(this, candidate, send);
+          };
+        }, id);
+      }
+      await page.keyboard.type("q");
+      await reconcileExitResize(
+        app,
+        page,
+        id,
+        gate,
+        prompt,
+        rejectRefresh
+          ? async () => {
+              // Only the second native-host attach rejects. Its error must settle
+              // without hiding the already-rendered cursor row or losing its lease.
+              await expect(page.locator(".tile-status")).toHaveText(
+                /Unable to (open|refresh) terminal/,
+              );
+              await expect(rows).toBeVisible();
+              await expect.poll(() => app.evaluate(() => globalThis.refreshAttachAttempts)).toBe(1);
+              await sizeTileBoard(app, page, 1500, 900);
+              await expect.poll(cols).toBeGreaterThan(prompt.length);
+              await expect.poll(() => app.evaluate(() => globalThis.refreshAttachAttempts)).toBe(2);
+            }
+          : undefined,
+      );
+    } finally {
+      await gate.release();
+    }
+    return;
+  }
+  await page.keyboard.type("q");
+  await expect(page.locator(".board-row[data-kind='shell']")).toHaveAttribute(
+    "data-exited",
+    "true",
+  );
+  const tail = () => page.evaluate(async (id) => (await window.desktop.tail(id, 40)).join(""), id);
+  const rendered = () =>
+    rows.evaluate((rows) => [...rows.children].map((row) => row.textContent.trimEnd()).join(""));
+  await expect.poll(tail).toBe(prompt);
+  await expect.poll(rendered).toBe(prompt.trimEnd());
+  for (const width of [900, 1500]) {
+    await sizeTileBoard(app, page, width, 900);
+    // Wait for the actual host resize, not merely the native window's new width.
+    if (width === 900) await expect.poll(cols).toBeLessThan(prompt.length);
+    else await expect.poll(cols).toBeGreaterThan(prompt.length);
+    await expect.poll(tail).toBe(prompt);
+    await expect.poll(rendered).toBe(prompt.trimEnd());
+  }
+  const tokenCount = await page.evaluate(() => window.reflowTokens.length);
+  await openSettingsScreen(page);
+  await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await page.locator(".board-row[data-kind='shell']").click();
+  await expect
+    .poll(() => page.evaluate(() => window.reflowTokens.length))
+    .toBeGreaterThan(tokenCount);
+  await expect.poll(tail).toBe(prompt);
+  await expect.poll(rendered).toBe(prompt.trimEnd());
+}
+
+test("cursor-row output survives window shrink, grow and Settings reattachment", async (context) => {
+  await exitedCursorResize(context);
+});
+
+test("local exit delivery across shrink reconciles the attached cursor row", async (context) => {
+  await exitedCursorResize(context, true);
+});
+
+test("failed exit refresh retains visible output and retries on the next resize", async (context) => {
+  await exitedCursorResize(context, true, true);
+});
+
+test("live raw PTY writes after resize without a stale reflow suffix", async (context) => {
+  const { liveRawResize } = require("./resize-fixture.js");
+  const root = await mkdtemp(path.join(tmpdir(), "foom-live-resize-"));
+  removeAfterApps(context, root);
+  const app = await launchApp(context, { fixture: "running-shell" });
+  const page = await boardPage(app);
+  const id = (await page.evaluate(() => window.desktop.workspace())).terminals[0].id;
+  await expect
+    .poll(() => page.evaluate(async (id) => (await window.desktop.tail(id, 40)).join("\n"), id))
+    .toMatch(process.platform === "win32" ? /PS [\s\S]*>\s*$/ : /[$#>]\s*$/);
+  await liveRawResize(app, page, id, root);
+});
+
+test("live Bash redraws a long prompt once and retains narrow command output after growth", {
+  skip: process.platform === "win32" && "Requires the POSIX fixture Bash",
+}, async (context) => {
+  const { observeResize, terminalColumns, renderedText } = require("./resize-fixture.js");
+  const app = await launchApp(context, { fixture: "running-shell" });
+  const page = await boardPage(app);
+  const id = (await page.evaluate(() => window.desktop.workspace())).terminals[0].id;
+  const tail = () => page.evaluate(async (id) => window.desktop.tail(id, 40), id);
+  await expect.poll(async () => (await tail()).join("")).toMatch(/[$#>]\s*$/);
+  await observeResize(app);
+  await sizeTileBoard(app, page, 1500, 900);
+  const cols = () => terminalColumns(app, id);
+  await expect.poll(cols).toBeGreaterThan(96);
+  const prompt = "P".repeat(94) + "> ";
+  await page.keyboard.type(`PS1='${prompt}'; printf '\\033[2J\\033[H'`);
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await tail()).join("")).toBe(prompt);
+  // Both parsers must consume the wide prompt before changing its geometry.
+  await expect.poll(() => renderedText(page)).toBe(prompt.trimEnd());
+  await sizeTileBoard(app, page, 900, 900);
+  await expect.poll(cols).toBeLessThan(96);
+  await expect.poll(async () => (await tail()).join("")).toBe(prompt);
+  await expect.poll(() => renderedText(page)).toBe(prompt.trimEnd());
+  await page.keyboard.type("echo SHRINK_MARKER");
+  await page.keyboard.press("Enter");
+  await expect.poll(tail).toContain("SHRINK_MARKER");
+  await expect.poll(async () => (await tail()).join("").endsWith(prompt)).toBe(true);
+  await expect(
+    page.locator(".xterm-rows > div").filter({ hasText: /^SHRINK_MARKER\s*$/ }),
+  ).toHaveCount(1);
+  await expect.poll(async () => (await renderedText(page)).endsWith(prompt.trimEnd())).toBe(true);
+  await sizeTileBoard(app, page, 1500, 900);
+  await expect.poll(cols).toBeGreaterThan(96);
+  await expect.poll(tail).toContain("SHRINK_MARKER");
+  await expect(
+    page.locator(".xterm-rows > div").filter({ hasText: /^SHRINK_MARKER\s*$/ }),
+  ).toHaveCount(1);
+});
+
+test("a different tile never attaches a revoked ID while workspace refresh is held", async (context) => {
+  const app = await launchApp(context, { fixture: "running-shell" });
+  const page = await boardPage(app);
+  const id = (await page.evaluate(() => window.desktop.workspace())).terminals[0].id;
+  await sizeTileBoard(app, page, 1800);
+  const originalTile = await page
+    .locator('.terminal-tile[data-kind="shell"]')
+    .getAttribute("data-tile");
+  await page.evaluate(() => window.desktop.appMenu.execute("split-right"));
+  await page.getByRole("button", { name: "Hide", exact: true }).click();
+  const original = page.locator(`[data-tile="${originalTile}"]`);
+  await original.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Close space", exact: true }).click();
+  await expect(original).toHaveCount(0);
+  const healthy = await page.evaluate(() => window.desktop.sidebarCommand({ kind: "home-shell" }));
+  assert.ok(healthy?.terminalId);
+  await expect(page.locator(`.board-row[data-drag-session="${healthy.terminalId}"]`)).toBeVisible();
+  await page.locator(`.board-row[data-drag-session="${healthy.terminalId}"]`).click();
+  await expect(
+    page.locator('.terminal-tile[data-focused="true"] .xterm-helper-textarea'),
+  ).toBeEditable();
+  await page.getByRole("button", { name: "Hide", exact: true }).click();
+  await app.evaluate(({ ipcMain }) => {
+    const original = ipcMain._invokeHandlers.get("workspace:snapshot");
+    let release;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    globalThis.revokedViewRefreshes = 0;
+    globalThis.releaseRevokedViewRefresh = () => {
+      ipcMain.removeHandler("workspace:snapshot");
+      ipcMain.handle("workspace:snapshot", original);
+      release();
+    };
+    ipcMain.removeHandler("workspace:snapshot");
+    ipcMain.handle("workspace:snapshot", async (...args) => {
+      globalThis.revokedViewRefreshes++;
+      await gate;
+      return original(...args);
+    });
+    const select = ipcMain._invokeHandlers.get("windows:select");
+    let releaseSelection;
+    const selected = new Promise((resolve) => {
+      releaseSelection = resolve;
+    });
+    globalThis.revokedViewSelected = false;
+    globalThis.releaseRevokedViewSelection = () => {
+      ipcMain.removeHandler("windows:select");
+      ipcMain.handle("windows:select", select);
+      releaseSelection();
+    };
+    ipcMain.removeHandler("windows:select");
+    ipcMain.handle("windows:select", async (...args) => {
+      const result = await select(...args);
+      globalThis.revokedViewSelected = true;
+      await selected;
+      return result;
+    });
+    const attach = ipcMain._invokeHandlers.get("terminal:attach");
+    globalThis.revokedViewAttaches = [];
+    ipcMain.removeHandler("terminal:attach");
+    ipcMain.handle("terminal:attach", (...args) => {
+      globalThis.revokedViewAttaches.push(args[1]);
+      return attach(...args);
+    });
+  });
+  try {
+    // Authorize selection while the capability is live, but hold its reply.
+    // Kill then publishes revocation before workspace membership catches up.
+    await page.locator(`.board-row[data-drag-session="${id}"]`).click();
+    await expect.poll(() => app.evaluate(() => globalThis.revokedViewSelected)).toBe(true);
+    await page.evaluate((id) => window.desktop.kill(id), id);
+    await expect.poll(() => app.evaluate(() => globalThis.revokedViewRefreshes)).toBeGreaterThan(0);
+    await app.evaluate(() => globalThis.releaseRevokedViewSelection());
+    await expect(page.locator(`.board-row[data-drag-session="${id}"]`)).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    // A subsequent healthy attachment drains the shared view queue. This
+    // observes completion without a sleep or guessing at xterm's parser timing.
+    await page.locator(`.board-row[data-drag-session="${healthy.terminalId}"]`).click();
+    await expect(
+      page.locator('.terminal-tile[data-focused="true"] .xterm-helper-textarea'),
+    ).toBeEditable();
+    assert.deepEqual(
+      await app.evaluate(() => globalThis.revokedViewAttaches),
+      [healthy.terminalId],
+      `revoked ID: ${id}`,
+    );
+  } finally {
+    await app.evaluate(() => {
+      globalThis.releaseRevokedViewSelection();
+      globalThis.releaseRevokedViewRefresh();
+    });
+  }
+  await expect(page.locator(`.board-row[data-drag-session="${id}"]`)).toHaveCount(0);
+});
+
 test("a new shell has a rendered blinking cursor after reusing an exited terminal view", async (context) => {
   const app = await launchApp(context, { fixture: "running-shell" });
   const page = await boardPage(app);
@@ -894,9 +1185,12 @@ test("an unanswered request times out while a real fixture terminal still answer
   );
   assert.equal(result.timeouts.length, 2);
   assert.equal(result.timeouts[0].command, "tail");
-  // Node timers have millisecond precision and can fire just under 10 seconds;
-  // diagnostics round the actual monotonic duration, which can therefore be 9999.
-  assert.ok(result.timeouts[0].elapsedMs >= 9999);
+  const TIMEOUT_MS = 10_000;
+  const TIMER_TOLERANCE_MS = 25;
+  // The monotonic measurement starts before the timer is armed. Allow a few
+  // milliseconds of timer/clock jitter and diagnostic rounding, while still
+  // rejecting a timeout that fires noticeably early (100 ms or more).
+  assert.ok(result.timeouts[0].elapsedMs >= TIMEOUT_MS - TIMER_TOLERANCE_MS);
   assert.deepEqual(Object.keys(result.timeouts[0]).sort(), ["command", "elapsedMs", "time"]);
 });
 

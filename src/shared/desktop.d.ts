@@ -51,7 +51,7 @@ export interface DesktopApi extends WorkspaceApi, SetupApi, ConfigApi, Environme
   readonly isDevelopment: boolean;
   readonly appMenu: AppMenuApi;
   create(cols: number, rows: number): Promise<{ id: string; title: string }>;
-  attach(id: string): Promise<void>;
+  attach(id: string, mode?: "refresh"): Promise<void>;
   detach(id: string): Promise<void>;
   kill(id: string): Promise<void>;
   copyTerminalSelection(id: string, text: string): Promise<void>;

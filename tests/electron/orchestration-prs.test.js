@@ -40,8 +40,15 @@ for (const scenario of [
     const home = path.join(root, "home");
     for (const directory of [bin, repo, home]) await mkdir(directory);
     await writeFile(path.join(bin, "claude"), FAKE_ORCHESTRATED_CLAUDE);
+    await writeFile(
+      path.join(bin, "codex"),
+      FAKE_ORCHESTRATED_CLAUDE.replace("2.1.296 (Claude Code)", "codex-cli 0.161.0").replace(
+        "  --settings <file-or-json>  Load settings",
+        "  --no-alt-screen  -c, --config <key=value>  resume",
+      ),
+    );
     await writeFile(path.join(bin, "gh"), FAKE_GH);
-    for (const name of ["claude", "gh"]) await chmod(path.join(bin, name), 0o755);
+    for (const name of ["claude", "codex", "gh"]) await chmod(path.join(bin, name), 0o755);
     await symlink(process.execPath, path.join(bin, "node"));
     const git = (...args) =>
       isolatedGit(["-c", "user.name=Foom", "-c", "user.email=foom@example.com", ...args], {
@@ -60,7 +67,13 @@ for (const scenario of [
     const forgeState = path.join(root, "forge.json");
     await writeFile(
       forgeState,
-      JSON.stringify({ pr: { headRepositoryOwner: { login: "fixture" } }, checks: [] }),
+      JSON.stringify({
+        pr: {
+          headRepositoryOwner: { login: "fixture" },
+          headRefOid: git("rev-parse", "HEAD").trim(),
+        },
+        checks: [],
+      }),
     );
     const credentials = path.join(root, "credentials.json");
     const { app, page, parent } = await launchTrustedParent(context, {
@@ -201,24 +214,26 @@ for (const scenario of [
     );
     if (scenario.review) {
       await page.evaluate(() => window.desktop.saveSetup({ autoRemoveMergedWorktrees: false }));
+      const missing = await mcp("tools/call", {
+        name: "review",
+        arguments: { pullRequest: 340, idempotencyKey: "no-default-review" },
+      });
+      assert.equal(missing.isError, true);
+      assert.match(missing.content[0].text, /agent_required/u);
       const branches = git("branch", "--format=%(refname)");
       for (const dirty of [false, true]) {
         const suffix = dirty ? "dirty" : "clean";
-        const reviewTree = await tool("create_worktree", {
+        if (dirty) await page.evaluate(() => window.desktop.saveSetup({ defaultAgent: "codex" }));
+        const reviewer = await tool("review", {
           pullRequest: 340,
-          review: true,
-          idempotencyKey: `review-tree-${suffix}`,
-        });
-        const reviewer = await tool("launch", {
-          worktreeId: reviewTree.resultId,
-          agent: "claude",
-          prompt: "Report review findings; do not push.",
+          ...(dirty ? {} : { agent: "codex" }),
           idempotencyKey: `reviewer-${suffix}`,
         });
         const reviewRow = (await page.evaluate(() => window.desktop.workspace())).terminals.find(
           (row) => row.id === reviewer.resultId,
         );
         assert.ok(reviewRow);
+        assert.equal(reviewRow.agent, "codex");
         assert.equal(
           isolatedGit(["rev-parse", "--symbolic-full-name", "HEAD"], {
             cwd: reviewRow.worktree,

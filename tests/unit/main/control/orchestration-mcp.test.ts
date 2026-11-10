@@ -178,6 +178,15 @@ it("lists orchestration tools to agents but runs them only for the orchestrator"
   );
   expect(JSON.stringify(await agent.send("tools/list"))).not.toContain('"name":"read_handoff"');
   expect(listed).toContain('"name":"read_handoff"');
+  for (const [method, params] of [
+    ["review", { pullRequest: 7, agent: "codex", idempotencyKey: "no-review" }],
+    ["launch", { worktreeId: "tree", agent: "codex", idempotencyKey: "no-launch" }],
+    ["prompt", { id: "child", text: "Proceed", idempotencyKey: "no-prompt" }],
+  ] as const) {
+    const denied = await agent.tool(method, params);
+    expect(denied.isError).toBe(true);
+    expect(denied.content[0]?.text).toMatch(/^forbidden: you are not this repository's/u);
+  }
   const refused = await agent.tool("stop", { idempotencyKey: "x", id: "child" });
   expect(refused.isError).toBe(true);
   expect(refused.content[0]?.text).toMatch(/^forbidden: you are not this repository's/u);

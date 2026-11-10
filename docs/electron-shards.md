@@ -8,8 +8,8 @@ companion job per platform, alongside the Electron shards and static checks.
 The Quality gate requires all fifteen Electron jobs and all three companion jobs.
 Failed, cancelled or skipped required jobs fail the gate; documentation-only runs
 permit skipping both desktop matrices together. Native hook probes stay serial.
-Electron steps allow ten minutes on Linux and fourteen minutes on Windows and
-macOS. Per-test deadlines and the worker watchdog are unchanged.
+Electron steps allow fourteen minutes on Linux, Windows and macOS. Per-test
+deadlines and the worker watchdog are unchanged.
 
 ## Feature suites and local runs
 
@@ -643,3 +643,106 @@ seconds to 82.6 seconds; the other four Windows shards finished within 10m10s.
 This passing observation remains in the evidence.
 See PR #1015 for the third unchanged-plan run's timings and final headroom
 assessment.
+
+## macOS step exhaustion investigation (#1142)
+
+Refresh the duration plan from all fifteen original Electron reports in each of
+these green main runs, with the unchanged four/five/six matrix:
+
+```sh
+for run in 42552592630 42586109373; do
+  gh run download "$run" --pattern 'electron-results-*' \
+    --dir "test-results/1142/sources/$run"
+done
+node scripts/rebalance-electron-shards.mjs test-results/1142/sources/* --write
+pnpm run format
+```
+
+These sources measure all 327 current registrations on all three platforms. The
+plan retains per-case platform maxima, including skipped cases as zero, and
+regenerates all three assignments together. No test, fixture, deadline, watchdog,
+step limit, shard count, process audit or CLI isolation changes.
+
+Observed macOS seconds in shard order, from original JUnit and Actions jobs/steps:
+
+| Green main run | Named-case sums | Electron step wall time | Wall minus named cases |
+| --- | --- | --- | --- |
+| [42552592630](https://github.com/scott-r-lindsey/foom/actions/runs/42552592630) | 617.4 / 581.1 / 487.8 / 374.9 / 548.2 / 514.2 | 726 / 670 / 609 / 433 / 630 / 598 | 108.6 / 88.9 / 121.2 / 58.1 / 81.8 / 83.8 |
+| [42586109373](https://github.com/scott-r-lindsey/foom/actions/runs/42586109373) | 362.8 / 515.2 / 506.0 / 508.5 / 539.8 / 578.4 | 424 / 607 / 603 / 600 / 637 / 663 | 61.2 / 91.8 / 97.0 / 91.5 / 97.2 / 84.6 |
+
+The residual includes build, SEA assembly, runner/file startup and reporting; it
+is not fixture teardown, which is already included in JUnit case durations.
+These runs use the current configuration but different revisions, so this is an
+observational comparison, not a controlled performance experiment.
+
+### Interrupted attempts
+
+Preserve the original run/attempt log ZIPs, artifact-list and jobs API responses,
+and original artifact ZIPs before extracting. In
+[42589044729](https://github.com/scott-r-lindsey/foom/actions/runs/42589044729),
+macOS shard 3/6 failed on both attempts:
+
+| Attempt / job | Original artifact ID | Step start → stop (UTC) | Completed fixture records | Setup / body / teardown seconds |
+| --- | --- | --- | --- | --- |
+| [1 / 129065943838](https://github.com/scott-r-lindsey/foom/actions/runs/42589044729/job/129065943838) | 13663065813 | 09:17:22 → 09:31:35 | 39 | 166.116 / 470.471 / 62.019 |
+| [2 / 129091217658](https://github.com/scott-r-lindsey/foom/actions/runs/42589044729/job/129091217658) | 13666267710 | 10:25:40 → 10:39:53 | 34 | 160.578 / 458.719 / 62.677 |
+
+Both steps lasted 853 seconds by the jobs API, with an explicit Actions
+fourteen-minute timeout. Each artifact has a 52-byte JUnit opening envelope and
+zero-byte summary. Neither is a passing rebalance input. Preserve both artifacts
+by numeric ID: downloading only by name can replace one attempt with another.
+The original shard-6 failure and its passing rerun are separate artifacts
+13661746896 and 13665936430; they are not shard-3 completion evidence.
+
+The same 39 completed fixture cases cost 412.891 / 436.679 seconds on the two
+green sources, versus 698.606 seconds in attempt 1. The same 34 cases cost
+375.878 / 396.242 seconds on green main, versus 681.974 seconds in attempt 2.
+All three phases increased. The five largest attempt-1 fixture totals are
+detached PR review (65.743s), registered-host clean reviewer (54.689s),
+registered-host agy lifecycle (47.368s), OpenCode cards/resume (34.928s), and
+review-loop cap (33.589s). These are fixture phase sums, not JUnit durations.
+
+Attempt 1 completed a passing case at 09:31:24 before the 09:31:35 timeout.
+Attempt 2 completed the host color-query case at 10:39:52.467 before the
+10:39:53.412 timeout. Their logs contain no named test or watchdog failure.
+Attempt 2's SEA preparation output continues through 10:27:30; test-runner
+warnings appear at 10:27:51. This demonstrates substantial pre-case work as
+well as ongoing passing test progress near interruption. It supports repeated
+whole-shard workload/overhead exhaustion; it does not establish a hung fixture,
+runner load, or the duration of the interrupted/missing cases. Completed fixture
+records alone cannot identify the final in-progress operation. If that distinction
+is needed next, capture bounded case-start and setup/body/teardown transition
+events with wall and monotonic timestamps, including incomplete launches; retain
+payload-free events on interruption. Do not infer the missing phase from the
+empty JUnit or change deadlines to obtain it.
+
+### Rebalance and remaining headroom
+
+Projected case seconds using each current case's maximum across both green runs:
+
+| Platform / configured count | Before (including hash fallback) | After |
+| --- | --- | --- |
+| Linux / 4 | 535.2 / 544.8 / 525.1 / 574.2 | 542.7 / 546.1 / 546.8 / 543.7 |
+| Windows / 5 | 572.2 / 659.8 / 577.0 / 557.0 / 554.0 | 583.1 / 586.9 / 581.4 / 587.4 / 581.2 |
+| macOS / 6 | 617.4 / 604.8 / 530.2 / 508.5 / 574.4 / 601.9 | 574.4 / 576.3 / 570.8 / 568.0 / 573.6 / 574.1 |
+
+The macOS peak falls 41.1 seconds (6.7%). Replaying individual source durations
+through the new assignments peaks at 528.4 / 525.9 seconds. Adding each run's
+largest observed residual gives modeled peaks of 649.6 / 623.1 seconds; these
+are estimates, not observed new-assignment wall times. Applying the largest
+observed residual to the conservative maxima gives 697.5 seconds, only 17.0%
+headroom. Even perfect balance of the 3437.1-second maxima total needs 572.8
+seconds of cases, leaving just 57.2 seconds for overhead under the requested
+630-second target (25% headroom below 840 seconds). Every observed green-source
+residual exceeds that allowance.
+
+Balancing alone therefore does **not** establish 25% headroom for every macOS
+shard. Retain the decided limits and counts. A follow-up proposal is to measure
+and reduce repeated per-shard app/console and remote SEA preparation (including
+verification/signing and runner startup) before considering additional macOS
+jobs: the conservative projection needs at least 67.5 seconds removed from its
+peak to reach 630 seconds. Sharing verified same-revision build inputs would
+need its own artifact/fixture-isolation design and queue-time comparison. The
+existing phase totals do not prove an avoidable operation inside the heavy
+fixtures, so this refresh removes none. Actual PR CI step wall times must still
+validate the new assignment; a passing run alone is not proof of 25% headroom.

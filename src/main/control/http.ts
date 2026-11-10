@@ -1,6 +1,6 @@
 import { Pairing } from "./pairing";
 import type { PairingOptions } from "./types";
-import { ControlMcp } from "./mcp";
+import { ControlMcp, McpValidationError } from "./mcp";
 import { boundedHttpServer } from "./http-limits";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { ControlService } from "./service";
@@ -105,6 +105,7 @@ export class ControlHttp {
       } catch (error) {
         end(error instanceof ControlError && error.code === "not_found" ? 404 : 400, {
           error: "invalid_request",
+          ...(error instanceof McpValidationError ? { field: error.field } : {}),
         });
         return;
       }
@@ -182,7 +183,10 @@ export class ControlHttp {
                 : code === "not_found"
                   ? 404
                   : 400,
-            { error: code },
+            {
+              error: code,
+              ...(mcp && error instanceof McpValidationError ? { field: error.field } : {}),
+            },
           );
         }
       })();

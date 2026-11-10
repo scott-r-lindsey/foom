@@ -140,6 +140,8 @@ it.each([
   expect(output.out).toHaveBeenCalledWith('{"result":{"state":"quiet_ok"}}\n');
   for (const [error, code] of [
     ["invalid_request", 2],
+    ["agent_required", 2],
+    ["review_agent_required", 2],
     ["unauthorized", 3],
     ["forbidden", 3],
     ["capacity", 4],

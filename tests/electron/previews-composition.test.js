@@ -64,20 +64,61 @@ test("preview composition puts the trusted confirmation scrim above previews and
 
 test("preview composition keeps maximize and restore live and excludes preview hit testing throughout tile drags", async (context) => {
   const { app, page, id, tile, bounds } = await composedPreview(context);
+  await page.evaluate(() => {
+    window.previewDragTrace = [];
+    for (const type of ["pointerdown", "dragstart", "dragover", "dragend"]) {
+      document.addEventListener(
+        type,
+        (event) => {
+          window.previewDragTrace.push({
+            type,
+            at: performance.now(),
+            tile: event.target.closest?.("[data-tile]")?.dataset.tile,
+            x: event.clientX,
+            y: event.clientY,
+          });
+          if (window.previewDragTrace.length > 64) window.previewDragTrace.shift();
+        },
+        true,
+      );
+    }
+  });
   // Lengthen only the product animation being observed, never a test deadline.
   await page.addStyleTag({ content: ".terminal-tile { transition-duration: 1s; }" });
   await tile.getByRole("button", { name: "Maximize tile" }).click();
   await expectPreviewSnapshot(page, id);
   assert.equal((await previewViewState(app, id)).visible, true);
+  await tile.evaluate(async (element) => {
+    await Promise.all(element.getAnimations().map((animation) => animation.finished));
+  });
   await tile.getByRole("button", { name: "Restore tile" }).click();
   await expectPreviewSnapshot(page, id);
   await expect.poll(async () => (await previewViewState(app, id)).visible).toBe(true);
+  // A live native view and decoded snapshot precede restore's geometry transition.
+  // Until it finishes, the preview can still cover the shell's title at mouse-down.
+  await page.locator(".terminal-tile").evaluateAll(async (elements) => {
+    await Promise.all(
+      elements.flatMap((element) => element.getAnimations().map((animation) => animation.finished)),
+    );
+  });
   const title = await page.locator('[data-tile="shell"] .tile-title').boundingBox();
   assert.ok(title);
   await page.mouse.move(title.x + 10, title.y + 10);
   await page.mouse.down();
   await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2, { steps: 12 });
-  await expect(page.locator(".tile-drop-preview")).toBeVisible();
+  try {
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => window.previewDragTrace.find((event) => event.type === "dragstart")?.tile,
+        ),
+      )
+      .toBe("shell");
+    await expect(page.locator(".tile-drop-preview")).toBeVisible();
+  } catch (error) {
+    context.diagnostic(JSON.stringify(await page.evaluate(() => window.previewDragTrace)));
+    throw error;
+  }
   await expectPreviewSnapshot(page, id);
   assert.equal((await previewViewState(app, id)).visible, false);
   await page.screenshot({

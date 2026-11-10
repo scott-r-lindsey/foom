@@ -124,7 +124,7 @@ bypass setup ownership or consent. New scans and actions use the model.
 The same `agy` enable/hooks/defaults/session keys are retained.
 
 The version-3 ordered observer preserves root-level filenames and native script bytes, but anchors commands to the absolute CLI-owned installed plugin directory (#467/#723). Generic staging under Foom's profile adds only a definition fingerprint
-to plugin metadata; the CLI alone copies it into its installation. Version 4 adds the environment-only MCP launcher (#855). Version 5 adds pre-tool progress (#1000). Legacy versions 1–4 offer Update; version 5 requires the current definition fingerprint.
+to plugin metadata; the CLI alone copies it into its installation. Version 4 adds the environment-only MCP launcher (#855). Version 5 adds pre-tool progress (#1000). Version 6 fixes the required pre-tool decision on agy 1.5.3: `allow` delegates to subsequent hooks/default policy, without granting permission. Legacy versions 1–5 offer Update; version 6 requires the current definition fingerprint.
 Older versions offer Update; disabled versions offer Enable; explicit fingerprint
 mismatches offer reviewed Update. Owned installed/outdated/disabled plugins also offer a confirmed Reinstall (uninstall then install); unavailable status offers Retry status in the row. Launch adds credentials only when hooks are
 enabled and installed or outdated. Channel-less reports are accepted only for the

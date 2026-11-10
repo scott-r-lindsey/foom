@@ -15,7 +15,8 @@ retry with the same key returns that record.
 | Tool | Parameters | Result |
 |---|---|---|
 | `create_worktree` | Exactly one of `branch` or `pullRequest`; optional `review` boolean with `pullRequest`, optional registered `host` | New local branch, or continue an open same-repository PR; `resultId` is the opaque worktree ID |
-| `launch` | `worktreeId`, `agent` (a loaded provider ID), optional matching `host`, `model`, `effort`, `prompt` ≤16 KiB (including the fixed author brief when `review` is enabled) and `review` | `resultId` is the child session ID |
+| `launch` | `worktreeId`, optional `agent` (a loaded provider ID; omission uses the configured default), optional matching `host`, `model`, `effort`, `prompt` ≤16 KiB (including the fixed author brief when `review` is enabled) and `review` | `resultId` is the child session ID |
+| `review` | `pullRequest`, optional `agent` (loaded provider ID; omission uses the configured default), `since`, `focus`, `postFindings` | Detached PR-head reviewer; `resultId` is its session ID |
 | `prompt` | `id`, `text` ≤16 KiB | Text plus submit, honoring bracketed paste, without review |
 | `send_keys` | `id`, `keys` (1–64) | Validated logical keys, without review |
 | `stop` | `id` | Existing graceful stop; an already exited child succeeds; a stop error is `indeterminate` |
@@ -57,11 +58,17 @@ the socket deadline to 65 seconds after a request body arrives, allowing the CLI
 a reviewer can remove its checkout without confirmation, regardless of the
 **Auto-remove merged worktrees** setting or whether the PR is still open, only
 when Foom created it for review, its identity still validates, it remains detached
-at the exact fetched and recorded PR head, it has no tracked or untracked changes
+at the exact fetched and recorded PR head, it has no tracked or non-ignored untracked changes
 and no local refs or commits beyond that head, and no other session or operation
 is using it. Main checks local refs against the creation baseline and inspects
-worktree reflogs, including commits later reset away. Ignored content and unavailable
-evidence also refuse automatic deletion. The closing exited session is released
+worktree reflogs, including commits later reset away. Only ignored output under the
+fixed root directories `node_modules/`, `build/`, `out/`, `.cache/`, `test-results/`, `.husky/_/` and `coverage/` is disposable without confirmation.
+Other ignored paths, modified/untracked `.gitignore` files, and changed or missing
+creation-time exclusion evidence refuse automatic deletion. `info/exclude` bytes
+and the checkout's `core.excludesFile` setting must match the recorded digest;
+review status reads disable `core.excludesFile`. Tracked changes remain changes
+inside these roots. See [review removal proof](../areas/worktrees.md#detached-pr-review-checkouts-843).
+The closing exited session is released
 by the removal sequence. The proof is repeated under the removal lock and next to
 Git deletion; failure falls back to trusted confirmation. Existing identity,
 membership, active-session and operation guards still apply after approval.
@@ -112,7 +119,7 @@ As of #217, Foom never emits `checking` in control API or MCP session states. An
 ### Opt-in child review loop (#690)
 
 `launch` additionally accepts optional `review: {rounds?, agent?, postFindings?, parentWaitMinutes?}`.
-Defaults on opt-in are 3 rounds, Claude and no posting; rounds must be 1–5.
+Defaults on opt-in are 3 rounds and no posting, using the user-chosen default agent when omitted; rounds must be 1–5.
 The optional `parentWaitMinutes` is an integer from 1–1440 (default 180).
 Unknown fields fail closed. Main requires installed reviewer and resume-capable
 providers. Only orchestrator-created worktrees with no remaining earlier sessions are
@@ -241,12 +248,11 @@ capacity, live authority and absence of prior rows before spawning. Starting
 launches still reserve the checkout. Failed continuation preserves used state.
 Restored metadata grants no authority and never starts automation.
 
-`review({pullRequest: N, since?, focus?, postFindings?, idempotencyKey})` creates
-one detached checkout at the fetched PR head and launches one ordinary Claude
-reviewer with the standard read-only brief and structured verdict. `since` is a
+`review({pullRequest: N, agent?, since?, focus?, postFindings?, idempotencyKey})` creates
+one detached checkout at the fetched PR head and launches one ordinary reviewer using the selected provider with the standard read-only brief and structured verdict. `since` is a
 full lowercase 40- or 64-digit commit SHA; the reviewer checks its ancestry before
 scoping the diff. `focus` is quoted, bounded (4096 UTF-8 bytes) untrusted scope data.
-The console is `foom review --pull-request N [--since SHA] [--focus TEXT]
+The console is `foom review --pull-request N [--agent PROVIDER] [--since SHA] [--focus TEXT]
 [--post-findings true|false] --idempotency-key KEY`. No author's loop is changed;
 the parent reads the verdict and stops/closes the reviewer normally. Pending or
 red checks do not prevent a standalone review, but the fetched head must still
@@ -344,3 +350,24 @@ no fresh start. Human launches omit admission, including human remote Resume.
 Review loops retry host_busy every five seconds for at most five minutes, then
 escalate as launch failed. Cancellation releases the retry timer. Other launch
 failures retain their existing behavior. No threshold setting is added.
+
+### Provider selection (#1121)
+
+`launch.agent`, one-shot `review.agent`, and review-loop `review.agent` are optional.
+Omission uses the single user-chosen Settings → General **Default agent**
+(`defaultAgent` in settings.json, provider ID or null). It starts unset. Without a
+configured default, launch and one-shot review return `agent_required`; an omitted
+loop reviewer returns `review_agent_required`. Supply `agent` (CLI `--agent`, or
+`--review-agent` for the loop), or choose the default. Explicit invalid or
+unavailable providers refuse under the same installed-provider validation as launch;
+Foom never selects the first installed provider or falls back to another vendor.
+This changes no child authority: reviewers cannot launch or prompt agents.
+
+## Close cleanup visibility (#1048)
+
+`sessions`, `session_state` and wait observations retain an exited session during
+Close cleanup and add `closeState: "closing"`; cleanup failure exposes
+`closeState: "failed"`. This field participates in the session revision. The close
+operation cannot report success until worktree and terminal cleanup settle. Its
+existing pending-confirmation, conflict, declined, failed and indeterminate rules
+remain authoritative. A hidden board row is not proof of completed cleanup.

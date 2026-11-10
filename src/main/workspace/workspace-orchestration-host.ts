@@ -1,4 +1,5 @@
-import { worktreeReservation } from "./worktree-reservations";
+import { checkoutBusy, closingWorktree, worktreeReservation } from "./worktree-reservations";
+import type { CheckoutHold } from "./worktree-reservations";
 import { agentProviders } from "../agents/providers/registry";
 import { localResources } from "../setup/local-host";
 import { prepareTail } from "../evaluator/terminal-tail";
@@ -78,9 +79,15 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
     repository: string,
     key: string,
     work: () => Promise<T>,
+    parentHold?: CheckoutHold,
   ): Promise<T> => {
     const reservation = `${repository}\0:remote:${key}`;
-    if (caps.busyWorktrees.has(reservation)) throw new ControlError("conflict");
+    if (
+      caps.busyWorktrees.has(reservation) ||
+      caps.checkoutHolds.busy(key, parentHold) ||
+      closingWorktree(caps.snapshot().terminals, reservation, key)
+    )
+      throw new ControlError("conflict");
     caps.busyWorktrees.add(reservation);
     try {
       return await work();
@@ -193,7 +200,11 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
           });
         }
         const key = `${repository}\0:adopt-pr-${String(number)}`;
-        if (caps.busyWorktrees.has(key)) throw new ControlError("branch_in_use");
+        if (
+          caps.busyWorktrees.has(key) ||
+          checkoutBusy(caps.checkoutHolds, caps.snapshot().terminals, key, undefined)
+        )
+          throw new ControlError("branch_in_use");
         caps.busyWorktrees.add(key);
         let branchKey: string | undefined;
         try {
@@ -208,7 +219,11 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
                   path ?? `:adopt-pr-${String(number)}`,
                   branch,
                 );
-                if (caps.busyWorktrees.has(candidate)) throw new ControlError("branch_in_use");
+                if (
+                  caps.busyWorktrees.has(candidate) ||
+                  checkoutBusy(caps.checkoutHolds, caps.snapshot().terminals, candidate, path)
+                )
+                  throw new ControlError("branch_in_use");
                 branchKey = candidate;
                 caps.busyWorktrees.add(candidate);
               }
@@ -227,46 +242,71 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
       }),
     launch: (parentId, repository, worktree, identity, agent, prompt, step) => {
       const tree = remoteTree(worktree);
+      if (
+        checkoutBusy(
+          caps.checkoutHolds,
+          caps.snapshot().terminals,
+          `${repository}\0:remote:${worktree}`,
+          worktree,
+        )
+      )
+        throw new ControlError("conflict");
       if (!tree)
         return caps.launchChild(parentId, repository, worktree, identity, agent, prompt, step);
-      return caps.withRepository(repository, () =>
-        reserved(repository, worktree, async () => {
-          if (identity !== tree.identity) throw new LaunchFailure("remote_worktree_unavailable");
-          hosts().registered(tree.host, tree.codeFolder);
-          await hosts().requireAgent(tree.host, agent);
-          step?.validate();
-          const current = await inspect(repository, tree);
-          if (step?.loop && current.branch !== tree.branch) throw new ControlError("conflict");
-          return caps.launchChild(
-            parentId,
-            repository,
-            worktree,
-            identity,
-            agent,
-            prompt,
-            {
-              ...step,
-              validate: () => {
+      const hold = caps.checkoutHolds.acquire(worktree);
+      if (!hold) throw new ControlError("conflict");
+      return (async () => {
+        try {
+          return await caps.withRepository(repository, () =>
+            reserved(
+              repository,
+              worktree,
+              async () => {
+                if (identity !== tree.identity)
+                  throw new LaunchFailure("remote_worktree_unavailable");
                 hosts().registered(tree.host, tree.codeFolder);
+                await hosts().requireAgent(tree.host, agent);
                 step?.validate();
+                const current = await inspect(repository, tree);
+                if (step?.loop && current.branch !== tree.branch)
+                  throw new ControlError("conflict");
+                return caps.launchChild(
+                  parentId,
+                  repository,
+                  worktree,
+                  identity,
+                  agent,
+                  prompt,
+                  {
+                    ...step,
+                    validate: () => {
+                      hosts().registered(tree.host, tree.codeFolder);
+                      step?.validate();
+                    },
+                  },
+                  {
+                    target: { host: tree.host },
+                    repository: tree.repository,
+                    worktree: tree.path,
+                    branch: current.branch,
+                    identity: tree.identity,
+                    ...(step?.snapshot ? { reviewSnapshot: step.snapshot } : {}),
+                    validate: () => {
+                      hosts().registered(tree.host, tree.codeFolder);
+                      step?.validate();
+                      return Promise.resolve();
+                    },
+                  },
+                  hold,
+                );
               },
-            },
-            {
-              target: { host: tree.host },
-              repository: tree.repository,
-              worktree: tree.path,
-              branch: current.branch,
-              identity: tree.identity,
-              ...(step?.snapshot ? { reviewSnapshot: step.snapshot } : {}),
-              validate: () => {
-                hosts().registered(tree.host, tree.codeFolder);
-                step?.validate();
-                return Promise.resolve();
-              },
-            },
+              hold,
+            ),
           );
-        }),
-      );
+        } finally {
+          hold.release();
+        }
+      })();
     },
     reviewSnapshot: async (repository, worktree, identity) => {
       const tree = remoteTree(worktree, repository);
@@ -305,6 +345,7 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
         (item) => item.id === agent && item.path !== null && item.resume === true,
       );
     },
+    defaultAgent: () => caps.defaultAgent,
     bypassDefaults: (agent) => hasBypassArgument(agent, caps.defaultArguments[agent] ?? []),
     restoreWorktree: async (repository, path) => {
       const saved = remoteTree(path);
@@ -359,42 +400,76 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
           undefined,
           onReview,
         );
-      return caps.withRepository(repository, () =>
-        reserved(repository, worktree, async () => {
-          revalidate();
-          if (caps.snapshot().terminals.some((row) => row.worktree === worktree && !row.exited))
-            throw new ControlError("conflict");
-          const current = await inspect(repository, tree);
-          if (
-            !(await confirm(
-              `${current.branch === "HEAD" ? "Detached HEAD" : current.branch} · ${tree.host}`,
-              prepareTail([current.changes]).replace(/[^\P{Cc}\n\t]|\p{Cf}/gu, " "),
-            ))
-          )
-            return false;
-          revalidate();
-          if (caps.snapshot().terminals.some((row) => row.worktree === worktree && !row.exited))
-            throw new ControlError("conflict");
-          try {
-            await hosts().worktree(tree.host, repository, {
-              operation: "remove-worktree",
-              path: tree.path,
-              identity,
-              changes: current.changes,
-            });
-          } catch {
-            // A lost reply or failed post-delete validation cannot prove non-deletion.
-            throw new UncertainEffect();
-          }
-          remote.delete(worktree);
-          // Release exited screens and persisted rows only after confirmed deletion,
-          // while the removal reservation still prevents a replacement launch.
-          const entries = caps.snapshot().terminals.filter((row) => row.worktree === worktree);
-          for (const entry of entries)
-            await caps.sidebarCommand({ kind: "close", id: entry.id }, () => Promise.resolve(true));
-          return true;
-        }),
-      );
+      const hold = caps.checkoutHolds.acquire(worktree);
+      if (!hold) throw new ControlError("conflict");
+      try {
+        return await caps.withRepository(repository, () =>
+          reserved(
+            repository,
+            worktree,
+            async () => {
+              revalidate();
+              if (
+                caps
+                  .snapshot()
+                  .terminals.some(
+                    (row) =>
+                      row.worktree === worktree && (!row.exited || row.closeState === "closing"),
+                  )
+              )
+                throw new ControlError("conflict");
+              const current = await inspect(repository, tree);
+              if (
+                !(await confirm(
+                  `${current.branch === "HEAD" ? "Detached HEAD" : current.branch} · ${tree.host}`,
+                  prepareTail([current.changes]).replace(/[^\P{Cc}\n\t]|\p{Cf}/gu, " "),
+                ))
+              )
+                return false;
+              revalidate();
+              if (
+                caps
+                  .snapshot()
+                  .terminals.some(
+                    (row) =>
+                      row.worktree === worktree && (!row.exited || row.closeState === "closing"),
+                  )
+              )
+                throw new ControlError("conflict");
+              try {
+                await hosts().worktree(tree.host, repository, {
+                  operation: "remove-worktree",
+                  path: tree.path,
+                  identity,
+                  changes: current.changes,
+                });
+              } catch {
+                // A lost reply or failed post-delete validation cannot prove non-deletion.
+                throw new UncertainEffect();
+              }
+              remote.delete(worktree);
+              // Release exited screens and persisted rows only after confirmed deletion,
+              // while the removal reservation still prevents a replacement launch.
+              const entries = caps.snapshot().terminals.filter((row) => row.worktree === worktree);
+              for (const entry of entries)
+                await caps.sidebarCommand(
+                  { kind: "close", id: entry.id },
+                  () => Promise.resolve(true),
+                  undefined,
+                  undefined,
+                  undefined,
+                  `${repository}\0:remote:${worktree}`,
+                  undefined,
+                  hold,
+                );
+              return true;
+            },
+            hold,
+          ),
+        );
+      } finally {
+        hold.release();
+      }
     },
     dialog: (content, signal) => caps.deps.dialog?.(content, signal) ?? Promise.resolve(false),
     changed: () => {

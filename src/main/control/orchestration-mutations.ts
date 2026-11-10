@@ -4,7 +4,7 @@ import { selectionInput, validateSelection } from "../../node-common/launch-sele
 import { ApplicationError } from "../../shared/application-errors";
 import { RemovalError } from "../workspace/worktree-outcome";
 import type { RemovalReason } from "../workspace/worktree-outcome";
-import { reviewOptions } from "../../shared/review-validation";
+import { reviewOptions, orchestrationAgent } from "../../shared/review-validation";
 import { AUTHOR_REVIEW_BRIEF, reviewerBrief } from "./review-loops";
 import { agentProvider } from "../agents/providers/registry";
 import { createHash } from "node:crypto";
@@ -169,7 +169,7 @@ export class OrchestrationMutations extends OrchestrationAuthority {
     params: Record<string, unknown>,
     operations: Operations,
   ): Promise<Operation> {
-    exact(params, ["idempotencyKey", "pullRequest", "since", "focus", "postFindings"]);
+    exact(params, ["idempotencyKey", "pullRequest", "agent", "since", "focus", "postFindings"]);
     const key = identifier(params["idempotencyKey"]);
     const number = params["pullRequest"];
     const since = params["since"];
@@ -182,6 +182,8 @@ export class OrchestrationMutations extends OrchestrationAuthority {
       (params["postFindings"] !== undefined && typeof params["postFindings"] !== "boolean")
     )
       throw new ControlError("invalid_request");
+    const agent = orchestrationAgent(params["agent"], this.host.defaultAgent?.());
+    if (!knownAgentId(agent)) throw new ControlError("invalid_request");
     const focus = params["focus"] === undefined ? undefined : text(params["focus"], 4096);
     const post = params["postFindings"] === true;
     const parent = this.parent(actor);
@@ -189,7 +191,7 @@ export class OrchestrationMutations extends OrchestrationAuthority {
       actor,
       "launch",
       key,
-      JSON.stringify([number, since ?? null, focus ?? null, post]),
+      JSON.stringify([number, agent, since ?? null, focus ?? null, post]),
     );
     if (!operation.created) return publicOperation(operation);
     const label = `PR #${String(number)}`;
@@ -221,7 +223,7 @@ export class OrchestrationMutations extends OrchestrationAuthority {
         actor,
         {
           worktreeId: tree.resultId,
-          agent: "claude",
+          agent,
           prompt,
           pullRequest: number,
           idempotencyKey: `review-launch-${operation.operationId}`,
@@ -281,13 +283,15 @@ export class OrchestrationMutations extends OrchestrationAuthority {
     const worktreeId = identifier(params["worktreeId"]);
     const host = params["host"];
     if (host !== undefined && !hostAlias(host)) throw new ControlError("invalid_request");
-    const agent = params["agent"];
+    const agent = orchestrationAgent(params["agent"], this.host.defaultAgent?.());
     if (!knownAgentId(agent)) throw new ControlError("invalid_request");
     const selection = selectionInput(params);
     validateSelection(agentProvider(agent).model, selection);
     const inherited = this.parent(actor).worktrees.get(worktreeId);
     const review =
-      params["review"] === undefined ? inherited?.review : reviewOptions(params["review"]);
+      params["review"] === undefined
+        ? inherited?.review
+        : reviewOptions(params["review"], this.host.defaultAgent?.());
     const number =
       params["pullRequest"] === undefined ? inherited?.pullRequest : params["pullRequest"];
     if (
@@ -624,6 +628,8 @@ export class OrchestrationMutations extends OrchestrationAuthority {
         )
     )
       return this.refuse(actor, parent, operations, operation, label, "conflict");
+    // The removal owner checks closing sessions: it may only bypass that guard
+    // to join an existing removal with the same checkout identity.
     this.note(parent, this.entry(operation, label));
     const abort = new AbortController();
     parent.aborts.add(abort);
