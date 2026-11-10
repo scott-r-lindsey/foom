@@ -432,7 +432,8 @@ cannot guarantee cleanup. Fixtures cover both local and host paths, including
 supervisor/helper SIGKILL while the interpreter waits for `/bin/sleep`.
 
 The existing SHA-256 recipe-step digest binds the address, interpreter and
-arguments on hosts. The vendor's unversioned script content is **not** bound;
+arguments and declared installer environment on hosts. The vendor's unversioned
+script content is **not** bound;
 this is the security tradeoff explicitly accepted in #1071. The HTTPS rule applies
 to Foom's download, not to arbitrary subsequent network operations performed by
 vendor code. Recipes still receive no terminal ID, orchestration authority or
@@ -452,12 +453,24 @@ Environment layers, including stored secrets, are omitted. The local helper
 normalizes the environment again before either vendor scripts or Homebrew.
 Registered-host installs apply the same normalization to hostLoginEnvironment,
 with the host account home, before vendor scripts or package-manager execution.
+Bundled script `environment` pairs are applied after this normalization on both
+paths (#1166). The parser refuses `FOOM_*`, `XDG_*` and the normalized account,
+PATH, shell, temp and language names case-insensitively; fixed literal values
+cannot reintroduce those names. Installer declarations also reuse the launch
+manifest's reserved-name policy: loader/interpreter injection, shell startup and
+parsing controls, proxies and credential-shaped names are refused, even for
+bundled manifests. The shared policy includes `SHELLOPTS`, `BASHOPTS`, `CDPATH`,
+`FPATH`, `ZDOTDIR`, `BASH_*` and names containing `CREDENTIAL`, in addition to the
+existing launch restrictions. A BASH_ENV fixture verifies executable startup code
+is rejected before installer download or spawn. Package managers keep the normalized environment.
+Codex declares `CODEX_NON_INTERACTIVE=1`, which skips prompts by declining both
+starting Codex and uninstalling another managed Codex installation.
 Sign-in and lifecycle-plugin operations retain their existing environment policy.
 They share the existing embedded terminal and Stop/Keep open lifetime rules.
 Completion rechecks only the selected agent. Remote completion retains its scoped
 tool/sign-in refresh. Settings chrome shows Done or Failed with the exit code.
 
-Vendor documentation checked 2026-11-08:
+Vendor documentation and fixed script source checked 2026-11-10:
 
 | Agent | Fixed script | Vendor documentation |
 | --- | --- | --- |
@@ -467,6 +480,14 @@ Vendor documentation checked 2026-11-08:
 | OpenCode | `https://opencode.ai/v2/install` | [Current v2 installation](https://opencode.ai/docs/) |
 | Pi | `https://pi.dev/install.sh` | [Quickstart](https://pi.dev/docs/latest/quickstart) |
 | Antigravity | `https://antigravity.google/cli/install.sh` | [Getting started](https://antigravity.google/docs/cli-getting-started) |
+
+Only Codex documents a non-interactive/no-launch switch in these scripts.
+Claude Code, Antigravity, Copilot, OpenCode and Pi declare no such switch;
+Foom adds none. Pi still offers installation choices, PATH changes and a launch
+prompt; Copilot can prompt to update PATH. This change cannot suppress those
+vendor prompts without a documented vendor option. OpenCode's `--no-modify-path`
+controls shell-file edits, not prompts or launch, so it is not selected here.
+Scripts were downloaded for source inspection only and never executed.
 
 The issue's original OpenCode address installs v1; the v2 address matches Foom's
 v2 adapter. Vendor scripts may modify shell startup files and install/update

@@ -1,8 +1,12 @@
+import type * as ChildProcess from "node:child_process";
 import { PassThrough } from "node:stream";
 import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
-import { readFile, stat, access } from "node:fs/promises";
-import { dirname } from "node:path";
+import { readFile, stat, access, mkdtemp, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import codex from "../../../src/shared/bundled-agents/codex.json";
+import { parseAgentManifest } from "../../../src/shared/agent-plugin-parser";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ spawn: vi.fn() }));
 vi.mock("node:child_process", () => ({ spawn: mocks.spawn }));
@@ -409,3 +413,78 @@ test("spawn throws still remove the downloaded private script", async () => {
   if (!path) throw new Error("Missing fixture path");
   await expect(access(dirname(path))).rejects.toThrow();
 });
+
+test("declared literal installer variables override inherited values without expanding them", async () => {
+  vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockResolvedValue(new Response("fixture script")));
+  mocks.spawn.mockImplementation(() => {
+    const child = fixtureChild();
+    queueMicrotask(() => {
+      child.stdio[3]?.emit("data", Buffer.from("0\n"));
+      child.emit("close", 0);
+    });
+    return child;
+  });
+  const env = { HOME: "/fixture/home", PATH: "/fixture", CODEX_NON_INTERACTIVE: "false" };
+  expect(
+    await runVendorScript(
+      { ...script, environment: [{ name: "CODEX_NON_INTERACTIVE", value: "1" }] },
+      "/fixture/home",
+      env,
+    ),
+  ).toBe(0);
+  expect(mocks.spawn.mock.lastCall?.[2]).toMatchObject({
+    env: { ...env, CODEX_NON_INTERACTIVE: "1" },
+  });
+  expect(env.CODEX_NON_INTERACTIVE).toBe("false");
+});
+
+test.skipIf(platform === "win32")(
+  "rejects a BASH_ENV installer overlay before fixture startup code can run",
+  async ({ onTestFinished }) => {
+    const directory = await mkdtemp(join(tmpdir(), "foom-installer-startup-"));
+    onTestFinished(() => rm(directory, { recursive: true, force: true }));
+    const startup = join(directory, "startup.sh");
+    const marker = join(directory, "startup-ran");
+    const installer = join(directory, "install.sh");
+    await writeFile(installer, "exit 0\n");
+    await writeFile(startup, 'printf fixture > "$FIXTURE_MARKER"\n');
+    const env = { HOME: directory, PATH: directory, FIXTURE_MARKER: marker };
+    const { spawnSync, spawn } = await vi.importActual<typeof ChildProcess>("node:child_process");
+    // Positive control: this is executable startup source, not an inert fixture path.
+    const control = spawnSync("/bin/bash", [installer], {
+      cwd: directory,
+      env: { ...env, BASH_ENV: startup },
+    });
+    expect(control.status).toBe(0);
+    expect(control.stderr.toString()).toBe("");
+    expect(await readFile(marker, "utf8")).toBe("fixture");
+    await rm(marker);
+    const request = vi.fn<typeof fetch>().mockResolvedValue(new Response("exit 0"));
+    vi.stubGlobal("fetch", request);
+    // If validation regresses, run only the fixture installer with the real runner.
+    mocks.spawn.mockImplementation(spawn);
+    const install = async () => {
+      const model = parseAgentManifest(
+        JSON.stringify({
+          ...codex,
+          hostSetup: {
+            script: {
+              ...codex.hostSetup.script,
+              interpreter: "bash",
+              environment: [{ name: "BASH_ENV", value: startup }],
+            },
+          },
+        }),
+        "bundled",
+      ).model;
+      if (!model.hostSetup?.script) throw new Error("Missing fixture script");
+      return runVendorScript(model.hostSetup.script, directory, env);
+    };
+    await expect(install()).rejects.toThrow(
+      "$.hostSetup.script.environment[0].name: reserved-environment",
+    );
+    expect(request).not.toHaveBeenCalled();
+    expect(mocks.spawn).not.toHaveBeenCalled();
+    await expect(access(marker)).rejects.toMatchObject({ code: "ENOENT" });
+  },
+);
