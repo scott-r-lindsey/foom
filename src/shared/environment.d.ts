@@ -16,8 +16,7 @@ export interface EnvironmentRow {
 
 export interface EnvironmentState {
   readonly lists: Readonly<
-    Record<"all" | "claude" | "codex" | "agy", readonly EnvironmentRow[]> &
-      Record<EnvironmentScope, readonly EnvironmentRow[]>
+    Record<"all", readonly EnvironmentRow[]> & Record<EnvironmentScope, readonly EnvironmentRow[]>
   >;
   /** Names compare case-insensitively and PATH uses `;` with drive-letter directories. */
   readonly windows: boolean;

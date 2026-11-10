@@ -1,3 +1,4 @@
+import { ENABLED_AGENTS } from "../../../helpers/enabled-agents";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -30,7 +31,10 @@ let hosts: Hosts;
 const roots: string[] = [];
 const services: ConfigService[] = [];
 beforeEach(() => {
-  settings = { ...DEFAULT_SETTINGS };
+  settings = {
+    ...DEFAULT_SETTINGS,
+    agents: ENABLED_AGENTS,
+  };
   execute.mockReset().mockResolvedValue({ ok: true, facts });
   hosts = new Hosts(
     {
@@ -70,6 +74,7 @@ async function catalog() {
   const file = join(root, "agents", `${manifest.id}.json`);
   await writeFile(file, JSON.stringify(manifest));
   await service.refresh();
+  settings = { ...settings, agents: { ...settings.agents, [manifest.id]: true } };
   return { service, file };
 }
 test("real bundled and config providers succeed with enrollment and read-only inventory", async () => {
@@ -116,7 +121,7 @@ test("enabled-agent changes retry once, then report configuration changed and lo
   execute.mockImplementation(() => {
     settings = {
       ...settings,
-      agents: { ...settings.agents, codex: !settings.agents.codex },
+      agents: { ...settings.agents, codex: !settings.agents["codex"] },
     };
     return Promise.resolve({ ok: true, facts });
   });

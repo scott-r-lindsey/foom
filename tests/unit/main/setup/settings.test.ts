@@ -1,3 +1,4 @@
+import type * as Fs from "node:fs/promises";
 import type { ConfigSettings } from "../../../../src/shared/config";
 import { legacyBypassIdentities } from "../../../../src/main/agents/providers/bundled";
 import { interfaceThemes } from "../../../../src/shared/interface-themes";
@@ -10,6 +11,11 @@ import {
   parseSettingsPatch,
   SettingsStore,
 } from "../../../../src/main/setup/settings";
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof Fs>();
+  return { ...actual, link: vi.fn(actual.link) };
+});
 
 const dirs: string[] = [];
 async function directory(): Promise<string> {
@@ -53,7 +59,6 @@ test("patches copy only known, well-formed fields", () => {
     { hooks: "yes" },
     { setupComplete: 1 },
     { worktreeLocation: "elsewhere" },
-    { agents: { claude: true, codex: true } },
     { agents: { claude: true, codex: true, agy: "yes" } },
     { agents: { claude: true, codex: true, agy: true, "../other": true } },
     { agents: [] },
@@ -186,7 +191,7 @@ test("stores default argv and per-agent acknowledgement and migrates old profile
     JSON.stringify({ version: 1, settings: { setupComplete: true } }),
   );
   const store = await SettingsStore.open(dir);
-  expect(store.get().agentArguments).toEqual({ claude: [], codex: [], agy: [] });
+  expect(store.get().agentArguments).toEqual({});
   const patch = parseSettingsPatch({
     agentArguments: { claude: ["--model", "a model"], codex: [], agy: [] },
     agentBypassAcknowledged: { claude: true, codex: false, agy: false },
@@ -194,7 +199,9 @@ test("stores default argv and per-agent acknowledgement and migrates old profile
   });
   await store.update(patch);
   expect((await SettingsStore.open(dir)).get()).toEqual(store.get());
-  expect(() => parseSettingsPatch({ agentBypassAcknowledged: { claude: true } })).toThrow();
+  expect(parseSettingsPatch({ agentBypassAcknowledged: { claude: true } })).toEqual({
+    agentBypassAcknowledged: { claude: true },
+  });
   for (const identities of [
     null,
     [],
@@ -309,8 +316,8 @@ test.each([null, [], "invalid", { codex: ["--model", "x"], agy: [42] }])(
     const settings = (await SettingsStore.open(dir)).get();
     expect(settings.interfaceTheme).toBe("eclipse-dark");
     expect(settings.setupComplete).toBe(true);
-    expect(settings.agentArguments.claude).toEqual([]);
-    expect(settings.agentArguments.agy).toEqual([]);
+    expect(settings.agentArguments["claude"] ?? []).toEqual([]);
+    expect(settings.agentArguments["agy"] ?? []).toEqual([]);
   },
 );
 
@@ -392,7 +399,9 @@ test("legacy sources and limits are dropped and ciphertext is removed idempotent
     expect(store.get()).not.toHaveProperty("inference");
     expect(store.get()).not.toHaveProperty("inferenceTimeoutMs");
     expect(await readdir(dir)).toEqual(expect.arrayContaining(["settings.json", "unrelated.key"]));
-    expect((await readdir(dir)).sort()).toEqual(["settings.json", ...unrelated].sort());
+    expect((await readdir(dir)).sort()).toEqual(
+      ["settings.json", "settings-before-optional-agents.json", ...unrelated].sort(),
+    );
     for (const file of unrelated) expect(await readFile(path.join(dir, file), "utf8")).toBe("keep");
     expect(await readFile(file, "utf8")).not.toContain("inference");
   }
@@ -1023,4 +1032,95 @@ test("default agent is opt-in, persists and can be cleared without choosing anot
   }
   for (const defaultAgent of ["", "shell", "--bad", 7, {}, false])
     expect(() => parseSettingsPatch({ defaultAgent })).toThrow();
+});
+
+test.each(["claude", "codex", "agy", "copilot", "opencode", "pi", "custom-agent"])(
+  "optional %s settings survive profile migration without adding other agents",
+  async (id) => {
+    const root = await directory();
+    const file = path.join(root, "settings.json");
+    const maps = { agents: { [id]: true }, agentArguments: { [id]: ["--model", "example"] } };
+    expect(parseSettingsPatch(maps)).toEqual(maps);
+    await writeFile(
+      file,
+      JSON.stringify({ version: 1, settings: { ...maps, setupComplete: true } }),
+    );
+    const store = await SettingsStore.open(root);
+    expect(store.get().agents).toEqual(maps.agents);
+    expect(store.legacyConfig()).toMatchObject(maps);
+    const writer = vi.fn<() => Promise<void>>().mockResolvedValue();
+    await store.attachConfig(writer, maps, "a".repeat(64));
+    await store.update({ checkForUpdates: false });
+    const reopened = await SettingsStore.open(root);
+    await reopened.attachConfig(writer, maps, "a".repeat(64));
+    expect(reopened.get().agents).toEqual(maps.agents);
+    expect(reopened.get().agentArguments).toEqual(maps.agentArguments);
+    expect(reopened.get().agentBypassAcknowledged).toEqual({});
+  },
+);
+
+test("empty agent maps are valid and new profile writes do not add provider keys", async () => {
+  expect(
+    parseSettingsPatch({ agents: {}, agentArguments: {}, agentBypassAcknowledged: {} }),
+  ).toEqual({ agents: {}, agentArguments: {}, agentBypassAcknowledged: {} });
+  const root = await directory();
+  const store = await SettingsStore.open(root);
+  await store.update({ setupComplete: true });
+  const saved: unknown = JSON.parse(await readFile(path.join(root, "settings.json"), "utf8"));
+  expect(saved).toMatchObject({
+    settings: { agents: {}, agentArguments: {}, agentBypassAcknowledged: {} },
+  });
+});
+
+test("migration preserves a private original profile for downgrade recovery without retired secrets", async () => {
+  const root = await directory();
+  const file = path.join(root, "settings.json");
+  const original = {
+    version: 1,
+    settings: {
+      agents: { claude: true, codex: false, agy: true },
+      agentArguments: { claude: [], codex: ["--model", "example"], agy: [] },
+      agentBypassAcknowledged: { claude: false, codex: false, agy: false },
+      setupComplete: true,
+      registeredHosts: [{ host: "worker", codeFolder: "/code" }],
+    },
+  };
+  await writeFile(
+    file,
+    JSON.stringify({
+      ...original,
+      settings: {
+        ...original.settings,
+        inference: { key: "retired-secret" },
+        inferenceTimeoutMs: 5000,
+      },
+    }),
+  );
+  const store = await SettingsStore.open(root);
+  const backup = path.join(root, "settings-before-optional-agents.json");
+  expect(JSON.parse(await readFile(backup, "utf8"))).toEqual(original);
+  if (process.platform !== "win32") expect((await stat(backup)).mode & 0o777).toBe(0o600);
+  await store.update({ agentBypassAcknowledged: {}, agents: { opencode: true } });
+  await SettingsStore.open(root);
+  expect(JSON.parse(await readFile(backup, "utf8"))).toEqual(original);
+  // Restore before reopening the current version: no registered hosts or configured values are lost.
+  await writeFile(file, await readFile(backup));
+  expect((await SettingsStore.open(root)).get()).toMatchObject(original.settings);
+});
+
+test("a failed downgrade backup stops before rewriting the original profile", async () => {
+  const root = await directory();
+  const file = path.join(root, "settings.json");
+  const text = JSON.stringify({ version: 1, settings: { setupComplete: true } });
+  await writeFile(file, text);
+  const linking = vi
+    .spyOn(await import("node:fs/promises"), "link")
+    .mockRejectedValueOnce(new Error("disk full"));
+  try {
+    await expect(SettingsStore.open(root)).rejects.toThrow("disk full");
+    expect(await readFile(file, "utf8")).toBe(text);
+  } finally {
+    linking.mockRestore();
+  }
+  expect(await readdir(root)).toEqual(["settings.json"]);
 });

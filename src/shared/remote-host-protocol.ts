@@ -41,6 +41,7 @@ function hello(value: object): boolean {
     (!("originTrust" in value) || value.originTrust === 1) &&
     (!("agentSettings" in value) || value.agentSettings === 1) &&
     (!("hostRowCheck" in value) || value.hostRowCheck === 1) &&
+    (!("hostCheckConnection" in value) || value.hostCheckConnection === 1) &&
     (!("hostPreflight" in value) || value.hostPreflight === 1) &&
     (!("childPressure" in value) || value.childPressure === 1) &&
     (!("hostFacts" in value) || value.hostFacts === 1) &&

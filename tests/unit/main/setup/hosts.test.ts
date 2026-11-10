@@ -1,3 +1,4 @@
+import { ENABLED_AGENTS } from "../../../helpers/enabled-agents";
 import { restartedBrewHost } from "./hosts-saved-fixture";
 import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -17,8 +18,9 @@ import type { Settings } from "../../../../src/shared/setup";
 import type { HostManagement, HostResult } from "../../../../src/shared/registered-hosts.d";
 const mock = vi.hoisted(() => ({
   execute: vi.fn(),
-  remote: vi.fn(),
+  remote: vi.fn<typeof remoteTransport.remoteManagement>(),
   inventory: vi.fn<typeof remoteTransport.remoteInventory>(),
+  close: vi.fn(),
 }));
 vi.mock("../../../../src/main/agents/agents", () => ({
   loginPath: () => Promise.resolve({ path: "/fixture-login" }),
@@ -34,6 +36,23 @@ vi.mock("node:child_process", async (original) => {
 vi.mock("../../../../src/main/terminals/remote-transport", () => ({
   remoteManagement: mock.remote,
   remoteInventory: mock.inventory,
+  RemoteCheckConnection: class {
+    constructor(
+      private readonly target: { host: string },
+      private readonly version: string,
+      private readonly signal: AbortSignal,
+      private readonly output?: (text: string, startLine?: boolean) => void,
+    ) {}
+    manage(request: HostManagement) {
+      return mock.remote(this.target, this.version, request, this.signal, this.output);
+    }
+    inventory(request: Parameters<typeof remoteTransport.remoteInventory>[2]) {
+      return mock.inventory(this.target, this.version, request, this.signal);
+    }
+    close() {
+      mock.close();
+    }
+  },
 }));
 import { Hosts, hostsForStore } from "../../../../src/main/setup/hosts";
 import { UncertainEffect } from "../../../../src/main/workspace/worktree-outcome";
@@ -60,7 +79,10 @@ let repositories = [{ path: "/local/repo", name: "repo" }];
 const run = vi.fn<(host: string, request: HostManagement) => Promise<HostResult>>();
 beforeEach(() => {
   vi.clearAllMocks();
-  settings = { ...DEFAULT_SETTINGS };
+  settings = {
+    ...DEFAULT_SETTINGS,
+    agents: ENABLED_AGENTS,
+  };
   repositories = [{ path: "/local/repo", name: "repo" }];
   run.mockReset().mockResolvedValue({ ok: true, facts });
   mock.execute.mockReset().mockResolvedValue({ stdout: "git@forge.test:me/repo.git\n" });
@@ -678,6 +700,7 @@ test("forge inspection binds registered host, folder, checkout identity, branch,
 });
 
 test("unsupported remote providers refuse with a fixed listed reason before SSH inventory", async () => {
+  settings.agents = { ...settings.agents, custom: true };
   settings = { ...settings, registeredHosts: [{ host: "worker", codeFolder: facts.codeFolder }] };
   await expect(hosts.requireAgent("worker", "custom")).rejects.toMatchObject({
     reason: "remote_agent_unsupported",
@@ -686,6 +709,7 @@ test("unsupported remote providers refuse with a fixed listed reason before SSH 
 });
 
 test("a config provider cannot appear ready from a remote installation probe", async () => {
+  settings.agents = { ...settings.agents, custom: true };
   const base = agentProvider("claude");
   replaceConfigProviders([
     { ...base, id: "custom", origin: "config", model: { ...base.model, id: "custom" } },
@@ -1449,7 +1473,7 @@ test("local progress reads bypass the mutation queue and retain completed reposi
   const calls = run.mock.calls.length;
   const snapshot = await hosts.action({ action: "progress" });
   expect(run).toHaveBeenCalledTimes(calls);
-  expect(snapshot.progress).toMatchObject({
+  expect(snapshot.progress?.[0]).toMatchObject({
     host: "worker",
     phase: "origin",
     repository: "/local/repo",
@@ -1463,7 +1487,7 @@ test("local progress reads bypass the mutation queue and retain completed reposi
   await vi.waitFor(() => {
     expect(held.release).toBeDefined();
   });
-  expect((await hosts.action({ action: "progress" })).progress).toMatchObject({
+  expect((await hosts.action({ action: "progress" })).progress?.[0]).toMatchObject({
     phase: "origin",
     repository: "/local/next",
     repositories: [
@@ -1475,7 +1499,7 @@ test("local progress reads bypass the mutation queue and retain completed reposi
       { repository: "/local/next" },
     ],
   });
-  expect(snapshot.progress?.repositories[0]?.origin).toBeUndefined();
+  expect(snapshot.progress?.[0]?.repositories[0]?.origin).toBeUndefined();
   finish({ ok: true, facts });
   await pending;
   expect((await hosts.action({ action: "progress" })).progress).toBeUndefined();
@@ -2698,6 +2722,7 @@ test.each(["folder", "host", "repository"] as const)(
           ? reading.promise
           : Promise.resolve({ stdout: origin });
       });
+      settings.agents = { ...settings.agents, "guard-fixture": true };
       const base = agentProvider("claude");
       replaceConfigProviders([
         {
@@ -2853,5 +2878,198 @@ test.each(["origin", "checkout"] as const)(
         ? { origin: { state: "fail", reason: "origin-auth" } }
         : { checkout: { ok: false, reason: "origin-auth" } },
     );
+  },
+);
+
+test("four host checks run independently, release slots after failure, and keep per-host progress", async () => {
+  const names = ["slow", "offline", "fast", "fourth", "fifth"];
+  settings.registeredHosts = names.map((host) => ({ host, codeFolder: facts.codeFolder }));
+  repositories = [];
+  const held = new Map<string, (result: HostResult) => void>();
+  run.mockImplementation((host) => new Promise((resolve) => held.set(host, resolve)));
+  const checks = names.map((host) =>
+    hosts.action({ action: "preflight", host, codeFolder: facts.codeFolder }),
+  );
+  await vi.waitFor(() => {
+    expect([...held.keys()]).toEqual(names.slice(0, 4));
+  });
+  const before = await hosts.action({ action: "progress" });
+  expect(before.progress?.map(({ host }) => host)).toEqual(names.slice(0, 4));
+  held.get("offline")?.({
+    ok: false,
+    reason: "unreachable",
+    connection: {
+      ssh: { state: "fail", reason: "unreachable" },
+      platform: { state: "not-checked" },
+      artifact: { state: "not-checked" },
+    },
+  });
+  await checks[1];
+  await vi.waitFor(() => {
+    expect(held.has("fifth")).toBe(true);
+  });
+  held.get("fast")?.({ ok: true, facts });
+  await checks[2];
+  const during = await hosts.action({ action: "progress" });
+  expect(during.progress?.map(({ host }) => host)).toEqual(["slow", "fourth", "fifth"]);
+  expect(before.progress).toHaveLength(4);
+  for (const host of ["slow", "fourth", "fifth"]) held.get(host)?.({ ok: true, facts });
+  await Promise.all(checks);
+  expect((await hosts.action({ action: "progress" })).progress).toBeUndefined();
+  expect(settings.registeredHosts.every((host) => host.observation)).toBe(true);
+});
+
+test("checks on the same host serialize while another host can complete", async () => {
+  settings.registeredHosts = ["slow", "fast"].map((host) => ({
+    host,
+    codeFolder: facts.codeFolder,
+  }));
+  repositories = [];
+  let release: ((result: HostResult) => void) | undefined;
+  run.mockImplementation((host) =>
+    host === "slow"
+      ? new Promise((resolve) => {
+          release = resolve;
+        })
+      : Promise.resolve({ ok: true, facts }),
+  );
+  const first = hosts.action({ action: "preflight", host: "slow", codeFolder: facts.codeFolder });
+  const second = hosts.action({ action: "preflight", host: "slow", codeFolder: facts.codeFolder });
+  await hosts.action({ action: "preflight", host: "fast", codeFolder: facts.codeFolder });
+  expect(run.mock.calls.filter(([host]) => host === "slow")).toHaveLength(1);
+  release?.({ ok: false, reason: "unreachable" });
+  await first;
+  await vi.waitFor(() => {
+    expect(run.mock.calls.filter(([host]) => host === "slow")).toHaveLength(2);
+  });
+  release?.({ ok: true, facts });
+  await second;
+});
+
+test("a production full check shares its transport with repositories and profile inventories", async () => {
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  mock.remote.mockImplementation(
+    (_target, _version, request: HostManagement, _signal, output?: (text: string) => void) => {
+      output?.("Fixture check\n");
+      return Promise.resolve({
+        ok: true,
+        facts,
+        ...("directory" in request
+          ? { checkout: { path: `${facts.codeFolder}/${request.directory}`, state: "absent" } }
+          : {}),
+      });
+    },
+  );
+  mock.inventory.mockResolvedValue({ type: "inventory-result", own: [], foreign: [] });
+  const owner = new Hosts(store, () => repositories, "0.1.0", undefined, "f".repeat(32));
+  const checked = await owner.action({
+    action: "preflight",
+    host: "worker",
+    codeFolder: facts.codeFolder,
+  });
+  expect(checked.preflight?.result.ok).toBe(true);
+  expect(mock.remote.mock.calls.map((call) => call[2].operation)).toEqual([
+    "inspect",
+    "origin",
+    "repository",
+    "list-worktrees",
+  ]);
+  expect(mock.inventory).toHaveBeenCalledTimes(1);
+  expect(mock.close).toHaveBeenCalledTimes(1);
+  expect(checked.output?.text).toContain("Fixture check");
+});
+
+test("a slow global locations read does not queue another host's capability check", async () => {
+  settings.registeredHosts = ["slow", "fast"].map((host) => ({
+    host,
+    codeFolder: facts.codeFolder,
+  }));
+  let release: ((result: HostResult) => void) | undefined;
+  run.mockImplementation((host) =>
+    host === "slow"
+      ? new Promise((resolve) => {
+          release = resolve;
+        })
+      : Promise.resolve({ ok: true, facts }),
+  );
+  const locations = hosts.action({ action: "locations" });
+  await vi.waitFor(() => {
+    expect(release).toBeDefined();
+  });
+  const checked = await hosts.action({
+    action: "preflight",
+    host: "fast",
+    codeFolder: facts.codeFolder,
+  });
+  expect(checked.preflight?.result.ok).toBe(true);
+  release?.({ ok: false, reason: "unreachable" });
+  const refreshed = await locations;
+  expect(refreshed.locations.filter((entry) => entry.host === "fast")).toHaveLength(1);
+  expect(refreshed.locations.find((entry) => entry.host === "fast")).toBe(
+    checked.locations.find((entry) => entry.host === "fast"),
+  );
+});
+
+test("late SSH output from a completed batch cannot enter the next check's panel", async () => {
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  const owner = new Hosts(store, () => [], "0.1.0");
+  mock.remote.mockResolvedValueOnce({ ok: true, facts });
+  await owner.action({ action: "preflight", host: "worker", codeFolder: facts.codeFolder });
+  const held = Promise.withResolvers<HostResult>();
+  mock.remote.mockImplementationOnce(() => held.promise);
+  const pending = owner.action({
+    action: "preflight",
+    host: "worker",
+    codeFolder: facts.codeFolder,
+  });
+  await vi.waitFor(() => {
+    expect(mock.remote).toHaveBeenCalledTimes(2);
+  });
+  mock.remote.mock.calls[0]?.[4]?.("stale output");
+  mock.remote.mock.calls[1]?.[4]?.("current output");
+  expect((await owner.action({ action: "progress" })).output?.text).toBe("current output");
+  held.resolve({ ok: true, facts });
+  await pending;
+});
+
+test.each([false, true])(
+  "a failed concurrent check cannot mark another host's output failed (finished=%s)",
+  async (finished) => {
+    settings.registeredHosts = ["first", "second"].map((host) => ({
+      host,
+      codeFolder: facts.codeFolder,
+    }));
+    const first = Promise.withResolvers<HostResult>();
+    const second = Promise.withResolvers<HostResult>();
+    mock.remote.mockImplementation(({ host }) =>
+      host === "first" ? first.promise : second.promise,
+    );
+    const owner = new Hosts(store, () => [], "0.1.0");
+    const check = (host: string) =>
+      owner.action({ action: "preflight", host, codeFolder: facts.codeFolder });
+    const a = check("first");
+    await vi.waitFor(() => {
+      expect(mock.remote).toHaveBeenCalledTimes(1);
+    });
+    const b = check("second");
+    await vi.waitFor(() => {
+      expect(mock.remote).toHaveBeenCalledTimes(2);
+    });
+    mock.remote.mock.calls[1]?.[4]?.("Second host\n");
+    if (finished) {
+      second.resolve({ ok: true, facts });
+      await b;
+    }
+    first.resolve({ ok: false, reason: "unreachable" });
+    await a;
+    mock.remote.mock.calls[0]?.[4]?.("Stale first host\n");
+    const during = (await owner.action({ action: "progress" })).output;
+    expect(during).toMatchObject({ host: "second", failed: false, running: !finished });
+    expect(during?.text).not.toMatch(/Failed|Stale/u);
+    if (!finished) second.resolve({ ok: true, facts });
+    const completed = await b;
+    expect(completed.output).toMatchObject({ host: "second", failed: false, running: false });
+    expect(completed.output?.text).toBe("Second host\nDone\n");
+    owner.dispose();
   },
 );

@@ -1,4 +1,6 @@
+import { ENABLED_AGENTS } from "../../../helpers/enabled-agents";
 import {
+  enabledAgentService,
   agentFixture,
   binding,
   cleanup,
@@ -13,7 +15,6 @@ import {
 import { readFile } from "node:fs/promises";
 import { delimiter, join } from "node:path";
 import { expect, it, vi } from "vitest";
-import { AgentService } from "../../../../src/main/agents/agents";
 import { PluginSetup } from "../../../../src/main/agents/plugin-setup";
 import { CLI_GUIDANCE, CONFIG_PROMPT } from "../../../../src/main/agents/providers/cli-launch";
 import {
@@ -30,7 +31,7 @@ it.each([true, false])(
   async (trusted) => {
     const old = versions.codex;
     versions.codex = "codex-cli 0.161.0";
-    agentFixture.service = new AgentService(
+    agentFixture.service = enabledAgentService(
       { listWorktrees, launchIdentity },
       { create },
       prepare,
@@ -97,7 +98,7 @@ it.each(["not-installed", "installed", "outdated", "disabled", "unavailable"] as
       .spyOn(PluginSetup.prototype, "status")
       .mockResolvedValue({ state, actions: [] });
     try {
-      const scan = await agentFixture.service.scan();
+      const scan = await agentFixture.service.scan(ENABLED_AGENTS);
       expect(scan.agents.find((agent) => agent.id === "agy")?.setup).toEqual({
         state,
         actions: [],
@@ -123,7 +124,7 @@ it.each([false, true, "child"])(
   async (orchestrator) => {
     agentFixture.help += "\n--prompt-interactive <prompt>";
     const inheritedPath = process.env["PATH"];
-    agentFixture.service = new AgentService(
+    agentFixture.service = enabledAgentService(
       { listWorktrees, launchIdentity },
       { create },
       prepare,
@@ -158,7 +159,7 @@ it.each([false, true, "child"])(
 
 it("config launches skip worktree and control, keep hooks and put the CLI on PATH", async () => {
   const control = vi.fn(() => Promise.resolve({ env: {}, bind: vi.fn(), dispose: vi.fn() }));
-  agentFixture.service = new AgentService(
+  agentFixture.service = enabledAgentService(
     { listWorktrees, launchIdentity },
     { create },
     prepare,
@@ -179,7 +180,7 @@ it("config launches skip worktree and control, keep hooks and put the CLI on PAT
   expect(spec?.args).toContain("--settings");
   expect(spec?.env?.["PATH"]).toBe(`/app/console${delimiter}${root}`);
   expect(spec?.env?.["FOOM_CONTROL_TOKEN"]).toBeUndefined();
-  agentFixture.service = new AgentService(
+  agentFixture.service = enabledAgentService(
     { listWorktrees, launchIdentity },
     { create },
     prepare,
@@ -198,7 +199,7 @@ it("config launches skip worktree and control, keep hooks and put the CLI on PAT
 });
 
 it("refuses orchestrators without a control binding", async () => {
-  agentFixture.service = new AgentService({ listWorktrees, launchIdentity }, { create });
+  agentFixture.service = enabledAgentService({ listWorktrees, launchIdentity }, { create });
   await expect(
     agentFixture.service.launch({ ...request, control: { role: "orchestrator" } }),
   ).rejects.toThrow("control credentials");
@@ -209,7 +210,7 @@ it.each(["claude", "codex", "agy"] as const)(
   async (agent) => {
     agentFixture.help += "\n--prompt-interactive <prompt>";
     for (const conversationId of [undefined, "saved-id"]) {
-      agentFixture.service = new AgentService(
+      agentFixture.service = enabledAgentService(
         { listWorktrees, launchIdentity },
         { create },
         prepare,
@@ -294,7 +295,7 @@ it.each([
   const grants = ["open_preview", "list_previews", "close_preview"].map(
     (tool) => `mcp__foom_test__${tool}`,
   );
-  agentFixture.service = new AgentService(
+  agentFixture.service = enabledAgentService(
     { listWorktrees, launchIdentity },
     { create },
     prepare,
@@ -402,7 +403,7 @@ it.each([false, true])(
         env: { ...binding.env, FOOM_SESSION: "00000000-0000-4000-8000-000000000001" },
       });
     const grant = vi.fn(() => Promise.resolve({ env: {}, bind: vi.fn(), dispose: vi.fn() }));
-    agentFixture.service = new AgentService(
+    agentFixture.service = enabledAgentService(
       { listWorktrees, launchIdentity },
       { create },
       prepare,
@@ -437,7 +438,7 @@ it.each(["exit", "early-exit", "spawn-failure", "shutdown", "prepare-failure"])(
     const grant = vi.fn(() => Promise.resolve({ env: {}, bind: vi.fn(), dispose: vi.fn() }));
     versions.claude = "2.1.300 (Claude Code)";
     agentFixture.help += "\n--mcp-config <file>";
-    agentFixture.service = new AgentService(
+    agentFixture.service = enabledAgentService(
       { listWorktrees, launchIdentity },
       { create },
       prepare,

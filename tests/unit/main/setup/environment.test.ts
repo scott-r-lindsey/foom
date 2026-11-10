@@ -360,10 +360,9 @@ test("loading drops invalid, duplicate, plain-credential and undecryptable rows"
     all: [{ name: "GOOD", value: "1", secret: false }],
     claude: [{ name: "S", value: null, secret: true }],
     codex: [],
-    agy: [],
   });
   const locked = await EnvironmentStore.open(dir, { ...cipher, available: () => false });
-  expect(locked.state().lists.claude).toEqual([]);
+  expect(locked.state().lists["claude"]).toEqual([]);
   await writeFile(path.join(dir, "environment.json"), "{");
   expect((await EnvironmentStore.open(dir, cipher)).state().lists.all).toEqual([]);
   await writeFile(path.join(dir, "environment.json"), JSON.stringify({ version: 2, lists: {} }));
@@ -502,3 +501,29 @@ test("manifest-only agent environment persists encrypted secrets and applies onl
   await reopened.remove("fixture-agent", "API_TOKEN");
   expect(reopened.redactions()).not.toContain("private-value");
 });
+
+test.each(["claude", "codex", "agy", "copilot", "opencode", "pi", "custom-agent"])(
+  "%s uses the same optional Environment storage and retains ciphertext on unrelated edits",
+  async (id) => {
+    const root = await directory();
+    const counted = countingCipher();
+    const encrypted = cipher.encrypt("private-value").toString("base64");
+    const lists = { [id]: [{ name: "TOKEN", secret: true, cipher: encrypted }] };
+    const file = path.join(root, "environment.json");
+    await writeFile(file, JSON.stringify({ version: 1, lists }));
+    const store = await EnvironmentStore.open(root, counted);
+    expect(Object.keys(store.state().lists).sort()).toEqual(["all", id].sort());
+    expect(store.state().lists[id]).toEqual([{ name: "TOKEN", secret: true, value: null }]);
+    expect(store.layers(id)[1]).toEqual([{ name: "TOKEN", value: "private-value" }]);
+    expect(store.layers("unconfigured")[1]).toEqual([]);
+    await store.save(change("PLAIN", "value"));
+    const saved: unknown = JSON.parse(await readFile(file, "utf8"));
+    expect(saved).toEqual({
+      version: 1,
+      lists: { ...lists, all: [{ name: "PLAIN", value: "value" }] },
+    });
+    expect(counted.encrypt).not.toHaveBeenCalled();
+    const reopened = await EnvironmentStore.open(root, counted);
+    expect(reopened.layers(id)).toEqual(store.layers(id));
+  },
+);

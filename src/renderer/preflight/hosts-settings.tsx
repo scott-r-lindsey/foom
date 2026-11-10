@@ -1,4 +1,3 @@
-import { BUILTIN_AGENTS } from "../../shared/providers/catalog";
 import { HostTerminal } from "./host-terminal";
 import { hostDisplayName, hostNicknameError } from "../../shared/registered-hosts";
 import { Fragment, createContext, use, useCallback, useEffect, useRef, useState } from "react";
@@ -456,7 +455,7 @@ function Checklist({
             <Row
               name="Agents"
               tone="neutral"
-              text={`${String(agents.filter((agent) => enabledAgents?.[agent.id] !== false && agent.state === "ready" && agent.signIn !== "signed-out").length)} of ${String([...new Set([...BUILTIN_AGENTS.map((agent) => agent.id), ...Object.keys(enabledAgents ?? {})])].filter((id) => enabledAgents?.[id] !== false).length)} ready`}
+              text={`${String(agents.filter((agent) => enabledAgents?.[agent.id] === true && agent.state === "ready" && agent.signIn !== "signed-out").length)} of ${String(Object.values(enabledAgents ?? {}).filter((enabled) => enabled).length)} ready`}
               action={
                 <button
                   type="button"
@@ -692,7 +691,7 @@ export function HostsSettings({
   const [error, setError] = useState<ReactNode>("");
   const api = source.hosts;
   const [checkingHosts, setCheckingHosts] = useState<ReadonlySet<string>>(() => new Set());
-  const [progress, setProgress] = useState<HostCheckProgress>();
+  const [progress, setProgress] = useState<readonly HostCheckProgress[]>();
   const [rowPending, setRowPending] = useState<ReadonlySet<string>>(() => new Set());
   const [output, setOutput] = useState<HostOutput>();
   const [recipes, setRecipes] = useState<ReadonlyMap<string, { id: string; finished: boolean }>>(
@@ -802,7 +801,7 @@ export function HostsSettings({
           next.delete(host);
           return next;
         });
-        setProgress((previous) => (previous?.host === host ? undefined : previous));
+        setProgress((previous) => previous?.filter((entry) => entry.host !== host));
       }
     },
     [api],
@@ -1064,7 +1063,7 @@ export function HostsSettings({
           checks.get(entry.host) ?? entry.observation?.preflight,
           state.remoteHostsAvailable,
         );
-        const hostProgress = progress?.host === entry.host ? progress : undefined;
+        const hostProgress = progress?.find((item) => item.host === entry.host);
         const connection = hostProgress?.result
           ? hostProgress.result.connection
           : (preflight ?? entry.result?.connection);
@@ -1119,7 +1118,7 @@ export function HostsSettings({
                 {busy.has(entry.host) ? (
                   <span className="host-check-progress host-work" role="status">
                     <span className="host-throbber" aria-hidden="true" />
-                    {hostProgressText(progress?.host === entry.host ? progress : undefined)}
+                    {hostProgressText(progress?.find((item) => item.host === entry.host))}
                   </span>
                 ) : (
                   summary
@@ -1207,7 +1206,7 @@ export function HostsSettings({
                   openAgents={openAgents}
                   entry={entry}
                   preflight={preflight}
-                  progress={progress?.host === entry.host ? progress : undefined}
+                  progress={progress?.find((item) => item.host === entry.host)}
                   checking={checkingHosts.has(entry.host)}
                   disabled={busy.has(entry.host)}
                   act={(action) => {

@@ -1810,7 +1810,7 @@ test("host progress is projected and rejects malformed steps and observations", 
       { repository: "/next" },
     ],
   };
-  const value = { hosts: [], locations: [], progress };
+  const value = { hosts: [], locations: [], progress: [progress, { ...progress, host: "second" }] };
   mock.invoke.mockResolvedValue(withUndeclaredFields(value));
   await expect(api.hosts({ action: "progress" })).resolves.toEqual(value);
   for (const bad of [
@@ -1822,7 +1822,7 @@ test("host progress is projected and rejects malformed steps and observations", 
     },
     { ...progress, result: { ok: false, reason: "raw" } },
   ]) {
-    mock.invoke.mockResolvedValue({ ...value, progress: bad });
+    mock.invoke.mockResolvedValue({ ...value, progress: [bad] });
     await expect(api.hosts({ action: "progress" })).rejects.toThrow();
   }
 });
@@ -2033,3 +2033,27 @@ test("local installer bridge validates availability and terminal IDs", async () 
     await expect(api.localAgentInstall()).rejects.toThrow();
   }
 });
+
+test.each(["claude", "codex", "agy", "copilot", "opencode", "pi", "custom-agent"])(
+  "bridge accepts settings and Environment containing only %s",
+  async (id) => {
+    const api = await bridge();
+    const settings = {
+      ...setup.settings,
+      agents: { [id]: true },
+      agentArguments: { [id]: [] },
+      agentBypassAcknowledged: {},
+    };
+    mock.invoke.mockResolvedValue({ ...setup, settings });
+    await expect(api.setupState()).resolves.toEqual({ ...setup, settings });
+    const state = {
+      lists: { all: [], [id]: [{ name: "TOKEN", value: null, secret: true }] },
+      windows: false,
+      secrets: true,
+    };
+    mock.invoke.mockResolvedValue(state);
+    await expect(api.environmentState()).resolves.toEqual(state);
+    mock.invoke.mockResolvedValue({ ...state, lists: { all: [] } });
+    await expect(api.environmentState()).resolves.toEqual({ ...state, lists: { all: [] } });
+  },
+);

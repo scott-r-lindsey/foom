@@ -413,6 +413,14 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   await expect(page.getByText("Not found")).toHaveCount(bundledAgentCount, {
     timeout: deadline(20000),
   });
+  const missingClaude = page.locator("#agent-card-claude");
+  await missingClaude.getByRole("switch").check();
+  await expect(missingClaude.getByRole("switch")).toBeChecked();
+  await page.waitForFunction(
+    async () => (await window.desktop.setupState()).settings.agents.claude === true,
+  );
+  if (process.platform !== "win32")
+    await expect(missingClaude.getByRole("button", { name: "Install", exact: true })).toBeVisible();
   await assertFooter();
   await tabTo(page, "Continue");
   await page.keyboard.press("Enter");
@@ -466,6 +474,14 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   for (const [name, source] of Object.entries(agents)) {
     await writeFile(path.join(bin, name), source);
     await chmod(path.join(bin, name), 0o755);
+  }
+  await page.getByRole("button", { name: "Re-check This computer" }).click();
+  for (const id of Object.keys(agents)) {
+    await page.locator(`#agent-card-${id}`).getByRole("switch").check();
+    await page.waitForFunction(
+      async (id) => (await window.desktop.setupState()).settings.agents[id] === true,
+      id,
+    );
   }
   await page.getByRole("button", { name: "Re-check This computer" }).click();
   for (const [id, version] of Object.entries({
@@ -609,9 +625,9 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     middleClickPaste: false,
     copyOnSelect: false,
     terminalClipboardWrites: false,
-    agents: { claude: true, codex: true, agy: true },
-    agentArguments: { claude: [], codex: [], agy: [] },
-    agentBypassAcknowledged: { claude: false, codex: false, agy: false },
+    agents: { claude: true, codex: true, agy: true, copilot: true },
+    agentArguments: {},
+    agentBypassAcknowledged: {},
     worktreeLocation: "root",
     panelColor: "vivid",
     interfaceTheme: "follow",

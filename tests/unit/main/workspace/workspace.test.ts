@@ -1,3 +1,4 @@
+import { ENABLED_AGENTS } from "../../../helpers/enabled-agents";
 import { expect, test, vi } from "vitest";
 import { Workspace } from "../../../../src/main/workspace/workspace";
 import type { WorkspaceDependencies } from "../../../../src/main/workspace/workspace-types";
@@ -60,6 +61,7 @@ test("records an unknown branch as null and rejects unknown repositories", async
 test("adds repositories, lists and creates worktrees through the service", async () => {
   const changed = vi.fn();
   const workspace = new Workspace({ ...deps, onChange: changed });
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   await expect(workspace.addRepository("/repos/app")).resolves.toBe(repo);
   expect(changed).toHaveBeenCalledOnce();
   await expect(workspace.worktrees(repo.path)).resolves.toEqual([tree]);
@@ -112,6 +114,7 @@ test("uses the real agent service by default", async () => {
   const defaults: WorkspaceDependencies = { ...deps };
   delete defaults.agents;
   const workspace = new Workspace(defaults);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   await expect(
     workspace.launch({
       agent: "claude",
@@ -125,6 +128,7 @@ test("uses the real agent service by default", async () => {
 
 test("hook preparation starts the receiver once, retries a failed start, and gives agy per-launch credentials", async () => {
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   startReceiver.mockRejectedValueOnce(new Error("port"));
   await expect(prepare?.("claude")).rejects.toThrow("port");
   const first = await prepare?.("claude");
@@ -162,6 +166,7 @@ test("dispose releases agents, closes the receiver once, and refuses new work", 
 
 test("dispose tolerates a receiver that fails while starting", async () => {
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   let fail: (error: Error) => void = () => {};
   startReceiver.mockReturnValueOnce(
     new Promise((_resolve, reject) => {
@@ -178,6 +183,7 @@ test("dispose tolerates a receiver that fails while starting", async () => {
 test("the branch is looked up before spawning, so a failed lookup launches nothing", async () => {
   vi.mocked(deps.worktrees.listWorktrees).mockRejectedValueOnce(new Error("git"));
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   await expect(
     workspace.launch({
       agent: "claude",
@@ -193,6 +199,7 @@ test("the branch is looked up before spawning, so a failed lookup launches nothi
 
 test("a hook that arrives before launch returns is kept", async () => {
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   tails.set("t1", ["╭ Allow Bash(npm test)? ╮"]);
   let early: Promise<void> = Promise.resolve();
   agents.launch.mockImplementationOnce(async () => {
@@ -231,6 +238,7 @@ test("shells get only the All sessions layer; agents get their layers and record
   agents.launch.mockResolvedValue({ id: "t9", attention: "hooks", environment: ["ONLY"] });
   const create = vi.spyOn(deps.terminals, "create");
   const workspace = new Workspace({ ...deps, environment });
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   expect(await workspace.startWorktree(start)).toBe("t1");
   const spec = create.mock.calls.at(-1)?.[0];
   expect(spec?.env).toMatchObject({ HTTPS_PROXY: "http://proxy:1" });
@@ -253,6 +261,7 @@ test("shells get only the All sessions layer; agents get their layers and record
 
 test("launches multiple shells in a managed worktree", async () => {
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   expect(await workspace.startWorktree(start)).toBe("t1");
   expect(vi.spyOn(deps.terminals, "create")).toHaveBeenCalledWith(
     expect.objectContaining({ cwd: tree.path, cols: 80, rows: 24 }),
@@ -277,6 +286,7 @@ test("creates missing worktrees at the configured location and launches Codex wi
     .mockResolvedValueOnce([])
     .mockResolvedValue([tree]);
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   workspace.configure({
     hooks: true,
     agents: { claude: true, codex: true, agy: true },
@@ -301,6 +311,7 @@ test("creates missing worktrees at the configured location and launches Codex wi
 
 test("refuses unknown, bare, locked, prunable and invalid branches without spawning", async () => {
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   await expect(workspace.startWorktree({ ...start, repository: "/unknown" })).rejects.toThrow(
     "not been added",
   );
@@ -319,6 +330,7 @@ test("serializes branch launches and unlocks after failure", async () => {
   const deferred = Promise.withResolvers<undefined>();
   vi.spyOn(deps.worktrees, "validateBranch").mockReturnValueOnce(deferred.promise);
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   const first = workspace.startWorktree(start);
   await expect(workspace.startWorktree(start)).rejects.toThrow("busy");
   deferred.reject(new Error("invalid"));
@@ -334,6 +346,7 @@ test.each([
   ["sidebar", "shell"],
 ] as const)("%s removal refuses running %s sessions before confirmation", async (path, run) => {
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   await workspace.startWorktree({ ...start, run });
   const confirm = vi.fn(() => Promise.resolve(true));
   const remove = () =>
@@ -358,6 +371,7 @@ test.each(["id", "sidebar"] as const)(
   "%s removal holds the canonical path against branch-changed launches during confirmation",
   async (path) => {
     const workspace = new Workspace(deps);
+    workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
     await workspace.startWorktree(start);
     await workspace.exited("t1", 0);
     const removeTree = vi.spyOn(deps.worktrees, "removeWorktree");
@@ -388,6 +402,7 @@ test.each(["id", "sidebar"] as const)(
 
 test("snapshots bypass policy per launch and never accepts defaults from a renderer request", async () => {
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   const config = { hooks: true, agents: { claude: true, codex: true, agy: true } };
   workspace.configure({
     ...config,
@@ -421,6 +436,7 @@ test("refresh synchronizes registered watches without affecting terminals, and d
   const kill = vi.fn<WorkspaceDependencies["terminals"]["kill"]>();
   deps.terminals.kill = kill;
   const workspace = new Workspace({ ...deps, watcher, onChange });
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   expect(watcher.sync).toHaveBeenCalledWith([repo]);
   workspace.refresh();
   expect(onChange).toHaveBeenCalledOnce();
@@ -439,6 +455,7 @@ test.each(["shell", "claude", "remove"] as const)(
     deps.terminals.kill = kill;
     deps.terminals.create = create;
     const workspace = new Workspace(deps);
+    workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
     vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([]);
     const confirm = vi.fn(() => Promise.resolve(true));
     await expect(
@@ -473,6 +490,7 @@ test("starts control lazily once, retries failed initialization and closes indep
   };
   deps.control = start;
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   expect(start).not.toHaveBeenCalled();
   if (!control) throw new Error("Expected launch registrar");
   await expect(control(repo.path, tree.path)).rejects.toThrow("private directory unavailable");
@@ -490,6 +508,7 @@ test.each([
 ] as const)("$agent animated titles commit once: $titles", async ({ agent, titles }) => {
   tails.set("t1", ["Agent output"]);
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   await workspace.launch({ agent, repository: repo.path, worktree: tree.path, cols: 80, rows: 24 });
   for (const title of [...titles, ...titles])
     await workspace.evidence("t1", { title, progress: null });
@@ -507,6 +526,7 @@ test.each([
 test("host recipes are human-owned remote shells without hub environment or orchestration grants", async () => {
   const create = vi.spyOn(deps.terminals, "create");
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   const target = {
     host: "worker",
     profile: "f".repeat(32),
@@ -549,6 +569,7 @@ test.each([true, false])(
           }
         : {}),
     });
+    workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
     await workspace.startHostRecipe({
       ...target,
       recipe: { tool: "git", action: "install", distro: "debian", digest: "a".repeat(64) },

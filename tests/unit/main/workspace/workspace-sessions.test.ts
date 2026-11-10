@@ -1,3 +1,4 @@
+import { ENABLED_AGENTS } from "../../../helpers/enabled-agents";
 import { expect, test, vi } from "vitest";
 import { WorktreeService } from "../../../../src/main/workspace/worktrees";
 import { Workspace } from "../../../../src/main/workspace/workspace";
@@ -65,6 +66,7 @@ test("restores metadata without PTYs, allows Resume and Close, and drains persis
     flush,
   };
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   await workspace.restore();
   expect(workspace.ownsSession("t1")).toBe(true);
   expect(workspace.ownsSession("foreign")).toBe(true);
@@ -82,6 +84,7 @@ test("restores metadata without PTYs, allows Resume and Close, and drains persis
   await workspace.dispose();
   expect(flush).toHaveBeenCalledOnce();
   const restored = new Workspace(deps);
+  restored.configure({ hooks: true, agents: ENABLED_AGENTS });
   await restored.restore();
   vi.mocked(deps.terminals).kill.mockClear();
   vi.mocked(deps.worktrees.reviewIdentity).mockClear();
@@ -116,6 +119,7 @@ test("Close forgets a dormant restored session from an unregistered repository w
     flush: () => Promise.resolve(),
   };
   const workspace = new Workspace({ ...deps, worktrees });
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   try {
     await workspace.restore();
     expect(workspace.snapshot().terminals).toMatchObject([{ id: "missing-repo", dormant: true }]);
@@ -199,6 +203,7 @@ test("pasted resumes retain IDs on exit and reuse the resume path with current d
   const copy = vi.fn(async () => {});
   deps.copyText = copy;
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   await workspace.sidebarCommand(pastedResume, () => Promise.resolve(true));
   expect(agents.launch).toHaveBeenCalledWith(
     expect.objectContaining({
@@ -224,6 +229,7 @@ test("pasted resumes retain IDs on exit and reuse the resume path with current d
 test("concurrent pasted resumes focus one live conversation, including from another checkout", async () => {
   deps.reveal = vi.fn();
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   await Promise.all([
     workspace.sidebarCommand(pastedResume, () => Promise.resolve(true)),
     workspace.sidebarCommand(
@@ -238,6 +244,7 @@ test("concurrent pasted resumes focus one live conversation, including from anot
 
 test("pasted resumes reject unavailable agents, invalid IDs and stale checkouts", async () => {
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   await expect(
     workspace.sidebarCommand({ ...pastedResume, id: "--last" }, () => Promise.resolve(true)),
   ).rejects.toThrow();
@@ -254,6 +261,7 @@ test("pasted resumes reject unavailable agents, invalid IDs and stale checkouts"
 
 test("pasted resumes honor shared-checkout cancellation and release failed launch locks", async () => {
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   await workspace.sidebarCommand(pastedResume, () => Promise.resolve(true));
   const confirm = vi.fn(() => Promise.resolve(false));
   await workspace.sidebarCommand({ ...pastedResume, id: "another" }, confirm);
@@ -276,6 +284,7 @@ test("explicit remote spike routes only home shells and sends no local environme
     "--remote-host-artifact=/fixture/foom-host",
   ];
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   try {
     await workspace.sidebarCommand({ kind: "home-shell" }, () => Promise.resolve(true));
     expect(vi.mocked(deps.terminals, true).create.mock.calls[0]?.[0]).toMatchObject({

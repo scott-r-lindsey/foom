@@ -135,6 +135,7 @@ export type RemoteResponse =
       childPressure?: 1;
       hostFacts?: 1;
       hostPreflight?: 1;
+      hostCheckConnection?: 1;
       hostRowCheck?: 1;
       agentSettings?: 1;
       humanMachines?: 1;

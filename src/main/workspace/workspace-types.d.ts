@@ -218,7 +218,13 @@ export interface WorkspaceMethods {
 }
 export type Agents = Pick<
   AgentService,
-  "scan" | "launch" | "release" | "dispose" | "setHooksEnabled" | "setBypassIdentities"
+  | "scan"
+  | "launch"
+  | "release"
+  | "dispose"
+  | "setEnabled"
+  | "setHooksEnabled"
+  | "setBypassIdentities"
 >;
 export interface WorkspaceDependencies {
   hosts?: Pick<Hosts, "fleet" | "worktree" | "registered" | "requireAgent"> &

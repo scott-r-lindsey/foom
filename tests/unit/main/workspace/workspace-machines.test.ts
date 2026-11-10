@@ -1,3 +1,4 @@
+import { ENABLED_AGENTS } from "../../../helpers/enabled-agents";
 import { homeDirectory } from "../../../../src/main/workspace/home-shell";
 import { locationId } from "../../../../src/main/control/metadata";
 import { Hosts } from "../../../../src/main/setup/hosts";
@@ -11,8 +12,15 @@ import { Workspace } from "../../../../src/main/workspace/workspace";
 import { machineHostName } from "../../../../src/main/workspace/sidebar-commands";
 import { agents, bound, deps, tree } from "./workspace-fixture";
 
+function configured() {
+  const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
+  return workspace;
+}
+
 test("machine rows are absent without hosts and follow settings order after localhost", async () => {
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   expect((await workspace.sidebarInventory()).machines).toEqual([]);
   const fleet = vi.fn().mockResolvedValue([
     {
@@ -50,7 +58,7 @@ test("machine rows are absent without hosts and follow settings order after loca
       ],
     }),
   };
-  const inventory = await new Workspace(deps).sidebarInventory();
+  const inventory = await configured().sidebarInventory();
   expect(inventory.machines).toEqual([
     {
       host: null,
@@ -74,11 +82,12 @@ test("machine rows are absent without hosts and follow settings order after loca
     codeFolder: "/code",
     ...(host.includes("dozer") ? { nickname: "Build box" } : {}),
   }));
-  expect((await new Workspace(deps).sidebarInventory()).machines?.[1]?.name).toBe("Build box");
+  expect((await configured().sidebarInventory()).machines?.[1]?.name).toBe("Build box");
 });
 
 test("local machine launches use the installed CLI and user defaults without creating an orchestration child", async () => {
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   const created = await workspace.sidebarCommand(
     { kind: "machine-launch", host: null, run: "claude" },
     () => Promise.resolve(true),
@@ -127,6 +136,7 @@ test.each(["shell", "claude"] as const)(
       return Promise.resolve("t1");
     });
     const workspace = new Workspace(deps);
+    workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
     await workspace.sidebarCommand({ kind: "machine-launch", host: "dozer", run }, () =>
       Promise.resolve(true),
     );
@@ -164,6 +174,7 @@ test.each(["shell", "claude"] as const)(
 
 test("machine shells restart on their selected machine and local agents resume through the ordinary human launcher", async () => {
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   await workspace.sidebarCommand({ kind: "machine-launch", host: null, run: "shell" }, () =>
     Promise.resolve(true),
   );
@@ -179,6 +190,7 @@ test("resuming a local machine agent preserves its conversation without another 
   const save = vi.fn(() => Promise.resolve());
   deps.sessions = { load: () => Promise.resolve([]), save, flush: () => Promise.resolve() };
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   await workspace.sidebarCommand({ kind: "machine-launch", host: null, run: "claude" }, () =>
     Promise.resolve(true),
   );
@@ -211,6 +223,7 @@ test("resuming a local machine agent preserves its conversation without another 
 
 test("disabled agents, missing hosts and failed remote readiness create no terminal", async () => {
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   workspace.configure({ hooks: false, agents: { claude: false, codex: true, agy: false } });
   await expect(
     workspace.sidebarCommand({ kind: "machine-launch", host: null, run: "claude" }, () =>
@@ -249,6 +262,7 @@ test("repository-launch uses the checked remote clone without an orchestration g
     repositoryTarget: vi.fn(() => Promise.resolve(remote)),
   };
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   await workspace.sidebarCommand(
     { kind, repository: repo.path, host: "dozer", run: "claude" },
     () => Promise.resolve(true),
@@ -293,6 +307,7 @@ test("remote worktree creation validates the branch, records placement and launc
     rememberPlacement,
   };
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   const created = await workspace.createWorktree(repo.path, "new-branch", undefined, "dozer");
   expect(created).toMatchObject({ host: "dozer", branch: "new-branch", outcome: "new" });
   expect(rememberPlacement).toHaveBeenCalledWith(
@@ -307,6 +322,7 @@ test("remote worktree creation validates the branch, records placement and launc
 
 test("failed replacement of a machine agent retains its dormant session for retry", async () => {
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   await workspace.sidebarCommand({ kind: "machine-launch", host: null, run: "claude" }, () =>
     Promise.resolve(true),
   );
@@ -345,7 +361,7 @@ function remoteMainFixture() {
   const create = vi.spyOn(deps.terminals, "create");
   let sequence = 0;
   create.mockImplementation(() => Promise.resolve(`remote-${String(++sequence)}`));
-  return { workspace: new Workspace(deps), create };
+  return { workspace: configured(), create };
 }
 
 test("repository-launch confirms sharing a remote main checkout before creating another PTY", async () => {
@@ -511,6 +527,7 @@ test.each(["claude", "codex"] as const)(
       flush: async () => {},
     };
     const workspace = new Workspace(deps);
+    workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
     await workspace.restore();
     expect(workspace.snapshot().terminals[0]?.orchestration).toBeUndefined();
     await workspace.sidebarCommand({ kind: "resume", id: "t1" }, () => Promise.resolve(true));
@@ -540,6 +557,7 @@ test.each(["claude", "codex"] as const)(
 test("human linked-checkout launches recover as repository agents from daemon inventory before checkout inventory is warm", async () => {
   const location = remoteLinkedFixture();
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   await workspace.sidebarCommand(
     { kind: "launch", repository: location.repository, worktree: location.worktree, run: "claude" },
     () => Promise.resolve(true),
@@ -587,6 +605,7 @@ test("human linked-checkout launches recover as repository agents from daemon in
 
 test("startup begins before agent discovery and cancellation prevents the local spawn", async () => {
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   const controller = new AbortController();
   const started = vi.fn();
   const discovered = await agents.scan();
@@ -615,6 +634,7 @@ test("startup begins before agent discovery and cancellation prevents the local 
 
 test("startup cancellation before dispatch creates no terminal or startup notification", async () => {
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   const controller = new AbortController();
   controller.abort();
   const started = vi.fn();

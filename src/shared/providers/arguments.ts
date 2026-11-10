@@ -4,11 +4,7 @@ import { argumentMatchIndex, matchesArguments } from "../agent-argument-matchers
 import { builtinAgent, validAgentId } from "./catalog";
 import type { AgentId, AgentValues } from "../agents";
 
-export const EMPTY_AGENT_ARGUMENTS: AgentValues<readonly string[]> = Object.freeze({
-  claude: Object.freeze([]),
-  codex: Object.freeze([]),
-  agy: Object.freeze([]),
-});
+export const EMPTY_AGENT_ARGUMENTS: AgentValues<readonly string[]> = Object.freeze({});
 
 function bundledModel(agent: AgentId) {
   const data = bundledAgentData.find((entry) => entry.id === agent);
@@ -68,19 +64,10 @@ export function parseAgentDefaults(value: unknown): AgentValues<readonly string[
     typeof value !== "object" ||
     value === null ||
     Array.isArray(value) ||
-    Object.keys(value).length > 100 ||
-    !("claude" in value) ||
-    !("codex" in value) ||
-    !("agy" in value)
+    Object.keys(value).length > 100
   )
-    throw new AgentArgumentsError(
-      "Default arguments must name Claude Code, Codex and Antigravity.",
-    );
-  const result: Record<string, readonly string[]> & {
-    claude: readonly string[];
-    codex: readonly string[];
-    agy: readonly string[];
-  } = { claude: [], codex: [], agy: [] };
+    throw new AgentArgumentsError("Default arguments must be a provider-ID map.");
+  const result: Record<string, readonly string[]> = {};
   for (const [id, args] of Object.entries(value)) {
     if (!validAgentId(id)) throw new AgentArgumentsError("Invalid agent ID");
     result[id] = parseAgentArguments(id, args);

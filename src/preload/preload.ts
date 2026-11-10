@@ -547,19 +547,21 @@ const validHostCheckTarget: Validator<HostCheckTarget> = either(
 const validHostsState: Validator<HostsState> = shape({
   progress: either(
     absent,
-    shape({
-      host: hostAlias,
-      phase: literal("inspect", "origin", "checkout"),
-      repository: either(absent, text),
-      result: either(absent, validHostResult),
-      repositories: array(
-        shape({
-          repository: text,
-          origin: either(absent, validHostCheck),
-          checkout: either(absent, validHostResult),
-        }),
-      ),
-    }),
+    array(
+      shape({
+        host: hostAlias,
+        phase: literal("inspect", "origin", "checkout"),
+        repository: either(absent, text),
+        result: either(absent, validHostResult),
+        repositories: array(
+          shape({
+            repository: text,
+            origin: either(absent, validHostCheck),
+            checkout: either(absent, validHostResult),
+          }),
+        ),
+      }),
+    ),
   ),
   preflight: either(absent, validHostPreflight),
   recipeSession: either(absent, (value): value is string => nonempty(value) && value.length <= 200),
@@ -633,30 +635,9 @@ const validSettings: Validator<Settings> = shape({
   terminalClipboardWrites: boolean,
   forges: dictionary(boolean),
   forgeHosts: dictionary(text),
-  agents: both(
-    shape({
-      claude: boolean,
-      codex: boolean,
-      agy: boolean,
-    }),
-    dictionary(boolean),
-  ),
-  agentArguments: both(
-    shape({
-      claude: array(text),
-      codex: array(text),
-      agy: array(text),
-    }),
-    dictionary(array(text)),
-  ),
-  agentBypassAcknowledged: both(
-    shape({
-      claude: boolean,
-      codex: boolean,
-      agy: boolean,
-    }),
-    dictionary(boolean),
-  ),
+  agents: dictionary(boolean),
+  agentArguments: dictionary(array(text)),
+  agentBypassAcknowledged: dictionary(boolean),
   agentBypassIdentities: either(absent, dictionary(text)),
   worktreeLocation: literal("root", "adjacent"),
   panelColor: literal("vivid", "subtle", "plain"),
@@ -1266,9 +1247,6 @@ const validEnvironmentRow: Validator<EnvironmentRow> = copying(
 const validEnvironmentState: Validator<EnvironmentState> = shape({
   lists: both(
     shape({
-      claude: array(validEnvironmentRow),
-      codex: array(validEnvironmentRow),
-      agy: array(validEnvironmentRow),
       all: array(validEnvironmentRow),
     }),
     dictionary(array(validEnvironmentRow)),

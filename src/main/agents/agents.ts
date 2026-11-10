@@ -113,6 +113,7 @@ async function detect(id: AgentId, path: string, probeEnabled = true): Promise<A
 export class AgentService {
   private scanResult: AgentScan | undefined;
   private scannedRevision = -1;
+  private enabled: Readonly<Record<string, boolean>> = {};
   private hooksEnabled = true;
   private agentHooks: Readonly<Record<string, boolean>> = {};
   private bypassIdentities: Readonly<Record<string, string>> = {};
@@ -154,10 +155,14 @@ export class AgentService {
     this.bypassIdentities = { ...identities };
   }
 
-  async scan(
-    enabled: Readonly<Record<string, boolean>> = {},
-    selected?: string,
-  ): Promise<AgentScan> {
+  setEnabled(enabled: Readonly<Record<string, boolean>>): void {
+    if (JSON.stringify(this.enabled) !== JSON.stringify(enabled)) this.scanResult = undefined;
+    this.enabled = { ...enabled };
+  }
+
+  async scan(enabled: Readonly<Record<string, boolean>>, selected?: string): Promise<AgentScan> {
+    this.setEnabled(enabled);
+    const preferences = this.enabled;
     const resolved = await loginPath();
     const revision = providerRevision();
     const agents = await Promise.all(
@@ -168,7 +173,7 @@ export class AgentService {
                 ? this.scanResult?.agents.find((agent) => agent.id === provider.id)
                 : undefined) ?? (await detect(provider.id, resolved.path, false)),
             )
-          : enabled[provider.id] === false
+          : preferences[provider.id] !== true
             ? detect(provider.id, resolved.path, false)
             : provider.enrich(await detect(provider.id, resolved.path), this.agyPlugin)
         ).then((agent) => ({
@@ -325,7 +330,7 @@ export class AgentService {
     const scan =
       this.scannedRevision === providerRevision() && this.scanResult
         ? this.scanResult
-        : await this.scan();
+        : await this.scan(this.enabled);
     const agent = scan.agents.find((entry) => entry.id === request.agent);
     if (!agent?.path) throw new LaunchFailure("agent_unavailable");
     const attach =
