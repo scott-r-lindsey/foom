@@ -111,7 +111,15 @@ visible child during reuse (#353). All platforms read back native bounds and
 require the entire measured card within the parent's display work area, within
 2 DIP of the requested position and size. Focus and visibility alone can describe
 an off-screen mapped child and are insufficient. A successful check schedules
-another in five seconds to detect silent losses. Resume, unlock, display removal
+another in five seconds to detect silent losses. Once the initial native check has
+succeeded, user-started (`activate: true`) confirmations pause periodic recovery
+while no Foom window is focused: they neither re-present nor cancel for focus
+loss while the person works in another app. Focus returning to any Foom window
+re-presents and rechecks the child. Focus in another Foom window
+keeps the existing bounded recovery and cancellation; initial presentation
+failures, native hide/minimize/loss and every answer-time check remain unchanged.
+Agent, CLI pairing, preview and workspace requests keep their existing inactive-app
+cancellation. Resume, unlock, display removal
 or metric changes, and parent show/restore re-present and check the dialog too.
 Reentrant focus events cannot extend the final recovery deadline. Native
 presentation exceptions decline immediately. Every positive answer, including

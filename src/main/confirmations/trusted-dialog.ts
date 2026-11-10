@@ -48,6 +48,7 @@ export class TrustedDialog {
   private parentEnabled = true;
   private parentFocusable = true;
   private reachability: NodeJS.Timeout | undefined;
+  private reachabilityEstablished = false;
   private presenting = false;
   private unavailableDuringPresentation = false;
   private settling: NodeJS.Timeout | undefined;
@@ -445,6 +446,7 @@ export class TrustedDialog {
       screen.on("display-metrics-changed", this.restoreDialog);
       screen.on("display-removed", this.restoreDialog);
       this.parent.on("focus", this.restoreDialog);
+      app.on("browser-window-focus", this.appFocused);
       this.parentContents.send("confirmation:scrim", true);
       this.refresh();
       this.watchReachability();
@@ -599,6 +601,7 @@ export class TrustedDialog {
     this.reachability = setTimeout(() => {
       this.reachability = undefined;
       if (!this.window || !this.settled) this.finish(false);
+      else if (this.pauseReachability()) this.watchReachability(false);
       else if (!this.isReachable()) {
         if (reordered) this.finish(false);
         else {
@@ -606,7 +609,10 @@ export class TrustedDialog {
           this.watchReachability(true);
           this.present();
         }
-      } else this.watchReachability(false, 5000);
+      } else {
+        this.reachabilityEstablished = true;
+        this.watchReachability(false, 5000);
+      }
     }, delay);
     this.reachability.unref();
   }
@@ -616,6 +622,16 @@ export class TrustedDialog {
       // Give the web view keyboard input as well as activating its native window.
       this.window.webContents.focus();
     }
+  };
+  private pauseReachability(): boolean {
+    return (
+      this.pending?.activate === true &&
+      this.reachabilityEstablished &&
+      BrowserWindow.getFocusedWindow() === null
+    );
+  }
+  private readonly appFocused = () => {
+    if (this.pending?.activate && this.reachabilityEstablished) this.restoreDialog();
   };
   private readonly restoreDialog = () => {
     this.present();
@@ -639,6 +655,7 @@ export class TrustedDialog {
     clearTimeout(this.settling);
     this.settling = undefined;
     this.settled = false;
+    this.reachabilityEstablished = false;
     clearTimeout(this.reachability);
     this.reachability = undefined;
     this.unsubscribe?.();
@@ -663,6 +680,7 @@ export class TrustedDialog {
     screen.removeListener("display-metrics-changed", this.restoreDialog);
     screen.removeListener("display-removed", this.restoreDialog);
     this.parent.removeListener("focus", this.restoreDialog);
+    app.removeListener("browser-window-focus", this.appFocused);
     if (!this.parent.isDestroyed()) {
       if (this.platform === "darwin") this.parent.setFocusable(this.parentFocusable);
       else if (this.platform === "win32") this.parent.setEnabled(this.parentEnabled);
