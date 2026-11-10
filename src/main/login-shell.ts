@@ -6,6 +6,7 @@ interface LoginShellOptions {
   maxBuffer: number;
   cwd: string;
   env?: NodeJS.ProcessEnv;
+  signal?: AbortSignal;
 }
 
 /** Bounded login-shell reads must never acquire the application's controlling terminal. */
@@ -14,6 +15,7 @@ export function readLoginShell(
   args: readonly string[],
   options: LoginShellOptions,
 ): Promise<{ stdout: string; stderr: string }> {
+  if (options.signal?.aborted) return Promise.reject(new Error("Process read cancelled"));
   return new Promise((resolve, reject) => {
     const detached = process.platform !== "win32";
     const child = spawn(shell, args, {
@@ -38,6 +40,11 @@ export function readLoginShell(
         child.kill("SIGKILL");
       }
     };
+    const abort = () => {
+      failure = new Error("Process read cancelled");
+      kill();
+    };
+    options.signal?.addEventListener("abort", abort, { once: true });
     const timer = setTimeout(() => {
       failure = new Error("Login shell timed out");
       kill();
@@ -64,6 +71,7 @@ export function readLoginShell(
     });
     child.on("close", (code) => {
       clearTimeout(timer);
+      options.signal?.removeEventListener("abort", abort);
       if (failure) reject(failure);
       else if (code !== 0) reject(new Error("Login shell failed"));
       else

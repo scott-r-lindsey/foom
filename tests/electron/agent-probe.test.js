@@ -209,7 +209,11 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
           .length,
     )
     .toBe(1);
-  const probeRow = page.locator(".config-dock .board-row").filter({ hasText: "Probe" });
+  const probeTerminalId = await page.evaluate(
+    async () => (await window.desktop.workspace()).terminals.find((row) => row.probe)?.id,
+  );
+  assert.ok(probeTerminalId);
+  const probeRow = page.locator(`.config-dock .board-row[data-drag-session="${probeTerminalId}"]`);
   await expect(probeRow).toBeVisible();
   await expect(page.getByRole("note")).toBeVisible();
   await expect(page.getByRole("note")).toHaveText(
@@ -226,6 +230,11 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
         )?.state?.reason,
     )
     .toBe("Probe waiting");
+  // The reminder puts "Probe" in both config rows. The same probe stays unambiguous.
+  await expect(
+    page.locator(`.config-dock .board-row[data-drag-session="${configId}"]`),
+  ).toContainText("Probe waiting");
+  await expect(probeRow).toBeVisible();
   await expect(probeTile.locator(".tile-attention")).toHaveCount(0);
   assert.notEqual(
     (await page.evaluate(() => window.desktop.workspace())).terminals.find((row) => row.probe)

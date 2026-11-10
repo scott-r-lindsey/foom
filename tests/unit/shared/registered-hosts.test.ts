@@ -784,3 +784,15 @@ test.each(["preflight", "draft-preflight"])(
     expect(hostsAction({ ...request, host: "-worker" })).toBe(false);
   },
 );
+
+test("host-key trust requests cannot carry answers or helper arguments", () => {
+  expect(hostsAction({ action: "trust-host-key", host: "worker" })).toBe(true);
+  expect(hostsAction({ action: "cancel-trust" })).toBe(true);
+  for (const value of [
+    { action: "trust-host-key", host: "worker", answer: "yes" },
+    { action: "trust-host-key", host: "worker", prompt: "unknown host" },
+    { action: "trust-host-key", host: "-options" },
+    { action: "cancel-trust", host: "worker" },
+  ])
+    expect(hostsAction(value)).toBe(false);
+});
