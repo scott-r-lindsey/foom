@@ -103,7 +103,7 @@ test("approved argument changes acknowledge bundled IDs outside the original thr
   expect(acknowledge).toHaveBeenCalledExactlyOnceWith(["opencode"]);
 });
 
-test("migration inserts arguments without approving other file edits, preserving a recoverable baseline", async () => {
+test("migration preserves approved arguments in the baseline without rewriting the working file", async () => {
   const f = await fixture();
   await f.service.initialize();
   await f.service.dispose();
@@ -140,10 +140,9 @@ test("migration inserts arguments without approving other file edits, preserving
   };
   const migrated = create();
   expect(await migrated.initialize({ agentArguments: args })).toEqual({ agentArguments: args });
-  expect(migrated.status().pending?.detail).toBe("hooks: on → off");
+  expect(migrated.status().pending?.detail).toBe("hooks: on → off, agentArguments.codex");
   expect(JSON.parse(await f.read("settings.json"))).toEqual({
     kind: "settings",
-    agentArguments: args,
     hooks: false,
   });
   await migrated.dispose();

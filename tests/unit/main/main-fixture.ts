@@ -212,9 +212,6 @@ vi.mock("../../../src/main/config/service", () => ({
   ConfigService: class {
     folder = "/home/.foom/config";
     ready = true;
-    get settingsCreated() {
-      return mock.config.settingsCreated;
-    }
     constructor(deps: ConfigServiceDependencies) {
       mock.config.deps = deps;
     }
@@ -604,7 +601,6 @@ const mock = vi.hoisted(() => {
     saveWindowSize: vi.fn<() => Promise<void>>(),
     openSettings: vi.fn<() => Promise<unknown>>(),
     config: {
-      settingsCreated: true,
       deps: undefined as ConfigServiceDependencies | undefined,
       initialize: vi.fn<(legacy: unknown) => Promise<unknown>>(),
       write: vi.fn<(patch: unknown) => Promise<void>>(() => Promise.resolve()),
@@ -825,7 +821,6 @@ beforeEach(() => {
     listRepositories: () => [],
     managesPath: mock.managesPath,
   });
-  mock.config.settingsCreated = true;
   mock.config.initialize.mockResolvedValue({});
   mock.setupState.mockResolvedValue({ settings: mock.settingsStore.get() });
   mock.openSettings.mockResolvedValue(mock.settingsStore);

@@ -110,7 +110,6 @@ export class ConfigService {
   private error: string | undefined;
   private closed = false;
   private started = false;
-  private createdSettings = false;
 
   private readonly files: ConfigFiles;
   private readonly plugins: ConfigCatalog;
@@ -151,11 +150,6 @@ export class ConfigService {
     return this.started;
   }
 
-  /** Legacy window migration may write only when this launch created settings. */
-  get settingsCreated(): boolean {
-    return this.createdSettings;
-  }
-
   private async setUp(legacy?: ConfigSettings): Promise<ConfigSettings> {
     const info = await settle(lstat(this.deps.root), null);
     if (info && !info.isDirectory()) throw new Error("Foom config is not a folder");
@@ -192,27 +186,19 @@ export class ConfigService {
       }
       const text = `${JSON.stringify({ kind: "settings", ...values }, null, 2)}\n`;
       parseSettingsFile(text);
-      this.createdSettings = await this.files.createFile(SETTINGS_FILE, text);
-      if (this.createdSettings) migrated = { text, values };
+      if (await this.files.createFile(SETTINGS_FILE, text)) migrated = { text, values };
     }
     const baseline = await this.baseline(migrated);
     this.applied = baseline ?? DEFAULTS;
     if (!migrated && baseline && legacy?.agentArguments) {
       // Trust only the profile's arguments, not other edits made while Foom was closed.
-      const bytes = await this.files.read(SETTINGS_FILE);
-      if (!bytes) throw new Error("Cannot migrate agent arguments without settings");
-      const text = decode(bytes);
-      const values = parseSettingsFile(text);
       const baseline = { ...this.applied.values, agentArguments: legacy.agentArguments };
       const approvedText = `${JSON.stringify({ kind: "settings", ...baseline }, null, 2)}\n`;
       parseSettingsFile(approvedText);
       this.applied = { values: baseline, text: approvedText };
-      if (values.agentArguments === undefined) {
-        const migratedText = `${JSON.stringify({ kind: "settings", ...values, agentArguments: legacy.agentArguments }, null, 2)}\n`;
-        parseSettingsFile(migratedText);
-        await this.files.writeFile(SETTINGS_FILE, migratedText);
-      }
-      // Keep a recoverable approved baseline even when the working file has a held edit.
+      // Preserve a recoverable approved baseline without rewriting working bytes.
+      // They remain an external proposal, including a missing arguments key, and
+      // must pass the scan below even if replaced during baseline persistence.
       await this.recordBaseline(this.applied.text);
     }
     if (migrated && this.applied === migrated) await this.recordBaseline(migrated.text);

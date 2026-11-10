@@ -18,6 +18,8 @@ import { terminalThemes } from "../../../src/shared/terminal-themes";
 
 import { join } from "node:path";
 import type { Settings } from "../../../src/shared/setup";
+import type { ConfigSettings } from "../../../src/shared/config";
+import type * as ConfigServiceModule from "../../../src/main/config/service";
 
 import { expect, test, vi } from "vitest";
 
@@ -329,7 +331,11 @@ test("migrates only the first saved window scale when shared config has no scale
     },
   ]);
   await start();
-  expect(mock.settingsStore.update).toHaveBeenCalledWith({ interfaceScale: 150 });
+  expect(mock.config.initialize).toHaveBeenCalledWith({
+    terminalFontSize: 16,
+    interfaceScale: 150,
+  });
+  expect(mock.settingsStore.update).not.toHaveBeenCalled();
 });
 
 test("existing shared scale wins over legacy window scales", async () => {
@@ -362,7 +368,11 @@ test("legacy shared profile scale wins over window scales", async () => {
     },
   ]);
   await start();
-  expect(mock.settingsStore.update).toHaveBeenCalledWith({ interfaceScale: 110 });
+  expect(mock.config.initialize).toHaveBeenCalledWith({
+    terminalFontSize: 16,
+    interfaceScale: 110,
+  });
+  expect(mock.settingsStore.update).not.toHaveBeenCalled();
 });
 
 test("a failed settings notification does not prevent broadcasting to another window", async () => {
@@ -396,7 +406,6 @@ test("Settings host locations use the shared registered repository inventory", a
 });
 
 test("adopting an existing shared file never writes legacy scale over a held proposal", async () => {
-  mock.config.settingsCreated = false;
   mock.settingsStore.legacyConfig.mockReturnValueOnce({ interfaceScale: 110 });
   mock.config.initialize.mockResolvedValue({});
   mock.loadPlacements.mockResolvedValue([
@@ -412,3 +421,88 @@ test("adopting an existing shared file never writes legacy scale over a held pro
   expect(mock.settingsStore.update).not.toHaveBeenCalled();
   expect(mock.config.write).not.toHaveBeenCalled();
 });
+
+test.each(["hooks", "theme"] as const)(
+  "startup scale migration preserves an atomic settings replacement during baseline persistence (%s)",
+  async (kind) => {
+    const { mkdtemp, mkdir, readFile, rename, rm, writeFile } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { ConfigService } = await vi.importActual<typeof ConfigServiceModule>(
+      "../../../src/main/config/service",
+    );
+    const { parseConfigSettings } = await import("../../../src/shared/config-settings");
+    const { digest } = await import("../../../src/main/config/layout");
+    const root = await mkdtemp(join(tmpdir(), "foom-startup-scale-race-"));
+    const folder = join(root, "home", ".foom", "config");
+    const proposal =
+      kind === "hooks"
+        ? '{ "kind": "settings", "interfaceTheme": "eclipse-dark", "hooks": false }\n'
+        : '{ "kind": "settings", "interfaceTheme": "user:warned.json" }\n';
+    let config: InstanceType<typeof ConfigService> | undefined;
+    let known: string | null = null;
+    let replaced = false;
+    mock.settingsStore.legacyConfig.mockReturnValueOnce({});
+    mock.loadPlacements.mockResolvedValue([
+      {
+        id: "first",
+        display: 1,
+        bounds: { x: 0, y: 0, width: 1200, height: 900 },
+        maximized: false,
+        scale: 150,
+      },
+    ]);
+    mock.config.initialize.mockImplementationOnce(async (legacy) => {
+      const deps = mock.config.deps;
+      if (!deps) throw new Error("Missing config dependencies");
+      config = new ConfigService({
+        ...deps,
+        root: folder,
+        baseline: {
+          get: () => known,
+          set: async (value) => {
+            known = value;
+            if (replaced) return;
+            replaced = true;
+            await mkdir(folder, { recursive: true });
+            if (kind === "theme") {
+              const palette = interfaceThemes["eclipse-dark"];
+              await writeFile(
+                join(folder, "themes", "warned.json"),
+                JSON.stringify({
+                  kind: "theme",
+                  name: "Warned",
+                  base: palette.base,
+                  colors: { ...palette.colors, attention: palette.colors.ink },
+                }),
+              );
+            }
+            const replacement = join(folder, "replacement.tmp");
+            await writeFile(replacement, proposal);
+            await rename(replacement, join(folder, "settings.json"));
+          },
+        },
+        watch: () => ({ close() {} }),
+      });
+      return config.initialize(parseConfigSettings(legacy));
+    });
+    // Exercise the real config writer if startup attempts a post-initialization save.
+    mock.settingsStore.update.mockImplementation(async (patch: ConfigSettings = {}) => {
+      if (!config) throw new Error("Missing config service");
+      await config.write(patch);
+    });
+    try {
+      await start();
+      expect(replaced).toBe(true);
+      expect(await readFile(join(folder, "settings.json"), "utf8")).toBe(proposal);
+      expect(config?.status().pending).toMatchObject({
+        id: digest(proposal),
+        detail: kind === "hooks" ? "hooks: on → off" : "interfaceTheme: attention-distinctness",
+      });
+      expect(mock.settingsStore.update).not.toHaveBeenCalled();
+    } finally {
+      await config?.dispose();
+      mock.settingsStore.update.mockImplementation(() => Promise.resolve());
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);

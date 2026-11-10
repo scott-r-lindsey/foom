@@ -38,7 +38,6 @@ for (const version of ["missing", "corrupt", 1, 2] as const) {
       terminalFontSize: 19,
       interfaceScale: 100,
     });
-    expect(f.service.settingsCreated).toBe(false);
     expect(f.baseline()).toBe(digest(text));
     expect(f.service.status().pending).toBeNull();
     expect(JSON.parse(await readFile(join(profile, "settings.json"), "utf8"))).toMatchObject({
@@ -100,7 +99,6 @@ test("another profile creating settings during initialization wins byte for byte
       interfaceTheme: "eclipse-dark",
     });
     expect(await f.read("settings.json")).toBe(text);
-    expect(f.service.settingsCreated).toBe(false);
   } finally {
     publish.mockRestore();
   }
@@ -114,4 +112,39 @@ test("failed initial publication cleans its private temporary file", async () =>
   await expect(files.createFile("x".repeat(300), "{}")).rejects.toThrow();
   const { readdir } = await import("node:fs/promises");
   expect(await readdir(f.folder)).toEqual([]);
+});
+
+test("argument migration never rewrites a replacement captured while reading the approved baseline", async () => {
+  const original = '{ "kind": "settings", "terminalFontSize": 19 }\n';
+  const proposal = '{ "kind": "settings", "interfaceTheme": "eclipse-dark", "hooks": false }\n';
+  const agentArguments = { claude: [], codex: ["--model", "approved"], agy: [] };
+  const f = await fixture({ baseline: digest(original), appliedText: original });
+  await mkdir(f.folder);
+  await f.write("settings.json", original);
+  const { rename } = await import("node:fs/promises");
+  const files = new ConfigFiles({ root: f.folder });
+  const read = files.read.bind(files);
+  let settingsReads = 0;
+  const reader = vi.spyOn(ConfigFiles.prototype, "read").mockImplementation(async (relative) => {
+    const bytes = await read(relative);
+    if (relative === "settings.json" && ++settingsReads === 2) {
+      await f.write("replacement.tmp", proposal);
+      await rename(join(f.folder, "replacement.tmp"), join(f.folder, "settings.json"));
+    }
+    return bytes;
+  });
+  try {
+    expect(await f.service.initialize({ agentArguments })).toEqual({
+      terminalFontSize: 19,
+      agentArguments,
+    });
+    expect(await f.read("settings.json")).toBe(proposal);
+    expect(f.service.status().pending).toMatchObject({
+      id: digest(proposal),
+      detail: "hooks: on → off, agentArguments.codex",
+    });
+    expect(JSON.parse(f.copy() ?? "null")).toMatchObject({ agentArguments });
+  } finally {
+    reader.mockRestore();
+  }
 });
