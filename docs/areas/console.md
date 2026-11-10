@@ -56,3 +56,15 @@ FLAC block and comment counts are checked before the parser can allocate tag arr
 with no file/network access. Missing duration is invalid.
 This checks container metadata, not sample decoding; playback still verifies that
 Chromium can decode the audio and checks its samples.
+
+## Internal Settings installer (#1071)
+
+The bundled executable's private `--install-agent ID` entry point accepts only
+bundled manifest IDs. Foom invokes it from Settings. It checks the internal
+`FOOM_SETTINGS_INSTALL=1` accidental-use marker, which is removed before invoking
+a vendor script or package manager. This marker is not authorization: same-user
+processes can set it. Foom itself launches installers only from trusted Settings
+actions handled by main; there is no control/agent install capability. It does
+not pair, discover control services or use inherited Foom credentials. It is not a control/MCP command and
+adds no agent or orchestrator capability. Linux/macOS execution uses the same
+[bounded vendor downloader](hosts.md#vendor-agent-installers-1071) as foom-host.

@@ -35,3 +35,31 @@ test("optional host setup recipes accept only fixed package-manager argv and age
   ])
     expect(() => parseAgentManifest(JSON.stringify({ ...codex, hostSetup }), "bundled")).toThrow();
 });
+
+test("only bundled manifests can declare HTTPS vendor scripts", () => {
+  const script = { url: "https://vendor.test/install", interpreter: "sh", arguments: [] };
+  const manifest = { ...codex, id: "fixture", hostSetup: { script } };
+  expect(parseAgentManifest(JSON.stringify(manifest), "bundled").model.hostSetup?.script).toEqual(
+    script,
+  );
+  expect(() => parseAgentManifest(JSON.stringify(manifest))).toThrow("bundled-only");
+  for (const url of [
+    "http://vendor.test/install",
+    "https://user:pass@vendor.test/install",
+    "https://vendor.test/#fragment",
+    "invalid",
+  ]) {
+    expect(() =>
+      parseAgentManifest(
+        JSON.stringify({ ...manifest, hostSetup: { script: { ...script, url } } }),
+        "bundled",
+      ),
+    ).toThrow("https-only");
+  }
+  expect(() =>
+    parseAgentManifest(
+      JSON.stringify({ ...manifest, hostSetup: { script: { ...script, interpreter: "custom" } } }),
+      "bundled",
+    ),
+  ).toThrow();
+});

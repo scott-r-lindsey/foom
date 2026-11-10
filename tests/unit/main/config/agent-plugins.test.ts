@@ -181,6 +181,7 @@ it.each(["claude", "codex", "agy"])(
     const file = join(f.folder, `agents/${id}-custom.json`);
     const text = JSON.stringify({
       ...original,
+      hostSetup: { ...original.hostSetup, script: undefined },
       id: `${id}-custom`,
       name: `${original.name} (custom)`,
     });

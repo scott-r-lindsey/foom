@@ -1,3 +1,4 @@
+import { runVendorScript, installerEnvironment } from "../../node-common/vendor-install";
 import { remotePluginState } from "./plugin-status";
 import { stageRemotePlugin } from "./agent-launch";
 import { originSshArgs } from "../../shared/registered-hosts";
@@ -12,12 +13,15 @@ import { hostDiscovery, hostLoginEnvironment } from "./agent-discovery";
 import { executable, requirements } from "./host-facts";
 import { remoteShell } from "./daemon";
 
-/** Runs inside a user-clicked PTY only; the daemon never invokes it as a probe. */
+/** Foom launches this from trusted Settings actions, never probes or control tools.
+ * Direct same-user helper invocation is not an authorization boundary. */
 export async function runHostRecipe(argv: readonly string[], home = homedir()): Promise<number> {
   const [tool, action, distro, digest] = argv;
   const request = { tool, action, distro };
   if (argv.length !== 4 || !recipeRequest(request)) return 2;
-  const env = await hostLoginEnvironment(remoteShell(), home, undefined, true);
+  const login = await hostLoginEnvironment(remoteShell(), home, undefined, true);
+  if (request.action === "install" && !login["PATH"]) return 2;
+  const env = request.action === "install" ? installerEnvironment(home, login) : login;
   const facts = await requirements(process.platform, home, home, env);
   const model = bundledAgentData
     .map((data) => parseAgentManifest(JSON.stringify(data), "bundled").model)
@@ -28,6 +32,11 @@ export async function runHostRecipe(argv: readonly string[], home = homedir()): 
   if (request.action === "install-plugin") {
     const found = await hostDiscovery({ executables: ["agy"] }, remoteShell(), home);
     if ((await remotePluginState(found.command, home, env)) !== "not-installed") return 2;
+  }
+  if (recipe.steps[0]?.[1] === "--vendor-script" && model?.hostSetup?.script) {
+    // Accidental-use guard only: same-user processes can set this, so it is not authorization.
+    if (process.env["FOOM_SETTINGS_INSTALL"] !== "1") return 2;
+    return runVendorScript(model.hostSetup.script, home, env);
   }
   let staged: string | undefined;
   for (const step of recipe.steps) {

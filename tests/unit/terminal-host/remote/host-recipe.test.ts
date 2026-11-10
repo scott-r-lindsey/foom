@@ -1,17 +1,31 @@
+import type * as VendorInstall from "../../../../src/node-common/vendor-install";
+import { userInfo } from "node:os";
 import { createHash } from "node:crypto";
 import { selectHostRecipe } from "../../../../src/shared/registered-host-recipes";
 import { parseAgentManifest } from "../../../../src/shared/agent-plugin-parser";
 import codex from "../../../../src/shared/bundled-agents/codex.json";
 import { EventEmitter } from "node:events";
-import { beforeEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 const mock = vi.hoisted(() => ({
+  vendor: vi.fn(),
   stage: vi.fn(),
   plugin: vi.fn(),
-  spawn: vi.fn(),
+  spawn:
+    vi.fn<
+      (
+        command: string,
+        args: readonly string[],
+        options: { env: NodeJS.ProcessEnv },
+      ) => EventEmitter
+    >(),
   requirements: vi.fn(),
   executable: vi.fn(),
   discovery: vi.fn(),
   login: vi.fn(),
+}));
+vi.mock("../../../../src/node-common/vendor-install", async (original) => ({
+  ...(await original<typeof VendorInstall>()),
+  runVendorScript: mock.vendor,
 }));
 vi.mock("../../../../src/terminal-host/remote/agent-launch", () => ({
   stageRemotePlugin: mock.stage,
@@ -59,7 +73,9 @@ async function runHostRecipe(args: readonly string[], home: string) {
     home,
   );
 }
+afterEach(() => vi.unstubAllEnvs());
 beforeEach(() => {
+  mock.vendor.mockReset();
   mock.stage.mockReset();
   mock.plugin.mockReset();
   mock.requirements
@@ -82,9 +98,14 @@ test("only fixed argv execute, in order, with terminal stdio and no shell or IDs
   ]);
   expect(mock.spawn).toHaveBeenNthCalledWith(1, "/usr/bin/sudo", ["/usr/bin/apt-get", "update"], {
     cwd: "/fixture/home",
-    env: { PATH: "/fixture:/usr/local/bin" },
+    env: mock.spawn.mock.calls[0]?.[2].env,
     shell: false,
     stdio: "inherit",
+  });
+  expect(mock.spawn.mock.calls[0]?.[2].env).toMatchObject({
+    HOME: "/fixture/home",
+    USER: userInfo().username,
+    PATH: "/fixture:/usr/local/bin",
   });
   mock.spawn.mockClear();
   expect(await runHostRecipe(["gh", "install", "debian"], "/fixture/home")).toBe(0);
@@ -95,6 +116,12 @@ test("only fixed argv execute, in order, with terminal stdio and no shell or IDs
     ["/usr/bin/sudo", ["/usr/bin/apt-get", "update"]],
     ["/usr/bin/sudo", ["/usr/bin/apt-get", "install", "-y", "gh"]],
   ]);
+});
+test("failed login PATH resolution cannot become a package-manager fallback", async () => {
+  mock.login.mockResolvedValue({ PATH: "" });
+  expect(await runHostRecipe(["git", "install", "debian"], "/fixture/home")).toBe(2);
+  expect(mock.spawn).not.toHaveBeenCalled();
+  expect(mock.vendor).not.toHaveBeenCalled();
 });
 test("status and device-code sign-in use the host's resolved executable", async () => {
   expect(await runHostRecipe(["gh", "sign-in", "debian"], "/fixture/home")).toBe(0);
@@ -112,6 +139,11 @@ test("status and device-code sign-in use the host's resolved executable", async 
   );
 });
 test("Homebrew requires a fixed installation on login PATH, never arbitrary paths", async () => {
+  mock.login.mockResolvedValue({
+    PATH: "/fixture:/usr/local/bin",
+    FOOM_TOKEN: "secret",
+    CODEX_API_KEY: "secret",
+  });
   mock.requirements.mockResolvedValue({
     distro: "darwin",
     libc: "supported",
@@ -123,6 +155,15 @@ test("Homebrew requires a fixed installation on login PATH, never arbitrary path
     ["install", "--cask", "codex"],
     expect.any(Object),
   );
+  const environment = mock.spawn.mock.lastCall?.[2].env;
+  expect(environment).toMatchObject({
+    HOME: "/fixture/home",
+    USER: userInfo().username,
+    LOGNAME: userInfo().username,
+    PATH: "/fixture:/usr/local/bin",
+  });
+  expect(environment).not.toHaveProperty("FOOM_TOKEN");
+  expect(environment).not.toHaveProperty("CODEX_API_KEY");
   mock.executable.mockResolvedValue(false);
   expect(await runHostRecipe(["git", "install", "darwin"], "/fixture/home")).toBe(2);
   mock.login.mockResolvedValue({});
@@ -133,7 +174,7 @@ test("malformed, unsupported and missing recipes run nothing", async () => {
     [],
     ["git", "install", "debian", "extra"],
     ["git", "other", "debian"],
-    ["codex", "install", "debian"],
+
     ["git", "install", "rhel"],
   ])
     expect(await runHostRecipe(args, "/fixture/home")).toBe(2);
@@ -246,3 +287,49 @@ test("failed plugin staging never reaches the install command", async () => {
   );
   expect(mock.spawn).not.toHaveBeenCalled();
 });
+
+test.each([true, false])(
+  "vendor helpers check the recipe digest and accidental-use marker (%s)",
+  async (settings) => {
+    vi.stubEnv("FOOM_SETTINGS_INSTALL", settings ? "1" : undefined);
+    const setup = parseAgentManifest(JSON.stringify(codex), "bundled").model.hostSetup;
+    const recipe = selectHostRecipe(
+      { tool: "codex", action: "install", distro: "debian" },
+      { distro: "debian", libc: "supported", packageManager: "none" },
+      setup,
+    );
+    if (!recipe) throw new Error("Missing fixture recipe");
+    mock.requirements.mockResolvedValue({
+      distro: "debian",
+      libc: "supported",
+      packageManager: "none",
+    });
+    mock.vendor.mockResolvedValue(7);
+    expect(
+      await executeRecipe(
+        [
+          "codex",
+          "install",
+          "debian",
+          createHash("sha256").update(JSON.stringify(recipe.steps)).digest("hex"),
+        ],
+        "/fixture/home",
+      ),
+    ).toBe(settings ? 7 : 2);
+    if (!settings) {
+      expect(mock.vendor).not.toHaveBeenCalled();
+      return;
+    }
+    expect(mock.vendor).toHaveBeenCalledWith(
+      setup?.script,
+      "/fixture/home",
+      expect.objectContaining({
+        PATH: "/fixture:/usr/local/bin",
+        HOME: "/fixture/home",
+        USER: userInfo().username,
+        SHELL: userInfo().shell || "/bin/sh",
+      }),
+    );
+    expect(mock.spawn).not.toHaveBeenCalled();
+  },
+);

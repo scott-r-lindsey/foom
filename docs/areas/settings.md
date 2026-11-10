@@ -194,8 +194,9 @@ consistent status icons and card-sized text; status never relies on color alone.
 Offline observations are dimmed and actions are disabled; Hosts retains explicit
 connection recovery. There is no Off summary or Global shortcut below the cards.
 First-run setup keeps the shared local card view and does not enumerate hosts.
-Install and Sign in use existing recipes where available; vendor installers and
-their local execution remain #1071. Remote plugin installation retains its exact
+Install uses package-manager recipes first and bundled vendor scripts otherwise
+on Linux/macOS, including This computer; Sign in uses declared recipes. See
+[vendor installer boundaries](hosts.md#vendor-agent-installers-1071). Remote plugin installation retains its exact
 build and trusted-confirmation requirements in the [host contract](hosts.md#settings-agent-scopes-1070).
 
 ## Terminal clipboard writes (#1073)

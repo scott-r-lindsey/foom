@@ -157,6 +157,7 @@ beforeEach(() => {
         notices: () => Promise.resolve(""),
       },
       setupState: mock.setupState,
+      localAgentInstall: () => Promise.resolve({ available: [] }),
       environmentState: () =>
         Promise.resolve({
           lists: { all: [], claude: [], codex: [], agy: [] },

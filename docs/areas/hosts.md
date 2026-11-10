@@ -363,19 +363,123 @@ reserve the daemon mutation slot until exit or completed session removal;
 disconnect does not release it. Removal releases the reservation even when stop
 times out or native disposal fails and no exit callback reaches the daemon.
 
-The interim #971 decision ships package-manager installs only: apt, dnf, pacman
-and brew. Vendor script installers (including pinned/checksummed scripts) are
-**deferred for a later user decision**. Missing manifests/platform recipes, unknown
-distros and absent package managers have no Install action and return the fixed
-`recipe-unavailable` reason. Sign-in commands may still be offered for an installed
-CLI. gh uses the repositories documented by GitHub: Debian's extrepo github-cli
-entry and the official RPM repository, plus Arch github-cli and Homebrew gh.
-See [GitHub's installation instructions](https://github.com/cli/cli/blob/trunk/docs/install_linux.md).
+### Vendor agent installers (#1071)
 
-Codex declares a non-interactive login-status probe, device-code sign-in and the
-[Homebrew cask](https://formulae.brew.sh/cask/codex) install recipe. Other bundled
-agents retain unknown sign-in state until they declare a measured status probe;
-missing install/sign-in declarations remain unavailable.
+An explicit Install click in Settings → Agents or first-run local cards can run
+one of the six bundled manifests' `hostSetup.script` installers on Linux/macOS,
+including registered hosts. A working package-manager recipe takes priority
+(Codex's macOS Homebrew cask); otherwise the bundled vendor script is used.
+Git and gh retain their package-manager recipes. Unknown remote distros and
+unsupported libc still refuse recipes; a missing package manager alone does not
+prevent a vendor script. Native Windows script recipes are unavailable.
+
+The Settings recipe launcher supplies an internal `FOOM_SETTINGS_INSTALL=1`
+marker as an accidental-invocation guard only. It is not authorization: any
+same-user process can set it, and it is removed from the vendor environment.
+Foom enforces its click requirement through the trusted Settings renderer action
+and main-owned recipe launch. No agent, child, control API or remote management
+operation exposes an install capability. This does not prevent a same-user
+process from independently downloading or executing vendor code.
+The recipe process prints the fixed HTTPS address, downloads at most 2 MiB with
+a 60-second deadline into a private temporary directory (0700) and file (0600),
+then invokes `/bin/sh` or `/bin/bash` with that file and manifest arguments.
+A fixed `/bin/sh` supervisor starts an independent watcher in its own POSIX
+session/process group before running the interpreter. Terminal stdin/stdout/stderr
+are inherited; ordinary terminal input is covered by the PTY fixture. The new
+session has no controlling `/dev/tty`; vendor dependence on that device remains
+part of live qualification.
+Foom's downloader follows at most five redirects, checking HTTPS and refusing
+URL credentials at every hop. It needs no curl or system Node. The script itself
+may require curl/wget or other tools for later downloads. Failure stops the
+recipe; a package-manager failure does not fall back silently.
+
+Foom does not support installers leaving background processes running. The
+watcher blocks on a helper-owned lifetime pipe (fd4) while the interpreter runs.
+On success, failure, interruption or unexpected supervisor exit, the helper closes
+that pipe. Helper death also closes it in the kernel. EOF makes the watcher issue
+`kill -KILL 0` from inside the installer's group: the watcher itself anchors the
+target, even when the supervisor has died. The helper never signals a numeric
+PGID that might have been reused. The supervisor and interpreter close fd4; no
+vendor descendant can inherit it and postpone EOF. The watcher ignores catchable
+HUP/INT/TERM/QUIT, and its identity is not passed to the interpreter. This is
+lifecycle cleanup, not containment of malicious same-user vendor code, which can
+already enumerate and kill arbitrary same-user processes or create other sessions.
+
+After reporting normal completion, the supervisor also issues `kill -KILL 0`
+itself. This independent fallback prevents a lost watcher from allowing workers
+to survive a completed install. The helper also signals its own still-live ChildProcess handle with TERM on
+cleanup. The supervisor runs the interpreter as a background job with explicit
+terminal stdin, then waits with job control disabled; TERM interrupts that wait
+and its trap kills its own group. This independent Stop path works when the
+watcher is lost while an installer hangs. An exited child is never signalled.
+All group cleanup signals originate from live members of their own group, never
+from a remembered numeric PGID.
+
+The supervisor receives interpreter, private script path and manifest arguments
+as positional argv, never generated shell source. It reports the interpreter's
+exit status over fd3; the interpreter cannot inherit that pipe. The watcher holds
+fd3 open without writing it, so the helper waits for watcher termination before
+removing private files. An unexpected supervisor `exit` releases fd4 immediately,
+rather than waiting for `close` (which may be waiting on that watcher). Normal
+interpreter status is preserved; handled HUP/INT/TERM/QUIT returns 128 plus the
+original signal number after closing the lifetime pipe and cleaning up.
+
+The private file and directory are removed after success, download/spawn/script
+failure, handled interruption and supervisor-only SIGKILL. If the helper itself
+receives uncatchable SIGKILL, the watcher still terminates the installer group,
+but the helper cannot run its file cleanup: the private temporary directory may
+remain. Machine failure or simultaneous loss of multiple cleanup components likewise
+cannot guarantee cleanup. Fixtures cover both local and host paths, including
+supervisor/helper SIGKILL while the interpreter waits for `/bin/sleep`.
+
+The existing SHA-256 recipe-step digest binds the address, interpreter and
+arguments on hosts. The vendor's unversioned script content is **not** bound;
+this is the security tradeoff explicitly accepted in #1071. The HTTPS rule applies
+to Foom's download, not to arbitrary subsequent network operations performed by
+vendor code. Recipes still receive no terminal ID, orchestration authority or
+hub credentials. No probe, check, manifest load, agent or orchestrator capability
+starts installation. Config manifests cannot declare script installers.
+
+Local installs use the bundled console helper's internal Settings mode with a
+complete installer environment and login PATH, no control grant and no shell
+integration. The complete replacement environment carries HOME from the selected
+account home, USER/LOGNAME from the OS account, SHELL (inherited or the account
+login shell), PATH from the existing bounded login-shell query, TMPDIR and LANG.
+Standard locale, XDG directory, ZDOTDIR, terminal and certificate-path variables
+are preserved when present; unset XDG directories retain their standard HOME-based
+defaults. Missing shell/temp/locale values have POSIX defaults. Arbitrary inherited
+variables, agent API tokens, SSH credentials and FOOM_* are omitted. Foom-added
+Environment layers, including stored secrets, are omitted. The local helper
+normalizes the environment again before either vendor scripts or Homebrew.
+Registered-host installs apply the same normalization to hostLoginEnvironment,
+with the host account home, before vendor scripts or package-manager execution.
+Sign-in and lifecycle-plugin operations retain their existing environment policy.
+They share the existing embedded terminal and Stop/Keep open lifetime rules.
+Completion rechecks only the selected agent. Remote completion retains its scoped
+tool/sign-in refresh. Settings chrome shows Done or Failed with the exit code.
+
+Vendor documentation checked 2026-11-08:
+
+| Agent | Fixed script | Vendor documentation |
+| --- | --- | --- |
+| Claude Code | `https://claude.ai/install.sh` | [Setup](https://code.claude.com/docs/en/setup) |
+| Codex | `https://chatgpt.com/codex/install.sh` | [CLI](https://learn.chatgpt.com/docs/cli) |
+| Copilot | `https://gh.io/copilot-install` | [Installation](https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli) |
+| OpenCode | `https://opencode.ai/v2/install` | [Current v2 installation](https://opencode.ai/docs/) |
+| Pi | `https://pi.dev/install.sh` | [Quickstart](https://pi.dev/docs/latest/quickstart) |
+| Antigravity | `https://antigravity.google/cli/install.sh` | [Getting started](https://antigravity.google/docs/cli-getting-started) |
+
+The issue's original OpenCode address installs v1; the v2 address matches Foom's
+v2 adapter. Vendor scripts may modify shell startup files and install/update
+agent-owned files; Foom's ban on direct global agent-config writes still applies
+to Foom's own writes. Script output and prompts remain untrusted terminal content.
+Live qualification on disposable human-owned hosts remains required per script:
+record shell-file changes, discovery in a fresh login shell, sudo/prompts and
+Node requirements. Documentation/source inspection and fixture tests do not prove
+those real-host outcomes. No real installer or agent CLI runs in automated tests.
+
+Codex retains its non-interactive status probe and device-code sign-in. Other
+bundled agents keep unknown sign-in state until they declare a measured probe.
 
 Protocol-3 hello advertises `hostFacts: 1`. A compatible older build without this
 capability returns `facts-unavailable` for read-only facts, with a fixed needs-update

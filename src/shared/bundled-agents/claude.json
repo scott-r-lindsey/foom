@@ -371,5 +371,12 @@
         }
       }
     ]
+  },
+  "hostSetup": {
+    "script": {
+      "url": "https://claude.ai/install.sh",
+      "interpreter": "bash",
+      "arguments": []
+    }
   }
 }

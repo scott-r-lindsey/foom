@@ -7,6 +7,8 @@ RuleTester.describe = describe;
 RuleTester.it = test;
 
 const invalid: [string, string][] = [
+  ["terminal-host/example.ts", 'import "../node-common/private-files";'],
+  ["renderer/example.ts", 'import "../node-common/vendor-install";'],
   ["cli/example.ts", 'import "../main/main";'],
   ["cli/example.ts", 'import "electron";'],
   ["node-common/example.ts", 'import "electron";'],
@@ -28,6 +30,7 @@ const invalid: [string, string][] = [
   ["preload/example.ts", 'import type { Workspace } from "../main/workspace/workspace";'],
 ];
 const valid: [string, string][] = [
+  ["terminal-host/example.ts", 'import "../node-common/vendor-install";'],
   ["renderer/example.ts", 'import { TerminalColors } from "../shared/terminal-colors";'],
   ["renderer/example.ts", 'import { Board } from "./board/board-view";'],
   ["cli/example.ts", 'import "../node-common/private-files";'],

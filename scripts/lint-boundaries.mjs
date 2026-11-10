@@ -47,7 +47,12 @@ export const processBoundaries = {
         to &&
         to !== from &&
         to !== "shared" &&
-        !(to === "node-common" && (from === "main" || from === "cli"))
+        !(to === "node-common" && (from === "main" || from === "cli")) &&
+        !(
+          from === "terminal-host" &&
+          local &&
+          resolve(dirname(filename), name) === resolve(sourceRoot, "node-common/vendor-install")
+        )
       ) {
         context.report({ node, messageId: "boundary", data: { from, to } });
         return;

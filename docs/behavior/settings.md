@@ -83,9 +83,19 @@ change, a removed selection immediately falls back to This computer. Machine
 actions remain disabled until the corresponding host list refresh succeeds;
 removed hosts cannot be restored by a stale list reply.
 
+On Linux/macOS, **Install** on a missing bundled agent uses an available fixed
+package-manager recipe first, otherwise its vendor installer. The embedded terminal
+prints the fixed HTTPS address and accepts the user's input directly. It retains
+Done or Failed with the exit code, then only that agent is checked again. Leaving
+Settings while it runs keeps the existing Stop/Keep open decision. Vendor code
+may change shell startup files; custom manifests cannot declare installer addresses.
+Installers omit Foom-added Environment layers, including stored secrets.
+See [installer boundaries](../areas/hosts.md#vendor-agent-installers-1071).
+
 First-run Agents keeps the shared local card view. Manifest changes refresh discovery.
 To customize a built-in agent, copy its bundled manifest into the config folder's
-`agents/` folder with a new ID and name (see [agent plugins](../contracts/agent-trust.md#customizing-a-built-in-agent)).
+`agents/` folder with a new ID and name, removing the bundled-only
+`hostSetup.script` installer declaration (see [agent plugins](../contracts/agent-trust.md#customizing-a-built-in-agent)).
 Settings offers no action for it. Like any valid config plugin, the copy loads as
 soon as Foom reads it. Both built-in and copy can remain on, or the built-in can be turned off.
 Local machine cards retain attention, capability chips and their environment editor;

@@ -675,5 +675,12 @@
     "offer": {
       "unansweredLabel": "Plugin available"
     }
+  },
+  "hostSetup": {
+    "script": {
+      "url": "https://antigravity.google/cli/install.sh",
+      "interpreter": "bash",
+      "arguments": []
+    }
   }
 }

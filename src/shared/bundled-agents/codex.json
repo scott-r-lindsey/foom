@@ -558,6 +558,11 @@
       "rhel": ["codex", "login", "--device-auth"],
       "arch": ["codex", "login", "--device-auth"],
       "darwin": ["codex", "login", "--device-auth"]
+    },
+    "script": {
+      "url": "https://chatgpt.com/codex/install.sh",
+      "interpreter": "sh",
+      "arguments": []
     }
   }
 }

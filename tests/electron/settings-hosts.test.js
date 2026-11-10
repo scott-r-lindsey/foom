@@ -2149,6 +2149,10 @@ test("Hosts removal prunes saved session rows and startup repairs already forgot
     .getByRole("navigation", { name: "Settings sections" })
     .getByRole("button", { name: "Hosts", exact: true })
     .click();
+  // Startup sidebar discovery can still be between its repository and worktree
+  // reads after the saved row and Settings card appear. Drain that independent
+  // inventory before measuring requests caused by Forget.
+  await page.evaluate(() => window.desktop.sidebarInventory());
   const callsBefore = await readFile(fixture.calls, "utf8");
   await page
     .getByRole("region", { name: "fixture-cloud", exact: true })
@@ -2157,6 +2161,8 @@ test("Hosts removal prunes saved session rows and startup repairs already forgot
   await expect.poll(() => rows(page)).toEqual([]);
   await expect(page.locator(`[data-drag-session="${saved.id}"]`)).toHaveCount(0);
   await expect.poll(async () => JSON.parse(await readFile(sessionsFile, "utf8"))).toEqual([]);
+  // Include the inventory refresh published by removal in the no-SSH assertion.
+  await page.evaluate(() => window.desktop.sidebarInventory());
   assert.equal(
     await readFile(fixture.calls, "utf8"),
     callsBefore,

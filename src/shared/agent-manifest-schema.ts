@@ -725,9 +725,18 @@ function hostRecipeMap(v: unknown, p: string) {
     darwin: optional(hostRecipeArgv)(d["darwin"], `${p}.darwin`),
   };
 }
-function hostSetup(v: unknown, p: string) {
-  const d = object(v, p, [], ["status", "install", "signIn"]);
+function vendorScript(v: unknown, p: string) {
+  const d = object(v, p, ["url", "interpreter", "arguments"]);
   return {
+    url: shortText(d["url"], `${p}.url`),
+    interpreter: enumeration("sh", "bash")(d["interpreter"], `${p}.interpreter`),
+    arguments: array(shortText, 8)(d["arguments"], `${p}.arguments`),
+  };
+}
+function hostSetup(v: unknown, p: string) {
+  const d = object(v, p, [], ["status", "install", "signIn", "script"]);
+  return {
+    script: optional(vendorScript)(d["script"], `${p}.script`),
     status: optional(hostStatusArgv)(d["status"], `${p}.status`),
     install: optional(hostRecipeMap)(d["install"], `${p}.install`),
     signIn: optional(hostRecipeMap)(d["signIn"], `${p}.signIn`),

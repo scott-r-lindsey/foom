@@ -98,6 +98,7 @@ export interface WorkspaceMethods {
     validateLaunch?: () => void,
     signal?: AbortSignal,
     parentHold?: CheckoutHold,
+    localRecipe?: { command: string; args: readonly string[] },
   ): Promise<string>;
   startMachine(
     host: string | null,

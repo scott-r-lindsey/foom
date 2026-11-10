@@ -318,6 +318,7 @@ it.each([
     parseAgentManifest(
       JSON.stringify({
         ...data,
+        hostSetup: { ...data.hostSetup, script: undefined },
         id: "pi-copy",
         launch: { ...data.launch, extension: { ...data.launch.extension, ...change } },
       }),
@@ -441,6 +442,7 @@ it("revokes and removes the complete launch directory when generated files colli
   const collision = parseAgentManifest(
     JSON.stringify({
       ...data,
+      hostSetup: { ...data.hostSetup, script: undefined },
       id: "pi-copy",
       files: [{ name: "extension/pi-v1.mjs", scope: "launch", format: "json", content: "{}" }],
     }),
@@ -495,7 +497,12 @@ it("marks ordinary control attachments for current-role discovery without puttin
   }
 });
 it("rejects extension placeholders outside their attachment and conditions that do not select the adapter", () => {
-  const manifest = () => structuredClone({ ...data, id: "pi-copy" });
+  const manifest = () =>
+    structuredClone({
+      ...data,
+      hostSetup: { ...data.hostSetup, script: undefined },
+      id: "pi-copy",
+    });
   const outside = manifest();
   outside.launch.resume.arguments = ["--session", "{conversationId}", "{extensionFile}"];
   expect(() => parseAgentManifest(JSON.stringify(outside))).toThrow("placeholder-not-allowed");
