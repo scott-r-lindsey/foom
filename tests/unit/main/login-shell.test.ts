@@ -208,3 +208,27 @@ it("bounds reads and reports output, exit and spawn errors on every platform", a
     ).rejects.toThrow("output limit");
   }
 });
+
+it.skipIf(process.platform === "win32")(
+  "cancellation kills a detached read and revokes its abort listener",
+  async () => {
+    const { options } = await fixture();
+    const abort = new AbortController();
+    const script = join(directory, "fixture-read.js");
+    await writeFile(
+      script,
+      "require('node:fs').writeFileSync(process.argv[2], 'ready'); setInterval(() => {}, 1000);",
+    );
+    const ready = join(directory, "ready");
+    const work = readLoginShell(process.execPath, [script, ready], {
+      ...options,
+      signal: abort.signal,
+    });
+    await expect.poll(() => readFile(ready, "utf8").catch(() => "")).toBe("ready");
+    abort.abort();
+    await expect(work).rejects.toThrow("cancelled");
+    await expect(
+      readLoginShell(process.execPath, [script, ready], { ...options, signal: abort.signal }),
+    ).rejects.toThrow("cancelled");
+  },
+);

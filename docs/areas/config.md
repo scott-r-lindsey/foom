@@ -1,5 +1,10 @@
 # Config
 
+**Data architecture transition (#1153):** [Data ownership](data.md) defines the
+decided SQLite/Drizzle and subscribed-view target. Phase A (#1160) changes docs
+and an isolated spike only; current stores and channels described here remain
+in production until phases B–D migrate them.
+
 Decided implementation and security rules for this area. Read the [file map](../map.md) to locate related owners. User-visible rules: [behavior](../behavior/settings.md).
 
 Config-session launch and probe-credential plumbing live in `main/workspace/sidebar-commands.ts`, bound by `workspace-context.ts`. The public Workspace facade grants no additional config capability.

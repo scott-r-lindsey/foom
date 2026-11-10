@@ -1,5 +1,10 @@
 # Ipc
 
+**Data architecture transition (#1153):** [Data ownership](data.md) defines the
+decided SQLite/Drizzle and subscribed-view target. Phase A (#1160) changes docs
+and an isolated spike only; current stores and channels described here remain
+in production until phases B–D migrate them.
+
 Decided implementation and security rules for this area. Read the [file map](../map.md) to locate related owners.
 
 ## IPC contract
@@ -148,7 +153,7 @@ HTTPS/host check and allow normal web paths, including Gerrit's `+` paths.
 Copying reads no file bytes, clipboard contents, credentials or provider state.
 
 `setup:copy-host` invokes a void capability with exactly one `HostCopyCommand`:
-`copy-host-alias` and `copy-host-code-folder` name a registered host;
+`copy-host-alias`, `copy-host-ssh-command` and `copy-host-code-folder` name a registered host; the SSH command is main-authored `ssh HOST`;
 `copy-checkout-path` names a registered repository and a host (null for Local).
 Main resolves registrations and the last validated location observation without
 SSH or network work, refuses absent observations and unregistered objects, and

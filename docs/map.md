@@ -7,6 +7,10 @@ surface. These are decided rules; changing a decision needs its own PR and docs.
 
 ## Selection rules
 
+[Data ownership and synchronization](areas/data.md) is required for persistence,
+main-owned data views, schema and importer work across the process routes below.
+It records the decided #1153 target and which phases remain unimplemented.
+
 The first column contains full repository-relative paths, directory prefixes ending
 in `/` (all descendants), or globs (`*` matches within one path segment, `**`
 spans directories). No sibling abbreviations are implied. Read the **union** of
@@ -26,6 +30,7 @@ a generic process route alone does not identify feature policy.
 
 | Area / source owner | Responsibility and entry points | Required area rules / behavior |
 | --- | --- | --- |
+| `src/main/setup/settings.ts`, `src/main/setup/environment.ts`, `src/main/workspace/session-store.ts`, `src/main/workspace/worktree-store.ts`, `src/main/control/store.ts`, `src/main/config/service.ts`, `src/renderer/board/live-board-source.ts` | Existing persistence and main-owned data projections; phased SQLite/Drizzle and subscribed-query transition | [Data ownership](areas/data.md) |
 | `src/renderer/board/error-presentation.tsx`, `src/shared/application-error.d.ts`, `src/shared/application-errors.ts` | Fixed coded failures, action dialogs, focus restoration and operation-scoped background marks | [Errors](areas/errors.md), [behavior](behavior/errors.md) |
 | `src/main/main.ts`, `src/main/wiring/`, `src/main/profile.ts`, `src/main/installer.ts` | Entry delegates to `application.ts` (startup/security/quit), `window.ts` (per-board composition), `workspace.ts` (app-wide services); live bindings in `application-wiring.d.ts` | [Boundaries](areas/boundaries.md), [profiles](areas/application.md) |
 | `src/main/updates.ts`, `src/main/update-http.ts`, `src/main/update-activity.ts`, `src/main/update-package.ts` | App-owned update checks, fixed channel notices, native quit-time installation and anonymous metadata GETs | [Application](areas/application.md#updates-603), [settings](areas/settings.md), [privacy](areas/privacy.md#update-requests-603), [update policy](product.md#updates-603) |
@@ -91,7 +96,7 @@ their feature rules here. These rows participate in the same union as those abov
 | `src/shared/evaluator.d.ts`, `src/shared/execution.d.ts`, `src/shared/agent-rule-types.d.ts`, `src/shared/agent-evidence.ts`, `src/shared/agent-conditions.ts` | Local verdicts and invocation evidence | [Evaluator](areas/evaluator.md), [execution](areas/execution.md), [attention](behavior/attention.md) |
 | `src/shared/conversation.ts`, `src/shared/hooks.d.ts`, `src/shared/foreground-name.ts`, `src/shared/workspace.d.ts` | Agent/session projections, hook signals and foreground facts | [Launch](areas/agent-launch.md), [hooks](areas/agent-hooks.md), [sessions](areas/sessions.md) |
 | `src/main/terminals/remote-bootstrap.ts`, `src/main/terminals/remote-transport.ts`, `src/terminal-host/remote/`, `src/shared/remote-host.d.ts`, `src/shared/remote-host-protocol.ts`, `src/shared/remote-agent*` | Developer opt-in SSH bootstrap, bounded stdio protocol and SEA daemon with persistent PTYs and replay | [Remote shell contract](areas/terminals.md#remote-shell-spike-754), [boundaries](areas/boundaries.md#remote-shell-spike-754), [privacy](areas/privacy.md#secrets) |
-| `src/shared/registered-hosts*`, `src/shared/registered-host-recipes.ts`, `src/main/setup/hosts.ts`, `src/main/setup/local-host.ts`, `src/terminal-host/remote/management.ts`, `src/terminal-host/remote/plugin-status.ts`, `src/terminal-host/remote/network-git.ts`, `src/terminal-host/remote/git-failure.ts`, `src/terminal-host/remote/worktree-provenance.ts`, `src/renderer/preflight/hosts-settings.tsx` | Profile-only SSH host enrollment, bounded management requests, host facts and approved repository clones | [Hosts](areas/hosts.md), [settings](areas/settings.md), [launch](areas/agent-launch.md), [privacy](areas/privacy.md) |
+| `src/shared/registered-hosts*`, `src/shared/registered-host-recipes.ts`, `src/main/setup/hosts.ts`, `src/main/setup/ssh-host-key.ts`, `src/node-common/ssh-askpass.ts`, `src/main/setup/local-host.ts`, `src/terminal-host/remote/management.ts`, `src/terminal-host/remote/plugin-status.ts`, `src/terminal-host/remote/network-git.ts`, `src/terminal-host/remote/git-failure.ts`, `src/terminal-host/remote/worktree-provenance.ts`, `src/renderer/preflight/hosts-settings.tsx` | Profile-only SSH host enrollment, bounded management requests, host facts and approved repository clones | [Hosts](areas/hosts.md), [settings](areas/settings.md), [launch](areas/agent-launch.md), [privacy](areas/privacy.md) |
 | `src/shared/image-paste*` | Bounded image references, normalized PNG and session upload validators | [Terminals](areas/terminals.md#image-paste-937), [privacy](areas/privacy.md#image-paste-937), [providers](areas/providers.md) |
 | `src/shared/terminal-link.ts`, `src/shared/terminal-clipboard.ts` | Bounded HTTP(S) terminal links, pinned OSC metadata reads and OSC 52 clipboard decoding | [Terminals](areas/terminals.md), [IPC](areas/ipc.md) |
 | `src/shared/terminal-selection.ts` | Bounded terminal selection validation | [Terminals](areas/terminals.md), [settings](areas/settings.md) |

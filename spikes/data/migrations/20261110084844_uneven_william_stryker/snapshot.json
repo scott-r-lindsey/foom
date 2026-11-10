@@ -1,0 +1,279 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "id": "2d6a07e0-6d78-48f7-b51e-356e5526f738",
+  "prevIds": [
+    "00000000-0000-0000-0000-000000000000"
+  ],
+  "ddl": [
+    {
+      "name": "_changes",
+      "entityType": "tables"
+    },
+    {
+      "name": "hosts",
+      "entityType": "tables"
+    },
+    {
+      "name": "repositories",
+      "entityType": "tables"
+    },
+    {
+      "name": "sessions",
+      "entityType": "tables"
+    },
+    {
+      "name": "worktrees",
+      "entityType": "tables"
+    },
+    {
+      "table": "_changes",
+      "name": "revision",
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": true,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "_changes",
+      "name": "table_name",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "hosts",
+      "name": "id",
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "hosts",
+      "name": "name",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "repositories",
+      "name": "id",
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "repositories",
+      "name": "host_id",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "sessions",
+      "name": "id",
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "sessions",
+      "name": "worktree_id",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "sessions",
+      "name": "state",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "worktrees",
+      "name": "id",
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "worktrees",
+      "name": "repository_id",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "repositories",
+      "name": "repositories_host",
+      "columns": [
+        {
+          "value": "host_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "entityType": "indexes"
+    },
+    {
+      "table": "sessions",
+      "name": "sessions_worktree",
+      "columns": [
+        {
+          "value": "worktree_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "entityType": "indexes"
+    },
+    {
+      "table": "worktrees",
+      "name": "worktrees_repository",
+      "columns": [
+        {
+          "value": "repository_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "entityType": "indexes"
+    },
+    {
+      "table": "repositories",
+      "name": "fk_repositories_host_id_hosts_id_fk",
+      "columns": [
+        "host_id"
+      ],
+      "tableTo": "hosts",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "RESTRICT",
+      "nameExplicit": false,
+      "entityType": "fks"
+    },
+    {
+      "table": "sessions",
+      "name": "fk_sessions_worktree_id_worktrees_id_fk",
+      "columns": [
+        "worktree_id"
+      ],
+      "tableTo": "worktrees",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "RESTRICT",
+      "nameExplicit": false,
+      "entityType": "fks"
+    },
+    {
+      "table": "worktrees",
+      "name": "fk_worktrees_repository_id_repositories_id_fk",
+      "columns": [
+        "repository_id"
+      ],
+      "tableTo": "repositories",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "RESTRICT",
+      "nameExplicit": false,
+      "entityType": "fks"
+    },
+    {
+      "table": "_changes",
+      "name": "_changes_pk",
+      "columns": [
+        "revision"
+      ],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "table": "hosts",
+      "name": "hosts_pk",
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "table": "repositories",
+      "name": "repositories_pk",
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "table": "sessions",
+      "name": "sessions_pk",
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "table": "worktrees",
+      "name": "worktrees_pk",
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "table": "sessions",
+      "name": "session_state",
+      "value": "\"state\" IN ('running', 'exited')",
+      "entityType": "checks"
+    }
+  ],
+  "renames": []
+}
