@@ -65,17 +65,79 @@ build shape with a benchmark entry; it does not change or run remote state.
 These boundaries are deliberate phase-A isolation, not proof of a production
 importer or notification channel.
 
-## Cross-platform CI
+## Cross-platform CI measurements
 
-The `Data architecture spike` workflow runs both engines in all four modes on
-Linux x64, macOS arm64 and Windows x64, retaining per-engine timing, payload sizes,
-runtime/ABI/SQLite versions and assertion results in `data-spike-<os>` artifacts.
-macOS also ad-hoc signs and verifies the packaged app and SEA; no Developer ID or
-notarization claim is made. Windows fixtures are unsigned. Existing Foom native
-packaging CI remains independent.
+Evidence: [Linux/Windows run](https://github.com/scott-r-lindsey/foom/actions/runs/42794596114)
+at `ebac6244`, and [macOS run](https://github.com/scott-r-lindsey/foom/actions/runs/42790479921)
+at `901bc64c`. Engine, schema and timed workload code are identical; intervening
+changes fix dependency installation and SEA extraction cleanup. Each run retains
+`data-spike-<os>` JSON artifacts for three days. [PR #1171](https://github.com/scott-r-lindsey/foom/pull/1171)
+links final-head verification and check results. These are dated measurements,
+not a claim that one engine is always faster or that the fixtures are a migrated
+Foom app/daemon.
 
-CI results will be recorded here after the first draft PR run. Local evidence
-alone establishes Linux support only.
+Both engines passed all four runtime modes and integrity assertions on all three
+platforms in the linked spike runs. Times below are milliseconds: one open/check
+and the median of 30 writes, post-commit change reads and 10k-row lists. Raw
+artifacts retain p95 and complete runtime versions.
+
+| Platform | Runtime | Engine | Open + check | Write | Write → changes | 10k list |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| Linux x64 | Node | node:sqlite | 1.066 | 0.099 | 0.154 | 4.495 |
+| Linux x64 | Node | better-sqlite3 | 1.371 | 0.130 | 0.198 | 5.353 |
+| Linux x64 | foom-host SEA | node:sqlite | 1.052 | 0.105 | 0.161 | 4.386 |
+| Linux x64 | foom-host SEA | better-sqlite3 | 1.395 | 0.135 | 0.204 | 5.285 |
+| Linux x64 | Electron main | node:sqlite | 1.134 | 0.127 | 0.176 | 5.099 |
+| Linux x64 | Electron main | better-sqlite3 | 1.570 | 0.164 | 0.223 | 4.316 |
+| Linux x64 | Packaged ASAR | node:sqlite | 1.116 | 0.129 | 0.178 | 5.002 |
+| Linux x64 | Packaged ASAR | better-sqlite3 | 1.284 | 0.134 | 0.190 | 4.255 |
+| macOS arm64 | Node | node:sqlite | 0.955 | 0.207 | 0.246 | 5.428 |
+| macOS arm64 | Node | better-sqlite3 | 2.949 | 0.353 | 0.453 | 5.243 |
+| macOS arm64 | foom-host SEA | node:sqlite | 0.974 | 0.160 | 0.203 | 4.309 |
+| macOS arm64 | foom-host SEA | better-sqlite3 | 1.346 | 0.174 | 0.218 | 3.672 |
+| macOS arm64 | Electron main | node:sqlite | 3.790 | 0.279 | 0.378 | 6.002 |
+| macOS arm64 | Electron main | better-sqlite3 | 1.449 | 0.205 | 0.253 | 3.580 |
+| macOS arm64 | Packaged ASAR | node:sqlite | 2.143 | 0.173 | 0.236 | 5.231 |
+| macOS arm64 | Packaged ASAR | better-sqlite3 | 3.425 | 0.206 | 0.271 | 4.018 |
+| Windows x64 | Node | node:sqlite | 1.410 | 0.172 | 0.221 | 5.088 |
+| Windows x64 | Node | better-sqlite3 | 1.920 | 0.161 | 0.233 | 5.048 |
+| Windows x64 | foom-host SEA | node:sqlite | 1.537 | 0.165 | 0.214 | 5.293 |
+| Windows x64 | foom-host SEA | better-sqlite3 | 2.464 | 0.163 | 0.229 | 5.311 |
+| Windows x64 | Electron main | node:sqlite | 1.379 | 0.140 | 0.186 | 4.825 |
+| Windows x64 | Electron main | better-sqlite3 | 1.789 | 0.138 | 0.196 | 4.176 |
+| Windows x64 | Packaged ASAR | node:sqlite | 1.411 | 0.149 | 0.197 | 4.752 |
+| Windows x64 | Packaged ASAR | better-sqlite3 | 2.185 | 0.151 | 0.243 | 4.348 |
+
+| Platform | Engine | Minified JS | Native payload | Combined gzip |
+| --- | --- | ---: | ---: | ---: |
+| Linux x64 | node-sqlite | 112,134 B | 0 B | 31,738 B |
+| Linux x64 | better-sqlite3 | 127,528 B | 2,226,168 B | 1,164,708 B |
+| macOS arm64 | node-sqlite | 112,134 B | 0 B | 31,738 B |
+| macOS arm64 | better-sqlite3 | 127,528 B | 1,980,736 B | 1,029,375 B |
+| Windows x64 | node-sqlite | 112,134 B | 0 B | 31,738 B |
+| Windows x64 | better-sqlite3 | 127,528 B | 1,989,632 B | 1,104,087 B |
+
+| Platform | ASAR | Unpacked native addon | Signing |
+| --- | ---: | ---: | --- |
+| Linux x64 | 294,050 B | 2,226,168 B | unsigned fixture |
+| macOS arm64 | 294,050 B | 1,980,736 B | ad-hoc app and SEA verified; no notarization claim |
+| Windows x64 | 293,205 B | 1,989,632 B | unsigned fixture |
+
+Across all three CI platforms, Node/SEA used Node 24.22.1 (module ABI 137)
+and Electron 44.9.3 embedded Node 24.22.0 (ABI 149). N-API was 10 and SQLite
+was 3.53.4 for both engines in every mode. The platform N-API prebuild needed
+no Electron rebuild. Built-in SQLite needed no native unpacking, extraction or
+signing changes. Foom’s existing production unpack list does not include
+better-sqlite3; promoting the fallback would require an explicit unpack/signing
+policy. The dedicated fixture supplies that unpack rule without changing Foom.
+
+Windows requires parent-owned deletion of the SEA native extraction after child
+exit. Linux and macOS also use that deterministic cleanup order. macOS app and
+SEA signatures were verified ad-hoc; Developer ID/notarization and signed Windows
+distribution remain outside this proof. Node.js and Electron are MIT-licensed;
+production notices must be updated when dependencies are promoted in phase C.
+
+### Installation and cleanup findings
 
 The first Windows CI attempt exposed pnpm invoking an implicit node-gyp lifecycle
 build despite better-sqlite3's `gypfile: false`. Its binding.gyp no-op prebuild
@@ -86,4 +148,7 @@ shipped prebuild in every runtime fixture. Production build policy is unchanged.
 The next Windows attempt completed both engines' Node and SEA measurements,
 then exposed the loaded-DLL lifetime rule: the SEA cannot delete its extracted
 native addon before exiting. Extraction cleanup is therefore parent-owned and
-runs only after child exit. No retry or deadline change is needed.
+runs only after child exit. The subsequent Windows run passed all four modes.
+No retry or deadline change was needed. Postject reported the copied Node vendor
+signature as invalid during Windows injection; the SEA is an unsigned fixture,
+not proof of a signed Windows distribution.

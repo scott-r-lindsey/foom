@@ -111,8 +111,9 @@ params. Pushes set or refresh exactly affected query keys; structural sharing
 preserves unchanged object identity. Query subscriptions own disposal, initial
 loading and errors. Zustand or plain React state owns only local UI state such as
 focus, selection and menus. `useState`/`useEffect` must not retain snapshots of
-main-owned data. High-frequency terminal bytes/activity keep their existing
-imperative transport; this design does not put them in React query state.
+main-owned data. Structured PTY and daemon state follows the same view/query
+contract; high-frequency consumers can update the DOM without React renders.
+Terminal output keeps its imperative transport and never enters the query cache.
 
 Phase B migrates Settings first and then other main-owned reads. Phase D enables
 the lint guard allowing only the query layer to call the preload data API, after
