@@ -18,6 +18,7 @@ const window = { webContents: contents } as unknown as BrowserWindow;
 const trusted = { sender: contents, senderFrame: frame };
 const setup = {
   localAgentInstall: vi.fn(() => "installer"),
+  githubSignIn: vi.fn(() => "device-state"),
   copyHost: vi.fn(),
   hosts: vi.fn(() => "hosts"),
   restartToUpdate: vi.fn(() => Promise.resolve()),
@@ -50,6 +51,7 @@ test("every channel rejects untrusted senders", () => {
     "setup:terminal-fonts",
     "setup:readiness",
     "setup:copy-host",
+    "setup:github-sign-in",
     "setup:state",
     "setup:local-agent-install",
     "setup:hosts",
@@ -190,4 +192,11 @@ test("local installer IPC accepts exactly one payload and delegates validation",
   expect(invoke("setup:local-agent-install", ["claude"])).toBe("installer");
   for (const args of [[], ["claude", "extra"]])
     expect(() => invoke("setup:local-agent-install", args)).toThrow("Invalid installer request");
+});
+
+test("GitHub sign-in IPC accepts only an ID and closed action delegated to Setup", () => {
+  expect(invoke("setup:github-sign-in", ["gh", "read"])).toBe("device-state");
+  expect(setup.githubSignIn).toHaveBeenCalledExactlyOnceWith("gh", "read");
+  for (const args of [[], ["gh"], ["gh", "read", "https://evil.test/"]])
+    expect(() => invoke("setup:github-sign-in", args)).toThrow("Invalid sign-in request");
 });

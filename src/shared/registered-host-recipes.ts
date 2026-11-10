@@ -49,7 +49,8 @@ export function recipeRequest(value: unknown): value is HostRecipeRequest {
     "distro" in value &&
     typeof value.tool === "string" &&
     /^[a-z][a-z0-9-]{0,63}$/u.test(value.tool) &&
-    (value.action === "install" ||
+    ((value.action === "install-sign-in" && value.tool === "gh") ||
+      value.action === "install" ||
       value.action === "sign-in" ||
       (value.action === "install-plugin" && value.tool === "agy")) &&
     typeof value.distro === "string" &&
@@ -72,6 +73,14 @@ export function selectHostRecipe(
   if (facts.libc !== "supported" || facts.distro === "unknown" || request.distro !== facts.distro)
     return undefined;
   const distro = request.distro;
+  if (request.action === "install-sign-in") {
+    if (request.tool !== "gh") return undefined;
+    const install = selectHostRecipe({ ...request, action: "install" }, facts);
+    const signIn = selectHostRecipe({ ...request, action: "sign-in" }, facts);
+    return install && signIn
+      ? { ...request, steps: [...install.steps, ...signIn.steps] }
+      : undefined;
+  }
   if (request.action === "install-plugin")
     return request.tool === "agy"
       ? {
@@ -85,9 +94,30 @@ export function selectHostRecipe(
   if (request.action === "sign-in") {
     const argv =
       request.tool === "gh"
-        ? ["gh", "auth", "login", "--web", "--git-protocol", "https", "--skip-ssh-key"]
+        ? [
+            "gh",
+            "auth",
+            "login",
+            "--web",
+            "--expiring",
+            "--hostname",
+            "github.com",
+            "--git-protocol",
+            "https",
+            "--skip-ssh-key",
+            "--scopes",
+            "workflow",
+          ]
         : setup?.signIn?.[distro];
-    return argv ? { ...request, steps: [argv] } : undefined;
+    return argv
+      ? {
+          ...request,
+          steps:
+            request.tool === "gh"
+              ? [argv, ["gh", "auth", "setup-git", "--hostname", "github.com"]]
+              : [argv],
+        }
+      : undefined;
   }
   if (request.tool === "git" && facts.mac?.commandLineTools === false) return undefined;
   const manager = { debian: "apt", rhel: "dnf", arch: "pacman", darwin: "brew" };
@@ -138,4 +168,15 @@ export function recipeLaunch(value: unknown): value is HostRecipeLaunch {
     /^[a-f0-9]{64}$/u.test(value.digest) &&
     recipeRequest({ tool: value.tool, action: value.action, distro: value.distro })
   );
+}
+
+/** Bind both checked-in expiry variants; the host alone selects by its version probe. */
+export function recipeDigestInput(recipe: HostRecipe): string {
+  return recipe.tool === "gh" &&
+    (recipe.action === "sign-in" || recipe.action === "install-sign-in")
+    ? JSON.stringify({
+        steps: recipe.steps,
+        compatibleSteps: recipe.steps.map((step) => step.filter((arg) => arg !== "--expiring")),
+      })
+    : JSON.stringify(recipe.steps);
 }

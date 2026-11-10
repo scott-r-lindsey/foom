@@ -124,7 +124,7 @@ export async function requirements(
     distro = "darwin";
     libc = "supported";
     // Neither fallback paths nor a non-login PATH may discover Homebrew.
-    for (const directory of !scope ? (env["PATH"] ?? "").split(":") : []) {
+    for (const directory of !scope || scope === "platform" ? (env["PATH"] ?? "").split(":") : []) {
       if (
         ["/opt/homebrew/bin", "/usr/local/bin"].includes(directory) &&
         (await executable(posix.join(directory, "brew")))

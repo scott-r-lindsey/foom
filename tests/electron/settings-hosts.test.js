@@ -51,7 +51,7 @@ async function captureHosts(app, page, name) {
         .toBe(mode === "dark");
       await area.screenshot({
         path: evidencePath(
-          `${/^(?:1061|1062|1074)\//u.test(name) ? name : `1074/${name}`}-${mode}.png`,
+          `${/^(?:1061|1062|1067|1074)\//u.test(name) ? name : `1074/${name}`}-${mode}.png`,
         ),
       });
     }
@@ -130,7 +130,7 @@ if (args.at(-1).includes('FOOM-LIBC-UNSUPPORTED') && !args.at(-1).includes('FOOM
 process.stdout.write('FOOM-READY\\n');
 let input=Buffer.alloc(0), terminalOutput='', recipeInput='', recipeEnded=false, finishTimer;
 const {spawnSync}=require('node:child_process');
-const {selectHostRecipe}=require(${JSON.stringify(path.resolve("build/shared/registered-host-recipes.js"))});
+const {selectHostRecipe,recipeDigestInput}=require(${JSON.stringify(path.resolve("build/shared/registered-host-recipes.js"))});
 function frame(message) { const data=Buffer.from(JSON.stringify({version:3,message})); const head=Buffer.alloc(4); head.writeUInt32BE(data.length); return Buffer.concat([head,data]); }
 function send(message) { process.stdout.write(frame(message)); }
 process.stdin.on('data', bytes => {
@@ -149,22 +149,29 @@ process.stdin.on('data', bytes => {
       send({type:'open-result',id:message.id,request:message.request,state:'live'});continue;
     }
     const recipe=selectHostRecipe(message.recipe,{distro:'debian',libc:'supported',packageManager:'apt'});
-    assert.equal(message.recipe.digest,require('node:crypto').createHash('sha256').update(JSON.stringify(recipe.steps)).digest('hex'));
+    assert.equal(message.recipe.digest,require('node:crypto').createHash('sha256').update(recipeDigestInput(recipe)).digest('hex'));
     assert.ok(recipe);
     for (const step of recipe.steps) {
       const child=spawnSync(${JSON.stringify(process.execPath)},[${JSON.stringify(recipeFixture)},...step],{env:{},encoding:'utf8'});
       assert.equal(child.status,0); terminalOutput=child.stdout;
     }
     const immediate=JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8'));
+    if(immediate.githubDevice) terminalOutput='! First copy your one-time code: ABCD-1234\\r\\nOpen this URL to continue in your web browser: https://evil.test/\\r\\n';
     const opened={type:'open-result',id:message.id,request:message.request,state:'live'};
     if(immediate.recipeImmediateExit) {
       recipeEnded=true;
       require('node:fs').writeFileSync(${JSON.stringify(scenario)},JSON.stringify({...immediate,facts:{...immediate.facts,tools:[{id:'git',state:'ready',signIn:'unknown'},{id:'gh',state:'ready',signIn:'signed-out'}]}}));
       process.stdout.write(Buffer.concat([frame(opened),frame({type:'exit',id:message.id,code:0})]));
     } else send(opened);
+    if(message.recipe.tool==='gh' && message.recipe.action!=='install' && !recipeEnded) finishTimer=setInterval(()=>{ const next=JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8')); if(next.recipeExit !== undefined && !next.recipeInteractive && !recipeEnded) { recipeEnded=true;clearInterval(finishTimer);send({type:'exit',id:message.id,code:next.recipeExit}); } },20);
     continue;
   }
   if('id' in message) {
+    if(message.type==='stop') {
+      const signaled=!recipeEnded;recipeEnded=true;clearInterval(finishTimer);
+      if(signaled) send({type:'exit',id:message.id,code:143});
+      send({type:'result',id:message.id,request:message.request,lines:[],signaled});continue;
+    }
     if(message.type==='kill') {
       appendFileSync(${JSON.stringify(calls)},JSON.stringify({host,message:{type:message.type,id:message.id},closed:message.id})+'\\n');
       recipeEnded=true;clearInterval(finishTimer);
@@ -228,6 +235,12 @@ process.stdin.on('data', bytes => {
       .find((window) => window.webContents.getURL() === "app://bundle/index.html")
       .setContentSize(1280, 1200),
   );
+  await app.evaluate(({ shell }) => {
+    globalThis.githubDeviceUrls = [];
+    shell.openExternal = async (url) => {
+      globalThis.githubDeviceUrls.push(url);
+    };
+  });
   const page = await boardPage(app);
   const repository = await page.evaluate(
     async () => (await window.desktop.workspace()).repositories[0].path,
@@ -963,7 +976,7 @@ test("Repositories lists existing checkouts and opens fixed repair recipes witho
     .poll(
       async () => (await readFile(recipeCalls, "utf8")).trim().split("\n").filter(Boolean).length,
     )
-    .toBe(3);
+    .toBe(4);
   assert.deepEqual(
     (await readFile(recipeCalls, "utf8"))
       .trim()
@@ -972,12 +985,25 @@ test("Repositories lists existing checkouts and opens fixed repair recipes witho
     [
       ["/usr/bin/sudo", "/usr/bin/apt-get", "update"],
       ["/usr/bin/sudo", "/usr/bin/apt-get", "install", "-y", "git"],
-      ["gh", "auth", "login", "--web", "--git-protocol", "https", "--skip-ssh-key"],
+      [
+        "gh",
+        "auth",
+        "login",
+        "--web",
+        "--expiring",
+        "--hostname",
+        "github.com",
+        "--git-protocol",
+        "https",
+        "--skip-ssh-key",
+        "--scopes",
+        "workflow",
+      ],
+      ["gh", "auth", "setup-git", "--hostname", "github.com"],
     ],
   );
-  await expect(page.getByRole("region", { name: "Settings", exact: true })).toHaveCount(0);
-  await expect(page.locator(".terminal-tile[data-kind='shell']")).toBeVisible();
-  await openSettingsScreen(page);
+  await expect(page.getByRole("region", { name: "Settings", exact: true })).toBeVisible();
+  await expect(page.locator(".terminal-tile[data-kind='shell']")).toHaveCount(0);
   await page
     .getByRole("navigation", { name: "Settings sections" })
     .getByRole("button", { name: "Hosts", exact: true })
@@ -1399,16 +1425,8 @@ test("Hosts merges recipe rows with two Hosts windows already open", {
   await expect
     .poll(() => page.evaluate(async () => (await window.desktop.workspace()).terminals.length))
     .toBe(1);
-  await expect
-    .poll(
-      async () =>
-        (await page.locator(".terminal-tile[data-kind='shell']").last().isVisible()) ||
-        (await other.locator(".terminal-tile[data-kind='shell']").last().isVisible()),
-    )
-    .toBe(true);
-  // Recipe reveal closes the receiving board's Settings. The other already-open
-  // Hosts view can queue a second recipe without mounting/listing again.
-  const remainingCard = (await card.isVisible()) ? card : otherCard;
+  await expect(card.getByRole("region", { name: "GitHub sign-in" })).toBeVisible();
+  const remainingCard = otherCard;
   await expect(
     remainingCard.getByRole("button", { name: "Install git", exact: true }),
   ).toBeEnabled();
@@ -1420,7 +1438,13 @@ test("Hosts merges recipe rows with two Hosts windows already open", {
     .trim()
     .split("\n")
     .map((line) => JSON.parse(line))
-    .filter(({ message, phase }) => !phase && message.operation === "inspect" && message.target);
+    .filter(
+      ({ message, phase }) =>
+        !phase &&
+        message.operation === "inspect" &&
+        message.target &&
+        message.target.kind !== "platform",
+    );
   assert.equal(beforeList.length, 0, "neither recipe remounted Hosts or refreshed queued rows");
   await expect(
     remainingCard.getByRole("region", { name: "Install terminal" }).locator(".xterm-screen"),
@@ -1429,7 +1453,9 @@ test("Hosts merges recipe rows with two Hosts windows already open", {
   await expect
     .poll(
       async () =>
-        (await readFile(calls, "utf8")).split("\n").filter((line) => line.includes('"target"'))
+        (await readFile(calls, "utf8"))
+          .split("\n")
+          .filter((line) => line.includes('"target"') && !line.includes('"kind":"platform"'))
           .length,
     )
     .toBe(2);
@@ -1437,7 +1463,13 @@ test("Hosts merges recipe rows with two Hosts windows already open", {
     .trim()
     .split("\n")
     .map((line) => JSON.parse(line))
-    .filter(({ message, phase }) => !phase && message.operation === "inspect" && message.target)
+    .filter(
+      ({ message, phase }) =>
+        !phase &&
+        message.operation === "inspect" &&
+        message.target &&
+        message.target.kind !== "platform",
+    )
     .map(({ message }) => message.target);
   assert.deepEqual(
     targets.sort((a, b) => a.kind.localeCompare(b.kind)),
@@ -2180,4 +2212,124 @@ test("Hosts removal prunes saved session rows and startup repairs already forgot
   await expect.poll(() => rows(stalePage)).toEqual([]);
   await expect(stalePage.locator(`[data-drag-session="${saved.id}"]`)).toHaveCount(0);
   await expect.poll(async () => JSON.parse(await readFile(sessionsFile, "utf8"))).toEqual([]);
+});
+
+test("Hosts gh device sign-in copies a strict code, opens only GitHub and refreshes one row", {
+  skip: process.platform === "win32",
+  timeout: deadline(30000),
+}, async (context) => {
+  const { app, page, card, calls, capture, updateScenario } = await hostsFixture(context);
+  await updateScenario({ githubDevice: true });
+  const checkedAt = await page.evaluate(
+    async () =>
+      (await window.desktop.setupState()).settings.registeredHosts[0].observation.checkedAt,
+  );
+  await card.getByRole("button", { name: "Sign in gh", exact: true }).click();
+  const panel = card.getByRole("region", { name: "GitHub sign-in", exact: true });
+  await expect(panel.getByText("ABCD-1234", { exact: true })).toBeVisible();
+  await expect(panel.getByText("✓ Copied", { exact: true })).toBeVisible();
+  await expect(panel.getByText("✓ Browser opened", { exact: true })).toBeVisible();
+  assert.equal(await app.evaluate(({ clipboard }) => clipboard.readText()), "ABCD-1234");
+  assert.deepEqual(await app.evaluate(() => globalThis.githubDeviceUrls), [
+    "https://github.com/login/device",
+  ]);
+  await expect(panel.getByRole("button", { name: "▸ Terminal" })).toHaveAttribute(
+    "aria-expanded",
+    "false",
+  );
+  await expect(
+    card.getByText("Without a keyring, gh may store your token in plain text on this host."),
+  ).toBeVisible();
+  assert.equal(
+    await panel
+      .locator(".github-device-code")
+      .evaluate((element) => getComputedStyle(element).fontSize),
+    "26px",
+  );
+  await assertHostColumns(card);
+  await capture("1067/waiting");
+  await assertAccessible(page);
+  const before = (await readFile(calls, "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line))
+    .filter(({ message, phase }) => !phase && message.operation === "inspect");
+  assert.deepEqual(before.at(-1).message.target, { kind: "platform" });
+  await panel.getByRole("button", { name: "Copy code", exact: true }).click();
+  await panel.getByRole("button", { name: "Open GitHub", exact: true }).click();
+  assert.deepEqual(
+    await app.evaluate(() => globalThis.githubDeviceUrls),
+    Array(2).fill("https://github.com/login/device"),
+  );
+  // Authorization happens outside Foom. The fixture supplies only the resulting exit and status.
+  await updateScenario({
+    githubDevice: true,
+    recipeExit: 0,
+    facts: {
+      tools: [
+        { id: "git", state: "missing", signIn: "unknown" },
+        { id: "gh", state: "ready", signIn: "signed-in" },
+      ],
+    },
+  });
+  await expect(panel).toHaveCount(0);
+  await expect(card.getByText("Pass · Signed in", { exact: true })).toBeVisible();
+  assert.equal(await app.evaluate(({ clipboard }) => clipboard.readText()), "");
+  assert.equal(
+    await page.evaluate(
+      async () =>
+        (await window.desktop.setupState()).settings.registeredHosts[0].observation.checkedAt,
+    ),
+    checkedAt,
+  );
+  const after = (await readFile(calls, "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line))
+    .filter(({ message, phase }) => !phase && message.operation === "inspect")
+    .slice(before.length);
+  assert.deepEqual(
+    after.map(({ message }) => message.target),
+    [{ kind: "sign-in", tool: "gh" }],
+  );
+});
+
+test("Hosts gh device sign-in offers blocked fallbacks and preserves a changed clipboard on cancel", {
+  skip: process.platform === "win32",
+  timeout: deadline(30000),
+}, async (context) => {
+  const { app, card, capture, updateScenario } = await hostsFixture(context);
+  await app.evaluate(({ shell, clipboard }) => {
+    globalThis.githubOriginalCopy = clipboard.writeText;
+    clipboard.writeText = async () => {
+      throw new Error("fixture clipboard unavailable");
+    };
+    shell.openExternal = async () => {
+      throw new Error("fixture browser unavailable");
+    };
+  });
+  await updateScenario({ githubDevice: true });
+  await card.getByRole("button", { name: "Sign in gh", exact: true }).click();
+  const panel = card.getByRole("region", { name: "GitHub sign-in", exact: true });
+  await expect(panel.getByText("Not copied", { exact: true })).toBeVisible();
+  await expect(panel.getByText("Browser not opened", { exact: true })).toBeVisible();
+  await capture("1067/blocked");
+  await app.evaluate(({ shell, clipboard }) => {
+    clipboard.writeText = globalThis.githubOriginalCopy;
+    shell.openExternal = async (url) => {
+      globalThis.githubDeviceUrls.push(url);
+    };
+  });
+  await panel.getByRole("button", { name: "Copy code", exact: true }).click();
+  await panel.getByRole("button", { name: "Open GitHub", exact: true }).click();
+  await expect(panel.getByText("✓ Copied", { exact: true })).toBeVisible();
+  await expect(panel.getByText("✓ Browser opened", { exact: true })).toBeVisible();
+  await app.evaluate(({ clipboard }) => clipboard.writeText("human changed clipboard"));
+  await panel.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(panel).toHaveCount(0);
+  await expect(card.getByRole("button", { name: "Sign in gh", exact: true })).toBeEnabled();
+  assert.equal(
+    await app.evaluate(({ clipboard }) => clipboard.readText()),
+    "human changed clipboard",
+  );
 });

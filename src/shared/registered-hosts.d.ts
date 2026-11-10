@@ -196,7 +196,7 @@ export type HostsAction =
       action: "recipe";
       host: string;
       tool: string;
-      operation: "install" | "sign-in" | "install-plugin";
+      operation: "install" | "sign-in" | "install-plugin" | "install-sign-in";
     }
   | { action: "preflight"; host: string; codeFolder: string }
   | { action: "draft-preflight"; host: string; codeFolder: string }
@@ -213,6 +213,7 @@ export type HostsAction =
   | { action: "locations" }
   | { action: "clone"; host: string; repository: string };
 export interface HostsApi {
+  githubSignIn(id: string, action: GithubSignInAction): Promise<GithubSignInState>;
   copyHost(command: HostCopyCommand): Promise<void>;
   hosts(action: HostsAction): Promise<HostsState>;
 }
@@ -234,7 +235,7 @@ export interface RemoteWorktree {
 
 export interface HostRecipeRequest {
   tool: string;
-  action: "install" | "sign-in" | "install-plugin";
+  action: "install" | "sign-in" | "install-plugin" | "install-sign-in";
   distro: "debian" | "rhel" | "arch" | "darwin";
 }
 export interface HostRecipe extends HostRecipeRequest {
@@ -243,4 +244,14 @@ export interface HostRecipe extends HostRecipeRequest {
 
 export interface HostRecipeLaunch extends HostRecipeRequest {
   digest: string;
+}
+
+/** Only the requesting Settings window's main-owned gh recipe IDs qualify. */
+export type GithubSignInAction = "read" | "copy" | "open" | "cancel";
+export interface GithubSignInState {
+  phase: "starting" | "waiting" | "finishing" | "done" | "failed" | "expired" | "cancelled";
+  code?: string | undefined;
+  copied: boolean;
+  opened: boolean;
+  exitCode?: number;
 }

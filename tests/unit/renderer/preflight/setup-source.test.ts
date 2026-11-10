@@ -201,7 +201,7 @@ test("Settings tracks only its installs, waits for launch and disposes running o
   const signIn = source.hosts({
     action: "recipe",
     host: "cloud",
-    tool: "gh",
+    tool: "codex",
     operation: "sign-in",
   });
   resolve({ hosts: [], locations: [], recipeSession: "sign-in" });
@@ -357,4 +357,33 @@ test("local installs share Settings ownership and cannot escape Stop/Keep open",
   await expect(source.installs?.running()).resolves.toBe(true);
   await source.installs?.close();
   expect(kill).toHaveBeenCalledExactlyOnceWith("local-install");
+});
+
+test("gh embedded recipes retain sign-in metadata across section changes and share exit ownership", async () => {
+  const hosts = vi.fn().mockResolvedValue({ hosts: [], locations: [], recipeSession: "gh-device" });
+  Object.defineProperty(window, "desktop", {
+    configurable: true,
+    value: {
+      hosts,
+      onExit: () => () => {},
+      workspace: () => Promise.resolve({ terminals: [{ id: "gh-device", exited: true }] }),
+      kill: vi.fn(() => Promise.resolve()),
+      githubSignIn: vi.fn(() => Promise.resolve({ phase: "waiting", copied: true, opened: true })),
+    },
+  });
+  const source = createSetupSource();
+  await source.hosts?.({
+    action: "recipe",
+    host: "cloud",
+    tool: "gh",
+    operation: "install-sign-in",
+  });
+  expect(source.githubSignInSessions?.()).toEqual(new Map([["gh-device", true]]));
+  expect(source.installs?.hasSessions()).toBe(true);
+  await source.githubSignIn?.("gh-device", "read");
+  await source.installs?.close();
+  expect(source.githubSignInSessions?.().size).toBe(0);
+  await source.hosts?.({ action: "recipe", host: "cloud", tool: "gh", operation: "sign-in" });
+  expect(source.githubSignInSessions?.()).toEqual(new Map([["gh-device", false]]));
+  await source.installs?.close();
 });

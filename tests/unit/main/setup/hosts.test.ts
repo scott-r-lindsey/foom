@@ -2798,3 +2798,67 @@ test("host removal awaits session inventory repair after forgetting registration
   await hosts.action({ action: "remove", host: "worker" });
   expect(repair).toHaveBeenCalledOnce();
 });
+
+test.each(["sign-in", "install-sign-in"] as const)(
+  "gh %s selects from fresh platform requirements, preserving every saved row",
+  async (operation) => {
+    const saved = {
+      host: "mac-fixture",
+      codeFolder: "/Users/fixture/foom",
+      observation: {
+        checkedAt: 1700000000000,
+        preflight: {
+          ssh: { state: "pass" },
+          platform: { state: "pass" },
+          artifact: { state: "pass" },
+          repositories: [],
+          result: {
+            ok: true,
+            facts: {
+              ...facts,
+              codeFolder: "/Users/fixture/foom",
+              requirements: { distro: "darwin", libc: "supported", packageManager: "brew" },
+              tools: [{ id: "gh", state: "ready", signIn: "signed-out" }],
+            },
+          },
+        },
+      },
+    } as const;
+    settings = { ...DEFAULT_SETTINGS, registeredHosts: [saved] };
+    hosts = new Hosts(store, () => [], "0.1.0", run, "f".repeat(32));
+    const launch = vi.fn(() => Promise.resolve("gh-device"));
+    run.mockImplementation((_host, request) =>
+      Promise.resolve({
+        ok: true,
+        facts: {
+          ...facts,
+          codeFolder: saved.codeFolder,
+          ...(request.operation === "inspect" && request.target?.kind === "platform"
+            ? {
+                requirements: {
+                  distro: "darwin",
+                  libc: "supported",
+                  packageManager: "brew",
+                } as const,
+              }
+            : {}),
+        },
+      }),
+    );
+    const before = await hosts.action({ action: "list" });
+    const reply = await hosts.action(
+      { action: "recipe", host: saved.host, tool: "gh", operation },
+      undefined,
+      launch,
+    );
+    expect(reply.recipeSession).toBe("gh-device");
+    expect(reply.hosts).toEqual(before.hosts);
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run.mock.calls[0]?.[1]).toMatchObject({
+      operation: "inspect",
+      readOnly: true,
+      target: { kind: "platform" },
+    });
+    expect(launch).toHaveBeenCalledOnce();
+  },
+);

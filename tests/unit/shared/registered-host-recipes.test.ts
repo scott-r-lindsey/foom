@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import {
+  recipeDigestInput,
   recipeRequest,
   recipeLaunch,
   selectHostRecipe,
@@ -79,7 +80,23 @@ test("agent recipes are opt-in per distro; sign-in does not require a package ma
       { ...request, tool: "gh", action: "sign-in" },
       { ...facts, packageManager: "none" },
     )?.steps,
-  ).toEqual([["gh", "auth", "login", "--web", "--git-protocol", "https", "--skip-ssh-key"]]);
+  ).toEqual([
+    [
+      "gh",
+      "auth",
+      "login",
+      "--web",
+      "--expiring",
+      "--hostname",
+      "github.com",
+      "--git-protocol",
+      "https",
+      "--skip-ssh-key",
+      "--scopes",
+      "workflow",
+    ],
+    ["gh", "auth", "setup-git", "--hostname", "github.com"],
+  ]);
 });
 
 test("macOS missing CLT requires an on-Mac fix instead of probing or installing git", () => {
@@ -211,4 +228,45 @@ test("vendor script recipes bind address, interpreter and arguments and need no 
   expect(selectHostRecipe({ ...request, distro: "debian" }, facts, setup)?.steps).toEqual([
     ["foom-host", "--vendor-script", script.url, "bash", "stable"],
   ]);
+});
+
+test("only gh can install then sign in; its digest sequence includes both auth steps", () => {
+  const request = { tool: "gh", action: "install-sign-in", distro: "debian" } as const;
+  expect(recipeRequest(request)).toBe(true);
+  expect(recipeRequest({ ...request, tool: "codex" })).toBe(false);
+  expect(selectHostRecipe({ ...request, tool: "codex" }, facts)).toBeUndefined();
+  const install = selectHostRecipe({ ...request, action: "install" }, facts);
+  const signIn = selectHostRecipe({ ...request, action: "sign-in" }, facts);
+  expect(selectHostRecipe(request, facts)?.steps).toEqual([
+    ...(install?.steps ?? []),
+    ...(signIn?.steps ?? []),
+  ]);
+  expect(selectHostRecipe(request, { ...facts, packageManager: "none" })).toBeUndefined();
+});
+
+test("gh recipe digests bind both explicit argv variants; other recipe digests stay compatible", () => {
+  const recipe = selectHostRecipe({ tool: "gh", action: "sign-in", distro: "debian" }, facts);
+  if (!recipe) throw new Error("Missing gh recipe");
+  expect(JSON.parse(recipeDigestInput(recipe))).toEqual({
+    steps: recipe.steps,
+    compatibleSteps: [
+      [
+        "gh",
+        "auth",
+        "login",
+        "--web",
+        "--hostname",
+        "github.com",
+        "--git-protocol",
+        "https",
+        "--skip-ssh-key",
+        "--scopes",
+        "workflow",
+      ],
+      ["gh", "auth", "setup-git", "--hostname", "github.com"],
+    ],
+  });
+  const install = selectHostRecipe({ tool: "gh", action: "install", distro: "debian" }, facts);
+  if (!install) throw new Error("Missing installer");
+  expect(recipeDigestInput(install)).toBe(JSON.stringify(install.steps));
 });
