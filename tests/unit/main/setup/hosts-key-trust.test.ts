@@ -10,6 +10,7 @@ vi.mock("../../../../src/main/setup/ssh-host-key", () => ({
 import { Hosts } from "../../../../src/main/setup/hosts";
 let settings: Settings;
 let hosts: Hosts;
+let repositories: { path: string; name: string }[];
 const run = vi.fn<(host: string, request: HostManagement) => Promise<HostResult>>();
 const unknownKey: HostResult = {
   ok: false,
@@ -38,6 +39,7 @@ beforeEach(() => {
   mock.supported.mockResolvedValue(true);
   mock.trust.mockResolvedValue(true);
   settings = { ...DEFAULT_SETTINGS };
+  repositories = [];
   run.mockReset().mockResolvedValue(unknownKey);
   hosts = new Hosts(
     {
@@ -47,7 +49,7 @@ beforeEach(() => {
         return Promise.resolve(settings);
       },
     },
-    () => [],
+    () => repositories,
     "0.1.0",
     run,
   );
@@ -69,7 +71,13 @@ test("unknown keys offer trust for registered hosts and accepted new hosts run t
   run.mockResolvedValue(good);
   const state = await trust();
   expect(state.preflight?.result.ok).toBe(true);
-  expect(mock.trust).toHaveBeenCalledWith("box", expect.any(Function), expect.any(AbortSignal));
+  expect(mock.trust).toHaveBeenCalledWith(
+    "box",
+    expect.any(Function),
+    expect.any(AbortSignal),
+    undefined,
+    expect.any(Function),
+  );
   expect(settings.registeredHosts?.[0]?.observation?.preflight.result.ok).toBe(true);
   expect(state.output).toMatchObject({ running: false, failed: false });
   expect(hosts.copyValue({ kind: "copy-host-ssh-command", host: "box" })).toBe("ssh box");
@@ -205,4 +213,66 @@ test("local renaming retains the observed trust capability without starting anot
   expect(state.hosts[0]?.hostKeyTrust).toBe("askpass");
   expect(settings.registeredHosts?.[0]).not.toHaveProperty("hostKeyTrust");
   expect(mock.supported).not.toHaveBeenCalled();
+});
+
+test.each(["host-key-unknown", "host-key-changed", "login-rejected", "unreachable"] as const)(
+  "a failed SSH check (%s) stops before any repository checks",
+  async (reason) => {
+    repositories = [
+      { path: "/local/one", name: "one" },
+      { path: "/local/two", name: "two" },
+    ];
+    run.mockResolvedValue({
+      ...unknownKey,
+      connection: {
+        ssh: { state: "fail", reason },
+        platform: { state: "not-checked" },
+        artifact: { state: "not-checked" },
+      },
+    });
+    const state = await hosts.action({
+      action: "draft-preflight",
+      host: "box",
+      codeFolder: "/code",
+    });
+    expect(run).toHaveBeenCalledOnce();
+    expect(run.mock.calls[0]?.[1].operation).toBe("inspect");
+    expect(state.preflight?.repositories).toEqual([]);
+    expect(state.preflight?.ssh).toEqual({ state: "fail", reason });
+    expect(state.locations).toEqual([]);
+  },
+);
+
+test("trust failures publish only a fixed reason in the check output panel", async () => {
+  await enroll();
+  mock.trust.mockImplementationOnce(
+    (
+      _host: string,
+      _confirm: unknown,
+      _signal: AbortSignal,
+      _executable: unknown,
+      report: (reason: string) => void,
+    ) => {
+      report("prompt-host-mismatch");
+      return Promise.resolve(false);
+    },
+  );
+  const state = await trust();
+  expect(state.output).toEqual({
+    host: "box",
+    text: "Unable to trust host key · prompt-host-mismatch\n",
+    running: false,
+    failed: true,
+  });
+  expect(state.hosts[0]?.result).toEqual(unknownKey);
+});
+
+test("background inventory cannot replace a waiting SSH trust observation with a local artifact failure", async () => {
+  await enroll();
+  run.mockClear();
+  run.mockResolvedValue({ ok: false, reason: "artifact-unavailable" });
+  expect(await hosts.inventory("box")).toEqual(unknownKey);
+  expect(run).not.toHaveBeenCalled();
+  await trust();
+  expect(mock.trust).toHaveBeenCalledOnce();
 });

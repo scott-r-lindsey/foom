@@ -212,16 +212,16 @@ test("preflight observes SSH and platform even when the build omits remote artif
     selectHostArtifact({ host: "fixture" }, "0.1.0", f.root, f.metadata, undefined, observe),
   ).rejects.toMatchObject({ code: "remote-host-unavailable" });
   expect(observe.mock.calls).toEqual([
-    ["artifact", { state: "fail", reason: "artifact-unavailable" }],
     ["ssh", { state: "pass" }],
     ["platform", { state: "pass" }],
+    ["artifact", { state: "fail", reason: "artifact-unavailable" }],
   ]);
   mock.failure = true;
   observe.mockClear();
   await expect(
     selectHostArtifact({ host: "fixture" }, "0.1.0", f.root, f.metadata, undefined, observe),
   ).rejects.toThrow("unreachable");
-  expect(observe).toHaveBeenLastCalledWith("ssh", { state: "fail", reason: "unreachable" });
+  expect(observe.mock.calls).toEqual([["ssh", { state: "fail", reason: "unreachable" }]]);
 });
 
 test.each(["unsupported", "libc-too-old", "libc-unsupported", "pass"])(
@@ -325,6 +325,10 @@ test.each([
   "only a local SSH exit 255 diagnostic enables trust: $source/$code",
   async ({ source, code, expected }) => {
     const f = await fixture();
+    await writeFile(
+      f.metadata,
+      JSON.stringify({ source: f.manifest.source, remoteHostsAvailable: false }),
+    );
     const observe = vi.fn();
     const output = vi.fn();
     const text =
@@ -356,7 +360,7 @@ test.each([
         output,
       ),
     ).rejects.toMatchObject({ failure: expected });
-    expect(observe).toHaveBeenCalledWith("ssh", { state: "fail", reason: expected });
+    expect(observe.mock.calls).toEqual([["ssh", { state: "fail", reason: expected }]]);
     if (source === "client") expect(output).toHaveBeenCalledWith(text);
     await expect(access(diagnostic)).rejects.toThrow();
   },

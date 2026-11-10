@@ -70,9 +70,24 @@ export function configuredHost(output: string): { host: string; port: number } |
   const alias = aliases[0];
   if (alias !== undefined && !/^[a-zA-Z0-9_.:[\]-]+$/u.test(alias)) return undefined;
   const number = Number(port);
-  const target = alias ?? (number === 22 ? hostname : `[${hostname}]:${String(number)}`);
+  const name = hostname.toLowerCase();
+  const target = alias ?? (number === 22 ? name : `[${name}]:${String(number)}`);
   return target.length <= 200 ? { host: target, port: number } : undefined;
 }
+
+export type HostKeyTrustFailure =
+  | "trust-not-eligible"
+  | "invalid-alias"
+  | "ssh-config-failed"
+  | "ssh-config-invalid"
+  | "socket-path-too-long"
+  | "askpass-prompt-rejected"
+  | "prompt-host-mismatch"
+  | "ssh-exited-without-prompt"
+  | "trust-timeout"
+  | "ssh-start-failed"
+  | "dialog-unavailable"
+  | "trust-unavailable";
 
 /** One detached SSH run, one authenticated local socket, one explicit answer. */
 export async function trustHostKey(
@@ -80,9 +95,16 @@ export async function trustHostKey(
   confirm: (content: DialogContent, signal: AbortSignal) => Promise<boolean>,
   signal: AbortSignal,
   executable = askpassExecutable,
+  report: (reason: HostKeyTrustFailure) => void = () => undefined,
 ): Promise<boolean> {
+  const fail = (reason: HostKeyTrustFailure) => {
+    report(reason);
+    return false;
+  };
   const cancelled = () => signal.aborted;
-  if (!hostAlias(host) || cancelled() || process.platform === "win32") return false;
+  if (cancelled()) return false;
+  if (!hostAlias(host)) return fail("invalid-alias");
+  if (process.platform === "win32") return fail("trust-unavailable");
   const env = { ...sshEnvironment(), LC_ALL: "C" };
   const config = await readLoginShell("ssh", ["-G", ...sshArguments(host)], {
     env,
@@ -93,7 +115,9 @@ export async function trustHostKey(
     cwd: tmpdir(),
   }).catch(() => undefined);
   const expected = config && configuredHost(config.stdout);
-  if (!expected || cancelled()) return false;
+  if (cancelled()) return false;
+  if (!config) return fail("ssh-config-failed");
+  if (!expected) return fail("ssh-config-invalid");
   const directory = mkdtempSync(join(tmpdir(), "fk-"));
   const controller = new AbortController();
   const lifetime = AbortSignal.any([signal, controller.signal]);
@@ -101,8 +125,8 @@ export async function trustHostKey(
   const sockets = new Set<Socket>();
   const server = createServer();
   let active = true;
-  let asked = false;
-  const answerState = { accepted: false };
+  const answerState = { asked: false, accepted: false, declined: false };
+  const failure: { reason: HostKeyTrustFailure | undefined } = { reason: undefined };
   const token = randomBytes(32).toString("hex");
   // will-quit disposal is synchronous: revoke and remove files before returning.
   const revoke = () => {
@@ -120,7 +144,7 @@ export async function trustHostKey(
     if (ended()) return false;
     await chmod(directory, 0o700);
     const socketPath = join(directory, "s");
-    if (socketPath.length > 100) return false;
+    if (socketPath.length > 100) return fail("socket-path-too-long");
     server.on("connection", (socket) => {
       if (!active || sockets.size >= 4) {
         socket.destroy();
@@ -149,24 +173,32 @@ export async function trustHostKey(
         if (
           !active ||
           lifetime.aborted ||
-          asked ||
+          answerState.asked ||
           typeof value !== "object" ||
           value === null ||
           Object.keys(value).length !== 2 ||
           !("token" in value) ||
           value.token !== token ||
-          !("prompt" in value) ||
-          typeof value.prompt !== "string"
+          ((!("prompt" in value) || typeof value.prompt !== "string") &&
+            (!("rejected" in value) || value.rejected !== true))
         ) {
           socket.destroy();
           return;
         }
-        const key = hostKeyPrompt(value.prompt, expected);
-        if (!key) {
+        if (!("prompt" in value) || typeof value.prompt !== "string") {
+          failure.reason ??= "askpass-prompt-rejected";
           socket.destroy();
           return;
         }
-        asked = true;
+        const parsed = hostKeyPrompt(value.prompt);
+        const key = hostKeyPrompt(value.prompt, expected);
+        if (!key) {
+          failure.reason ??= parsed ? "prompt-host-mismatch" : "askpass-prompt-rejected";
+          socket.destroy();
+          return;
+        }
+        failure.reason = undefined;
+        answerState.asked = true;
         void confirm(
           {
             title: "Trust host key?",
@@ -186,10 +218,12 @@ export async function trustHostKey(
           (answer) => {
             if (!active || lifetime.aborted || socket.destroyed) return;
             answerState.accepted = answer;
+            answerState.declined = !answer;
             socket.end(answer ? "yes\n" : "no\n");
             if (!answer) controller.abort();
           },
           () => {
+            failure.reason ??= "dialog-unavailable";
             controller.abort();
           },
         );
@@ -245,12 +279,14 @@ export async function trustHostKey(
         }
       };
       const timer = setTimeout(() => {
+        failure.reason ??= "trust-timeout";
         controller.abort();
       }, 120000);
       lifetime.addEventListener("abort", kill, { once: true });
       if (lifetime.aborted) kill();
       child.on("exit", kill);
       child.on("error", () => {
+        failure.reason ??= "ssh-start-failed";
         resolve();
       });
       child.on("close", () => {
@@ -259,7 +295,11 @@ export async function trustHostKey(
         resolve();
       });
     });
-    return answerState.accepted && !cancelled();
+    if (cancelled() || answerState.declined) return false;
+    if (answerState.accepted && !failure.reason) return true;
+    return fail(
+      failure.reason ?? (answerState.asked ? "dialog-unavailable" : "ssh-exited-without-prompt"),
+    );
   } finally {
     active = false;
     controller.abort();

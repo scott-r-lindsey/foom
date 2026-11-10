@@ -690,6 +690,19 @@ when the remote exits 255; it never offers trust. Generic verification failures
 never offer trust. Daemon replies cannot supply local SSH classifications or
 connection observations. Legacy saved unreachable observations still load.
 
+Background inventory retains an unknown-key SSH observation without attempting
+another inspection until an explicit trust/check clears it. A missing local
+artifact cannot supersede this pending trust state or silently revoke the button.
+A full check stops at any explicit failed SSH observation: no repository origin or
+checkout requests run and no dependent failures are synthesized. An unavailable
+local artifact catalog is reported only after SSH and platform checks succeed.
+While SSH reports host-key-unknown, Settings hides every dependent section,
+including stale repository failures, tools/agents, checkout rows, Last checked and
+Host facts. Only the header, address/folder/Remove line, output and SSH trust row
+remain. The full card returns when the accepted key's normal first check runs.
+Changed-key and other SSH failures retain their current presentation, but likewise
+skip dependent repository checks because no connection was established.
+
 Only a registered host whose latest SSH observation is host-key-unknown can
 request trust-host-key. Main checks OpenSSH >= 8.4 and the bundled console helper
 using detached, bounded reads that share cancellation with the requesting run;
@@ -714,7 +727,19 @@ address fields must contain a valid IP and any port must be 1–65535 and match 
 registered target. HostKeyAlias still retains the resolved port for this check. Only parsed
 host, key type and SHA256 fingerprint reach the trusted main-owned confirmation.
 Non-host-key, changed-key, secret, malformed and unmatched prompts fail closed.
+OpenSSH 8.4's original question and 8.5+'s other-names notice are accepted,
+including the historical `ommitted` spelling and newer `omitted`. Questions are
+bounded to 4096 characters, 13 lines and 512 characters per line, with at most
+eight file/line/name entries. Those entries are discarded, never rendered.
+`get_hostfile_hostname_ipaddr` supplies HostKeyAlias verbatim when set, otherwise
+the lowercased resolved HostName with the nondefault port; `ssh -G` supplies those
+expected values. The typed command-line alias need not equal the displayed host.
+See [8.4 source](https://raw.githubusercontent.com/openssh/openssh-portable/V_8_4_P1/sshconnect.c)
+and [8.5 source](https://raw.githubusercontent.com/openssh/openssh-portable/V_8_5_P1/sshconnect.c).
 Unexpected OpenSSH question variants are refused rather than displayed verbatim.
+An authenticated helper rejection reports only a fixed code, without forwarding
+the rejected prompt. Non-decline failures publish fixed trust reason codes in the
+check output panel; raw SSH prompts, host-file entries and exceptions are excluded.
 Only one question can receive an answer per run. Cancel is focused by default;
 Cancel, Escape and close decline. No renderer payload can provide the answer.
 

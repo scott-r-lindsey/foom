@@ -1500,7 +1500,7 @@ test.each(["host-key-unknown", "host-key-changed", "login-rejected", "unreachabl
       },
     });
     const card = screen.getByRole("region", { name: "worker" });
-    for (const name of ["SSH", "Git access to origin"]) {
+    for (const name of reason === "host-key-unknown" ? ["SSH"] : ["SSH", "Git access to origin"]) {
       const row = within(card).getByText(name, { exact: true }).closest(".host-check-row");
       const status = row?.querySelector(".host-status");
       expect(
@@ -1548,3 +1548,63 @@ test.each([
     expect(alert.querySelector(".host-symbol")?.textContent).toBe(marker);
   },
 );
+
+test("untrusted hosts hide dependent checks and stale failures until acceptance completes the first check", async () => {
+  const failed = { ok: false as const, reason: "artifact-unavailable" as const };
+  const state = saved({
+    ...initial,
+    hosts: [{ ...host, result: failed, hostKeyTrust: "askpass" }],
+    preflight: {
+      ...preflight,
+      ssh: { state: "fail", reason: "host-key-unknown" },
+      artifact: { state: "fail", reason: "artifact-unavailable" },
+      result: failed,
+      repositories: [
+        {
+          repository: "/local/project",
+          origin: { state: "fail", reason: "origin-unavailable" },
+          checkout: failed,
+        },
+      ],
+    },
+    output: { host: "worker", text: "Host key verification failed", running: false, failed: true },
+  });
+  const api = vi.fn((action: HostsAction) =>
+    Promise.resolve(action.action === "trust-host-key" ? saved(initial) : state),
+  );
+  render(<HostsSettings source={{ hosts: api }} headingRef={createRef()} />);
+  const card = await screen.findByRole("region", { name: "worker" });
+  await screen.findByText("Host key not trusted");
+  expect(card.querySelectorAll(".host-check-row")).toHaveLength(1);
+  for (const text of [
+    "Platform",
+    "Remote daemon",
+    "Code folder",
+    "git",
+    "gh",
+    "Agents",
+    "Git access to origin",
+    "Checked out repositories",
+    "Host facts",
+  ]) {
+    expect(within(card).queryByText(text, { exact: true })).toBeNull();
+  }
+  expect(card.querySelector(".host-footer")).toBeNull();
+  expect(within(card).getByRole("button", { name: "Remove" })).toBeTruthy();
+  expect(within(card).getByRole("region", { name: "Host check output" })).toBeTruthy();
+  fireEvent.click(within(card).getByRole("button", { name: "Trust host key" }));
+  await within(card).findByText("Pass · Host key trusted");
+  for (const text of [
+    "Platform",
+    "Remote daemon",
+    "Code folder",
+    "git",
+    "gh",
+    "Agents",
+    "Checked out repositories",
+    "Host facts",
+  ]) {
+    expect(within(card).getByText(text, { exact: true })).toBeTruthy();
+  }
+  expect(card.querySelector(".host-footer")).toBeTruthy();
+});

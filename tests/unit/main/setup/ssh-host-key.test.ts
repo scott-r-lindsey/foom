@@ -2,11 +2,13 @@ import { EventEmitter } from "node:events";
 import { connect, createServer } from "node:net";
 import { access, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import type * as OS from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type * as ChildProcess from "node:child_process";
 import { hostKeyPrompt, sshAskpass, sshFailure } from "../../../../src/node-common/ssh-askpass";
 const mock = vi.hoisted(() => ({
+  temporary: undefined as string | undefined,
   execute:
     vi.fn<
       (
@@ -17,6 +19,10 @@ const mock = vi.hoisted(() => ({
     >(),
   spawn: vi.fn(),
 }));
+vi.mock("node:os", async (original) => {
+  const actual = await original<typeof OS>();
+  return { ...actual, tmpdir: () => mock.temporary ?? actual.tmpdir() };
+});
 vi.mock("node:child_process", async (original) => ({
   ...(await original<typeof ChildProcess>()),
   execFile: Object.assign(vi.fn(), {
@@ -36,6 +42,7 @@ const question = (host = "box", address = "192.0.2.1") =>
   `The authenticity of host '${host} (${address})' can't be established.\nED25519 key fingerprint is ${fingerprint}.\nThis key is not known by any other names.\nAre you sure you want to continue connecting (yes/no/[fingerprint])? `;
 const roots: string[] = [];
 beforeEach(() => {
+  mock.temporary = undefined;
   mock.execute.mockReset().mockResolvedValue({ stdout: "hostname box\nport 22\n", stderr: "" });
   mock.spawn.mockReset();
 });
@@ -432,10 +439,18 @@ unixTest("SSH lifetime expiry and spawn failures revoke the run without approval
         });
       return child;
     });
-    const work = trustHostKey("alias", () => Promise.resolve(false), new AbortController().signal);
+    const report = vi.fn();
+    const work = trustHostKey(
+      "alias",
+      () => Promise.resolve(false),
+      new AbortController().signal,
+      undefined,
+      report,
+    );
     await ready.promise;
     if (mode === "timeout") await vi.advanceTimersByTimeAsync(120000);
     expect(await work).toBe(false);
+    expect(report).toHaveBeenCalledWith(mode === "timeout" ? "trust-timeout" : "ssh-start-failed");
     vi.useRealTimers();
   }
 });
@@ -498,3 +513,108 @@ test("cancelling capability detection cancels its detached version/helper read",
   abort.abort();
   expect(await work).toBe(false);
 });
+
+test("accepts bounded OpenSSH 8.4, 8.5 and current other-name message formats without projecting their text", () => {
+  const base = question().replace("This key is not known by any other names.\n", "");
+  expect(hostKeyPrompt(base)?.host).toBe("box");
+  expect(hostKeyPrompt(question().replace("names.", "names"))?.host).toBe("box");
+  const block = (lines: string) =>
+    base.replace(
+      "Are you sure",
+      `This host key is known by the following other names/addresses:\n${lines}Are you sure`,
+    );
+  for (const lines of [
+    "    ~/.ssh/known_hosts:12: 192.0.2.1\n",
+    "    /fixture/known hosts:42: box,192.0.2.1\n    ~/.ssh/known_hosts:15: [hashed name]\n",
+    ...["omitted", "ommitted"].map(
+      (word) =>
+        `${Array.from({ length: 8 }, (_, index) => `    /fixture/known_hosts:${String(index + 1)}: host-${String(index)}\n`).join("")}    (3 additional names ${word})\n`,
+    ),
+  ]) {
+    expect(hostKeyPrompt(block(lines), { host: "box", port: 22 })).toEqual({
+      host: "box",
+      type: "ED25519",
+      fingerprint,
+    });
+    expect(hostKeyPrompt(block(lines), { host: "evil", port: 22 })).toBeUndefined();
+  }
+  for (const lines of [
+    "",
+    "    Password:\n",
+    "    /fixture/known_hosts:0: box\n",
+    "    /fixture/known_hosts:1: box\nInjected question\n",
+    `    /fixture/${"x".repeat(513)}:1: box\n`,
+    "    /fixture/known_hosts:1: box\u001b[0m\n",
+    Array.from({ length: 9 }, () => "    /fixture/known_hosts:1: box\n").join(""),
+    "    /fixture/known_hosts:1: box\n    (0 additional names omitted)\n",
+  ])
+    expect(hostKeyPrompt(block(lines))).toBeUndefined();
+  expect(configuredHost("hostname MiXeD.example\nport 22\n")).toEqual({
+    host: "mixed.example",
+    port: 22,
+  });
+  expect(configuredHost("hostname box\nport 22\nhostkeyalias MiXeD\n")).toEqual({
+    host: "MiXeD",
+    port: 22,
+  });
+});
+
+unixTest("reports distinct fixed reasons for alias and SSH configuration failures", async () => {
+  const report = vi.fn();
+  expect(await trustHostKey("-bad", vi.fn(), new AbortController().signal, undefined, report)).toBe(
+    false,
+  );
+  expect(report).toHaveBeenLastCalledWith("invalid-alias");
+  mock.execute.mockRejectedValueOnce(new Error("private config text"));
+  expect(
+    await trustHostKey("alias", vi.fn(), new AbortController().signal, undefined, report),
+  ).toBe(false);
+  expect(report).toHaveBeenLastCalledWith("ssh-config-failed");
+  mock.execute.mockResolvedValueOnce({ stdout: "hostname bad\n" });
+  expect(
+    await trustHostKey("alias", vi.fn(), new AbortController().signal, undefined, report),
+  ).toBe(false);
+  expect(report).toHaveBeenLastCalledWith("ssh-config-invalid");
+});
+
+unixTest.each([
+  { prompt: "Password:", reason: "askpass-prompt-rejected" },
+  { prompt: question("evil"), reason: "prompt-host-mismatch" },
+  { prompt: undefined, reason: "ssh-exited-without-prompt" },
+])("reports $reason without a dialog or raw prompt", async ({ prompt, reason }) => {
+  const report = vi.fn();
+  const confirm = vi.fn();
+  mock.spawn.mockImplementation(
+    (_file: string, _args: string[], options: { env: NodeJS.ProcessEnv }) => {
+      const child = new EventEmitter();
+      void (async () => {
+        await Promise.resolve();
+        if (prompt) expect(await sshAskpass([prompt], options.env, vi.fn())).toBe(1);
+        child.emit("close", 255);
+      })();
+      return child;
+    },
+  );
+  expect(
+    await trustHostKey("alias", confirm, new AbortController().signal, undefined, report),
+  ).toBe(false);
+  expect(confirm).not.toHaveBeenCalled();
+  expect(report).toHaveBeenCalledExactlyOnceWith(reason);
+});
+
+unixTest(
+  "socket path overflow is a fixed visible failure and removes the private directory",
+  async () => {
+    const root = await mkdtemp(join(tmpdir(), "long-askpass-"));
+    roots.push(root);
+    const long = join(root, "x".repeat(100));
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(long));
+    mock.temporary = long;
+    const report = vi.fn();
+    expect(
+      await trustHostKey("alias", vi.fn(), new AbortController().signal, undefined, report),
+    ).toBe(false);
+    expect(report).toHaveBeenCalledExactlyOnceWith("socket-path-too-long");
+    expect(await import("node:fs/promises").then(({ readdir }) => readdir(long))).toEqual([]);
+  },
+);

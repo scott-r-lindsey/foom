@@ -417,8 +417,12 @@ provider ID or null and applies live.
 ### New SSH host keys (#1059)
 
 An unknown SSH key shows **Host key not trusted** and **Trust host key** in Hosts.
-The SSH row and any Git access to origin row with that same reason use amber text
-and the steady needs-you halo, rather than the magenta failure marker. Changed
+While the key is untrusted, the expanded card shows only its host header, address,
+folder and Remove line, check output, and the SSH row with amber text and the
+steady needs-you halo. Platform, daemon, folder checks, tools, agents, Git access,
+checked out repositories, Last checked/refresh and Host facts are absent, including
+any older dependent failures. Accepting the key restores the full card as the
+normal first check runs. Changed
 keys and other real SSH failures remain magenta. Add and folder-change notices
 use the same marker and tone for that reason. The output panel's generic
 **Failed** header still describes the unsuccessful check run.
@@ -433,3 +437,13 @@ Changed keys show **Host key changed** with no trust action; repair those manual
 Authentication failures show **Login rejected**; other failures show **Host
 unreachable**. On unsupported SSH clients or Windows, copy `ssh HOST` and verify
 the key in a terminal. Foom never handles passwords or writes known_hosts itself.
+
+Trust never fails silently: when no confirmation can be shown, the check output
+panel shows **Unable to trust host key** with a fixed reason code. Codes distinguish
+trust-not-eligible, invalid-alias, ssh-config-failed, ssh-config-invalid, socket-path-too-long,
+askpass-prompt-rejected, prompt-host-mismatch, ssh-exited-without-prompt,
+trust-timeout, ssh-start-failed, dialog-unavailable and trust-unavailable.
+Declining or leaving Settings is not reported as an error. No raw prompt, host-file
+path, other-name entry or exception text appears in these diagnostics.
+OpenSSH's bounded other-names/addresses notice is accepted without displaying it;
+the confirmation still shows only the validated target, key type and fingerprint.

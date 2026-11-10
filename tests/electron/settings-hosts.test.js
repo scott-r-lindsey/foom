@@ -83,6 +83,7 @@ async function hostsFixture(context, captureEnrollment = false, initialScenario 
   const bin = path.join(root, "bin");
   await mkdir(bin);
   const calls = path.join(root, "calls.jsonl");
+  await writeFile(calls, "");
   const recipeCalls = path.join(root, "recipes.jsonl");
   const scenario = path.join(root, "scenario.json");
   await writeFile(scenario, JSON.stringify(initialScenario));
@@ -299,7 +300,7 @@ process.stdin.on('data', bytes => {
   await page.getByRole("button", { name: "Add host", exact: true }).click();
   const card = page.getByRole("region", { name: "fixture-cloud", exact: true });
   const progressStatus = card.locator(".host-check-progress[role=status]");
-  await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
+  await expect(card.locator(".host-checks")).toHaveAttribute("aria-busy", "false");
   if (initialScenario.sshFailure) {
     await expect(card.getByText("Host key not trusted", { exact: true }).first()).toBeVisible();
     return {
@@ -2165,13 +2166,36 @@ test("Hosts accepts new SSH keys only through the trusted askpass dialog", {
   skip: process.platform === "win32",
   timeout: deadline(60000),
 }, async (context) => {
-  const { app, page, card, capture, updateScenario, knownHosts } = await hostsFixture(
+  const { app, page, card, capture, updateScenario, knownHosts, calls } = await hostsFixture(
     context,
     false,
     { sshFailure: "unknown" },
   );
   const trust = card.getByRole("button", { name: "Trust host key", exact: true });
   await expect(trust).toBeEnabled();
+  await expect(card.locator(".host-check-row")).toHaveCount(1);
+  for (const text of [
+    "Platform",
+    "Remote daemon",
+    "Code folder",
+    "git / gh",
+    "Agents",
+    "Git access to origin",
+    "Checked out repositories",
+    "Host facts",
+  ]) {
+    await expect(card.getByText(text, { exact: true })).toHaveCount(0);
+  }
+  await expect(card.locator(".host-repositories, .host-footer, .host-details")).toHaveCount(0);
+  await expect(card.getByRole("button", { name: "Remove", exact: true })).toBeVisible();
+  await expect(card.getByRole("region", { name: "Host check output", exact: true })).toBeVisible();
+  assert.equal(
+    (await readFile(calls, "utf8")).trim(),
+    "",
+    "No daemon or repository request before SSH trust",
+  );
+  const state = await page.evaluate(() => window.desktop.hosts({ action: "list" }));
+  assert.deepEqual(state.hosts[0].observation.preflight.repositories, []);
   const screenshots = process.env.FOOM_HOST_KEY_SCREENSHOTS === "1";
   if (screenshots) await capture("1059/unknown-key-row");
   const dialog = await confirmationPage(app);
@@ -2180,7 +2204,7 @@ test("Hosts accepts new SSH keys only through the trusted askpass dialog", {
       (mode) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${mode}` }),
       mode,
     );
-    for (const name of ["SSH", "Git access to origin"]) {
+    for (const name of ["SSH"]) {
       const row = card
         .locator(".host-check-row")
         .filter({ has: page.getByText(name, { exact: true }) });
@@ -2222,12 +2246,24 @@ test("Hosts accepts new SSH keys only through the trusted askpass dialog", {
   await expect(card.getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
   assert.equal(await readFile(knownHosts, "utf8"), "fixture-cloud fixture-key\n");
   await expect(card.getByRole("region", { name: "Host check output", exact: true })).toBeVisible();
+  for (const text of [
+    "Platform",
+    "Remote daemon",
+    "Code folder",
+    "Agents",
+    "Checked out repositories",
+    "Host facts",
+  ]) {
+    await expect(card.getByText(text, { exact: true }).first()).toBeVisible();
+  }
+  await expect(card.locator(".host-footer")).toBeVisible();
+  assert.ok((await readFile(calls, "utf8")).includes('"operation":"inspect"'));
   if (screenshots) await capture("1059/accepted-key-row");
   await updateScenario({ sshFailure: "changed" });
   await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
   await expect(card.getByText("Host key changed", { exact: true }).first()).toBeVisible();
   const changedStatuses = card.locator(".host-status").filter({ hasText: "Host key changed" });
-  await expect(changedStatuses).toHaveCount(2);
+  await expect(changedStatuses).toHaveCount(1);
   for (const status of await changedStatuses.all()) {
     await expect(status).toHaveClass(/host-fail/u);
     await expect(status.locator(".host-symbol")).toHaveText("×");
@@ -2251,7 +2287,7 @@ test("Hosts keeps an accepted key when the first recheck rejects login and offer
   await expect(card.getByRole("button", { name: "Trust host key", exact: true })).toHaveCount(0);
   await expect(card.getByRole("button", { name: "Copy SSH command", exact: true })).toBeVisible();
   await updateScenario({ sshFailure: "unknown", loginRejected: true });
-  await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
+  await card.getByRole("button", { name: "Reload SSH", exact: true }).click();
   await card.getByRole("button", { name: "Trust host key", exact: true }).click();
   const dialog = await confirmationPage(app);
   await dialog.getByRole("button", { name: "Trust host key", exact: true }).click();
@@ -2399,4 +2435,83 @@ test("Hosts removal prunes saved session rows and startup repairs already forgot
   await expect.poll(() => rows(stalePage)).toEqual([]);
   await expect(stalePage.locator(`[data-drag-session="${saved.id}"]`)).toHaveCount(0);
   await expect.poll(async () => JSON.parse(await readFile(sessionsFile, "utf8"))).toEqual([]);
+});
+
+test("Hosts real OpenSSH client shows a visible trust dialog for a disposable loopback sshd", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const fixture = await require("./real-ssh-fixture.js").realSshFixture(context);
+  if (!fixture) return;
+  // start:fresh may have no same-revision remote catalog. That local failure
+  // must not replace the explicit unknown-key observation before the click.
+  const metadata = path.resolve("build/build-metadata.json");
+  const previous = await readFile(metadata);
+  fixtureCleanup(context).apps.push(() => writeFile(metadata, previous));
+  await writeFile(
+    metadata,
+    JSON.stringify({ ...JSON.parse(previous), remoteHostsAvailable: false }),
+  );
+  const app = await launchApp(context, { fixture: "empty-board", env: { PATH: fixture.bin } });
+  const page = await boardPage(app);
+  await page.evaluate(async () => {
+    await window.desktop.hosts({ action: "add", host: "loopback-fixture", codeFolder: "/code" });
+    await window.desktop.hosts({
+      action: "preflight",
+      host: "loopback-fixture",
+      codeFolder: "/code",
+    });
+  });
+  await openSettingsScreen(page);
+  await page
+    .getByRole("navigation", { name: "Settings sections" })
+    .getByRole("button", { name: "Hosts", exact: true })
+    .click();
+  const card = page.getByRole("region", { name: "loopback-fixture", exact: true });
+  await expect(card.getByText("Host key not trusted", { exact: true })).toBeVisible();
+  await expect(card.locator(".host-check-row")).toHaveCount(1);
+  await card.getByRole("button", { name: "Trust host key", exact: true }).click();
+  const dialog = await confirmationPage(app);
+  await expect(dialog.getByRole("heading", { name: "Trust host key?", exact: true })).toBeVisible();
+  await expect(dialog.getByText(`[127.0.0.1]:${fixture.port}`, { exact: true })).toBeVisible();
+  assert.equal(
+    await app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()
+        .find((window) => window.webContents.getURL() === "app://confirmation/confirmation.html")
+        .isVisible(),
+    ),
+    true,
+  );
+  await dialog.getByRole("button", { name: "Trust host key", exact: true }).click();
+  // With all authentication disabled, OpenSSH saves the explicitly accepted key
+  // then the normal first check reports the authentication refusal. OpenSSH uses an
+  // empty method list here (Permission denied ()), which retains the existing
+  // conservative unreachable classification.
+  await expect(
+    card.getByText("Host unreachable · unreachable", { exact: true }).first(),
+  ).toBeVisible();
+  assert.ok((await readFile(fixture.knownHosts, "utf8")).includes("ssh-ed25519"));
+  await expect(card.getByText("Platform", { exact: true })).toBeVisible();
+});
+
+test("Hosts shows a fixed trust failure when askpass refuses an unrecognized prompt", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, card, updateScenario, knownHosts } = await hostsFixture(context, false, {
+    sshFailure: "unknown",
+  });
+  await updateScenario({ sshFailure: "unknown", badPrompt: "Password: FIXTURE_PRIVATE_PROMPT" });
+  await card.getByRole("button", { name: "Trust host key", exact: true }).click();
+  const output = card.getByRole("region", { name: "Host check output", exact: true });
+  await expect(
+    output.getByText("Unable to trust host key · askpass-prompt-rejected", { exact: true }),
+  ).toBeVisible();
+  await expect(output).not.toContainText("FIXTURE_PRIVATE_PROMPT");
+  const dialog = await confirmationPage(app);
+  await expect(dialog.getByRole("heading", { name: "Trust host key?", exact: true })).toHaveCount(
+    0,
+  );
+  assert.equal(await readFile(knownHosts, "utf8"), "");
+  await expect(card.getByRole("button", { name: "Trust host key", exact: true })).toBeEnabled();
 });

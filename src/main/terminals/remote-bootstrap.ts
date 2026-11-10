@@ -445,7 +445,6 @@ export async function selectHostArtifact(
         throw new ApplicationError("remote-host-unavailable");
       expectedSource = value.source;
     } catch {
-      observe?.("artifact", { state: "fail", reason: "artifact-unavailable" });
       if (!observe) throw new ApplicationError("remote-host-unavailable");
       missingArtifact = true;
     }
@@ -497,7 +496,10 @@ export async function selectHostArtifact(
     observe("platform", libc ? { state: "fail", reason: libc } : { state: "pass" });
     if (libc) throw new UnsupportedRemotePlatform("Unsupported remote host platform");
   } else observe?.("platform", { state: "pass" });
-  if (missingArtifact) throw new ApplicationError("remote-host-unavailable");
+  if (missingArtifact) {
+    observe?.("artifact", { state: "fail", reason: "artifact-unavailable" });
+    throw new ApplicationError("remote-host-unavailable");
+  }
   output?.("Verifying daemon artifact…\n", true);
   const artifact = await hostArtifact(
     target.artifact ?? join(catalog, `${remote.platform}-${remote.arch}`, "foom-host.gz"),

@@ -703,3 +703,23 @@ checks the same shell PID before and after restoration. Startup applies that sav
 palette before restoring sessions, so a late settings application cannot replace
 the retained application-set background. Built-in and custom startup palettes also
 have a unit regression for this ordering.
+
+
+## Real OpenSSH trust boundary (#1059)
+
+The Hosts real-client regression is an explicit exception to fixture-SSH emulation:
+it launches a disposable unprivileged sshd on a high 127.0.0.1 port, with a generated
+host key and private sshd/client configs. The controlled SSH wrapper always passes
+that client config with `-F`, an isolated UserKnownHostsFile, no global known-hosts
+file, no identity file or agent, and all server authentication disabled. No real
+user SSH files, keys, agent CLIs or non-loopback endpoints are used. The case skips
+cleanly when sshd is unavailable or cannot run unprivileged on the runner.
+
+The test deliberately omits the local remote-host artifact catalog, reproducing
+start:fresh's pending unknown-key observation being replaced by background
+artifact-unavailable before Trust. It asserts a visible native trusted dialog,
+OpenSSH's write to the fixture known-hosts file after acceptance, and the normal
+first check's authentication refusal (the existing unreachable classification for
+OpenSSH's empty method list), because authentication is disabled. The ordinary
+fixture-SSH case separately verifies all dependent rows are absent while untrusted
+and return after a successful first check.

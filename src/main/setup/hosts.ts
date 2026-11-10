@@ -1,4 +1,5 @@
 import { askpassSupported, trustHostKey } from "./ssh-host-key";
+import type { HostKeyTrustFailure } from "./ssh-host-key";
 import type { HostOutput } from "../../shared/registered-hosts.d";
 import { selectHostRecipe } from "../../shared/registered-host-recipes";
 import type { RemoteTarget } from "../../shared/remote-host";
@@ -334,6 +335,10 @@ export class Hosts {
   async inventory(host: string): Promise<HostResult> {
     const registration = this.registered(host);
     const seen = this.observed.get(host);
+    // Until the explicit SSH trust boundary is cleared, a background inventory
+    // cannot connect or supersede that observation with a local artifact failure.
+    const blocked = this.results.get(host) ?? registration.observation?.preflight.result;
+    if (blocked && unknownHostKey(blocked)) return blocked;
     const enabled = JSON.stringify(this.store.get().agents);
     if (
       !seen ||
@@ -1015,13 +1020,42 @@ export class Hosts {
           const registration = this.registered(host);
           const latest = this.results.get(host) ?? registration.observation?.preflight.result;
           const cancelled = () => signal.aborted;
-          if (cancelled() || !unknownHostKey(latest) || !confirm) return false;
+          const report = (reason: HostKeyTrustFailure) => {
+            this.outputGeneration++;
+            this.output = {
+              host,
+              text: `Unable to trust host key · ${reason}\n`,
+              running: false,
+              failed: true,
+            };
+          };
+          if (cancelled()) return false;
+          if (!unknownHostKey(latest)) {
+            report("trust-not-eligible");
+            return false;
+          }
+          if (!confirm) {
+            report("dialog-unavailable");
+            return false;
+          }
           const supported = await askpassSupported(undefined, signal);
           if (cancelled()) return false;
           this.hostKeyTrust = supported ? "askpass" : "manual";
-          if (!supported) return false;
+          if (!supported) {
+            report("trust-unavailable");
+            return false;
+          }
           this.registered(host, registration.codeFolder);
-          return trustHostKey(host, (content, signal) => confirm(content, signal), signal);
+          return trustHostKey(
+            host,
+            (content, signal) => confirm(content, signal),
+            signal,
+            undefined,
+            report,
+          ).catch(() => {
+            if (!cancelled()) report("trust-unavailable");
+            return false;
+          });
         });
       this.pending = work;
       return work.then(async (accepted) => {
@@ -1725,6 +1759,8 @@ export class Hosts {
         (result.ok ? pass : reason === "artifact-unavailable" ? fail(reason) : unknown),
     };
     const repositories: HostPreflight["repositories"][number][] = [];
+    if (connection.ssh.state === "fail" || unknownHostKey(result))
+      return { ...connection, result, repositories };
     const planned = this.progress?.repositories ?? [];
     const update = (phase: "origin" | "checkout", repository: string, origin?: HostCheck) => {
       this.progress = {
