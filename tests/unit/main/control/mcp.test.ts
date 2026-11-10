@@ -1,3 +1,4 @@
+import discover from "../../../fixtures/agy-1.5.3-discover.json";
 import { replaceConfigProviders } from "../../../../src/main/agents/providers/registry";
 import { v2Provider } from "../../../../src/main/agents/providers/v2";
 import { parseAgentManifest } from "../../../../src/shared/agent-plugin-parser";
@@ -502,3 +503,23 @@ it.each([
     expect(call).not.toHaveBeenCalled();
   },
 );
+
+it("answers agy 1.5.3 discovery before initialize without granting a session", async () => {
+  const response = await send(discover);
+  expect(response.status).toBe(200);
+  expect(response.headers.get("mcp-session-id")).toBeNull();
+  expect(await response.json()).toEqual({
+    jsonrpc: "2.0",
+    id: 0,
+    error: { code: -32601, message: "Method not found" },
+  });
+  expect((await send({ jsonrpc: "2.0", id: 2, method: "tools/list" })).status).toBe(400);
+  expect((await send(discover, { Authorization: "Bearer bad" })).status).toBe(401);
+  expect((await send(discover, { "Mcp-Session-Id": "foreign" })).status).not.toBe(200);
+  expect((await send({ ...discover, params: {} })).status).toBe(200);
+  expect((await send({ ...discover, id: undefined })).status).toBe(400);
+  expect((await send({ ...discover, params: { _meta: [] } })).status).toBe(400);
+  await init();
+  expect((await send(discover)).status).toBe(200);
+  expect((await send({ jsonrpc: "2.0", id: 2, method: "tools/list" })).status).toBe(200);
+});

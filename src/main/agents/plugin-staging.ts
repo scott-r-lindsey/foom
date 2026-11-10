@@ -41,7 +41,7 @@ export function pluginContent(
       assets.push({ name: folder ? `${folder}/${name}` : name, content });
     if (
       channel.observer.protocol === "ordered-v2" &&
-      (channel.observer.version === 4 || channel.observer.version === 5)
+      [4, 5, 6].includes(Number(channel.observer.version))
     )
       for (const [name, content] of Object.entries(
         agyMcpFiles(windows, directory ?? "/FOOM_INSTALLED_PLUGIN_ROOT"),

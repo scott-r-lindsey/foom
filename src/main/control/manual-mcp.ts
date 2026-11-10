@@ -112,6 +112,13 @@ export class ManualMcp {
         const result = (result: unknown, session?: string) => {
           end(200, { jsonrpc: "2.0", id, result }, session);
         };
+        // Let modern stdio clients fall back to our legacy initialize protocol.
+        // This authenticated probe neither creates a session nor consumes metadata.
+        if (value["method"] === "server/discover" && id !== undefined) {
+          if (params["_meta"] !== undefined) object(params["_meta"]);
+          end(200, { jsonrpc: "2.0", id, error: { code: -32601, message: "Method not found" } });
+          return;
+        }
         if (value["method"] === "initialize") {
           exact(params, ["protocolVersion", "capabilities", "clientInfo"]);
           const protocol = params["protocolVersion"];
@@ -139,17 +146,20 @@ export class ManualMcp {
           return;
         }
         if (!this.session || session !== this.session.id) throw Error();
-        if (value["method"] === "notifications/initialized" && id === undefined) {
-          exact(params, []);
-          this.session.ready = true;
-          end(202);
-          return;
-        }
-        if (id === undefined || !this.session.ready) throw Error();
         if (params["_meta"] !== undefined) {
           object(params["_meta"]);
           delete params["_meta"];
         }
+        if (id === undefined) {
+          if (value["method"] === "notifications/initialized") {
+            exact(params, []);
+            this.session.ready = true;
+          }
+          // Ignore unused client notifications, including agy's roots changes.
+          end(202);
+          return;
+        }
+        if (!this.session.ready) throw Error();
         if (value["method"] === "ping") {
           exact(params, []);
           result({});

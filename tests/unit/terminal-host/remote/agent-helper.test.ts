@@ -285,3 +285,53 @@ test.each(["2024-11-05", "2099-01-01", "unknown", "2025-03-26", "2025-06-18", "2
     expect(lines[1]).toMatchObject({ id: 2, result: { isError: false } });
   },
 );
+
+test("remote pre-tool delegates before input and preserves downstream policy on failure", async () => {
+  const out = output();
+  const source = new PassThrough();
+  const order = join(root, "order");
+  await writeFile(order, "0");
+  const observing = observeRemote(
+    ["lifecycle", "stdin", "empty-json-first", "ordered", "PreToolUse"],
+    source,
+    out.pipe,
+    { FOOM_HOOK_ORDER: order },
+  );
+  expect(out.text()).toBe('{"decision":"allow"}\n');
+  source.end('{"conversationId":"fixture","toolCall":{"name":"whoami","args":{}}}');
+  await observing;
+  expect(endpointRequest).toHaveBeenCalledWith(
+    "/hook",
+    expect.objectContaining({ event: "PreToolUse", sequence: "1" }),
+    { FOOM_HOOK_ORDER: order },
+  );
+  vi.mocked(endpointRequest).mockRejectedValueOnce(new Error("unavailable"));
+  await observeRemote(
+    ["lifecycle", "stdin", "empty-json-first", "unordered", "PreToolUse"],
+    input("{}"),
+    out.pipe,
+    {},
+  );
+  expect(out.text()).toBe('{"decision":"allow"}\n{"decision":"allow"}\n');
+});
+
+test("remote pre-tool drops an observation with no stdin EOF within 500ms", async () => {
+  vi.useFakeTimers();
+  try {
+    const out = output();
+    const source = new PassThrough();
+    const observing = observeRemote(
+      ["lifecycle", "stdin", "empty-json-first", "unordered", "PreToolUse"],
+      source,
+      out.pipe,
+      {},
+    );
+    expect(out.text()).toBe('{"decision":"allow"}\n');
+    await vi.advanceTimersByTimeAsync(500);
+    await observing;
+    expect(source.destroyed).toBe(true);
+    expect(endpointRequest).not.toHaveBeenCalled();
+  } finally {
+    vi.useRealTimers();
+  }
+});
