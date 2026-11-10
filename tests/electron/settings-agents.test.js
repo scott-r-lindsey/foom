@@ -534,6 +534,7 @@ set -eu
 [ "$HOME" = '${root}' ]
 [ "$PATH" = '${root}' ]
 [ "$XDG_CONFIG_HOME" = '${root}/config' ]
+${agent === "codex" ? '[ "$CODEX_NON_INTERACTIVE" = "1" ]' : '[ -z "${CODEX_NON_INTERACTIVE+x}" ]'}
 [ -z "\${FOOM_TOKEN+x}" ]
 [ -z "\${foom_token+x}" ]
 [ -z "\${FOOM_SETTINGS_INSTALL+x}" ]
@@ -585,6 +586,7 @@ globalThis.fetch=async()=>new Response(${JSON.stringify(body)});
               foom_token: "fixture-secret",
               ANTHROPIC_API_KEY: "fixture-secret",
               CODEX_API_KEY: "fixture-secret",
+              CODEX_NON_INTERACTIVE: "inherited-value-must-not-win",
               GITHUB_TOKEN: "fixture-secret",
               ELECTRON_RUN_AS_NODE: "1",
             },

@@ -479,9 +479,17 @@ Missing recipes are unavailable, never inferred from discovery or another distro
 
 Bundled origin only: `hostSetup.script` is `{ "url": "https://vendor.example/install",
 "interpreter": "bash", "arguments": [] }`, with interpreter `sh` or `bash` and at
-most eight fixed arguments. URL credentials/fragments and non-HTTPS addresses
+most eight fixed arguments. Optional `environment` is an array of at most eight
+`{ "name": "CODEX_NON_INTERACTIVE", "value": "1" }` pairs. Names are identifiers
+(`[A-Za-z_][A-Za-z0-9_]*`, at most 64 characters); values are literal nonempty
+strings of at most 128 characters, without control characters, `$`, `%`, backticks
+or braces. No expansion or templates apply. Names beginning `FOOM_` or `XDG_`,
+and `HOME`, `PATH`, `USER`, `LOGNAME`, `SHELL`, `TMPDIR`, `LANG` are reserved,
+case-insensitively. The script runner applies these fixed values after installer
+environment normalization, locally and on registered hosts; package-manager
+recipes do not receive them. URL credentials/fragments and non-HTTPS addresses
 are refused. Config-origin manifests naming this field are rejected with
 `bundled-only`, including under custom IDs. This is not a config-plugin capability.
 Package-manager argv wins when that manager exists, otherwise the bundled script
-is selected. The recipe digest covers URL/interpreter/arguments. See
+is selected. The recipe digest covers URL/interpreter/arguments/environment. See
 [download, privacy and cleanup rules](areas/hosts.md#vendor-agent-installers-1071).

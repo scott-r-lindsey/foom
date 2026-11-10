@@ -725,12 +725,28 @@ function hostRecipeMap(v: unknown, p: string) {
     darwin: optional(hostRecipeArgv)(d["darwin"], `${p}.darwin`),
   };
 }
+function installerVariable(v: unknown, p: string) {
+  const d = object(v, p, ["name", "value"]);
+  const name = envName(d["name"], `${p}.name`);
+  if (
+    /^(?:FOOM_|XDG_)/iu.test(name) ||
+    ["HOME", "PATH", "USER", "LOGNAME", "SHELL", "TMPDIR", "LANG"].includes(name.toUpperCase())
+  )
+    fail(`${p}.name`, "reserved-environment");
+  const value = text(d["value"], `${p}.value`, 128);
+  if (/[$%`{}]/u.test(value)) fail(`${p}.value`, "environment-reference");
+  return {
+    name: envName(d["name"], `${p}.name`),
+    value: text(d["value"], `${p}.value`, 128),
+  };
+}
 function vendorScript(v: unknown, p: string) {
-  const d = object(v, p, ["url", "interpreter", "arguments"]);
+  const d = object(v, p, ["url", "interpreter", "arguments"], ["environment"]);
   return {
     url: shortText(d["url"], `${p}.url`),
     interpreter: enumeration("sh", "bash")(d["interpreter"], `${p}.interpreter`),
     arguments: array(shortText, 8)(d["arguments"], `${p}.arguments`),
+    environment: optional(array(installerVariable, 8))(d["environment"], `${p}.environment`),
   };
 }
 function hostSetup(v: unknown, p: string) {

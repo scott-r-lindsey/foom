@@ -409,3 +409,27 @@ test("spawn throws still remove the downloaded private script", async () => {
   if (!path) throw new Error("Missing fixture path");
   await expect(access(dirname(path))).rejects.toThrow();
 });
+
+test("declared literal installer variables override inherited values without expanding them", async () => {
+  vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockResolvedValue(new Response("fixture script")));
+  mocks.spawn.mockImplementation(() => {
+    const child = fixtureChild();
+    queueMicrotask(() => {
+      child.stdio[3]?.emit("data", Buffer.from("0\n"));
+      child.emit("close", 0);
+    });
+    return child;
+  });
+  const env = { HOME: "/fixture/home", PATH: "/fixture", CODEX_NON_INTERACTIVE: "false" };
+  expect(
+    await runVendorScript(
+      { ...script, environment: [{ name: "CODEX_NON_INTERACTIVE", value: "1" }] },
+      "/fixture/home",
+      env,
+    ),
+  ).toBe(0);
+  expect(mocks.spawn.mock.lastCall?.[2]).toMatchObject({
+    env: { ...env, CODEX_NON_INTERACTIVE: "1" },
+  });
+  expect(env.CODEX_NON_INTERACTIVE).toBe("false");
+});

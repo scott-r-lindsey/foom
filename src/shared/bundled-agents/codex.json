@@ -562,7 +562,8 @@
     "script": {
       "url": "https://chatgpt.com/codex/install.sh",
       "interpreter": "sh",
-      "arguments": []
+      "arguments": [],
+      "environment": [{ "name": "CODEX_NON_INTERACTIVE", "value": "1" }]
     }
   }
 }

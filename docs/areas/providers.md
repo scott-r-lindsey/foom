@@ -210,7 +210,11 @@ sign-in remains unknown and does not claim credential or hook trust.
 ## Bundled installer manifests (#1071)
 
 Optional `hostSetup.script` carries a fixed HTTPS URL, `sh`/`bash` interpreter and
-fixed argument list. The parser rejects it for config origin even under a new ID;
+fixed argument list, plus an optional bounded literal `environment` list (#1166).
+The [manifest contract](../agent-plugins.md#remote-host-setup-data-971) defines its
+name/value limits and reserved names. Codex declares `CODEX_NON_INTERACTIVE=1`
+to skip vendor prompts and decline launching or uninstalling another installation.
+The parser rejects it for config origin even under a new ID;
 JSON cannot self-declare bundled provenance. The application-owned manifest lock
 covers this data. Package-manager recipes retain their closed argv validation and
 priority. Adding a bundled agent needs manifest data, not a new installer branch.
