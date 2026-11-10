@@ -392,7 +392,11 @@ normal/alternate buffers, cursor and modes, omitting scrollback from that replay
 Blank visible cells retain their background colors in both buffers, including
 trailing blank rows omitted by the pinned serializer. The daemon's retained
 history is not erased and remains available to tail requests.
-Both peers negotiate the SHA-256 build identity before operations. Shell sessions
+Both peers negotiate the SHA-256 build identity before operations. The daemon hashes
+its own executable once at startup to publish that identity. The short-lived
+`--connect` process only relays the hub hello and daemon response unchanged; it
+does not compute an unused executable digest (#1098). Bootstrap still verifies
+the remote executable on every connection before starting that relay. Shell sessions
 permit open, attach/replay, input, resize, theme, acknowledgement, screen,
 tail, stop and close; they cannot create arbitrary commands or shut down the
 daemon. Version 2 also supports the separately authorized [phase-2 agent launch](agent-launch.md#remote-agent-phase-2-755): prepare/start/activate, reduced hooks, typed control calls/replies and validated child input for agent sessions only. Registered-host review loops (#942) use host HEAD/dirty snapshot evidence and
@@ -500,7 +504,8 @@ independently of the 32 live-session slots. They expire 24 hours after exit/disp
 starts; querying does not renew expiry. Missing/dropped IDs report `gone`.
 Output never delivered before a disconnected exit is not recoverable from a
 code-only tombstone. Shutdown cancels tombstone timers.
-See [measurements and fixture verification](../../spikes/remote-host/phase-1.md).
+See [measurements and fixture verification](../../spikes/remote-host/phase-1.md)
+and the [repeated-bootstrap fixture profile](../../spikes/remote-launch-costs/README.md).
 
 
 ## Middle-click selection paste (#856)
