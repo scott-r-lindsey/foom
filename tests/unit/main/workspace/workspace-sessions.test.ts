@@ -332,7 +332,7 @@ test("Forget removes only unavailable dormant remote metadata without terminal o
   await workspace.sidebarCommand({ kind: "forget", id: saved.id }, () => Promise.resolve(true));
   expect(workspace.snapshot().terminals).toEqual([]);
   expect(save).toHaveBeenLastCalledWith([]);
-  expect(fleet.mock.calls).toEqual([[false], [false]]);
+  expect(fleet.mock.calls).toEqual([[false], [false], [false]]);
   expect(vi.mocked(deps.terminals, true).kill.mock.calls).toHaveLength(0);
   expect(vi.mocked(deps.terminals, true).stop.mock.calls).toHaveLength(0);
   expect(vi.mocked(deps.terminals, true).create.mock.calls).toHaveLength(0);
@@ -442,6 +442,21 @@ test("Forget rechecks host availability after consent and refuses busy or quitti
   fleet.mockResolvedValueOnce([offline]);
   await expect(forget()).rejects.toThrow("session-busy");
   expect(workspace.ownsSession(saved.id)).toBe(true);
+  fleet.mockResolvedValue([offline]);
+  const writing = Promise.withResolvers<undefined>();
+  const write = Promise.withResolvers<undefined>();
+  vi.mocked(deps.sessions.save).mockImplementationOnce(() => {
+    writing.resolve(undefined);
+    return write.promise;
+  });
+  const forgetting = forget();
+  await writing.promise;
+  fleet.mockResolvedValue([online]);
+  write.resolve(undefined);
+  await expect(forgetting).rejects.toThrow("session-busy");
+  expect(workspace.ownsSession(saved.id)).toBe(true);
+  expect(deps.sessions.save).toHaveBeenLastCalledWith([expect.objectContaining({ id: saved.id })]);
+  expect(fleet.mock.calls.every(([refresh]) => refresh === false)).toBe(true);
   fleet.mockResolvedValue([offline]);
   vi.mocked(deps.dialog).mockImplementationOnce(async () => {
     await workspace.prepareQuit();

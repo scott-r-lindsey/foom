@@ -6,6 +6,7 @@ import { homeDirectory } from "./home-shell";
 import { restoreAuthority, restorePlan, runRestore } from "./session-restore";
 import type { StoredSession, RemoteSavedPlacement } from "./session-restore.d";
 import type { SessionStore } from "./session-store";
+import { ApplicationError } from "../../shared/application-errors";
 
 export interface SessionOwnerDependencies {
   registeredHost?: (host: string) => boolean;
@@ -132,24 +133,45 @@ export class SessionOwner {
   }
 
   /** Caller has validated human intent; no terminal or host capability is used. */
-  async forget(id: string): Promise<void> {
+  async forget(id: string, revalidate?: () => Promise<void>): Promise<void> {
+    const entry = this.deps.terminal(id);
+    const validate = () => {
+      const current = this.deps.terminals().find((row) => row.id === id);
+      if (
+        !entry ||
+        this.deps.terminal(id) !== entry ||
+        (!current?.dormant && !current?.exited) ||
+        this.restoring.has(id)
+      )
+        throw new ApplicationError("session-busy");
+    };
+    validate();
+    if (this.forgettingSessions.has(id)) throw new ApplicationError("session-busy");
     // Concurrent background saves must not reintroduce this row while the
     // removal write is pending. Keep the visible row until persistence succeeds.
     this.forgettingSessions.add(id);
     try {
       await this.save();
-    } catch (error) {
+      try {
+        await revalidate?.();
+        validate();
+      } catch (error) {
+        // The deletion reached disk, but the row is no longer safe to forget.
+        // Lift suppression before repairing persistence with the current row.
+        this.forgettingSessions.delete(id);
+        await this.save();
+        throw error;
+      }
+      this.forgottenSessions.add(id);
+      this.saved.delete(id);
+      this.restoring.delete(id);
+      this.unrestoredRoles.delete(id);
+      this.remotePlacements.delete(id);
+      this.deps.removeRow?.(id);
+      this.deps.onChange?.(true);
+    } finally {
       this.forgettingSessions.delete(id);
-      throw error;
     }
-    this.forgottenSessions.add(id);
-    this.saved.delete(id);
-    this.restoring.delete(id);
-    this.unrestoredRoles.delete(id);
-    this.remotePlacements.delete(id);
-    this.deps.removeRow?.(id);
-    this.forgettingSessions.delete(id);
-    this.deps.onChange?.(true);
   }
 
   private pruneRows(): void {
@@ -178,6 +200,7 @@ export class SessionOwner {
 
   private importEntries(entries: readonly StoredSession[], discovered = false): void {
     for (const entry of this.retained(entries)) {
+      if (this.forgettingSessions.has(entry.id)) continue;
       if (discovered) {
         if (this.forgottenSessions.has(entry.id)) continue;
         const previous = this.saved.get(entry.id);
@@ -300,7 +323,12 @@ export class SessionOwner {
   }
 
   private restartEntries(): Promise<void> {
-    const plan = restorePlan([...this.saved.values()], this.restoreEnabled);
+    const plan = restorePlan(
+      [...this.saved.values()].filter(
+        (entry) => !this.forgettingSessions.has(entry.id) && !this.forgottenSessions.has(entry.id),
+      ),
+      this.restoreEnabled,
+    );
     this.restoring.clear();
     for (const entry of plan) {
       this.restoring.add(entry.id);
@@ -313,6 +341,8 @@ export class SessionOwner {
           this.quitting ||
           this.deps.closed() ||
           !this.restoreEnabled ||
+          this.forgettingSessions.has(entry.id) ||
+          this.forgottenSessions.has(entry.id) ||
           this.deps.terminal(entry.id) === undefined
         )
           return;

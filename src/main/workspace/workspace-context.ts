@@ -765,7 +765,7 @@ export class WorkspaceContext {
   /** Forget unavailable dormant or locally exited metadata without a remote request. */
   async forgetSession(id: string): Promise<void> {
     const entry = this.launched.get(id);
-    const validate = () => {
+    const validate = (reserved = false) => {
       if (
         this.closed ||
         this.sessions.isQuitting ||
@@ -773,7 +773,7 @@ export class WorkspaceContext {
         !entry?.remote ||
         (!entry.dormant && this.executionOwner.view(id).exitCode === undefined) ||
         entry.placement?.kind !== "remote" ||
-        this.busySessions.has(id) ||
+        (!reserved && this.busySessions.has(id)) ||
         this.sessions.isRestoring(id)
       )
         throw new ApplicationError("session-busy");
@@ -806,7 +806,11 @@ export class WorkspaceContext {
     validate();
     this.busySessions.add(id);
     try {
-      await this.sessions.forget(id);
+      await this.sessions.forget(id, async () => {
+        validate(true);
+        if (!(await unavailable())) throw new ApplicationError("session-busy");
+        validate(true);
+      });
     } finally {
       this.busySessions.delete(id);
     }

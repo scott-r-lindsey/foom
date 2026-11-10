@@ -188,15 +188,20 @@ The human-only `forget` sidebar command validates an owned remote row that is
 dormant or locally exited,
 cached host unavailability and the absence of restore/close operations. A trusted
 dialog explains local metadata removal and the possibility of a running remote
-process. Main rechecks eligibility after consent. SessionOwner writes the filtered
+process. Main rechecks eligibility after consent and after the durable write,
+before removing the row. SessionOwner writes the filtered
 records before retiring the row through the normal local lifecycle/orchestration
-path; failed writes retain the row. It drops the saved record, remote placement,
+path; failed writes retain the row. If the row becomes live or the host returns
+during that write, Forget aborts and repairs the saved record. It drops the saved record, remote placement,
 restore markers and parent links, retaining surviving worktree provenance.
 No terminal, SSH or checkout cleanup capability is invoked. Forget can explicitly
 discard a failed Close recovery row, keeping its files and checkout. Host removal
 continues to retain those recovery rows under #1152.
 
-Pending discovery cannot re-import an explicitly forgotten ID in that app run.
+Pending and completed Forget IDs are suppressed during discovery and restore.
+An in-flight reattach prevents Forget until it settles; its delayed completion
+cannot republish a row deleted by Forget. Pending discovery cannot re-import an
+explicitly forgotten ID in that app run.
 There is no durable daemon suppression: later startup discovery recovers a live
 session as human-owned, without saved parent links, grants or worktree ownership.
 Local-only change notifications refresh all board snapshots without triggering
