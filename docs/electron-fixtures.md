@@ -86,6 +86,24 @@ scenarios. Their native attachment, focus, identity and cleanup assertions remai
 in the shared implementations. Scenario-specific frame helpers, stuck handoffs,
 agent setup and moved-pixel inspection stay in their owning suites.
 
+## Preview navigation focus ordering (#1133)
+
+The user-clicked preview navigation and stuck handoff cases record a test-only
+ordering trace in JUnit diagnostics and `test-results/preview-focus-PID.jsonl`, both included in the
+existing Electron artifact upload. Native and board DOM streams each retain at
+most 128 events and report dropped counts. Records use epoch milliseconds for
+cross-process comparison; they are observations, not synchronization barriers.
+
+The trace covers native window/WebContents and document focus, preview creation,
+navigation and native attachment/removal by WebContents generation, cancellation
+blur requests/completions, native mouse-down versus DOM mousedown, and the
+requested terminal click coordinates, native view bounds/zoom and DOM hit geometry.
+Records contain no key values or terminal/model output. Final DOM hit testing uses
+the requested click point, including when DOM mouse delivery is absent. Observers and wrapped
+native methods are removed/restored before app teardown, including body failures.
+The existing native input, focus assertions and exact PTY-byte checks are unchanged;
+this instrumentation neither diagnoses the historical cause nor adds a focus gate.
+
 ## Chromium session storage
 
 `createMemoryFixture(context, prefix)` owns all shared-memory fixture allocation
