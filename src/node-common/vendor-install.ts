@@ -1,7 +1,57 @@
 import { mkdtemp, open, rm } from "node:fs/promises";
-import { constants, tmpdir } from "node:os";
+import { constants, tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
+
+// Installation needs account/desktop conventions, never the parent's agent or
+// control credentials. Do not copy arbitrary login-shell or Environment values.
+const inheritedNames = new Set([
+  "PATH",
+  "TMPDIR",
+  "TMP",
+  "TEMP",
+  "LANG",
+  "LANGUAGE",
+  "TZ",
+  "TERM",
+  "COLORTERM",
+  "TERM_PROGRAM",
+  "ZDOTDIR",
+  "XDG_BIN_HOME",
+  "XDG_CONFIG_HOME",
+  "XDG_CACHE_HOME",
+  "XDG_DATA_HOME",
+  "XDG_STATE_HOME",
+  "XDG_RUNTIME_DIR",
+  "XDG_CONFIG_DIRS",
+  "XDG_DATA_DIRS",
+  "SSL_CERT_FILE",
+  "SSL_CERT_DIR",
+  "CURL_CA_BUNDLE",
+  "NODE_EXTRA_CA_CERTS",
+]);
+
+/** Complete environment for explicit vendor/package-manager installation only. */
+export function installerEnvironment(
+  home: string,
+  source: NodeJS.ProcessEnv,
+  path = source["PATH"],
+): Record<string, string> {
+  const account = userInfo();
+  const env: Record<string, string> = {};
+  for (const [name, value] of Object.entries(source))
+    if (value && (inheritedNames.has(name) || /^LC_[A-Z_]+$/u.test(name))) env[name] = value;
+  return {
+    ...env,
+    HOME: home,
+    USER: account.username,
+    LOGNAME: account.username,
+    SHELL: source["SHELL"] || account.shell || "/bin/sh",
+    PATH: path || "/usr/local/bin:/usr/bin:/bin",
+    TMPDIR: env["TMPDIR"] || tmpdir(),
+    LANG: env["LANG"] || "C",
+  };
+}
 
 // Fixed source only; vendor values are positional argv, never shell source.
 // The watcher reads the helper's lifetime pipe while the interpreter is running.

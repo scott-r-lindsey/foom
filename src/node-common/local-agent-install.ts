@@ -1,6 +1,6 @@
 import { bundledAgentData } from "../shared/bundled-agent-data";
 import { parseAgentManifest } from "../shared/agent-plugin-parser";
-import { runVendorScript } from "./vendor-install";
+import { runVendorScript, installerEnvironment } from "./vendor-install";
 import { access } from "node:fs/promises";
 import { constants } from "node:fs";
 import { homedir } from "node:os";
@@ -16,9 +16,7 @@ export async function installLocalAgent(id: string | undefined): Promise<number>
     .find((model) => model.id === id);
   const setup = model?.hostSetup;
   if (!setup?.script) return 2;
-  const env = Object.fromEntries(
-    Object.entries(process.env).filter(([name]) => !name.startsWith("FOOM_")),
-  );
+  const env = installerEnvironment(homedir(), process.env);
   const argv = process.platform === "darwin" ? setup.install?.darwin : undefined;
   if (argv) {
     for (const directory of ["/opt/homebrew/bin", "/usr/local/bin"]) {

@@ -441,8 +441,19 @@ hub credentials. No probe, check, manifest load, agent or orchestrator capabilit
 starts installation. Config manifests cannot declare script installers.
 
 Local installs use the bundled console helper's internal Settings mode with a
-scrubbed inherited environment and login PATH, no control grant and no shell
-integration. Foom-added Environment layers, including stored secrets, are omitted.
+complete installer environment and login PATH, no control grant and no shell
+integration. The complete replacement environment carries HOME from the selected
+account home, USER/LOGNAME from the OS account, SHELL (inherited or the account
+login shell), PATH from the existing bounded login-shell query, TMPDIR and LANG.
+Standard locale, XDG directory, ZDOTDIR, terminal and certificate-path variables
+are preserved when present; unset XDG directories retain their standard HOME-based
+defaults. Missing shell/temp/locale values have POSIX defaults. Arbitrary inherited
+variables, agent API tokens, SSH credentials and FOOM_* are omitted. Foom-added
+Environment layers, including stored secrets, are omitted. The local helper
+normalizes the environment again before either vendor scripts or Homebrew.
+Registered-host installs apply the same normalization to hostLoginEnvironment,
+with the host account home, before vendor scripts or package-manager execution.
+Sign-in and lifecycle-plugin operations retain their existing environment policy.
 They share the existing embedded terminal and Stop/Keep open lifetime rules.
 Completion rechecks only the selected agent. Remote completion retains its scoped
 tool/sign-in refresh. Settings chrome shows Done or Failed with the exit code.

@@ -232,6 +232,12 @@ test("local installers use the bundled helper in a human recipe session without 
   expect(environment).not.toHaveBeenCalled();
   expect(create.mock.calls.at(-1)?.[0].env).not.toHaveProperty("INSTALL_FIXTURE_SECRET_1071");
   expect(create.mock.calls.at(-1)?.[0].env).toMatchObject({ FOOM_SETTINGS_INSTALL: "1" });
+  const installerEnv = create.mock.calls.at(-1)?.[0].env;
+  expect(installerEnv?.["PATH"]).toBe("/login/bin");
+  for (const name of ["HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "LANG"]) {
+    expect(installerEnv?.[name]).toBeTypeOf("string");
+    expect(installerEnv?.[name]).not.toBe("");
+  }
   expect(create).toHaveBeenLastCalledWith(
     expect.objectContaining({
       command: join("/fixture/console", "foom"),

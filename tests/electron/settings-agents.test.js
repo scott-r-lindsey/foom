@@ -4,7 +4,7 @@ const { AxeBuilder } = require("@axe-core/playwright");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const path = require("node:path");
-const { mkdir, mkdtemp, readFile, realpath } = require("node:fs/promises");
+const { mkdir, mkdtemp, readFile, realpath, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const { deadline, expect } = require("./test-policy.js");
 const {
@@ -419,7 +419,7 @@ test("one-click local agent installers stay in Settings and refuse untrusted sel
   // The production click/IPC/session path runs a fixture helper, never a vendor download.
   await writeFile(
     path.join(root, "foom"),
-    '#!/bin/sh\n[ "$FOOM_SETTINGS_INSTALL" = "1" ] || exit 98\n[ -z "$INSTALL_FIXTURE_SECRET_1071" ] || exit 99\nprintf "Download https://claude.ai/install.sh\\nFixture installer: waiting for input\\n"\nread answer\nexit 7\n',
+    '#!/bin/sh\nset -u\n: "$HOME" "$USER" "$LOGNAME" "$SHELL" "$PATH" "$TMPDIR" "$LANG"\n[ "$FOOM_SETTINGS_INSTALL" = "1" ] || exit 98\n[ -z "${INSTALL_FIXTURE_SECRET_1071-}" ] || exit 99\nprintf "Download https://claude.ai/install.sh\\nFixture installer: waiting for input\\n"\nread answer\nexit 7\n',
     { mode: 0o755 },
   );
   const app = await launchApp(context, { fixture: "empty-board" });
@@ -516,6 +516,99 @@ test("one-click local agent installers stay in Settings and refuse untrusted sel
     .poll(async () => (await page.evaluate(() => window.desktop.workspace())).terminals.length)
     .toBe(0);
 });
+
+for (const agent of ["claude", "codex", "agy", "copilot", "opencode", "pi"])
+  test(`bundled ${agent} installer receives account environment locally and on registered hosts`, {
+    timeout: deadline(30000),
+    skip: process.platform === "win32",
+  }, async (context) => {
+    const root = await mkdtemp(path.join(tmpdir(), "foom-installer-env-"));
+    removeAfterApps(context, root);
+    const shell = path.join(root, "fixture-login-shell");
+    await writeFile(shell, `#!/bin/sh\nprintf '\\000FOOM_PATH\\000%s\\000' '${root}'\n`, {
+      mode: 0o755,
+    });
+    const body = `#!/bin/sh
+set -eu
+: "$HOME" "$USER" "$LOGNAME" "$SHELL" "$PATH" "$TMPDIR" "$LANG" "$XDG_CONFIG_HOME"
+[ "$HOME" = '${root}' ]
+[ "$PATH" = '${root}' ]
+[ "$XDG_CONFIG_HOME" = '${root}/config' ]
+[ -z "\${FOOM_TOKEN+x}" ]
+[ -z "\${foom_token+x}" ]
+[ -z "\${FOOM_SETTINGS_INSTALL+x}" ]
+[ -z "\${ANTHROPIC_API_KEY+x}" ]
+[ -z "\${CODEX_API_KEY+x}" ]
+[ -z "\${GITHUB_TOKEN+x}" ]
+/bin/mkdir -p "$HOME/.local"
+echo FIXTURE_ENV_READY
+`;
+    const bootstrap = path.join(root, "helper.cjs");
+    await writeFile(
+      bootstrap,
+      `
+const {createRequire}=require('node:module');
+const load=createRequire(${JSON.stringify(path.resolve("build/main/main.js"))});
+globalThis.fetch=async()=>new Response(${JSON.stringify(body)});
+(async()=>{
+ const agent=process.argv[3];
+ if(process.argv[2]==='local') return load('../node-common/local-agent-install.js').installLocalAgent(agent);
+ const {hostLoginEnvironment}=load('../terminal-host/remote/agent-discovery.js');
+ const {requirements}=load('../terminal-host/remote/host-facts.js');
+ const {bundledAgentData}=load('../shared/bundled-agent-data.js');
+ const {selectHostRecipe}=load('../shared/registered-host-recipes.js');
+ const home=${JSON.stringify(root)};
+ const env=await hostLoginEnvironment(process.env.SHELL,home,undefined,true);
+ const facts=await requirements(process.platform,home,home,env);
+ const recipe=selectHostRecipe({tool:agent,action:'install',distro:facts.distro},facts,bundledAgentData.find(a=>a.id===agent).hostSetup);
+ if(!recipe) throw Error('Fixture recipe unavailable');
+ const digest=require('node:crypto').createHash('sha256').update(JSON.stringify(recipe.steps)).digest('hex');
+ return load('../terminal-host/remote/host-recipe.js').runHostRecipe([agent,'install',facts.distro,digest],home);
+})().then(code=>process.exit(code),error=>{console.error(error);process.exit(1)});
+`,
+    );
+    const app = await launchApp(context, { fixture: "empty-board" });
+    for (const mode of ["local", "host"]) {
+      const result = await app.evaluate(
+        async (_electron, fixture) => {
+          const { spawn } = process.getBuiltinModule("node:child_process");
+          const child = spawn(process.execPath, [fixture.bootstrap, fixture.mode, fixture.agent], {
+            cwd: fixture.root,
+            env: {
+              ...(fixture.mode === "local" ? { HOME: fixture.root } : {}),
+              SHELL: fixture.shell,
+              PATH: fixture.root,
+              TMPDIR: fixture.root,
+              XDG_CONFIG_HOME: `${fixture.root}/config`,
+              FOOM_SETTINGS_INSTALL: "1",
+              FOOM_TOKEN: "fixture-secret",
+              foom_token: "fixture-secret",
+              ANTHROPIC_API_KEY: "fixture-secret",
+              CODEX_API_KEY: "fixture-secret",
+              GITHUB_TOKEN: "fixture-secret",
+              ELECTRON_RUN_AS_NODE: "1",
+            },
+            stdio: ["ignore", "pipe", "pipe"],
+          });
+          let output = "";
+          child.stdout.on("data", (bytes) => {
+            output += bytes;
+          });
+          child.stderr.on("data", (bytes) => {
+            output += bytes;
+          });
+          const code = await new Promise((resolve, reject) => {
+            child.once("error", reject);
+            child.once("close", resolve);
+          });
+          return { code, output };
+        },
+        { bootstrap, mode, agent, root, shell },
+      );
+      assert.equal(result.code, 0, `${agent}:${mode}: ${result.output}`);
+      assert.match(result.output, /FIXTURE_ENV_READY/u);
+    }
+  });
 
 test("local and registered-host vendor helpers clean private files and descendants after exit and default PTY hangup", {
   timeout: deadline(60000),

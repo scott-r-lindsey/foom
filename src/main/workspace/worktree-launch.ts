@@ -28,6 +28,7 @@ import { agentProvider, knownAgentId, providerRevision } from "../agents/provide
 import { buildLaunchEnvironment, inheritedEnvironment } from "../setup/environment";
 import type { AgentSetupContext, WorktreeLaunchContext } from "./workspace-capabilities";
 import { homeDirectory, shellPath } from "./home-shell";
+import { installerEnvironment } from "../../node-common/vendor-install";
 
 export async function confirmAgentLaunch(
   this: WorktreeLaunchContext,
@@ -322,12 +323,16 @@ export async function startShell(
     const environment = remote
       ? { env: {}, names: [] }
       : localRecipe
-        ? buildLaunchEnvironment({
-            layers: [],
-            base: inheritedEnvironment(),
-            pathFirst,
-            path: (await loginPath()).path,
-          })
+        ? {
+            // replaceEnvironment requires a complete environment; the ordinary
+            // builder returns only overrides layered over the host's inheritance.
+            env: installerEnvironment(
+              homeDirectory,
+              inheritedEnvironment(),
+              (await loginPath()).path,
+            ),
+            names: [],
+          }
         : await this.shellEnvironment(pathFirst);
     if (restoreId !== undefined) this.executionOwner.reset(restoreId);
     await checkout?.validate();

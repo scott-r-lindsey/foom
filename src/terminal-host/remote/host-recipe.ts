@@ -1,4 +1,4 @@
-import { runVendorScript } from "../../node-common/vendor-install";
+import { runVendorScript, installerEnvironment } from "../../node-common/vendor-install";
 import { remotePluginState } from "./plugin-status";
 import { stageRemotePlugin } from "./agent-launch";
 import { originSshArgs } from "../../shared/registered-hosts";
@@ -19,7 +19,9 @@ export async function runHostRecipe(argv: readonly string[], home = homedir()): 
   const [tool, action, distro, digest] = argv;
   const request = { tool, action, distro };
   if (argv.length !== 4 || !recipeRequest(request)) return 2;
-  const env = await hostLoginEnvironment(remoteShell(), home, undefined, true);
+  const login = await hostLoginEnvironment(remoteShell(), home, undefined, true);
+  if (request.action === "install" && !login["PATH"]) return 2;
+  const env = request.action === "install" ? installerEnvironment(home, login) : login;
   const facts = await requirements(process.platform, home, home, env);
   const model = bundledAgentData
     .map((data) => parseAgentManifest(JSON.stringify(data), "bundled").model)
