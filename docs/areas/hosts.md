@@ -457,7 +457,13 @@ with the host account home, before vendor scripts or package-manager execution.
 Bundled script `environment` pairs are applied after this normalization on both
 paths (#1166). The parser refuses `FOOM_*`, `XDG_*` and the normalized account,
 PATH, shell, temp and language names case-insensitively; fixed literal values
-cannot reintroduce those names. Package managers keep the normalized environment.
+cannot reintroduce those names. Installer declarations also reuse the launch
+manifest's reserved-name policy: loader/interpreter injection, shell startup and
+parsing controls, proxies and credential-shaped names are refused, even for
+bundled manifests. The shared policy includes `SHELLOPTS`, `BASHOPTS`, `CDPATH`,
+`FPATH`, `ZDOTDIR`, `BASH_*` and names containing `CREDENTIAL`, in addition to the
+existing launch restrictions. A BASH_ENV fixture verifies executable startup code
+is rejected before installer download or spawn. Package managers keep the normalized environment.
 Codex declares `CODEX_NON_INTERACTIVE=1`, which skips prompts by declining both
 starting Codex and uninstalling another managed Codex installation.
 Sign-in and lifecycle-plugin operations retain their existing environment policy.

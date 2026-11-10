@@ -528,6 +528,8 @@ for (const agent of ["claude", "codex", "agy", "copilot", "opencode", "pi"])
     await writeFile(shell, `#!/bin/sh\nprintf '\\000FOOM_PATH\\000%s\\000' '${root}'\n`, {
       mode: 0o755,
     });
+    const startup = path.join(root, "fixture-bash-env.sh");
+    await writeFile(startup, 'printf startup > "$HOME/startup-ran"\n');
     const body = `#!/bin/sh
 set -eu
 : "$HOME" "$USER" "$LOGNAME" "$SHELL" "$PATH" "$TMPDIR" "$LANG" "$XDG_CONFIG_HOME"
@@ -535,6 +537,8 @@ set -eu
 [ "$PATH" = '${root}' ]
 [ "$XDG_CONFIG_HOME" = '${root}/config' ]
 ${agent === "codex" ? '[ "$CODEX_NON_INTERACTIVE" = "1" ]' : '[ -z "${CODEX_NON_INTERACTIVE+x}" ]'}
+[ -z "\${BASH_ENV+x}" ]
+[ ! -e "$HOME/startup-ran" ]
 [ -z "\${FOOM_TOKEN+x}" ]
 [ -z "\${foom_token+x}" ]
 [ -z "\${FOOM_SETTINGS_INSTALL+x}" ]
@@ -578,6 +582,7 @@ globalThis.fetch=async()=>new Response(${JSON.stringify(body)});
             env: {
               ...(fixture.mode === "local" ? { HOME: fixture.root } : {}),
               SHELL: fixture.shell,
+              BASH_ENV: fixture.startup,
               PATH: fixture.root,
               TMPDIR: fixture.root,
               XDG_CONFIG_HOME: `${fixture.root}/config`,
@@ -605,7 +610,7 @@ globalThis.fetch=async()=>new Response(${JSON.stringify(body)});
           });
           return { code, output };
         },
-        { bootstrap, mode, agent, root, shell },
+        { bootstrap, mode, agent, root, shell, startup },
       );
       assert.equal(result.code, 0, `${agent}:${mode}: ${result.output}`);
       assert.match(result.output, /FIXTURE_ENV_READY/u);

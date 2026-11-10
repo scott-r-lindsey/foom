@@ -198,15 +198,13 @@ export function tools(v: unknown, p: string) {
     merge: optional(merge)(d["merge"], `${p}.merge`),
   };
 }
-/** Manifest environment is data-only, never a route to runtime injection or credentials. */
-export function launchEnvironment(v: unknown, p: string) {
-  const d = object(v, p, ["name", "value"], ["when"]);
-  const name = envName(d["name"], `${p}.name`);
-  if (
-    /^(?:LD_|DYLD_|NODE_|BUN_|DENO_|NPM_CONFIG_|YARN_|PNPM_|LUA_|PYTHON|PERL5|RUBY|GIT_|SSH_|AWS_|GITHUB_|GH_|FOOM_|ELECTRON_)/iu.test(
+/** Shared manifest policy: declarations cannot inject runtime code or credentials. */
+function reservedManifestEnvironment(name: string): boolean {
+  return (
+    /^(?:LD_|DYLD_|NODE_|BUN_|DENO_|NPM_CONFIG_|YARN_|PNPM_|LUA_|PYTHON|PERL5|RUBY|GIT_|SSH_|AWS_|GITHUB_|GH_|FOOM_|ELECTRON_|BASH_)/iu.test(
       name,
     ) ||
-    /TOKEN|SECRET|KEY|PASSWORD|PROXY/iu.test(name) ||
+    /TOKEN|SECRET|KEY|PASSWORD|PROXY|CREDENTIAL/iu.test(name) ||
     [
       "JAVA_TOOL_OPTIONS",
       "_JAVA_OPTIONS",
@@ -215,6 +213,14 @@ export function launchEnvironment(v: unknown, p: string) {
       "HOME",
       "SHELL",
       "BASH_ENV",
+      "SHELLOPTS",
+      "BASHOPTS",
+      "CDPATH",
+      "FPATH",
+      "GLOBIGNORE",
+      "BASH_COMPAT",
+      "BASH_XTRACEFD",
+      "INPUTRC",
       "ENV",
       "PS4",
       "IFS",
@@ -242,8 +248,13 @@ export function launchEnvironment(v: unknown, p: string) {
       "PROTOTYPE",
       "__PROTO__",
     ].includes(name.toUpperCase())
-  )
-    fail(`${p}.name`, "reserved-environment");
+  );
+}
+/** Manifest environment is data-only, never a route to runtime injection or credentials. */
+export function launchEnvironment(v: unknown, p: string) {
+  const d = object(v, p, ["name", "value"], ["when"]);
+  const name = envName(d["name"], `${p}.name`);
+  if (reservedManifestEnvironment(name)) fail(`${p}.name`, "reserved-environment");
   const value = text(d["value"], `${p}.value`, 128);
   if (/\$|%|`/u.test(value)) fail(`${p}.value`, "environment-reference");
   if (/[{}]/u.test(value) && !/^\{(?:file|fileContent):[^{}]+\}$/u.test(value))
@@ -729,8 +740,9 @@ function installerVariable(v: unknown, p: string) {
   const d = object(v, p, ["name", "value"]);
   const name = envName(d["name"], `${p}.name`);
   if (
-    /^(?:FOOM_|XDG_)/iu.test(name) ||
-    ["HOME", "PATH", "USER", "LOGNAME", "SHELL", "TMPDIR", "LANG"].includes(name.toUpperCase())
+    reservedManifestEnvironment(name) ||
+    /^XDG_/iu.test(name) ||
+    ["USER", "LOGNAME", "LANG"].includes(name.toUpperCase())
   )
     fail(`${p}.name`, "reserved-environment");
   const value = text(d["value"], `${p}.value`, 128);

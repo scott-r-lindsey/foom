@@ -146,3 +146,68 @@ test("installer environment rejects references, templates, nonstrings and malfor
   ])
     expect(() => installer(environment)).toThrow();
 });
+
+const refusedInstallerNames = {
+  loaders: [
+    "LD_PRELOAD",
+    "LD_LIBRARY_PATH",
+    "LD_OTHER",
+    "DYLD_INSERT_LIBRARIES",
+    "DYLD_LIBRARY_PATH",
+    "DYLD_OTHER",
+  ],
+  shell: [
+    "BASH_ENV",
+    "ENV",
+    "IFS",
+    "PS4",
+    "SHELLOPTS",
+    "BASHOPTS",
+    "CDPATH",
+    "FPATH",
+    "BASH_LOADABLES_PATH",
+    "BASH_OTHER",
+    "ZDOTDIR",
+    "PROMPT_COMMAND",
+    "GLOBIGNORE",
+    "BASH_COMPAT",
+    "BASH_XTRACEFD",
+    "BASH_FUNC_fixture",
+    "INPUTRC",
+  ],
+  interpreters: [
+    "NODE_OPTIONS",
+    "NODE_PATH",
+    "PYTHONPATH",
+    "PYTHONSTARTUP",
+    "PYTHON_OTHER",
+    "PERL5LIB",
+    "PERL5OPT",
+    "RUBYOPT",
+    "RUBYLIB",
+    "GCONV_PATH",
+    "JAVA_TOOL_OPTIONS",
+    "BUN_OPTIONS",
+    "DENO_DIR",
+    "LUA_PATH",
+  ],
+  proxies: ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "VENDOR_PROXY"],
+  credentials: [
+    "ANTHROPIC_API_KEY",
+    "CODEX_API_KEY",
+    "GITHUB_TOKEN",
+    "VENDOR_API_KEY",
+    "VENDOR_TOKEN",
+    "VENDOR_SECRET_MODE",
+    "VENDOR_PASSWORD_FILE",
+    "VENDOR_CREDENTIAL_FILE",
+    "CREDENTIALS",
+  ],
+};
+for (const [family, names] of Object.entries(refusedInstallerNames))
+  test.each(names)(`installer environment rejects ${family} entry %s in any case`, (name) => {
+    for (const spelling of [name, name.toLowerCase(), name.toUpperCase()])
+      expect(() => installer([{ name: spelling, value: "fixed" }])).toThrow(
+        "$.hostSetup.script.environment[0].name: reserved-environment",
+      );
+  });

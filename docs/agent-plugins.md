@@ -445,6 +445,11 @@ See [attachment and evidence](contracts/mcp-attachment.md#antigravity).
 
 ## Per-launch environment (#636)
 
+Launch and installer declarations share reserved-name checks for runtime injection,
+shell startup/parsing controls, proxies and credential-shaped names (including
+`CREDENTIAL`). Installer declarations additionally reserve normalized account and
+XDG names; see [installer fields](#remote-host-setup-data-971).
+
 For CLIs that accept a configuration path through the environment, declare
 `launch.environment` entries such as
 `{"name":"AGENT_CONFIG","value":"{file:config/mcp.json}","when":{"all":[{"field":"control","op":"eq","value":true}]}}`.
@@ -485,7 +490,16 @@ most eight fixed arguments. Optional `environment` is an array of at most eight
 strings of at most 128 characters, without control characters, `$`, `%`, backticks
 or braces. No expansion or templates apply. Names beginning `FOOM_` or `XDG_`,
 and `HOME`, `PATH`, `USER`, `LOGNAME`, `SHELL`, `TMPDIR`, `LANG` are reserved,
-case-insensitively. The script runner applies these fixed values after installer
+case-insensitively. Installer entries also reuse the `launch.environment` reserved-name
+policy, rather than a vendor-prefix allowlist. It refuses loader/dynamic-linker
+variables (`LD_*`, `DYLD_*`), shell startup/parsing controls (`BASH_ENV`, `ENV`,
+`IFS`, `PS4`, `SHELLOPTS`, `BASHOPTS`, `CDPATH`, `ZDOTDIR`, `PROMPT_COMMAND`,
+`FPATH`, `GLOBIGNORE`, `BASH_*`, `INPUTRC`), interpreter
+injection (`NODE_*`, `PYTHON*`, `PERL5*`, `RUBY*`, `GCONV_PATH` and the other
+launch-policy runtime controls), proxies, and credential-shaped names. Names
+containing `KEY`, `TOKEN`, `SECRET`, `PASSWORD`, `CREDENTIAL` or `PROXY` are
+refused in any case, including vendor-prefixed names. Bundled origin does not
+exempt a declaration from these checks. The script runner applies fixed values after installer
 environment normalization, locally and on registered hosts; package-manager
 recipes do not receive them. URL credentials/fragments and non-HTTPS addresses
 are refused. Config-origin manifests naming this field are rejected with

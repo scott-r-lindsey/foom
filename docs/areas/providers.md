@@ -212,7 +212,10 @@ sign-in remains unknown and does not claim credential or hook trust.
 Optional `hostSetup.script` carries a fixed HTTPS URL, `sh`/`bash` interpreter and
 fixed argument list, plus an optional bounded literal `environment` list (#1166).
 The [manifest contract](../agent-plugins.md#remote-host-setup-data-971) defines its
-name/value limits and reserved names. Codex declares `CODEX_NON_INTERACTIVE=1`
+name/value limits and reserved names. Installer entries reuse the launch manifest's
+reserved-name policy for runtime injection, shell controls, proxies and credentials;
+bundled origin cannot opt out. Installer account/XDG restrictions apply as well.
+Codex declares `CODEX_NON_INTERACTIVE=1`
 to skip vendor prompts and decline launching or uninstalling another installation.
 The parser rejects it for config origin even under a new ID;
 JSON cannot self-declare bundled provenance. The application-owned manifest lock
