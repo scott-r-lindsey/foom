@@ -219,8 +219,10 @@ test.skipIf(process.platform === "win32")(
     await start();
     const burst = await open();
     const closed = once(burst.socket, "close");
-    // One socket read can contain more frames than the serialized backlog allows.
-    burst.socket.write(
+    // Deliver one read batch explicitly: a stream write does not determine the
+    // kernel's read boundaries. Keep the real connection and close observation.
+    burst.serverSocket.emit(
+      "data",
       Buffer.concat(
         Array.from({ length: 390 }, (_, index) =>
           remoteFrame({
