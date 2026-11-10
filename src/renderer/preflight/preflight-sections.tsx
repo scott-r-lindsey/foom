@@ -333,6 +333,34 @@ export function PreflightSections({
           <span>Close finished agents</span>
         </label>
         <label className="concurrent-children">
+          Default agent
+          <select
+            value={state.settings.defaultAgent ?? ""}
+            onChange={(event) => {
+              save({ defaultAgent: event.target.value || null });
+            }}
+          >
+            <option value="">None — require an agent</option>
+            {[
+              ...new Set([
+                ...Object.keys(state.settings.agents),
+                ...(report?.agents.map((agent) => agent.id) ?? []),
+                ...(state.settings.defaultAgent ? [state.settings.defaultAgent] : []),
+              ]),
+            ]
+              .sort()
+              .map((id) => (
+                <option key={id} value={id}>
+                  {report?.agents.find((agent) => agent.id === id)?.name ?? id}
+                </option>
+              ))}
+          </select>
+        </label>
+        <p>
+          Used when launch, review or a review loop omits its agent. Unavailable providers refuse;
+          Foom never chooses another.
+        </p>
+        <label className="concurrent-children">
           Concurrent children per orchestrator
           <input
             type="number"

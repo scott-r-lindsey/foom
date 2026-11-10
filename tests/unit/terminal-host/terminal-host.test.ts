@@ -89,6 +89,8 @@ test("dispatches validated terminal operations and reports events with IDs", asy
     { type: "tail", lines: 1 },
   ])
     await message({ ...operation, id: "one", request: 2 });
+  // A host-accounted reset prefix makes replay atomic in an already open view.
+  expect(mock.attach).toHaveBeenCalledWith("one", expect.any(Function), true);
   expect(mock.write).toHaveBeenCalledWith("one", "input");
   expect(mock.setTheme).toHaveBeenCalledWith("one", true);
   expect(mock.resize).toHaveBeenCalledWith("one", 90, 25);

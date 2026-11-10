@@ -211,7 +211,7 @@ const path = require('node:path');
 const {execFile} = require('node:child_process');
 const args = process.argv.slice(2);
 const directory = path.join(require('node:os').homedir(), '.gemini/config/plugins/foom');
-if (args[0] === '--version') { console.log('${firstRun ? "1.3.1" : "1.4.12"}'); process.exit(0); }
+if (args[0] === '--version') { console.log('${firstRun ? "1.3.1" : "1.5.3"}'); process.exit(0); }
 if (args[0] === '--help') { console.log('Antigravity CLI --prompt-interactive <prompt>'); process.exit(0); }
 if (args[0] === 'plugin') {
   if (args[1] === 'list') {
@@ -252,22 +252,38 @@ if (!${firstRun}) {
     let end;
     while ((end = buffer.indexOf('\\n')) >= 0) {
       const value = JSON.parse(buffer.slice(0,end)); buffer = buffer.slice(end+1);
+      if (value.id === 0) {
+        if (value.error?.code !== -32601) process.exit(9);
+        console.log('MCP_DISCOVERY_FALLBACK');
+        fallback();
+      }
       if (value.id === 1 && value.result.protocolVersion !== '2025-11-25') process.exit(8);
       if (value.id === 2) {
         if (!value.result.tools.some((t) => t.name === 'whoami')) process.exit(5);
         console.log('MCP_TOOLS_AVAILABLE');
+        // Measured agy 1.5.3: a decoded object without decision=allow
+        // blocks the tool before MCP dispatch, even with exit status zero.
+        const handler = spec.PreToolUse[0].hooks[0];
+        const hook = execFile('sh', ['-c', handler.command], {cwd:process.cwd(), timeout:3000}, (error, stdout, stderr) => {
+          if (error || stderr || JSON.parse(stdout).decision !== 'allow') process.exit(10);
+          console.log('MCP_PRE_TOOL_DELEGATED');
+          mcp.stdin.write(JSON.stringify({jsonrpc:'2.0',id:3,method:'tools/call',params:{name:'whoami'}}) + '\\n');
+        });
+        hook.stdin.end(JSON.stringify({conversationId:'fake-agy-session',toolCall:{name:'foom_foom/whoami',args:{}},stepIdx:0}));
       }
       if (value.id === 3) { console.log('MCP_ROLE_' + value.result.structuredContent.role); console.log('MCP_PARENT_' + value.result.structuredContent.parentId); mcp.stdin.end(); }
     }
   });
   mcp.stderr.on('data', () => process.exit(6));
   mcp.on('error', () => process.exit(7));
-  for (const message of [
-    {jsonrpc:'2.0', id:1, method:'initialize', params:{protocolVersion:'2099-01-01',capabilities:{},clientInfo:{name:'fixture-agy',version:'1'}}},
-    {jsonrpc:'2.0', method:'notifications/initialized'},
-    {jsonrpc:'2.0', id:2, method:'tools/list'},
-    {jsonrpc:'2.0', id:3, method:'tools/call', params:{name:'whoami'}},
-  ]) mcp.stdin.write(JSON.stringify(message) + '\\n');
+  function fallback() {
+    for (const message of [
+      {jsonrpc:'2.0', id:1, method:'initialize', extension:{ignored:true},params:{protocolVersion:'2099-01-01',capabilities:{roots:{listChanged:true},sampling:{},experimental:{'fixture/extension':{}}},clientInfo:{name:'fixture-agy',version:'1',title:'Fixture Antigravity',websiteUrl:'https://example.invalid'},_meta:{progressToken:1,'fixture/metadata':{}},extension:{ignored:true}}},
+      {jsonrpc:'2.0', method:'notifications/initialized'},
+      {jsonrpc:'2.0', id:2, method:'tools/list'},
+    ]) mcp.stdin.write(JSON.stringify(message) + '\\n');
+  }
+  mcp.stdin.write(JSON.stringify({jsonrpc:'2.0',id:0,method:'server/discover',params:{_meta:{'io.modelcontextprotocol/clientCapabilities':{elicitation:{},roots:{}},'io.modelcontextprotocol/clientInfo':{name:'fixture-agy',version:'1.5.3'},'io.modelcontextprotocol/protocolVersion':'2026-07-28'}}}) + '\\n');
 }
 
 process.stdin.on('data', (data) => {
@@ -281,7 +297,7 @@ process.stdin.on('data', (data) => {
   const event = key === 'w' ? 'PreInvocation' : key === 't' ? 'PreToolUse' : 'Stop';
   const handler = event === 'PreToolUse' ? spec[event][0].hooks[0] : spec[event][0];
   const child = execFile('sh', ['-c', handler.command], {cwd:process.cwd()}, (error, stdout, stderr) => {
-    if (error || stdout.trim() !== '{}' || stderr) process.exit(4);
+    if (error || stdout.trim() !== (event === 'PreToolUse' ? '{"decision":"allow"}' : '{}') || stderr) process.exit(4);
     console.log('OBSERVER_RETURNED_' + event);
   });
   child.stdin.end(JSON.stringify({conversationId:'fake-agy-session', terminationReason:key === 'f' ? 'error' : 'NO_TOOL_CALL', fullyIdle:true, transcriptPath:'/must-not-read'}));
@@ -482,6 +498,11 @@ for (const firstRun of [false, true]) {
       expect(result.stderr).toBe("");
     }
     await page.evaluate((id) => window.desktop.input(id, "w"), id);
+    // MCP's pre-tool observer can already have established Working. Wait for
+    // this prompt observer to allocate its sequence before sending Stop.
+    await expect
+      .poll(() => page.evaluate((id) => window.desktop.tail(id, 20), id))
+      .toContain("OBSERVER_RETURNED_PreInvocation");
     await expect.poll(() => page.evaluate(() => window.agyTransitions.at(-1)?.to)).toBe("working");
     await page.evaluate((id) => window.desktop.input(id, "s"), id);
     await expect.poll(() => page.evaluate(() => window.agyTransitions.at(-1)?.to)).toBe("idle");
@@ -725,13 +746,13 @@ for (const mode of ["light", "dark"]) {
     await capture("progress");
     await rm(hold);
     await expect(dialog.locator(".plugin-receipt")).toHaveText(
-      "✓ Installed Foom observer v5 · enabled",
+      "✓ Installed Foom observer v6 · enabled",
     );
     await expect(dialog.locator(".plugin-command")).toContainText(/exit 0 · [0-9.]+ s/u);
     await assertAccessible(dialog);
     await capture("success");
     await dialog.getByRole("button", { name: "Done", exact: true }).click();
-    await expect(row.getByRole("status")).toContainText("Installed Foom observer v5");
+    await expect(row.getByRole("status")).toContainText("Installed Foom observer v6");
     await writeFile(path.join(plugins, "fail-install"), "");
     await row.getByRole("button", { name: "Reinstall plugin", exact: true }).click();
     await dialog.getByRole("button", { name: "Reinstall plugin", exact: true }).click();

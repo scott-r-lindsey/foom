@@ -130,6 +130,11 @@ const settingsSchema = schema("foom:settings", {
     restoreSessions: { type: "boolean" },
     showNewChildren: { type: "boolean", default: true },
     closeFinishedAgents: { type: "boolean", default: true },
+    defaultAgent: {
+      type: ["string", "null"],
+      pattern: "^[a-z][a-z0-9-]{0,39}$",
+      not: { enum: ["shell", "all", "constructor", "prototype"] },
+    },
     concurrentChildren: { type: "integer", minimum: 1, maximum: 16 },
     recentRepositoryDays: { type: "integer", minimum: 1, maximum: 365, default: 30 },
   },
@@ -271,7 +276,7 @@ valid changes live. It is plain files: Foom keeps no history of it.
 
 - \`settings.json\`: \`{ "kind": "settings", ... }\` with any of the allowed keys:
   \`panelColor\`, \`interfaceTheme\`, \`terminalTheme\`, \`interfaceScale\`,
-  \`terminalFontSize\`, \`terminalFont\` (a family name, default Hack Nerd Font Mono), \`sound\`, \`agents\`, \`agentArguments\`, \`hooks\`, \`restoreSessions\`, \`showNewChildren\` (boolean, default true; new children appear on the board), \`closeFinishedAgents\` (boolean, default true; close finished children) and \`concurrentChildren\` (integer 1–16, default 4), and \`recentRepositoryDays\` (integer 1–365, default 30). Any other key rejects the file.
+  \`defaultAgent\` (provider ID or null; no provider is selected by default), \`terminalFontSize\`, \`terminalFont\` (a family name, default Hack Nerd Font Mono), \`sound\`, \`agents\`, \`agentArguments\`, \`hooks\`, \`restoreSessions\`, \`showNewChildren\` (boolean, default true; new children appear on the board), \`closeFinishedAgents\` (boolean, default true; close finished children) and \`concurrentChildren\` (integer 1–16, default 4), and \`recentRepositoryDays\` (integer 1–365, default 30). Any other key rejects the file.
   Consent records, paths and secrets are not configurable here.
   \`interfaceTheme: "follow"\` means Default, following the OS live. A fixed theme keeps its base.
   \`terminalTheme: "follow"\` means Default, following the current interface base live.
@@ -507,6 +512,7 @@ export const OWNED_FILES: Readonly<Record<string, string>> = {
  * is unedited and is replaced on upgrade; anything else belongs to the user.
  */
 const GUIDE_HISTORY = [
+  "6680be1a90682e4b36deff51bb448822a68f51e037b0a9c8cd1a9bb9532d0b4c",
   "8c2d280e0ed7cb2833228f7ed823e2a5351abe545088c7cc7ad748556495401d",
   "6797d94d8c809145e4acc62f584e64c5a21af3db0cfd98fd451d45ab1f89c58c",
   "cea4ad5f9d38f5b2850be969118d7d68299d737217312ed2a6d1ccd8bf04935e",
@@ -555,6 +561,7 @@ export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
   ],
   "schemas/theme.schema.json": ["831094a9c9c8c13c87ab7ff227b70803dcd3a9f9f59b6f1cc352f67b43a8e1cc"],
   "schemas/settings.schema.json": [
+    "a1139bb152938886dba7212dc876064fb533fc1a7bbb64a4ac6ff444cc4cb9d8",
     "3a5858992c8b78a52bb2012dbfe6b5f118f4c7c216979368ba2fbc61f9e2f550",
     "656cd40c0b6cb73470be903f01d1e0d9b81e7d0b50fcf99129ff256173c7adba",
     "f805581f622ba59315ae792ba35b809981f859c151bc0710b55c91a7a1e5d817",

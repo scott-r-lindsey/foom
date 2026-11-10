@@ -34,7 +34,11 @@ export function observerInvocation(
 export function observerAssets(channel: ManifestChannel, windows: boolean): Record<string, string> {
   const options = channel.observer;
   if (options.transport === "external") return {};
-  if (options.protocol === "ordered-v2") return orderedObserverFiles(options.version === 5);
+  if (options.protocol === "ordered-v2")
+    return orderedObserverFiles(
+      options.version === 5 || options.version === 6,
+      options.version === 6,
+    );
   let source: string;
   let worker: string | undefined;
   if (!windows) {

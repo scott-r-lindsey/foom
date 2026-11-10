@@ -204,8 +204,8 @@ the action log and supports the same operations and idempotency as other mutatio
 ## Optional build/review loop (#690)
 
 An orchestrator can opt a child into a Foom-run review loop when launching it.
-The default is off. Opting in uses three review rounds (at most five) and Claude
-as reviewer; an installed reviewer provider with resume support can be selected.
+The default is off. Opting in uses three review rounds (at most five); the reviewer uses the selected provider or
+the user-chosen default agent. Review loops require resume support.
 The human New-worktree flow has no review option. Ask the orchestrator to launch
 a child when a loop is wanted.
 
@@ -310,8 +310,8 @@ remain attached. `launch --pull-request N` binds an existing PR explicitly, even
 when the checkout branch has another name. An unavailable binding refuses before
 launch with `pr_binding_unresolved`.
 
-`review --pull-request N [--since SHA] [--focus TEXT] --idempotency-key KEY`
-creates one detached PR-head checkout and launches one read-only Claude reviewer.
+`review --pull-request N [--agent PROVIDER] [--since SHA] [--focus TEXT] --idempotency-key KEY`
+creates one detached PR-head checkout and launches one read-only reviewer using the selected provider.
 It leaves the author's loop alone. The parent reads its structured handoff and
 stops/closes it. `--since` takes a full commit SHA; the reviewer checks ancestry.
 No forge writes occur unless `--post-findings true` is explicit.
@@ -328,3 +328,13 @@ proof still require the ordinary trusted review or refuse unsafe deletion.
 With board PR tracking enabled, idle retained review checkouts are offered together
 once their PR is merged or closed. Offline evidence waits for later inventory;
 each identity is offered once per app lifetime. Cancel preserves the checkout.
+
+## Default agent (#1121)
+
+Settings → General **Default agent** selects the provider used when launch,
+one-shot review or the review loop omits its agent. The initial choice is None.
+Supply `agent` / `--agent`, or `review.agent` / `--review-agent` for a loop,
+to override it. If unset, omission refuses with `agent_required` (or
+`review_agent_required` for a loop). An invalid, disabled or unavailable provider
+refuses; Foom never picks another provider. One-shot `review --agent codex` uses
+the same detached checkout and safe close cleanup as every other reviewer.

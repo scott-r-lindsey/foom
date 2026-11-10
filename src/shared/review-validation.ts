@@ -2,18 +2,18 @@ import type { ReviewOptions, ReviewVerdict } from "./review";
 import { validAgentId } from "./providers/catalog";
 import { ControlError, exact, object, selectionInput } from "./control-validation";
 
-export function reviewOptions(value: unknown): ReviewOptions {
+export function reviewInput(value: unknown): Omit<ReviewOptions, "agent"> & { agent?: string } {
   const data = object(value);
   exact(data, ["rounds", "agent", "postFindings", "parentWaitMinutes", "model", "effort"]);
   const rounds = data["rounds"] === undefined ? 3 : data["rounds"];
-  const agent = data["agent"] === undefined ? "claude" : data["agent"];
+  const agent = data["agent"];
   const postFindings = data["postFindings"] === undefined ? false : data["postFindings"];
   if (
     typeof rounds !== "number" ||
     !Number.isInteger(rounds) ||
     rounds < 1 ||
     rounds > 5 ||
-    !validAgentId(agent) ||
+    (agent !== undefined && !validAgentId(agent)) ||
     typeof postFindings !== "boolean" ||
     (data["parentWaitMinutes"] !== undefined &&
       (typeof data["parentWaitMinutes"] !== "number" ||
@@ -25,12 +25,30 @@ export function reviewOptions(value: unknown): ReviewOptions {
   return {
     ...selectionInput(data),
     rounds,
-    agent,
+    ...(agent === undefined ? {} : { agent }),
     postFindings,
     ...(data["parentWaitMinutes"] === undefined
       ? {}
       : { parentWaitMinutes: data["parentWaitMinutes"] }),
   };
+}
+
+/** Resolve only an omitted parameter; explicit invalid values never use the default. */
+export function orchestrationAgent(
+  value: unknown,
+  fallback: string | null | undefined,
+  review = false,
+): string {
+  const agent = value === undefined ? fallback : value;
+  if (value === undefined && (agent === undefined || agent === null))
+    throw new ControlError(review ? "review_agent_required" : "agent_required");
+  if (!validAgentId(agent)) throw new ControlError("invalid_request");
+  return agent;
+}
+
+export function reviewOptions(value: unknown, fallback?: string | null): ReviewOptions {
+  const input = reviewInput(value);
+  return { ...input, agent: orchestrationAgent(input.agent, fallback, true) };
 }
 
 function note(value: unknown, bytes: number): string {

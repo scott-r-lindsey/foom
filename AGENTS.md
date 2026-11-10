@@ -75,7 +75,15 @@ uses an isolated disposable profile and deletes it on exit.
 - On Linux, run Electron tests under Xvfb (`xvfb-run -a pnpm run test:electron`) so test windows do not appear on the user’s desktop or steal focus. Use the same virtual-display wrapper for packaged smoke tests and automated Electron previews; use the visible desktop only when the user explicitly requests it. Keep sandboxing enabled.
 - Tests must never run the developer's real agent CLIs (`claude`, `codex`, or `agy`), including discovery and plugin probes. Electron launches use a fixture login shell and controlled PATH; agent tests provide fake CLIs in fixture directories. Never append the inherited PATH; add only the directory of a specifically required system tool. The agent guard must remain enabled.
 - CI partitions named Electron tests across four Linux jobs (`FOOM_ELECTRON_SHARD=1/4` through `4/4`), five Windows jobs (`1/5` through `5/5`), and six macOS jobs (`1/6` through `6/6`) using the checked-in duration-weighted `tests/electron/shard-plan.json`, with name hashing for new tests and unplanned shard counts on Linux, Windows and macOS. All fifteen Electron jobs and three independent native-check/packaging jobs are required by the Quality gate; failed, cancelled or skipped required jobs fail it. Without that variable the full suite runs locally. The shard integration test verifies every case is registered exactly once and invalid shard settings fail. Electron steps allow 14 minutes on Linux, Windows and macOS; per-test deadlines and the worker watchdog remain unchanged. Each desktop run requests eight macOS jobs: six Electron shards, one native-check/packaging job, and one combined Darwin host build (arm64, then x64 under Rosetta). Both host architectures retain signing/PTY probes and SEA startup checks. Native hook tests run serially, followed by packaging and packaged smoke in one companion job per platform. These jobs start alongside Electron shards and static checks after change detection; native checks and packaging each run once per platform.
-- CI uploads Electron and packaged JUnit reports, including per-test durations and process diagnostics, even on failure. Compare these measurements before changing deadlines or splitting the suite.
+- CI caches Electron ZIP downloads outside the workspace by OS, architecture and exact
+lockfile-resolved Electron version in every Electron and native-check/packaging job.
+Preparation retries only network and HTTP 5xx failures up to three attempts with
+two/four-second backoff inside the existing three-minute step. Cached ZIPs and
+packaging reuse are verified with the Electron package’s bundled checksums;
+checksum failures never trigger preparation retries. Release jobs consume tested
+artifacts without this cache or changed inputs. Cache permissions remain unchanged.
+
+CI uploads Electron and packaged JUnit reports, including per-test durations and process diagnostics, even on failure. Compare these measurements before changing deadlines or splitting the suite.
 - Unit coverage includes every executable `src/**/*.{ts,tsx}` file; only declarations are excluded. Per-file minimums are 90% lines, statements, and functions, and 85% branches. PR changed-line coverage must be at least 90%; missing source files in LCOV fail the check.
 - Do not lower thresholds or exclude application files to hide missing tests. Test meaningful behavior, not implementation trivia.
 
@@ -118,7 +126,16 @@ Rejected submissions print Apple's issues log summary. Both submissions share a
 120-minute deadline defined in `scripts/macos-sign.mjs`; failures include all
 returned IDs and their last statuses. Submit uses the remaining overall budget
 and logs its ID as soon as the tool prints it. Info and log queries are bounded to
-one minute (or the remaining budget). App and DMG stapling and staple validation
+one minute (or the remaining budget). Info and log queries retry HTTP 5xx and
+NSURL transport codes -1001, -1003, -1004, -1005 and -1009 every 30 seconds within
+that shared deadline. Each transient failure logs only its timestamp, submission
+ID, query operation and status code. Fatal info/log failures report only the
+query operation, submission ID, HTTP or NSURL code (or unknown), and tool exit
+status (or unknown); response bodies and credentials never enter poll diagnostics.
+Authentication errors (including 401/403), certificate and signature failures,
+and Invalid or Rejected statuses remain fatal; only retrieving their issues log
+may retry. Deadline exhaustion includes the last poll error and all submission
+IDs and statuses. App and DMG stapling and staple validation
 retry NSURL transport codes -1001, -1003, -1004, -1005 and -1009, missing CloudKit
 records, and tickets not yet available up to six attempts, 30 seconds apart.
 The domain or Error 65/68 alone never triggers retries; certificate and signature

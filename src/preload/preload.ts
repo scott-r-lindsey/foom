@@ -617,6 +617,7 @@ const validSettings: Validator<Settings> = shape({
   showNewChildren: boolean,
   closeFinishedAgents: boolean,
   concurrentChildren: range(1, 16, true),
+  defaultAgent: either(nil, text),
   recentRepositoryDays: range(1, 365, true),
   unreadChildMinutes: range(0, 1440, true),
   autoRemoveMergedWorktrees: boolean,
@@ -1829,8 +1830,9 @@ const desktop: DesktopApi = {
       throw new Error("Invalid terminal response");
     return { id: reply.id, title: reply.title };
   },
-  async attach(id) {
-    await ipcRenderer.invoke("terminal:attach", id);
+  async attach(id, mode) {
+    if (mode === undefined) await ipcRenderer.invoke("terminal:attach", id);
+    else await ipcRenderer.invoke("terminal:attach", id, mode);
   },
   async detach(id) {
     await ipcRenderer.invoke("terminal:detach", id);

@@ -59,7 +59,33 @@ Main publishes the transient state through workspace snapshots; session panels
 show it neutrally except for an orchestrator's magenta Not connected failure.
 See the [real-client probe record](../contracts/mcp-validation.md#read-only-mcp-implementation-verification-153).
 
-MCP protocol metadata such as `_meta.progressToken` is accepted by the adapter without being passed to the control service.
+MCP protocol envelopes and parameter objects permit extension properties, as in
+all three supported version schemas (#1124). The control adapter consumes only
+known fields and ignores unused implementation metadata (`title`, `description`,
+`websiteUrl`, `icons`), client capability sub-objects and extension properties.
+It never fetches metadata URLs. Required initialize fields retain runtime type
+checks. `_meta` must be an object and a request’s `_meta.progressToken`, when
+present, a string or finite number; neither metadata nor protocol extensions reach the service.
+`tools/list` accepts a string cursor (the current list fits one response).
+Task-augmented tool calls are refused because Foom advertises no task support.
+Tool names, arguments and every control-service payload retain strict validation;
+protocol extensions cannot supply roles or authority.
+
+An authenticated `server/discover` request may precede initialization (#1124).
+Because Foom supports the legacy handshake versions, control and manual-only
+adapters answer this newer stdio compatibility probe with JSON-RPC `-32601`
+(Method not found), without allocating or replacing a session. This permits
+client fallback to initialize. Metadata is ignored; other pre-initialize calls
+retain their session requirements. The manual-only adapter also ignores unused
+client notifications after session validation, including roots-list changes,
+without marking a session ready or invoking a tool.
+
+The bridge reports HTTP status, an allowlisted Foom error code (or `http_error`),
+a fixed method label and, for schema failures, a fixed rejected field path.
+Failures without an HTTP response use `no_http_response` and a fixed local code.
+Raw bodies, arbitrary keys/methods, URLs, tokens and exception messages never enter
+these diagnostics. Authentication, grant/session binding and transport bounds are
+unchanged.
 
 ## Bundled manual (#699)
 

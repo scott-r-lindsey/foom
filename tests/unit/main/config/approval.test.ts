@@ -116,6 +116,7 @@ test("owned files refresh only when missing or matching an earlier Foom version"
       "showNewChildren",
       "closeFinishedAgents",
       "concurrentChildren",
+      "defaultAgent",
       "recentRepositoryDays",
     ].sort(),
   );

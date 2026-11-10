@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { reviewOptions, reviewVerdict } from "../../../../src/shared/review-validation";
+import {
+  reviewOptions,
+  reviewVerdict,
+  orchestrationAgent,
+} from "../../../../src/shared/review-validation";
 import { handoffRequest, storedHandoffs } from "../../../../src/shared/handoff-validation";
 import { handoffCommand } from "../../../../src/cli/handoff";
 
@@ -19,13 +23,17 @@ const request = {
 
 describe("review contracts", () => {
   it("defaults opt-in settings and validates all fields", () => {
-    expect(reviewOptions({})).toEqual({ rounds: 3, agent: "claude", postFindings: false });
+    expect(reviewOptions({}, "claude")).toEqual({
+      rounds: 3,
+      agent: "claude",
+      postFindings: false,
+    });
     expect(reviewOptions({ rounds: 5, agent: "codex", postFindings: true })).toEqual({
       rounds: 5,
       agent: "codex",
       postFindings: true,
     });
-    expect(reviewOptions({ parentWaitMinutes: 1440 }).parentWaitMinutes).toBe(1440);
+    expect(reviewOptions({ parentWaitMinutes: 1440 }, "codex").parentWaitMinutes).toBe(1440);
     for (const value of [
       null,
       [],
@@ -130,7 +138,6 @@ describe("review CLI launch flags", () => {
     expect(command(args).params["review"]).toBeUndefined();
     expect(command([...args, "--review-rounds", "2"]).params["review"]).toEqual({
       rounds: 2,
-      agent: "claude",
       postFindings: false,
     });
     expect(
@@ -140,7 +147,6 @@ describe("review CLI launch flags", () => {
     ).toEqual({ rounds: 3, agent: "codex", postFindings: true });
     expect(command([...args, "--review-post-findings", "false"]).params["review"]).toEqual({
       rounds: 3,
-      agent: "claude",
       postFindings: false,
     });
     expect(command([...args, "--review-parent-wait-minutes", "10"]).params["review"]).toMatchObject(
@@ -155,4 +161,12 @@ describe("review CLI launch flags", () => {
     ])
       expect(() => command([...args, ...flags])).toThrow("invalid_request");
   });
+});
+
+it("requires a chosen provider, with no default for omitted launch or loop parameters", () => {
+  expect(() => orchestrationAgent(undefined, undefined)).toThrow("agent_required");
+  expect(() => reviewOptions({})).toThrow("review_agent_required");
+  expect(() => orchestrationAgent(null, "codex")).toThrow("invalid_request");
+  expect(() => orchestrationAgent("", "codex")).toThrow("invalid_request");
+  expect(orchestrationAgent("claude", "codex")).toBe("claude");
 });

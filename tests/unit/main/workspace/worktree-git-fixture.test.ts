@@ -50,3 +50,32 @@ it("keeps fresh factories independent and drains rejected callbacks before clean
     await second.cleanup();
   }
 });
+
+it("isolates production Git from a fixture global config while retaining local config and stdin", async () => {
+  const fixture = createWorktreeFixture();
+  const { temporary, repo } = await fixture.create();
+  try {
+    // A fixture HOME tests the leak without reading or changing developer config.
+    vi.stubEnv("HOME", temporary);
+    vi.stubEnv("USERPROFILE", temporary);
+    vi.stubEnv("XDG_CONFIG_HOME", join(temporary, "xdg"));
+    await writeFile(join(temporary, ".gitconfig"), "[test]\n marker = global-must-not-leak\n");
+    const { git: productionGit } = await import(
+      "../../../../src/main/workspace/worktree-operations"
+    );
+    await expect(productionGit(repo, ["config", "--get", "test.marker"])).rejects.toThrow();
+    await git(["config", "test.marker", "local-is-retained"], { cwd: repo });
+    expect((await productionGit(repo, ["config", "--get", "test.marker"])).trim()).toBe(
+      "local-is-retained",
+    );
+    const blob = await productionGit(
+      repo,
+      ["hash-object", "-w", "--stdin"],
+      30_000,
+      "fixture input",
+    );
+    expect(await productionGit(repo, ["cat-file", "blob", blob.trim()])).toBe("fixture input");
+  } finally {
+    await fixture.cleanup();
+  }
+});

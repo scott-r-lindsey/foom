@@ -21,6 +21,7 @@ in the profile. Validation alone grants no approval.
 | `terminalFontSize` | Integer 10–32 |
 | `sound` | Exact current `shared/sounds.ts` settings format |
 | `agents` | Boolean provider-ID map, at most 100 entries; `claude`, `codex`, `agy` are required |
+| `defaultAgent` | Provider ID or null (initially unset); shared orchestration default, no automatic vendor selection |
 | `agentArguments` | Literal argument lists keyed by valid provider IDs, at most 100 entries; `claude`, `codex`, `agy` are required; validated by `parseAgentDefaults`; every file change requires Allow |
 | `hooks` | Boolean |
 | `closeFinishedAgents` | Boolean, default `true`; close eligible finished children; no Allow required |

@@ -906,16 +906,50 @@ test("Close removes the tile and sidebar before slow cleanup and restores a fail
 }, async (context) => {
   const app = await launchApp(context, { fixture: "running-shell" });
   const page = await boardPage(app);
-  await sizeTileBoard(app, page);
   const id = await page.evaluate(async () => (await window.desktop.workspace()).terminals[0].id);
   const row = page.locator(`[data-drag-session="${id}"]`);
+  const input = page.locator(".xterm-helper-textarea");
+  // Complete real shell startup/input before preparing the close layout (#1137).
+  try {
+    await expectShellReady(page, id, input);
+    await input.focus();
+    await page.keyboard.type("echo FOOM_CLOSE_READY");
+    await page.keyboard.press("Enter");
+    await expect
+      .poll(() => page.evaluate(async (id) => window.desktop.tail(id, 40), id))
+      .toContain("FOOM_CLOSE_READY");
+    await expectShellReady(page, id, input);
+    await page.keyboard.type("exit");
+    await page.keyboard.press("Enter");
+    await expect(row).toHaveAttribute("data-exited", "true");
+  } catch (error) {
+    console.log(
+      "1137 shell readiness failure:",
+      await page.evaluate(
+        async (id) => ({
+          tail: await window.desktop.tail(id, 40),
+          terminals: (await window.desktop.workspace()).terminals.map(({ id, exited }) => ({
+            id,
+            exited,
+          })),
+          grids: [...document.querySelectorAll(".xterm-rows")].map((grid) => ({
+            rows: grid.childElementCount,
+            bounds: grid.getBoundingClientRect().toJSON(),
+            cursor: grid.querySelector(".xterm-cursor")?.textContent,
+          })),
+          editable: !document.querySelector(".xterm-helper-textarea")?.readOnly,
+        }),
+        id,
+      ),
+    );
+    throw error;
+  }
+  await sizeTileBoard(app, page);
   await page.evaluate(() => window.desktop.appMenu.execute("split-right"));
   const second = await page.evaluate(() => window.desktop.sidebarCommand({ kind: "home-shell" }));
   await page.locator(`[data-drag-session="${second.terminalId}"]`).press("Enter");
   const closingTile = page.getByRole("region", { name: /Tile 2:/ });
-  await expectShellReady(page, id, closingTile.locator(".xterm-helper-textarea"));
-  await page.evaluate((id) => window.desktop.input(id, "exit\r"), id);
-  await expect(row).toHaveAttribute("data-exited", "true");
+  await expect(closingTile.locator(".xterm-helper-textarea")).toHaveJSProperty("readOnly", true);
   await app.evaluate(({ app }) => {
     const load = process
       .getBuiltinModule("node:module")

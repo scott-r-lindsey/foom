@@ -1,0 +1,12 @@
+{
+  "jsonrpc": "2.0",
+  "id": 0,
+  "method": "server/discover",
+  "params": {
+    "_meta": {
+      "io.modelcontextprotocol/clientCapabilities": { "roots": {}, "elicitation": {} },
+      "io.modelcontextprotocol/clientInfo": { "name": "fixture-agy", "version": "1.5.3" },
+      "io.modelcontextprotocol/protocolVersion": "2026-07-28"
+    }
+  }
+}
