@@ -4,7 +4,7 @@ import { remotePath } from "../../shared/remote-agent-protocol";
 import { ApplicationError } from "../../shared/application-errors";
 import type { HostCheck, HostConnectionChecks } from "../../shared/registered-hosts.d";
 import type { RemoteTarget } from "../../shared/remote-host";
-import { constants, fstatSync } from "node:fs";
+import { constants, fstatSync, readSync } from "node:fs";
 import { mkdtemp, open, rm } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { dirname, isAbsolute, join } from "node:path";
@@ -299,7 +299,7 @@ async function platformProbe(
     }
   };
   try {
-    handle = await open(diagnostic, "wx", 0o600);
+    handle = await open(diagnostic, "wx+", 0o600);
     const fd = handle.fd;
     const detached = process.platform !== "win32";
     const systemRoot = process.env["SystemRoot"] ?? "";
@@ -369,9 +369,18 @@ async function platformProbe(
         failed = true;
         stop();
       };
+      // Drain the retained client's channel before the transport observes its exit.
+      let diagnosticOffset = 0;
       const check = () => {
         try {
-          if (fstatSync(fd).size > 16384) fail();
+          const size = fstatSync(fd).size;
+          if (size > 16384) fail();
+          else if (lifetime.retained && !failed && output && size > diagnosticOffset) {
+            const bytes = Buffer.alloc(size - diagnosticOffset);
+            const count = readSync(fd, bytes, 0, bytes.length, diagnosticOffset);
+            diagnosticOffset += count;
+            output(bytes.subarray(0, count).toString("utf8"));
+          }
         } catch {
           fail();
         }
@@ -424,9 +433,10 @@ async function platformProbe(
         signal?.removeEventListener("abort", fail);
         void (async () => {
           await cleanup;
-          const text = failed
-            ? undefined
-            : await boundedFile(diagnostic, 16384).catch(() => undefined);
+          const text =
+            failed || lifetime.retained
+              ? undefined
+              : await boundedFile(diagnostic, 16384).catch(() => undefined);
           if (lifetime.retained) {
             await dispose();
             return;

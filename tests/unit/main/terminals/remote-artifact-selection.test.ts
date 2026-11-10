@@ -581,3 +581,34 @@ test.each(["Darwin\narm64\n", "Linux\nx86_64\nFOOM-LIBC-OK\nextra\nFOOM-PROBED\n
     expect(mock.spawn).toHaveBeenCalledTimes(1);
   },
 );
+
+test("retained SSH client diagnostics reach output before its exit is observed", async () => {
+  const f = await fixture();
+  const child = probeChild();
+  let diagnostic = "";
+  mock.spawn.mockImplementation((_file: string, args: string[]) => {
+    diagnostic = args[args.indexOf("-E") + 1] ?? "";
+    queueMicrotask(() => child.stdout.write("Linux\nx86_64\nFOOM-LIBC-OK\nFOOM-PROBED\n"));
+    return child;
+  });
+  const output = vi.fn();
+  await selectHostArtifact(
+    { host: "fixture" },
+    "0.1.0",
+    f.root,
+    f.metadata,
+    undefined,
+    vi.fn(),
+    output,
+    vi.fn(),
+  );
+  const text = "Fixture client connection reset\n";
+  try {
+    await writeFile(diagnostic, text);
+    child.emit("exit", 255);
+    expect(output).toHaveBeenCalledWith(text);
+    expect(output.mock.calls.filter(([value]) => value === text)).toHaveLength(1);
+  } finally {
+    child.emit("close", 255);
+  }
+});

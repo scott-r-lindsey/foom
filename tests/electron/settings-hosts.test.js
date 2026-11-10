@@ -237,6 +237,7 @@ process.stdin.on('data', bytes => {
   if(message.type==='inventory') {send({type:'inventory-result',own:[],foreign:[]}); continue;}
   assert.equal(message.type,'manage');
   const scenario=require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8'); const settings=JSON.parse(scenario);
+  if(settings.lateClientFailure && checking && message.operation==='inspect') {appendFileSync(args[args.indexOf('-E')+1],'fixture client connection reset\\n');process.exit(255);}
   let result;
   if(message.codeFolder==='~/unsafe') result={ok:false,reason:'unsafe-folder'};
   else if(message.codeFolder==='~/refused') result={ok:false,reason:'folder-refused'};
@@ -2727,4 +2728,24 @@ test("Hosts capability checks share one SSH connection and hosts finish independ
   await updateScenario({ compatibleBuild: true, oldCheckConnection: true });
   assert.equal((await check("fixture-cloud")).preflight.result.reason, "version-mismatch");
   await quitAndWait(app, () => app.evaluate(({ app }) => app.quit()));
+});
+
+test("Hosts retains SSH client diagnostics when a check connection fails after discovery", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { page, updateScenario } = await hostsFixture(context);
+  await updateScenario({ lateClientFailure: true });
+  const state = await page.evaluate(() =>
+    window.desktop.hosts({
+      action: "preflight",
+      host: "fixture-cloud",
+      codeFolder: "/remote/account/foom",
+    }),
+  );
+  const { output, ...observations } = state;
+  assert.equal(state.preflight.result.reason, "unreachable");
+  assert.match(output.text, /fixture client connection reset/u);
+  assert.equal(output.failed, true);
+  assert.ok(!JSON.stringify(observations).includes("fixture client connection reset"));
 });
