@@ -82,3 +82,8 @@ build despite better-sqlite3's `gypfile: false`. Its binding.gyp no-op prebuild
 target still required Visual Studio discovery and failed on the runner's VS 18.
 The spike explicitly disables that unnecessary lifecycle build and loads the
 shipped prebuild in every runtime fixture. Production build policy is unchanged.
+
+The next Windows attempt completed both engines' Node and SEA measurements,
+then exposed the loaded-DLL lifetime rule: the SEA cannot delete its extracted
+native addon before exiting. Extraction cleanup is therefore parent-owned and
+runs only after child exit. No retry or deadline change is needed.

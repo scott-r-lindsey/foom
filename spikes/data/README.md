@@ -56,7 +56,9 @@ Visual Studio discovery on Windows even when binding.gyp selects a no-op prebuil
 target. All fixtures load the shipped platform prebuild explicitly, so an absent
 or incompatible prebuild fails the spike. This does not change Foom's production
 build-script allowlist. The SEA embeds the selected prebuild and its SHA-256, verifies it before
-loading a private temporary extraction, and removes it afterward. The built-in
+loading a private temporary extraction. The parent removes it after the SEA
+process exits: Windows locks a loaded native DLL for the process lifetime.
+The built-in
 engine needs no asset/extraction. Both versions/ABIs and SQLite versions are in
 each JSON report. Cross-platform proof uses the same three-target
 `Data architecture spike` workflow, without changing the existing Quality gate.
