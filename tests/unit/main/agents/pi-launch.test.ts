@@ -1,4 +1,5 @@
 import {
+  enabledAgentService,
   agentFixture,
   create,
   prepare,
@@ -11,7 +12,6 @@ import { DEFAULT_SETTINGS } from "../../../../src/main/setup/settings";
 import { bypassConsentIdentity } from "../../../../src/main/agents/default-arguments";
 import { agentProvider } from "../../../../src/main/agents/providers/registry";
 import { AgyPlugin } from "../../../../src/main/agents/agy-plugin";
-import { AgentService } from "../../../../src/main/agents/agents";
 
 it("launches and resumes Pi through fixed probes, records its assigned ID, and never prepares hooks", async () => {
   agentFixture.help = "--session --session-id";
@@ -36,7 +36,7 @@ it("launches and resumes Pi through fixed probes, records its assigned ID, and n
 
 it("refuses orchestration restoration for Pi before creating a terminal", async () => {
   const dispose = vi.fn();
-  const service = new AgentService({ listWorktrees, launchIdentity }, { create }, prepare, () =>
+  const service = enabledAgentService({ listWorktrees, launchIdentity }, { create }, prepare, () =>
     Promise.resolve({ env: {}, bind: vi.fn(), dispose }),
   );
   await expect(
@@ -77,7 +77,7 @@ it.each(["--approve", "-a"])(
         agentBypassIdentities: identity ? { pi: identity } : {},
       };
       const confirm = vi.fn(() => Promise.resolve(false));
-      const service = new AgentService(
+      const service = enabledAgentService(
         { listWorktrees, launchIdentity },
         { create },
         undefined,

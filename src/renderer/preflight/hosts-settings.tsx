@@ -1,4 +1,3 @@
-import { BUILTIN_AGENTS } from "../../shared/providers/catalog";
 import { HostTerminal } from "./host-terminal";
 import { hostDisplayName, hostNicknameError } from "../../shared/registered-hosts";
 import { Fragment, createContext, use, useCallback, useEffect, useRef, useState } from "react";
@@ -429,7 +428,7 @@ function Checklist({
             <Row
               name="Agents"
               tone="neutral"
-              text={`${String(facts?.agents.filter((agent) => enabledAgents?.[agent.id] !== false && agent.state === "ready" && agent.signIn !== "signed-out").length ?? 0)} of ${String([...new Set([...BUILTIN_AGENTS.map((agent) => agent.id), ...Object.keys(enabledAgents ?? {})])].filter((id) => enabledAgents?.[id] !== false).length)} ready`}
+              text={`${String(facts?.agents.filter((agent) => enabledAgents?.[agent.id] === true && agent.state === "ready" && agent.signIn !== "signed-out").length ?? 0)} of ${String(Object.values(enabledAgents ?? {}).filter((enabled) => enabled).length)} ready`}
               action={
                 <button
                   type="button"

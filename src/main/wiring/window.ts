@@ -338,7 +338,7 @@ export async function buildWindow(
           ? bundledAgentData
               .map((data) => parseAgentManifest(JSON.stringify(data), "bundled").model)
               .filter(
-                (data) => data.hostSetup?.script && wiring.settings.get().agents[data.id] !== false,
+                (data) => data.hostSetup?.script && wiring.settings.get().agents[data.id] === true,
               )
               .map((data) => data.id)
           : [];

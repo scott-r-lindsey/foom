@@ -1,3 +1,4 @@
+import { builtinAgent } from "../../shared/providers/catalog";
 import { useEffect, useRef, useState } from "react";
 import type { FocusEvent, Ref } from "react";
 import type {
@@ -19,12 +20,9 @@ import {
 import { AgentBadge } from "../board/agent-badge";
 import { message } from "./message";
 
-const LABELS: Partial<Record<EnvironmentScope, { label: string; mark?: string }>> = {
-  all: { label: "All sessions" },
-  claude: { label: "Claude Code", mark: "CC" },
-  codex: { label: "Codex", mark: "CX" },
-  agy: { label: "Antigravity", mark: "AG" },
-};
+function scopeLabel(scope: EnvironmentScope): string {
+  return scope === "all" ? "All sessions" : (builtinAgent(scope)?.name ?? scope);
+}
 
 /** A row being edited. `saved` is its name in main, or null before its first save. */
 interface Draft {
@@ -37,8 +35,7 @@ interface Draft {
   dirty: boolean;
   error: string;
 }
-type Drafts = Record<"all" | "claude" | "codex" | "agy", Draft[]> &
-  Record<EnvironmentScope, Draft[]>;
+type Drafts = Record<"all", Draft[]> & Record<EnvironmentScope, Draft[]>;
 /** What a save sent, so its reply keeps edits made while it was in flight. */
 function rowsFor<T>(lists: Readonly<Record<string, readonly T[]>>, scope: string): readonly T[] {
   return lists[scope] ?? [];
@@ -56,7 +53,7 @@ function draft(row: EnvironmentRow): Draft {
   return { key: nextKey++, saved: row.name, ...row, dirty: false, error: "" };
 }
 function drafts(state: EnvironmentState): Drafts {
-  const result = {} as Drafts;
+  const result: Drafts = { all: [] };
   for (const scope of Object.keys(state.lists))
     result[scope] = rowsFor(state.lists, scope).map(draft);
   return result;
@@ -501,15 +498,13 @@ export function EnvironmentSettings({
           key={scope}
           className="environment-scope"
           aria-label={
-            selectedScope
-              ? `${label ?? scope} environment`
-              : (label ?? LABELS[scope]?.label ?? scope)
+            selectedScope ? `${label ?? scope} environment` : (label ?? scopeLabel(scope))
           }
         >
           {!selectedScope && (
             <h3>
-              {LABELS[scope]?.mark && <AgentBadge mark={LABELS[scope].mark} />}
-              {label ?? LABELS[scope]?.label ?? scope}
+              {builtinAgent(scope) && <AgentBadge mark={builtinAgent(scope)?.mark ?? ""} />}
+              {label ?? scopeLabel(scope)}
             </h3>
           )}
           <div className="environment-rows">
@@ -527,7 +522,7 @@ export function EnvironmentSettings({
                 <input
                   value=""
                   placeholder="NAME"
-                  aria-label={`New ${label ?? LABELS[scope]?.label ?? scope} variable name`}
+                  aria-label={`New ${label ?? scopeLabel(scope)} variable name`}
                   spellCheck={false}
                   autoComplete="off"
                   onChange={(event) => {

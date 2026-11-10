@@ -56,7 +56,7 @@ test("unedited docs refresh and edited docs are left alone", async () => {
   await f.write("CLAUDE.md", `${oldGuide}\nmy notes`);
   const again = new ConfigService({
     root: f.folder,
-    defaults: configPart(DEFAULT_SETTINGS),
+    defaults: configPart({ ...DEFAULT_SETTINGS, agents: { claude: true, codex: true, agy: true } }),
     apply: () => {},
     baseline: { get: () => f.baseline(), set: () => Promise.resolve() },
     themeBaseline: { get: () => null, set: () => Promise.resolve() },
@@ -78,13 +78,12 @@ test("ordinary changes apply live; invalid files are rejected whole", async () =
     expect(f.applied.at(-1)).toMatchObject({ terminalFontSize: 15 });
   });
   expect(f.copy()).toBe(await f.read("settings.json"));
-  await f.write("settings.json", '{"kind":"settings","agentArguments":{}}');
+  await f.write("settings.json", '{"kind":"settings","agentArguments":[]}');
   const rejected = await f.service.refresh();
   expect(rejected.rejected).toEqual([
     {
       file: "settings.json",
-      reason:
-        "$.agentArguments: invalid-value: Default arguments must name Claude Code, Codex and Antigravity.",
+      reason: "$.agentArguments: invalid-value: Default arguments must be a provider-ID map.",
     },
   ]);
   expect(f.applied.at(-1)).toMatchObject({ terminalFontSize: 15 });
@@ -241,7 +240,7 @@ test("a config path that is a file fails initialization and reports it", async (
   const statuses: unknown[] = [];
   const service = new ConfigService({
     root: folder,
-    defaults: configPart(DEFAULT_SETTINGS),
+    defaults: configPart({ ...DEFAULT_SETTINGS, agents: { claude: true, codex: true, agy: true } }),
     apply: () => {},
     baseline: { get: () => null, set: () => Promise.resolve() },
     themeBaseline: { get: () => null, set: () => Promise.resolve() },

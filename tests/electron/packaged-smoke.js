@@ -198,7 +198,12 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
     path.join(profile, "settings.json"),
     JSON.stringify({
       version: 1,
-      settings: { setupComplete: true, checkForUpdates: false, agentHooks: { codex: false } },
+      settings: {
+        agents: { codex: true },
+        setupComplete: true,
+        checkForUpdates: false,
+        agentHooks: { codex: false },
+      },
     }),
   );
   const repository = path.join(profile, "repo");

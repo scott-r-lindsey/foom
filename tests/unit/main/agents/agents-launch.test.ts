@@ -1,4 +1,6 @@
+import { ENABLED_AGENTS } from "../../../helpers/enabled-agents";
 import {
+  enabledAgentService,
   binding,
   cleanup,
   create,
@@ -13,13 +15,12 @@ import {
 import { execFile } from "node:child_process";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { AgentService } from "../../../../src/main/agents/agents";
 import type { TerminalSpec } from "../../../../src/shared/desktop";
 
 describe("automation spawn authority", () => {
   it("runs the final synchronous authority check after asynchronous checkout validation", async () => {
     const checks: string[] = [];
-    await agentFixture.service.scan();
+    await agentFixture.service.scan(ENABLED_AGENTS);
     await agentFixture.service.launch({
       ...request,
       prepareSpawn: async () => {
@@ -48,7 +49,7 @@ describe("automation spawn authority", () => {
       });
     });
     const beforeSpawn = vi.fn();
-    await agentFixture.service.scan();
+    await agentFixture.service.scan(ENABLED_AGENTS);
     const launched = agentFixture.service.launch({ ...request, prepareSpawn, beforeSpawn });
     const refused = expect(launched).rejects.toThrow("Checkout moved");
     await started;
@@ -63,7 +64,7 @@ describe("automation spawn authority", () => {
     const beforeSpawn = vi.fn(() => {
       throw new Error("Automation stopped");
     });
-    await agentFixture.service.scan();
+    await agentFixture.service.scan(ENABLED_AGENTS);
     await expect(agentFixture.service.launch({ ...request, beforeSpawn })).rejects.toThrow(
       "Automation stopped",
     );
@@ -127,7 +128,7 @@ describe("launch", () => {
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ args: [], env: { PATH: root } }));
   });
   it("uses evaluation when a hook receiver is unavailable", async () => {
-    agentFixture.service = new AgentService({ listWorktrees, launchIdentity }, { create });
+    agentFixture.service = enabledAgentService({ listWorktrees, launchIdentity }, { create });
     await expect(agentFixture.service.launch(request)).resolves.toMatchObject({
       id: "terminal-id",
       attention: "evaluator",
@@ -142,7 +143,7 @@ describe("launch", () => {
   });
   it("awaits asynchronous terminal creation and cleans up rejected or cancelled launches", async () => {
     const asyncCreate = vi.fn<(_spec: TerminalSpec) => Promise<string>>();
-    agentFixture.service = new AgentService(
+    agentFixture.service = enabledAgentService(
       { listWorktrees, launchIdentity },
       { create: asyncCreate },
       prepare,
@@ -178,7 +179,7 @@ describe("launch", () => {
   });
   it("uses inherited PATH on Windows and discovers native executables", async () => {
     vi.spyOn(process, "platform", "get").mockReturnValue("win32");
-    const scan = await agentFixture.service.scan();
+    const scan = await agentFixture.service.scan(ENABLED_AGENTS);
     expect(scan.warning).toBeNull();
     expect(scan.agents[0]?.path).toBe(join(root, "claude.exe"));
     expect(execFile).not.toHaveBeenCalledWith(

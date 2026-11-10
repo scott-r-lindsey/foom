@@ -1,3 +1,4 @@
+import { ENABLED_AGENTS } from "../../../helpers/enabled-agents";
 import { spawn } from "node:child_process";
 import { HookReceiver } from "../../../../src/main/agents/hook-receiver";
 import { observerAssets } from "../../../../src/main/agents/providers/v2-observers";
@@ -87,7 +88,7 @@ it.skipIf(process.platform === "win32")(
           },
         }),
     );
-    const scan = await service.scan();
+    const scan = await service.scan(ENABLED_AGENTS);
     expect(scan.agents[0]).toMatchObject({
       path: executable,
       version: "2.1.284 (Claude Code)",
@@ -169,9 +170,9 @@ it.skipIf(process.platform === "win32")(
     }
     expect((await readdir(home)).sort()).toEqual([".agents", ".claude", ".codex"]);
     await chmod(executable, 0o600);
-    expect((await service.scan()).agents[0]?.path).toBeNull();
+    expect((await service.scan(ENABLED_AGENTS)).agents[0]?.path).toBeNull();
     await chmod(executable, 0o700);
-    expect((await service.scan()).agents[0]?.path).toBe(executable);
+    expect((await service.scan(ENABLED_AGENTS)).agents[0]?.path).toBe(executable);
     service.dispose();
   },
 );

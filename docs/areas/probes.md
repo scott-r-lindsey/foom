@@ -92,7 +92,7 @@ After a changed provider registry finishes discovery, main publishes setup chang
 and refreshes workspace launch options, including sidebar config launchers. Board
 launch options subscribe to setup changes, discarding stale asynchronous results,
 and derive their entries from loaded provider identities, with absent enablement
-meaning enabled. Main validates installed IDs and launch authority. The
+meaning disabled. Main validates installed IDs and launch authority. The
 [application command registry](commands.md) has no agent launch routes or
 agent-discovery refresh; syntactic preload acceptance of via-provider commands
 does not create a route. MCP tools/list resolves the current registry for each

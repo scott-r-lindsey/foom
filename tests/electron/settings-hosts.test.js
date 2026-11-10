@@ -1098,6 +1098,7 @@ test("Hosts opens saved checks without SSH and keeps ready repositories compact"
         setupComplete: true,
         checkForUpdates: false,
         restoreSessions: false,
+        agents: { claude: true, codex: true, agy: true, copilot: true, opencode: true, pi: true },
         registeredHosts: [
           {
             host: "saved-fixture",
@@ -2065,7 +2066,15 @@ test("Agents Global list and machine picker scale to twelve agents and twelve sa
         checkForUpdates: false,
         restoreSessions: false,
         registeredHosts,
-        agents: { claude: true, codex: true, agy: true, copilot: true, opencode: true, pi: true },
+        agents: {
+          claude: true,
+          codex: true,
+          agy: true,
+          copilot: true,
+          opencode: true,
+          pi: true,
+          ...Object.fromEntries(Array.from({ length: 6 }, (_, index) => [`sample-${index}`, true])),
+        },
       },
     }),
   );

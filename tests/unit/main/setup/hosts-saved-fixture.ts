@@ -37,6 +37,7 @@ export async function restartedBrewHost() {
     });
   const store = await SettingsStore.open(root);
   await store.update({
+    agents: { codex: true },
     registeredHosts: [{ host: "mac-fixture", codeFolder: "/Users/fixture/foom" }],
   });
   const first = new Hosts(store, () => [], "0.1.0", run);

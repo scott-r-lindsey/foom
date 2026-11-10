@@ -56,7 +56,7 @@ export function weakenings(before: EffectiveConfig, after: EffectiveConfig): Wea
   if (before.hooks && !after.hooks)
     result.push({ action: "turn hooks off", detail: "hooks: on → off" });
   for (const agent of new Set([...Object.keys(before.agents), ...Object.keys(after.agents)]))
-    if (before.agents[agent] !== false && after.agents[agent] === false)
+    if (before.agents[agent] === true && after.agents[agent] !== true)
       result.push({
         action: `turn off ${AGENT_NAMES[agent] ?? agent}`,
         detail: `agents.${agent}: on → off`,
@@ -105,8 +105,8 @@ export function argumentChanges(before: EffectiveConfig, after: EffectiveConfig)
   return [...new Set([...Object.keys(before.agentArguments), ...Object.keys(after.agentArguments)])]
     .filter(
       (agent) =>
-        JSON.stringify(before.agentArguments[agent]) !==
-        JSON.stringify(after.agentArguments[agent]),
+        JSON.stringify(before.agentArguments[agent] ?? []) !==
+        JSON.stringify(after.agentArguments[agent] ?? []),
     )
     .map((agent) => ({
       action: `change ${AGENT_NAMES[agent] ?? agent} launch arguments`,
@@ -139,7 +139,8 @@ export function argumentDisclosure(before: EffectiveConfig, after: EffectiveConf
     ...new Set([...Object.keys(before.agentArguments), ...Object.keys(after.agentArguments)]),
   ].filter(
     (agent) =>
-      JSON.stringify(before.agentArguments[agent]) !== JSON.stringify(after.agentArguments[agent]),
+      JSON.stringify(before.agentArguments[agent] ?? []) !==
+      JSON.stringify(after.agentArguments[agent] ?? []),
   );
   return {
     title: "Allow agent launch arguments?",

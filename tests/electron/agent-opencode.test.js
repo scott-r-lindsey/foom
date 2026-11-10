@@ -33,6 +33,7 @@ test("bundled OpenCode cards launch isolated event modules and resume assigned c
     JSON.stringify({
       version: 1,
       settings: {
+        agents: { opencode: true },
         setupComplete: true,
         checkForUpdates: false,
         agentArguments: { claude: [], codex: [], agy: [], opencode: ["--auto"] },

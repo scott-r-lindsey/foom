@@ -1,4 +1,5 @@
 import {
+  enabledAgentService,
   cleanup,
   create,
   launchIdentity,
@@ -10,7 +11,6 @@ import {
 } from "./agents-fixture";
 import { createHash } from "node:crypto";
 import { expect, it, vi } from "vitest";
-import { AgentService } from "../../../../src/main/agents/agents";
 import { AgyPlugin } from "../../../../src/main/agents/agy-plugin";
 import { bundledProvider } from "../../../../src/main/agents/providers/bundled";
 import type { AgentProvider } from "../../../../src/main/agents/providers/provider";
@@ -39,7 +39,7 @@ it.each([
     const currentIdentity = bypassConsentIdentity(provider);
     if (!priorIdentity || !currentIdentity) throw Error("Missing provider identity");
     const confirm = vi.fn(() => Promise.resolve(false));
-    const service = new AgentService(
+    const service = enabledAgentService(
       { listWorktrees, launchIdentity },
       { create },
       undefined,
@@ -88,7 +88,7 @@ it("v2 checks final environment bypass on every launch, redacts values, and reje
   const approve = vi.fn(() => Promise.resolve(false));
   const revoke = vi.fn();
   const grant = vi.fn(() => Promise.resolve({ env: {}, bind: vi.fn(), dispose: revoke }));
-  agentFixture.service = new AgentService(
+  agentFixture.service = enabledAgentService(
     { listWorktrees, launchIdentity },
     { create },
     prepare,
@@ -97,7 +97,7 @@ it("v2 checks final environment bypass on every launch, redacts values, and reje
     approve,
   );
   const v2Request = { ...request, agent: parsed.model.id };
-  const scan = await agentFixture.service.scan();
+  const scan = await agentFixture.service.scan({ [parsed.model.id]: true });
   expect(scan.agents.find((agent) => agent.id === parsed.model.id)).toMatchObject({
     resume: true,
     restoreControl: false,
@@ -171,7 +171,7 @@ it("v2 revokes launch on approval races, disposal and failed version/help probes
     changed = true;
     return Promise.resolve(true);
   });
-  agentFixture.service = new AgentService(
+  agentFixture.service = enabledAgentService(
     { listWorktrees, launchIdentity },
     { create },
     undefined,
@@ -179,7 +179,7 @@ it("v2 revokes launch on approval races, disposal and failed version/help probes
     new AgyPlugin(),
     approve,
   );
-  await agentFixture.service.scan();
+  await agentFixture.service.scan({ [parsed.model.id]: true });
   const v2Request = { ...request, agent: parsed.model.id, defaultArguments: ["--yolo"] };
   await expect(agentFixture.service.launch(v2Request)).rejects.toThrow("changed");
   expect(create).not.toHaveBeenCalled();
@@ -189,9 +189,9 @@ it("v2 revokes launch on approval races, disposal and failed version/help probes
     return Promise.resolve(true);
   });
   await expect(agentFixture.service.launch(v2Request)).rejects.toThrow("disposed");
-  agentFixture.service = new AgentService({ listWorktrees, launchIdentity }, { create });
+  agentFixture.service = enabledAgentService({ listWorktrees, launchIdentity }, { create });
   agentFixture.failed = "--help";
-  const scan = await agentFixture.service.scan();
+  const scan = await agentFixture.service.scan({ [parsed.model.id]: true });
   expect(scan.agents.find((agent) => agent.id === parsed.model.id)).toMatchObject({
     hooks: false,
     mcp: false,
@@ -243,7 +243,7 @@ it("v2 revokes control credentials before removing launch resources on release, 
         revoked = true;
       },
     });
-  agentFixture.service = new AgentService(
+  agentFixture.service = enabledAgentService(
     { listWorktrees, launchIdentity },
     { create },
     undefined,
@@ -283,7 +283,7 @@ it("rejects context-selected bundled disclosures without a consent mechanism", a
   const digest = createHash("sha256").update(JSON.stringify(data)).digest("hex");
   replaceConfigProviders([bundledProvider(data, data.id, digest)]);
   const dispose = vi.fn();
-  agentFixture.service = new AgentService(
+  agentFixture.service = enabledAgentService(
     { listWorktrees, launchIdentity },
     { create },
     prepare,
@@ -323,7 +323,7 @@ it("checks manifest environment after layering and rejects its bypass for childr
   agentFixture.help = "--inline --prompt";
   vi.stubEnv("FIXTURE_BYPASS", "");
   const approve = vi.fn(() => Promise.resolve(true));
-  agentFixture.service = new AgentService(
+  agentFixture.service = enabledAgentService(
     { listWorktrees, launchIdentity },
     { create },
     prepare,

@@ -130,8 +130,8 @@ policy or install a connector. Extension/disabling flags are reserved in Foom's
 default arguments so defaults cannot replace its attachment. No global or project
 Pi files are read or written by Foom. See [measurements](../agents.md#pi-140-extension-spike-834).
 
-Existing settings keep their original required keys; absent Pi settings use the
-normal enabled/empty-default behavior without rewriting the profile. Pi uses the
+Existing settings keep their explicit keys; absent Pi settings use the
+normal disabled/empty-default behavior without rewriting the profile. Pi uses the
 shared provider/disclosure-bound bypass consent: a legacy `pi: true` acknowledgement,
 a custom provider identity, or an identity for an older manifest cannot authorize
 `--approve` or `-a`. Cancelling disclosure saves no new consent; approving a single

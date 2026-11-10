@@ -1,3 +1,4 @@
+import { ENABLED_AGENTS } from "../../../helpers/enabled-agents";
 import { expect, test } from "vitest";
 import { installedHealth } from "../../../../src/main/agents/providers/installed-observers";
 import {
@@ -160,6 +161,7 @@ test("Antigravity completion and failure evidence survives quiet output, clears 
     agents: [{ id: "agy", path: "/bin/agy", version: "1.3.1", hooks: true, reason: "installed" }],
   });
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   await workspace.launch({
     agent: "agy",
     repository: repo.path,
@@ -208,6 +210,7 @@ test("fully idle Antigravity Stop recovers a turn whose working report was overt
     agents: [{ id: "agy", path: "/bin/agy", version: "1.3.1", hooks: true, reason: "installed" }],
   });
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   await workspace.launch({
     agent: "agy",
     repository: repo.path,
