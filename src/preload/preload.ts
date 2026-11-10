@@ -606,6 +606,7 @@ const validHostsState: Validator<HostsState> = shape({
       foreignWorktrees: either(absent, count),
     }),
   ),
+  remoteHostsAvailable: either(absent, boolean),
   locations: array(shape({ repository: text, host: hostAlias, result: validHostResult })),
   result: either(absent, validHostResult),
 } satisfies Contract<HostsState>);

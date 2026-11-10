@@ -633,3 +633,58 @@ test.each(["missing-tool", "missing-mac"])(
     expect(settings.registeredHosts?.[0]?.observation?.checkedAt).toBe(1234);
   },
 );
+
+test.each(["artifact-unavailable", "unreachable", "version-mismatch", "invalid-reply"] as const)(
+  "daemon failure %s is consistent across full check, row reload and reopen without repository probes",
+  async (reason) => {
+    const connection = {
+      ssh: { state: "pass" as const },
+      platform: { state: "pass" as const },
+      artifact:
+        reason === "artifact-unavailable"
+          ? { state: "fail" as const, reason }
+          : { state: "pass" as const },
+    };
+    execute.mockResolvedValue({ ok: false, reason, connection });
+    settings = { ...settings, registeredHosts: [{ host: "fixture", codeFolder: "/code" }] };
+    const full = await hosts.action({ action: "preflight", host: "fixture", codeFolder: "/code" });
+    const reload = await hosts.action({
+      action: "reload",
+      host: "fixture",
+      target: { kind: "artifact" },
+    });
+    const reopened = await hosts.action({ action: "list" });
+    expect(reload.preflight).toEqual(full.preflight);
+    expect(reopened.hosts[0]?.observation?.preflight).toEqual(full.preflight);
+    expect(full.preflight?.repositories).toEqual([]);
+    expect(execute.mock.calls.every(([, request]) => request.operation === "inspect")).toBe(true);
+    expect(reload.output?.failed).toBe(reason !== "artifact-unavailable");
+  },
+);
+
+test("opening Hosts reports local build capability without a remote check", async () => {
+  hosts.dispose();
+  hosts = new Hosts(
+    { get: () => settings, update: () => Promise.resolve(settings) },
+    () => [],
+    "0.1.0",
+    execute,
+    undefined,
+    () => Promise.resolve(false),
+  );
+  expect((await hosts.action({ action: "list" })).remoteHostsAvailable).toBe(false);
+  expect(execute).not.toHaveBeenCalled();
+});
+
+test("a never-checked host can reload the build limitation without inventing a saved check", async () => {
+  settings = { ...settings, registeredHosts: [{ host: "fixture", codeFolder: "/code" }] };
+  execute.mockResolvedValue({ ok: false, reason: "artifact-unavailable" });
+  const state = await hosts.action({
+    action: "reload",
+    host: "fixture",
+    target: { kind: "artifact" },
+  });
+  expect(state.preflight?.artifact).toEqual({ state: "fail", reason: "artifact-unavailable" });
+  expect(state.hosts[0]?.rowFailures).toBeUndefined();
+  expect(state.hosts[0]?.observation).toBeUndefined();
+});

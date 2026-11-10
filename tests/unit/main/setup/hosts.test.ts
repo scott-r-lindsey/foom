@@ -1166,7 +1166,7 @@ test.each([
   expect(settings.registeredHosts).toEqual([{ host: "worker", codeFolder: facts.codeFolder }]);
 });
 
-test("preflight preserves independent bootstrap observations and local origin refusal", async () => {
+test("preflight preserves bootstrap observations and leaves dependent origins unrun", async () => {
   run.mockResolvedValue({
     ok: false,
     reason: "artifact-unavailable",
@@ -1188,11 +1188,13 @@ test("preflight preserves independent bootstrap observations and local origin re
     artifact: { state: "fail", reason: "artifact-unavailable" },
     repositories: [
       {
-        origin: { state: "fail", reason: "origin-unavailable" },
-        checkout: { ok: false, reason: "origin-unavailable" },
+        origin: { state: "not-checked" },
+        checkout: { ok: false, reason: "artifact-unavailable" },
       },
     ],
   });
+  expect(mock.execute).not.toHaveBeenCalled();
+  expect(run).toHaveBeenCalledOnce();
   expect(JSON.stringify(state)).not.toContain("raw");
 });
 

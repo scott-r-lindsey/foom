@@ -31,7 +31,7 @@ const reasons: Record<HostFailure, string> = {
   "facts-unavailable": "Host daemon needs an update for host facts",
   "libc-too-old": "Unsupported · glibc < 2.28",
   "libc-unsupported": "Unsupported · musl libc",
-  "artifact-unavailable": "This build has no remote host support",
+  "artifact-unavailable": "Unavailable in this build",
   "folder-missing": "Code folder does not exist",
   "folder-refused": "Code folder unavailable",
   "unsafe-folder": "Code folder ownership or permissions are unsafe",
@@ -81,8 +81,12 @@ function HostCheckOutput({
 }
 
 type Tone = "pass" | "need" | "fail" | "neutral" | "work";
-function failureTone(reason: HostFailure): "need" | "fail" {
-  return reason === "host-key-unknown" ? "need" : "fail";
+function failureTone(reason: HostFailure): "need" | "fail" | "neutral" {
+  return reason === "artifact-unavailable"
+    ? "neutral"
+    : reason === "host-key-unknown"
+      ? "need"
+      : "fail";
 }
 function Status({ tone, children }: { tone: Tone; children: ReactNode }) {
   return (
@@ -177,7 +181,12 @@ function checkPresentation(
   if (check?.state === "fail")
     return {
       tone: failureTone(check.reason),
-      text: ["host-key-unknown", "host-key-changed", "login-rejected"].includes(check.reason)
+      text: [
+        "host-key-unknown",
+        "host-key-changed",
+        "login-rejected",
+        "artifact-unavailable",
+      ].includes(check.reason)
         ? reasons[check.reason]
         : `${reasons[check.reason]} · ${check.reason}`,
     };
@@ -190,10 +199,30 @@ export function hostProgressText(progress: HostCheckProgress | undefined): strin
   const step = progress.phase === "origin" ? "Checking Git access" : "Checking checkout";
   return `${step} · ${name} (${String(index + 1)} of ${String(progress.repositories.length)})`;
 }
+function buildPreflight(
+  preflight: HostPreflight | undefined,
+  available: boolean | undefined,
+): HostPreflight | undefined {
+  if (available !== false) return preflight;
+  return {
+    ssh: preflight?.ssh ?? { state: "not-checked" },
+    platform: preflight?.platform ?? { state: "not-checked" },
+    artifact: { state: "fail", reason: "artifact-unavailable" },
+    result: { ok: false, reason: "artifact-unavailable" },
+    repositories:
+      preflight?.repositories.map((repo) => ({
+        ...repo,
+        origin: { state: "not-checked" },
+        checkout: { ok: false, reason: "artifact-unavailable" },
+      })) ?? [],
+  };
+}
 function hostSummary(preflight: HostPreflight | undefined) {
   if (!preflight) return "Not checked";
   const result = preflight.result;
-  if (!result.ok) return "Needs you";
+  if (preflight.ssh.state === "fail") return "Needs you";
+  if (!result.ok)
+    return result.reason === "artifact-unavailable" ? "Unavailable in this build" : "Needs you";
   const facts = result.facts;
   const checks = [preflight.ssh, preflight.platform, preflight.artifact, facts.folder];
   const ready =
@@ -333,6 +362,7 @@ function Checklist({
   const repositories = progress?.repositories ?? preflight?.repositories ?? [];
   const readyRepositories = repositories.filter(
     (repo) =>
+      facts &&
       repo.origin?.state === "pass" &&
       repo.checkout?.ok &&
       repo.checkout.checkout &&
@@ -425,11 +455,11 @@ function Checklist({
             <Row name="git / gh" tone="neutral" text="Not checked" />
           )}
           <Group>Agents</Group>
-          {openAgents ? (
+          {openAgents && facts ? (
             <Row
               name="Agents"
               tone="neutral"
-              text={`${String(facts?.agents.filter((agent) => enabledAgents?.[agent.id] !== false && agent.state === "ready" && agent.signIn !== "signed-out").length ?? 0)} of ${String([...new Set([...BUILTIN_AGENTS.map((agent) => agent.id), ...Object.keys(enabledAgents ?? {})])].filter((id) => enabledAgents?.[id] !== false).length)} ready`}
+              text={`${String(facts.agents.filter((agent) => enabledAgents?.[agent.id] !== false && agent.state === "ready" && agent.signIn !== "signed-out").length)} of ${String([...new Set([...BUILTIN_AGENTS.map((agent) => agent.id), ...Object.keys(enabledAgents ?? {})])].filter((id) => enabledAgents?.[id] !== false).length)} ready`}
               action={
                 <button
                   type="button"
@@ -469,9 +499,11 @@ function Checklist({
                   name="Git access to origin"
                   {...(checking && !repo.origin
                     ? { tone: "work" as const, text: "Checking…" }
-                    : checkPresentation(repo.origin, "Reachable"))}
+                    : checkPresentation(facts ? repo.origin : undefined, "Reachable"))}
                   action={
-                    repo.origin?.state === "fail" && repo.origin.reason === "origin-host-key" ? (
+                    facts &&
+                    repo.origin?.state === "fail" &&
+                    repo.origin.reason === "origin-host-key" ? (
                       <button
                         type="button"
                         disabled={disabled}
@@ -488,7 +520,7 @@ function Checklist({
                     ) : undefined
                   }
                 />
-                {repo.origin?.state === "fail" && repo.origin.reason === "origin-auth" && (
+                {facts && repo.origin?.state === "fail" && repo.origin.reason === "origin-auth" && (
                   <div className="host-origin-fixes" aria-label="Git access fixes">
                     <span title={"Configure the host's Git to use HTTPS through gh"}>
                       Use HTTPS through gh
@@ -945,6 +977,7 @@ export function HostsSettings({
           </button>
         )}
       </header>
+      {state.remoteHostsAvailable === false && <p>This build has no remote host support</p>}
       {!!error && (
         <p role="alert" className={typeof error === "string" ? "hosts-failure" : undefined}>
           {error}
@@ -1030,7 +1063,10 @@ export function HostsSettings({
       {!state.hosts.length && !adding && <p>No hosts</p>}
       {state.hosts.map((entry) => {
         const recipe = recipes.get(entry.host);
-        const preflight = checks.get(entry.host) ?? entry.observation?.preflight;
+        const preflight = buildPreflight(
+          checks.get(entry.host) ?? entry.observation?.preflight,
+          state.remoteHostsAvailable,
+        );
         const hostProgress = progress?.host === entry.host ? progress : undefined;
         const connection = hostProgress?.result
           ? hostProgress.result.connection

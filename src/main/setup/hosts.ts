@@ -46,6 +46,7 @@ import type { DialogContent, DialogOutcome, PlainDialogContent } from "../../sha
 import type { RemoteSessionInfo, RemoteInventoryResult } from "../../shared/remote-host";
 import { locationId } from "../control/metadata";
 import { remoteInventory, remoteManagement } from "../terminals/remote-transport";
+import { remoteHostsAvailable } from "../terminals/remote-bootstrap";
 import { sshEnvironment } from "../terminals/remote-bootstrap";
 
 /** Background inspections carry the same main-classified failure without a checklist. */
@@ -54,6 +55,43 @@ function unknownHostKey(result: HostResult | undefined): boolean {
   return ssh
     ? ssh.state === "fail" && ssh.reason === "host-key-unknown"
     : result?.ok === false && result.reason === "host-key-unknown";
+}
+
+/** The same closed classification serves full checks and individual connection rows. */
+function connectionChecks(
+  result: HostResult,
+): Pick<HostPreflight, "ssh" | "platform" | "artifact"> {
+  const pass: HostCheck = { state: "pass" };
+  const unknown: HostCheck = { state: "not-checked" };
+  const fail = (reason: HostFailure): HostCheck => ({ state: "fail", reason });
+  const reason = result.ok ? undefined : result.reason;
+  const platformFailure =
+    reason === "unsupported" || reason === "libc-too-old" || reason === "libc-unsupported";
+  const requirements = result.ok ? result.facts.requirements : undefined;
+  const platform: HostCheck = platformFailure
+    ? fail(reason)
+    : result.ok
+      ? requirements?.libc === "too-old"
+        ? fail("libc-too-old")
+        : requirements?.libc === "unsupported"
+          ? fail("libc-unsupported")
+          : pass
+      : unknown;
+  return {
+    ssh:
+      result.connection?.ssh ??
+      (result.ok || platformFailure || reason === "facts-unavailable"
+        ? pass
+        : reason === "unreachable"
+          ? fail(reason)
+          : unknown),
+    platform: result.connection?.platform ?? platform,
+    artifact:
+      (!result.ok && result.connection?.artifact.state === "pass"
+        ? fail(result.reason)
+        : result.connection?.artifact) ??
+      (result.ok ? pass : reason === "artifact-unavailable" ? fail(reason) : unknown),
+  };
 }
 
 /** Only the folder observation (including macOS's path warning) changes. */
@@ -597,7 +635,9 @@ export class Hosts {
     ) => Promise<HostResult> = (host, request, output) =>
       remoteManagement({ host }, version, request, this.cancellation.signal, output),
     private readonly profile?: string,
+    private readonly buildSupport?: () => Promise<boolean>,
   ) {}
+  private remoteHostsAvailable: boolean | undefined;
   private projectedResult(host: string, result = this.results.get(host)): HostResult | undefined {
     const inventory = this.sessionInventories.get(host);
     return result?.ok && inventory
@@ -700,6 +740,9 @@ export class Hosts {
   }
   state(result?: HostResult, savedOnly = false): HostsState {
     return {
+      ...(this.remoteHostsAvailable === undefined
+        ? {}
+        : { remoteHostsAvailable: this.remoteHostsAvailable }),
       hosts: (this.store.get().registeredHosts ?? []).map((host) => {
         const rowFailures = (this.pendingRows.get(host.host) ?? []).flatMap((row) =>
           row.reason ? [{ target: row.target, reason: row.reason }] : [],
@@ -875,6 +918,9 @@ export class Hosts {
     const previous = registration.observation?.preflight;
     const displayed = previous?.result ?? this.results.get(host);
     const connectionRow = ["ssh", "platform", "artifact"].includes(target.kind);
+    if (!previous && connectionRow && !result.ok && result.reason === "artifact-unavailable")
+      return { ...connectionChecks(result), result, repositories: [] };
+
     if (
       (!previous && (!displayed?.ok || "repository" in target)) ||
       ("repository" in target &&
@@ -907,7 +953,7 @@ export class Hosts {
           ),
         };
       if (target.kind === "ssh") {
-        const ssh = result.connection?.ssh ?? check;
+        const ssh = connectionChecks(result).ssh;
         return {
           ...previous,
           ssh,
@@ -922,7 +968,21 @@ export class Hosts {
         };
       }
       if (target.kind === "platform" || target.kind === "artifact")
-        return { ...previous, [target.kind]: result.connection?.[target.kind] ?? check };
+        return {
+          ...previous,
+          [target.kind]: connectionChecks(result)[target.kind],
+          ...(!result.ok
+            ? {
+                ...connectionChecks(result),
+                result,
+                repositories: previous.repositories.map((repo) => ({
+                  ...repo,
+                  origin: { state: "not-checked" as const },
+                  checkout: result,
+                })),
+              }
+            : {}),
+        };
       if (!previous.result.ok) return previous;
       const facts = previous.result.facts;
       const observed = result.ok ? result.facts : undefined;
@@ -1562,6 +1622,10 @@ export class Hosts {
     return work.then((state) => this.trustState(state, trustSignal));
   }
   private async trustState(state: HostsState, signal?: AbortSignal): Promise<HostsState> {
+    if (this.buildSupport) {
+      this.remoteHostsAvailable = await this.buildSupport();
+      state = { ...state, remoteHostsAvailable: this.remoteHostsAvailable };
+    }
     const cancellation = signal
       ? AbortSignal.any([this.cancellation.signal, signal])
       : this.cancellation.signal;
@@ -1593,7 +1657,8 @@ export class Hosts {
         options.output &&
         this.output?.running &&
         this.output.host === host &&
-        !this.output.failed
+        !this.output.failed &&
+        reason !== "artifact-unavailable"
       ) {
         this.output.failed = true;
         this.appendOutput(`Failed · ${reason}\n`, true);
@@ -1649,8 +1714,16 @@ export class Hosts {
           ? await this.execute(host, { ...request, agents: probes }, output)
           : await this.execute(host, { ...request, agents: probes });
         if (output && hostResult(result)) {
-          output(result.ok ? "Done\n" : `Failed · ${result.reason}\n`, true);
-          if (this.output && !result.ok) this.output.failed = true;
+          output(
+            result.ok
+              ? "Done\n"
+              : result.reason === "artifact-unavailable"
+                ? "Unavailable in this build\n"
+                : `Failed · ${result.reason}\n`,
+            true,
+          );
+          if (this.output && !result.ok && result.reason !== "artifact-unavailable")
+            this.output.failed = true;
         }
       } catch {
         return cancelled()
@@ -1727,35 +1800,26 @@ export class Hosts {
     const pass: HostCheck = { state: "pass" };
     const unknown: HostCheck = { state: "not-checked" };
     const fail = (reason: HostFailure): HostCheck => ({ state: "fail", reason });
-    const reason = result.ok ? undefined : result.reason;
-    const platformFailure =
-      reason === "unsupported" || reason === "libc-too-old" || reason === "libc-unsupported";
-    const requirements = result.ok ? result.facts.requirements : undefined;
-    const platform: HostCheck = platformFailure
-      ? fail(reason)
-      : result.ok
-        ? requirements?.libc === "too-old"
-          ? fail("libc-too-old")
-          : requirements?.libc === "unsupported"
-            ? fail("libc-unsupported")
-            : pass
-        : unknown;
-    const connection = {
-      ssh:
-        result.connection?.ssh ??
-        (result.ok || platformFailure || reason === "facts-unavailable"
-          ? pass
-          : reason === "unreachable"
-            ? fail(reason)
-            : unknown),
-      platform: result.connection?.platform ?? platform,
-      artifact:
-        result.connection?.artifact ??
-        (result.ok ? pass : reason === "artifact-unavailable" ? fail(reason) : unknown),
-    };
+    const connection = connectionChecks(result);
     const repositories: HostPreflight["repositories"][number][] = [];
-    if (connection.ssh.state === "fail" || unknownHostKey(result))
-      return { ...connection, result, repositories };
+    if (
+      !result.ok ||
+      connection.artifact.state !== "pass" ||
+      connection.ssh.state === "fail" ||
+      unknownHostKey(result)
+    )
+      return {
+        ...connection,
+        result,
+        repositories:
+          connection.ssh.state === "fail" || unknownHostKey(result)
+            ? []
+            : (this.progress?.repositories ?? []).map((repo) => ({
+                repository: repo.repository,
+                origin: unknown,
+                checkout: result,
+              })),
+      };
     const planned = this.progress?.repositories ?? [];
     const update = (phase: "origin" | "checkout", repository: string, origin?: HostCheck) => {
       this.progress = {
@@ -1774,19 +1838,14 @@ export class Hosts {
     for (const repo of planned) {
       update("origin", repo.repository);
       let origin: HostCheck;
-      const git = result.ok ? result.facts.tools?.find((tool) => tool.id === "git") : undefined;
+      const git = result.facts.tools?.find((tool) => tool.id === "git");
       try {
         if (git && git.state !== "ready") {
           update("checkout", repo.repository, unknown);
           repositories.push({
             repository: repo.repository,
             origin: unknown,
-            checkout: await this.repository(
-              host,
-              result.ok ? result.facts.codeFolder : codeFolder,
-              repo.repository,
-              false,
-            ),
+            checkout: await this.repository(host, result.facts.codeFolder, repo.repository, false),
           });
           continue;
         }
@@ -1803,12 +1862,7 @@ export class Hosts {
         origin = fail("origin-unavailable");
       }
       update("checkout", repo.repository, origin);
-      const checkout = await this.repository(
-        host,
-        result.ok ? result.facts.codeFolder : codeFolder,
-        repo.repository,
-        false,
-      );
+      const checkout = await this.repository(host, result.facts.codeFolder, repo.repository, false);
       repositories.push({ repository: repo.repository, origin, checkout });
     }
     return { ...connection, result, repositories };
@@ -1935,7 +1989,14 @@ export function hostsForStore(
 ): Hosts {
   let hosts = services.get(store);
   if (!hosts) {
-    hosts = new Hosts(store, repositories, version, undefined, store.profileTag?.());
+    hosts = new Hosts(
+      store,
+      repositories,
+      version,
+      undefined,
+      store.profileTag?.(),
+      remoteHostsAvailable,
+    );
     services.set(store, hosts);
     onQuit?.(hosts.dispose.bind(hosts));
   }

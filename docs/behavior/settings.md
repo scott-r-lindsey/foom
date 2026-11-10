@@ -379,6 +379,19 @@ grants no orchestrator control. Hosts counts other-profile and untagged worktree
 as **other worktrees**; these are never listed or adopted. See [Hosts](../areas/hosts.md)
 for the profile and cleanup rules.
 
+### Unavailable remote support (#1131)
+
+Hosts states **This build has no remote host support** once in neutral text when
+the build's sealed catalog is omitted, before any explicit connection check.
+Remote daemon shows **Unavailable in this build** neutrally; this limitation
+alone does not mark the host **Needs you**. Opening Hosts reads only local and
+saved state. Explicit checks still allow bounded SSH/platform discovery, including
+host-key trust, but cannot dispatch daemon or repository checks without an artifact.
+Full checks, row reloads and reopening Settings keep the same classification.
+Transport failures retain their fixed connectivity/protocol reason rather than
+claiming a missing artifact. Checks blocked by daemon inspection show neutral
+**Not checked**, without a failure cross or repeated daemon reason.
+
 ### Hosts checklist refresh (#1061)
 
 **Check capabilities** checks the whole host; Add performs its first check.

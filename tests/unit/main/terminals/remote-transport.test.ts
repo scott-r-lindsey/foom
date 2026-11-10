@@ -1285,7 +1285,7 @@ test.each([false, true])(
   },
 );
 
-test.each(["handshake", "reply", "artifact", "ssh"])(
+test.each(["handshake", "reply", "artifact", "ssh", "network-drop", "daemon-exit"])(
   "management distinguishes %s failures",
   async (step) => {
     transport.kill();
@@ -1306,6 +1306,12 @@ test.each(["handshake", "reply", "artifact", "ssh"])(
     if (step === "reply") {
       child.greet();
       child.stdout.write(Buffer.from([0, 0, 0, 1, 255]));
+    }
+    if (step === "network-drop" || step === "daemon-exit") {
+      child.greet();
+      if (step === "network-drop")
+        child.stdin.emit("error", new Error("fixture private diagnostic"));
+      else child.emit("exit", 1);
     }
     await expect(pending).resolves.toEqual({
       ok: false,

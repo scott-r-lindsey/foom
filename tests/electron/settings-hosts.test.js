@@ -60,7 +60,7 @@ async function captureHosts(app, page, name) {
         .toBe(mode === "dark");
       await area.screenshot({
         path: evidencePath(
-          `${/^(?:1059|1061|1062|1074)\//u.test(name) ? name : `1074/${name}`}-${mode}.png`,
+          `${/^(?:1059|1061|1062|1074|1131)\//u.test(name) ? name : `1074/${name}`}-${mode}.png`,
         ),
       });
     }
@@ -226,6 +226,7 @@ process.stdin.on('data', bytes => {
     continue;
   }
   assert.equal('id' in message,false); appendFileSync(${JSON.stringify(calls)},JSON.stringify({host,message})+'\\n');
+  if(message.type==='hello' && current.transportFailure) { if(current.transportFailure==='protocol') process.stdout.write(Buffer.from([0,0,0,1,255])); else process.exit(1); continue; }
   if(message.type==='hello') { const settings=JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8')); send({type:'hello',agentSettings:1,...(settings.compatibleBuild?{build:'b'.repeat(64),compatible:2,startupTheme:1,hostFacts:1,hostPreflight:1,hostRowCheck:1}:{build:host==='version-cloud'?'b'.repeat(64):${JSON.stringify(manifest.sha256)}})}); continue; }
   if(message.type==='inventory') {send({type:'inventory-result',own:[],foreign:[]}); continue;}
   assert.equal(message.type,'manage');
@@ -903,7 +904,7 @@ test("Hosts creates missing folders and reports enrollment and artifact failures
     card
       .locator(".host-check-row")
       .filter({ hasText: "Remote daemon" })
-      .getByText("This build has no remote host support · artifact-unavailable", { exact: true }),
+      .getByText("Unavailable in this build", { exact: true }),
   ).toBeVisible();
   await expect(card.getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
   await capture("missing-build-support");
@@ -2195,7 +2196,11 @@ test("Hosts accepts new SSH keys only through the trusted askpass dialog", {
     "No daemon or repository request before SSH trust",
   );
   const state = await page.evaluate(() => window.desktop.hosts({ action: "list" }));
-  assert.deepEqual(state.hosts[0].observation.preflight.repositories, []);
+  assert.ok(
+    state.hosts[0].observation.preflight.repositories.every(
+      (repo) => repo.origin.state === "not-checked",
+    ),
+  );
   const waitingOutput = card.getByRole("region", { name: "Host check output", exact: true });
   await expect(waitingOutput.getByRole("status")).toHaveText("Host key not trusted");
   await expect(waitingOutput.getByRole("button", { name: "Dismiss", exact: true })).toHaveCount(0);
@@ -2571,4 +2576,99 @@ test("Hosts reports dialog-unavailable when native trust presentation fails", {
   await expect(output).not.toContainText("Fixture native presentation failure");
   await expect(card.getByRole("button", { name: "Trust host key…", exact: true })).toBeEnabled();
   assert.equal(await readFile(knownHosts, "utf8"), "");
+});
+
+test("Hosts status classification stays consistent with sealed catalog omission", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { page, card, navigation, capture, calls } = await hostsFixture(context);
+  const metadata = path.resolve("build/build-metadata.json");
+  const previous = await readFile(metadata);
+  fixtureCleanup(context).apps.push(() => writeFile(metadata, previous));
+  await writeFile(
+    metadata,
+    JSON.stringify({ ...JSON.parse(previous), remoteHostsAvailable: false }),
+  );
+  const before = await readFile(calls, "utf8");
+  await navigation.getByRole("button", { name: "General", exact: true }).click();
+  await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
+  await card.getByRole("button", { name: "Expand fixture-cloud", exact: true }).click();
+  await expect(
+    page.getByText("This build has no remote host support", { exact: true }),
+  ).toHaveCount(1);
+  assert.equal(
+    await readFile(calls, "utf8"),
+    before,
+    "Opening Hosts reads only local build and saved state",
+  );
+  const unavailable = card
+    .locator(".host-check-row")
+    .filter({ hasText: "Remote daemon" })
+    .locator(".host-status");
+  await expect(unavailable).toContainText("Unavailable in this build");
+  await expect(unavailable).toHaveClass(/host-neutral/u);
+  await expect(card.getByText("Needs you", { exact: true })).toHaveCount(0);
+  await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
+  await expect(card.locator(".host-checks")).toHaveAttribute("aria-busy", "false");
+  await expect(unavailable).toHaveClass(/host-neutral/u);
+  await expect(card.locator(".host-fail")).toHaveCount(0);
+  await expect(
+    card.locator(".host-check-row").filter({ hasText: "Git access to origin" }),
+  ).toContainText("Not checked");
+  await capture("1131/sealed-omission");
+  await card.getByRole("button", { name: "Reload Remote daemon", exact: true }).click();
+  await expect(unavailable).toContainText("Unavailable in this build");
+  await expect(card.locator(".host-check-row[aria-busy=true]")).toHaveCount(0);
+  await navigation.getByRole("button", { name: "General", exact: true }).click();
+  await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
+  await card.getByRole("button", { name: "Expand fixture-cloud", exact: true }).click();
+  await expect(unavailable).toHaveClass(/host-neutral/u);
+  await expect(card.getByText("Needs you", { exact: true })).toHaveCount(0);
+  const operations = (await readFile(calls, "utf8")).slice(before.length).trim();
+  assert.equal(
+    operations,
+    "",
+    "Only bounded SSH/platform discovery can run without a catalog; no daemon requests",
+  );
+});
+
+test("Hosts status classification preserves transport failures with a fixture catalog", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { page, card, navigation, capture, updateScenario } = await hostsFixture(context);
+  for (const [transportFailure, reason] of [
+    ["exit", "unreachable"],
+    ["protocol", "version-mismatch"],
+  ]) {
+    await updateScenario({ transportFailure });
+    await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
+    await expect(card.locator(".host-checks")).toHaveAttribute("aria-busy", "false");
+    const state = await page.evaluate(() => window.desktop.hosts({ action: "list" }));
+    assert.equal(state.hosts[0].observation.preflight.result.reason, reason);
+    await expect(
+      card.locator(".host-check-row").filter({ hasText: "Remote daemon" }).locator(".host-status"),
+    ).toContainText(
+      `${reason === "unreachable" ? "Host unreachable" : "Host version mismatch"} · ${reason}`,
+    );
+    assert.ok(
+      state.hosts[0].observation.preflight.repositories.every(
+        (repo) => repo.origin.state === "not-checked",
+      ),
+    );
+    await expect(card.getByText("Unavailable in this build", { exact: true })).toHaveCount(0);
+    await expect(card.getByText("Needs you", { exact: true })).toBeVisible();
+    await expect(card.locator(".host-check-row").filter({ hasText: "Code folder" })).toContainText(
+      "Not checked",
+    );
+    await card.getByRole("button", { name: "Reload Remote daemon", exact: true }).click();
+    await expect(card.locator(".host-check-row[aria-busy=true]")).toHaveCount(0);
+    const reloaded = await page.evaluate(() => window.desktop.hosts({ action: "list" }));
+    assert.equal(reloaded.hosts[0].observation.preflight.result.reason, reason);
+    await navigation.getByRole("button", { name: "General", exact: true }).click();
+    await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
+    await expect(card.getByText("Unavailable in this build", { exact: true })).toHaveCount(0);
+    if (transportFailure === "exit") await capture("1131/daemon-exit");
+  }
 });

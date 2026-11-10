@@ -322,7 +322,11 @@ test.each(failures)(
         repositories: [],
       },
     });
-    await screen.findByText(new RegExp(` · ${reason}$`, "u"));
+    await screen.findAllByText(
+      reason === "artifact-unavailable"
+        ? "Unavailable in this build"
+        : new RegExp(` · ${reason}$`, "u"),
+    );
     expect(screen.getByText("Pass · Host key trusted")).toBeTruthy();
     expect(screen.getAllByText("Not checked").length).toBeGreaterThan(1);
   },
@@ -617,7 +621,11 @@ test("a failed connection row is not repeated as helper copy, and credential tip
       ],
     },
   });
-  await screen.findAllByText("This build has no remote host support · artifact-unavailable");
+  await screen.findByText("Unavailable in this build", { selector: ".host-status span" });
+  const origin = screen.getByText("Git access to origin").closest(".host-check-row");
+  expect(origin?.textContent).toContain("Not checked");
+  expect(origin?.querySelector(".host-fail")).toBeNull();
+  expect(screen.queryByText("Needs you")).toBeNull();
   expect(screen.queryByText("This build has no remote host support", { exact: true })).toBeNull();
   expect(screen.queryByLabelText("Git access fixes")).toBeNull();
   view.unmount();
@@ -1503,6 +1511,11 @@ test.each(["host-key-unknown", "host-key-changed", "login-rejected", "unreachabl
     for (const name of reason === "host-key-unknown" ? ["SSH"] : ["SSH", "Git access to origin"]) {
       const row = within(card).getByText(name, { exact: true }).closest(".host-check-row");
       const status = row?.querySelector(".host-status");
+      if (name === "Git access to origin") {
+        expect(status?.classList.contains("host-neutral")).toBe(true);
+        expect(status?.textContent).toContain("Not checked");
+        continue;
+      }
       expect(
         status?.classList.contains(reason === "host-key-unknown" ? "host-need" : "host-fail"),
       ).toBe(true);
@@ -1639,3 +1652,12 @@ test.each(["host-key-unknown", "host-key-changed", "login-rejected", "unreachabl
     else expect(within(panel).getByRole("button", { name: "Dismiss" })).toBeTruthy();
   },
 );
+
+test("sealed build omission is announced once on opening Hosts, including saved ready hosts", async () => {
+  const { api } = await mount({ ...initial, remoteHostsAvailable: false });
+  expect(screen.getAllByText("This build has no remote host support")).toHaveLength(1);
+  expect(screen.getAllByText("Unavailable in this build").length).toBeGreaterThan(0);
+  expect(screen.queryByText("Needs you")).toBeNull();
+  expect(screen.queryByText("Pass · Reachable")).toBeNull();
+  expect(api.mock.calls.map(([action]) => action.action)).toEqual(["list"]);
+});

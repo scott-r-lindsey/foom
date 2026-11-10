@@ -416,6 +416,32 @@ export function remotePlatform(output: string) {
   }
 }
 
+/** Local sealed build capability; reading it never connects to a host. */
+export async function remoteHostsAvailable(
+  metadata = join(__dirname, "../../build-metadata.json"),
+): Promise<boolean> {
+  return (await remoteHostSource(metadata)) !== undefined;
+}
+
+async function remoteHostSource(metadata: string): Promise<string | undefined> {
+  try {
+    const value: unknown = JSON.parse((await boundedFile(metadata, 4096)).toString("utf8"));
+    if (
+      typeof value === "object" &&
+      value !== null &&
+      "source" in value &&
+      typeof value.source === "string" &&
+      /^[a-f0-9]{40}$/u.test(value.source) &&
+      "remoteHostsAvailable" in value &&
+      value.remoteHostsAvailable === true
+    )
+      return value.source;
+  } catch {
+    // Missing or invalid metadata is the same sealed capability omission.
+  }
+  return undefined;
+}
+
 export async function selectHostArtifact(
   target: RemoteTarget,
   expectedVersion: string,
@@ -431,20 +457,8 @@ export async function selectHostArtifact(
   let missingArtifact = false;
   let expectedSource: string | undefined;
   if (!target.artifact) {
-    try {
-      const value: unknown = JSON.parse((await boundedFile(metadata, 4096)).toString("utf8"));
-      if (
-        typeof value !== "object" ||
-        value === null ||
-        !("source" in value) ||
-        typeof value.source !== "string" ||
-        !/^[a-f0-9]{40}$/u.test(value.source)
-      )
-        throw new ApplicationError("remote-host-unavailable");
-      if (!("remoteHostsAvailable" in value) || value.remoteHostsAvailable !== true)
-        throw new ApplicationError("remote-host-unavailable");
-      expectedSource = value.source;
-    } catch {
+    expectedSource = await remoteHostSource(metadata);
+    if (expectedSource === undefined) {
       if (!observe) throw new ApplicationError("remote-host-unavailable");
       missingArtifact = true;
     }
