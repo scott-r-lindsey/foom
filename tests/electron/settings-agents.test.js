@@ -528,12 +528,17 @@ for (const agent of ["claude", "codex", "agy", "copilot", "opencode", "pi"])
     await writeFile(shell, `#!/bin/sh\nprintf '\\000FOOM_PATH\\000%s\\000' '${root}'\n`, {
       mode: 0o755,
     });
+    const startup = path.join(root, "fixture-bash-env.sh");
+    await writeFile(startup, 'printf startup > "$HOME/startup-ran"\n');
     const body = `#!/bin/sh
 set -eu
 : "$HOME" "$USER" "$LOGNAME" "$SHELL" "$PATH" "$TMPDIR" "$LANG" "$XDG_CONFIG_HOME"
 [ "$HOME" = '${root}' ]
 [ "$PATH" = '${root}' ]
 [ "$XDG_CONFIG_HOME" = '${root}/config' ]
+${agent === "codex" ? '[ "$CODEX_NON_INTERACTIVE" = "1" ]' : '[ -z "${CODEX_NON_INTERACTIVE+x}" ]'}
+[ -z "\${BASH_ENV+x}" ]
+[ ! -e "$HOME/startup-ran" ]
 [ -z "\${FOOM_TOKEN+x}" ]
 [ -z "\${foom_token+x}" ]
 [ -z "\${FOOM_SETTINGS_INSTALL+x}" ]
@@ -577,6 +582,7 @@ globalThis.fetch=async()=>new Response(${JSON.stringify(body)});
             env: {
               ...(fixture.mode === "local" ? { HOME: fixture.root } : {}),
               SHELL: fixture.shell,
+              BASH_ENV: fixture.startup,
               PATH: fixture.root,
               TMPDIR: fixture.root,
               XDG_CONFIG_HOME: `${fixture.root}/config`,
@@ -585,6 +591,7 @@ globalThis.fetch=async()=>new Response(${JSON.stringify(body)});
               foom_token: "fixture-secret",
               ANTHROPIC_API_KEY: "fixture-secret",
               CODEX_API_KEY: "fixture-secret",
+              CODEX_NON_INTERACTIVE: "inherited-value-must-not-win",
               GITHUB_TOKEN: "fixture-secret",
               ELECTRON_RUN_AS_NODE: "1",
             },
@@ -603,7 +610,7 @@ globalThis.fetch=async()=>new Response(${JSON.stringify(body)});
           });
           return { code, output };
         },
-        { bootstrap, mode, agent, root, shell },
+        { bootstrap, mode, agent, root, shell, startup },
       );
       assert.equal(result.code, 0, `${agent}:${mode}: ${result.output}`);
       assert.match(result.output, /FIXTURE_ENV_READY/u);
@@ -977,7 +984,12 @@ test("Settings Agents and Environment work without Claude Codex or Antigravity k
   await page.getByRole("tab", { name: "Machines", exact: true }).click();
   await expect(page.locator(".agent-card")).toHaveCount(1);
   const agentName = page.getByRole("textbox", { name: "New OpenCode variable name", exact: true });
-  await agentName.fill("AGENT_SETTING");
+  await agentName.press("A");
+  const agentVariable = page
+    .locator(".agent-card")
+    .getByRole("textbox", { name: "Variable name", exact: true });
+  await expect(agentVariable).toBeFocused();
+  await agentVariable.fill("AGENT_SETTING");
   const row = page.getByRole("group", { name: "AGENT_SETTING", exact: true });
   await row.getByRole("textbox", { name: "AGENT_SETTING value", exact: true }).fill("scoped");
   await row.getByRole("textbox", { name: "AGENT_SETTING value", exact: true }).blur();
@@ -985,9 +997,13 @@ test("Settings Agents and Environment work without Claude Codex or Antigravity k
     async () => (await window.desktop.environmentState()).lists.opencode?.[0]?.value === "scoped",
   );
   await page.getByRole("button", { name: "Environment", exact: true }).click();
-  await page
+  const allSessions = page.getByRole("region", { name: "All sessions", exact: true });
+  await allSessions
     .getByRole("textbox", { name: "New All sessions variable name", exact: true })
-    .fill("GLOBAL_SETTING");
+    .press("G");
+  const globalVariable = allSessions.getByRole("textbox", { name: "Variable name", exact: true });
+  await expect(globalVariable).toBeFocused();
+  await globalVariable.fill("GLOBAL_SETTING");
   const global = page.getByRole("group", { name: "GLOBAL_SETTING", exact: true });
   await global.getByRole("textbox", { name: "GLOBAL_SETTING value", exact: true }).fill("shared");
   await global.getByRole("textbox", { name: "GLOBAL_SETTING value", exact: true }).blur();

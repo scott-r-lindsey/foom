@@ -60,7 +60,14 @@ export function selectHostRecipe(
   request: HostRecipeRequest,
   facts: HostRequirements,
   setup?: {
-    script?: { url: string; interpreter: "sh" | "bash"; arguments: readonly string[] } | undefined;
+    script?:
+      | {
+          url: string;
+          interpreter: "sh" | "bash";
+          arguments: readonly string[];
+          environment?: readonly { name: string; value: string }[] | undefined;
+        }
+      | undefined;
     install?:
       | Partial<Record<"debian" | "rhel" | "arch" | "darwin", readonly string[] | undefined>>
       | undefined;
@@ -103,6 +110,7 @@ export function selectHostRecipe(
           setup.script.url,
           setup.script.interpreter,
           ...setup.script.arguments,
+          ...(setup.script.environment ? [JSON.stringify(setup.script.environment)] : []),
         ],
       ],
     };

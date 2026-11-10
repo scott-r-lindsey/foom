@@ -165,6 +165,7 @@ test("the previous agent schema remains refreshable after adding bundled-only in
   const setup = themeRecord(definitions["hostSetup"], "$.$defs.hostSetup");
   delete themeRecord(setup["properties"], "$.$defs.hostSetup.properties")["script"];
   delete definitions["vendorScript"];
+  delete definitions["installerVariable"];
   const bytes = `${JSON.stringify(previous, null, 2)}\n`;
   expect(digest(bytes)).toBe("33589cf5cebb4f3729bc03ca24e40b665238f16a1fad56ee6fe86c5d6ef11311");
   expect(refreshable(file, new TextEncoder().encode(bytes))).toBe(true);
@@ -189,3 +190,21 @@ test.each(["claude", "codex", "agy", "copilot", "opencode", "pi", "custom-agent"
     expect(refreshable(file, Buffer.concat([previous, Buffer.from("\n")]))).toBe(false);
   },
 );
+
+test("the previous agent schema remains refreshable after adding installer environment", () => {
+  const previous = structuredClone(generated);
+  const properties = themeRecord(
+    themeRecord(themeRecord(previous.$defs, "$.$defs")["vendorScript"], "$.$defs.vendorScript")[
+      "properties"
+    ],
+    "$.$defs.vendorScript.properties",
+  );
+  delete properties["environment"];
+  delete themeRecord(previous.$defs, "$.$defs")["installerVariable"];
+  expect(
+    refreshable(
+      "schemas/agent.schema.json",
+      new TextEncoder().encode(`${JSON.stringify(previous, null, 2)}\n`),
+    ),
+  ).toBe(true);
+});

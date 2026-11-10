@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 const mock = vi.hoisted(() => ({
@@ -58,7 +59,7 @@ beforeEach(() => {
   mock.stage.mockResolvedValue("/fixture/plugin-assets");
   socket = new Socket();
   server = new EventEmitter();
-  mock.read.mockReturnValue(Buffer.from("artifact"));
+  mock.read.mockReset().mockReturnValue(Buffer.from("artifact"));
   mock.path.mockReturnValue("/fixture/socket");
   mock.check.mockReturnValue(undefined);
   mock.socket.mockImplementation(() => {
@@ -115,10 +116,15 @@ test("invalid argv never starts a daemon or relay", () => {
     expect(process.exitCode).toBe(2);
   }
   expect(mock.serve).not.toHaveBeenCalled();
+  expect(mock.read).not.toHaveBeenCalled();
 });
 test("daemon errors and signal cleanup have fixed exit status", async () => {
   runHost(["node", "host", "--daemon"]);
-  expect(mock.serve).toHaveBeenCalledWith(expect.any(String), 0o22);
+  expect(mock.read).toHaveBeenCalledExactlyOnceWith(process.execPath);
+  expect(mock.serve).toHaveBeenCalledWith(
+    createHash("sha256").update("artifact").digest("hex"),
+    0o22,
+  );
   server.emit("error", new Error("busy"));
   expect(process.exitCode).toBe(1);
   const term = process.listeners("SIGTERM").at(-1);
@@ -134,9 +140,23 @@ test("daemon errors and signal cleanup have fixed exit status", async () => {
   await Promise.resolve();
   expect(process.exitCode).toBe(1);
 });
+test("daemon refuses startup when its executable cannot be hashed", () => {
+  mock.read.mockImplementationOnce(() => {
+    throw new Error("unreadable executable");
+  });
+  expect(() => {
+    runHost(["node", "host", "--daemon"]);
+  }).toThrow("unreadable executable");
+  expect(mock.serve).not.toHaveBeenCalled();
+  expect(mock.socket).not.toHaveBeenCalled();
+});
 test("relay validates the socket twice and pipes only stdio", () => {
+  mock.read.mockImplementationOnce(() => {
+    throw new Error("Executable read must not be needed by the relay");
+  });
   runHost(["node", "host", "--connect"]);
   socket.emit("connect");
+  expect(mock.read).not.toHaveBeenCalled();
   expect(mock.check).toHaveBeenCalledTimes(2);
   expect(socket.pipe).toHaveBeenCalledWith(process.stdout);
   const end = process.stdin.listeners("end").at(-1);
