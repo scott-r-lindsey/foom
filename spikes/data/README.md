@@ -50,7 +50,12 @@ real SSH, Developer ID signing or notarization. Windows SEA is comparison eviden
 Foom's remote host product remains Linux/macOS only.
 
 better-sqlite3 13 ships N-API prebuilds: no rebuild is required for the tested
-targets. The SEA embeds the selected prebuild and its SHA-256, verifies it before
+targets. The isolated package explicitly ignores its implicit lifecycle build:
+pnpm otherwise invokes node-gyp despite `gypfile: false`, and node-gyp initializes
+Visual Studio discovery on Windows even when binding.gyp selects a no-op prebuild
+target. All fixtures load the shipped platform prebuild explicitly, so an absent
+or incompatible prebuild fails the spike. This does not change Foom's production
+build-script allowlist. The SEA embeds the selected prebuild and its SHA-256, verifies it before
 loading a private temporary extraction, and removes it afterward. The built-in
 engine needs no asset/extraction. Both versions/ABIs and SQLite versions are in
 each JSON report. Cross-platform proof uses the same three-target

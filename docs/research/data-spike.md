@@ -76,3 +76,9 @@ packaging CI remains independent.
 
 CI results will be recorded here after the first draft PR run. Local evidence
 alone establishes Linux support only.
+
+The first Windows CI attempt exposed pnpm invoking an implicit node-gyp lifecycle
+build despite better-sqlite3's `gypfile: false`. Its binding.gyp no-op prebuild
+target still required Visual Studio discovery and failed on the runner's VS 18.
+The spike explicitly disables that unnecessary lifecycle build and loads the
+shipped prebuild in every runtime fixture. Production build policy is unchanged.
