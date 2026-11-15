@@ -131,3 +131,73 @@ are isolated from Foom's production package and build graph. The
 [measurement report](../research/data-spike.md) records versions, licences,
 packaging/ABI/signing findings and CI evidence. No production API or guard is
 claimed implemented by this document.
+
+## Phase B channel over JSON (#1161)
+
+Production persistence remains JSON. Store commits publish through
+`main/data/view-changes.ts`; Settings publishes after successful replacement,
+Environment after assigning its committed lists, WorktreeStore after its commit
+callback, and SessionStore after rename. Settings reads expose committed values
+while a profile replacement is pending. Accepted config, workspace inventory,
+agent scans, registered-host actions/observations, fonts and sound catalogs also
+publish. Settings dependency comparisons avoid rechecking forge readiness for
+unrelated preference edits. Legacy write capabilities and their confirmations
+remain the closed typed commands; there is no generic mutation capability.
+
+`data:subscribe` takes exactly `{id, view, params}`; `data:unsubscribe` takes the
+owning ID; `data:ack` takes ID, generation and revision. Each window owns its
+registry, with the same registered board/main-frame/URL checks as other IPC.
+Main registers before starting an asynchronous snapshot; a concurrent change
+invalidates that read and recomputes it before delivery. Navigation, renderer
+loss, destruction, explicit disposal and unsubscribe release subscriptions.
+At most 32 subscriptions belong to one board. Valid requests are capped at
+32 KiB; IDs use 1–64 ASCII letters, digits or hyphens. Snapshot envelopes are
+capped at 2 MiB UTF-8 in main; preload additionally bounds serialized input and
+validates/projects every nested response using its existing inline validators.
+Only fixed `unavailable` and `too-large` errors cross this channel.
+
+| View | Params | Projection |
+| --- | --- | --- |
+| `settings` | `{}` | Existing validated SetupState (preferences, update status and theme catalogs) |
+| `hosts` | `{}` | Registered hosts, saved/live observations and current locations/check display state |
+| `agents` | Optional `machine`: `local` or `host:<registered alias>` | AgentReport; a remote machine additionally carries its one-host observation in `machine` and never runs a check on subscription |
+| `repositories` | Optional `offset`, `limit` | Registered repository page |
+| `worktrees` | Required registered `repository`; optional `offset`, `limit` | Authorized checkout page |
+| `sessions` | Optional `offset`, `limit` | Existing WorkspaceTerminal projection; no terminal output |
+| `environment` | `{}` | Existing masked EnvironmentState; secret values remain null |
+| `config` | `{}` | Validated current ConfigStatus |
+| `fonts` | `{}` | Bounded cached font catalog |
+| `sounds` | `{}` | Validated catalog entries; audio bytes keep their separate capability |
+| `readiness` | `{}` | Fixed Git/forge readiness; subscribed only on the owning readiness/Forges surface |
+
+Unknown views/fields, wrong param types and extra IPC arguments refuse. List
+pages default to 100 entries, with limits 1–100 and offsets 0–1,000,000. A page
+carries `nextOffset` when more entries exist. Settings subscribes repository
+pages automatically, publishing the combined list only when all required pages
+share `viewRevision` (the last invalidation of that view). Unrelated global
+publications therefore cannot produce torn or indefinitely waiting page joins.
+Exhausting the board's subscription cap surfaces an error, never a silently
+truncated registration list. Other list hooks expose their bounded page; full
+board/sidebar conversion remains deferred below.
+
+Global publication revisions include live caches. Each subscription also has a
+fresh generation. Preload and the query adapter ignore stale generations and
+non-increasing revisions. Main retains only one unacknowledged snapshot per
+subscription; invalidations behind it coalesce into one latest read after its
+acknowledgement. Reopening installs a fresh subscription and full snapshot.
+
+Settings uses named query hooks, keyed by source identity, view and normalized
+params; TanStack Query performs structural sharing. Multiple consumers share a
+subscription, and the last consumer releases it. Command acknowledgements cannot
+overwrite ordered pushed data. Editable Environment rows and a pending Sound
+slider remain local drafts. Sample/test sources retain their typed reader/event
+adapters through the same query cache. The host picker consumes the hosts query
+and no longer uses registeredHosts from a Settings snapshot.
+
+Board/sidebar structural sources remain on their existing adapters: their
+launch reservations, staged inventory/error ordering, cross-window ownership and
+imperative terminal lifecycle make a partial replacement unsafe. Terminal output,
+activity and DOM lights retain their existing transports. This is an explicit
+phase-B deferral, not authorization to enable the phase-D preload-read lint guard.
+The `sessions` and `worktrees` query hooks/channel are available for the later
+consumer migration.

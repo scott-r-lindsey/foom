@@ -1,3 +1,5 @@
+import { HostObservations } from "../data/host-observations";
+import { viewChanges } from "../data/view-changes";
 import { askpassSupported, trustHostKey } from "./ssh-host-key";
 import type { HostKeyTrustFailure } from "./ssh-host-key";
 import type { HostOutput } from "../../shared/registered-hosts.d";
@@ -136,7 +138,7 @@ export class Hosts {
       identity: value.identity,
     });
   }
-  private readonly worktreeInventories = new Map<
+  private readonly worktreeInventories = new HostObservations<
     string,
     { codeFolder: string; own: readonly RemoteWorktree[]; other: number; at: number }
   >();
@@ -234,7 +236,7 @@ export class Hosts {
     );
     return entries.flat();
   }
-  private readonly sessionInventories = new Map<string, RemoteInventoryResult>();
+  private readonly sessionInventories = new HostObservations<string, RemoteInventoryResult>();
   async sessions(): Promise<readonly { host: string; session: RemoteSessionInfo }[]> {
     const rows: { host: string; session: RemoteSessionInfo }[] = [];
     for (const registration of this.store.get().registeredHosts ?? []) {
@@ -377,6 +379,7 @@ export class Hosts {
 
       this.registered(host, registration.codeFolder);
     }
+    viewChanges.publish("hosts", "agents");
     return this.results.get(host) ?? { ok: false, reason: "unreachable" };
   }
   registered(host: string, folder?: string) {
@@ -567,9 +570,9 @@ export class Hosts {
     if (input.kind === "copy-host-code-folder") return registered.codeFolder;
     throw new Error("Invalid host copy");
   }
-  private readonly results = new Map<string, HostResult>();
+  private readonly results = new HostObservations<string, HostResult>();
   /** Display-only resource replies never seed the launch inventory. */
-  private readonly resourceResults = new Map<string, HostResult>();
+  private readonly resourceResults = new HostObservations<string, HostResult>();
   private progress: HostCheckProgress | undefined;
   private output: HostOutput | undefined;
   private outputGeneration = 0;
@@ -763,7 +766,7 @@ export class Hosts {
     };
   }
   private hostKeyTrust: "askpass" | "manual" | undefined;
-  private readonly pendingRows = new Map<string, PendingHostRow[]>();
+  private readonly pendingRows = new HostObservations<string, PendingHostRow[]>();
   private pendingRecipeRefreshes = 0;
   private queueRows(host: string, targets: readonly HostCheckTarget[]) {
     const rows = new Map(
@@ -1002,6 +1005,20 @@ export class Hosts {
     return work;
   }
   action(
+    input: unknown,
+    confirm?: (content: DialogContent, signal?: AbortSignal) => Promise<boolean>,
+    launchRecipe?: (target: RemoteTarget, finished?: () => void) => Promise<unknown>,
+    trustSignal?: AbortSignal,
+    confirmHostKey?: (content: PlainDialogContent, signal: AbortSignal) => Promise<DialogOutcome>,
+  ): Promise<HostsState> {
+    return this.performAction(input, confirm, launchRecipe, trustSignal, confirmHostKey).finally(
+      () => {
+        if (hostsAction(input) && !["progress", "cancel-trust"].includes(input.action))
+          viewChanges.publish("hosts", "agents");
+      },
+    );
+  }
+  private performAction(
     input: unknown,
     confirm?: (content: DialogContent, signal?: AbortSignal) => Promise<boolean>,
     launchRecipe?: (target: RemoteTarget, finished?: () => void) => Promise<unknown>,

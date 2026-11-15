@@ -1,3 +1,4 @@
+import { useHostsView, useViewState } from "../data/view-hooks";
 import { BUILTIN_AGENTS } from "../../shared/providers/catalog";
 import { HostTerminal } from "./host-terminal";
 import { hostDisplayName, hostNicknameError } from "../../shared/registered-hosts";
@@ -17,6 +18,7 @@ import type {
 } from "../../shared/registered-hosts.d";
 import type { SetupSource } from "./setup-source.d";
 import type { Repository } from "../../shared/worktrees";
+const EMPTY_HOSTS: HostsState = { hosts: [], locations: [] };
 const reasons: Record<HostFailure, string> = {
   unreachable: "Host unreachable",
   "host-key-unknown": "Host key not trusted",
@@ -644,10 +646,14 @@ export function HostsSettings({
 }: {
   agents?: Readonly<Record<string, boolean>>;
   openAgents?: (host: string) => void;
-  source: Pick<SetupSource, "hosts" | "copyHost" | "hostTerminal" | "installs">;
+  source: Pick<SetupSource, "hosts" | "copyHost" | "views" | "hostTerminal" | "installs">;
   headingRef: RefObject<HTMLHeadingElement | null>;
 }) {
-  const [state, setState] = useState<HostsState>({ hosts: [], locations: [] });
+  const hostsQuery = useHostsView(
+    source,
+    () => source.hosts?.({ action: "list" }) ?? Promise.resolve(EMPTY_HOSTS),
+  );
+  const [state, setState] = useViewState(hostsQuery, EMPTY_HOSTS);
   const [checks, setChecks] = useState<ReadonlyMap<string, HostPreflight>>(
     () => new Map<string, HostPreflight>(),
   );
@@ -665,7 +671,8 @@ export function HostsSettings({
   const [checkingHosts, setCheckingHosts] = useState<ReadonlySet<string>>(() => new Set());
   const [progress, setProgress] = useState<HostCheckProgress>();
   const [rowPending, setRowPending] = useState<ReadonlySet<string>>(() => new Set());
-  const [output, setOutput] = useState<HostOutput>();
+  const [outputOverride, setOutputOverride] = useState<HostOutput | null>();
+  const output = outputOverride === null ? undefined : (outputOverride ?? state.output);
   const [recipes, setRecipes] = useState<ReadonlyMap<string, { id: string; finished: boolean }>>(
     () =>
       new Map(
@@ -684,7 +691,7 @@ export function HostsSettings({
     });
   };
   const dismissOutput = () => {
-    setOutput(undefined);
+    setOutputOverride(null);
     void api?.({ action: "dismiss-output" });
   };
   const recipeFinished = useCallback(
@@ -703,12 +710,12 @@ export function HostsSettings({
           setError("Unable to refresh tool");
         });
     },
-    [api],
+    [api, setState],
   );
   const changedRef = useRef(false);
   const [expanded, setExpanded] = useState<ReadonlyMap<string, boolean>>(() => new Map());
   const applyState = (next: HostsState, host: string, startedRename?: { nickname: string }) => {
-    if (next.output) setOutput(next.output);
+    if (next.output) setOutputOverride(next.output);
     setState((previous) => ({
       ...next,
       hosts: [
@@ -744,7 +751,7 @@ export function HostsSettings({
           const next = await api({ action: "progress" });
           if (active) {
             setProgress(next.progress);
-            if (next.output) setOutput(next.output);
+            if (next.output) setOutputOverride(next.output);
           }
         } catch {
           // The authoritative preflight request owns error reporting.
@@ -778,39 +785,16 @@ export function HostsSettings({
     },
     [api],
   );
-  useEffect(() => {
-    let active = true;
-    const current = () => active;
-    void (async () => {
-      try {
-        const initial = await api?.({ action: "list" });
-        if (!current() || !initial) return;
-        if (!changedRef.current && initial.output) setOutput(initial.output);
-        setState((previous) =>
-          changedRef.current
-            ? {
-                ...previous,
-                hosts: [
-                  ...previous.hosts,
-                  ...initial.hosts.filter(
-                    (entry) => !previous.hosts.some((saved) => saved.host === entry.host),
-                  ),
-                ],
-              }
-            : initial,
-        );
-      } catch {
-        if (current()) setError("Unable to load hosts");
-      }
-    })();
-    return () => {
-      active = false;
+  useEffect(
+    () => () => {
       void Promise.resolve(api?.({ action: "cancel-trust" })).catch(() => undefined);
-    };
-  }, [api]);
+    },
+    [api],
+  );
+
   const act = async (action: HostsAction) => {
     changedRef.current = true;
-    if (action.action === "recipe") setOutput(undefined);
+    if (action.action === "recipe") setOutputOverride(undefined);
     if ("host" in action) clearRecipe(action.host, action.action === "remove");
     if ("host" in action) setExpanded((previous) => new Map(previous).set(action.host, true));
     const target = "host" in action ? action.host : "";
@@ -945,9 +929,9 @@ export function HostsSettings({
           </button>
         )}
       </header>
-      {!!error && (
+      {!!(error || hostsQuery.isError) && (
         <p role="alert" className={typeof error === "string" ? "hosts-failure" : undefined}>
-          {error}
+          {error || "Unable to load hosts"}
         </p>
       )}
       {adding && (
@@ -1331,15 +1315,20 @@ export function RepositoryHosts({
   repositories,
   headingRef,
 }: {
-  source: Pick<SetupSource, "hosts" | "copyHost">;
+  source: Pick<SetupSource, "hosts" | "copyHost" | "views">;
   repositories: readonly Repository[];
   headingRef?: RefObject<HTMLHeadingElement | null>;
 }) {
-  const [state, setState] = useState<HostsState>({ hosts: [], locations: [] });
+  const hostsQuery = useHostsView(
+    source,
+    () => source.hosts?.({ action: "locations" }) ?? Promise.resolve(EMPTY_HOSTS),
+  );
+  const [state, setState] = useViewState(hostsQuery, EMPTY_HOSTS);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const api = source.hosts;
   useEffect(() => {
+    if (!source.views) return;
     let active = true;
     void api?.({ action: "locations" }).then(
       (next) => {
@@ -1352,7 +1341,7 @@ export function RepositoryHosts({
     return () => {
       active = false;
     };
-  }, [api, repositories]);
+  }, [api, repositories, setState, source.views]);
   const act = async (action: HostsAction) => {
     setBusy(true);
     setError("");
@@ -1381,9 +1370,9 @@ export function RepositoryHosts({
           Refresh locations
         </button>
       </header>
-      {error && (
+      {(error || hostsQuery.isError) && (
         <p role="alert" className="hosts-failure">
-          {error}
+          {error || "Unable to check locations"}
         </p>
       )}
       {[{ host: null, codeFolder: "" }, ...state.hosts].map((host) => {

@@ -1,5 +1,6 @@
+import { useFontsView } from "../data/view-hooks";
 import { ThemeMenu } from "./theme-menu";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import {
   DEFAULT_TERMINAL_FONT,
   isTerminalFont,
@@ -13,36 +14,19 @@ export function TerminalFontPicker({
   value,
   onChange,
 }: {
-  source: Pick<SetupSource, "listTerminalFonts">;
+  source: Pick<SetupSource, "listTerminalFonts" | "views">;
   value: string;
   onChange: (patch: SettingsPatch) => void;
 }) {
-  const [families, setFamilies] = useState<readonly string[]>([]);
+  const query = useFontsView(source, () => source.listTerminalFonts?.() ?? Promise.resolve([]));
+  const families = query.data ?? [];
+  const setFonts = query.setData;
   useEffect(() => {
-    let disposed = false;
-    const update = (fonts: readonly string[]) => {
-      if (disposed) return;
-      const next = terminalFontFamilies(fonts);
-      setFamilies((previous) =>
-        previous.length === next.length && previous.every((family, index) => family === next[index])
-          ? previous
-          : next,
-      );
-    };
     void source
-      .listTerminalFonts?.()
-      .then(async (fonts) => {
-        update(fonts);
-        if (!disposed) {
-          const refreshed = await source.listTerminalFonts?.(true);
-          if (refreshed) update(refreshed);
-        }
-      })
+      .listTerminalFonts?.(true)
+      .then(setFonts)
       .catch(() => undefined);
-    return () => {
-      disposed = true;
-    };
-  }, [source]);
+  }, [source, setFonts]);
   const selected = isTerminalFont(value) ? value : DEFAULT_TERMINAL_FONT;
   const options = terminalFontFamilies([...families, selected]);
   return (

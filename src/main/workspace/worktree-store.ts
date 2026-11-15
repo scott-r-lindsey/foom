@@ -1,3 +1,4 @@
+import { viewChanges } from "../data/view-changes";
 import { forgeBranch } from "../control/forge";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
@@ -101,6 +102,7 @@ export class WorktreeStore {
           await rm(temporary, { force: true });
         }
         commit?.();
+        viewChanges.publish("repositories", "worktrees");
       });
     this.pendingSave = save;
     await save;

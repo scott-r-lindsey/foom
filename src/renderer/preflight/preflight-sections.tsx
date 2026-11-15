@@ -396,7 +396,7 @@ export function PreflightSections({
         <h2 ref={headingRef} tabIndex={-1}>
           Sound
         </h2>
-        <SoundControls settings={state.settings.sound} onChange={save} />
+        <SoundControls views={source.views} settings={state.settings.sound} onChange={save} />
       </>
     );
   } else {

@@ -1,8 +1,8 @@
+import { useHostsView, useConfigView, useMachineAgentsView } from "../data/view-hooks";
 import { AgentStatus } from "./agent-status";
 import { AgentReload } from "./agent-reload";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { HostTerminal } from "./host-terminal";
-import type { ConfigStatus } from "../../shared/foom-config";
 import type { ComponentProps } from "react";
 import type { HostRow, HostsAction } from "../../shared/registered-hosts.d";
 import { hostDisplayName } from "../../shared/registered-hosts";
@@ -43,23 +43,18 @@ export function AgentsScopes(
   const { scope: requestedScope, selectScope, headingRef, ...cardProps } = props;
   const { state, report, source, scanning, scan, save, saveArguments } = cardProps;
   const [lastMachine, setLastMachine] = useState("local");
-  const registrations = state.settings.registeredHosts;
   const api = source?.hosts;
-  const [hostList, setHostList] = useState<{
-    registrations: typeof registrations;
-    api: typeof api;
-    rows: readonly HostRow[];
-  }>();
-  const hostsReady =
-    !api || (!!hostList && hostList.registrations === registrations && hostList.api === api);
-  const hosts = (hostList?.rows ?? []).filter((row) =>
-    registrations?.some((registration) => registration.host === row.host),
+  const hostsQuery = useHostsView(
+    source,
+    () => api?.({ action: "list" }) ?? Promise.resolve({ hosts: [], locations: [] }),
   );
+  const hostsReady = !api || hostsQuery.isSuccess;
+  const hosts = hostsQuery.data?.hosts ?? [];
   const scope =
     requestedScope === "global" ||
     requestedScope === "local" ||
-    (registrations?.some((entry) => `host:${entry.host}` === requestedScope) &&
-      (!hostsReady || hosts.some((entry) => `host:${entry.host}` === requestedScope)))
+    hostsQuery.isPending ||
+    hosts.some((entry) => `host:${entry.host}` === requestedScope)
       ? requestedScope
       : "local";
   useEffect(() => {
@@ -68,24 +63,26 @@ export function AgentsScopes(
   const [pending, setPending] = useState<ReadonlySet<string>>(() => new Set());
   const [error, setError] = useState("");
   const [localRevision, setLocalRevision] = useState(0);
-  const [hostRevision, setHostRevision] = useState(0);
-  const recipeFinished = useCallback(() => {
-    setHostRevision((previous) => previous + 1);
-  }, []);
-  const [config, setConfig] = useState<ConfigStatus>();
-  const configSource = source?.config;
-  useEffect(() => {
-    let active = true;
-    if (!configSource) return;
-    void configSource.status().then(
+  const recipeFinished = () => {
+    void api?.({ action: "list" }).then(
       (next) => {
-        if (active) setConfig(next);
+        hostsQuery.setData(next);
       },
       () => {
-        if (active) setError("Unable to load agent settings");
+        setError("Unable to load hosts");
       },
     );
-    const dispose = configSource.subscribe((next) => {
+  };
+  const configQuery = useConfigView(
+    source?.config,
+    () => source?.config?.status() ?? Promise.reject(new Error("Unavailable")),
+  );
+  const config = configQuery.data;
+  const setConfig = configQuery.setData;
+  useEffect(() => {
+    if (!source?.config || source.views) return;
+    let active = true;
+    const off = source.config.subscribe((next) => {
       if (active) {
         setConfig(next);
         void scan(true);
@@ -93,24 +90,16 @@ export function AgentsScopes(
     });
     return () => {
       active = false;
-      dispose();
+      off();
     };
-  }, [configSource, scan]);
-  useEffect(() => {
-    let active = true;
-    if (api)
-      void api({ action: "list" }).then(
-        (next) => {
-          if (active) setHostList({ registrations, api, rows: next.hosts });
-        },
-        () => {
-          if (active) setError("Unable to load hosts");
-        },
-      );
-    return () => {
-      active = false;
-    };
-  }, [api, registrations, hostRevision]);
+  }, [source, scan, setConfig]);
+  const displayError =
+    error ||
+    (hostsQuery.isError
+      ? "Unable to load hosts"
+      : configQuery.isError
+        ? "Unable to load agent settings"
+        : "");
   const act = async (request: HostsAction | readonly HostsAction[], key: string) => {
     if (!hostsReady) return;
     setPending((previous) => new Set(previous).add(key));
@@ -119,17 +108,7 @@ export function AgentsScopes(
       for (const action of "action" in request ? [request] : request) {
         const next = await api?.(action);
         if (next) {
-          setHostList(
-            (previous) =>
-              previous && {
-                ...previous,
-                rows: previous.rows.map((entry) =>
-                  "host" in action && entry.host === action.host
-                    ? (next.hosts.find((row) => row.host === entry.host) ?? entry)
-                    : entry,
-                ),
-              },
-          );
+          if (!source?.views && !next.recipeFailure) hostsQuery.setData(next);
           if (next.recipeFailure) setError("Recipe unavailable for this host");
         }
       }
@@ -154,7 +133,14 @@ export function AgentsScopes(
     { id: "local", name: "This computer" },
     ...hosts.map((host) => ({ id: `host:${host.host}`, name: hostDisplayName(host), host })),
   ];
-  const selected = hosts.find((host) => `host:${host.host}` === scope);
+  const machineQuery = useMachineAgentsView(
+    source,
+    scope,
+    !!source?.views && scope.startsWith("host:") && hostsReady,
+  );
+  const selected = hosts.some((host) => `host:${host.host}` === scope)
+    ? (machineQuery.data?.machine?.hosts[0] ?? hosts.find((host) => `host:${host.host}` === scope))
+    : undefined;
   const installId = selected && source?.installs?.sessions().get(selected.host);
   const reloadHost = (host: HostRow) => {
     void act({ action: "preflight", host: host.host, codeFolder: host.codeFolder }, host.host);
@@ -213,9 +199,9 @@ export function AgentsScopes(
           </button>
         ))}
       </div>
-      {error && (
+      {displayError && (
         <ActionError
-          message={error}
+          message={displayError}
           close={() => {
             setError("");
           }}

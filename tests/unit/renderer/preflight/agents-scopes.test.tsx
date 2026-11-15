@@ -1,3 +1,4 @@
+import type { DataViews, DataViewApi } from "../../../../src/shared/data-views";
 // @vitest-environment jsdom
 import { useState } from "react";
 import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
@@ -377,64 +378,95 @@ test("machine picker scales to twelve registered hosts and keeps navigation read
   expect(screen.getByRole("combobox")).toHaveProperty("value", "host:machine-11");
 });
 
-test.each(["resolve", "reject"] as const)(
-  "removed registrations immediately retire controls while list will %s",
-  async (outcome) => {
-    const f = fixture("host:worker");
-    render(<f.View />);
-    await screen.findByRole("region", { name: "Claude Code" });
-    let resolve: ((value: HostsState) => void) | undefined;
-    let reject: ((error: Error) => void) | undefined;
-    f.api.mockImplementationOnce(
-      () =>
-        new Promise((yes, no) => {
-          resolve = yes;
-          reject = no;
-        }),
-    );
-    act(() => f.registrations([]));
-    expect(screen.getByRole("combobox", { name: "Machine" })).toHaveProperty("value", "local");
-    expect(screen.queryByRole("option", { name: "Build" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Re-check Build" })).toBeNull();
-    const localReload = screen.getByRole("button", { name: "Re-check This computer" });
-    expect(localReload).toHaveProperty("disabled", true);
-    fireEvent.click(localReload);
-    expect(f.scan).not.toHaveBeenCalled();
-    expect(f.api.mock.calls.map(([request]) => request.action)).toEqual(["list", "list"]);
-    await act(async () => {
-      if (outcome === "resolve") resolve?.({ hosts: f.rows, locations: [] });
-      else reject?.(new Error("fixture list failure"));
-      await Promise.resolve();
-    });
-    expect(screen.queryByRole("option", { name: "Build" })).toBeNull();
-    expect(screen.getByRole("combobox", { name: "Machine" })).toHaveProperty("value", "local");
-    expect(localReload).toHaveProperty("disabled", outcome === "reject");
-  },
-);
-
-test("retained machine actions stay disabled until the matching registration list arrives", async () => {
+function stream(f: ReturnType<typeof fixture>) {
+  const data: DataViews = {
+    settings: setupState(),
+    hosts: { hosts: f.rows, locations: [] },
+    agents: report(),
+    repositories: [],
+    worktrees: [],
+    sessions: [],
+    config: { folder: "/config", available: true, pending: null, rejected: [] },
+    environment: {
+      lists: { all: [], claude: [], codex: [], agy: [] },
+      windows: false,
+      secrets: false,
+    },
+    fonts: [],
+    sounds: [],
+    readiness: { git: "ready", platform: "linux", forges: [] },
+  };
+  let revision = 1;
+  let failed = false;
+  const emit = new Map<string, () => void>();
+  const views: DataViewApi = {
+    subscribeView(view, params, receive) {
+      emit.set(view, () => {
+        const base = { id: "hosts", view, params, generation: 1, revision };
+        receive(failed ? { ...base, error: "unavailable" } : { ...base, data: data[view] });
+      });
+      return () => {};
+    },
+  };
+  f.source.views = views;
+  return {
+    push: (hosts = f.rows, nextRevision = revision + 1, error = false) => {
+      data.hosts = { hosts, locations: [] };
+      revision = nextRevision;
+      failed = error;
+      emit.get("hosts")?.();
+    },
+  };
+}
+test("host pushes remove a selected machine immediately and stale revisions cannot restore it", async () => {
   const f = fixture("host:worker");
+  const events = stream(f);
   render(<f.View />);
-  await screen.findByRole("region", { name: "Codex" });
-  let finish: ((value: HostsState) => void) | undefined;
-  f.api.mockImplementationOnce(
-    () =>
-      new Promise((resolve) => {
-        finish = resolve;
-      }),
-  );
-  act(() => f.registrations([...f.rows]));
-  const reload = screen.getByRole("button", { name: "Re-check Build" });
-  expect(reload).toHaveProperty("disabled", true);
-  expect(screen.getByRole("button", { name: "Sign in" })).toHaveProperty("disabled", true);
-  expect(screen.getByRole("button", { name: "Install plugin" })).toHaveProperty("disabled", true);
-  fireEvent.click(reload);
-  expect(f.api.mock.calls.map(([request]) => request.action)).toEqual(["list", "list"]);
-  await act(async () => {
-    finish?.({ hosts: f.rows, locations: [] });
-    await Promise.resolve();
+  act(() => {
+    events.push();
   });
-  expect(reload).toHaveProperty("disabled", false);
+  await screen.findByRole("region", { name: "Codex" });
+  act(() => {
+    events.push([]);
+  });
+  expect(screen.getByRole("combobox", { name: "Machine" })).toHaveProperty("value", "local");
+  expect(screen.queryByRole("option", { name: "Build" })).toBeNull();
+  act(() => {
+    events.push(f.rows, 1);
+  });
+  expect(screen.queryByRole("option", { name: "Build" })).toBeNull();
+  expect(f.api).not.toHaveBeenCalled();
+});
+test("machine actions wait for the initial subscription and errors retain disabled cached cards", async () => {
+  const f = fixture("local");
+  const events = stream(f);
+  render(<f.View />);
+  expect(screen.getByRole("button", { name: "Re-check This computer" })).toHaveProperty(
+    "disabled",
+    true,
+  );
+  act(() => {
+    events.push();
+  });
+  await screen.findByRole("option", { name: "Build" });
+  fireEvent.change(screen.getByRole("combobox", { name: "Machine" }), {
+    target: { value: "host:worker" },
+  });
+  act(() => {
+    events.push(f.rows, 3, true);
+  });
+  await screen.findByText("Unable to load hosts");
+  expect(screen.getByRole("button", { name: "Re-check Build" })).toHaveProperty("disabled", true);
+  expect(screen.getByRole("region", { name: "Codex" })).toBeTruthy();
+  act(() => {
+    events.push(f.rows, 4);
+  });
+  await waitFor(() => {
+    expect(screen.getByRole("button", { name: "Re-check Build" })).toHaveProperty(
+      "disabled",
+      false,
+    );
+  });
 });
 
 test("a fresh list cannot recreate a removed machine from an older settings snapshot", async () => {

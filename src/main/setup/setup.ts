@@ -1,3 +1,4 @@
+import { viewChanges } from "../data/view-changes";
 import { hostsAction } from "../../shared/registered-hosts";
 import type { RemoteTarget } from "../../shared/remote-host";
 import type { DialogContent, DialogOutcome, PlainDialogContent } from "../../shared/confirmation";
@@ -107,9 +108,17 @@ export class Setup {
       });
   }
 
+  private readinessSignature = "";
   readiness() {
     if (!this.deps.readiness) throw new Error("Readiness unavailable");
-    return this.deps.readiness();
+    return this.deps.readiness().then((report) => {
+      const signature = JSON.stringify(report);
+      if (signature !== this.readinessSignature) {
+        this.readinessSignature = signature;
+        viewChanges.publish("readiness");
+      }
+      return report;
+    });
   }
 
   restartToUpdate(): Promise<void> {

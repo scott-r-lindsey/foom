@@ -2572,3 +2572,40 @@ test("Hosts reports dialog-unavailable when native trust presentation fails", {
   await expect(card.getByRole("button", { name: "Trust host key…", exact: true })).toBeEnabled();
   assert.equal(await readFile(knownHosts, "utf8"), "");
 });
+
+test("data views: host enrollment and removal update another open Agents machine picker", {
+  timeout: deadline(60_000),
+}, async (context) => {
+  const { app, page, navigation } = await hostsFixture(context);
+  await page.evaluate(() => window.desktop.appMenu.execute("new-window"));
+  let observer;
+  await expect
+    .poll(() => {
+      observer = app
+        .windows()
+        .find((candidate) => candidate !== page && candidate.url() === "app://bundle/index.html");
+      return Boolean(observer);
+    })
+    .toBe(true);
+  await expect(
+    observer.getByRole("button", { name: "Actions for Main checkout", exact: true }),
+  ).toBeVisible();
+  await openSettingsScreen(observer);
+  const settings = observer.getByRole("region", { name: "Settings" });
+  await settings.getByRole("button", { name: "Agents", exact: true }).click();
+  await observer.getByRole("tab", { name: "Machines", exact: true }).click();
+  const picker = observer.getByRole("combobox", { name: "Machine" });
+  await expect(picker.getByRole("option", { name: "fixture-cloud", exact: true })).toHaveCount(1);
+  await page.evaluate(() => window.desktop.hosts({ action: "remove", host: "fixture-cloud" }));
+  await expect(picker.getByRole("option", { name: "fixture-cloud", exact: true })).toHaveCount(0);
+  await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
+  await page.getByRole("button", { name: "Add host", exact: true }).click();
+  await page.getByRole("textbox", { name: "SSH host", exact: true }).fill("fixture-cloud");
+  await page.getByRole("textbox", { name: "Code folder", exact: true }).fill("/home/fixture/code");
+  await page.getByRole("button", { name: "Add host", exact: true }).click();
+  await expect(picker.getByRole("option", { name: "fixture-cloud", exact: true })).toHaveCount(1);
+  await picker.selectOption("host:fixture-cloud");
+  await page.evaluate(() => window.desktop.hosts({ action: "remove", host: "fixture-cloud" }));
+  await expect(picker).toHaveValue("local");
+  await expect(picker.getByRole("option", { name: "fixture-cloud", exact: true })).toHaveCount(0);
+});

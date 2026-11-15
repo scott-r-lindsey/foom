@@ -1,3 +1,4 @@
+import { useEnvironmentView } from "../data/view-hooks";
 import { useEffect, useRef, useState } from "react";
 import type { FocusEvent, Ref } from "react";
 import type {
@@ -98,7 +99,9 @@ export function EnvironmentSettings({
   label?: string;
   onAgents?: () => void;
 }) {
-  const [state, setState] = useState<EnvironmentState>();
+  const query = useEnvironmentView(source, () => source.environmentState());
+  const state = query.data;
+  const setState = query.setData;
   const [lists, setLists] = useState<Drafts>();
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
@@ -106,26 +109,34 @@ export function EnvironmentSettings({
   const [picked, setPicked] = useState<ReadonlySet<string>>(() => new Set());
   const statusTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  useEffect(() => {
-    let active = true;
-    void source.environmentState().then(
-      (next) => {
-        if (!active) return;
-        setState(next);
-        setLists({
-          ...drafts(next),
-          ...(selectedScope && !next.lists[selectedScope] ? { [selectedScope]: [] } : {}),
-        });
-      },
-      (caught: unknown) => {
-        if (active) setError(message(caught));
-      },
-    );
-    return () => {
-      active = false;
+  // A reference marks which snapshot the editable drafts were reconciled against.
+  const [draftBaseline, setDraftBaseline] = useState(state);
+  if (state && state !== draftBaseline) {
+    setDraftBaseline(state);
+    setLists((previous) => {
+      const next = drafts(state);
+      if (selectedScope && !next[selectedScope]) next[selectedScope] = [];
+      if (!previous) return next;
+      for (const scope of Object.keys(next)) {
+        const savedRows = rowsFor(next, scope);
+        const oldRows = rowsFor(previous, scope);
+        next[scope] = [
+          ...savedRows.map((row) => {
+            const old = oldRows.find((entry) => entry.saved === row.saved);
+            return old?.dirty ? old : old ? { ...row, key: old.key } : row;
+          }),
+          ...oldRows.filter((row) => row.saved === null),
+        ];
+      }
+      return next;
+    });
+  }
+  useEffect(
+    () => () => {
       clearTimeout(statusTimerRef.current);
-    };
-  }, [source, selectedScope]);
+    },
+    [],
+  );
 
   if (!state || !lists)
     return (
@@ -133,9 +144,9 @@ export function EnvironmentSettings({
         <h2 ref={headingRef} tabIndex={-1}>
           Environment
         </h2>
-        {error && (
+        {(error || query.isError) && (
           <p className="preflight-error" role="alert">
-            {error}
+            {error || "Unable to update settings."}
           </p>
         )}
       </>

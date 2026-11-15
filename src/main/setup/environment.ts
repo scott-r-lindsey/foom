@@ -1,3 +1,4 @@
+import { viewChanges } from "../data/view-changes";
 import { validAgentId } from "../../shared/providers/catalog";
 import { readLoginShell } from "../login-shell";
 import { randomUUID } from "node:crypto";
@@ -501,6 +502,7 @@ export class EnvironmentStore {
           await rm(temporary, { force: true });
         }
         this.lists = next;
+        viewChanges.publish("environment");
       });
     this.pending = write;
     await write;

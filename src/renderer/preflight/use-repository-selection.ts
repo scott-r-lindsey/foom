@@ -1,3 +1,4 @@
+import { useRepositoriesView, useViewState } from "../data/view-hooks";
 import { useEffect, useState } from "react";
 import type { Repository } from "../../shared/worktrees";
 import { useBackgroundErrors } from "../board/error-presentation";
@@ -6,33 +7,22 @@ import type { CodeSelection, Scanning } from "./repository-picker";
 import { defaultSelection } from "./repository-picker";
 import { message } from "./message";
 
+const EMPTY_REPOSITORIES: readonly Repository[] = [];
 export function useRepositorySelection(
-  source: Pick<SetupSource, "repositories" | "scan" | "apply">,
+  source: Pick<SetupSource, "repositories" | "scan" | "apply" | "views">,
   settingsMode: boolean,
   setError: (error: string | undefined) => void,
 ) {
-  const [repositories, setRepositories] = useState<readonly Repository[]>([]);
+  const query = useRepositoriesView(source, () => source.repositories());
+  const [repositories, setRepositories] = useViewState(query, EMPTY_REPOSITORIES);
   const [code, setCode] = useState<CodeSelection>();
   const [codeScanning, setCodeScanning] = useState<Scanning>();
   const [applying, setApplying] = useState(false);
   const { report: reportFailure, clear } = useBackgroundErrors();
   useEffect(() => {
-    let live = true;
-    source.repositories().then(
-      (next) => {
-        if (live) {
-          setRepositories(next);
-          clear("setup-repositories");
-        }
-      },
-      () => {
-        if (live) reportFailure("setup-repositories", "Unable to load repositories.");
-      },
-    );
-    return () => {
-      live = false;
-    };
-  }, [source, reportFailure, clear]);
+    if (query.isError) reportFailure("setup-repositories", "Unable to load repositories.");
+    else if (query.isSuccess) clear("setup-repositories");
+  }, [query.isError, query.isSuccess, reportFailure, clear]);
   /** Scans a folder (null picks one) and preselects what it finds. */
   const scanCode = (folder: string | null) => {
     setCodeScanning({ folder, folders: 0, repositories: 0 });
