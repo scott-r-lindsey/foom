@@ -55,6 +55,7 @@ export function Sidebar(props: SidebarProps) {
     overlay,
     narrow,
     homeRows,
+    homeActions,
     visibleHomeRows,
     configRows,
     shellRef,
@@ -243,14 +244,7 @@ export function Sidebar(props: SidebarProps) {
                   <AgentBadge mark=">_" />
                   {source.shellName?.() ?? "Shell"} ~
                 </button>
-                {actions("home", "Home shell", [
-                  {
-                    label: "New shell",
-                    badge: ">_",
-                    dismissBeforeRun: true,
-                    run: () => command({ kind: "home-shell" }),
-                  },
-                ])}
+                {actions("home", "Home shell", homeActions)}
               </div>
               {preferences.expanded["home"] !== false && (
                 <div role="group">
@@ -297,6 +291,7 @@ export function Sidebar(props: SidebarProps) {
             .filter(
               (row) =>
                 row.machine &&
+                !homeRows.includes(row) &&
                 !(source.getMachines?.() ?? []).some(
                   (machine) =>
                     machine.host === (row.placement?.kind === "remote" ? row.placement.host : null),
