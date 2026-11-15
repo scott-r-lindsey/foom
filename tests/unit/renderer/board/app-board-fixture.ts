@@ -27,7 +27,7 @@ const mock = vi.hoisted(() => ({
   execution: undefined as ((event: ExecutionTransition) => void) | undefined,
   command: undefined as ((command: BoardCommand) => void) | undefined,
   state: undefined as ((state: TerminalState) => void) | undefined,
-  changed: undefined as (() => void) | undefined,
+  changed: undefined as ((localOnly?: boolean) => void) | undefined,
   exit: undefined as ((id: string, code: number) => void) | undefined,
   availability: undefined as
     | ((id: string, available: boolean, reset?: boolean) => void)

@@ -324,6 +324,10 @@ test("workspace notifications invalidate snapshots and unsubscribe", async () =>
   const listener = mock.on.mock.calls.find(([channel]) => channel === "workspace:changed")?.[1];
   listener?.({});
   expect(callback).toHaveBeenCalledOnce();
+  listener?.({}, true);
+  expect(callback).toHaveBeenLastCalledWith(true);
+  listener?.({}, "true");
+  expect(callback).toHaveBeenLastCalledWith();
   off();
   expect(mock.removeListener).toHaveBeenCalledWith("workspace:changed", listener);
 });
