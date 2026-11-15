@@ -64,6 +64,7 @@ export interface OrchestrationHost {
   ): Promise<{ branch: string; identity: string } | undefined>;
   /** Whether the user's default arguments for this agent bypass permissions. */
   bypassDefaults?(agent: AgentId): boolean;
+  unavailable?(id: string): Promise<boolean>;
   stop(id: string): Promise<boolean>;
   close(
     id: string,
