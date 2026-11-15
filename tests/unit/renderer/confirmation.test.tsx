@@ -132,10 +132,10 @@ test("focuses Cancel for every request, traps Tab, and renders untrusted content
   expect(document.activeElement).toBe(copy);
   Object.defineProperty(content, "scrollHeight", { value: 0 });
   fireEvent.keyDown(accept, { key: "Escape" });
-  expect(answer).toHaveBeenLastCalledWith("one", false);
+  expect(answer).not.toHaveBeenCalled();
   fireEvent.click(cancel);
   fireEvent.click(accept);
-  expect(answer).toHaveBeenLastCalledWith("one", true);
+  expect(answer).not.toHaveBeenCalled();
   act(() => {
     receive({
       presented: true,
@@ -224,7 +224,7 @@ test("cleanup checking, ready and run controls follow main state; Escape only hi
   expect(view.getByText("· fetched 20 s ago")).toBeTruthy();
   expect(view.queryByText("queued")).toBeNull();
   fireEvent.click(view.getByRole("button", { name: "Delete 1" }));
-  expect(answer).toHaveBeenLastCalledWith("cleanup", true);
+  expect(answer).not.toHaveBeenCalled();
   act(() => {
     receive({
       ...base,
@@ -253,7 +253,7 @@ test("cleanup checking, ready and run controls follow main state; Escape only hi
   expect(view.getByText(".env", { exact: true })).toBeTruthy();
   expect(view.getByText("7 more paths", { exact: true })).toBeTruthy();
   fireEvent.click(view.getByRole("button", { name: "Force delete 1" }));
-  expect(answer).toHaveBeenLastCalledWith("cleanup", true);
+  expect(answer).not.toHaveBeenCalled();
   act(() => {
     receive({
       ...base,
@@ -284,7 +284,7 @@ test("cleanup checking, ready and run controls follow main state; Escape only hi
     `${"x".repeat(60)}running`,
   );
   fireEvent.click(view.getByRole("button", { name: "Stop" }));
-  expect(answer).toHaveBeenLastCalledWith("cleanup", true);
+  expect(answer).not.toHaveBeenCalled();
   act(() => {
     receive({
       ...base,
@@ -293,7 +293,7 @@ test("cleanup checking, ready and run controls follow main state; Escape only hi
   });
   expect(view.getByRole("button", { name: "Stop" }).hasAttribute("disabled")).toBe(true);
   fireEvent.keyDown(view.getByRole("button", { name: "Hide" }), { key: "Escape" });
-  expect(answer).toHaveBeenLastCalledWith("cleanup", false);
+  expect(answer).not.toHaveBeenCalled();
   const duplicateBranches = [
     {
       id: "first",
@@ -346,7 +346,7 @@ test("cleanup checking, ready and run controls follow main state; Escape only hi
   expect(view.getByText("fetch failed")).toBeTruthy();
   expect(view.queryByRole("button", { name: "Stop" })).toBeNull();
   fireEvent.click(view.getByRole("button", { name: "Done" }));
-  expect(answer).toHaveBeenLastCalledWith("cleanup", false);
+  expect(answer).not.toHaveBeenCalled();
 });
 
 test("structured disclosures, git status words and pairing countdown render safely", () => {
@@ -492,7 +492,7 @@ test("batch review lists trusted snapshots, traps focus through selection and se
   expect(document.activeElement).toBe(view.getByRole("button", { name: "Decline" }));
   // The default action is Decline, including for a mixed clean/dirty batch.
   fireEvent.click(view.getByRole("button", { name: "Decline" }));
-  expect(answer).toHaveBeenLastCalledWith("batch", false);
+  expect(answer).not.toHaveBeenCalled();
   expect(view.getByRole("list", { name: "Worktrees to remove" }).textContent).toContain("Clean");
   expect(view.getByText("Dirty")).toBeTruthy();
   expect(view.getByText("PR #338 · MERGED")).toBeTruthy();
@@ -510,12 +510,12 @@ test("batch review lists trusted snapshots, traps focus through selection and se
   expect(document.activeElement).toBe(checkbox);
   fireEvent.click(checkbox);
   fireEvent.click(subset);
-  expect(answer).toHaveBeenLastCalledWith("batch", ["one"]);
+  expect(answer).not.toHaveBeenCalled();
   fireEvent.click(checkbox);
   expect(subset.hasAttribute("disabled")).toBe(true);
   fireEvent.click(view.getByRole("checkbox", { name: "<img src=x>" }));
   fireEvent.click(view.getByRole("button", { name: "Discard changes and remove selected" }));
-  expect(answer).toHaveBeenLastCalledWith("batch", ["two"]);
+  expect(answer).not.toHaveBeenCalled();
   act(() => {
     receive({ ...request, id: "updated" });
   });
@@ -524,11 +524,11 @@ test("batch review lists trusted snapshots, traps focus through selection and se
   );
   expect(document.activeElement).toBe(view.getByRole("button", { name: "Decline" }));
   fireEvent.click(view.getByRole("button", { name: "Discard changes and remove all" }));
-  expect(answer).toHaveBeenLastCalledWith("updated", ["one", "two"]);
+  expect(answer).not.toHaveBeenCalled();
   fireEvent.keyDown(view.getByRole("checkbox", { name: "clean" }), { key: "Escape" });
-  expect(answer).toHaveBeenLastCalledWith("updated", false);
+  expect(answer).not.toHaveBeenCalled();
   fireEvent.click(view.getByRole("button", { name: "Decline" }));
-  expect(answer).toHaveBeenLastCalledWith("updated", false);
+  expect(answer).not.toHaveBeenCalled();
   act(() => {
     receive({
       ...request,
@@ -537,7 +537,7 @@ test("batch review lists trusted snapshots, traps focus through selection and se
     });
   });
   fireEvent.click(view.getByRole("button", { name: "Approve all" }));
-  expect(answer).toHaveBeenLastCalledWith("clean-only", ["one"]);
+  expect(answer).not.toHaveBeenCalled();
 });
 
 test("starts summaries collapsed, includes only visible disclosure controls in Tab order and resets each request", () => {
@@ -650,7 +650,7 @@ test("starts summaries collapsed, includes only visible disclosure controls in T
     cancel.isConnected ? cancel : view.getByRole("button", { name: "Cancel" }),
   );
   fireEvent.keyDown(view.getByRole("alertdialog"), { key: "Escape" });
-  expect(answer).toHaveBeenLastCalledWith("new", false);
+  expect(answer).not.toHaveBeenCalled();
   vi.unstubAllGlobals();
 });
 
@@ -857,7 +857,7 @@ test("confirming controls wait for main's presentation flag, including selected 
   fireEvent.click(view.getByRole("checkbox"));
   expect(selected).toHaveProperty("disabled", false);
   fireEvent.click(selected);
-  expect(answer).toHaveBeenLastCalledWith("preparing", ["one"]);
+  expect(answer).not.toHaveBeenCalled();
 });
 
 test("copy controls identify the pending path and do not approve or toggle removals", async () => {
@@ -1001,7 +1001,7 @@ test("plugin progress blocks Close and Escape and replaces steps with a receipt"
   });
   expect(view.getByText(/no exit status · 5.0 s/u)).toBeTruthy();
   fireEvent.click(view.getByRole("button", { name: "Done" }));
-  expect(answer).toHaveBeenCalledWith("setup", false);
+  expect(answer).not.toHaveBeenCalled();
   act(() => {
     receive({
       ...request,
@@ -1024,7 +1024,8 @@ test("plugin progress blocks Close and Escape and replaces steps with a receipt"
   expect(view.getByText(/exit 0/u)).toHaveProperty("title", "agy plugin install /fixture/full");
 });
 
-test("approval queue preserves terminal focus, keyed rows, disabled arrivals and visible-only bulk snapshots", async () => {
+test("approval queue preserves focus and keyed rows, guards moved controls and rejects synthetic gestures", async () => {
+  vi.useFakeTimers();
   let receive: (request: DialogRequest | null) => void = () => {};
   const answer = vi.fn();
   const hide = vi.fn();
@@ -1080,9 +1081,12 @@ test("approval queue preserves terminal focus, keyed rows, disabled arrivals and
   expect(document.activeElement).toBe(terminal);
   expect(view.getByRole("dialog").getAttribute("aria-modal")).toBe("false");
   const a = view.getByRole("group", { name: "Remove a?" });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(900);
+  });
   expect(view.getByRole("button", { name: "Approve all visible removals (1)" })).toBeTruthy();
   fireEvent.click(view.getByRole("button", { name: "Approve all visible removals (1)" }));
-  expect(answer).toHaveBeenLastCalledWith("queue", ["a"]);
+  expect(answer).not.toHaveBeenCalled();
   await act(async () => {
     receive({
       ...request,
@@ -1098,5 +1102,39 @@ test("approval queue preserves terminal focus, keyed rows, disabled arrivals and
   fireEvent.click(view.getByRole("button", { name: "Hide" }));
   expect(hide).toHaveBeenCalledTimes(2);
   expect(size).toHaveBeenCalledWith({ width: 750, height: 0 });
+  const removed = view.getByRole("group", { name: "Remove a?" });
+  removed.querySelector("button")?.focus();
+  act(() => {
+    receive({ ...request, approvals: [row("b", "Authority")] });
+  });
+  expect(view.queryByRole("group", { name: "Remove a?" })).toBeNull();
+  expect(view.getAllByRole("status").map((element) => element.textContent)).toEqual([
+    "Request ended",
+    "Request ended",
+  ]);
+  expect(document.activeElement).toBe(view.getByRole("button", { name: "Hide" }));
+  // Updates during the settle interval retain the same inert slot.
+  act(() => {
+    receive({ ...request, approvals: [row("b", "Authority"), row("d")] });
+  });
+  expect(view.getAllByRole("status")).toHaveLength(2);
+  fireEvent.pointerDown(view.getByRole("button", { name: /Approve all visible/ }));
+  fireEvent.keyDown(view.getByRole("button", { name: /Approve all visible/ }), { key: "Enter" });
+  fireEvent.keyDown(view.getByRole("button", { name: /Approve all visible/ }), {
+    key: " ",
+    repeat: true,
+  });
+  fireEvent.pointerCancel(view.getByRole("button", { name: /Approve all visible/ }));
+  fireEvent.blur(view.getByRole("button", { name: /Approve all visible/ }));
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(900);
+  });
+  expect(view.queryByRole("status")).toBeNull();
+  fireEvent.resize(window);
+  fireEvent.scroll(view.getByRole("region", { name: "Pending approvals" }));
+  fireEvent.focus(window);
+  expect(answer).not.toHaveBeenCalled();
   terminal.remove();
+  view.unmount();
+  vi.useRealTimers();
 });

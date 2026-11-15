@@ -23,7 +23,12 @@ operation generation, target and disclosed snapshot; grant keys include the capt
 repository/worktree identity, replacing principal and Resume capability. Duplicates join a stable row
 while each caller retains its own abort lifetime. Expiry uses the original absolute
 pairing deadline. Cancellation or external completion withdraws only that caller;
-the last caller removes the row. Renderer loss or presentation failure declines
+the last caller withdraws the row. Its former footprint becomes an inert, labelled
+placeholder for 900 ms before space is reclaimed. Every decision control whose
+position or size changes (including after withdrawal, expiry, disclosure expansion
+or scrolling) receives a fresh monotonic 900 ms renderer guard. Geometry is
+rechecked synchronously at decision input as well as after layout changes. If a
+removed control held keyboard focus, Hide receives it. Renderer loss or presentation failure declines
 remaining callers without granting anything.
 
 Unlike action dialogs, queue presentation does not install a scrim, board input
@@ -39,11 +44,19 @@ Every row answer requires its current ID, exact trusted main frame, native focus
 visibility and complete reachable bounds. Main also enforces a monotonic 900 ms
 per-row delay after presentation; both buttons are disabled until ready. Bulk
 answers contain an explicit ID snapshot of fully visible, ready rows measured in
-the trusted page at the click. Main refuses empty, duplicate, unknown, unready or
+the trusted page at a trusted primary pointer-down or initial Enter/Space key-down.
+Release can only narrow this snapshot to IDs still visible and ready; it cannot
+add arrivals or substitute other IDs. Cancellation or focus loss clears the
+gesture, and keyboard repeats cannot replace it. Main refuses empty, duplicate, unknown, unready or
 mixed-kind IDs atomically. Only worktree removals are bulk eligible. Later rows
 cannot enter the captured set. Caller identity/status revalidation still runs
 before execution. Per-row plugin progress keeps the existing fixed-command and
-receipt lifecycle and cannot accept a second mutation while running.
+receipt lifecycle and cannot accept a second mutation while running. All
+renderer decision handlers, including legacy dialogs, decline/cancel, selected
+removals and keyboard activation, require `event.isTrusted`; synthetic DOM clicks
+and dispatched key/pointer events never answer. This authenticates the browser
+event, in addition to the existing IPC sender/native reachability checks; it does
+not treat renderer-supplied IPC as proof of a human gesture.
 
 The following modal presentation rules apply to user-action dialogs, except where
 the queue behavior above explicitly supersedes them.

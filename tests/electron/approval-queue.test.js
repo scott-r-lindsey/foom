@@ -5,9 +5,7 @@ const path = require("node:path");
 const { deadline, expect } = require("./test-policy.js");
 const { launchApp, boardPage } = require("./harness.js");
 
-test("one trusted approval queue appends, merges, withdraws and snapshots decisions without stealing terminal input", {
-  timeout: deadline(60000),
-}, async (context) => {
+async function launchApprovalFixture(context) {
   let app;
   context.after(async () => {
     if (app)
@@ -58,7 +56,7 @@ test("one trusted approval queue appends, merges, withdraws and snapshots decisi
     fixture.off = fixture.queue.feed.subscribe(() =>
       parent.webContents.send("approval:count", fixture.queue.feed.current().length),
     );
-    fixture.add = (id, kind = "Worktree removal") => {
+    fixture.add = (id, kind = "Worktree removal", expiresAt) => {
       const controller = new AbortController();
       fixture.abort[id] = controller;
       const content = {
@@ -72,6 +70,7 @@ test("one trusted approval queue appends, merges, withdraws and snapshots decisi
           key: id,
         },
       };
+      if (expiresAt !== undefined) content.pairing = { code: "ABCD-EFGH", expiresAt };
       if (kind === "Worktree removal") {
         delete content.detail;
         content.removal = {
@@ -86,6 +85,13 @@ test("one trusted approval queue appends, merges, withdraws and snapshots decisi
     fixture.add("one");
     fixture.add("two");
   });
+  return { app, board };
+}
+
+test("one trusted approval queue appends, merges, withdraws and snapshots decisions without stealing terminal input", {
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, board } = await launchApprovalFixture(context);
   await expect(board.getByRole("button", { name: "2 approvals waiting" })).toBeVisible();
   const input = board.locator(".xterm-helper-textarea").first();
   await input.focus();
@@ -118,9 +124,9 @@ test("one trusted approval queue appends, merges, withdraws and snapshots decisi
     .toBe(true);
   const native = await app.browserWindow(dialog);
   const row = (id) =>
-    dialog
-      .locator(".approval-row")
-      .filter({ has: dialog.locator(".subject", { hasText: new RegExp(`^${id}$`) }) });
+    dialog.locator(".approval-row").filter({
+      has: dialog.locator(".subject b", { hasText: new RegExp(`^(?:fixture/)?${id}$`) }),
+    });
   const approve = (id) => row(id).getByRole("button", { name: /^Approve ·/ });
   try {
     await expect
@@ -153,6 +159,7 @@ test("one trusted approval queue appends, merges, withdraws and snapshots decisi
     await expect(
       dialog.getByRole("button", { name: "Approve all visible removals (2)", exact: true }),
     ).toBeEnabled();
+    await expect(dialog.locator(".approval-placeholder")).toHaveCount(0);
     if (process.env.FOOM_CONFIRMATION_SCREENSHOTS === "1") {
       await mkdir("test-results/1105-electron", { recursive: true });
       for (const dark of [false, true]) {
@@ -219,6 +226,192 @@ test("one trusted approval queue appends, merges, withdraws and snapshots decisi
     assert.equal(await app.evaluate(() => globalThis.approvalFixture.results.hidden), undefined);
     await app.evaluate(() => globalThis.approvalFixture.abort.hidden.abort());
     await expect(waiting).toHaveCount(0);
+  } finally {
+    await native.dispose();
+  }
+});
+
+async function openFixtureDialog(app, board) {
+  await board.getByRole("button", { name: /approvals? waiting/ }).click();
+  await app.evaluate(() => globalThis.approvalFixture.dialog.openApprovals());
+  let dialog;
+  await expect
+    .poll(async () => {
+      for (const page of app.windows())
+        if (
+          page.url() === "app://confirmation/confirmation.html" &&
+          (await page.locator(".approval-queue").count())
+        ) {
+          dialog = page;
+          return true;
+        }
+      return false;
+    })
+    .toBe(true);
+  const native = await app.browserWindow(dialog);
+  await expect
+    .poll(() => native.evaluate((window) => window.isFocused() && window.isVisible()))
+    .toBe(true);
+  const row = (id) =>
+    dialog.locator(".approval-row").filter({
+      has: dialog.locator(".subject b", { hasText: new RegExp(`^(?:fixture/)?${id}$`) }),
+    });
+  return {
+    dialog,
+    native,
+    row,
+    approve: (id) => row(id).getByRole("button", { name: /^Approve ·/ }),
+  };
+}
+
+test("trusted approval gestures cannot retarget withdrawals, expiry or arrivals and synthetic decisions grant nothing", {
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, board } = await launchApprovalFixture(context);
+  const { dialog, native, row, approve } = await openFixtureDialog(app, board);
+  const result = (id) => app.evaluate((_, id) => globalThis.approvalFixture.results[id], id);
+  const bulk = () => dialog.getByRole("button", { name: /Approve all visible removals/ });
+  const add = (id, kind = "Worktree removal") =>
+    app.evaluate((_, { id, kind }) => globalThis.approvalFixture.add(id, kind), { id, kind });
+  const abort = (id) => app.evaluate((_, id) => globalThis.approvalFixture.abort[id].abort(), id);
+  try {
+    await expect(approve("one")).toBeEnabled();
+    await expect(approve("two")).toBeEnabled();
+    const first = await approve("one").boundingBox();
+    const second = await approve("two").boundingBox();
+    const x = first.x + first.width / 2;
+    const y = first.y + first.height / 2;
+    await dialog.mouse.move(x, y);
+    await abort("one");
+    await expect(dialog.locator(".approval-placeholder")).toContainText("Request ended");
+    assert.deepEqual(
+      await approve("two").boundingBox(),
+      second,
+      "Withdrawal retains its inert footprint",
+    );
+    await dialog.mouse.click(x, y);
+    assert.equal(await result("two"), undefined);
+    await expect(dialog.locator(".approval-placeholder")).toHaveCount(0);
+    await expect(approve("two")).toBeDisabled();
+    await dialog.mouse.click(x, y);
+    assert.equal(
+      await result("two"),
+      undefined,
+      "A control moved under a stationary pointer must re-arm",
+    );
+    await expect(approve("two")).toBeEnabled();
+    await approve("two").click();
+    await expect.poll(() => result("two")).toBe(true);
+
+    // Pairing uses its real absolute main-owned expiry; no timers are mocked.
+    await app.evaluate(() => {
+      const f = globalThis.approvalFixture;
+      f.add("expires", "Credentials", Date.now() + 2500);
+      f.add("after-expiry");
+      f.dialog.openApprovals();
+    });
+    await expect(approve("expires")).toBeEnabled();
+    const expiryBox = await approve("after-expiry").boundingBox();
+    await expect.poll(() => result("expires")).toBe(false);
+    await expect(dialog.locator(".approval-placeholder")).toHaveCount(1);
+    assert.deepEqual(await approve("after-expiry").boundingBox(), expiryBox);
+    await expect(dialog.locator(".approval-placeholder")).toHaveCount(0);
+    await expect(approve("after-expiry")).toBeDisabled();
+    await expect(approve("after-expiry")).toBeEnabled();
+    await expect(bulk()).toBeEnabled();
+
+    // A native mouse press snapshots the original set, even through another row's guard.
+    const box = await bulk().boundingBox();
+    await dialog.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await dialog.mouse.down();
+    await add("after-press");
+    await expect(approve("after-press")).toBeEnabled();
+    await expect(bulk()).toBeEnabled();
+    assert.deepEqual(
+      await bulk().boundingBox(),
+      box,
+      "Updating the bulk count must retain its geometry",
+    );
+    await expect(bulk()).toBeFocused();
+    await dialog.mouse.up();
+    await expect.poll(() => result("after-expiry")).toBe(true);
+    assert.equal(
+      await result("after-press"),
+      undefined,
+      "A later arrival cannot join the pressed snapshot",
+    );
+    await expect(dialog.locator(".approval-placeholder")).toHaveCount(0);
+    await expect(bulk()).toBeEnabled();
+
+    // Space activates on release: its key-down must snapshot exactly like pointer-down.
+    await bulk().focus();
+    await dialog.keyboard.down("Space");
+    await add("after-keydown");
+    await expect(approve("after-keydown")).toBeEnabled();
+    await expect(bulk()).toBeEnabled();
+    await dialog.keyboard.up("Space");
+    await expect.poll(() => result("after-press")).toBe(true);
+    assert.equal(await result("after-keydown"), undefined);
+    await expect(dialog.locator(".approval-placeholder")).toHaveCount(0);
+    await expect(bulk()).toBeEnabled();
+
+    // Revalidate only surviving captured IDs. A withdrawn captured row is excluded.
+    await add("withdraw-captured");
+    await expect(approve("withdraw-captured")).toBeEnabled();
+    await expect(bulk()).toBeEnabled();
+    const captureBox = await bulk().boundingBox();
+    await dialog.mouse.move(
+      captureBox.x + captureBox.width / 2,
+      captureBox.y + captureBox.height / 2,
+    );
+    await dialog.mouse.down();
+    await abort("withdraw-captured");
+    await add("after-withdrawal");
+    await expect(approve("after-withdrawal")).toBeEnabled();
+    await expect(bulk()).toBeEnabled();
+    await dialog.mouse.up();
+    await expect.poll(() => result("after-keydown")).toBe(true);
+    assert.equal(await result("withdraw-captured"), false);
+    assert.equal(await result("after-withdrawal"), undefined);
+    await expect(dialog.locator(".approval-placeholder")).toHaveCount(0);
+    await expect(bulk()).toBeEnabled();
+
+    await add("authority", "Authority");
+    await expect(approve("authority")).toBeEnabled();
+    const synthetic = async (button) => {
+      const trusted = await button.evaluate((element) => {
+        const events = [];
+        const record = (event) => events.push(event.isTrusted);
+        element.addEventListener("click", record);
+        element.click();
+        element.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+        element.click();
+        element.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Enter" }));
+        element.click();
+        element.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: " " }));
+        element.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: " " }));
+        element.click();
+        element.removeEventListener("click", record);
+        return events;
+      });
+      assert.deepEqual(trusted, [false, false, false, false]);
+    };
+    await synthetic(approve("authority"));
+    await synthetic(row("authority").getByRole("button", { name: "Decline", exact: true }));
+    await synthetic(bulk());
+    assert.equal(await result("authority"), undefined);
+    assert.equal(await result("after-withdrawal"), undefined);
+    // Genuine keyboard decisions still work for sensitive individual approvals and declines.
+    await approve("authority").focus();
+    await dialog.keyboard.press("Enter");
+    await expect.poll(() => result("authority")).toBe(true);
+    await expect(dialog.locator(".approval-placeholder")).toHaveCount(0);
+    await expect(
+      row("after-withdrawal").getByRole("button", { name: "Decline", exact: true }),
+    ).toBeEnabled();
+    await row("after-withdrawal").getByRole("button", { name: "Decline", exact: true }).focus();
+    await dialog.keyboard.press("Space");
+    await expect.poll(() => result("after-withdrawal")).toBe(false);
   } finally {
     await native.dispose();
   }

@@ -1,5 +1,14 @@
+import { ApprovalGeometry } from "./approval-geometry";
 import { CopyValue } from "./ui/copy-value";
-import { createContext, use, useEffect, useRef, useState, useCallback } from "react";
+import {
+  createContext,
+  use,
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+  useLayoutEffect,
+} from "react";
 import { createRoot } from "react-dom/client";
 import type { DialogRequest, ApprovalRow } from "../shared/confirmation";
 const stateLabels: Readonly<Record<string, string>> = {
@@ -192,7 +201,7 @@ export function ConfirmationPage() {
     [],
   );
   return request?.approvals ? (
-    <ApprovalQueue request={request} />
+    <ApprovalQueue request={request} updatedAt={updatedAt} />
   ) : (
     <ConfirmationCard key={request?.id} request={request} updatedAt={updatedAt} />
   );
@@ -201,10 +210,12 @@ export function ConfirmationCard({
   request,
   embedded = false,
   updatedAt = 0,
+  canDecide,
 }: {
   request: DialogRequest | null;
   embedded?: boolean;
   updatedAt?: number;
+  canDecide?: () => boolean;
 }) {
   const cardRef = useRef<HTMLElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -357,7 +368,7 @@ export function ConfirmationCard({
     <main
       onKeyDown={(event) => {
         if (embedded) return;
-        if (event.key === "Escape") {
+        if (event.key === "Escape" && event.isTrusted) {
           event.preventDefault();
           answer(false);
         }
@@ -731,8 +742,9 @@ export function ConfirmationCard({
             type="button"
             ref={cancelRef}
             disabled={(embedded && !request.presented) || plugin?.phase === "running"}
-            onClick={() => {
-              answer(false);
+            data-approval-decision={embedded ? request.id : undefined}
+            onClick={(event) => {
+              if (event.isTrusted && (canDecide?.() ?? true)) answer(false);
             }}
           >
             {plugin
@@ -750,10 +762,12 @@ export function ConfirmationCard({
           {request.removals && (
             <button
               type="button"
+              data-approval-decision={embedded ? request.id : undefined}
               disabled={
                 !request.presented || !request.removals.some((item) => selected.includes(item.id))
               }
-              onClick={() => {
+              onClick={(event) => {
+                if (!event.isTrusted || !(canDecide?.() ?? true)) return;
                 window.confirmation.answer(
                   request.id,
                   request.removals
@@ -774,8 +788,9 @@ export function ConfirmationCard({
               ref={acceptRef}
               className="confirmation-accept"
               aria-label={embedded ? `Approve · ${request.accept}` : undefined}
-              onClick={() => {
-                answer(true);
+              data-approval-decision={embedded ? request.id : undefined}
+              onClick={(event) => {
+                if (event.isTrusted && (canDecide?.() ?? true)) answer(true);
               }}
             >
               {running
@@ -802,19 +817,125 @@ export function ConfirmationCard({
   );
 }
 const noApprovals: readonly ApprovalRow[] = [];
-export function ApprovalQueue({ request }: { request: DialogRequest }) {
+export function ApprovalQueue({
+  request,
+  updatedAt,
+}: {
+  request: DialogRequest;
+  updatedAt: number;
+}) {
   const rootRef = useRef<HTMLElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState<readonly string[]>([]);
   const rows = request.approvals ?? noApprovals;
   const hideRef = useRef<HTMLButtonElement>(null);
+  const [geometry] = useState(() => new ApprovalGeometry());
+  const [blocked, setBlocked] = useState<readonly string[]>([]);
+  const gestureRef = useRef<readonly string[]>([]);
+  type Slot = { id: string; row: ApprovalRow | undefined; height: number; expiresAt: number };
+  const [presentation, setPresentation] = useState<{
+    source: readonly ApprovalRow[];
+    slots: Slot[];
+  }>(() => ({
+    source: rows,
+    slots: rows.map((row) => ({ id: row.request.id, row, height: 0, expiresAt: Infinity })),
+  }));
+  let slots = presentation.slots;
+  // Reconcile before commit, retaining the old DOM footprint as an inert slot.
+  if (presentation.source !== rows) {
+    const current = new Map(rows.map((row) => [row.request.id, row]));
+    slots = presentation.slots.map((slot) => {
+      const row = current.get(slot.id);
+      current.delete(slot.id);
+      if (row) return { ...slot, row };
+      if (!slot.row) return slot;
+      return {
+        ...slot,
+        row: undefined,
+        height: document.getElementById(`approval-${slot.id}`)?.getBoundingClientRect().height ?? 0,
+        expiresAt: updatedAt + 900,
+      };
+    });
+    slots.push(
+      ...[...current.values()].map((row) => ({
+        id: row.request.id,
+        row,
+        height: 0,
+        expiresAt: Infinity,
+      })),
+    );
+    setPresentation({ source: rows, slots });
+  }
+  useLayoutEffect(() => {
+    if (document.activeElement === document.body && slots.some((slot) => !slot.row))
+      hideRef.current?.focus();
+  }, [slots]);
+  useEffect(() => {
+    const expiresAt = Math.min(...slots.map((slot) => slot.expiresAt));
+    if (!Number.isFinite(expiresAt)) return;
+    const timer = window.setTimeout(
+      () => {
+        setPresentation((previous) => ({
+          ...previous,
+          slots: previous.slots.filter((slot) => slot.expiresAt > Date.now()),
+        }));
+      },
+      Math.max(0, expiresAt - Date.now()),
+    );
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [slots]);
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    let timer: number | undefined;
+    const update = () => {
+      window.clearTimeout(timer);
+      const state = geometry.read(root);
+      setBlocked((previous) =>
+        previous.length === state.blocked.length &&
+        previous.every((id, index) => id === state.blocked[index])
+          ? previous
+          : state.blocked,
+      );
+      if (Number.isFinite(state.delay)) timer = window.setTimeout(update, state.delay);
+    };
+    timer = window.setTimeout(update, 0);
+    const observer = new ResizeObserver(update);
+    observer.observe(root);
+    for (const control of root.querySelectorAll("button[data-approval-decision]"))
+      observer.observe(control);
+    root.addEventListener("scroll", update, true);
+    root.addEventListener("toggle", update, true);
+    window.addEventListener("resize", update);
+    return () => {
+      window.clearTimeout(timer);
+      observer.disconnect();
+      root.removeEventListener("scroll", update, true);
+      root.removeEventListener("toggle", update, true);
+      window.removeEventListener("resize", update);
+    };
+  });
+  const ready = useCallback(
+    (id: string) => {
+      const root = rootRef.current;
+      return root !== null && geometry.ready(root, id);
+    },
+    [geometry],
+  );
   useEffect(() => {
     const focusSafe = () => {
       hideRef.current?.focus();
     };
+    const clearGesture = () => {
+      gestureRef.current = [];
+    };
     window.addEventListener("focus", focusSafe);
+    window.addEventListener("blur", clearGesture);
     return () => {
       window.removeEventListener("focus", focusSafe);
+      window.removeEventListener("blur", clearGesture);
     };
   }, []);
   const onScreen = useCallback(() => {
@@ -826,13 +947,14 @@ export function ApprovalQueue({ request }: { request: DialogRequest }) {
         return (
           row.kind === "Worktree removal" &&
           row.request.presented &&
+          ready(row.request.id) &&
           item &&
           item.top >= viewport.top &&
           item.bottom <= viewport.bottom
         );
       })
       .map((row) => row.request.id);
-  }, [rows]);
+  }, [rows, ready]);
   useEffect(() => {
     const element = rootRef.current;
     const content = scrollRef.current;
@@ -867,7 +989,7 @@ export function ApprovalQueue({ request }: { request: DialogRequest }) {
       content.removeEventListener("scroll", update);
       content.removeEventListener("toggle", update, true);
     };
-  }, [onScreen]);
+  }, [onScreen, blocked, slots]);
   return (
     <main
       className="approval-queue"
@@ -906,9 +1028,33 @@ export function ApprovalQueue({ request }: { request: DialogRequest }) {
         </div>
         <button
           type="button"
-          disabled={!visible.length}
-          onClick={() => {
-            window.confirmation.answer(request.id, onScreen());
+          data-approval-decision="bulk"
+          disabled={!visible.length || blocked.includes("bulk")}
+          onPointerDown={(event) => {
+            gestureRef.current =
+              event.isTrusted && event.button === 0 && ready("bulk") ? onScreen() : [];
+          }}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter" && event.key !== " ") return;
+            if (event.repeat) {
+              event.preventDefault();
+              return;
+            }
+            gestureRef.current = event.isTrusted && ready("bulk") ? onScreen() : [];
+          }}
+          onPointerCancel={() => {
+            gestureRef.current = [];
+          }}
+          onBlur={() => {
+            gestureRef.current = [];
+          }}
+          onClick={(event) => {
+            const captured = gestureRef.current;
+            gestureRef.current = [];
+            if (!event.isTrusted || !ready("bulk")) return;
+            const valid = onScreen();
+            const ids = captured.filter((id) => valid.includes(id));
+            if (ids.length) window.confirmation.answer(request.id, ids);
           }}
         >
           Approve all visible removals ({visible.length})
@@ -921,22 +1067,36 @@ export function ApprovalQueue({ request }: { request: DialogRequest }) {
         role="region"
         aria-label="Pending approvals"
       >
-        {rows.map((row) => (
-          <article className="approval-row" id={`approval-${row.request.id}`} key={row.request.id}>
-            <div className="approval-origin">
-              <span>{row.origin}</span>
-              <span className="chip">{row.kind}</span>
+        {slots.map(({ id, row, height }) =>
+          row ? (
+            <article className="approval-row" id={`approval-${id}`} key={id}>
+              <div className="approval-origin">
+                <span>{row.origin}</span>
+                <span className="chip">{row.kind}</span>
+              </div>
+              <ConfirmationCard
+                request={{
+                  ...row.request,
+                  presented: row.request.presented && !blocked.includes(id),
+                  theme: request.theme,
+                }}
+                embedded
+                canDecide={() => ready(id)}
+              />
+              <p className="approval-status">
+                {!row.request.presented || blocked.includes(id)
+                  ? "Buttons ready shortly"
+                  : row.repeats > 1
+                    ? `Repeated ${String(row.repeats)} times · one decision`
+                    : "Awaiting your decision"}
+              </p>
+            </article>
+          ) : (
+            <div className="approval-placeholder" key={id} style={{ height }} role="status">
+              Request ended
             </div>
-            <ConfirmationCard request={{ ...row.request, theme: request.theme }} embedded />
-            <p className="approval-status">
-              {!row.request.presented
-                ? "New · buttons ready shortly"
-                : row.repeats > 1
-                  ? `Repeated ${String(row.repeats)} times · one decision`
-                  : "Awaiting your decision"}
-            </p>
-          </article>
-        ))}
+          ),
+        )}
       </div>
       <footer>New requests join the end. Hide keeps every request pending.</footer>
     </main>

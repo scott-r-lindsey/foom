@@ -78,12 +78,19 @@ them pending. The board remains usable without a scrim.
 Rows append at the end with stable identities and both decisions disabled for
 900 ms after presentation. Repeated identical requests merge into one row; each
 caller's cancellation remains independent. A withdrawn, expired or externally
-resolved request disappears without deciding another row. Empty queues close.
+resolved request is replaced by a non-interactive “Request ended” placeholder
+for 900 ms. Reclaiming that space cannot immediately activate a different row:
+buttons that move are disabled for another 900 ms. Moving or resizing controls,
+including by scrolling or expanding details, restarts this reading interval.
+Removing a focused decision moves focus to Hide. Empty queues close.
 The window grows down from a fixed top edge to 720 CSS pixels, then scrolls within
 the available board/display area. Its title and the sidebar show the live count.
 
 **Approve all visible removals (N)** captures only fully visible, ready worktree
-removal rows at the click. Later arrivals and clipped/off-screen rows are excluded.
+removal rows when the primary pointer or Enter/Space key is pressed. Release
+approves only captured rows that are still visible and ready. Later arrivals,
+withdrawn requests and clipped/off-screen rows are excluded. Synthetic clicks or
+keyboard events never make a decision in any trusted confirmation.
 Authority, plugin trust, host trust and credential grants always require individual
 approval. Full plugin disclosures and progress remain in their own row. User-started
 link-open, tile-close, quit and merged-cleanup confirmations retain their existing
