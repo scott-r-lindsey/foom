@@ -73,6 +73,16 @@ uses an isolated disposable profile and deletes it on exit.
 
 ## Tests and coverage
 
+- When more than three children are running on one host, coordinate heavy validation
+  across worktrees with shared host-local `flock` slots: `pnpm run check`,
+  `pnpm run test:coverage`, Electron tests, `pnpm run make`, packaged tests and
+  `git commit` (which runs validation through Husky). The orchestrator supplies
+  the same bounded slot pool or wrapper to every child; never use per-worktree
+  locks. Each slot holds one command, including its commit hook; each child runs
+  at most one heavy command at a time. Where `flock` is unavailable, the
+  orchestrator must schedule equivalent bounded concurrency explicitly.
+  Wait for a slot; never relax test deadlines to compensate for host load.
+
 - Tests spawning Git must use `tests/helpers/git.js` (`git` or `gitSync`), which removes inherited Git variables and disables global/system Git configuration. Never launch Git directly from a test.
 
 - `pnpm test` runs fast unit tests without a display. Test behavior, failure paths, and security boundaries. Keep logic separable from platform APIs as the app grows.

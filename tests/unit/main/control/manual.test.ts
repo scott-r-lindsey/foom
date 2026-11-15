@@ -111,3 +111,38 @@ it.each([
   vi.mocked(readFileSync).mockReturnValue(JSON.stringify(index));
   expect(bundledManual).toThrow("unavailable");
 });
+
+it("publishes the complete bundled orchestrator playbook through paginated manual reads", async () => {
+  const fs = await vi.importActual<{ readFileSync: typeof readFileSync }>("node:fs");
+  const dom = new JSDOM(fs.readFileSync("src/manual/manual.html", "utf8"));
+  expect(dom.window.document.querySelectorAll("main > section")).toHaveLength(14);
+  expect(dom.window.document.querySelectorAll("section section")).toHaveLength(0);
+  const manual = new Manual(sectionIndex(dom.window.document));
+  expect(manual.read({}).sections).toContainEqual(
+    expect.objectContaining({ id: "orchestrator-playbook", title: "Orchestrator playbook" }),
+  );
+  let text = "";
+  let page = 0;
+  for (;;) {
+    const result = manual.read({ section: "orchestrator-playbook", page });
+    if (!("text" in result)) throw new Error("Expected playbook page");
+    text += result.text;
+    if (!("nextPage" in result)) break;
+    page = result.nextPage;
+  }
+  expect(page).toBeGreaterThan(0);
+  for (const phrase of [
+    "same turn as each launch",
+    "covering all owned children",
+    "foreground blocking shell call",
+    "Claude Code",
+    "Codex",
+    "Antigravity",
+    "orchestrator owns CI",
+    "check whether its child is still running",
+    "Verify each handoff against the diff or checks",
+    "Pull the default checkout",
+  ])
+    expect(text).toContain(phrase);
+  dom.window.close();
+});

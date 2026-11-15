@@ -87,6 +87,22 @@ Raw bodies, arbitrary keys/methods, URLs, tokens and exception messages never en
 these diagnostics. Authentication, grant/session binding and transport bounds are
 unchanged.
 
+## Orchestrator guidance (#1201)
+
+`whoami` and the short startup/CLI guidance point orchestrators to the bundled
+`orchestrator-playbook` manual section. Keep the playbook there rather than
+copying its workflow into role instruction text. Arm one wait covering all
+children in the launch turn and re-arm after each wake; concurrent long-polls
+consume control capacity. Background waiting is conditional on client exit
+notifications; otherwise repeat bounded MCP `wait_for` calls, or use a bounded
+foreground CLI wait if MCP is unavailable, collecting yielded shell results
+explicitly. MCP remains capped at 30 seconds. Client limits and
+qualification gaps are recorded in [agent evidence](../agents.md#orchestrator-waiting-1201).
+The orchestrator owns shared CI observation, handoff verification and cleanup.
+Children report the PR/head and validation, avoid CI polling loops, rerun a
+documented flake's failed jobs once, then hand off; they never change host/system
+settings. Repository validation concurrency belongs in repository instructions.
+
 ## Bundled manual (#699)
 
 Every session already launched with Foom MCP, including ordinary children and
