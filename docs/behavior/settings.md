@@ -482,3 +482,9 @@ reachable report `dialog-unavailable`. Declining or leaving Settings is not repo
 path, other-name entry or exception text appears in these diagnostics.
 OpenSSH's bounded other-names/addresses notice is accepted without displaying it;
 the confirmation still shows only the validated target, key type and fingerprint.
+
+General also offers the profile-only **Wake idle orchestrators on child events**
+checkbox (off by default) and **Minimum minutes between wakes** (1–1440, default
+three). Its adjacent disclosure explains fixed notices, Escape, composer checks,
+focus suppression and the accepted best-effort screen/input race. See
+[parent wake](../orchestration.md#opt-in-idle-orchestrator-wake-548).

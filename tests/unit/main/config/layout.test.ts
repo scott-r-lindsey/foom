@@ -162,6 +162,8 @@ test("the previous agent schema remains refreshable after adding bundled-only in
   const file = "schemas/agent.schema.json";
   const previous = themeRecord(JSON.parse(OWNED_FILES[file] ?? ""), "$");
   const definitions = themeRecord(previous["$defs"], "$.$defs");
+  delete themeRecord(themeRecord(definitions["v2"], "$")["properties"], "$")["wake"];
+  delete definitions["wake"];
   const setup = themeRecord(definitions["hostSetup"], "$.$defs.hostSetup");
   delete themeRecord(setup["properties"], "$.$defs.hostSetup.properties")["script"];
   delete definitions["vendorScript"];
@@ -193,6 +195,8 @@ test.each(["claude", "codex", "agy", "copilot", "opencode", "pi", "custom-agent"
 
 test("the previous agent schema remains refreshable after adding installer environment", () => {
   const previous = structuredClone(generated);
+  Reflect.deleteProperty(previous.$defs.v2.properties, "wake");
+  Reflect.deleteProperty(previous.$defs, "wake");
   const properties = themeRecord(
     themeRecord(themeRecord(previous.$defs, "$.$defs")["vendorScript"], "$.$defs.vendorScript")[
       "properties"

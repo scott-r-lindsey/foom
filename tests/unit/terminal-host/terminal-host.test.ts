@@ -12,6 +12,7 @@ const mock = vi.hoisted(() => {
     kill: vi.fn(),
     write: vi.fn(),
     childInput: vi.fn(),
+    wakeInput: vi.fn(),
     resize: vi.fn(),
     setTheme: vi.fn(),
     acknowledge: vi.fn(),
@@ -31,6 +32,7 @@ vi.mock("../../../src/terminal-host/terminal-manager", () => ({
     kill = mock.kill;
     write = mock.write;
     childInput = mock.childInput;
+    wakeInput = mock.wakeInput;
     resize = mock.resize;
     setTheme = mock.setTheme;
     acknowledge = mock.acknowledge;
@@ -272,4 +274,20 @@ test("answers liveness probes while an attachment parser barrier is still pendin
     request: 2,
     lines: [],
   });
+});
+
+test("guarded wake input is validated and the acceptance result is returned", async () => {
+  const { wakeLine } = await import("../../../src/shared/agent-wake");
+  await message({ type: "create", id: "parent", request: 1, spec });
+  const input = {
+    policy: { cancelKeys: ["esc"], composer: ["❯"], contains: [], reject: ["permission"] },
+    step: "submit",
+    line: wakeLine(["child"]),
+  };
+  mock.wakeInput.mockResolvedValue(true);
+  await message({ type: "wake-input", id: "parent", request: 2, input });
+  expect(mock.wakeInput).toHaveBeenCalledWith("parent", input);
+  expect(port.postMessage).toHaveBeenLastCalledWith(expect.objectContaining({ signaled: true }));
+  await message({ type: "wake-input", id: "parent", request: 3, input: { ...input, line: "bad" } });
+  expect(mock.wakeInput).toHaveBeenCalledOnce();
 });

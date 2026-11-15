@@ -1,3 +1,4 @@
+import type { WakeInput } from "../../shared/agent-wake";
 import type { HostSnapshot, HostExitDiagnostic } from "./terminal-host-diagnostics";
 import { watchHostLiveness } from "./terminal-host-liveness";
 import { performance, monitorEventLoopDelay } from "node:perf_hooks";
@@ -486,6 +487,13 @@ export class TerminalHostClient {
   async reply(id: string, data: string): Promise<void> {
     if (this.remotes.has(id)) return this.remotes.get(id)?.reply(id, data);
     await this.request({ type: "write", id, data });
+  }
+  async wakeInput(id: string, input: WakeInput): Promise<boolean> {
+    // Older/remote hosts have no guarded write; never fall back to raw input.
+    if (this.remotes.has(id)) return false;
+    const result = await this.request({ type: "wake-input", id, input });
+    if (result.signaled === undefined) throw new Error("Missing wake input result");
+    return result.signaled;
   }
   async childInput(id: string, input: ChildInput): Promise<void> {
     if (this.remotes.has(id)) return this.remotes.get(id)?.childInput(id, input);

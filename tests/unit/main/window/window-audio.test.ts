@@ -84,3 +84,16 @@ test("reports human focus only for the focused window's validated terminal", () 
   expect(focused).toHaveBeenCalledTimes(2);
   f.dispose();
 });
+
+test("wake focus guard follows the focused window and its current tile", () => {
+  const audio = new WindowAudio();
+  const f = fixture(audio, 1);
+  f.invoke("audio-focus", "session-1");
+  expect(audio.isFocused("session-1")).toBe(false);
+  f.window.isFocused.mockReturnValue(true);
+  expect(audio.isFocused("session-1")).toBe(true);
+  expect(audio.isFocused("other")).toBe(false);
+  f.invoke("audio-focus", null);
+  expect(audio.isFocused("session-1")).toBe(false);
+  f.dispose();
+});

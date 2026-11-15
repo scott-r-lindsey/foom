@@ -187,6 +187,7 @@ export async function initializeWorkspace(
         },
       ),
       terminals: wiring.terminals,
+      focused: (id) => wiring.audio.isFocused(id),
       agentPluginDirectory: app.getPath("userData"),
       sessions: new SessionStore(app.getPath("userData")),
       copyText: (text) => clipboard.writeText(text),

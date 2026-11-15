@@ -1,3 +1,4 @@
+import { deliverWake } from "../control/orchestrator-wake";
 import { checkoutBusy, closingWorktree, worktreeReservation } from "./worktree-reservations";
 import type { CheckoutHold } from "./worktree-reservations";
 import { agentProviders } from "../agents/providers/registry";
@@ -112,6 +113,27 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
     return current;
   };
   return {
+    wake: async (id, line, valid, intent) => {
+      const row = caps.snapshot().terminals.find((row) => row.id === id);
+      const provider = row?.agent && agentProviders().find((provider) => provider.id === row.agent);
+      // Agent-editable config cannot grant itself automatic terminal input policy.
+      const policy = provider && provider.origin === "bundled" ? provider.model.wake : undefined;
+      const write = caps.deps.terminals.wakeInput;
+      const allowed = () =>
+        valid() &&
+        caps.wakeIdle(id) &&
+        caps.deps.focused?.(id) === false &&
+        !caps.sessions.isRestoring(id);
+      const result = await deliverWake(
+        policy || undefined,
+        write ? (input) => write(id, input) : undefined,
+        allowed,
+        line,
+        intent,
+      );
+      if (result === "sent") caps.input(id);
+      return result;
+    },
     hosts: async (refresh = true) => {
       const local = await localResources().catch(() => undefined);
       const scan = await caps.scanAgents(false);

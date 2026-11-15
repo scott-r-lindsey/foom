@@ -4,6 +4,11 @@ import type { WindowIpc } from "./window-ipc";
 /** One renderer plays app sounds; focus suppression follows the focused board. */
 export class WindowAudio {
   private readonly windows = new Map<number, { window: BrowserWindow; focusedId: string | null }>();
+  isFocused(id: string): boolean {
+    return [...this.windows.values()].some(
+      (entry) => entry.window.isFocused() && entry.focusedId === id,
+    );
+  }
   private state(id: number) {
     const focused = [...this.windows.values()].find((entry) => entry.window.isFocused());
     return {

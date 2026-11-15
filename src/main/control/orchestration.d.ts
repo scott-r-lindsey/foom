@@ -11,6 +11,12 @@ import type { Principal } from "./types";
 
 /** Main-owned effects. Every path is chosen by main; the API only names IDs. */
 export interface OrchestrationHost {
+  wake?(
+    id: string,
+    line: string,
+    valid: () => boolean,
+    intent: () => Promise<void>,
+  ): Promise<"sent" | "queued">;
   defaultAgent?(): string | null | undefined;
   hosts?(refresh?: boolean): Promise<unknown>;
   remoteCheckout?(path: string, agent: AgentId): Promise<AgentLaunch["remoteCheckout"]>;

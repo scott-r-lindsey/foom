@@ -89,6 +89,9 @@ port.on("message", (event: { data: unknown }) => {
           manager.kill(id);
           owned.delete(id);
           break;
+        case "wake-input":
+          signaled = await manager.wakeInput(id, message.input);
+          break;
         case "child-input":
           manager.childInput(id, message.input);
           break;

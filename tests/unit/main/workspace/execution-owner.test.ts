@@ -802,3 +802,40 @@ test.each([false, true])(
     }
   },
 );
+
+test("wake readiness requires live hook idle from this invocation and is invalidated by input/progress", async () => {
+  const f = setup(true);
+  f.tail(["Ready"]);
+  expect(f.owner.wakeIdle("missing")).toBe(false);
+  expect(f.owner.wakeIdle("t1")).toBe(false);
+  await f.hook("ready");
+  expect(f.owner.wakeIdle("t1")).toBe(true);
+  // Long child tasks must not strand an otherwise unchanged idle parent.
+  f.deps.now = () => 3000124;
+  expect(f.owner.wakeIdle("t1")).toBe(true);
+  f.deps.now = () => 123;
+  await f.hook("ready");
+  f.owner.input("t1");
+  expect(f.owner.wakeIdle("t1")).toBe(false);
+  await f.hook("working");
+  expect(f.owner.wakeIdle("t1")).toBe(false);
+  await f.hook("classify");
+  expect(f.owner.wakeIdle("t1")).toBe(true);
+  await f.hook("needs_input");
+  expect(f.owner.wakeIdle("t1")).toBe(false);
+  f.owner.reset("t1");
+  expect(f.owner.wakeIdle("t1")).toBe(false);
+});
+
+test("screen progress invalidates old hook idle even if the next working hook is lost", async () => {
+  const f = setup(true);
+  f.tail(["Ready"]);
+  await f.hook("ready");
+  expect(f.owner.wakeIdle("t1")).toBe(true);
+  await f.owner.evidence("t1", { title: "◐ Working", progress: null });
+  expect(f.owner.wakeIdle("t1")).toBe(false);
+  await f.owner.evidence("t1", { title: "✳ Claude Code", progress: null });
+  expect(f.owner.wakeIdle("t1")).toBe(false);
+  await f.hook("classify");
+  expect(f.owner.wakeIdle("t1")).toBe(true);
+});

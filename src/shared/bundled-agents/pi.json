@@ -460,5 +460,33 @@
       "interpreter": "sh",
       "arguments": []
     }
+  },
+  "wake": {
+    "cancelKeys": ["esc"],
+    "composer": ["empty"],
+    "contains": ["────────────────", "(auto)"],
+    "reject": [
+      "enter to",
+      "enter select",
+      "enter confirm",
+      "enter submit",
+      "enter accept",
+      "esc to cancel",
+      "esc back",
+      "esc cancel",
+      "password:",
+      "api key",
+      "credential",
+      "sign in",
+      "working",
+      "interrupt",
+      "model name:",
+      "yes, allow",
+      "allow access to",
+      "approve once",
+      "(y/n)",
+      "permission request",
+      "only showing models"
+    ]
   }
 }

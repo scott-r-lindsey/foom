@@ -447,6 +447,8 @@ export class WorkspaceContext {
           | "restoreSessions"
           | "defaultAgent"
           | "concurrentChildren"
+          | "wakeOrchestrator"
+          | "wakeIntervalMinutes"
           | "unreadChildMinutes"
           | "autoRemoveMergedWorktrees"
           | "showPullRequests"
@@ -459,6 +461,10 @@ export class WorkspaceContext {
     this.concurrentChildren = settings.concurrentChildren ?? 4;
     this.showNewChildren = settings.showNewChildren ?? true;
     this.defaultAgent = settings.defaultAgent ?? null;
+    this.orchestration.configureWake(
+      settings.wakeOrchestrator ?? false,
+      settings.wakeIntervalMinutes ?? 3,
+    );
     this.orchestration.configureCloseFinished(settings.closeFinishedAgents ?? true);
     const reminderChanged = this.orchestration.unreadChildren.configure(
       settings.unreadChildMinutes ?? 5,

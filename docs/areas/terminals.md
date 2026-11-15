@@ -598,3 +598,14 @@ The main-only `setClosing(id, boolean)` capability blocks renderer attachment, k
 and input, and main reply/child input while cleanup retains an exited terminal.
 It invalidates queued paste leases; detach remains available for view teardown.
 Main's original host-aware kill still retains remote ownership on transport failure.
+
+### Guarded parent wake (#548)
+
+The main-only `wake-input` request validates terminal ID, the fixed sanitized
+notice and manifest policy at the utility-host boundary. Check, Escape cancel and
+submit operations drain the parser and reject pending output or an unmatched
+cursor composer/layout. Submit encodes the complete line plus CR as one PTY write,
+including bracketed paste when enabled. This is not an atomic provider input-state
+fence; see the [accepted residual race](../orchestration.md#opt-in-idle-orchestrator-wake-548).
+There is no renderer/control API exposing this capability. Older/remote hosts
+refuse it; no raw input fallback is allowed.

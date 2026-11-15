@@ -653,6 +653,13 @@ test("routes remote shell capabilities independently while leaving local termina
     cols: 80,
     rows: 24,
   });
+  expect(
+    await client.wakeInput(id, {
+      policy: { cancelKeys: ["esc"], composer: ["❯"], contains: [], reject: ["permission"] },
+      step: "check",
+      line: "Foom: child events for child. Call wait_for and read_handoff.",
+    }),
+  ).toBe(false);
   expect(await client.stop(id)).toBe(true);
   await client.kill(id);
   expect(client.runningCount).toBe(0);
@@ -1058,4 +1065,25 @@ test("snapshot measures recent main delay and tolerates a host missing from proc
       snapshot: { liveTerminals: 1, hostMemoryKB: null, lastMessageAgeMs: 250, mainLagMs: 120 },
     }),
   );
+});
+
+test("wake input preserves host acceptance and never uses raw write", async () => {
+  const { wakeLine } = await import("../../../../src/shared/agent-wake");
+  const creating = client.create(spec);
+  child.reply();
+  const id = await creating;
+  const input = {
+    policy: { cancelKeys: ["esc" as const], composer: ["❯"], contains: [], reject: ["permission"] },
+    step: "check" as const,
+    line: wakeLine(["child"]),
+  };
+  const accepted = client.wakeInput(id, input);
+  child.reply(undefined, { signaled: true });
+  expect(await accepted).toBe(true);
+  const rejected = client.wakeInput(id, input);
+  child.reply(undefined, { signaled: false });
+  expect(await rejected).toBe(false);
+  const missing = client.wakeInput(id, input);
+  child.reply();
+  await expect(missing).rejects.toThrow("Missing wake input result");
 });

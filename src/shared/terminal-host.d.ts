@@ -1,3 +1,4 @@
+import type { WakeInput } from "./agent-wake";
 import type { ChildInput } from "./child-input";
 import type { AgentEvidence } from "./agent-detection";
 import type { TerminalTheme } from "./terminal-theme";
@@ -12,6 +13,7 @@ export type HostRequest = RequestBase &
     | { type: "detach" | "kill" | "stop" | "shutdown" | "screen" | "ping" }
     | { type: "write"; data: string }
     | { type: "child-input"; input: ChildInput }
+    | { type: "wake-input"; input: WakeInput }
     | { type: "resize"; cols: number; rows: number }
     | { type: "acknowledge"; token: string; count: number }
     | { type: "tail"; lines: number }

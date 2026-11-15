@@ -1,3 +1,4 @@
+import { OrchestratorWake } from "./orchestrator-wake";
 import { basename } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import type { MessageBoard } from "./message-board";
@@ -71,6 +72,7 @@ export class OrchestrationAuthority {
   private readonly reviewEffects: ReviewEffects;
   private readonly finishedChildren: FinishedChildCloser;
   readonly handoffs = new Handoffs();
+  readonly wake: OrchestratorWake;
   readonly unreadChildren: UnreadChildEvents;
   readonly childEvents = new ChildEvents();
   private readonly resumable = new Map<string, Parent>();
@@ -137,9 +139,31 @@ export class OrchestrationAuthority {
       },
       now,
     );
-    this.unreadChildren = new UnreadChildEvents(() => {
-      this.changed();
-    }, now);
+    this.wake = new OrchestratorWake(
+      host,
+      (actor, childId) => {
+        try {
+          const parent = this.parent(actor);
+          return childId === undefined || this.own(parent, childId) !== undefined;
+        } catch {
+          return false;
+        }
+      },
+      (actor, record) => {
+        const parent = this.parents.get(actor.terminalId);
+        if (parent?.active) this.note(parent, this.entry(record, "Child events"));
+      },
+      now,
+    );
+    this.unreadChildren = new UnreadChildEvents(
+      () => {
+        this.changed();
+      },
+      now,
+      (row) => {
+        this.wake.event(row.parentId, row.id);
+      },
+    );
     this.finishedChildren = new FinishedChildCloser(
       {
         children: () =>
@@ -159,10 +183,12 @@ export class OrchestrationAuthority {
       () => {
         this.syncUnreadChildEvents();
         this.syncBoardPrs();
+        this.wake.sync();
         this.reviews.sync();
         this.finishedChildren.sync();
       },
       () => {
+        this.wake.dispose();
         this.finishedChildren.dispose();
         this.reviewEffects.dispose();
         this.unreadChildren.dispose();
@@ -181,6 +207,10 @@ export class OrchestrationAuthority {
     this.automation.dispose();
   }
 
+  configureWake(enabled: boolean, minutes: number): void {
+    this.wake.configure(enabled, minutes);
+  }
+
   configureCloseFinished(enabled: boolean): void {
     this.finishedChildren.configure(enabled);
     this.childEvents.publish();
@@ -189,6 +219,7 @@ export class OrchestrationAuthority {
   /** Only the service binds a live, main-granted parent identity (including restore). */
   bindAutomation(actor: Principal, operations: Operations): void {
     this.finishedChildren.bind(actor, operations);
+    this.wake.bind(actor, operations);
   }
 
   syncUnreadChildEvents(): void {
@@ -220,6 +251,7 @@ export class OrchestrationAuthority {
     if (actor.role !== "orchestrator") return;
     const parent = this.parent(actor);
     if (!this.own(parent, id)) return;
+    this.wake.read(actor.terminalId, id);
     this.reviews.read(id);
     this.syncUnreadChildEvents();
     if (this.unreadChildren.read(actor.terminalId, id)) this.changed();

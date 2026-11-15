@@ -319,6 +319,7 @@ export function workspaceFeatureWiring(owner: WorkspaceContext): {
             return owner.deps.worktrees.pruneWorktree.bind(owner.deps.worktrees);
           },
         },
+
         get forge() {
           return owner.deps.forge;
         },
@@ -685,6 +686,7 @@ export function workspaceFeatureWiring(owner: WorkspaceContext): {
       get sessions() {
         return owner.sessions;
       },
+      wakeIdle: (id) => owner.executionOwner.wakeIdle(id),
       get showNewChildren() {
         return owner.showNewChildren;
       },
@@ -700,6 +702,9 @@ export function workspaceFeatureWiring(owner: WorkspaceContext): {
       deps: {
         get hosts() {
           return owner.deps.hosts;
+        },
+        get focused() {
+          return owner.deps.focused?.bind(owner.deps);
         },
         get forge() {
           return owner.deps.forge;
@@ -724,6 +729,9 @@ export function workspaceFeatureWiring(owner: WorkspaceContext): {
         terminals: {
           get stop() {
             return owner.deps.terminals.stop.bind(owner.deps.terminals);
+          },
+          get wakeInput() {
+            return owner.deps.terminals.wakeInput?.bind(owner.deps.terminals);
           },
           get childInput() {
             return owner.deps.terminals.childInput?.bind(owner.deps.terminals);

@@ -1,3 +1,4 @@
+import { isWakeInput, readyComposer, type WakeInput } from "../shared/agent-wake";
 import { childInputBytes, type ChildInput } from "../shared/child-input";
 import { TERMINAL_ENVIRONMENT } from "../shared/terminal-environment";
 import { ForegroundProgram } from "./foreground-program";
@@ -252,6 +253,46 @@ export class TerminalManager {
     const data = childInputBytes(input, session.screen.modes.bracketedPasteMode);
     if (!this.nativeAvailable(session)) throw new Error("Terminal unavailable");
     this.write(id, data);
+  }
+
+  /** Check the parsed live viewport in the same callback as the single PTY write. */
+  async wakeInput(id: string, input: WakeInput): Promise<boolean> {
+    if (!isWakeInput(input)) throw new Error("Invalid wake input");
+    const session = this.get(id);
+    return new Promise((resolve) => {
+      session.screen.write("", () => {
+        if (
+          this.sessions.get(id) !== session ||
+          !this.nativeAvailable(session) ||
+          session.parserPending !== 0
+        ) {
+          resolve(false);
+          return;
+        }
+        const buffer = session.screen.buffer.active;
+        const lines = Array.from(
+          { length: session.screen.rows },
+          (_, row) => buffer.getLine(buffer.baseY + row)?.translateToString(true) ?? "",
+        );
+        if (!readyComposer(input.policy, lines, buffer.cursorY)) {
+          resolve(false);
+          return;
+        }
+        if (input.step === "check") {
+          resolve(true);
+          return;
+        }
+        session.pty.write(
+          input.step === "cancel"
+            ? "\x1b".repeat(input.policy.cancelKeys.length)
+            : childInputBytes(
+                { kind: "prompt", text: input.line },
+                session.screen.modes.bracketedPasteMode,
+              ),
+        );
+        resolve(true);
+      });
+    });
   }
 
   write(id: string, data: string): void {
