@@ -125,7 +125,7 @@ export interface SetupState {
 }
 
 export interface SetupApi extends HostsApi {
-  onRepositorySetupRefused(callback: (refusal: SetupRefusal) => void): () => void;
+  onRepositorySetupRefused(callback: (refusal: SetupRefusal | undefined) => void): () => void;
   repositorySetup(action: RepositorySetupAction): Promise<RepositorySetupState>;
   localAgentInstall(id?: string): Promise<{ available: readonly string[]; recipeSession?: string }>;
   restartToUpdate(): Promise<void>;

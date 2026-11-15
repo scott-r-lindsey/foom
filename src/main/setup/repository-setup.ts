@@ -53,6 +53,7 @@ interface RunToken {
   scope: string;
   row: SetupRow;
   binding: string;
+  plan: string;
 }
 const token = () => randomBytes(16).toString("hex");
 const key = (host: string | null, repository: string) => JSON.stringify([host, repository]);
@@ -297,7 +298,15 @@ export class RepositorySetup {
                   sourcesAtLaunch: host !== null,
                 };
           const plan = [...this.plans].find(
-            ([, value]) => value.scope === scope && value.row === row,
+            ([, value]) =>
+              value.scope === scope &&
+              value.row.host === host &&
+              value.row.repository === repo.path &&
+              value.binding === this.binding(host, repo.path) &&
+              row.state === "needs-setup" &&
+              !row.failure &&
+              row.plan &&
+              value.plan === setupDigest(row.plan),
           );
           return {
             ...row,
@@ -646,11 +655,22 @@ export class RepositorySetup {
       row.failure = "save-failed";
       row.state = "unable";
     }
+    let retained = false;
     for (const [id, entry] of this.plans)
-      if (entry.scope === scope && entry.row.host === host && entry.row.repository === repository)
-        this.plans.delete(id);
-    if (row.state === "needs-setup" && !row.failure)
-      this.plans.set(token(), { scope, row, binding });
+      if (entry.scope === scope && entry.row.host === host && entry.row.repository === repository) {
+        if (
+          row.state === "needs-setup" &&
+          !row.failure &&
+          row.plan &&
+          entry.binding === binding &&
+          setupDigest(row.plan) === entry.plan
+        ) {
+          entry.row = row;
+          retained = true;
+        } else this.plans.delete(id);
+      }
+    if (row.state === "needs-setup" && !row.failure && row.plan && !retained)
+      this.plans.set(token(), { scope, row, binding, plan: setupDigest(row.plan) });
     return row;
   }
   /** Current facts and actual checkout evidence, with synchronous final revocation check. */

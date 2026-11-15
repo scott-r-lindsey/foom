@@ -23,12 +23,15 @@ export class WindowIpcRouter {
             const reject = (error: unknown): never => {
               const failure = capabilityError(error);
               if (
-                failure instanceof RepositorySetupError &&
+                failure.code.startsWith("repository-setup-") &&
                 !event.sender.isDestroyed() &&
                 event.senderFrame === event.sender.mainFrame &&
                 event.senderFrame.url === "app://bundle/index.html"
               )
-                event.sender.send("setup:launch-refused", failure.setup);
+                event.sender.send(
+                  "setup:launch-refused",
+                  failure instanceof RepositorySetupError ? failure.setup : undefined,
+                );
               throw failure;
             };
             try {

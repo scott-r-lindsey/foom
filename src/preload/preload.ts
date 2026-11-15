@@ -2111,6 +2111,10 @@ const desktop: DesktopApi = {
   repositorySetup: (action) => reply("setup:repository-setup", validRepositorySetupState, action),
   onRepositorySetupRefused(callback) {
     const listener = (_event: IpcRendererEvent, value: unknown) => {
+      if (value === undefined) {
+        callback(undefined);
+        return;
+      }
       if (setupRefusalReply(value)) {
         const projected = project(setupRefusalReply, value);
         if (setupRefusalReply(projected)) callback(projected);

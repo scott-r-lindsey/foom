@@ -421,3 +421,36 @@ it("incomplete or duplicated host results cannot establish requirements met", as
     expect((await f.setup.check("board", "build", "/repo")).state).toBe("unable");
   }
 });
+
+it.each(["board", "second"])(
+  "concurrent row rechecks retain usable plan tokens for scope %s",
+  async (scope) => {
+    const f = fixture();
+    await f.approve();
+    f.state("missing");
+    const saved = Promise.withResolvers<undefined>();
+    vi.mocked(f.deps.save)
+      .mockClear()
+      .mockImplementationOnce(() => saved.promise);
+    vi.mocked(f.deps.check).mockClear();
+    const first = f.act({ action: "check", repository: "/repo", host: null });
+    await vi.waitFor(() => {
+      expect(f.deps.save).toHaveBeenCalledOnce();
+    });
+    const second = f.act({ action: "check", repository: "/repo", host: null }, scope);
+    await vi.waitFor(() => {
+      expect(f.deps.check).toHaveBeenCalledTimes(2);
+    });
+    saved.resolve(undefined);
+    const [a, b] = await Promise.all([first, second]);
+    const token = a.rows.find((row) => row.host === null)?.token;
+    const other = b.rows.find((row) => row.host === null)?.token;
+    expect(token).toBeDefined();
+    expect(other).toBeDefined();
+    if (scope === "board") expect(other).toBe(token);
+    else expect(other).not.toBe(token);
+    if (!token) throw new Error("No plan");
+    await f.act({ action: "run", token });
+    expect(f.launch).toHaveBeenCalledOnce();
+  },
+);

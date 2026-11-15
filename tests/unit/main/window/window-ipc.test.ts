@@ -106,3 +106,15 @@ test("setup refusal data goes only to the requesting trusted live board", async 
   await expect(dispatch?.(event(a))).rejects.toThrow("foom-error:repository-setup-missing");
   expect(a.send).toHaveBeenCalledTimes(1);
 });
+
+test("a typed setup refusal without item details clears previous board navigation context", async () => {
+  const { LaunchFailure } = await import("../../../../src/shared/launch-failure");
+  const router = new WindowIpcRouter();
+  const board = Object.assign(contents(), { isDestroyed: () => false, send: vi.fn() });
+  router
+    .forWindow(board)
+    .handle("launch", () => Promise.reject(new LaunchFailure("repository_setup_changed")));
+  const dispatch = mock.handle.mock.calls[0]?.[1];
+  await expect(dispatch?.(event(board))).rejects.toThrow("foom-error:repository-setup-changed");
+  expect(board.send).toHaveBeenCalledExactlyOnceWith("setup:launch-refused", undefined);
+});

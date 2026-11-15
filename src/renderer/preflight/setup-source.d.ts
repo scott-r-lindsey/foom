@@ -23,7 +23,7 @@ import type { ConfigStatus } from "../../shared/foom-config";
 
 /** What preflight needs from main. Components use this, never the bridge directly. */
 export interface SetupSource {
-  onRepositorySetupRefused?: (callback: (refusal: SetupRefusal) => void) => () => void;
+  onRepositorySetupRefused?: (callback: (refusal: SetupRefusal | undefined) => void) => () => void;
   draftSetupAgent?: (repository: string) => Promise<void>;
   repositorySetup?: (action: RepositorySetupAction) => Promise<RepositorySetupState>;
   /** Installs started in this Settings window; sign-in tiles are separate. */

@@ -87,7 +87,9 @@ reviews awaiting a source read. Unsupported toolchains remain unresolved data;
 approval requires resolution or explicit removal, with removed IDs shown in review.
 Setup tokens bind the exact displayed plan and host
 registration. Set up refreshes sources/platform/facts and refuses changed plans.
-The terminal is human-owned and embeds in Settings with the existing Stop / Keep
+Concurrent exit/renderer rechecks reuse a scoped token only when its immutable
+plan digest and registration binding still match; row object replacement cannot
+discard a valid retry. The terminal is human-owned and embeds in Settings with the existing Stop / Keep
 open behavior. Run cancellation/revocation stops future steps, without rollback.
 Exit triggers only the affected host/repository row check; terminal exit zero
 alone never marks requirements met.
