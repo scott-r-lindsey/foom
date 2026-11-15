@@ -208,7 +208,11 @@ export function useSidebar(props: SidebarProps) {
       options?.showNestedRepositoryNames,
     ),
   }));
-  const homeRows = rows.filter((row) => row.home && !row.machine);
+  const machines = source.getMachines?.() ?? [];
+  const homeRows = rows.filter(
+    (row) =>
+      row.home && (!row.machine || (machines.length === 0 && row.placement?.kind !== "remote")),
+  );
   const visibleHomeRows = homeRows.filter((row) =>
     `${sessionName(row, preferences)} ${row.reason} ~`
       .toLocaleLowerCase()
@@ -312,6 +316,24 @@ export function useSidebar(props: SidebarProps) {
       },
     }));
   };
+  const homeActions: RowAction[] = [
+    {
+      label: "New shell",
+      badge: ">_",
+      dismissBeforeRun: true,
+      run: () => command({ kind: "home-shell" }),
+    },
+    ...(machines.length === 0
+      ? launcherActions(options, undefined)
+          .filter((action) => action.run !== "shell")
+          .map((action) => ({
+            label: `New ${action.label}`,
+            badge: action.badge,
+            dismissBeforeRun: true,
+            run: () => command({ kind: "machine-launch", host: null, run: action.run }),
+          }))
+      : []),
+  ];
   const subjects = new Map<
     string,
     { subject: PanelSubject; name: string; kind: string; mark: string }
@@ -635,6 +657,7 @@ export function useSidebar(props: SidebarProps) {
     overlay,
     narrow,
     homeRows,
+    homeActions,
     visibleHomeRows,
     configRows,
     shellRef,

@@ -103,7 +103,7 @@ test("approved argument changes acknowledge bundled IDs outside the original thr
   expect(acknowledge).toHaveBeenCalledExactlyOnceWith(["opencode"]);
 });
 
-test("migration inserts arguments without approving other file edits, preserving a recoverable baseline", async () => {
+test("migration preserves approved arguments in the baseline without rewriting the working file", async () => {
   const f = await fixture();
   await f.service.initialize();
   await f.service.dispose();
@@ -140,10 +140,9 @@ test("migration inserts arguments without approving other file edits, preserving
   };
   const migrated = create();
   expect(await migrated.initialize({ agentArguments: args })).toEqual({ agentArguments: args });
-  expect(migrated.status().pending?.detail).toBe("hooks: on → off");
+  expect(migrated.status().pending?.detail).toBe("hooks: on → off, agentArguments.codex");
   expect(JSON.parse(await f.read("settings.json"))).toEqual({
     kind: "settings",
-    agentArguments: args,
     hooks: false,
   });
   await migrated.dispose();
@@ -157,33 +156,35 @@ test("migration inserts arguments without approving other file edits, preserving
   expect((await reopened.refresh()).pending).toBeNull();
 });
 
-test("a preexisting argument proposal is held against migrated profile arguments", async () => {
+test("a preexisting argument proposal is held against defaults on adoption", async () => {
   const f = await fixture({ confirmArguments: () => Promise.resolve(true) });
   await mkdir(f.folder, { recursive: true });
   const args = { claude: ["--model", "profile"], codex: [], agy: [] };
   const proposal = { claude: [], codex: ["--model", "file"], agy: [] };
   await f.settings({ agentArguments: proposal });
-  expect(await f.service.initialize({ agentArguments: args })).toEqual({ agentArguments: args });
-  expect(f.service.status().pending?.detail).toBe("agentArguments.claude, agentArguments.codex");
+  expect(await f.service.initialize({ agentArguments: args })).toEqual({});
+  expect(f.service.status().pending?.detail).toBe("agentArguments.codex");
   await f.decide("allow");
   expect(f.applied.at(-1)?.agentArguments).toEqual(proposal);
 });
 
-test("migration refuses an invalid existing file so profile arguments can be retried", async () => {
-  const f = await fixture();
+test("an invalid existing file is rejected without replacing it with profile arguments", async () => {
+  const f = await fixture({ baseline: "0".repeat(64) });
   await mkdir(f.folder, { recursive: true });
   await f.write("settings.json", "{");
-  await expect(
-    f.service.initialize({ agentArguments: { claude: ["--verbose"], codex: [], agy: [] } }),
-  ).rejects.toThrow();
-  expect(f.applied).toEqual([]);
+  await f.service.initialize({ agentArguments: { claude: ["--verbose"], codex: [], agy: [] } });
+  expect(f.service.status().rejected).toEqual([
+    { file: "settings.json", reason: "$: malformed-json" },
+  ]);
+  expect(f.applied).toEqual([{}]);
   expect(await f.read("settings.json")).toBe("{");
 });
 
 test.each([false, true])(
   "oversized profile arguments cannot be silently dropped during migration (file exists: %s)",
   async (existing) => {
-    const f = await fixture();
+    const text = JSON.stringify({ kind: "settings" });
+    const f = await fixture({ baseline: digest(text) });
     if (existing) {
       await mkdir(f.folder, { recursive: true });
       await f.settings({});
