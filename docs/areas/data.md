@@ -170,6 +170,11 @@ Only fixed `unavailable` and `too-large` errors cross this channel.
 | `sounds` | `{}` | Validated catalog entries; audio bytes keep their separate capability |
 | `readiness` | `{}` | Fixed Git/forge readiness; subscribed only on the owning readiness/Forges surface |
 
+The host view primes sealed-build and local SSH-client display capabilities
+without retrying failed rows or connecting to a host. This preserves the opening
+notice and saved host-key-trust affordance while keeping subscriptions read-only
+with respect to remote machines.
+
 Unknown views/fields, wrong param types and extra IPC arguments refuse. List
 pages default to 100 entries, with limits 1–100 and offsets 0–1,000,000. A page
 carries `nextOffset` when more entries exist. Settings subscribes repository
@@ -188,7 +193,9 @@ acknowledgement. Reopening installs a fresh subscription and full snapshot.
 
 Settings uses named query hooks, keyed by source identity, view and normalized
 params; TanStack Query performs structural sharing. Multiple consumers share a
-subscription, and the last consumer releases it. Command acknowledgements cannot
+subscription, and the last consumer releases it. Explicit refetch reconnects a
+live subscription instead of allowing an unordered legacy read into its cache.
+Command acknowledgements cannot
 overwrite ordered pushed data. Editable Environment rows and a pending Sound
 slider remain local drafts. Sample/test sources retain their typed reader/event
 adapters through the same query cache. The host picker consumes the hosts query

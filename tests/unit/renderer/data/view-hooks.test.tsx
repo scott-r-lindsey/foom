@@ -288,3 +288,38 @@ test("remote agent views are keyed by registered machine, and active readiness s
   expect(f.subscribe).toHaveBeenCalledWith("agents", { machine: "host:worker" });
   expect(f.subscribe).toHaveBeenCalledWith("readiness", {});
 });
+
+test("live refetch reconnects the shared stream and rejects callbacks from its previous lifetime", async () => {
+  const f = fixture();
+  const read = vi.fn(() => Promise.resolve(f.data.settings));
+  const first = renderHook(() => useSettingsView(f.source, read));
+  const second = renderHook(() => useSettingsView(f.source, read));
+  const old = f.emit.get("settings");
+  act(() => old?.());
+  await waitFor(() => {
+    expect(first.result.current.isSuccess).toBe(true);
+  });
+  await act(async () => {
+    await first.result.current.refetch();
+  });
+  expect(f.off).toHaveBeenCalledOnce();
+  expect(f.subscribe).toHaveBeenCalledTimes(2);
+  f.data.settings = { ...f.data.settings, worktreeRoot: "/fresh" };
+  f.generation(2);
+  f.revision(2);
+  act(() => old?.());
+  expect(first.result.current.data?.worktreeRoot).toBe("/root");
+  act(() => f.emit.get("settings")?.());
+  await waitFor(() => {
+    expect(second.result.current.data?.worktreeRoot).toBe("/fresh");
+  });
+  expect(read).not.toHaveBeenCalled();
+  const refetch = first.result.current.refetch;
+  first.unmount();
+  await refetch();
+  expect(f.subscribe).toHaveBeenCalledTimes(2);
+  second.unmount();
+  expect(f.off).toHaveBeenCalledTimes(2);
+  f.data.settings = { ...f.data.settings, worktreeRoot: "/late" };
+  act(() => f.emit.get("settings")?.());
+});

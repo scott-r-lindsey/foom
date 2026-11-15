@@ -796,6 +796,15 @@ export class Hosts {
       .find((model) => model.id === tool);
     return selectHostRecipe({ tool, action, distro: system.distro }, system, model?.hostSetup);
   }
+  /** Prime local display capabilities without retrying rows or connecting to a host. */
+  async prepareView(): Promise<void> {
+    const support = this.remoteHostsAvailable;
+    const trust = this.hostKeyTrust;
+    if (trust === undefined) await this.trustState(this.state());
+    else if (this.buildSupport) this.remoteHostsAvailable = await this.buildSupport();
+    if (support !== this.remoteHostsAvailable || trust !== this.hostKeyTrust)
+      viewChanges.publish("hosts", "agents");
+  }
   state(result?: HostResult, savedOnly = false): HostsState {
     return {
       ...(this.remoteHostsAvailable === undefined

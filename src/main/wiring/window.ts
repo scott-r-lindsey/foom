@@ -456,6 +456,12 @@ export async function buildWindow(
     ipc,
     createViewReader({
       settings: () => setup.state(),
+      prepareHosts: () =>
+        hostsForStore(
+          wiring.settings,
+          wiring.worktrees.listRepositories.bind(wiring.worktrees),
+          app.getVersion(),
+        ).prepareView(),
       hosts: () =>
         hostsForStore(
           wiring.settings,

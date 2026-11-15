@@ -4,6 +4,7 @@ import type { ViewReader } from "./view-registry";
 export interface ViewOwners {
   settings: () => DataViews["settings"] | Promise<DataViews["settings"]>;
   hosts: () => DataViews["hosts"];
+  prepareHosts?: () => Promise<void>;
   agents: () => Promise<DataViews["agents"]>;
   repositories: () => DataViews["repositories"];
   worktrees: (repository: string) => Promise<DataViews["worktrees"]>;
@@ -21,7 +22,7 @@ export function createViewReader(owners: ViewOwners): ViewReader {
       case "settings":
         return owners.settings();
       case "hosts":
-        return owners.hosts();
+        return owners.prepareHosts?.().then(owners.hosts) ?? owners.hosts();
       case "agents": {
         if (!params.machine || params.machine === "local") return owners.agents();
         const row = owners.hosts().hosts.find((entry) => `host:${entry.host}` === params.machine);

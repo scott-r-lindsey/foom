@@ -101,3 +101,11 @@ test("remote agents are observations of registered hosts and never invoke discov
   f.hosts({ hosts: [{ host: "worker", codeFolder: "/code" }], locations: [] });
   expect(await f.read("agents", { machine: "host:worker" })).toMatchObject({ agents: [] });
 });
+
+test("the host projection primes local display capabilities before its snapshot", async () => {
+  const f = fixture();
+  const prepare = vi.fn(() => Promise.resolve());
+  f.owners.prepareHosts = prepare;
+  expect(await f.read("hosts", {})).toEqual(f.owners.hosts());
+  expect(prepare).toHaveBeenCalledOnce();
+});

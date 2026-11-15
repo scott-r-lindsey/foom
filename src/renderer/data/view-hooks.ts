@@ -17,7 +17,10 @@ let ownerSequence = 0;
 const viewClient = new QueryClient({
   defaultOptions: { queries: { retry: false, staleTime: Infinity, gcTime: 0 } },
 });
-const subscriptions = new WeakMap<DataViewApi, Map<string, { refs: number; off: () => void }>>();
+const subscriptions = new WeakMap<
+  DataViewApi,
+  Map<string, { refs: number; off: () => void; refresh: () => void }>
+>();
 function ownerKey(owner: object): number {
   let id = owners.get(owner);
   if (id === undefined) {
@@ -103,12 +106,15 @@ function retain(
   const key = JSON.stringify([view, params]);
   let entry = entries.get(key);
   if (!entry) {
-    let generation: number | undefined;
-    let revision = -1;
-    const off =
-      view === "repositories" && params.offset === undefined
+    let attempt = 0;
+    const start = () => {
+      const current = ++attempt;
+      let generation: number | undefined;
+      let revision = -1;
+      return view === "repositories" && params.offset === undefined
         ? repositoryPages(api, client, cachePrefix)
         : api.subscribeView(view, params, (snapshot) => {
+            if (current !== attempt) return;
             if (generation !== undefined && generation !== snapshot.generation) return;
             if (snapshot.revision <= revision) return;
             generation = snapshot.generation;
@@ -121,7 +127,20 @@ function retain(
                 ?.setState({ status: "error", error: new Error("Unable to load view") });
             else client.setQueryData(queryKey, snapshot.data);
           });
-    entry = { refs: 0, off };
+    };
+    let off = start();
+    const stop = () => {
+      ++attempt;
+      off();
+    };
+    entry = {
+      refs: 0,
+      off: stop,
+      refresh: () => {
+        stop();
+        off = start();
+      },
+    };
     entries.set(key, entry);
   }
   entry.refs++;
@@ -195,7 +214,22 @@ export function useView<K extends DataView>(
     },
     [api, client, cachePrefix, view, normalized],
   );
-  return { ...query, setData };
+  const queryRefetch = query.refetch;
+  const refetch = useCallback(
+    (...args: Parameters<typeof queryRefetch>) => {
+      if (!activeRef.current) return Promise.resolve();
+      if (api) {
+        subscriptions
+          .get(api)
+          ?.get(JSON.stringify([view, normalized]))
+          ?.refresh();
+        return Promise.resolve();
+      }
+      return queryRefetch(...args);
+    },
+    [api, view, normalized, queryRefetch],
+  );
+  return { ...query, setData, refetch };
 }
 export const useSettingsView = (
   source: ViewSource | undefined,
