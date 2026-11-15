@@ -1,3 +1,4 @@
+import { setupPackageName } from "./repository-setup";
 import type {
   RepositorySetupList,
   SetupCheck,
@@ -7,7 +8,7 @@ import type {
 } from "./repository-setup.d";
 /** Official release checksums, fixed on 2026-11-15. No moving/latest addresses. */
 export const setupCatalog = {
-  version: 1,
+  version: 2,
   node: {
     version: "24.17.0",
     abi: { linuxKernel: "4.18", glibc: "2.28", glibcxx: "3.4.25", macOS: "13.5" },
@@ -68,7 +69,19 @@ export function setupPlan(list: RepositorySetupList, check: SetupCheck): SetupPl
     if (result.state === "met") continue;
     if (item.kind === "package") {
       const names = item.packages[check.platform.distro];
-      if (names === "unsupported") return undefined;
+      if (
+        names === "unsupported" ||
+        !names.every((name) =>
+          setupPackageName(
+            name,
+            check.platform.distro === "unsupported" ? "debian" : check.platform.distro,
+          ),
+        )
+      )
+        return undefined;
+      // These bundled backends cannot enforce an atomic no-removal transaction.
+      if ((check.platform.distro === "arch" || check.platform.distro === "rhel") && names.length)
+        return undefined;
       packages.push(...names);
     } else {
       const version = setupCatalog[item.tool].version;
@@ -86,13 +99,10 @@ export function setupPlan(list: RepositorySetupList, check: SetupCheck): SetupPl
     if (check.platform.distro === "debian")
       steps.push(
         ["/usr/bin/sudo", "/usr/bin/apt-get", "update"],
-        ["/usr/bin/sudo", "/usr/bin/apt-get", "install", "-y", ...packages],
+        ["/usr/bin/sudo", "/usr/bin/apt-get", "install", "-y", "--no-remove", "--", ...packages],
       );
-    if (check.platform.distro === "rhel")
-      steps.push(["/usr/bin/sudo", "/usr/bin/dnf", "install", "-y", ...packages]);
-    if (check.platform.distro === "arch")
-      steps.push(["/usr/bin/sudo", "/usr/bin/pacman", "-S", "--noconfirm", ...packages]);
-    if (check.platform.distro === "darwin") steps.push(["brew", "install", ...packages]);
+    if (check.platform.distro === "darwin")
+      steps.push(["brew", "install", "--formula", "--", ...packages]);
   }
   for (const item of toolchains)
     steps.push(["foom-host", "--repository-toolchain", item.tool, item.version]);

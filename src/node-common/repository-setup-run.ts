@@ -1,7 +1,9 @@
 import { setupSelectedTools } from "../shared/repository-setup-catalog";
 import { spawn } from "node:child_process";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve, relative, sep, isAbsolute } from "node:path";
+import { lstat, realpath } from "node:fs/promises";
+import { inspectSetupSources } from "./repository-setup-sources";
 import { privateDirectory } from "./private-files";
 import {
   checkSetupList,
@@ -43,14 +45,45 @@ export async function runRepositorySetup(
   process.once("SIGTERM", stop);
   process.once("SIGINT", stop);
   try {
+    const contained = (root: string, path: string) => {
+      const child = relative(root, path);
+      return child !== ".." && !child.startsWith(`..${sep}`) && !isAbsolute(child);
+    };
+    if (!contained(resolve(value.location.root), resolve(value.location.path))) return 2;
+    const root = await realpath(value.location.root).catch(() => resolve(value.location.root));
+    if (value.location.present) {
+      const checkout = await realpath(value.location.path).catch(() => undefined);
+      if (!checkout || !contained(root, checkout)) return 2;
+    }
+    const evidence = [
+      ...new Set([...list.evidence, ...list.requirements.flatMap((item) => item.sources)]),
+    ];
+    const matchingSources = async () => {
+      try {
+        if (value.location.present)
+          return (
+            (await inspectSetupSources(value.location.path, evidence)).fingerprint === value.sources
+          );
+        await lstat(value.location.path);
+        return false;
+      } catch (error) {
+        return (
+          !value.location.present &&
+          error instanceof Error &&
+          "code" in error &&
+          error.code === "ENOENT"
+        );
+      }
+    };
+    if (!(await matchingSources())) return 2;
     const env = await repositorySetupEnvironment(
       source,
-      value.host === "local" ? value.repository : undefined,
+      root,
       prefix,
       setupSelectedTools(list),
       home,
     );
-    const deps = await setupProbeDependencies(env, home, abort.signal);
+    const deps = await setupProbeDependencies(env, home, abort.signal, root);
     const checked = await checkSetupList(list, deps);
     const plan = setupPlan(list, checked);
     if (!plan || setupDigest(plan) !== setupDigest(setupPlan(list, value.check))) return 2;
@@ -64,6 +97,7 @@ export async function runRepositorySetup(
         if (tool !== "node" && tool !== "pnpm") return 2;
         if (prefix === remoteToolchainPrefix(home))
           await privateDirectory(home, ".foom-repository-setup");
+        if (!(await matchingSources())) return 2;
         await installSetupToolchain(
           prefix,
           tool,
@@ -72,11 +106,17 @@ export async function runRepositorySetup(
         );
       } else {
         const command = step[0] === "brew" ? await deps.resolve("brew") : step[0];
-        if (!command) return 2;
+        if (!command || !(await matchingSources())) return 2;
         const code = await new Promise<number>((resolve) => {
           const child = spawn(command, step.slice(1), {
             cwd: home,
-            env,
+            env: {
+              ...env,
+              HOMEBREW_NO_AUTO_UPDATE: "1",
+              HOMEBREW_NO_ANALYTICS: "1",
+              HOMEBREW_NO_INSTALL_CLEANUP: "1",
+              HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: "1",
+            },
             shell: false,
             stdio: "inherit",
             signal: abort.signal,

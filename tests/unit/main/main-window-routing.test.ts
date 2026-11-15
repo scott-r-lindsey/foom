@@ -621,6 +621,7 @@ test("repository setup shares the local installer reservation and aborts its hum
     revision: 1,
     state: "needs-setup" as const,
     sourcesAtLaunch: false,
+    location: { root: "/repo", path: "/repo", present: true },
     missing: [],
     changed: [],
     plan: {

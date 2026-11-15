@@ -250,6 +250,7 @@ describe("main-owned repository setup approval and admission", () => {
   it("removal confirms prerequisite removal and never uninstalls", async () => {
     const f = fixture();
     await f.approve();
+    f.confirm.mockClear();
     f.confirm.mockResolvedValueOnce(false);
     await f.act({ action: "remove", repository: "/repo" });
     expect(f.saved()).toHaveLength(1);
@@ -378,15 +379,14 @@ it("stops future setup steps on approval replacement and settles only the affect
   await f.approve();
   f.state("missing");
   let finish = () => {};
-  let validate = () => {};
+  let validate = () => Promise.resolve();
   let signal: AbortSignal | undefined;
   const launch = vi.fn<Parameters<RepositorySetup["action"]>[3]>(
     (_host, _approval, _row, finished, cancellation, check) => {
       finish = finished;
       validate = check;
       signal = cancellation;
-      check();
-      return Promise.resolve("run-1");
+      return check().then(() => "run-1");
     },
   );
   const checked = await f.act({ action: "check", repository: "/repo", host: null });
@@ -395,7 +395,7 @@ it("stops future setup steps on approval replacement and settles only the affect
   await f.setup.action("board", { action: "run", token }, f.confirm, launch, f.abort.signal);
   await f.approve();
   expect(signal?.aborted).toBe(true);
-  expect(validate).toThrow();
+  await expect(validate()).rejects.toThrow();
   f.state("met");
   finish();
   await vi.waitFor(() => {
@@ -452,5 +452,75 @@ it.each(["board", "second"])(
     if (!token) throw new Error("No plan");
     await f.act({ action: "run", token });
     expect(f.launch).toHaveBeenCalledOnce();
+  },
+);
+
+it("requires trusted confirmation for initial approval and every replacement, including empty lists", async () => {
+  const f = fixture();
+  f.confirm.mockResolvedValue(false);
+  const first = await f.act({ action: "review", repository: "/repo", draft });
+  if (!first.review) throw new Error("No review");
+  await f.act({ action: "approve", token: first.review.token });
+  expect(f.confirm).toHaveBeenCalledWith(
+    expect.objectContaining({ title: "Approve repository setup list?", accept: "Approve list" }),
+  );
+  expect(f.saved()).toEqual([]);
+  f.confirm.mockResolvedValue(true);
+  await f.act({ action: "approve", token: first.review.token });
+  const original = f.saved()[0];
+  const empty = await f.act({
+    action: "review",
+    repository: "/repo",
+    draft: JSON.stringify({ requirements: [], evidence: [] }),
+  });
+  if (!empty.review) throw new Error("No review");
+  f.confirm.mockResolvedValue(false);
+  await f.act({ action: "approve", token: empty.review.token });
+  expect(f.confirm).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      title: "Replace repository setup list?",
+    }),
+  );
+  expect(f.confirm.mock.calls.at(-1)?.[0].detail).toContain(
+    "remove all repository launch prerequisites",
+  );
+  expect(f.saved()).toEqual([original]);
+  f.confirm.mockResolvedValue(true);
+  await f.act({ action: "approve", token: empty.review.token });
+  expect(f.saved()[0]?.revision).toBe(2);
+  expect(f.saved()[0]?.list.requirements).toEqual([]);
+  expect(f.launch).not.toHaveBeenCalled();
+});
+it("revalidates source and review authority after trusted approval returns", async () => {
+  const f = fixture();
+  const review = await f.act({ action: "review", repository: "/repo", draft });
+  if (!review.review) throw new Error("No review");
+  f.confirm.mockImplementationOnce(() => {
+    f.change();
+    return Promise.resolve(true);
+  });
+  await expect(f.act({ action: "approve", token: review.review.token })).rejects.toThrow();
+  expect(f.saved()).toEqual([]);
+});
+it.each([null, "build"])(
+  "re-reads source fingerprints after asynchronous %s launch preparation",
+  async (host) => {
+    const f = fixture();
+    await f.approve();
+    f.state("missing");
+    const checked = await f.act({ action: "check", repository: "/repo", host });
+    const token = checked.rows.find((row) => row.host === host)?.token;
+    if (!token) throw new Error("No plan");
+    const launch = vi.fn<Parameters<RepositorySetup["action"]>[3]>(
+      async (_host, _approval, _row, _finish, _signal, validate) => {
+        await Promise.resolve();
+        f.change();
+        await validate();
+        return "must-not-dispatch";
+      },
+    );
+    await expect(
+      f.setup.action("board", { action: "run", token }, f.confirm, launch, f.abort.signal),
+    ).rejects.toThrow("sources changed");
   },
 );

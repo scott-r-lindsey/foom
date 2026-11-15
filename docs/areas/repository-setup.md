@@ -55,7 +55,21 @@ environment without Foom-added secrets or control grants. Failed/timed-out probe
 remain Unable to check, distinct from missing packages and wrong versions.
 Read-only probes disable [Corepack network access](https://github.com/nodejs/corepack#environment-variables)
 and [Homebrew auto-update/analytics](https://docs.brew.sh/Manpage#environment).
-Explicit setup retains the disclosed installer network behavior.
+Explicit setup retains the disclosed installer network behavior. Remote management
+and execution exclude the entire registered code root, including when the selected
+checkout is absent. Executable resolution returns canonical paths and rejects
+Node/pnpm/Homebrew targets in that root before any `--version` probe.
+
+Package grammars are manager-specific allowlists. All reject leading `-`, trailing
+`-`/`+`, `=`, paths, globs and whitespace; Debian also rejects dots (apt regex
+fallback), while Homebrew permits only an optional numeric `@version` suffix.
+The recipe sink validates operands again. Apt installation uses `--no-remove --`
+to refuse explicit and solver removals. Homebrew uses `--formula --`, with
+`HOMEBREW_NO_INSTALL_CLEANUP=1` and `HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1`
+([documented behavior](https://docs.brew.sh/Manpage#environment)). Unmet OS packages
+on RHEL/Arch are manual until an atomic no-removal transaction is supported;
+checks, already-met packages and private toolchains remain available. Catalog
+revision 2 invalidates prior approvals and mismatched helpers.
 
 The initial catalog pins Node 24.17.0 for Linux/macOS x64/arm64 to official
 `nodejs.org` archive SHA-256 values and pnpm 10.34.7 to its fixed npm artifact and
@@ -78,7 +92,11 @@ files. Only catalog-selected private bins affect repository launch PATH.
 
 Only registered board main-frame `setup:repository-setup` IPC exposes the closed
 list, copy-brief, review, cancel-review, approve, remove, check and run actions. No agent/control operation
-approves or runs setup. Removal asks through the trusted dialog and explains
+approves or runs setup. Initial approval and every replacement request use the
+main-owned trusted dialog; a review token only requests it. Cancel leaves the
+active list intact; empty replacements explicitly disclose removal of all launch
+prerequisites. Main revalidates review authority and evidence after the trusted
+answer. Removal asks through the trusted dialog and explains
 that the launch prerequisite is removed without uninstalling anything.
 
 Review tokens bind board, repository incarnation, expected revision, canonical
@@ -86,7 +104,12 @@ list, evidence and catalog. Back, Cancel and Edit revoke the review token, inclu
 reviews awaiting a source read. Unsupported toolchains remain unresolved data;
 approval requires resolution or explicit removal, with removed IDs shown in review.
 Setup tokens bind the exact displayed plan and host
-registration. Set up refreshes sources/platform/facts and refuses changed plans.
+registration, source fingerprint and actual root/checkout presence. Set up refreshes
+sources/platform/facts and refuses changed plans. Main re-reads the source snapshot
+after local shell/remote connection preparation immediately before dispatch. The
+helper checks the bound source snapshot before probes and each recipe step; edits
+during awaits refuse all subsequent steps. This is bounded revalidation, not an
+atomic filesystem snapshot.
 Concurrent exit/renderer rechecks reuse a scoped token only when its immutable
 plan digest and registration binding still match; row object replacement cannot
 discard a valid retry. The terminal is human-owned and embeds in Settings with the existing Stop / Keep

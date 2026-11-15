@@ -69,7 +69,9 @@ RHEL-family, Arch, macOS), package names, toolchain version constraints, purpose
 evidence and any gaps. A distribution picker changes the displayed command preview;
 it does not hide other mappings from approval. Each mapping shows its exact argv
 steps and whether sudo is required. Package names are literal, narrowly validated
-operands; they cannot begin with a dash or contain whitespace, paths or expansion.
+operands. Per-manager allowlists reject leading or trailing modifiers, selectors,
+whitespace, paths and globs. Debian names also exclude dots to prevent apt regex
+fallback; Homebrew accepts only formula names with an optional numeric `@version`.
 Version constraints use a closed supported form (exact version or major range),
 not arbitrary expressions passed to a shell. Limits: 64 KiB input, 128 requirements,
 64 source paths, 160 characters per path and 500 characters per explanation.
@@ -78,10 +80,14 @@ Unknown fields, duplicates, invalid UTF-8/NUL and oversize input refuse import.
 Approval is distinct from execution. **Approve list** saves a new immutable active
 revision atomically in main. It installs nothing. **Cancel** leaves the previous
 active revision intact; drafts never replace it. Updating shows added, removed and
-changed requirements against the active revision. Approval can replace the whole
-list only from the registered board main frame using a main-held review token
-bound to repository identity, draft digest and expected active revision. Main
-revalidates the evidence snapshot and catalog revision before saving; a change
+changed requirements against the active revision. Initial approval and every
+whole-list replacement, including an empty list, require
+a separate main-owned trusted confirmation window. It names all requirements and
+discloses removal of all launch prerequisites for an empty list; Cancel is the
+default. A registered board may request this flow with its main-held review token
+bound to repository identity, draft digest and expected active revision, but the
+board and token cannot answer it. Main revalidates the review, evidence snapshot
+and catalog revision after confirmation before saving; a change
 requires review again. A concurrent window's approval makes an older review refuse.
 Failed persistence retains the active revision and the editable draft.
 
@@ -177,9 +183,23 @@ capability version advertises this extension; incompatible older daemons refuse
 before dispatch without falling back to generic execution. Exact recipe-catalog
 identity is required even for protocol-compatible peers. Registration, repository,
 approval and cancellation are rechecked after awaits and immediately before dispatch.
+The source fingerprint and actual checkout/root (or explicit absence) are bound
+into the run digest. Main re-reads sources after asynchronous local shell/remote
+connection preparation, immediately before dispatch; the helper re-reads before
+probes and each recipe step. A changed snapshot refuses the obsolete plan.
+Remote helper PATH filtering uses the actual registered code root, even when the
+repository is absent; realpath checks exclude repository directories and login
+bins resolving Node/pnpm/Homebrew into that root before any version execution.
 
-OS packages retain existing recipe policy: Debian update then install, DNF install,
-Arch install without `-Sy`, and Homebrew via the validated login PATH. Prompts and
+Install-only transactions take precedence over backend availability. Debian uses
+update then `apt-get install -y --no-remove --` (solver removals abort too). Homebrew
+uses `install --formula --` via the validated login PATH, with automatic cleanup
+and installed-dependent upgrade/reinstall disabled. Missing RHEL/Arch packages
+require manual setup: the bundled DNF/pacman backends do not provide a verified
+atomic no-removal guarantee. Read-only presence checks, already-met requirements
+and private toolchain recipes remain supported there. Catalog revision 2 invalidates
+old approvals/peers so changed operand and transaction rules require fresh review.
+Prompts and
 sudo stay in the visible terminal; Foom cannot supply an answer. No silent fallback,
 removal, distribution upgrade, arbitrary package repository or repository script.
 

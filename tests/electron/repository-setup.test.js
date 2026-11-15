@@ -6,7 +6,13 @@ const path = require("node:path");
 const { gitSync } = require("../helpers/git.js");
 const { evidencePath } = require("../helpers/evidence.js");
 const { deadline, expect } = require("./test-policy.js");
-const { launchApp, boardPage, openSettingsScreen, removeAfterApps } = require("./harness.js");
+const {
+  launchApp,
+  boardPage,
+  confirmationPage,
+  openSettingsScreen,
+  removeAfterApps,
+} = require("./harness.js");
 const quote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
 async function capture(page, label) {
   for (const theme of ["light", "dark"]) {
@@ -21,6 +27,24 @@ async function capture(page, label) {
       .getByRole("region", { name: "Settings", exact: true })
       .screenshot({ path: evidencePath(`1080b/${label}-${theme}.png`) });
   }
+}
+async function approveDialog(app, board, label) {
+  const dialog = await confirmationPage(app);
+  await expect(dialog.getByRole("alertdialog")).toBeVisible();
+  if (label) {
+    for (const theme of ["light", "dark"]) {
+      await board.evaluate(
+        (theme) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${theme}` }),
+        theme,
+      );
+      await expect
+        .poll(() => dialog.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
+        .toBe(theme === "dark");
+      await dialog.screenshot({ path: evidencePath(`1080b/${label}-${theme}.png`) });
+    }
+  }
+  await dialog.getByRole("button", { name: "Approve list", exact: true }).click();
+  await expect(dialog.getByRole("alertdialog")).toHaveCount(0);
 }
 test("repository setup separates approval from human execution and rechecks failure, success and stale sources", {
   timeout: deadline(60_000),
@@ -146,6 +170,7 @@ esac
   await capture(page, "review");
   assert.equal((await page.evaluate(() => window.desktop.workspace())).terminals.length, 0);
   await panel.getByRole("button", { name: "Approve list", exact: true }).click();
+  await approveDialog(app, page, "approval");
   assert.equal((await page.evaluate(() => window.desktop.workspace())).terminals.length, 0);
   await panel
     .getByRole("button", { name: "Recheck shell-fixture setup on This computer", exact: true })
@@ -215,6 +240,7 @@ esac
   await panel.getByRole("textbox", { name: "Setup draft JSON" }).fill(JSON.stringify(draft));
   await panel.getByRole("button", { name: "Review draft", exact: true }).click();
   await panel.getByRole("button", { name: "Approve list", exact: true }).click();
+  await approveDialog(app, page, "replacement");
   await panel
     .getByRole("button", { name: "Recheck shell-fixture setup on This computer", exact: true })
     .click();
@@ -281,19 +307,168 @@ esac
     (repository) => window.desktop.repositorySetup({ action: "review", repository }),
     repository,
   );
-  await second.evaluate(
+  const pendingApproval = page.evaluate(
     (token) => window.desktop.repositorySetup({ action: "approve", token }),
-    other.review.token,
+    first.review.token,
   );
+  await approveDialog(app, page);
+  await pendingApproval;
   assert.equal(
-    await page.evaluate(
+    await second.evaluate(
       (token) =>
         window.desktop.repositorySetup({ action: "approve", token }).then(
           () => false,
           () => true,
         ),
-      first.review.token,
+      other.review.token,
     ),
     true,
   );
+  // A board-held token must not weaken the prerequisite, including an empty replacement.
+  const beforeEmpty = await page.evaluate(() => window.desktop.repositorySetup({ action: "list" }));
+  const empty = await page.evaluate(
+    (repository) =>
+      window.desktop.repositorySetup({
+        action: "review",
+        repository,
+        draft: JSON.stringify({ requirements: [], evidence: [] }),
+      }),
+    repository,
+  );
+  const pendingEmpty = page.evaluate(
+    (token) => window.desktop.repositorySetup({ action: "approve", token }),
+    empty.review.token,
+  );
+  const trusted = await confirmationPage(app);
+  await expect(trusted.getByRole("alertdialog")).toHaveAccessibleName(
+    "Replace repository setup list?",
+  );
+  await expect(trusted.getByRole("alertdialog")).toContainText(
+    "remove all repository launch prerequisites",
+  );
+  const id = await trusted.evaluate(() => {
+    let id;
+    const off = window.confirmation.render((request) => {
+      id = request?.id;
+    });
+    off();
+    return id;
+  });
+  await app.evaluate(({ BrowserWindow, ipcMain }, id) => {
+    const board = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://bundle/index.html",
+    ).webContents;
+    ipcMain.emit("confirmation:answer", { sender: board, senderFrame: board.mainFrame }, id, true);
+  }, id);
+  await expect(trusted.getByRole("button", { name: "Cancel", exact: true })).toBeFocused();
+  assert.equal(await page.evaluate(() => "confirmation" in window), false);
+  const unchanged = await page.evaluate(() => window.desktop.repositorySetup({ action: "list" }));
+  assert.deepEqual(unchanged.rows, beforeEmpty.rows);
+  for (const theme of ["light", "dark"]) {
+    await page.evaluate(
+      (theme) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${theme}` }),
+      theme,
+    );
+    await expect
+      .poll(() => trusted.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
+      .toBe(theme === "dark");
+    await trusted.screenshot({ path: evidencePath(`1080b/empty-approval-${theme}.png`) });
+  }
+  await trusted.getByRole("button", { name: "Cancel", exact: true }).click();
+  await pendingEmpty;
+  assert.deepEqual(
+    (await page.evaluate(() => window.desktop.repositorySetup({ action: "list" }))).rows,
+    beforeEmpty.rows,
+  );
+});
+
+test("repository setup IPC refuses source edits during launch preparation before creating a terminal", {
+  timeout: deadline(45_000),
+  skip: process.platform === "win32",
+}, async (context) => {
+  const app = await launchApp(context, { fixture: "repository" });
+  const page = await boardPage(app);
+  const repository = (await page.evaluate(() => window.desktop.workspace())).repositories[0].path;
+  await writeFile(path.join(repository, "package.json"), '{"name":"before"}\n');
+  await app.evaluate(
+    (_electron, { servicePath, workspacePath }) => {
+      const load = process.getBuiltinModule("node:module").createRequire(servicePath);
+      const { RepositorySetup } = load(servicePath);
+      const action = RepositorySetup.prototype.action;
+      RepositorySetup.prototype.action = function (...args) {
+        this.deps.check = (_host, list) =>
+          Promise.resolve({
+            platform: { distro: "debian", os: "linux", arch: "x64", nodeAbi: true },
+            items: list.requirements.map((item) => ({ id: item.id, state: "missing" })),
+          });
+        return action.apply(this, args);
+      };
+      const { Workspace } = load(workspacePath);
+      const start = Workspace.prototype.startRepositorySetup;
+      Workspace.prototype.startRepositorySetup = async function (...args) {
+        await Promise.resolve();
+        process
+          .getBuiltinModule("node:fs")
+          .writeFileSync(
+            process.getBuiltinModule("node:path").join(args[0].location.path, "package.json"),
+            '{"name":"changed-during-preparation"}\n',
+          );
+        return start.apply(this, args).catch((error) => {
+          globalThis.repositorySetupDispatchFailure = error.message;
+          throw error;
+        });
+      };
+    },
+    {
+      servicePath: path.resolve("build/main/setup/repository-setup.js"),
+      workspacePath: path.resolve("build/main/workspace/workspace.js"),
+    },
+  );
+  const reviewed = await page.evaluate(
+    (repository) =>
+      window.desktop.repositorySetup({
+        action: "review",
+        repository,
+        draft: JSON.stringify({
+          requirements: [
+            {
+              kind: "toolchain",
+              id: "node",
+              tool: "node",
+              version: "24.x",
+              purpose: "Build",
+              sources: ["package.json"],
+            },
+          ],
+          evidence: [],
+        }),
+      }),
+    repository,
+  );
+  const pending = page.evaluate(
+    (token) => window.desktop.repositorySetup({ action: "approve", token }),
+    reviewed.review.token,
+  );
+  await approveDialog(app, page);
+  await pending;
+  const checked = await page.evaluate(
+    (repository) => window.desktop.repositorySetup({ action: "check", repository, host: null }),
+    repository,
+  );
+  const token = checked.rows.find((row) => row.host === null).token;
+  assert.ok(token);
+  const refusal = await page.evaluate(
+    (token) =>
+      window.desktop.repositorySetup({ action: "run", token }).then(
+        () => "unexpected",
+        (error) => error.message,
+      ),
+    token,
+  );
+  assert.match(refusal, /foom-error:operation-failed/u);
+  assert.equal(
+    await app.evaluate(() => globalThis.repositorySetupDispatchFailure),
+    "Repository sources changed before dispatch",
+  );
+  assert.equal((await page.evaluate(() => window.desktop.workspace())).terminals.length, 0);
 });

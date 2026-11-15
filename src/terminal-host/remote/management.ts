@@ -436,7 +436,6 @@ export async function manageHost(
       const path = join(folder, request.directory);
       let source:
         | {
-            sources: Awaited<ReturnType<typeof inspectSetupSources>>;
             checkout: string;
             head: string;
           }
@@ -454,7 +453,6 @@ export async function manageHost(
         const selected = request.path ?? path;
         await remoteCheckout(path, selected, env, signal);
         source = {
-          sources: await inspectSetupSources(selected, request.evidence),
           checkout: selected,
           head: (await git(["rev-parse", "HEAD"], selected)).trim(),
         };
@@ -462,16 +460,19 @@ export async function manageHost(
       const prefix = remoteToolchainPrefix(home);
       const safe = await repositorySetupEnvironment(
         env,
-        source?.checkout,
+        folder,
         prefix,
         setupSelectedTools(request.list),
         home,
       );
       const check = await checkSetupList(
         request.list,
-        await setupProbeDependencies(safe, home, signal),
+        await setupProbeDependencies(safe, home, signal, folder),
       );
-      return { ok: true, facts, setup: { check, ...source } };
+      const sources = source
+        ? await inspectSetupSources(source.checkout, request.evidence)
+        : undefined;
+      return { ok: true, facts, setup: { check, ...source, ...(sources ? { sources } : {}) } };
     }
     const path = join(folder, request.directory);
     let exists = true;

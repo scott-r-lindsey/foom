@@ -167,8 +167,25 @@ export class RemoteTransport extends EventEmitter {
     return this.startupSent ? false : this.kill();
   }
 
+  private dispatchOpen(request: number, reattach: boolean): void {
+    const connection = this.connection;
+    void (async () => {
+      if (!reattach && !this.target.reattach && this.target.beforeOpen)
+        await this.target.beforeOpen();
+      if (this.closed || connection !== this.connection || !this.ready) return;
+      this.send(this.openRequest(request, reattach));
+    })().catch((error: unknown) => {
+      if (this.closed || connection !== this.connection) return;
+      this.launchFailure =
+        error instanceof LaunchFailure ? error : new LaunchFailure("remote_prepare_refused");
+      for (const [pending, id] of this.pending)
+        this.emit("message", { type: "error", request: pending, id });
+      this.pending.clear();
+      this.kill();
+    });
+  }
+
   private openRequest(request: number, reattach: boolean): RemoteRequest {
-    if (!reattach && !this.target.reattach) this.target.beforeOpen?.();
     this.startupSent = true;
     const session = this.session;
     if (!session) throw new Error("Remote session unavailable");
@@ -559,7 +576,7 @@ export class RemoteTransport extends EventEmitter {
               if (this.opened) {
                 this.restoring = request;
               }
-              this.send(this.openRequest(request, this.opened));
+              this.dispatchOpen(request, this.opened);
             }
             return;
           }
@@ -911,8 +928,10 @@ export class RemoteTransport extends EventEmitter {
       }
     }
     this.pending.set(message.request, message.id);
-    if (this.ready)
-      this.send(message.type === "create" ? this.openRequest(message.request, false) : message);
+    if (this.ready) {
+      if (message.type === "create") this.dispatchOpen(message.request, false);
+      else this.send(message);
+    }
   }
   kill(): boolean {
     if (this.closed) return false;

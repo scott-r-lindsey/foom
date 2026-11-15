@@ -65,6 +65,7 @@ export interface SetupRow {
   revision: number;
   checkedAt?: number;
   noRequirements?: boolean;
+  location?: SetupRun["location"];
   missing: readonly string[];
   changed: readonly string[];
   sourcesAtLaunch: boolean;
@@ -101,6 +102,7 @@ export type RepositorySetupAction =
   | { action: "run"; token: string };
 /** Serialized main-selected execution plan; host reconstructs it before any process. */
 export interface SetupRun {
+  location: { root: string; path: string; present: boolean };
   list: RepositorySetupList;
   catalog: string;
   revision: number;

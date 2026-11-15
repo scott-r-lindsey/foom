@@ -1,7 +1,7 @@
 import type * as FileSystem from "node:fs/promises";
 import type * as Probe from "../../../src/node-common/repository-setup-probe";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdtemp, mkdir, chmod, rm, writeFile, open, realpath } from "node:fs/promises";
+import { mkdtemp, mkdir, chmod, rm, writeFile, open, realpath, symlink } from "node:fs/promises";
 import { join, delimiter } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -245,4 +245,74 @@ it("excludes login bins whose tool symlink resolves back into the checkout", asy
   );
   const env = await repositorySetupEnvironment({ PATH: bins }, checkout, root, [], root);
   expect(env["PATH"]).toBe("");
+});
+
+it.skipIf(process.platform === "win32")(
+  "never probes repository node or pnpm through real login-bin symlinks",
+  async () => {
+    const checkout = join(root, "checkout");
+    const bins = join(root, "login-bin");
+    const safe = join(root, "safe-bin");
+    await Promise.all([mkdir(checkout), mkdir(bins), mkdir(safe)]);
+    for (const tool of ["node", "pnpm"]) {
+      await writeFile(join(checkout, tool), "#!/bin/sh\nexit 99\n", { mode: 0o700 });
+      await symlink(join(checkout, tool), join(bins, tool));
+    }
+    const env = await repositorySetupEnvironment(
+      { PATH: [checkout, bins, safe].join(delimiter) },
+      checkout,
+      join(root, "private"),
+      [],
+      root,
+    );
+    expect(env["PATH"]).toBe(safe);
+    const d = await setupProbeDependencies(env, root, undefined, checkout);
+    const probe = vi.fn(() => Promise.resolve("must-not-probe-checkout"));
+    const onlyTools = parseSetupList(
+      JSON.stringify({
+        requirements: [
+          {
+            kind: "toolchain",
+            id: "node",
+            tool: "node",
+            version: "24.x",
+            purpose: "Build",
+            sources: [],
+          },
+          {
+            kind: "toolchain",
+            id: "pnpm",
+            tool: "pnpm",
+            version: "10.x",
+            purpose: "Build",
+            sources: [],
+          },
+        ],
+        evidence: [],
+      }),
+    );
+    expect(
+      (await checkSetupList(onlyTools, { ...d, probe })).items.map((item) => item.state),
+    ).toEqual(["missing", "missing"]);
+    expect(probe).not.toHaveBeenCalled();
+    // Re-resolve at the probe boundary too, in case a safe login bin gained a link.
+    await symlink(join(checkout, "node"), join(safe, "node"));
+    expect(await d.resolve("node")).toBeUndefined();
+  },
+);
+
+it("retains checkout exclusion when its canonical root becomes unreadable", async () => {
+  const checkout = join(root, "missing-checkout");
+  const bins = join(root, "login-bin");
+  await mkdir(bins);
+  const env = await repositorySetupEnvironment(
+    { PATH: bins },
+    checkout,
+    join(root, "private"),
+    [],
+    root,
+  );
+  expect(env["PATH"]).toBe(bins);
+  const d = await setupProbeDependencies(env, root, undefined, checkout);
+  expect(await d.resolve("node")).toBeUndefined();
 });

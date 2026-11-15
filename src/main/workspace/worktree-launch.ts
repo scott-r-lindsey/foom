@@ -321,7 +321,7 @@ export async function startShell(
   configEnvironment?: Readonly<Record<string, string>>,
   checkout?: Awaited<ReturnType<WorktreeLaunchContext["orchestration"]["remoteCheckout"]>>,
   remoteOverride?: RemoteTarget,
-  validateLaunch?: () => void,
+  validateLaunch?: () => void | Promise<void>,
   signal?: AbortSignal,
   parentHold?: CheckoutHold,
   localRecipe?: { command: string; args: readonly string[] },
@@ -363,7 +363,7 @@ export async function startShell(
         : await this.shellEnvironment(pathFirst);
     if (restoreId !== undefined) this.executionOwner.reset(restoreId);
     await checkout?.validate();
-    validateLaunch?.();
+    await validateLaunch?.();
     if (
       !location.home &&
       !location.config &&

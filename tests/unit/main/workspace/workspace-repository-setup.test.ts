@@ -63,6 +63,7 @@ test("human setup uses only the fixed private CLI helper and cannot be restarted
     registration: "fixture",
     host: "local",
     sources: "b".repeat(64),
+    location: { root: repo.path, path: repo.path, present: true },
     digest: "c".repeat(64),
     check: {
       platform: {
@@ -82,7 +83,13 @@ test("human setup uses only the fixed private CLI helper and cannot be restarted
   deps.config = configDep();
   const create = vi.spyOn(deps.terminals, "create");
   const workspace = new Workspace(deps);
-  const validate = vi.fn();
+  const validate = vi.fn<() => Promise<void>>(() => Promise.resolve());
+  validate.mockRejectedValueOnce(new Error("Sources changed"));
+  await expect(
+    workspace.startRepositorySetup(run, "/profile/toolchains", validate),
+  ).rejects.toThrow("Sources changed");
+  expect(create).not.toHaveBeenCalled();
+  validate.mockClear();
   await workspace.startRepositorySetup(run, "/profile/toolchains", validate);
   expect(validate).toHaveBeenCalledOnce();
   expect(create).toHaveBeenCalledWith(

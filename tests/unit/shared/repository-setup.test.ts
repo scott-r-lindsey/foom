@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { parseSetupList, setupAction, setupSourcePath } from "../../../src/shared/repository-setup";
+import {
+  parseSetupList,
+  setupAction,
+  setupSourcePath,
+  setupPackageName,
+} from "../../../src/shared/repository-setup";
 import {
   setupArtifact,
   setupCatalog,
@@ -155,7 +160,7 @@ describe("fixed repository setup catalog", () => {
   it("selects fixed argv, refreshes apt and skips met requirements", () => {
     expect(setupPlan(list, check)?.steps).toEqual([
       ["/usr/bin/sudo", "/usr/bin/apt-get", "update"],
-      ["/usr/bin/sudo", "/usr/bin/apt-get", "install", "-y", "gcc", "make"],
+      ["/usr/bin/sudo", "/usr/bin/apt-get", "install", "-y", "--no-remove", "--", "gcc", "make"],
       ["foom-host", "--repository-toolchain", "node", setupCatalog.node.version],
     ]);
     expect(
@@ -163,27 +168,36 @@ describe("fixed repository setup catalog", () => {
         ?.steps,
     ).toEqual([]);
   });
-  it.each(["rhel", "arch", "darwin"] as const)(
-    "uses the %s recipe with no shell or upgrade",
+  it.each(["rhel", "arch"] as const)(
+    "refuses automatic %s transactions without a no-removal guarantee",
     (distro) => {
+      expect(setupPlan(list, { ...check, platform: { ...platform, distro } })).toBeUndefined();
       expect(
         setupPlan(list, {
           ...check,
           platform: { ...platform, distro },
-          items: [
-            { id: "native", state: "missing" },
-            { id: "node", state: "met" },
-          ],
+          items: check.items.map((item) => ({ ...item, state: "met" })),
         })?.steps,
-      ).toEqual(
-        distro === "rhel"
-          ? [["/usr/bin/sudo", "/usr/bin/dnf", "install", "-y", "gcc"]]
-          : distro === "arch"
-            ? [["/usr/bin/sudo", "/usr/bin/pacman", "-S", "--noconfirm", "base-devel"]]
-            : [],
-      );
+      ).toEqual([]);
     },
   );
+  it("uses only formula operands for Homebrew", () => {
+    const mac = parse({
+      ...draft,
+      requirements: [
+        {
+          ...draft.requirements[0],
+          packages: { debian: [], rhel: [], arch: [], darwin: ["pkg-config", "python@3.13"] },
+        },
+      ],
+    });
+    expect(
+      setupPlan(mac, {
+        platform: { ...platform, distro: "darwin" },
+        items: [{ id: "native", state: "missing" }],
+      })?.steps,
+    ).toEqual([["brew", "install", "--formula", "--", "pkg-config", "python@3.13"]]);
+  });
   it("never guesses a recipe for unknown probes, unsupported platforms, ABI or uncatalogued versions", () => {
     for (const state of ["unable", "manual"] as const)
       expect(
@@ -243,4 +257,67 @@ describe("fixed repository setup catalog", () => {
     expect(setupVersionMatches("24.17.0", "24.17.0")).toBe(true);
     expect(setupVersionMatches("26.0.0", "24.x")).toBe(false);
   });
+});
+
+it.each(["debian", "rhel", "arch", "darwin"] as const)(
+  "rejects every modifier operand at the %s parser and recipe sink",
+  (distro) => {
+    for (const name of [
+      "bash-",
+      "bash+",
+      "-bash",
+      "bash=1",
+      "bash/edge",
+      "bash*",
+      "bash?",
+      "bash[0]",
+      "bash{a,b}",
+      "bash\\x",
+      "bash:amd64",
+      "Bash",
+      ".bash",
+      "@bash",
+    ]) {
+      expect(setupPackageName(name, distro)).toBe(false);
+      const raw = {
+        ...draft,
+        requirements: [
+          {
+            ...draft.requirements[0],
+            packages: { debian: [], rhel: [], arch: [], darwin: [], [distro]: [name] },
+          },
+        ],
+      };
+      expect(() => parse(raw)).toThrow();
+      const forged: RepositorySetupList = {
+        requirements: [
+          {
+            kind: "package",
+            id: "native",
+            purpose: "Build",
+            sources: [],
+            packages: { debian: [], rhel: [], arch: [], darwin: [], [distro]: [name] },
+          },
+        ],
+        evidence: [],
+      };
+      expect(
+        setupPlan(forged, {
+          platform: { ...platform, distro },
+          items: [{ id: "native", state: "missing" }],
+        }),
+      ).toBeUndefined();
+    }
+  },
+);
+it("uses manager-specific literal package grammars", () => {
+  for (const name of ["gcc", "g++-12", "libstdc++6", "libfoo-dev"])
+    expect(setupPackageName(name, "debian")).toBe(true);
+  expect(setupPackageName("foo_bar", "debian")).toBe(false);
+  expect(setupPackageName("foo.bar", "debian")).toBe(false);
+  expect(setupPackageName("python@@3.13", "darwin")).toBe(false);
+  expect(setupPackageName("foo_bar", "rhel")).toBe(true);
+  expect(setupPackageName("foo_bar", "arch")).toBe(true);
+  expect(setupPackageName("python@3.13", "darwin")).toBe(true);
+  expect(setupPackageName("python@3.13", "debian")).toBe(false);
 });

@@ -17,6 +17,7 @@ export async function repositorySetupEnvironment(
   tools: readonly ("node" | "pnpm")[],
   home = homedir(),
 ): Promise<Record<string, string>> {
+  const excluded = checkout ? await realpath(checkout).catch(() => checkout) : undefined;
   const paths = [
     ...(await selectedToolchainBins(prefix, tools)),
     ...(source["PATH"] ?? "").split(delimiter),
@@ -27,10 +28,10 @@ export async function repositorySetupEnvironment(
     const canonical = await realpath(path).catch(() => undefined);
     if (
       !canonical ||
-      (checkout && (canonical === checkout || canonical.startsWith(`${checkout}${sep}`)))
+      (excluded && (canonical === excluded || canonical.startsWith(`${excluded}${sep}`)))
     )
       continue;
-    if (checkout) {
+    if (excluded) {
       const targets = await Promise.all(
         ["node", "pnpm", "brew"].map((tool) =>
           realpath(join(canonical, tool)).catch(() => undefined),
@@ -38,7 +39,7 @@ export async function repositorySetupEnvironment(
       );
       if (
         targets.some(
-          (target) => target && (target === checkout || target.startsWith(`${checkout}${sep}`)),
+          (target) => target && (target === excluded || target.startsWith(`${excluded}${sep}`)),
         )
       )
         continue;
@@ -58,7 +59,11 @@ export async function setupProbeDependencies(
   env: Record<string, string>,
   home = homedir(),
   signal?: AbortSignal,
+  excludedRoot?: string,
 ): Promise<SetupProbeDependencies> {
+  const excluded = excludedRoot
+    ? await realpath(excludedRoot).catch(() => excludedRoot)
+    : undefined;
   const probeEnvironment = {
     ...env,
     COREPACK_ENABLE_NETWORK: "0",
@@ -152,7 +157,10 @@ export async function setupProbeDependencies(
         const command = join(directory, tool);
         try {
           await access(command, constants.X_OK);
-          if ((await stat(command)).isFile()) return command;
+          const canonical = await realpath(command);
+          if (excluded && (canonical === excluded || canonical.startsWith(`${excluded}${sep}`)))
+            continue;
+          if ((await stat(canonical)).isFile()) return canonical;
         } catch {
           /* Continue to the next safe login directory. */
         }

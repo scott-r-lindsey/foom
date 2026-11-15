@@ -53,7 +53,7 @@ export type RemoteTarget = {
   repositorySetup?: SetupRun;
   setupAdmission?: SetupAdmission;
   machine?: MachineLaunch;
-  beforeOpen?: () => void;
+  beforeOpen?: () => void | Promise<void>;
   /** Main-only observation of the daemon-selected home for a new machine session. */
   machineHome?: (home: string) => void;
   trustOrigin?: string;

@@ -33,7 +33,9 @@ export interface RepositorySetupDependencies {
     checkout: string | undefined,
     paths: readonly string[],
     host: string | null,
-  ) => Promise<{ sources: SetupSources; head: string; checkout: string } | undefined>;
+  ) => Promise<
+    { sources?: SetupSources; head: string; checkout: string; root?: string } | undefined
+  >;
   check: (
     host: string | null,
     list: RepositorySetupList,
@@ -267,6 +269,7 @@ export class RepositorySetup {
       active?.revision,
       active?.digest,
       active?.catalog,
+      active?.sources.fingerprint,
       setupCatalogDigest,
     ]);
   }
@@ -382,7 +385,7 @@ export class RepositorySetup {
       row: SetupRow,
       finished: () => void,
       signal: AbortSignal,
-      validate: () => void,
+      validate: () => Promise<void>,
     ) => Promise<string>,
     signal: AbortSignal,
   ): Promise<RepositorySetupState> {
@@ -425,7 +428,7 @@ export class RepositorySetup {
       );
       signal.throwIfAborted();
       if (
-        !observed ||
+        !observed?.sources ||
         (this.scopeRevisions.get(scope) ?? 0) !== generation ||
         this.deps.identity(input.repository) !== identity ||
         this.active(input.repository)?.revision !== active?.revision
@@ -471,8 +474,36 @@ export class RepositorySetup {
         if (!entry || entry.scope !== scope) throw new Error("Review expired");
         if (entry.review.unresolved?.length)
           throw new Error("Resolve or explicitly remove unsupported requirements before approval");
-        await this.deps.beforeApprove?.();
         const approval = entry.approval;
+        if (
+          !(await confirm({
+            title: entry.review.revision
+              ? "Replace repository setup list?"
+              : "Approve repository setup list?",
+            accept: "Approve list",
+            subject: approval.repository,
+            detail: approval.list.requirements.length
+              ? "Save this profile-only list as the repository launch prerequisite. A later Set up click can install these packages/toolchains, including sudo steps. Approval installs nothing."
+              : "Save an empty list and remove all repository launch prerequisites. Installed packages and toolchains are kept. Approval installs nothing.",
+            sections: approval.list.requirements.map((item) => ({
+              label: `${item.id} · ${item.purpose}`,
+              items:
+                item.kind === "toolchain"
+                  ? [`${item.tool} ${item.version}`]
+                  : Object.entries(item.packages).map(
+                      ([distro, names]) =>
+                        `${distro}: ${names === "unsupported" ? "Unsupported" : names.join(", ") || "No packages"}`,
+                    ),
+            })),
+            facts: [
+              { label: "Revision", value: String(approval.revision) },
+              { label: "List digest", value: approval.digest },
+            ],
+          }))
+        )
+          return { ...this.state(scope), review: entry.review };
+        signal.throwIfAborted();
+        await this.deps.beforeApprove?.();
         const observed = await this.deps.sources(
           approval.repository,
           approval.checkout,
@@ -484,7 +515,7 @@ export class RepositorySetup {
           this.reviews.get(input.token) !== entry ||
           this.deps.identity(approval.repository) !== approval.identity ||
           (this.active(approval.repository)?.revision ?? 0) !== entry.review.revision ||
-          !observed ||
+          !observed?.sources ||
           observed.sources.fingerprint !== approval.sources.fingerprint ||
           approval.catalog !== setupCatalogDigest
         )
@@ -549,7 +580,8 @@ export class RepositorySetup {
       if (
         entry.binding !== this.binding(row.host, row.repository) ||
         refreshed.state !== "needs-setup" ||
-        setupDigest(refreshed.plan) !== setupDigest(row.plan)
+        setupDigest(refreshed.plan) !== setupDigest(row.plan) ||
+        setupDigest(refreshed.location ?? null) !== setupDigest(row.location ?? null)
       )
         throw new Error("Setup plan changed; review the row again");
       const recipeSession = await launch(
@@ -561,10 +593,30 @@ export class RepositorySetup {
           void this.check(scope, row.host, row.repository).catch(() => undefined);
         },
         cancellation.signal,
-        () => {
+        async () => {
           cancellation.signal.throwIfAborted();
-          if (entry.binding !== this.binding(row.host, row.repository))
+          signal.throwIfAborted();
+          if (entry.binding !== this.binding(row.host, row.repository) || !row.location)
             throw new Error("Setup changed before dispatch");
+          const current = await this.deps.sources(
+            row.repository,
+            row.location.present ? row.location.path : undefined,
+            evidencePaths(active.list),
+            row.host,
+          );
+          cancellation.signal.throwIfAborted();
+          signal.throwIfAborted();
+          if (
+            !current ||
+            entry.binding !== this.binding(row.host, row.repository) ||
+            setupDigest({
+              root: current.root ?? current.checkout,
+              path: current.checkout,
+              present: !!current.sources,
+            }) !== setupDigest(row.location) ||
+            (row.location.present && current.sources?.fingerprint !== active.sources.fingerprint)
+          )
+            throw new Error("Repository sources changed before dispatch");
         },
       );
       return { ...this.state(scope), recipeSession };
@@ -607,10 +659,15 @@ export class RepositorySetup {
         evidencePaths(active.list),
         host,
       );
-      if (!observed && host === null) return { ...base, state: "unable" };
-      const changed = observed ? changedSources(active.sources, observed.sources) : [];
+      if (!observed) return { ...base, state: "unable" };
+      const changed = observed.sources ? changedSources(active.sources, observed.sources) : [];
       if (changed.length) return { ...base, changed, state: "review-needed" };
-      const checked = await this.deps.check(host, active.list, observed?.checkout, repository);
+      const checked = await this.deps.check(
+        host,
+        active.list,
+        observed.sources ? observed.checkout : undefined,
+        repository,
+      );
       if (
         checked.items.length !== active.list.requirements.length ||
         active.list.requirements.some(
@@ -633,7 +690,12 @@ export class RepositorySetup {
       return {
         ...base,
         missing,
-        sourcesAtLaunch: observed === undefined,
+        sourcesAtLaunch: !observed.sources,
+        location: {
+          root: observed.root ?? observed.checkout,
+          path: observed.checkout,
+          present: !!observed.sources,
+        },
         state,
         ...(plan ? { plan } : {}),
       };

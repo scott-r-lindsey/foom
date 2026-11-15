@@ -57,9 +57,12 @@ export async function openRepositorySetup(
           paths,
           checkout,
         );
-        return result.sources && result.checkout && result.head
-          ? { sources: result.sources, checkout: result.checkout, head: result.head }
-          : undefined;
+        return {
+          ...(result.sources ? { sources: result.sources } : {}),
+          root: result.root,
+          checkout: result.sourcePath,
+          head: result.head ?? "",
+        };
       }
       const selected = checkout ?? repository;
       const identity = await worktrees.launchIdentity(repository, selected);
@@ -93,7 +96,10 @@ export async function openRepositorySetup(
         prefix,
         setupSelectedTools(list),
       );
-      return checkSetupList(list, await setupProbeDependencies(env, homedir()));
+      return checkSetupList(
+        list,
+        await setupProbeDependencies(env, homedir(), undefined, checkout),
+      );
     },
   });
   services.set(store, service);

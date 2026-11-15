@@ -37,7 +37,7 @@ export interface SetupDependencies {
     row: SetupRow,
     finished: () => void,
     signal: AbortSignal,
-    validate: () => void,
+    validate: () => Promise<void>,
   ) => Promise<string>;
   hosts?: Hosts;
   hostsChanged?: () => void;

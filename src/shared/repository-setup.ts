@@ -44,8 +44,18 @@ function paths(value: unknown): value is string[] {
     new Set(value).size === value.length
   );
 }
-export function setupPackageName(value: unknown): value is string {
-  return typeof value === "string" && /^[a-z0-9][a-z0-9+_.-]{0,79}$/u.test(value);
+export function setupPackageName(value: unknown, distro: SetupDistro = "debian"): value is string {
+  if (typeof value !== "string" || value.length > 80) return false;
+  // Literal names only: no package-spec selectors, option prefixes or apt suffix actions.
+  const grammar =
+    distro === "debian"
+      ? /^[a-z0-9](?:[a-z0-9+-]*[a-z0-9])?$/u
+      : distro === "rhel"
+        ? /^[a-z0-9](?:[a-z0-9+_.-]*[a-z0-9])?$/u
+        : distro === "arch"
+          ? /^[a-z0-9](?:[a-z0-9+_.-]*[a-z0-9])?$/u
+          : /^[a-z0-9](?:[a-z0-9_.-]*[a-z0-9])?(?:@[0-9]+(?:\.[0-9]+)*)?$/u;
+  return grammar.test(value);
 }
 export function setupVersion(value: unknown): value is string {
   return (
@@ -93,7 +103,7 @@ function requirement(value: unknown): SetupPackage | SetupToolchain {
     if (
       !Array.isArray(names) ||
       names.length > 128 ||
-      !names.every(setupPackageName) ||
+      !names.every((name: unknown) => setupPackageName(name, distro)) ||
       new Set(names).size !== names.length
     )
       throw new Error("Invalid setup package");
@@ -301,7 +311,19 @@ export function setupRun(value: unknown): value is SetupRun {
       "host",
       "check",
       "digest",
+      "location",
     ]) &&
+    object(value["location"]) &&
+    keys(value["location"], ["root", "path", "present"]) &&
+    [value["location"]["root"], value["location"]["path"]].every(
+      (path: unknown) =>
+        typeof path === "string" &&
+        path.length <= 4096 &&
+        !controls.test(path) &&
+        /^(?:\/|[A-Za-z]:[/\\])/u.test(path) &&
+        !path.split(/[/\\]/u).some((part) => part === "." || part === ".."),
+    ) &&
+    typeof value["location"]["present"] === "boolean" &&
     setupAdmission({
       list: value["list"],
       catalog: value["catalog"],

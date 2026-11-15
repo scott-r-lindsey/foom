@@ -285,7 +285,7 @@ export async function buildWindow(
     target:
       | RemoteTarget
       | { localAgent: string }
-      | { localSetup: SetupRun; prefix: string; validate: () => void },
+      | { localSetup: SetupRun; prefix: string; validate: () => Promise<void> },
     finished?: () => void,
   ) => {
     let id: string | undefined;
@@ -350,8 +350,9 @@ export async function buildWindow(
   const setup = new Setup({
     repositorySetup: repositorySetupFor(wiring.settings),
     launchRepositorySetup: async (host, approval, row, finished, signal, validate) => {
-      if (!row.plan) throw new Error("Setup plan unavailable");
+      if (!row.plan || !row.location) throw new Error("Setup plan unavailable");
       const binding = {
+        location: row.location,
         list: approval.list,
         catalog: approval.catalog,
         revision: approval.revision,

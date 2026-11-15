@@ -38,7 +38,7 @@ export class Workspace {
   async startRepositorySetup(
     run: SetupRun,
     prefix: string,
-    validate?: () => void,
+    validate?: () => void | Promise<void>,
   ): Promise<string> {
     const directory = this.owner.deps.config?.cliDirectory;
     if (!directory) throw new Error("Setup helper unavailable");

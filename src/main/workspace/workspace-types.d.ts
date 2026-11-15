@@ -96,7 +96,7 @@ export interface WorkspaceMethods {
     configEnvironment?: Readonly<Record<string, string>>,
     checkout?: Awaited<ReturnType<Orchestration["remoteCheckout"]>>,
     remoteOverride?: RemoteTarget,
-    validateLaunch?: () => void,
+    validateLaunch?: () => void | Promise<void>,
     signal?: AbortSignal,
     parentHold?: CheckoutHold,
     localRecipe?: { command: string; args: readonly string[] },

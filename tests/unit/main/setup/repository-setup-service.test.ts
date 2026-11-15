@@ -79,6 +79,8 @@ it("composes one profile owner and never uses saved facts as launch authority", 
         check: checked,
         sources,
         checkout: "/remote/repository",
+        root: "/remote",
+        sourcePath: "/remote/repository",
         head: "a".repeat(40),
       }),
     ),
@@ -152,7 +154,11 @@ it("composes one profile owner and never uses saved facts as launch authority", 
     expect.anything(),
     "/remote/worktree",
   );
-  hosts.repositorySetup.mockResolvedValueOnce({ check: checked });
+  hosts.repositorySetup.mockResolvedValueOnce({
+    check: checked,
+    root: "/remote",
+    sourcePath: "/remote/repository",
+  });
   await expect(service.admit("build", repository, "/remote/worktree")).rejects.toThrow();
   worktrees.launchIdentity.mockResolvedValueOnce("before").mockResolvedValueOnce("after");
   await expect(
