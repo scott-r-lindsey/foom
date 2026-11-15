@@ -8,6 +8,7 @@ const stateLabels: Readonly<Record<string, string>> = {
   done: "Done",
   failed: "Failed",
   quiet_ok: "Quiet",
+  dormant: "Dormant",
 };
 const glyphPaths = {
   trash: "M2.5 4h11M6 4V2.5h4V4M4 4l.7 9.5h6.6L12 4M6.8 6.5v4.5M9.2 6.5v4.5",

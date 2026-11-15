@@ -18,6 +18,7 @@ import type {
 /** Tile removal preserves resumable conversations outside the config environment. */
 export function tileRemovalAction(row: BoardRow | undefined, preview = false): "hide" | "close" {
   return preview ||
+    (row?.unavailable && row.exited) ||
     row?.startup ||
     (row?.exited && (row.config || !(row.kind === "agent" && conversationId(row.conversationId))))
     ? "close"

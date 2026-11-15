@@ -152,6 +152,16 @@ offers **Resume conversation** with a short ID hint when a validated Claude Code
 Codex or Antigravity conversation ID was recorded, **New conversation here**, **Copy session
 ID** when an ID exists, then a separator and **Close**.
 
+A dormant session on an unavailable host, including after a local disconnect exit,
+offers **Forget…** in its sidebar and
+tile menus. Its confirmation explains that only local saved metadata is removed;
+the remote process may still be running. Worktrees and files are kept. If the
+host returns, live daemon sessions can be recovered as human-owned, without their
+previous parent or orchestrator authority. Removing a host in Settings lists its
+dormant/exited saved sessions in the same removal confirmation; live attached
+tiles remain usable until exit or Close. Interrupted Close recovery rows remain
+after host removal; explicit Forget can discard a dormant row's recovery metadata.
+
 An exited orchestrator with current disclosure consent and supported-provider
 capabilities for pending automatic role recovery offers **Revoke
 orchestrator** in its session menu. Revoking cancels recovery before Resume, which
@@ -198,9 +208,13 @@ in Settings order. Machine rows and host chips use the registered nickname,
 falling back to the short hostname through the shared display-name helper.
 Each machine menu offers New shell and New followed by each
 installed, enabled agent's name. These human-owned sessions use the local home
-folder or the remote approved code folder and nest under their machine. They use
-the user's CLI defaults and have no orchestration child grant. Single-machine
-profiles keep the existing home-shell layout.
+folder or the remote account's validated home folder and nest under their machine.
+They use the user's CLI defaults and have no orchestration child grant. Single-machine
+profiles keep the home row layout: its menu and panel offer New shell and New
+followed by each installed, enabled agent's name. Local home agents nest beneath
+that row and use the same human-owned machine home launch and conversation
+restore rules. With registered hosts, local home-agent launchers appear on the
+Localhost machine row, with no duplicate home-row agent commands.
 
 Unavailable machines stay listed with an explicit Unavailable label and disabled
 launch controls. Remote worktrees remain beneath their repository. A neutral filled

@@ -438,3 +438,91 @@ else console.log('ARGS:' + JSON.stringify(process.argv.slice(2)));
       .toContain(supported ? 'ARGS:["--no-alt-screen"]' : "ARGS:[]");
   }
 });
+
+test("home row launches a human agent without hosts and restores its saved conversation", {
+  timeout: deadline(60000),
+  skip: process.platform === "win32" && "The fake CLI is a POSIX executable",
+}, async (context) => {
+  const { chmod, mkdir, symlink } = require("node:fs/promises");
+  const { FAKE_ORCHESTRATED_CLAUDE, confirmationPage, quitAndWait } = require("./harness.js");
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-home-agent-")));
+  removeAfterApps(context, root);
+  const bin = path.join(root, "bin");
+  const home = path.join(root, "home");
+  const credentials = path.join(root, "credentials");
+  await Promise.all([mkdir(bin), mkdir(home)]);
+  await symlink(process.execPath, path.join(bin, "node"));
+  await writeFile(
+    path.join(bin, "claude"),
+    `${FAKE_ORCHESTRATED_CLAUDE}
+const req = require("node:http").request(process.env.FOOM_HOOK_URL, {
+  method: "POST", headers: {
+    Authorization: process.env.FOOM_TOKEN, "X-Foom-Session": process.env.FOOM_SESSION,
+    "Content-Type": "application/json", "X-Foom-Channel": process.env.FOOM_CHANNEL_lifecycle,
+  },
+}, res => res.resume());
+req.on("error", () => process.exit(1));
+req.end(JSON.stringify({ session_id: "home-conversation", hook_event_name: "PermissionRequest" }));
+`,
+  );
+  await chmod(path.join(bin, "claude"), 0o755);
+  const options = {
+    fixture: "agent",
+    home,
+    args: [`--user-data-dir=${path.join(root, "profile")}`],
+    env: { HOME: home, PATH: bin, TEST_FAKE_CREDENTIALS: credentials },
+  };
+  const app = await launchApp(context, options);
+  const page = await boardPage(app);
+  assert.deepEqual((await page.evaluate(() => window.desktop.sidebarInventory())).machines, []);
+  await page.getByRole("button", { name: "Actions for Home shell", exact: true }).click();
+  await expect(page.getByRole("menuitem", { name: "New shell", exact: true })).toBeVisible();
+  await page.getByRole("menuitem", { name: "New Claude Code", exact: true }).click();
+  const rows = (page) => page.evaluate(async () => (await window.desktop.workspace()).terminals);
+  await expect
+    .poll(() => rows(page))
+    .toMatchObject([
+      {
+        agent: "claude",
+        home: true,
+        machine: true,
+        worktree: home,
+        conversationId: "home-conversation",
+        attention: "hooks",
+        exited: false,
+      },
+    ]);
+  const [row] = await rows(page);
+  assert.equal(row.orchestration, undefined);
+  const homeRow = page.getByRole("treeitem", { name: "Home shell", exact: true });
+  const agent = homeRow.locator(`[data-drag-session="${row.id}"]`);
+  await expect(agent).toHaveAttribute("data-state", "needs_input");
+  await expect(page.locator(`[data-drag-session="${row.id}"]`)).toHaveCount(1);
+  await assertAccessible(page);
+  await quitAndWait(app, async () => {
+    await app.evaluate(({ app }) => app.quit());
+    await (await confirmationPage(app)).getByRole("button", { name: "Stop all and quit" }).click();
+  });
+  const restored = await launchApp(context, { ...options, fixture: "restored" });
+  const second = await boardPage(restored);
+  await expect
+    .poll(() => rows(second))
+    .toMatchObject([
+      { id: row.id, home: true, machine: true, conversationId: "home-conversation", exited: false },
+    ]);
+  await expect
+    .poll(async () => {
+      const record = JSON.parse(await readFile(`${credentials}.home`, "utf8"));
+      return record.args;
+    })
+    .toContain("--resume");
+  const record = JSON.parse(await readFile(`${credentials}.home`, "utf8"));
+  assert.ok(record.args.includes("home-conversation"));
+  assert.equal(record.controlToken, undefined);
+  assert.equal(record.mcp, null);
+  await expect(
+    second
+      .getByRole("treeitem", { name: "Home shell", exact: true })
+      .locator(`[data-drag-session="${row.id}"]`),
+  ).toBeVisible();
+});
