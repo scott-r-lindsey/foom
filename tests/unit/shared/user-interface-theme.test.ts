@@ -1,3 +1,6 @@
+import darkGradientSample from "../../fixtures/themes/gradient-dark.json";
+import lightGradientSample from "../../fixtures/themes/gradient-light.json";
+import { colorDistance } from "../../../src/shared/theme-colors";
 import { expect, test } from "vitest";
 import { interfaceThemes } from "../../../src/shared/interface-themes";
 import { parseThemeFile } from "../../../src/shared/theme-files";
@@ -376,4 +379,107 @@ test("gradient stops and local scrollbars participate in warnings and approval p
       "sidebar:attention~scrollbar",
     ]),
   );
+});
+
+test.each([darkGradientSample, lightGradientSample])(
+  "gradient sample $base stays readable and visibly varied",
+  (sample) => {
+    const parsed = parse(sample);
+    expect(parsed.kind).toBe("theme");
+    if (parsed.kind !== "theme") throw Error("Wrong kind");
+    expect(parsed.warnings ?? []).toEqual([]);
+    expect(attentionConflicts(parsed.theme)).toEqual([]);
+    for (const area of ["sidebar", "board"] as const) {
+      const stops = parsed.theme.areas?.[area]?.gradient?.stops;
+      const first = stops?.[0]?.[0],
+        last = stops?.at(-1)?.[0];
+      if (!first || !last) throw Error("Missing sample gradient");
+      expect(colorDistance(first, last)).toBeGreaterThanOrEqual(40);
+    }
+  },
+);
+
+test("transparent child inks reject white on white across parent solid and gradient paints", () => {
+  const light = interfaceThemes["eclipse-light"].colors;
+  const white = {
+    angle: 0,
+    stops: [
+      ["#ffffff", 0],
+      ["#ffffff", 100],
+    ],
+  };
+  for (const parent of ["titlebar", "sidebar"] as const) {
+    for (const gradient of [undefined, white]) {
+      const value = {
+        ...theme(),
+        areas: {
+          [parent]: { ...light, bg: "#ffffff", ...(gradient ? { gradient } : {}) },
+          wordmark: { ink: "#f4efff" },
+        },
+      };
+      expect(() => parse(value)).toThrow(
+        expect.objectContaining({ path: "$.areas.wordmark.ink", reason: "contrast" }),
+      );
+    }
+  }
+  for (const parent of ["sidebar", "panels", "dialogs", "dialog-headers"] as const) {
+    const value = {
+      ...theme(),
+      areas: {
+        [parent]: {
+          ...light,
+          bg: "#ffffff",
+          ...(parent === "dialog-headers" ? { gradient: white } : {}),
+        },
+        badges: { ink: "#f4efff" },
+      },
+    };
+    expect(() => parse(value)).toThrow(
+      expect.objectContaining({ path: "$.areas.badges.ink", reason: "contrast" }),
+    );
+  }
+});
+
+test("transparent child checks include parent gradient interiors and launch's actual hole", () => {
+  const whiteInks = Object.fromEntries(
+    ["ink", "muted", "accent", "attention-ink", "done-ink", "failed-ink", "highlight"].map(
+      (role) => [role, "#ffffff"],
+    ),
+  );
+  const parentColors = {
+    ...base.colors,
+    ...whiteInks,
+    "highlight-deep": "#010101",
+    bg: "#757575",
+    surface: "#757575",
+  };
+  for (const child of ["wordmark", "badges"] as const) {
+    const parent = child === "wordmark" ? "titlebar" : "dialog-headers";
+    for (const stops of [
+      [
+        ["#ec0000", 0],
+        ["#008900", 100],
+      ],
+      [
+        ["#101010", 0],
+        ["#101010", 100],
+      ],
+    ]) {
+      const value = {
+        ...interfaceThemes["eclipse-light"],
+        version: 2,
+        areas: {
+          [parent]: { ...parentColors, gradient: { angle: 0, stops } },
+        },
+      };
+      // Parent white inks pass. The transparent black child fails at a stop or inside a segment.
+      expect(() => parse(value)).not.toThrow();
+      expect(() =>
+        parse({ ...value, areas: { ...value.areas, [child]: { ink: "#000000" } } }),
+      ).toThrow(expect.objectContaining({ path: `$.areas.${child}.ink`, reason: "contrast" }));
+    }
+  }
+  expect(() =>
+    parse({ ...theme(), areas: { wordmark: { hole: "#ffffff", "space-ink": "#000000" } } }),
+  ).toThrow(expect.objectContaining({ path: "$.areas.wordmark.space-ink", reason: "contrast" }));
 });

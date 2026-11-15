@@ -29,6 +29,7 @@ button {
   width: 540px;
 }
 .dlg-head {
+  color: var(--ink);
   --lift: light-dark(#fff, var(--ink));
   --raised-top: color-mix(in srgb, var(--surface) 92%, var(--lift));
   --raised-bottom: var(--surface);
@@ -60,6 +61,7 @@ button {
   stroke-linejoin: round;
 }
 h1 {
+  color: var(--ink);
   margin: 0;
   font:
     var(--type-strong-weight, 600) calc(16px * var(--type-scale, 1)) / 1.35 var(--font-interface);
@@ -409,6 +411,7 @@ footer {
   flex-shrink: 0;
 }
 h1 {
+  color: var(--ink);
   overflow-wrap: anywhere;
 }
 .cleanup {

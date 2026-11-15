@@ -1103,3 +1103,135 @@ test("extended user themes apply through both bridges and reject malformed theme
     );
   }
 });
+
+test("sample user themes paint visible sidebar and board gradients in light and dark", async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "foom-gradient-samples-"));
+  removeAfterApps(context, root);
+  const app = await launchApp(context, { fixture: "repository", home: root });
+  const page = await boardPage(app);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await sizeTileBoard(app, page, 1200, 800);
+  for (const base of ["dark", "light"]) {
+    const text = await readFile(
+      path.join(__dirname, `../fixtures/themes/gradient-${base}.json`),
+      "utf8",
+    );
+    const sample = JSON.parse(text);
+    await writeFile(path.join(root, `.foom/config/themes/gradient-${base}.json`), text);
+    await openSettingsScreen(page);
+    await page.getByRole("button", { name: "Appearance", exact: true }).click();
+    await chooseTheme(page, sample.name);
+    await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
+    const expected =
+      base === "dark"
+        ? ["rgb(0, 60, 82)", "rgb(71, 22, 79)"]
+        : ["rgb(144, 233, 242)", "rgb(229, 181, 252)"];
+    for (const [selector, angle] of [
+      [".sidebar-shell", 160],
+      [".tile-area", 125],
+    ]) {
+      await expect(page.locator(selector)).toHaveCSS(
+        "background-image",
+        new RegExp(`linear-gradient\\(${angle}deg`),
+      );
+      const paint = await page
+        .locator(selector)
+        .evaluate((element) => getComputedStyle(element).backgroundImage);
+      for (const color of expected)
+        assert.ok(paint.includes(color), `${selector} paints the sample's distinct stops`);
+    }
+    await expect(page.locator(".tile-area")).toBeVisible();
+    await expect(page.locator(".xterm:visible")).toHaveCount(0);
+    await assertAccessible(page);
+    await page.screenshot({
+      path: evidencePath(`1188-gradient-visible-${base}.png`),
+      animations: "disabled",
+    });
+  }
+});
+
+test("nested theme inks stay readable over parent gradients and trusted header paint", async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "foom-nested-theme-"));
+  removeAfterApps(context, root);
+  const app = await launchApp(context, { fixture: "empty-board", home: root });
+  const page = await boardPage(app);
+  const dialog = await confirmationPage(app);
+  const { interfaceThemes } = require("../../build/shared/interface-themes.js");
+  const { contrast } = require("../../build/shared/theme-colors.js");
+  const light = interfaceThemes["eclipse-light"].colors;
+  const header = {
+    ...light,
+    bg: "#ffffff",
+    gradient: {
+      angle: 0,
+      stops: [
+        ["#ffffff", 0],
+        ["#ffffff", 100],
+      ],
+    },
+  };
+  const sample = {
+    ...interfaceThemes["eclipse-dark"],
+    version: 2,
+    name: "Nested palette",
+    areas: { titlebar: header },
+  };
+  const file = path.join(root, ".foom/config/themes/nested.json");
+  await writeFile(file, JSON.stringify(sample));
+  await openSettingsScreen(page);
+  await page.getByRole("button", { name: "Appearance", exact: true }).click();
+  await chooseTheme(page, sample.name);
+  await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
+  await expect(page.locator(".board-top")).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  await expect(page.locator(".wordmark-menu")).toHaveCSS("color", "rgb(20, 16, 31)");
+  assert.ok(
+    contrast("#f4efff", "#ffffff") < 1.13,
+    "Original white-on-white reproduction is unreadable",
+  );
+  await writeFile(
+    file,
+    JSON.stringify({ ...sample, areas: { ...sample.areas, wordmark: { ink: "#f4efff" } } }),
+  );
+  await expect
+    .poll(() =>
+      page.evaluate(
+        async () =>
+          (await window.desktop.setupState()).themes.errors.find(
+            (entry) => entry.file === "nested.json",
+          )?.reason,
+      ),
+    )
+    .toBe("contrast");
+  await expect(page.locator(".wordmark-menu")).toHaveCSS("color", "rgb(20, 16, 31)");
+  await app.evaluate(
+    ({ BrowserWindow }, theme) => {
+      BrowserWindow.getAllWindows()
+        .find((window) => window.webContents.getURL() === "app://confirmation/confirmation.html")
+        .webContents.send("confirmation:render", {
+          id: "header-ink-regression",
+          title: "Header palette regression",
+          accept: "Continue",
+          presented: false,
+          theme,
+        });
+    },
+    { ...sample, areas: { "dialog-headers": header } },
+  );
+  // This main-authored render fixture is deliberately hidden and grants no native consent.
+  // Read computed styles without a locator action that expects a presented native dialog.
+  await expect
+    .poll(() =>
+      dialog.evaluate(() => {
+        const header = document.querySelector(".dlg-head");
+        const title = document.querySelector(".dlg-head h1");
+        return header && title
+          ? {
+              background: getComputedStyle(header).backgroundColor,
+              ink: getComputedStyle(title).color,
+            }
+          : null;
+      }),
+    )
+    .toEqual({ background: "rgb(255, 255, 255)", ink: "rgb(20, 16, 31)" });
+  assert.ok(contrast(light.ink, "#ffffff") >= 4.5);
+});

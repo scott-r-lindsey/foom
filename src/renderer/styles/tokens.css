@@ -272,8 +272,7 @@
 }
 
 :root[data-theme-ready] .theme-menu-options,
-:root[data-theme-ready] .row-menu:not(.sidebar-panel),
-:root[data-theme-ready] .wordmark-menu {
+:root[data-theme-ready] .row-menu:not(.sidebar-panel) {
   --bg: var(--theme-menus-bg, var(--theme-bg));
   --state-scrollbar: var(--theme-menus-scrollbar, var(--line));
   --surface: var(--theme-menus-surface, var(--theme-surface));

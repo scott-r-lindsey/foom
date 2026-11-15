@@ -64,7 +64,7 @@ Areas override a subset of colors: sidebar on `.sidebar-shell`, tiles on
 `.tile-area` and `.terminal-tile` chrome (terminal content retains its independent
 palette), panels on `.row-menu.sidebar-panel` (including tile panels), dialogs on
 Settings, preflight and confirmation/dialog roots, menus on row menus/submenus and
-the wordmark menu and the shared Theme/Colors menus. Portal roots get their own area variables. Raised colors derive
+the wordmark popup and the shared Theme/Colors menus. The transparent wordmark trigger inherits its surrounding palette. Portal roots get their own area variables. Raised colors derive
 at each root from its effective palette. State colors override selected, hover,
 focus and scrollbar colors; omitted values retain existing derivations. Shape
 supports radius 0–12 px, panel-radius 0–16 px, border 0–2 px and shadow 0–1.
@@ -115,7 +115,18 @@ Area roots reset derived raised/hover tokens, including portaled panel and menu
 roots. Every area can specify `scrollbar`, an opaque hex color overriding the global
 scrollbar state at that root; terminal scrollbars and terminal output stay independent.
 Scrollbar colors and gradient stops participate in attention-distance warnings and
-the existing approval comparison.
+the existing approval comparison. Palette roots explicitly bind text to their local
+ink, including trusted confirmation headings; inheriting the body's computed text
+color would bypass those tokens.
+
+Transparent `wordmark` and `badges` roots do not paint their own bg/surface. Their
+rendered inks are therefore also checked against their fixed parent contexts:
+wordmarks on global, sidebar/titlebar and dialog paints; badge text on sidebar,
+panel, dialog and dialog-header paints. These checks include every parent gradient
+stop and 256 points per segment, even when the child itself has no gradient. A
+white wordmark over a white titlebar rejects despite a readable dark global
+background. Launch wordmark space ink is checked against the actual global hole.
+Opaque area roots retain their own effective-palette checks.
 
 Optional `type` has only `family` (`geist`, `geist-mono`, `system`, `system-mono`),
 `scale` (0.85–1.25), `weight` (400–600), and `strong-weight` (500–800). These select

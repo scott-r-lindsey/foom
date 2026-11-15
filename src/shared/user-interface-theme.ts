@@ -1,4 +1,9 @@
-import type { InterfaceTheme, InterfaceGradient, InterfaceAreaTheme } from "./interface-theme";
+import type {
+  InterfaceTheme,
+  InterfaceGradient,
+  InterfaceAreaTheme,
+  InterfaceArea,
+} from "./interface-theme";
 import type { ThemeDiagnostic, ThemeReason } from "./theme-file";
 import { interfaceColorNames, interfaceHighlightNames } from "./interface-themes";
 import { colorDistance, contrast, hueSaturation, interpolatedContrast } from "./theme-colors";
@@ -217,6 +222,53 @@ export function userThemeWarnings(theme: InterfaceTheme): ThemeDiagnostic[] {
       }
     }
   }
+  // Transparent child roots keep their own inks, but do not paint their bg/surface.
+  // Validate against every fixed context in which the renderer places those roots.
+  const effective = (area: InterfaceArea) => ({ ...theme.colors, ...theme.areas?.[area] });
+  const sidebar = effective("sidebar");
+  const dialogs = effective("dialogs");
+  const panels = effective("panels");
+  const titlebar = theme.areas?.titlebar ? effective("titlebar") : sidebar;
+  const backgrounds: Record<
+    "wordmark" | "badges",
+    readonly (InterfaceTheme["colors"] & InterfaceAreaTheme)[]
+  > = {
+    wordmark: [theme.colors, sidebar, titlebar, dialogs],
+    badges: [
+      sidebar,
+      panels,
+      dialogs,
+      ...(theme.areas?.["dialog-headers"] ? [effective("dialog-headers")] : []),
+    ],
+  };
+  for (const child of ["wordmark", "badges"] as const) {
+    if (!theme.areas?.[child]) continue;
+    const colors = effective(child);
+    const roles = child === "wordmark" ? (["ink", "muted"] as const) : inkNames;
+    for (const paint of backgrounds[child]) {
+      for (const role of roles) {
+        const foreground = colors[role] ?? colors.accent;
+        const path = `$.areas.${child}.${role}`;
+        for (const background of [paint.bg, paint.surface])
+          if (contrast(foreground, background) < 4.5)
+            throw new ThemeValidationError(path, "contrast");
+        const stops = paint.gradient?.stops ?? [];
+        for (const [index, [stop]] of stops.entries()) {
+          if (contrast(foreground, stop) < 4.5) throw new ThemeValidationError(path, "contrast");
+          const next = stops[index + 1];
+          if (next)
+            for (let sample = 0; sample < 256; sample++)
+              if (interpolatedContrast(stop, next[0], foreground, sample / 255) < 4.5)
+                throw new ThemeValidationError(path, "contrast");
+        }
+      }
+    }
+  }
+  if (
+    theme.areas?.wordmark &&
+    contrast(effective("wordmark")["space-ink"], theme.colors.hole) < 4.5
+  )
+    throw new ThemeValidationError("$.areas.wordmark.space-ink", "contrast");
   const dark = contrast(theme.colors.bg, "#ffffff") > contrast(theme.colors.bg, "#000000");
   if (dark !== (theme.base === "dark")) warn("$.base", "base-luminance");
   return warnings.filter(

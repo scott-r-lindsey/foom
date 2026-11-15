@@ -45,3 +45,21 @@
   :is(.sidebar-shell, .tile-area, .settings-view, .preflight, dialog, .row-menu, .wordmark-menu) {
   scrollbar-color: var(--state-scrollbar, var(--line)) transparent;
 }
+
+/* Recompute inherited text at palette roots instead of inheriting body's computed ink. */
+:root[data-theme-ready]
+:is(
+  .sidebar-shell,
+  .tile-area,
+  .terminal-tile,
+  .row-menu,
+  .settings-view,
+  .preflight,
+  dialog,
+  .theme-menu-options
+),
+:root[data-theme-areas~="titlebar"] .board-top,
+:root[data-theme-areas~="board"] .board-terminal,
+:root[data-theme-areas~="dialog-headers"] .panel-header {
+  color: var(--ink);
+}

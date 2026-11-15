@@ -496,7 +496,7 @@ required solid `bg`. Provide `gradient: { "angle": 120, "stops": [["#000000", 0]
 ["#020202", 100]] }` inside an area. There must be 2–4 opaque hex stops with
 increasing percentages from 0 to 100. Foom uses sRGB interpolation and checks text
 contrast at every stop and 256 points on every segment. Unreadable gradients,
-including ones with readable ends but unreadable middles, are rejected. Gradients
+including ones with readable ends but unreadable middles, are rejected. Transparent child text, such as a wordmark over the title bar, must also contrast against its parent’s actual background and gradient. Gradients
 under terminal content are refused. Invalid edits retain the last good theme;
 new attention conflicts use the existing Allow / Keep it on approval. See the
 [complete format](../areas/themes.md#additional-areas-typography-and-gradients-1188).
