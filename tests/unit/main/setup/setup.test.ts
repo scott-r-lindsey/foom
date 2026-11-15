@@ -223,7 +223,7 @@ test("confirms bypass once per agent, persists it and serializes concurrent save
   const agentArguments = { claude: ["--permission-mode", "bypassPermissions"], codex: [], agy: [] };
   await Promise.all([setup.save({ agentArguments }), setup.save({ agentArguments })]);
   expect(confirm).toHaveBeenCalledExactlyOnceWith("claude", agentArguments.claude);
-  expect(settings.agentBypassAcknowledged.claude).toBe(true);
+  expect(settings.agentBypassAcknowledged["claude"]).toBe(true);
   await setup.save({ agentArguments: { claude: [], codex: [], agy: [] } });
   const reopened = new Setup({ ...deps, confirmBypass: confirm });
   await reopened.save({
@@ -398,7 +398,7 @@ test("failed persistence does not remember bypass acknowledgement", async () => 
     agentArguments: { claude: ["--dangerously-skip-permissions"], codex: [], agy: [] },
   };
   await expect(setup.save(patch)).rejects.toThrow("disk full");
-  expect(settings.agentBypassAcknowledged.claude).toBe(false);
+  expect(settings.agentBypassAcknowledged["claude"]).toBeUndefined();
   await setup.save(patch);
   expect(confirm).toHaveBeenCalledTimes(2);
 });
@@ -411,14 +411,14 @@ test("Codex sandbox full access requires the same one-time acknowledgement as it
   };
   await expect(setup.save(patch)).rejects.toThrow("cancelled");
   expect(confirm).toHaveBeenCalledExactlyOnceWith("codex", ["--sandbox", "danger-full-access"]);
-  expect(settings.agentBypassAcknowledged.codex).toBe(false);
+  expect(settings.agentBypassAcknowledged["codex"]).toBeUndefined();
   confirm.mockResolvedValue(true);
   await setup.save(patch);
   await setup.save({
     agentArguments: { ...patch.agentArguments, codex: ["-c", 'sandbox_mode="danger-full-access"'] },
   });
   expect(confirm).toHaveBeenCalledTimes(2);
-  expect(settings.agentBypassAcknowledged.codex).toBe(true);
+  expect(settings.agentBypassAcknowledged["codex"]).toBe(true);
 });
 
 test("refresh re-applies stored settings after a config file change", () => {

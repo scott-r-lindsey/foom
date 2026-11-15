@@ -45,7 +45,11 @@ exit (unless `--keep`); samples and hosts use the persistent Foom Dev profile.
 Screenshot capture already owns a fixture HOME and temporary profile. Ordinary
 launches continue to share `~/.foom/config` and `~/.foom/worktrees`.
 
-**Settings.** The allowlisted keys from #206 live in `config/settings.json`. On the
+**Settings.** The allowlisted keys from #206 live in `config/settings.json`.
+Provider-ID keys in `agents` and `agentArguments` are optional: absence means
+disabled or no extra arguments. Existing explicit entries are retained without
+filling other provider keys. See [profile downgrade recovery](settings.md#settings-and-setup)
+for the private one-time backup retained before profile migration. On the
 first launch with a version 1 profile, main writes them into a new `settings.json`
 (an existing file wins byte for byte and the profile values are dropped).
 Fresh, corrupt, and version 2 profiles without an applied baseline likewise adopt

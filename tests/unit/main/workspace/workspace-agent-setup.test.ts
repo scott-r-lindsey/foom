@@ -1,3 +1,4 @@
+import { ENABLED_AGENTS } from "../../../helpers/enabled-agents";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,6 +14,7 @@ import { agents, configDep, deps, repo, scan, tree } from "./workspace-fixture";
 
 test("caches agent scans until a refresh and retries after a failed scan", async () => {
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   await expect(workspace.scanAgents(false)).resolves.toEqual({
     warning: null,
     agents: scan.agents,
@@ -31,8 +33,10 @@ test("caches agent scans until a refresh and retries after a failed scan", async
 
 test("preflight settings control hooks and which agents may launch", async () => {
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   workspace.configure({ hooks: false, agents: { claude: false, codex: true, agy: true } });
   expect(agents.setHooksEnabled).toHaveBeenCalledWith(false);
+  expect(agents.setEnabled).toHaveBeenLastCalledWith({ claude: false, codex: true, agy: true });
   expect(agents.setBypassIdentities).toHaveBeenCalledWith(undefined);
   const identities = { opencode: "a".repeat(64) };
   workspace.configure({
@@ -64,6 +68,7 @@ test("preflight settings control hooks and which agents may launch", async () =>
 
 test("plugin operations resolve the CLI in main and invalidate discovery on both success and failure", async () => {
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   const change = vi.spyOn(AgyPlugin.prototype, "change").mockResolvedValue();
   try {
     await expect(workspace.changeAgyPlugin("install")).rejects.toThrow(
@@ -118,6 +123,7 @@ test("v2 setup revalidates provider authority, resolves the executable in main a
   const provider = v2Provider(model, validate);
   replaceConfigProviders([provider]);
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   const confirm = vi.fn(() => Promise.resolve(true));
   const change = vi.spyOn(PluginSetup.prototype, "change");
   try {
@@ -191,6 +197,7 @@ test("v2 setup revalidates provider authority, resolves the executable in main a
 
 test("agent switches invalidate cached discovery while preserving launch preferences", async () => {
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   await workspace.scanAgents(false);
   const preferences = {
     hooks: true,
@@ -211,6 +218,7 @@ test("agent switches invalidate cached discovery while preserving launch prefere
 
 test("local installers use the bundled helper in a human recipe session without shell integration or a grant", async () => {
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   await expect(workspace.startLocalAgentInstall("custom")).rejects.toThrow("unavailable");
   await expect(workspace.startLocalAgentInstall("codex")).rejects.toThrow("unavailable");
   const environment = vi.fn(() => [
@@ -221,6 +229,7 @@ test("local installers use the bundled helper in a human recipe session without 
     environment,
     config: { ...configDep(), cliDirectory: "/fixture/console" },
   });
+  configured.configure({ hooks: true, agents: ENABLED_AGENTS });
   configured.configure({ hooks: false, agents: { claude: false, codex: true, agy: true } });
   await expect(configured.startLocalAgentInstall("claude")).rejects.toThrow("unavailable");
   if (process.platform === "win32") {

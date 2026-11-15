@@ -1,3 +1,4 @@
+import { ENABLED_AGENTS } from "../../../helpers/enabled-agents";
 import { expect, test, vi } from "vitest";
 import { WorkspaceContext } from "../../../../src/main/workspace/workspace-context";
 import { Workspace } from "../../../../src/main/workspace/workspace";
@@ -7,6 +8,7 @@ test("config sessions run in the config folder with the bundled CLI", async () =
   const create = vi.spyOn(deps.terminals, "create");
   deps.config = configDep();
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   const no = () => Promise.resolve(false);
   await workspace.sidebarCommand({ kind: "config-launch", run: "shell" }, no);
   expect(create).toHaveBeenCalledWith(
@@ -46,6 +48,7 @@ test.each(["shell", "claude"] as const)(
       .mockResolvedValueOnce("shell-2");
     agents.launch.mockResolvedValue({ id: "agent-1", attention: "hooks" });
     const workspace = new Workspace(deps);
+    workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
     const no = () => Promise.resolve(false);
     const launches = [
       workspace.sidebarCommand({ kind: "config-launch", run: first }, no),
@@ -84,6 +87,7 @@ test.each(["claude", "codex", "agy"] as const)(
     deps.config = configDep();
     agents.launch.mockResolvedValue({ id: "c1", attention: "hooks" });
     const workspace = new Workspace(deps);
+    workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
     workspace.configure({
       hooks: true,
       agents: { claude: true, codex: true, agy: true },
@@ -162,6 +166,7 @@ test("config sessions get Environment layers with the bundled CLI first on PATH"
   agents.launch.mockResolvedValue({ id: "c1", attention: "hooks", environment: ["HTTPS_PROXY"] });
   const create = vi.spyOn(deps.terminals, "create");
   const workspace = new Workspace({ ...deps, environment });
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   const no = () => Promise.resolve(false);
   await workspace.sidebarCommand({ kind: "config-launch", run: "shell" }, no);
   const env = create.mock.calls.at(-1)?.[0].env ?? {};
@@ -193,17 +198,20 @@ test("config launches refuse when the folder is unavailable or turned-off agents
     vi.fn(() => Promise.reject(new Error("Foom config cannot be inside a repository"))),
   );
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   await expect(
     workspace.sidebarCommand({ kind: "config-launch", run: "shell" }, no),
   ).rejects.toThrow("inside a repository");
   deps.config = configDep();
   const disabled = new Workspace(deps);
+  disabled.configure({ hooks: true, agents: ENABLED_AGENTS });
   disabled.configure({ hooks: true, agents: { claude: false, codex: true, agy: true } });
   await expect(
     disabled.sidebarCommand({ kind: "config-launch", run: "claude" }, no),
   ).rejects.toThrow("turned off");
   agents.launch.mockRejectedValueOnce(new Error("not installed"));
   const failing = new Workspace(deps);
+  failing.configure({ hooks: true, agents: ENABLED_AGENTS });
   await expect(
     failing.sidebarCommand({ kind: "config-launch", run: "claude" }, no),
   ).rejects.toThrow("not installed");
@@ -223,6 +231,7 @@ test("config Codex launches start without notifier consent", async () => {
     ],
   });
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   const confirm = vi.fn(() => Promise.resolve(false));
   await workspace.sidebarCommand({ kind: "config-launch", run: "codex" }, confirm);
   expect(confirm).not.toHaveBeenCalled();
@@ -256,6 +265,7 @@ test("restores config sessions only for the current config folder", async () => 
     flush: () => Promise.resolve(),
   };
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   await workspace.restore();
   expect(workspace.snapshot().terminals.map((entry) => entry.id)).toEqual([
     "config-1",

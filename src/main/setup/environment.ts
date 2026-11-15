@@ -66,7 +66,7 @@ interface Row {
   /** Reuse unchanged ciphertext when persisting unrelated edits. */
   encrypted?: string | undefined;
 }
-type Lists = Record<"all" | "claude" | "codex" | "agy", Row[]> & Record<EnvironmentScope, Row[]>;
+type Lists = Record<"all", Row[]> & Record<EnvironmentScope, Row[]>;
 
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -233,7 +233,7 @@ export function buildLaunchEnvironment({
  * Secret values are stored only as `safeStorage` ciphertext and never leave main.
  */
 export class EnvironmentStore {
-  private lists: Lists = { all: [], claude: [], codex: [], agy: [] };
+  private lists: Lists = { all: [] };
   private pending: Promise<void> = Promise.resolve();
   private candidates = new Map<string, string>();
 
@@ -306,9 +306,6 @@ export class EnvironmentStore {
   state(): EnvironmentState {
     const lists: EnvironmentState["lists"] extends Readonly<infer T> ? T : never = {
       all: [],
-      claude: [],
-      codex: [],
-      agy: [],
     };
     for (const id of Object.keys(this.lists))
       lists[id] = (this.lists[id] ?? []).map((row) => ({
@@ -478,7 +475,7 @@ export class EnvironmentStore {
           !this.cipher.available()
         )
           throw new Error("Secrets need the system keychain, which is unavailable");
-        const stored = {} as Record<EnvironmentScope, unknown[]>;
+        const stored: Record<EnvironmentScope, unknown[]> = {};
         for (const id of Object.keys(next))
           stored[id] = (next[id] ?? []).map((row) =>
             row.secret

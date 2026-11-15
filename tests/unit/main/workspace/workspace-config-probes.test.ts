@@ -1,3 +1,4 @@
+import { ENABLED_AGENTS } from "../../../helpers/enabled-agents";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -32,6 +33,7 @@ test("config credentials create visible transient probes and revoke them on owne
   const save = vi.fn<(records: unknown) => Promise<void>>(() => Promise.resolve());
   deps.sessions = { load: () => Promise.resolve([]), save, flush: () => Promise.resolve() };
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   try {
     await workspace.sidebarCommand({ kind: "config-launch", run: "shell" }, () =>
       Promise.resolve(false),
@@ -142,6 +144,7 @@ test("a probe revoked during its first-note write cannot resurrect a tile", asyn
     .mockResolvedValueOnce("owner")
     .mockResolvedValueOnce("probe-terminal");
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   try {
     await workspace.sidebarCommand({ kind: "config-launch", run: "shell" }, () =>
       Promise.resolve(false),

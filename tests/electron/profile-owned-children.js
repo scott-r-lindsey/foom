@@ -31,7 +31,12 @@ test("profile ten owned fixture children", { timeout: 240_000 }, async (context)
     path.join(profile, "settings.json"),
     JSON.stringify({
       version: 1,
-      settings: { setupComplete: true, checkForUpdates: false, concurrentChildren: 10 },
+      settings: {
+        agents: { claude: true, codex: true },
+        setupComplete: true,
+        checkForUpdates: false,
+        concurrentChildren: 10,
+      },
     }),
   );
   // One line every two seconds; a 128 KiB burst every 30s. Backpressure is

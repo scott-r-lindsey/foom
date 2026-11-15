@@ -65,7 +65,6 @@ test.each([
   ["panelColor", "red"],
   ["hooks", 0],
   ["agents", null],
-  ["agents", { claude: true }],
   ["agents", { claude: true, codex: true, agy: 1 }],
   ["agents", { claude: true, codex: true, agy: true, "../evil": true }],
   ["interfaceScale", 101],
@@ -289,3 +288,15 @@ test("appearance migration validates an unknown boundary and explicit undefined 
     interfaceTheme: "follow",
   });
 });
+
+test.each(["claude", "codex", "agy", "copilot", "opencode", "pi", "custom-agent"])(
+  "settings files accept only %s or no agent keys and round-trip without filling keys",
+  (id) => {
+    const maps = { agents: { [id]: true }, agentArguments: { [id]: ["--model", "example"] } };
+    expect(parseSettingsFile(JSON.stringify({ kind: "settings", ...maps }))).toEqual(maps);
+    expect(parseSettingsFile('{"kind":"settings","agents":{},"agentArguments":{}}')).toEqual({
+      agents: {},
+      agentArguments: {},
+    });
+  },
+);

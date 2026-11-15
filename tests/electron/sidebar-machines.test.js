@@ -90,14 +90,19 @@ for(const flag of ['BatchMode=yes','ClearAllForwardings=yes','ForwardAgent=no','
 function run() {
 if(host==='offline-cloud'||fs.existsSync(${JSON.stringify(offline)}))process.exit(255);
 if(args.at(-1)==='uname -s; uname -m'){process.stdout.write((process.platform==='darwin'?'Darwin':'Linux')+'\\n'+(process.arch==='x64'?'x86_64':process.platform==='darwin'?'arm64':'aarch64')+'\\n');process.exit(0);}
-if(args.at(-1).includes('FOOM-LIBC-UNSUPPORTED')&&!args.at(-1).includes('FOOM-READY'))process.exit(0);
-process.stdout.write('FOOM-READY\\n');
+if(args.at(-1).includes('FOOM-LIBC-UNSUPPORTED')&&!args.at(-1).includes('FOOM-READY')&&!args.at(-1).includes('FOOM-PROBED'))process.exit(0);
+const checking=args.at(-1).includes('FOOM-PROBED');
+if(checking) process.stdout.write((process.platform==='darwin'?'Darwin':'Linux')+'\\n'+(process.arch==='x64'?'x86_64':process.platform==='darwin'?'arm64':'aarch64')+'\\nFOOM-LIBC-OK\\nFOOM-PROBED\\n');
+else process.stdout.write('FOOM-READY\\n');
+let preludePending=checking, prelude=Buffer.alloc(0);
 const {RemoteFrames,remoteResponseFrames}=require(${JSON.stringify(path.resolve("build/shared/remote-host-protocol.js"))});
 const frames=new RemoteFrames();const send=value=>{for(const frame of remoteResponseFrames(value))process.stdout.write(frame)};
 let output='FIXTURE_MACHINE_READY\\r\\n';
-process.stdin.on('data',bytes=>frames.push(bytes,message=>{
+process.stdin.on('data',bytes=>{
+ if(preludePending){prelude=Buffer.concat([prelude,bytes]);const end=prelude.indexOf(10);if(end<0)return;const size=Number(prelude.subarray(0,end).toString());if(prelude.length<end+1+size)return;bytes=prelude.subarray(end+1+size);preludePending=false;prelude=Buffer.alloc(0);process.stdout.write('FOOM-READY\\n');}
+ frames.push(bytes,message=>{
  fs.appendFileSync(${JSON.stringify(calls)},JSON.stringify({host,message})+'\\n');
- if(message.type==='hello'){send({type:'hello',build:${JSON.stringify(manifest.sha256)},humanMachines:1,agentSettings:1,machineHome:'/remote/home'});return;}
+ if(message.type==='hello'){send({type:'hello',build:${JSON.stringify(manifest.sha256)},humanMachines:1,agentSettings:1,hostCheckConnection:1,machineHome:'/remote/home'});return;}
  if(message.type==='inventory'){send({type:'inventory-result',own:[],foreign:[]});return;}
  if(message.type==='open'){
   assert.equal(message.human,true);assert.equal(message.agent,undefined);
@@ -120,7 +125,7 @@ process.stdin.on('data',bytes=>frames.push(bytes,message=>{
  if(message.operation==='inspect-worktree')result.worktree={path:message.path,branch:'remote-work',identity:message.identity,changes:''};
  if(message.operation==='list-worktrees')result.inventory={own:[{repository:'/remote/code/repository-'+require('node:crypto').createHash('sha256').update(${JSON.stringify(origin)}).digest('hex').slice(0,24),path:'/remote/code/.foom-worktree-fixture',branch:'remote-work',identity:'a'.repeat(64),origin:${JSON.stringify(origin)}}],other:0};
  send({type:'managed',result});
-}));
+});});
 }
 function wait() { if (args.at(-1).includes('FOOM-READY') && fs.existsSync(${JSON.stringify(launchGate)})) { if (!held) { fs.appendFileSync(${JSON.stringify(blockedSsh)}, String(process.pid)+'\\n'); held = true; } setTimeout(wait, 20); } else run(); }
 wait();`,

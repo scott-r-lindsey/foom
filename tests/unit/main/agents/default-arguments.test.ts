@@ -19,8 +19,8 @@ test("copies bounded argument arrays verbatim, including whitespace and shell sy
   ).toHaveLength(64);
   const parsed = parseAgentDefaults({ ...EMPTY_AGENT_ARGUMENTS, claude: args });
   args.push("later");
-  expect(parsed.claude).not.toContain("later");
-  expect(Object.isFrozen(parsed.claude)).toBe(true);
+  expect(parsed["claude"]).not.toContain("later");
+  expect(Object.isFrozen(parsed["claude"])).toBe(true);
 });
 
 test.each([
@@ -44,14 +44,9 @@ test.each([
 test.each([
   null,
   [],
-  {},
-  { claude: [], codex: [] },
-  { claude: [], codex: [], other: [] },
-  { claude: [], agy: [], other: [] },
-  { codex: [], agy: [], other: [] },
   { ...EMPTY_AGENT_ARGUMENTS, "../other": [] },
   { ...EMPTY_AGENT_ARGUMENTS, agy: [null] },
-])("requires builtin defaults and valid additional agent IDs %j", (value) => {
+])("requires valid maps and provider IDs %j", (value) => {
   expect(() => parseAgentDefaults(value)).toThrow();
 });
 

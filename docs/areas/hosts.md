@@ -36,16 +36,35 @@ expose bounded, display-only SSH output as described below; Git and agent probe
 output remain private. Artifact absence, version/handshake
 mismatch, provider validation, changed agent configuration, invalid replies and
 cancellation have distinct reasons; only connection failures report unreachable.
-The local `progress` read bypasses the action queue and returns only the current
-preflight's inspect/origin/checkout phase, repository paths and completed typed
-observations. It runs no SSH or Git commands. Settings reads it only while its
+The local `progress` read bypasses the action queues and returns an array of active
+preflights, each with its host, inspect/origin/checkout phase, repository paths and
+completed typed observations. It runs no SSH or Git commands. Settings reads it only while its
 preflight is pending, at most one read at a time, and stops on completion or
 unmount. Progress reads publish no workspace changes or background inventory
-refreshes. No remote management protocol or host polling is added.
+refreshes. No host polling is added.
 Inspection retries once when provider revision or enabled agents change, then
 reports configuration changed. Repository mutations are never replayed.
 Each refused management request logs one fixed reason and step in main, without hostnames,
 paths or remote output.
+
+Full capability checks (#1042) batch their read-only management and profile
+inventory requests over one SSH stdio connection. The bounded platform probe
+keeps its stream open: a fixed POSIX prelude reports uname and libc, reads one
+bounded hub-generated bootstrap command, then passes that same stdin to the
+existing verified artifact upload and framed protocol. The verified bootstrap runs once per check. No command or script comes from a checkout.
+Incomplete or malformed preludes report invalid-reply and never open a second
+SSH connection. SSH client diagnostics
+retain their separate private bounded file and host-key classification boundary;
+unknown/failed SSH stops before any dependent request.
+
+Protocol-3 hello advertises `hostCheckConnection: 1`. A compatible older daemon
+without this capability reports version-mismatch before management dispatch;
+existing sessions remain untouched and the ordinary idle upgrade remains available.
+One seven-minute budget covers the entire management batch after negotiation;
+individual replies never renew it. Completion, cancellation and failure close the
+stream without replaying a request. Four full checks may run concurrently, with
+separate deadlines and progress; actions on the same host remain ordered. Profile
+writes still serialize and re-read the latest registrations before saving.
 
 Test and add use the existing exact-build artifact selection, SHA-256 bootstrap
 and SSH stdio protocol. SSH retains BatchMode, disabled agent/X11 forwarding,
@@ -521,7 +540,29 @@ It returns independent SSH, platform and bundled-artifact checks, the existing
 requirements/tools/agents/sign-in facts, a folder check, and origin-access and
 checkout observations for every registered repository. A row that cannot run is
 `not-checked`; it never becomes a fabricated pass. Missing artifacts do not prevent
-bounded SSH/OS/CPU/libc discovery. A refused folder does not suppress facts or origin
+bounded SSH/OS/CPU/libc discovery. Hosts reads the sealed build capability locally
+on opening and states once, neutrally, “This build has no remote host support”
+when the catalog is omitted (#1131). Explicit checks may still run bounded SSH
+and platform discovery, preserving host-key trust; they dispatch no daemon or
+repository checks without its artifact. Remote daemon says “Unavailable in this
+build” neutrally, and this limitation alone never marks a host Needs you.
+Only sealed local catalog omission or artifact verification selects
+`artifact-unavailable`. Transport exits, unreachable connections, protocol/version
+mismatches and invalid replies retain their own fixed reasons. Checklist rows show
+one fixed readable reason, without appending the internal reason code. Full checks and
+row reloads preserve the same classification across reopening Settings.
+A transport failure from any row invalidates the connection and hides dependent
+observations, including when bootstrap had already verified the artifact. A
+successful SSH, platform or Remote daemon reload clears the superseded failure;
+when recovering from failure it restores only the observed connection stages.
+Folder, tools, agents and repositories remain Not checked until explicitly read,
+and the host summary remains neutral. This partial recovery neither advances Last
+checked nor authorizes a launch from an old full-inventory timestamp. Retain the
+last successful full-check history for agent display and host-key trust decisions.
+A row-local folder, origin or checkout failure does not invalidate the connection.
+A failed daemon inspection stops dependent repository checks; unrun origin checks
+show neutral Not checked, including old saved observations with repeated daemon
+failures. A refused folder does not suppress facts or origin
 checks. Tool and agent discovery and recipes reuse #971/#988 capabilities.
 
 `inspect` with `readOnly: true, partial: true` returns the expanded proposed path

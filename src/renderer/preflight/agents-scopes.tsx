@@ -149,7 +149,7 @@ export function AgentsScopes(
       (plugin) =>
         !builtinAgent(plugin.id) && !agentChoices(report).some((agent) => agent.id === plugin.id),
     ),
-  ];
+  ].sort((left, right) => left.name.localeCompare(right.name));
   const machines: { id: string; name: string; host?: HostRow }[] = [
     { id: "local", name: "This computer" },
     ...hosts.map((host) => ({ id: `host:${host.host}`, name: hostDisplayName(host), host })),
@@ -235,14 +235,14 @@ export function AgentsScopes(
                 const file = plugin?.file ?? agent?.source;
                 return (
                   <div
-                    className={`agent-global-row${state.settings.agents[choice.id] === false ? " agent-off" : ""}`}
+                    className={`agent-global-row${state.settings.agents[choice.id] !== true ? " agent-off" : ""}`}
                     key={choice.id}
                   >
                     <label className="agent-global-identity">
                       <input
                         type="checkbox"
                         aria-label={`Enable ${choice.name}`}
-                        checked={state.settings.agents[choice.id] !== false}
+                        checked={state.settings.agents[choice.id] === true}
                         onChange={(event) => {
                           save({
                             agents: { ...state.settings.agents, [choice.id]: event.target.checked },
@@ -364,7 +364,7 @@ export function AgentsScopes(
                   aria-label="Machine agents"
                 >
                   {choices
-                    .filter((choice) => state.settings.agents[choice.id] !== false)
+                    .filter((choice) => state.settings.agents[choice.id] === true)
                     .map((choice) => {
                       const agent = remoteAgent(selected, choice.id);
                       const recipe = selected.recipes?.find((recipe) => recipe.tool === choice.id);
