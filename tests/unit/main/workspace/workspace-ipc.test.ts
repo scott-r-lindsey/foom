@@ -949,6 +949,7 @@ test("machine launch IPC accepts only a host selector and known agent, with a re
   Object.assign(workspace, { sidebarCommand: command });
   for (const value of [
     { kind: "machine-launch", host: null, run: "shell" },
+    { kind: "machine-launch", host: null, run: "claude" },
     { kind: "machine-launch", host: "worker", run: "claude" },
     { kind: "repository-launch", repository: "/repo", host: "worker", run: "codex" },
   ]) {
@@ -957,6 +958,8 @@ test("machine launch IPC accepts only a host selector and known agent, with a re
   }
   for (const value of [
     { kind: "machine-launch", host: null },
+    { kind: "machine-launch", host: null, run: "claude", cwd: "/arbitrary" },
+    { kind: "machine-launch", host: null, run: "claude", args: [] },
     { kind: "machine-launch", host: "", run: "shell" },
     { kind: "machine-launch", host: false, run: "shell" },
     { kind: "machine-launch", host: "worker", run: "evil" },
