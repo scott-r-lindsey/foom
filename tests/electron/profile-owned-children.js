@@ -10,7 +10,7 @@ const {
   FAKE_ORCHESTRATED_CLAUDE,
   launchApp,
   boardPage,
-  confirmationPage,
+  approvalPage,
   removeAfterApps,
 } = require("./harness.js");
 const { expect } = require("./test-policy.js");
@@ -31,7 +31,12 @@ test("profile ten owned fixture children", { timeout: 240_000 }, async (context)
     path.join(profile, "settings.json"),
     JSON.stringify({
       version: 1,
-      settings: { setupComplete: true, checkForUpdates: false, concurrentChildren: 10 },
+      settings: {
+        agents: { claude: true, codex: true },
+        setupComplete: true,
+        checkForUpdates: false,
+        concurrentChildren: 10,
+      },
     }),
   );
   // One line every two seconds; a 128 KiB burst every 30s. Backpressure is
@@ -125,8 +130,10 @@ if (isChild) {
     .getByRole("button", { name: /^Actions for/ })
     .click();
   await page.getByRole("menuitem", { name: "Make orchestrator…" }).click();
-  const confirmation = await confirmationPage(app);
-  await confirmation.getByRole("button", { name: "Make orchestrator", exact: true }).click();
+  const confirmation = await approvalPage(app);
+  await confirmation
+    .getByRole("button", { name: "Approve · Make orchestrator", exact: true })
+    .click();
   await expect.poll(async () => (await call("whoami")).role).toBe("orchestrator");
   // inspector.Session profiles V8 in the MAIN process, not renderer CDP.
   await app.evaluate(async () => {

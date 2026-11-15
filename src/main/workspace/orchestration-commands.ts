@@ -116,6 +116,7 @@ export async function makeOrchestrator(
   await this.auditHuman(action, id, current ?? null, "pending_confirmation", operationId);
   const accepted = await confirm({
     kind: "orchestrator",
+    approvalKey: JSON.stringify([id, identity, current, restoreOnResume]),
     ...(restoreOnResume ? { restoreOnResume: true } : {}),
     subject: `${basename(entry.repository)} · ${entry.branch ?? basename(entry.worktree)}`,
     agent,

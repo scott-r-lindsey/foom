@@ -55,7 +55,7 @@ export function readyAgents(
 ): AgentInstallation[] {
   return agentChoices(report).flatMap(({ id }) => {
     const agent = found(report, id);
-    return agent && state.settings.agents[id] !== false ? [agent] : [];
+    return agent && state.settings.agents[id] === true ? [agent] : [];
   });
 }
 

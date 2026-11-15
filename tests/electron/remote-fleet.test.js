@@ -26,6 +26,7 @@ const {
   launchApp,
   quitAndWait,
   confirmationPage,
+  approvalPage,
   openSettingsScreen,
   fixtureCleanup,
   createMemoryFixture,
@@ -313,7 +314,7 @@ if(args[split+1]!=='fleet-worker') process.exit(2);
 appendFileSync(${JSON.stringify(sshCalls)},'ssh\\n');
 if(args.at(-1)==='uname -s; uname -m') {process.stdout.write(require('node:os').type()+'\\n'+(process.arch==='x64'?'x86_64':process.platform==='darwin'?'arm64':'aarch64')+'\\n');process.exit(0);}
 // Standalone fixed libc preflight has no daemon protocol handshake.
-if (args.at(-1).includes('FOOM-LIBC-UNSUPPORTED') && !args.at(-1).includes('FOOM-READY')) process.exit(0);
+if (args.at(-1).includes('FOOM-LIBC-UNSUPPORTED') && !args.at(-1).includes('FOOM-READY') && !args.at(-1).includes('FOOM-PROBED')) process.exit(0);
 const {RemoteFrames}=require(${JSON.stringify(path.resolve("build/shared/remote-host-protocol.js"))});
 const frames=new RemoteFrames(), responses=new RemoteFrames(); let operation;
 const sent=bytes=>frames.push(bytes,message=>{if(message.type==='manage')operation=message.operation; if(message.type.startsWith('agent-'))appendFileSync(${JSON.stringify(launchCalls)},message.type+'\\n');});
@@ -451,7 +452,7 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
     (id) => window.desktop.sidebarCommand({ kind: "make-orchestrator", id }),
     parentId,
   );
-  await (await confirmationPage(app)).getByRole("button", { name: "Make orchestrator" }).click();
+  await (await approvalPage(app)).getByRole("button", { name: "Make orchestrator" }).click();
   await elevate;
   // Draft origin preflight runs before enrollment below; exercise it once rather than
   // repeating its SSH/bootstrap work in every provider and review scenario.
@@ -742,7 +743,7 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
         (id) => window.desktop.sidebarCommand({ kind: "make-orchestrator", id }),
         parentId,
       );
-      const recovery = await confirmationPage(app);
+      const recovery = await approvalPage(app);
       await expect(recovery.getByText(/Re-granting this tile before Foom restarts/)).toBeVisible();
       await recovery.getByRole("button", { name: "Make orchestrator" }).click();
       await regrant;
@@ -977,9 +978,9 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
         worktreeId: checkout.resultId,
         idempotencyKey: "remove-agy",
       });
-      const dialog = await confirmationPage(app);
+      const dialog = await approvalPage(app);
       await expect(dialog.getByText(`fleet-worker:${record.cwd}`, { exact: true })).toBeVisible();
-      await dialog.getByRole("button", { name: "Remove worktree", exact: true }).click();
+      await dialog.getByRole("button", { name: "Approve · Remove worktree", exact: true }).click();
       await expect
         .poll(
           async () => (await call("operation_status", { operationId: removal.operationId })).status,
@@ -1047,6 +1048,7 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
     folder,
   );
   restartTiming("host inventory refreshed");
+  assert.equal(hostState.preflight.result.ok, true, JSON.stringify(hostState.preflight));
   assert.equal(hostState.hosts.find((host) => host.host === "fleet-worker").foreignWorktrees, 2);
   assert.ok(
     !(await restored.evaluate(() => window.desktop.workspace())).terminals.some(

@@ -244,9 +244,30 @@ import type { WorkspaceDependencies } from "../../../src/main/workspace/workspac
 
 import type { DialogContent, DialogOutcome } from "../../../src/shared/confirmation";
 
+// Wiring tests replace presentation/queue policy; the real queue and native
+// boundary have dedicated behavioral suites with their actual 900 ms guard.
+vi.mock("../../../src/main/confirmations/approvals", () => ({
+  Approvals: class {
+    readonly feed = {
+      current: () => [],
+      subscribe: (listener: () => void) => {
+        listener();
+        return () => {};
+      },
+    };
+    constructor(
+      private readonly present: (content: DialogContent, signal?: AbortSignal) => Promise<boolean>,
+    ) {}
+    async requestOutcome(content: DialogContent, signal?: AbortSignal): Promise<DialogOutcome> {
+      return (await this.present(content, signal)) ? "accepted" : "declined";
+    }
+  },
+}));
+
 vi.mock("../../../src/main/confirmations/trusted-dialog", () => ({
   TrustedDialog: class {
     refresh = vi.fn();
+    openApprovals = vi.fn();
     request: (content: unknown, signal?: AbortSignal) => Promise<boolean>;
     requestOutcome = async (content: unknown, signal?: AbortSignal): Promise<DialogOutcome> =>
       (await this.request(content, signal)) ? "accepted" : "declined";

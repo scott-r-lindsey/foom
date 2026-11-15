@@ -62,7 +62,7 @@ export async function sidebarInventory(this: SidebarCommandsContext): Promise<Si
           name: "localhost",
           available: true,
           agents: (scan?.agents ?? [])
-            .filter((agent) => agent.path && this.enabled[agent.id] !== false)
+            .filter((agent) => agent.path && this.enabled[agent.id] === true)
             .map((agent) => ({
               id: agent.id,
               name:
@@ -89,7 +89,7 @@ export async function sidebarInventory(this: SidebarCommandsContext): Promise<Si
             ? agentProviders()
                 .filter(
                   (provider) =>
-                    this.enabled[provider.id] !== false &&
+                    this.enabled[provider.id] === true &&
                     result.facts.agents.some(
                       (agent) => agent.id === provider.id && agent.state === "ready",
                     ),
@@ -496,6 +496,10 @@ export async function sidebarCommand(
     if (command.kind === "close") throw new ApplicationError("session-busy");
     throw new Error("Session is busy");
   }
+  if (command.kind === "forget") {
+    await this.forgetSession(command.id);
+    return;
+  }
   if (
     command.kind === "resume" ||
     command.kind === "new-conversation" ||
@@ -661,6 +665,7 @@ export async function sidebarCommand(
             automatic === true ||
             (await this.deps.dialog?.(
               {
+                ...(!closeSignal ? { userAction: true as const } : {}),
                 title: "Remove review worktree?",
                 accept: changes ? "Discard changes and remove" : "Remove worktree",
                 removal: {
@@ -914,7 +919,7 @@ export async function startConfig(
     }
     return;
   }
-  if (this.enabled[run] === false) throw new Error("This agent is turned off in preflight");
+  if (this.enabled[run] !== true) throw new Error("This agent is turned off in preflight");
   await this.scanAgents(false);
   if (replacement) {
     const old = this.launched.get(replacement.id);

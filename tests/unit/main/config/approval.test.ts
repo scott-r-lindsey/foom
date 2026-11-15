@@ -15,7 +15,7 @@ import {
 } from "../../../../src/main/config/layout";
 import { DEFAULT_SETTINGS } from "../../../../src/main/setup/settings";
 
-const base = configPart(DEFAULT_SETTINGS);
+const base = configPart({ ...DEFAULT_SETTINGS, agents: { claude: true, codex: true, agy: true } });
 
 test("only changes that weaken attention need approval", () => {
   expect(weakenings(base, base)).toEqual([]);
@@ -174,7 +174,7 @@ test("every argument transition holds, and disclosures preserve literal lines an
   expect(disclosure.sections).toContainEqual({
     label: "Codex after",
     arguments: true,
-    items: args.agentArguments.codex,
+    items: args.agentArguments["codex"],
   });
   expect(disclosure.sections).toContainEqual({
     label: "Codex bypass",
@@ -195,7 +195,7 @@ test("every argument transition holds, and disclosures preserve literal lines an
   expect(removal.sections).toContainEqual({
     label: "Codex before",
     arguments: true,
-    items: args.agentArguments.codex,
+    items: args.agentArguments["codex"],
   });
   expect(removal.sections).toContainEqual({
     label: "Codex after",
@@ -277,7 +277,9 @@ test("config plugin arguments and disabling require review, including removal of
     agents: { ...base.agents, fixture: false },
     agentArguments: { ...base.agentArguments, fixture: ["--model", "literal model"] },
   };
-  expect(weakenings(base, plugin)).toContainEqual({
+  expect(
+    weakenings(effective(base, { agents: { ...base.agents, fixture: true } }), plugin),
+  ).toContainEqual({
     action: "turn off fixture",
     detail: "agents.fixture: on → off",
   });
@@ -314,4 +316,14 @@ test("closing finished agents applies in either direction", () => {
     properties: Record<string, unknown>;
   };
   expect(schema.properties["closeFinishedAgents"]).toEqual({ type: "boolean", default: true });
+});
+
+test("removing an enabled key requires Allow; absent and false keys are both off", () => {
+  const before = effective(base, { agents: { opencode: true } });
+  expect(weakenings(before, effective(base, { agents: {} }))).toEqual([
+    { action: "turn off opencode", detail: "agents.opencode: on → off" },
+  ]);
+  expect(
+    weakenings(effective(base, { agents: {} }), effective(base, { agents: { opencode: false } })),
+  ).toEqual([]);
 });

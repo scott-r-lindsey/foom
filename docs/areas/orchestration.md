@@ -335,3 +335,16 @@ cleanup, including restored interrupted closes. Its own in-flight close may stil
 revalidate the closing record it retains. It must not consume another automatic
 close attempt or repeat deletion while the user reviews a retained failure row. Manual Close
 and the original removal authority checks still own explicit retries.
+
+## Approval queue (#1105)
+
+Agent/background worktree removals and orchestrator grants appear in one app-wide
+trusted approval queue, with attributed independent rows and an amber labelled
+waiting count in every board. New requests append without focusing the dialog or
+interrupting terminal input. Duplicate requests merge; revocation, withdrawal,
+expiry and external completion remove their own pending rows. Only fully visible
+ready worktree removals can share one bulk decision; authority, plugin trust, host
+trust and credential grants remain individual. Hide/minimize keeps rows pending.
+Main still rechecks the live actor/generation, checkout identity and exact disclosed
+changes after consent and before mutation. Nothing approves, types terminal input
+or grants authority merely by opening, showing or recovering the window.

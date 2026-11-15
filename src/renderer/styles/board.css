@@ -2058,3 +2058,16 @@ button.failure-mark {
   outline: 1px solid var(--highlight);
   outline-offset: -1px;
 }
+
+.approvals-waiting {
+  color: var(--attention-ink);
+  border: 1px solid var(--attention);
+  border-radius: 6px;
+  padding: 6px;
+  background: var(--surface);
+  overflow-wrap: anywhere;
+}
+.approvals-waiting span {
+  color: var(--attention);
+  text-shadow: 0 0 5px var(--attention);
+}

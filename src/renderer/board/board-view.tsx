@@ -77,6 +77,7 @@ const commandFailures: Readonly<Record<SidebarCommand["kind"], string>> = {
   "remove-repository": "Unable to remove repository.",
   stop: "Unable to stop session.",
   close: "Unable to close session.",
+  forget: "Unable to run this command.",
   restart: "Unable to restart shell.",
   resume: "Unable to resume conversation.",
   "resume-id": "Unable to resume conversation.",
@@ -126,6 +127,8 @@ function BoardContents({
   settingsView?: ReactNode;
   onCloseSettings?: (proceed?: () => void) => void;
 }) {
+  const [approvalCount, setApprovalCount] = useState(0);
+  useEffect(() => source.confirmations?.onApprovals?.(setApprovalCount), [source]);
   const configPanelRef = useRef<(() => void) | undefined>(undefined);
   const storageKey = source.windows ? `${TILE_STORAGE}.${source.windows.id}` : TILE_STORAGE;
   const [drag, setDrag] = useState<TileDrag>();
@@ -958,6 +961,18 @@ function BoardContents({
                   }}
                 >
                   Board
+                </button>
+              )}
+              {approvalCount > 0 && (
+                <button
+                  type="button"
+                  className="approvals-waiting"
+                  onClick={() => {
+                    void source.confirmations?.openApprovals?.().catch(() => {});
+                  }}
+                >
+                  <span aria-hidden="true">● </span>
+                  {approvalCount} {approvalCount === 1 ? "approval" : "approvals"} waiting
                 </button>
               )}
               <SidebarControls source={soundSetup} />

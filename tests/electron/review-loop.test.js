@@ -14,6 +14,7 @@ const {
   FAKE_ORCHESTRATED_CLAUDE,
   boardPage,
   confirmationPage,
+  approvalPage,
   launchApp,
   quitAndWait,
   removeAfterApps,
@@ -242,7 +243,7 @@ for (const scenario of [
       .getByRole("button", { name: /^Actions for/ })
       .click();
     await page.getByRole("menuitem", { name: "Make orchestrator…" }).click();
-    const confirmation = await confirmationPage(app);
+    const confirmation = await approvalPage(app);
     await expect(
       confirmation.getByText(/Close its exited children, discarding their final screens/),
     ).toBeVisible();
@@ -570,7 +571,7 @@ for (const scenario of [
       );
       await rename(`${forgeState}.tmp`, forgeState);
       await page.evaluate(() => window.desktop.saveSetup({ showPullRequests: true }));
-      const confirmation = await confirmationPage(app);
+      const confirmation = await approvalPage(app);
       for (const checkout of retained)
         await expect(confirmation.getByText(checkout.path, { exact: true }).first()).toBeVisible();
       await expect(confirmation.getByText("review.txt", { exact: true })).toHaveCount(2);

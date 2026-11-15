@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
-import type { DialogRequest } from "../../../src/shared/confirmation";
+import type { DialogRequest, ApprovalKind } from "../../../src/shared/confirmation";
 import { resolveInterfaceTheme } from "../../../src/shared/interface-themes";
 import { ConfirmationPage } from "../../../src/renderer/confirmation";
 beforeEach(() => {
@@ -427,10 +427,14 @@ test("structured disclosures, git status words and pairing countdown render safe
       receive({
         ...base,
         changes: "",
-        sessions: [{ id: "s", name: "shell", location: "x".repeat(60), state: "unknown" }],
+        sessions: [
+          { id: "s", name: "shell", location: "x".repeat(60), state: "unknown" },
+          { id: "dormant", name: "saved shell", location: "/saved", state: "dormant" },
+        ],
       });
     });
     expect(view.getByRole("img", { name: "Quiet" })).toBeTruthy();
+    expect(view.getByRole("img", { name: "Dormant" })).toBeTruthy();
     expect(view.getByText("x".repeat(60))).toBeTruthy();
     act(() => {
       receive(null);
@@ -1018,4 +1022,81 @@ test("plugin progress blocks Close and Escape and replaces steps with a receipt"
   });
   expect(view.queryByRole("list", { name: "Plugin setup steps" })).toBeNull();
   expect(view.getByText(/exit 0/u)).toHaveProperty("title", "agy plugin install /fixture/full");
+});
+
+test("approval queue preserves terminal focus, keyed rows, disabled arrivals and visible-only bulk snapshots", async () => {
+  let receive: (request: DialogRequest | null) => void = () => {};
+  const answer = vi.fn();
+  const hide = vi.fn();
+  const size = vi.fn();
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe = vi.fn();
+      disconnect = vi.fn();
+    },
+  );
+  Object.defineProperty(window, "confirmation", {
+    configurable: true,
+    value: {
+      render: (callback: typeof receive) => {
+        receive = callback;
+        return () => {};
+      },
+      answer,
+      size,
+      hideApprovals: hide,
+    },
+  });
+  const terminal = document.createElement("input");
+  document.body.append(terminal);
+  terminal.focus();
+  const view = render(<ConfirmationPage />);
+  const row = (id: string, kind: ApprovalKind = "Worktree removal", presented = true) => ({
+    origin: "Claude · Tile 1 · repo",
+    kind,
+    repeats: 1,
+    request: {
+      id,
+      presented,
+      theme: resolveInterfaceTheme("follow", false),
+      title: `Remove ${id}?`,
+      accept: "Remove",
+      detail: "Keep the branch",
+    },
+  });
+  const request: DialogRequest = {
+    id: "queue",
+    presented: true,
+    theme: resolveInterfaceTheme("follow", false),
+    title: "Approvals",
+    accept: "Approve",
+    approvals: [row("a"), row("b", "Authority")],
+  };
+  await act(async () => {
+    receive(request);
+    await document.fonts.ready;
+  });
+  expect(document.activeElement).toBe(terminal);
+  expect(view.getByRole("dialog").getAttribute("aria-modal")).toBe("false");
+  const a = view.getByRole("group", { name: "Remove a?" });
+  expect(view.getByRole("button", { name: "Approve all visible removals (1)" })).toBeTruthy();
+  fireEvent.click(view.getByRole("button", { name: "Approve all visible removals (1)" }));
+  expect(answer).toHaveBeenLastCalledWith("queue", ["a"]);
+  await act(async () => {
+    receive({
+      ...request,
+      approvals: [row("a"), row("b", "Authority"), row("c", "Worktree removal", false)],
+    });
+    await document.fonts.ready;
+  });
+  expect(view.getByRole("group", { name: "Remove a?" })).toBe(a);
+  const c = view.getByRole("group", { name: "Remove c?" });
+  expect(c.querySelector(".confirmation-accept")).toHaveProperty("disabled", true);
+  fireEvent.keyDown(view.getByRole("dialog"), { key: "Escape" });
+  expect(hide).toHaveBeenCalledOnce();
+  fireEvent.click(view.getByRole("button", { name: "Hide" }));
+  expect(hide).toHaveBeenCalledTimes(2);
+  expect(size).toHaveBeenCalledWith({ width: 750, height: 0 });
+  terminal.remove();
 });

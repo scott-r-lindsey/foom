@@ -1,3 +1,4 @@
+import { ENABLED_AGENTS } from "../../../helpers/enabled-agents";
 import { expect, test, vi } from "vitest";
 import { evaluateRules } from "../../../../src/main/evaluator/evaluator";
 import { Workspace } from "../../../../src/main/workspace/workspace";
@@ -25,6 +26,7 @@ import {
 
 test("quiet terminals are evaluated from their tail and reported", async () => {
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   tails.set("shell", ["$ ls", "README.md"]);
   await workspace.quiet("shell");
   expect(evaluated[0]).toEqual({ terminalId: "shell", tail: ["$ ls", "README.md"] });
@@ -120,6 +122,7 @@ test("exit is final: releases the launch and ignores later quiet and hook events
 
 test("a failed host still produces an exit verdict without a tail", async () => {
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   await workspace.exited("lost", -1);
   expect(evaluated[0]).toEqual({ terminalId: "lost", tail: [], exitCode: -1 });
   expect(states[0]?.state).toBe("failed");
@@ -127,6 +130,7 @@ test("a failed host still produces an exit verdict without a tail", async () => 
 
 test("evaluations for one terminal run in order and failures don't block the queue", async () => {
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   let release: () => void = () => {};
   const error = vi.spyOn(console, "error").mockImplementation(() => {});
   terminalTail
@@ -167,6 +171,7 @@ test("removal forgets the terminal and releases its launch", async () => {
 
 test("dismissal records feedback and clears attention; stale or ignored feedback doesn't", async () => {
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   await workspace.quiet("t1");
   await workspace.feedback("t1", "v1", "ignored");
   expect(states.at(-1)?.state).toBe("needs_input");
@@ -188,6 +193,7 @@ test("dismissal records feedback and clears attention; stale or ignored feedback
 test("a failed reply record is logged, not thrown into the input path", async () => {
   const error = vi.spyOn(console, "error").mockImplementation(() => {});
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   await workspace.quiet("t1");
   recordAction.mockRejectedValueOnce(new Error("disk full"));
   workspace.input("t1");
@@ -198,6 +204,7 @@ test("a failed reply record is logged, not thrown into the input path", async ()
 
 test("an evaluation that was in flight during a reply can't restore attention", async () => {
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   await workspace.quiet("t1");
   expect(states.at(-1)).toMatchObject({ state: "needs_input", verdictId: "v1" });
   // A different signal classifies, then waits on its log write.
@@ -259,6 +266,7 @@ test("a reply before the first permission verdict does not answer the hook", asy
 test("a verdict that can't be stored is still reported, with no feedback target", async () => {
   const error = vi.spyOn(console, "error").mockImplementation(() => {});
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   commit.mockRejectedValue(new Error("disk full"));
   await workspace.quiet("t1");
   expect(error).toHaveBeenCalledWith("Unable to record verdict:", expect.any(Error));
@@ -286,6 +294,7 @@ test("a verdict that can't be stored is still reported, with no feedback target"
 test("an exit is reported even when storage fails, and stays final after recovery", async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   commit.mockRejectedValueOnce(new Error("disk full"));
   await workspace.exited("t2", 1);
   expect(states).toEqual([expect.objectContaining({ id: "t2", state: "failed", verdictId: null })]);
@@ -294,6 +303,7 @@ test("an exit is reported even when storage fails, and stays final after recover
   expect(states).toHaveLength(1);
   // A reply after exit can't discard the exit verdict.
   const next = new Workspace(deps);
+  next.configure({ hooks: true, agents: ENABLED_AGENTS });
   const screen = held<string[]>();
   terminalTail.mockReturnValueOnce(screen.promise);
   const exiting = next.exited("t3", 0);
@@ -308,6 +318,7 @@ test("an exit is reported even when storage fails, and stays final after recover
 
 test("shell lifecycle reports ready, working, done and failed, preserving completion while editing", async () => {
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   workspace.shellState("t1", { phase: "prompt", exitCode: 0 });
   expect(states.at(-1)).toMatchObject({ state: "quiet_ok", reason: "Shell is ready" });
   workspace.shellState("t1", { phase: "running" });
@@ -334,6 +345,7 @@ test.each(["finish", "output", "prompt", "reject"])(
   async (action) => {
     vi.useFakeTimers();
     const workspace = new Workspace(deps);
+    workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
     let resolve!: (record: VerdictRecord) => void;
     let reject!: (error: Error) => void;
     classify.mockImplementationOnce(
@@ -388,6 +400,7 @@ test.each(["output", "input", "removed"] as const)(
   async (action) => {
     vi.useFakeTimers();
     const workspace = new Workspace(deps);
+    workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
     const response = Promise.withResolvers<VerdictRecord>();
     classify.mockReturnValueOnce(response.promise);
     const pending = workspace.quiet("t1");
@@ -431,6 +444,7 @@ test("agent screens work without OSC and title evidence remains local to the lau
 
 test("working, blocked and idle title transitions each evaluate", async () => {
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   await workspace.launch({
     agent: "codex",
     repository: repo.path,
@@ -457,6 +471,7 @@ test("slow repeated classification preserves the verdict ID while pending", asyn
   vi.useFakeTimers();
   try {
     const workspace = new Workspace(deps);
+    workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
     await workspace.quiet("t1");
     const original = states.at(-1);
     const response = Promise.withResolvers<VerdictRecord>();

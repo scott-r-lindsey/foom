@@ -6,6 +6,8 @@ export interface ArmedConfirmation {
   label: string;
 }
 export interface ConfirmationClient {
+  onApprovals?(callback: (count: number) => void): () => void;
+  openApprovals?(): Promise<void>;
   onScrim?(callback: (visible: boolean) => void): () => void;
   onDialog?(callback: () => void): () => void;
   subscribe(callback: (arm: ArmedConfirmation | null, accepted?: boolean) => void): () => void;
@@ -51,7 +53,33 @@ export interface PluginSetupFeed {
   subscribe(listener: () => void): () => void;
   accept(): void;
 }
+export type ApprovalKind =
+  | "Worktree removal"
+  | "Authority"
+  | "Plugin trust"
+  | "Host trust"
+  | "Credentials"
+  | "Background";
+export interface ApprovalRow {
+  origin: string;
+  kind: ApprovalKind;
+  repeats: number;
+  request: Omit<DialogRequest, "approvals">;
+}
+/** Main-only queue capability, never exposed to either renderer. */
+export interface ApprovalFeed {
+  current(): readonly ApprovalRow[];
+  subscribe(listener: () => void): () => void;
+  answer(id: string, accepted: boolean | readonly string[]): void;
+  presented(visible: boolean): void;
+}
 export interface DialogContent {
+  /** Main-only provenance: a confirmation answering the human’s current action. */
+  userAction?: true;
+  approvalFeed?: ApprovalFeed;
+  approvals?: readonly ApprovalRow[];
+  /** Main-owned attribution and semantic identity, stripped before rendering. */
+  approval?: { kind: ApprovalKind; origin: string; key?: string };
   /** Main-only lifecycle; stripped before rendering. */
   pluginFeed?: PluginSetupFeed;
   pluginSetup?: PluginSetupProgress;
@@ -88,7 +116,10 @@ export interface DialogContent {
   sessions?: readonly { id: string; name: string; location: string; state: string }[];
 }
 export interface DialogRequest
-  extends Omit<DialogContent, "feed" | "removal" | "removalFeed" | "pluginFeed"> {
+  extends Omit<
+    DialogContent,
+    "feed" | "removal" | "removalFeed" | "pluginFeed" | "approvalFeed" | "approval" | "userAction"
+  > {
   id: string;
   /** Main has completed the native presentation attempt for this request. */
   presented: boolean;
@@ -96,6 +127,7 @@ export interface DialogRequest
 }
 export interface ConfirmationWindowApi {
   render(callback: (request: DialogRequest | null) => void): () => void;
+  hideApprovals(): void;
   copyPath(id: string, pathId: string): Promise<void>;
   size(value: { width: number; height: number }): void;
   answer(id: string, accepted: boolean | readonly string[]): void;
@@ -113,6 +145,8 @@ export type WorkspaceConfirmation =
   | { kind: "dirty-worktree"; title: string; branch?: string; path?: string; changes: string }
   | {
       kind: "orchestrator";
+      /** Captured principal/checkout identity; main-only queue deduplication. */
+      approvalKey: string;
       restoreOnResume?: true;
       agent: string;
       subject?: string;

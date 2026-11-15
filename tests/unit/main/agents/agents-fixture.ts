@@ -6,7 +6,10 @@ import type * as Os from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, vi } from "vitest";
 import { AgentService } from "../../../../src/main/agents/agents";
-import { replaceConfigProviders } from "../../../../src/main/agents/providers/registry";
+import {
+  agentProviders,
+  replaceConfigProviders,
+} from "../../../../src/main/agents/providers/registry";
 import type { AgentHooks, AgentLaunch } from "../../../../src/shared/agents";
 import type { TerminalSpec } from "../../../../src/shared/desktop";
 vi.mock("../../../../src/main/login-shell", async () => {
@@ -83,10 +86,19 @@ export const request: AgentLaunch = {
   rows: 24,
 };
 
+/** Tests opt into the providers whose fixture CLIs they exercise. */
+export function enabledAgentService(
+  ...args: ConstructorParameters<typeof AgentService>
+): AgentService {
+  const service = new AgentService(...args);
+  service.setEnabled(Object.fromEntries(agentProviders().map(({ id }) => [id, true])));
+  return service;
+}
+
 export const agentFixture = {
   help: "",
   failed: "",
-  service: new AgentService({ listWorktrees, launchIdentity }, { create }, prepare),
+  service: enabledAgentService({ listWorktrees, launchIdentity }, { create }, prepare),
 };
 
 beforeEach(() => {
@@ -119,7 +131,11 @@ beforeEach(() => {
     return new ChildProcess();
   });
   listWorktrees.mockResolvedValue([{ path: tree, managed: true, bare: false, prunable: false }]);
-  agentFixture.service = new AgentService({ listWorktrees, launchIdentity }, { create }, prepare);
+  agentFixture.service = enabledAgentService(
+    { listWorktrees, launchIdentity },
+    { create },
+    prepare,
+  );
 });
 afterEach(() => {
   vi.unstubAllEnvs();

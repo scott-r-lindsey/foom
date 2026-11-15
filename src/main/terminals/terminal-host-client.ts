@@ -498,18 +498,56 @@ export class TerminalHostClient {
     }
     this.notify({ type: "resize", id, cols, rows });
   }
+  private remoteAckBusy = false;
+  private remoteAck: Extract<Command, { type: "acknowledge" }> | undefined;
+
+  private flushRemoteAck(): void {
+    const command = this.remoteAck;
+    if (this.remoteAckBusy || !command) return;
+    this.remoteAck = undefined;
+    this.remoteAckBusy = true;
+    void this.request(command).then(
+      () => {
+        this.remoteAckBusy = false;
+        this.flushRemoteAck();
+      },
+      () => {
+        // Counts belong to this stream. Never replay them after a disconnect.
+        this.remoteAckBusy = false;
+        this.remoteAck = undefined;
+      },
+    );
+  }
+
   acknowledge(id: string, token: string, count: number): void {
     if (this.remotes.has(id)) {
       this.remotes.get(id)?.acknowledge(id, token, count);
       return;
     }
-    this.notify({ type: "acknowledge", id, token, count });
+    if (!this.remote) {
+      this.notify({ type: "acknowledge", id, token, count });
+      return;
+    }
+    if (this.disposed || !this.child || !this.sessions.get(id)?.available) return;
+    const command = { type: "acknowledge", id, token, count } as const;
+    if (!hostRequest({ ...command, request: 1 })) return;
+    const pending = this.remoteAck;
+    if (pending?.token === token) {
+      const total = pending.count + count;
+      if (!Number.isSafeInteger(total)) return;
+      pending.count = total;
+    } else {
+      // A new attachment token supersedes counts waiting for the old parser.
+      this.remoteAck = command;
+    }
+    this.flushRemoteAck();
   }
   detach(id: string): void {
     if (this.remotes.has(id)) {
       this.remotes.get(id)?.detach(id);
       return;
     }
+    this.remoteAck = undefined;
     const session = this.sessions.get(id);
     if (session) delete session.send;
     this.notify({ type: "detach", id });

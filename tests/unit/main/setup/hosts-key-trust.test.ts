@@ -171,7 +171,8 @@ test("an explicit SSH row reload offers trust while preserving the successful fu
   run.mockResolvedValue(unknownKey);
   const state = await hosts.action({ action: "reload", host: "box", target: { kind: "ssh" } });
   expect(state.hosts[0]?.hostKeyTrust).toBe("askpass");
-  expect(settings.registeredHosts?.[0]?.observation?.preflight.result.ok).toBe(true);
+  expect(settings.registeredHosts?.[0]?.observation?.preflight.result.ok).toBe(false);
+  expect(settings.registeredHosts?.[0]?.observation?.lastAgents?.result.ok).toBe(true);
   run.mockClear();
   await trust();
   expect(mock.trust).toHaveBeenCalledOnce();
@@ -272,4 +273,35 @@ test("background inventory cannot replace a waiting SSH trust observation with a
   expect(run).not.toHaveBeenCalled();
   await trust();
   expect(mock.trust).toHaveBeenCalledOnce();
+});
+
+test("a delayed trust failure cannot replace a newer host check's output", async () => {
+  await enroll();
+  const ready = Promise.withResolvers<undefined>();
+  const release = Promise.withResolvers<undefined>();
+  mock.trust.mockImplementationOnce(
+    async (
+      _host: string,
+      _confirm: unknown,
+      _signal: AbortSignal,
+      _executable: unknown,
+      report: (reason: string) => void,
+    ) => {
+      ready.resolve(undefined);
+      await release.promise;
+      report("prompt-host-mismatch");
+      return false;
+    },
+  );
+  const pending = trust();
+  await ready.promise;
+  run.mockResolvedValue(good);
+  const checked = await hosts.action({
+    action: "draft-preflight",
+    host: "other",
+    codeFolder: "/code",
+  });
+  expect(checked.output).toMatchObject({ host: "other", failed: false, running: false });
+  release.resolve(undefined);
+  expect((await pending).output).toEqual(checked.output);
 });

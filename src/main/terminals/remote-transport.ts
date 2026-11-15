@@ -15,7 +15,7 @@ import { LaunchFailure } from "../../shared/launch-failure";
 import { remoteControlResult } from "../../shared/remote-agent-protocol";
 import { ApplicationError } from "../../shared/application-errors";
 import { EventEmitter } from "node:events";
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, type ChildProcess, type ChildProcessWithoutNullStreams } from "node:child_process";
 import type { HostRequest } from "../../shared/terminal-host";
 import type {
   RemoteTarget,
@@ -34,6 +34,7 @@ import {
 } from "../../shared/remote-host-protocol";
 import {
   UnsupportedRemotePlatform,
+  InvalidRemoteProbe,
   SshConnectionFailure,
   bootstrapArguments,
   selectHostArtifact,
@@ -69,6 +70,8 @@ export class RemoteTransport extends EventEmitter {
     return this.artifactUnavailable ? "remote-host-unavailable" : undefined;
   }
 
+  private checkAwaiting = true;
+  private probeChild: ChildProcessWithoutNullStreams | undefined;
   private artifact: Awaited<ReturnType<typeof selectHostArtifact>> | undefined;
   private closed = false;
   private ready = false;
@@ -94,8 +97,9 @@ export class RemoteTransport extends EventEmitter {
   constructor(
     private readonly target: RemoteTarget,
     expectedVersion: string,
-    private readonly management?: HostManagement | RemoteInventory | ImagePut,
+    private management?: HostManagement | RemoteInventory | ImagePut,
     private readonly output?: (text: string, startLine?: boolean) => void,
+    private readonly checkConnection = false,
   ) {
     super();
     this.expectedVersion = expectedVersion;
@@ -124,6 +128,11 @@ export class RemoteTransport extends EventEmitter {
           }
         : undefined,
       output,
+      checkConnection
+        ? (child) => {
+            this.probeChild = child;
+          }
+        : undefined,
     )
       .then((artifact) => {
         if (this.closed) return;
@@ -136,13 +145,15 @@ export class RemoteTransport extends EventEmitter {
         this.launchFailure =
           error instanceof LaunchFailure ? error : new LaunchFailure("remote_artifact_mismatch");
         this.managementFailure =
-          error instanceof SshConnectionFailure
-            ? error.failure
-            : error instanceof UnsupportedRemotePlatform
-              ? "unsupported"
-              : error instanceof LaunchFailure && error.reason === "remote_host_unreachable"
-                ? "unreachable"
-                : "version-mismatch";
+          error instanceof InvalidRemoteProbe
+            ? "invalid-reply"
+            : error instanceof SshConnectionFailure
+              ? error.failure
+              : error instanceof UnsupportedRemotePlatform
+                ? "unsupported"
+                : error instanceof LaunchFailure && error.reason === "remote_host_unreachable"
+                  ? "unreachable"
+                  : "version-mismatch";
         this.artifactUnavailable =
           error instanceof ApplicationError && error.code === "remote-host-unavailable";
         this.kill();
@@ -296,19 +307,19 @@ export class RemoteTransport extends EventEmitter {
     if (!artifact || this.closed) return;
     // No shell option, no SSH agent/key copying, no inherited Foom/control env.
     const env = sshEnvironment();
-    const child = spawn(
-      "ssh",
-      bootstrapArguments(
-        this.target.host,
-        artifact.version,
-        artifact.sha256,
-        artifact.bytes.length,
-        artifact.upload.length,
-        artifact.platform,
-        artifact.arch,
-      ),
-      { env, shell: false, stdio: ["pipe", "pipe", "pipe"] },
+    const args = bootstrapArguments(
+      this.target.host,
+      artifact.version,
+      artifact.sha256,
+      artifact.bytes.length,
+      artifact.upload.length,
+      artifact.platform,
+      artifact.arch,
     );
+    const retained = this.probeChild;
+    this.probeChild = undefined;
+    const child =
+      retained ?? spawn("ssh", args, { env, shell: false, stdio: ["pipe", "pipe", "pipe"] });
     const connection: Connection = {
       child,
       dead: false,
@@ -378,6 +389,11 @@ export class RemoteTransport extends EventEmitter {
           const value = responses.push(wire);
           if (!value) return;
           if (!this.ready) {
+            if (value.type === "upgrade" && this.checkConnection) {
+              this.managementFailure = "version-mismatch";
+              this.kill();
+              return;
+            }
             if (value.type === "upgrade" && !this.opened && this.upgrades++ < 2) {
               this.retireConnection(connection, "upgrade");
               this.timer = setTimeout(() => {
@@ -493,6 +509,11 @@ export class RemoteTransport extends EventEmitter {
                 };
               this.target.machineHome?.(value.machineHome);
             }
+            if (this.checkConnection && value.hostCheckConnection !== 1) {
+              this.managementFailure = "version-mismatch";
+              this.kill();
+              return;
+            }
             // Reconnect's deadline covers open, state restoration and the entire
             // replay. Internal requests have no TerminalHostClient request timer.
             if (!this.opened) {
@@ -524,11 +545,14 @@ export class RemoteTransport extends EventEmitter {
             return;
           }
           if (value.type === "inventory-result") {
+            if (this.checkConnection && !this.checkAwaiting)
+              throw new Error("Unexpected check reply");
+            this.checkAwaiting = false;
             if (this.management?.type !== "inventory" && this.management?.type !== "end-sessions")
               throw new Error("Unexpected inventory");
-            clearTimeout(deadline);
+            if (!this.checkConnection) clearTimeout(deadline);
             this.emit("inventory", value);
-            this.kill();
+            if (!this.checkConnection) this.kill();
             return;
           }
           if (value.type === "upgrade") throw new Error("Unexpected upgrade");
@@ -547,6 +571,9 @@ export class RemoteTransport extends EventEmitter {
             return;
           }
           if (value.type === "managed") {
+            if (this.checkConnection && !this.checkAwaiting)
+              throw new Error("Unexpected check reply");
+            this.checkAwaiting = false;
             if (!this.management || this.management.type !== "manage")
               throw new Error("Unexpected management result");
             if (
@@ -557,9 +584,9 @@ export class RemoteTransport extends EventEmitter {
                 ))
             )
               throw new Error("Host supplied a local SSH observation");
-            clearTimeout(deadline);
+            if (!this.checkConnection) clearTimeout(deadline);
             this.emit("managed", value.result);
-            this.kill();
+            if (!this.checkConnection) this.kill();
             return;
           }
           if (this.management) throw new Error("Unexpected management response");
@@ -751,6 +778,19 @@ export class RemoteTransport extends EventEmitter {
       clearTimeout(connection.grace);
       this.retireConnection(connection, "close");
     });
+    if (retained) {
+      const script = args.slice(args.indexOf("--") + 2).join(" ");
+      child.stdin.write(`${String(Buffer.byteLength(script))}\n${script}`);
+    }
+  }
+
+  /** Sequential read-only requests belonging to one explicitly requested check. */
+  checkRequest(request: HostManagement | RemoteInventory): void {
+    if (!this.checkConnection || !this.ready || this.closed || this.checkAwaiting)
+      throw new Error("Check unavailable");
+    this.checkAwaiting = true;
+    this.management = request;
+    this.send(request);
   }
 
   async putImage(png: Uint8Array, signal: AbortSignal): Promise<string> {
@@ -859,10 +899,119 @@ export class RemoteTransport extends EventEmitter {
     if (this.closed) return false;
     this.closed = true;
     this.cancellation.abort();
+    this.probeChild = undefined;
     clearTimeout(this.timer);
     if (this.connection) this.retireConnection(this.connection, "dispose");
     queueMicrotask(() => this.emit("exit", 0));
     return true;
+  }
+}
+
+/** One SSH stream and one overall management deadline for a complete host check. */
+export class RemoteCheckConnection {
+  private failure: HostResult | undefined;
+  private readonly abort = () => this.transport?.kill();
+  private transport: RemoteTransport | undefined;
+  private busy = false;
+  private closed = false;
+  constructor(
+    private readonly target: RemoteTarget,
+    private readonly version: string,
+    private readonly signal: AbortSignal,
+    private readonly output?: (text: string, startLine?: boolean) => void,
+  ) {
+    this.signal.addEventListener("abort", this.abort, { once: true });
+  }
+  private request(
+    request: HostManagement | RemoteInventory,
+  ): Promise<HostResult | RemoteInventoryResult> {
+    // A failed connection remains failed for the rest of this batch. In
+    // particular, an unavailable local artifact must not become unreachable.
+    if (
+      this.closed &&
+      this.failure &&
+      !this.busy &&
+      !this.signal.aborted &&
+      request.type === "manage"
+    )
+      return Promise.resolve(this.failure);
+    if (this.closed || this.busy || this.signal.aborted)
+      return Promise.reject(new Error("Check unavailable"));
+    this.busy = true;
+    return new Promise((resolve, reject) => {
+      const existing = this.transport;
+      const transport =
+        existing ?? new RemoteTransport(this.target, this.version, request, this.output, true);
+      this.transport = transport;
+      const failure = (): HostResult => ({
+        ok: false,
+        reason: this.signal.aborted
+          ? "cancelled"
+          : transport.failureReason
+            ? "artifact-unavailable"
+            : transport.managementFailure,
+        ...(transport.connectionChecks ? { connection: transport.connectionChecks } : {}),
+      });
+      if (!existing)
+        transport.once("exit", () => {
+          if (!this.closed) this.failure = failure();
+          this.closed = true;
+          this.signal.removeEventListener("abort", this.abort);
+        });
+      const cancel = () => transport.kill();
+      const cleanup = () => {
+        this.busy = false;
+        this.signal.removeEventListener("abort", cancel);
+        transport.removeListener("managed", managed);
+        transport.removeListener("inventory", inventory);
+        transport.removeListener("exit", exited);
+      };
+      const managed = (result: HostResult) => {
+        cleanup();
+        resolve(
+          transport.connectionChecks
+            ? { ...result, connection: transport.connectionChecks }
+            : result,
+        );
+      };
+      const inventory = (result: RemoteInventoryResult) => {
+        cleanup();
+        resolve(result);
+      };
+      const exited = () => {
+        cleanup();
+        this.closed = true;
+        if (request.type !== "manage") reject(new Error("Check unavailable"));
+        else resolve(failure());
+      };
+      transport.once("managed", managed);
+      transport.once("inventory", inventory);
+      transport.once("exit", exited);
+      this.signal.addEventListener("abort", cancel, { once: true });
+      if (existing) {
+        try {
+          transport.checkRequest(request);
+        } catch {
+          transport.kill();
+        }
+      }
+      if (this.signal.aborted) cancel();
+    });
+  }
+  async manage(request: HostManagement): Promise<HostResult> {
+    const result = await this.request(request);
+    if (!("ok" in result)) throw new Error("Invalid check reply");
+    return result;
+  }
+  async inventory(request: RemoteInventory): Promise<RemoteInventoryResult> {
+    const result = await this.request(request);
+    if (!("type" in result)) throw new Error("Invalid check reply");
+    return result;
+  }
+  close(): void {
+    this.closed = true;
+    this.signal.removeEventListener("abort", this.abort);
+    this.transport?.kill();
   }
 }
 

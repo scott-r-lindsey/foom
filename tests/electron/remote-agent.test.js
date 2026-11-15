@@ -25,6 +25,7 @@ const {
   boardPage,
   quitAndWait,
   confirmationPage,
+  approvalPage,
   fixtureCleanup,
   removeAfterApps,
 } = require("./harness.js");
@@ -270,7 +271,7 @@ if (existsSync(${JSON.stringify(slowClose)})) setTimeout(connect, 1500); else co
     (id) => window.desktop.sidebarCommand({ kind: "make-orchestrator", id }),
     parentId,
   );
-  const confirmation = await confirmationPage(app);
+  const confirmation = await approvalPage(app);
   await confirmation.getByRole("button", { name: "Make orchestrator" }).click();
   await elevate;
   const tree = await settle("create_worktree", {

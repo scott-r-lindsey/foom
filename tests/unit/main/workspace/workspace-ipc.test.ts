@@ -253,12 +253,15 @@ test("dispose removes every handler", () => {
 test("workspace invalidations go only to the app document", () => {
   attached.sendChanged();
   expect(contents.send).toHaveBeenCalledWith("workspace:changed");
+  attached.sendChanged(true);
+  expect(contents.send).toHaveBeenLastCalledWith("workspace:changed", true);
+  contents.send.mockClear();
   frame.url = "https://example.com";
   attached.sendChanged();
   frame.url = "app://bundle/index.html";
   contents.isDestroyed.mockReturnValue(true);
   attached.sendChanged();
-  expect(contents.send).toHaveBeenCalledOnce();
+  expect(contents.send).not.toHaveBeenCalled();
 });
 
 test("launch accepts names only and rejects malformed or injected payloads", async () => {
@@ -316,6 +319,7 @@ test("sidebar commands copy known fields, validate IDs and paths, and keep confi
     { kind: "copy-worktree-path", repository: "/repo", worktree: "/tree" },
     { kind: "stop", id: "t1" },
     { kind: "close", id: "t1" },
+    { kind: "forget", id: "restored" },
     { kind: "restart", id: "t1" },
     { kind: "resume", id: "restored" },
     { kind: "new-conversation", id: "t1" },
@@ -427,7 +431,7 @@ test.each(["trusted", "destroyed", "navigated"])(
       sidebarCommand: (_command: unknown, confirm: ConfirmWorkspace) => {
         if (state === "destroyed") contents.isDestroyed.mockReturnValue(true);
         if (state === "navigated") frame.url = "app://foreign/index.html";
-        return confirm({ kind: "orchestrator", agent: "codex" });
+        return confirm({ kind: "orchestrator", agent: "codex", approvalKey: "captured-checkout" });
       },
     });
     requestDialog.mockResolvedValue(true);
@@ -435,7 +439,14 @@ test.each(["trusted", "destroyed", "navigated"])(
       invoke("workspace:sidebar-command", [{ kind: "make-orchestrator", id: "t1" }]),
     ).resolves.toBe(state === "trusted");
     if (state === "trusted")
-      expect(requestDialog).toHaveBeenCalledWith(orchestratorDisclosure("codex"));
+      expect(requestDialog).toHaveBeenCalledWith({
+        ...orchestratorDisclosure("codex"),
+        approval: {
+          kind: "Authority",
+          key: "captured-checkout",
+          origin: "Codex · Tile/session t1 · repository",
+        },
+      });
     else expect(requestDialog).not.toHaveBeenCalled();
   },
 );

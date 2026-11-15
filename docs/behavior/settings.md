@@ -63,6 +63,11 @@ never run. Requests resolve native executables through the main-owned lifecycle.
 General offers Foom’s folder or a location next to each repository for new worktrees, with an example
 destination. Changes apply to future creation; existing worktrees stay where they are.
 
+Every agent is off until explicitly enabled. Provider keys in `agents` and
+`agentArguments` are optional: a missing key means off or no extra arguments.
+Existing values are retained, including Environment variables and encrypted
+secrets. Global lists all providers by name, without provider-specific ordering.
+
 Settings → Agents opens on **Global**, alongside **Machines**. Global lists each
 agent with enable/disable and default arguments, custom manifest paths, **Open
 config folder**, and **Attach hooks**. It shows no machine status. Enablement does
@@ -303,7 +308,7 @@ settings edits and tell the human when a write is held; validation alone does no
 mean the settings applied.
 
 `agentArguments` in settings.json contains literal lists keyed by provider ID,
-including the required `claude`, `codex` and `agy` entries. Every file-originated argument change waits for Allow, including removing
+with every provider key optional. Every file-originated argument change waits for Allow, including removing
 arguments. Allow opens the trusted dialog with each changed agent's before and
 after lists, one argument per line, and names known bypass flags. Accepting also
 records bypass acknowledgement. Settings edits write the same file directly and
@@ -378,6 +383,20 @@ the last session closes or a create reply is lost. Recovery launches nothing and
 grants no orchestrator control. Hosts counts other-profile and untagged worktrees
 as **other worktrees**; these are never listed or adopted. See [Hosts](../areas/hosts.md)
 for the profile and cleanup rules.
+
+### Unavailable remote support (#1131)
+
+Hosts states **This build has no remote host support** once in neutral text when
+the build's sealed catalog is omitted, before any explicit connection check.
+Remote daemon shows **Unavailable in this build** neutrally; this limitation
+alone does not mark the host **Needs you**. Opening Hosts reads only local and
+saved state. Explicit checks still allow bounded SSH/platform discovery, including
+host-key trust, but cannot dispatch daemon or repository checks without an artifact.
+Full checks, row reloads and reopening Settings keep the same classification.
+Transport failures retain their fixed connectivity/protocol reason rather than
+claiming a missing artifact. Fixed failure labels appear once, without appended
+internal reason codes. Checks blocked by daemon inspection show neutral
+**Not checked**, without a failure cross or repeated daemon reason.
 
 ### Hosts checklist refresh (#1061)
 

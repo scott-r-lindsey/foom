@@ -149,6 +149,7 @@ function sidebarCommand(value: unknown): SidebarCommand {
   if (
     kind === "stop" ||
     kind === "close" ||
+    kind === "forget" ||
     kind === "restart" ||
     kind === "resume" ||
     kind === "new-conversation" ||
@@ -267,7 +268,7 @@ export function attachWorkspace(
 ): {
   sendExecution(event: ExecutionTransition): void;
   sendState(state: TerminalState): void;
-  sendChanged(): void;
+  sendChanged(localOnly?: boolean): void;
   dispose(): void;
 } {
   const contents = window.webContents;
@@ -295,7 +296,11 @@ export function attachWorkspace(
     >,
     string
   >;
-  const confirmation = (target: string, signal?: AbortSignal): ConfirmWorkspace => {
+  const confirmation = (
+    target: string,
+    signal?: AbortSignal,
+    sessionId?: string,
+  ): ConfirmWorkspace => {
     const generation = arming.begin();
     signal?.addEventListener(
       "abort",
@@ -323,6 +328,11 @@ export function attachWorkspace(
         contents.send("confirmation:dialog");
         return requestDialog({
           ...orchestratorDisclosure(request.agent, request.replacing, request.restoreOnResume),
+          approval: {
+            kind: "Authority",
+            key: request.approvalKey,
+            origin: `${agentNames[request.agent] ?? request.agent} · Tile/session ${sessionId ?? target} · ${request.subject ?? "repository"}`,
+          },
           ...(request.subject !== undefined ? { subject: request.subject } : {}),
         });
       }
@@ -518,7 +528,11 @@ export function attachWorkspace(
           });
         }
         const controller = launch === undefined ? undefined : new AbortController();
-        const confirm = confirmation(JSON.stringify(command), controller?.signal);
+        const confirm = confirmation(
+          JSON.stringify(command),
+          controller?.signal,
+          "id" in command ? command.id : undefined,
+        );
         if (controller && typeof launch === "string") launches.set(launch, controller);
         const startup =
           controller && typeof launch === "string"
@@ -721,9 +735,11 @@ export function attachWorkspace(
       if (!contents.isDestroyed() && contents.mainFrame.url === APP_URL && owns(event.terminalId))
         contents.send("agent:execution", event);
     },
-    sendChanged() {
-      if (!contents.isDestroyed() && contents.mainFrame.url === APP_URL)
-        contents.send("workspace:changed");
+    sendChanged(localOnly) {
+      if (!contents.isDestroyed() && contents.mainFrame.url === APP_URL) {
+        if (localOnly === true) contents.send("workspace:changed", true);
+        else contents.send("workspace:changed");
+      }
     },
     sendState(state) {
       if (contents.isDestroyed() || contents.mainFrame.url !== APP_URL || !owns(state.id)) return;

@@ -13,7 +13,7 @@ const {
   FAKE_ORCHESTRATED_CLAUDE,
   assertAccessible,
   boardPage,
-  confirmationPage,
+  approvalPage,
   launchApp,
   removeAfterApps,
 } = require("./harness.js");
@@ -111,7 +111,7 @@ for (const scenario of [
       .getByRole("button", { name: /^Actions for/ })
       .click();
     await page.getByRole("menuitem", { name: "Make orchestrator…" }).click();
-    const confirmation = await confirmationPage(app);
+    const confirmation = await approvalPage(app);
     await expect(
       confirmation.getByText(/Close its exited children, discarding their final screens/),
     ).toBeVisible();
@@ -259,13 +259,16 @@ for (const scenario of [
             id: reviewer.resultId,
             idempotencyKey: "decline-review-cleanup",
           });
-          const dialog = await confirmationPage(app);
+          const dialog = await approvalPage(app);
           await expect(dialog.getByText("review-notes.txt", { exact: false })).toBeVisible();
           await expect(
-            dialog.getByRole("button", { name: "Discard changes and remove", exact: true }),
+            dialog.getByRole("button", {
+              name: "Approve · Discard changes and remove",
+              exact: true,
+            }),
           ).toBeEnabled();
           await dialog.screenshot({ path: evidencePath("review-worktree-dirty-confirmation.png") });
-          await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+          await dialog.getByRole("button", { name: "Decline", exact: true }).click();
           const waiting = await pendingClose;
           assert.equal(waiting.status, "pending_confirmation");
           await expect
@@ -281,10 +284,13 @@ for (const scenario of [
             idempotencyKey: "approve-review-cleanup",
           });
           await expect(
-            dialog.getByRole("button", { name: "Discard changes and remove", exact: true }),
+            dialog.getByRole("button", {
+              name: "Approve · Discard changes and remove",
+              exact: true,
+            }),
           ).toBeVisible();
           await dialog
-            .getByRole("button", { name: "Discard changes and remove", exact: true })
+            .getByRole("button", { name: "Approve · Discard changes and remove", exact: true })
             .click();
           const approving = await approvedClose;
           assert.equal(approving.status, "pending_confirmation");
@@ -414,7 +420,7 @@ test("an orchestrator wait_for wakes on a child PR required-check conclusion", {
     .getByRole("button", { name: /^Actions for/ })
     .click();
   await page.getByRole("menuitem", { name: "Make orchestrator…" }).click();
-  const confirmation = await confirmationPage(app);
+  const confirmation = await approvalPage(app);
   await confirmation.getByRole("button", { name: "Make orchestrator" }).click();
   await expect.poll(async () => (await call("whoami")).role).toBe("orchestrator");
   const tree = await call("create_worktree", { branch: "child-one", idempotencyKey: "forge-tree" });

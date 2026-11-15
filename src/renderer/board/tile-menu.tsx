@@ -157,7 +157,11 @@ export function TileMenu({
         null,
         item(
           tileRemovalAction(row, Boolean(preview)),
-          tileRemovalAction(row, Boolean(preview)) === "close" ? "Close" : "Hide",
+          row?.unavailable && row.exited
+            ? "Forget…"
+            : tileRemovalAction(row, Boolean(preview)) === "close"
+              ? "Close"
+              : "Hide",
         ),
       ]}
       onAction={(selected) => {

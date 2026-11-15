@@ -9,6 +9,7 @@ const {
   assertAccessible,
   boardPage,
   confirmationPage,
+  approvalPage,
   launchApp,
   openSettingsScreen,
   removeAfterApps,
@@ -349,8 +350,14 @@ for (const firstRun of [false, true]) {
         board.setBounds({ x: 0, y: 0, width: 1920, height: 1080 });
       });
     }
-    if (firstRun) await page.getByRole("button", { name: "Start preflight" }).click();
-    else {
+    if (firstRun) {
+      await page.getByRole("button", { name: "Start preflight" }).click();
+      await page.getByRole("switch", { name: "Antigravity", exact: true }).check();
+      await page.waitForFunction(
+        async () => (await window.desktop.setupState()).settings.agents.agy === true,
+      );
+      await page.getByRole("button", { name: "Re-check This computer", exact: true }).click();
+    } else {
       await openSettingsScreen(page);
       await page.getByRole("button", { name: "Agents", exact: true }).click();
       await page.getByRole("tab", { name: "Machines", exact: true }).click();
@@ -648,7 +655,7 @@ test("Antigravity plugin MCP inherits an owned child's read-only role", {
     .getByRole("button", { name: /^Actions for/ })
     .click();
   await page.getByRole("menuitem", { name: "Make orchestrator…" }).click();
-  const elevate = await confirmationPage(app);
+  const elevate = await approvalPage(app);
   await elevate.getByRole("button", { name: "Make orchestrator" }).click();
   await expect.poll(async () => (await call("whoami")).role).toBe("orchestrator");
   const tree = await call("create_worktree", { branch: "child-agy", idempotencyKey: "agy-tree" });
@@ -693,6 +700,7 @@ for (const mode of ["light", "dark"]) {
       JSON.stringify({
         version: 1,
         settings: {
+          agents: { agy: true },
           setupComplete: true,
           checkForUpdates: false,
           interfaceTheme: `eclipse-${mode}`,

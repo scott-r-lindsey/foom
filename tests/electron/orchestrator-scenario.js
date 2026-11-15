@@ -10,7 +10,7 @@ const {
   FAKE_ORCHESTRATED_CLAUDE,
   assertAccessible,
   boardPage,
-  confirmationPage,
+  approvalPage,
   launchApp,
   openSettingsScreen,
   removeAfterApps,
@@ -240,7 +240,7 @@ process.stdout.write("FOOM_AGENT_READY`,
     .getByRole("button", { name: /^Actions for/ })
     .click();
   await page.getByRole("menuitem", { name: "Make orchestrator…" }).click();
-  const confirmation = await confirmationPage(app);
+  const confirmation = await approvalPage(app);
   await expect(
     confirmation.getByRole("heading", {
       name: `Make ${cliOnly ? "Antigravity" : "Claude Code"} the Foom orchestrator?`,
@@ -1304,7 +1304,7 @@ process.stdout.write("FOOM_AGENT_READY`,
           "untracked",
         );
         await confirmation
-          .getByRole("button", { name: "Discard changes and remove", exact: true })
+          .getByRole("button", { name: "Approve · Discard changes and remove", exact: true })
           .click();
         await expect
           .poll(
@@ -1359,19 +1359,25 @@ process.stdout.write("FOOM_AGENT_READY`,
         });
         assert.equal(queued.body.result.status, "pending_confirmation");
       }
-      await expect(confirmation.getByRole("checkbox")).toHaveCount(3);
-      await expect(confirmation.getByRole("list", { name: "Worktrees to remove" })).toContainText(
-        "Clean",
-      );
+      await expect(confirmation.locator(".approval-row")).toHaveCount(3);
+      const removalRow = (branch) =>
+        confirmation
+          .locator(".approval-row")
+          .filter({ has: confirmation.locator(".subject", { hasText: branch }) });
+      await expect(removalRow("child-one")).toContainText("Clean");
       await assertAccessible(confirmation);
       await confirmation.screenshot({
         path: evidencePath(`batch-removal-${cliOnly ? "agy" : "claude"}.png`),
         animations: "disabled",
       });
-      await confirmation.getByRole("checkbox", { name: "child-one", exact: true }).check();
-      await confirmation.getByRole("checkbox", { name: "batch-selected", exact: true }).check();
-      await confirmation
-        .getByRole("button", { name: "Discard changes and remove selected" })
+      await removalRow("child-one")
+        .getByRole("button", { name: /^Approve ·/ })
+        .click();
+      await removalRow("batch-selected")
+        .getByRole("button", { name: /^Approve ·/ })
+        .click();
+      await removalRow("batch-declined")
+        .getByRole("button", { name: "Decline", exact: true })
         .click();
       for (const tree of extraTrees) {
         await expect
@@ -1421,10 +1427,17 @@ process.stdout.write("FOOM_AGENT_READY`,
             worktreeId: tree.id,
           });
         }
-        await expect(confirmation.getByRole("checkbox")).toHaveCount(2);
-        await confirmation
-          .getByRole("button", { name: approve ? "Approve all" : "Decline", exact: true })
-          .click();
+        await expect(confirmation.locator(".approval-row")).toHaveCount(2);
+        // Rows can exceed the native viewport; individual decisions preserve the
+        // exact visible-only bulk rule while exercising both operation outcomes.
+        for (const tree of batch) {
+          const row = confirmation
+            .locator(".approval-row")
+            .filter({ has: confirmation.locator(".subject", { hasText: tree.branch }) });
+          await row
+            .getByRole("button", { name: approve ? /^Approve ·/ : "Decline", exact: !approve })
+            .click();
+        }
         for (const tree of batch) {
           await expect
             .poll(
@@ -1591,7 +1604,7 @@ process.stdout.write("FOOM_AGENT_READY`,
         (id) => window.desktop.sidebarCommand({ kind: "make-orchestrator", id }),
         parentId,
       );
-      const recovery = await confirmationPage(app);
+      const recovery = await approvalPage(app);
       await expect(recovery.getByText(/Re-granting this tile before Foom restarts/)).toBeVisible();
       await recovery.getByRole("button", { name: "Make orchestrator" }).click();
       await regrant;

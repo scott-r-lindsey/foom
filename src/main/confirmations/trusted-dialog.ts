@@ -46,6 +46,8 @@ export class TrustedDialog {
         activate: boolean;
       }
     | undefined;
+  private approvalFeed: DialogContent["approvalFeed"];
+  private approvalsOpened = false;
   private pluginFeed: DialogContent["pluginFeed"];
   private feed: DialogContent["feed"];
   private removalFeed: DialogContent["removalFeed"];
@@ -78,6 +80,7 @@ export class TrustedDialog {
     this.parentContents.on("render-process-gone", this.cancelQueued);
     this.parentContents.on("did-start-navigation", this.ownerNavigating);
     ipcMain.on("confirmation:answer", this.answer);
+    ipcMain.on("confirmation:hide-approvals", this.hideApprovals);
     ipcMain.on("confirmation:size", this.resize);
     ipcMain.on("confirmation:copy-path", this.copyPath);
     this.prepare();
@@ -109,9 +112,22 @@ export class TrustedDialog {
       event.senderFrame !== contents.mainFrame ||
       event.senderFrame.url !== CONFIRMATION_URL ||
       !this.pending ||
-      id !== this.pending.id
+      (id !== this.pending.id &&
+        !this.pending.request.approvals?.some((row) => row.request.id === id))
     )
       return;
+    if (this.approvalFeed) {
+      if (!this.isReachable() || typeof id !== "string") return;
+      if (typeof accepted === "boolean" && id !== this.pending.id)
+        this.approvalFeed.answer(id, accepted);
+      else if (
+        id === this.pending.id &&
+        Array.isArray(accepted) &&
+        accepted.every((value: unknown) => typeof value === "string")
+      )
+        this.approvalFeed.answer(id, accepted);
+      return;
+    }
     // A trusted renderer/ID alone is not evidence that the person can see consent.
     if (accepted !== false && !this.isReachable()) {
       this.finish(false);
@@ -173,12 +189,14 @@ export class TrustedDialog {
     const pending = this.pending;
     if (
       pending &&
-      pending.id === id &&
+      (pending.id === id || pending.request.approvals?.some((row) => row.request.id === id)) &&
       pending.request.presented &&
       typeof pathId === "string" &&
       pathId.length <= 256
     ) {
-      const path = removalCopyPaths(pending.request).get(pathId);
+      const request =
+        pending.request.approvals?.find((row) => row.request.id === id)?.request ?? pending.request;
+      const path = removalCopyPaths(request).get(pathId);
       if (path) {
         try {
           void clipboard.writeText(path).then(
@@ -236,6 +254,33 @@ export class TrustedDialog {
       }, 100);
       this.settling.unref();
     }
+  };
+  /** Explicit board action; background requests never call this. */
+  openApprovals(): void {
+    this.approvalsOpened = true;
+    if (this.window?.isMinimized()) this.window.restore();
+    this.present();
+    if (this.approvalFeed && !this.settled && !this.reachability) {
+      this.reachability = setTimeout(() => {
+        this.reachability = undefined;
+        if (this.approvalsOpened && !this.settled) this.finish(false);
+      }, 1000);
+      this.reachability.unref();
+    }
+  }
+  private readonly hideApprovals = (event: IpcMainEvent) => {
+    const contents = this.window?.webContents;
+    if (
+      !this.approvalFeed ||
+      !contents ||
+      event.sender !== contents ||
+      event.senderFrame !== contents.mainFrame ||
+      event.senderFrame.url !== CONFIRMATION_URL
+    )
+      return;
+    this.approvalsOpened = false;
+    this.approvalFeed.presented(false);
+    this.window?.hide();
   };
   /** Called after the board's scale or resolved theme changes. */
   refresh(): void {
@@ -302,7 +347,12 @@ export class TrustedDialog {
     });
     window.on("close", (event) => {
       event.preventDefault();
-      if (this.pluginFeed?.current()?.phase !== "running") this.finish(false, true, "declined");
+      if (this.approvalFeed) {
+        this.approvalsOpened = false;
+        this.approvalFeed.presented(false);
+        window.hide();
+      } else if (this.pluginFeed?.current()?.phase !== "running")
+        this.finish(false, true, "declined");
     });
     window.webContents.on("render-process-gone", () => {
       if (this.window !== window) return;
@@ -398,17 +448,21 @@ export class TrustedDialog {
       const window = this.window;
       if (!window || this.isCancelled(signal)) return false;
       const id = randomUUID();
-      const { feed, removalFeed, pluginFeed, ...renderContent } = content;
+      const { feed, removalFeed, pluginFeed, approvalFeed, ...renderContent } = content;
       delete renderContent.removal;
+      delete renderContent.approval;
+      delete renderContent.userAction;
       const request: DialogRequest = {
         ...renderContent,
         id,
         presented: false,
         theme: this.theme(),
+        ...(approvalFeed ? { approvals: approvalFeed.current() } : {}),
         ...(feed ? { cleanup: feed.current() } : {}),
         ...(removalFeed ? removalContent(removalFeed.current()) : {}),
       };
       if (this.isCancelled(signal)) return false;
+      this.approvalFeed = approvalFeed;
       this.pluginFeed = pluginFeed;
       this.removalFeed = removalFeed;
       this.feed = feed;
@@ -432,6 +486,12 @@ export class TrustedDialog {
         this.pending.request = { ...this.pending.request, cleanup: feed.current() };
         this.refresh();
       });
+      if (approvalFeed)
+        this.unsubscribe = approvalFeed.subscribe(() => {
+          if (!this.pending) return;
+          this.pending.request = { ...this.pending.request, approvals: approvalFeed.current() };
+          this.refresh();
+        });
       if (pluginFeed)
         this.unsubscribe = pluginFeed.subscribe(() => {
           if (this.pending?.id !== id) return;
@@ -473,37 +533,43 @@ export class TrustedDialog {
         signal.removeEventListener("abort", cancel);
         return answer;
       }
-      this.parentEnabled = this.parent.isEnabled();
-      if (this.platform === "darwin") {
-        // Electron disables macOS windows with an attached translucent sheet,
-        // which covers even a visible, focused child (#353). Block input without
-        // creating that sheet; keep native keyboard focus in the trusted child.
-        this.parentFocusable = this.parent.isFocusable();
-        this.parent.setFocusable(false);
-      } else if (this.platform === "win32") {
-        this.parent.setEnabled(false);
+      if (!approvalFeed) {
+        this.parentEnabled = this.parent.isEnabled();
+        if (this.platform === "darwin") {
+          // Electron disables macOS windows with an attached translucent sheet,
+          // which covers even a visible, focused child (#353). Block input without
+          // creating that sheet; keep native keyboard focus in the trusted child.
+          this.parentFocusable = this.parent.isFocusable();
+          this.parent.setFocusable(false);
+        } else if (this.platform === "win32") {
+          this.parent.setEnabled(false);
+        }
+        this.parentContents.prependListener("before-input-event", this.blockParentInput);
+        // Linux must stay enabled: disabled native parents swallow the clicks
+        // needed to recover an invisible child. Both guards still consume input.
+        this.parentContents.prependListener("before-mouse-event", this.blockParentInput);
+        this.parent.on("hide", this.parentUnavailable);
+        this.parent.on("minimize", this.parentUnavailable);
+        this.parent.on("move", this.syncBounds);
+        this.parent.on("resize", this.syncBounds);
+        this.parent.on("maximize", this.syncBounds);
+        this.parent.on("unmaximize", this.syncBounds);
+        this.parent.on("restore", this.restoreDialog);
+        this.parent.on("show", this.restoreDialog);
+        powerMonitor.on("resume", this.restoreDialog);
+        powerMonitor.on("unlock-screen", this.restoreDialog);
+        screen.on("display-metrics-changed", this.restoreDialog);
+        screen.on("display-removed", this.restoreDialog);
+        this.parent.on("focus", this.restoreDialog);
+        app.on("browser-window-focus", this.appFocused);
+        this.parentContents.send("confirmation:scrim", true);
+      } else {
+        this.parent.on("move", this.syncBounds);
+        this.parent.on("resize", this.syncBounds);
       }
-      this.parentContents.prependListener("before-input-event", this.blockParentInput);
-      // Linux must stay enabled: disabled native parents swallow the clicks
-      // needed to recover an invisible child. Both guards still consume input.
-      this.parentContents.prependListener("before-mouse-event", this.blockParentInput);
-      this.parent.on("hide", this.parentUnavailable);
-      this.parent.on("minimize", this.parentUnavailable);
-      this.parent.on("move", this.syncBounds);
-      this.parent.on("resize", this.syncBounds);
-      this.parent.on("maximize", this.syncBounds);
-      this.parent.on("unmaximize", this.syncBounds);
-      this.parent.on("restore", this.restoreDialog);
-      this.parent.on("show", this.restoreDialog);
-      powerMonitor.on("resume", this.restoreDialog);
-      powerMonitor.on("unlock-screen", this.restoreDialog);
-      screen.on("display-metrics-changed", this.restoreDialog);
-      screen.on("display-removed", this.restoreDialog);
-      this.parent.on("focus", this.restoreDialog);
-      app.on("browser-window-focus", this.appFocused);
-      this.parentContents.send("confirmation:scrim", true);
       this.refresh();
-      this.watchReachability();
+      if (!approvalFeed) this.watchReachability();
+      else if (this.approvalsOpened) this.openApprovals();
       try {
         return await answer;
       } finally {
@@ -546,7 +612,10 @@ export class TrustedDialog {
     );
     const y = Math.max(
       top,
-      Math.min(Math.round(parent.y + (parent.height - height) / 2), bottom - height),
+      Math.min(
+        this.approvalFeed ? top : Math.round(parent.y + (parent.height - height) / 2),
+        bottom - height,
+      ),
     );
     this.bounds = { x, y, width, height };
     // Read native bounds, not the last request: a WM may have moved the child.
@@ -561,6 +630,13 @@ export class TrustedDialog {
     if (input.type === "mouseDown" || input.type === "keyDown") this.restoreDialog();
   };
   private readonly childUnavailable = () => {
+    if (this.approvalFeed) {
+      if (!this.window?.isVisible() || this.window.isMinimized()) {
+        this.approvalsOpened = false;
+        this.approvalFeed.presented(false);
+      }
+      return;
+    }
     if (this.presenting) {
       this.unavailableDuringPresentation = true;
       return;
@@ -586,6 +662,7 @@ export class TrustedDialog {
   private present(): void {
     const window = this.window;
     if (!window || !this.pending || !this.settled || !this.size || this.presenting) return;
+    if (this.approvalFeed && !this.approvalsOpened) return;
     this.unavailableDuringPresentation = false;
     this.presenting = true;
     try {
@@ -602,6 +679,7 @@ export class TrustedDialog {
       this.focusDialog();
       this.presenting = false;
       this.finishPresentation(window);
+      this.approvalFeed?.presented(true);
     } catch {
       this.finish(false);
     } finally {
@@ -708,6 +786,10 @@ export class TrustedDialog {
       !this.parent.isMinimized() &&
       pending.request.presented &&
       this.isReachable();
+    const queued = Boolean(this.approvalFeed);
+    this.approvalFeed?.presented(false);
+    this.approvalFeed = undefined;
+    this.approvalsOpened = false;
     this.pending = undefined;
     if (!accepted) this.removalFeed?.select([]);
     clearTimeout(this.settling);
@@ -740,15 +822,16 @@ export class TrustedDialog {
     this.parent.removeListener("focus", this.restoreDialog);
     app.removeListener("browser-window-focus", this.appFocused);
     if (!this.parent.isDestroyed()) {
-      if (this.platform === "darwin") this.parent.setFocusable(this.parentFocusable);
-      else if (this.platform === "win32") this.parent.setEnabled(this.parentEnabled);
+      if (!queued && this.platform === "darwin") this.parent.setFocusable(this.parentFocusable);
+      else if (!queued && this.platform === "win32") this.parent.setEnabled(this.parentEnabled);
       if (restore) {
         this.parent.focus();
         this.parentContents.focus();
       }
       // The renderer must not select its input while the Windows board is
       // still disabled or before native web focus has been requested.
-      if (!this.parentContents.isDestroyed()) this.parentContents.send("confirmation:scrim", false);
+      if (!queued && !this.parentContents.isDestroyed())
+        this.parentContents.send("confirmation:scrim", false);
     }
     // Leave Electron's native IPC/close callback before resuming shutdown work.
     setImmediate(() => {
@@ -765,6 +848,7 @@ export class TrustedDialog {
     this.parentContents.removeListener("render-process-gone", this.cancelQueued);
     this.parentContents.removeListener("did-start-navigation", this.ownerNavigating);
     ipcMain.removeListener("confirmation:answer", this.answer);
+    ipcMain.removeListener("confirmation:hide-approvals", this.hideApprovals);
     ipcMain.removeListener("confirmation:size", this.resize);
     ipcMain.removeListener("confirmation:copy-path", this.copyPath);
     this.window?.destroy();

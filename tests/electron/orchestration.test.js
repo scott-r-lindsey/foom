@@ -1,7 +1,7 @@
 const { test } = require("./test-shard.js");
 const path = require("node:path");
 const { deadline } = require("./test-policy.js");
-const { boardPage, confirmationPage, launchApp } = require("./harness.js");
+const { boardPage, approvalPage, launchApp } = require("./harness.js");
 const { runOrchestratorScenario } = require("./orchestrator-scenario.js");
 
 test("console pairing requires trusted approval and gives only read-only repository scope", {
@@ -14,13 +14,12 @@ test("console pairing requires trusted approval and gives only read-only reposit
   const repository = await page.evaluate(
     async () => (await window.desktop.workspace()).repositories[0].path,
   );
-  const confirmation = await confirmationPage(app);
   await assertCliPairing(
     context,
     path.join(__dirname, "../../build/console", process.platform === "win32" ? "foom.exe" : "foom"),
     profile,
     repository,
-    confirmation,
+    () => approvalPage(app),
   );
 });
 

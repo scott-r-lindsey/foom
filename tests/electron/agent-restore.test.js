@@ -10,7 +10,7 @@ const { deadline, expect } = require("./test-policy.js");
 const {
   FAKE_ORCHESTRATED_CLAUDE,
   boardPage,
-  confirmationPage,
+  approvalPage,
   launchApp,
   quitAndWait,
   removeAfterApps,
@@ -104,7 +104,7 @@ req.end(JSON.stringify(payload));
     await first.evaluate((id) => {
       void window.desktop.sidebarCommand({ kind: "make-orchestrator", id });
     }, parentId);
-    await (await confirmationPage(app)).getByRole("button", { name: "Make orchestrator" }).click();
+    await (await approvalPage(app)).getByRole("button", { name: "Make orchestrator" }).click();
     await expect.poll(async () => (await rows(first))[0].orchestration?.active).toBe(true);
     const readCredentials = async (name) =>
       JSON.parse(await readFile(`${credentials}.${name}`, "utf8"));
