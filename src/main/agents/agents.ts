@@ -100,6 +100,7 @@ async function detect(id: AgentId, path: string, probeEnabled = true): Promise<A
       const output = await readLoginShell(executable, [flag], {
         ...options,
         allowNonzeroExit: flag === "--help",
+        fatalUtf8: flag === "--help",
       });
       return flag === "--help" ? `${output.stdout}\n${output.stderr}` : output.stdout;
     } catch {

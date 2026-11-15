@@ -247,3 +247,35 @@ else { process.stderr.write('--prompt-interactive'); process.exitCode = ${String
     }
   },
 );
+
+for (const stream of ["stdout", "stderr"]) {
+  test.skipIf(process.platform === "win32").each([0, 2])(
+    `probe preparation discards malformed ${stream} help with exit %s`,
+    async (code) => {
+      await writeFile(
+        join(root, "agy"),
+        `#!${process.execPath}
+if (process.argv[2] === '--version') { process.stdout.write('1.3.3'); process.stderr.write(Buffer.from([255])); }
+else {
+  process.${stream}.write(Buffer.from([255]));
+  process.stderr.write(' --prompt-interactive');
+  process.exitCode = ${String(code)};
+}
+`,
+        { mode: 0o700 },
+      );
+      const prepared = await prepareProbe(
+        agentProvider("agy"),
+        { action: "start", agent: "agy" },
+        root,
+        { PATH: root },
+      );
+      try {
+        expect(prepared.agentVersion).toBe("1.3.3");
+        expect(prepared.spec.args).not.toContain("--prompt-interactive");
+      } finally {
+        await prepared.dispose();
+      }
+    },
+  );
+}

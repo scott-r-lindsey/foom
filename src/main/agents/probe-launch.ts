@@ -140,6 +140,7 @@ export async function prepareProbe(
         cwd,
         env: launchEnvironment,
         allowNonzeroExit: flag === "--help",
+        fatalUtf8: flag === "--help",
       });
       return flag === "--help" ? `${output.stdout}\n${output.stderr}` : output.stdout;
     } catch {

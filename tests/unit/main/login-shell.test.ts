@@ -273,3 +273,28 @@ it("accepts nonzero help exits without accepting timeout, overflow or signal ter
     ).rejects.toThrow("failed");
   }
 });
+
+it.each(["stdout", "stderr"])(
+  "strict reads reject malformed %s without changing default decoding",
+  async (stream) => {
+    directory = await mkdtemp(join(tmpdir(), "foom-invalid-help-"));
+    const options = { encoding: "utf8" as const, cwd: directory, timeout: 5000, maxBuffer: 4096 };
+    const args = [
+      "-e",
+      `process.${stream}.write(Buffer.from([255])); process.stderr.write(' --prompt-interactive'); process.exitCode = 2`,
+    ];
+    await expect(
+      readLoginShell(process.execPath, args, {
+        ...options,
+        allowNonzeroExit: true,
+        fatalUtf8: true,
+      }),
+    ).rejects.toThrow("Invalid login shell output");
+    const legacy = await readLoginShell(
+      process.execPath,
+      ["-e", `process.${stream}.write(Buffer.from([255]))`],
+      options,
+    );
+    expect(legacy[stream === "stdout" ? "stdout" : "stderr"]).toBe("\ufffd");
+  },
+);

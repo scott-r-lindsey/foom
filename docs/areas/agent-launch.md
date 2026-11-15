@@ -30,7 +30,8 @@ of other providers. Help-token discovery reads stdout followed by stderr (separa
 by a newline), including ordinary nonzero help exits (#1187). Local discovery,
 config-owned verification probes and remote host discovery use this rule within
 their existing per-stream limits; timeout, cancellation, signal termination,
-spawn and output-limit failures still discard the read. Version discovery retains
+spawn, malformed UTF-8 in either help stream and output-limit failures still
+discard the read. Version discovery retains
 stdout-only parsing and requires a successful exit. This enables Antigravity's
 `--prompt-interactive` gate when agy writes help to stderr, including initial child
 prompts and the fixed new-config-session greeting.
