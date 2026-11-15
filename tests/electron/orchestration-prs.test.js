@@ -272,7 +272,7 @@ for (const scenario of [
             }),
           ).toBeEnabled();
           await dialog.screenshot({ path: evidencePath("review-worktree-dirty-confirmation.png") });
-          await dialog.getByRole("button", { name: "Decline", exact: true }).click();
+          await clickApproval(dialog, dialog.getByRole("button", { name: "Decline", exact: true }));
           const waiting = await pendingClose;
           assert.equal(waiting.status, "pending_confirmation");
           await expect
@@ -293,9 +293,13 @@ for (const scenario of [
               exact: true,
             }),
           ).toBeVisible();
-          await dialog
-            .getByRole("button", { name: "Approve · Discard changes and remove", exact: true })
-            .click();
+          await clickApproval(
+            dialog,
+            dialog.getByRole("button", {
+              name: "Approve · Discard changes and remove",
+              exact: true,
+            }),
+          );
           const approving = await approvedClose;
           assert.equal(approving.status, "pending_confirmation");
           await expect

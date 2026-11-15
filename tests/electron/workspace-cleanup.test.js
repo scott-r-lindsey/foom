@@ -1209,7 +1209,7 @@ test("detached removals share one review per checkout and approve independently"
     };
   }, repo);
   await app.evaluate((_, tree) => globalThis.startDetachedRemoval(tree, "one"), paths[0]);
-  const dialog = await confirmationPage(app);
+  const dialog = await approvalPage(app);
   await expect(
     dialog.getByRole("heading", { name: "Remove worktree?", exact: true }),
   ).toBeVisible();
@@ -1217,24 +1217,36 @@ test("detached removals share one review per checkout and approve independently"
     globalThis.startDetachedRemoval(paths[0], "duplicate");
     globalThis.startDetachedRemoval(paths[1], "two");
   }, paths);
-  await expect(
-    dialog.getByRole("heading", { name: "Remove worktrees?", exact: true }),
-  ).toBeVisible();
-  await expect(dialog.getByRole("checkbox")).toHaveCount(2);
+  await expect(dialog.locator(".approval-row")).toHaveCount(2);
+  const rowFor = (path) =>
+    dialog.locator(".approval-row").filter({ has: dialog.getByText(path, { exact: true }) });
+  for (const path of paths) await expect(rowFor(path)).toHaveCount(1);
   await expect.poll(() => app.evaluate(() => globalThis.detachedReviews)).toEqual(["one", "two"]);
-  // A subset approval deletes the first checkout once and preserves the other.
-  await dialog.getByRole("checkbox").nth(0).check();
-  await dialog.getByRole("button", { name: "Approve selected", exact: true }).click();
+  await clickApproval(
+    dialog,
+    rowFor(paths[0]).getByRole("button", { name: "Approve · Remove worktree", exact: true }),
+  );
+  await expect
+    .poll(() => app.evaluate(() => globalThis.detachedAnswers))
+    .toEqual({ one: true, duplicate: true });
+  assert.equal(require("node:fs").existsSync(paths[0]), false);
+  assert.equal(require("node:fs").existsSync(paths[1]), true);
+  // Approval of one checkout must leave the other caller pending until its own decision.
+  await clickApproval(
+    dialog,
+    rowFor(paths[1]).getByRole("button", { name: "Decline", exact: true }),
+  );
   await expect
     .poll(() => app.evaluate(() => globalThis.detachedAnswers))
     .toEqual({ one: true, duplicate: true, two: false });
-  assert.equal(require("node:fs").existsSync(paths[0]), false);
-  assert.equal(require("node:fs").existsSync(paths[1]), true);
   // The declined checkout has released its reservation and can be reviewed again.
   await app.evaluate((_, tree) => globalThis.startDetachedRemoval(tree, "retry"), paths[1]);
-  const retry = await confirmationPage(app);
+  const retry = await approvalPage(app);
   await expect(retry.getByRole("heading", { name: "Remove worktree?", exact: true })).toBeVisible();
-  await retry.getByRole("button", { name: "Remove worktree", exact: true }).click();
+  await clickApproval(
+    retry,
+    retry.getByRole("button", { name: "Approve · Remove worktree", exact: true }),
+  );
   await expect.poll(() => app.evaluate(() => globalThis.detachedAnswers.retry)).toBe(true);
   assert.equal(require("node:fs").existsSync(paths[1]), false);
 });

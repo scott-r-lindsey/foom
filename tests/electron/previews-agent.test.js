@@ -12,6 +12,7 @@ const {
   assertAccessible,
   boardPage,
   approvalPage,
+  clickApproval,
   launchApp,
   removeAfterApps,
 } = require("./harness.js");
@@ -697,9 +698,10 @@ test("agent previews stay visible after window moves while sidebar inventory is 
   await page.getByRole("button", { name: "Actions for Claude Code in main" }).click();
   await page.getByRole("menuitem", { name: "Make orchestrator…" }).click();
   const confirmation = await approvalPage(app);
-  await confirmation
-    .getByRole("button", { name: "Approve · Make orchestrator", exact: true })
-    .click();
+  await clickApproval(
+    confirmation,
+    confirmation.getByRole("button", { name: "Approve · Make orchestrator", exact: true }),
+  );
   assert.equal((await requestAgent("role", ["whoami", "--json"])).role, "orchestrator");
   await sizeTileBoard(app, page, 2400);
   await page.locator('.board-row[data-kind="agent"]').click();

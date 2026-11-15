@@ -1,3 +1,4 @@
+const { clickApproval } = require("./approval-actions.js");
 const { fixtureEnvironment } = require("../helpers/environment.js");
 const { evidencePath } = require("../helpers/evidence.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
@@ -396,17 +397,6 @@ async function approvalPage(app) {
     { noWaitAfter: true },
   );
   return page;
-}
-
-/** Reveal a decision first, then let its movement guard settle before native input. */
-async function clickApproval(page, button) {
-  await button.scrollIntoViewIfNeeded();
-  // Scrolling and its ResizeObserver/React update must finish before checking enabled.
-  await page.evaluate(
-    () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
-  );
-  await expect(button).toBeEnabled();
-  await button.click();
 }
 
 async function boardCommand(app, keyCode, shift = true) {

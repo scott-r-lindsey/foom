@@ -579,9 +579,19 @@ for (const scenario of [
       for (const checkout of retained)
         await expect(confirmation.getByText(checkout.path, { exact: true }).first()).toBeVisible();
       await expect(confirmation.getByText("review.txt", { exact: true })).toHaveCount(2);
-      await confirmation
-        .getByRole("button", { name: "Discard changes and remove all", exact: true })
-        .click();
+      await expect(confirmation.locator(".approval-row")).toHaveCount(2);
+      for (const checkout of retained) {
+        const request = confirmation
+          .locator(".approval-row")
+          .filter({ has: confirmation.getByText(checkout.path, { exact: true }) });
+        await clickApproval(
+          confirmation,
+          request.getByRole("button", {
+            name: "Approve · Discard changes and remove",
+            exact: true,
+          }),
+        );
+      }
       await expect.poll(() => retained.every((checkout) => !existsSync(checkout.path))).toBe(true);
       assert.equal(git("rev-parse", "--verify", "child-one").trim(), headSha);
       return;

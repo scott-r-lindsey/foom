@@ -1,3 +1,4 @@
+const { clickApproval } = require("./approval-actions.js");
 const assert = require("node:assert/strict");
 const { existsSync } = require("node:fs");
 const { join } = require("node:path");
@@ -45,7 +46,13 @@ async function assertCliPairing(context, executable, profile, repository, openAp
   ).toBeVisible();
   await expect(confirmation.locator(".code strong", { hasText: code })).toBeVisible();
   await expect(confirmation.getByRole("button", { name: "Decline", exact: true })).toBeVisible();
-  await confirmation.getByRole("button", { name: "Grant read-only access for 10 minutes" }).click();
+  await clickApproval(
+    confirmation,
+    confirmation.getByRole("button", {
+      name: "Approve · Grant read-only access for 10 minutes",
+      exact: true,
+    }),
+  );
   await expect.poll(() => stdout).toContain('"ready":true');
   child.stdin.write('["whoami"]\n["sessions"]\n');
   await expect.poll(() => stdout.split("\n").filter(Boolean).length).toBe(3);

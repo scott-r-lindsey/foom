@@ -1310,9 +1310,13 @@ process.stdout.write("FOOM_AGENT_READY`,
         await expect(confirmation.getByRole("list", { name: "Uncommitted changes" })).toContainText(
           "untracked",
         );
-        await confirmation
-          .getByRole("button", { name: "Approve · Discard changes and remove", exact: true })
-          .click();
+        await clickApproval(
+          confirmation,
+          confirmation.getByRole("button", {
+            name: "Approve · Discard changes and remove",
+            exact: true,
+          }),
+        );
         await expect
           .poll(
             async () =>
@@ -1377,15 +1381,18 @@ process.stdout.write("FOOM_AGENT_READY`,
         path: evidencePath(`batch-removal-${cliOnly ? "agy" : "claude"}.png`),
         animations: "disabled",
       });
-      await removalRow("child-one")
-        .getByRole("button", { name: /^Approve ·/ })
-        .click();
-      await removalRow("batch-selected")
-        .getByRole("button", { name: /^Approve ·/ })
-        .click();
-      await removalRow("batch-declined")
-        .getByRole("button", { name: "Decline", exact: true })
-        .click();
+      await clickApproval(
+        confirmation,
+        removalRow("child-one").getByRole("button", { name: /^Approve ·/ }),
+      );
+      await clickApproval(
+        confirmation,
+        removalRow("batch-selected").getByRole("button", { name: /^Approve ·/ }),
+      );
+      await clickApproval(
+        confirmation,
+        removalRow("batch-declined").getByRole("button", { name: "Decline", exact: true }),
+      );
       for (const tree of extraTrees) {
         await expect
           .poll(
@@ -1441,9 +1448,10 @@ process.stdout.write("FOOM_AGENT_READY`,
           const row = confirmation
             .locator(".approval-row")
             .filter({ has: confirmation.locator(".subject", { hasText: tree.branch }) });
-          await row
-            .getByRole("button", { name: approve ? /^Approve ·/ : "Decline", exact: !approve })
-            .click();
+          await clickApproval(
+            confirmation,
+            row.getByRole("button", { name: approve ? /^Approve ·/ : "Decline", exact: !approve }),
+          );
         }
         for (const tree of batch) {
           await expect

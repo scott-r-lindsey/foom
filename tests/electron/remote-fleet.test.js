@@ -988,7 +988,10 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
       });
       const dialog = await approvalPage(app);
       await expect(dialog.getByText(`fleet-worker:${record.cwd}`, { exact: true })).toBeVisible();
-      await dialog.getByRole("button", { name: "Approve · Remove worktree", exact: true }).click();
+      await clickApproval(
+        dialog,
+        dialog.getByRole("button", { name: "Approve · Remove worktree", exact: true }),
+      );
       await expect
         .poll(
           async () => (await call("operation_status", { operationId: removal.operationId })).status,
@@ -1198,10 +1201,10 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
     review.getByRole("heading", { name: "Remove worktree?", exact: true }),
   ).toBeVisible();
   await expect(review.getByText(`fleet-worker:${expectedCheckout}`, { exact: true })).toBeVisible();
-  await clickApproval(
-    review,
-    review.getByRole("button", { name: "Approve · Remove worktree", exact: true }),
-  );
+  await expect(
+    review.getByRole("alertdialog", { name: "Remove worktree?", exact: true }),
+  ).toBeVisible();
+  await review.getByRole("button", { name: "Remove worktree", exact: true }).click();
   await deleting;
   assert.ok(
     !(await restored.evaluate((repository) => window.desktop.worktrees(repository), repo)).some(
