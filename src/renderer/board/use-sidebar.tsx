@@ -208,7 +208,11 @@ export function useSidebar(props: SidebarProps) {
       options?.showNestedRepositoryNames,
     ),
   }));
-  const homeRows = rows.filter((row) => row.home && !row.machine);
+  const machines = source.getMachines?.() ?? [];
+  const homeRows = rows.filter(
+    (row) =>
+      row.home && (!row.machine || (machines.length === 0 && row.placement?.kind !== "remote")),
+  );
   const visibleHomeRows = homeRows.filter((row) =>
     `${sessionName(row, preferences)} ${row.reason} ~`
       .toLocaleLowerCase()
@@ -312,6 +316,24 @@ export function useSidebar(props: SidebarProps) {
       },
     }));
   };
+  const homeActions: RowAction[] = [
+    {
+      label: "New shell",
+      badge: ">_",
+      dismissBeforeRun: true,
+      run: () => command({ kind: "home-shell" }),
+    },
+    ...(machines.length === 0
+      ? launcherActions(options, undefined)
+          .filter((action) => action.run !== "shell")
+          .map((action) => ({
+            label: `New ${action.label}`,
+            badge: action.badge,
+            dismissBeforeRun: true,
+            run: () => command({ kind: "machine-launch", host: null, run: action.run }),
+          }))
+      : []),
+  ];
   const subjects = new Map<
     string,
     { subject: PanelSubject; name: string; kind: string; mark: string }
@@ -469,6 +491,7 @@ export function useSidebar(props: SidebarProps) {
     const identity = sessionIdentity(row, source.shellName?.());
     const exited =
       row.exited ?? (row.kind === "sample" && (row.state === "done" || row.state === "failed"));
+    const forget = Boolean(row.unavailable && row.exited);
     const items: (RowAction | null)[] = exited
       ? [
           ...(row.orchestration?.role === "orchestrator" && row.orchestration.restoreOnResume
@@ -489,7 +512,7 @@ export function useSidebar(props: SidebarProps) {
               ]
             : []),
           ...(row.kind === "shell"
-            ? row.worktreeRemoved
+            ? row.worktreeRemoved || forget
               ? []
               : [
                   {
@@ -502,7 +525,7 @@ export function useSidebar(props: SidebarProps) {
                   null,
                 ]
             : [
-                ...(!row.worktreeRemoved && row.conversationId && row.kind === "agent"
+                ...(!row.worktreeRemoved && !forget && row.conversationId && row.kind === "agent"
                   ? [
                       {
                         label: "Resume conversation",
@@ -512,7 +535,7 @@ export function useSidebar(props: SidebarProps) {
                       },
                     ]
                   : []),
-                ...(!row.worktreeRemoved
+                ...(!row.worktreeRemoved && !forget
                   ? [
                       {
                         label: "New conversation here",
@@ -533,10 +556,10 @@ export function useSidebar(props: SidebarProps) {
                 null,
               ]),
           {
-            label: "Close",
+            label: forget ? "Forget…" : "Close",
             glyph: "close" as const,
             run: () => {
-              return command({ kind: "close", id: row.id });
+              return command({ kind: forget ? "forget" : "close", id: row.id });
             },
           },
         ]
@@ -634,6 +657,7 @@ export function useSidebar(props: SidebarProps) {
     overlay,
     narrow,
     homeRows,
+    homeActions,
     visibleHomeRows,
     configRows,
     shellRef,

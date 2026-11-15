@@ -77,6 +77,7 @@ const commandFailures: Readonly<Record<SidebarCommand["kind"], string>> = {
   "remove-repository": "Unable to remove repository.",
   stop: "Unable to stop session.",
   close: "Unable to close session.",
+  forget: "Unable to run this command.",
   restart: "Unable to restart shell.",
   resume: "Unable to resume conversation.",
   "resume-id": "Unable to resume conversation.",

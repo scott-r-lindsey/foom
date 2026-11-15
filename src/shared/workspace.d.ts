@@ -176,7 +176,7 @@ export interface WorkspaceApi {
   /** Main confirms removal, including any uncommitted changes. */
   removeWorktree(id: string): Promise<boolean>;
   workspace(): Promise<WorkspaceSnapshot>;
-  onWorkspaceChange(callback: () => void): () => void;
+  onWorkspaceChange(callback: (localOnly?: boolean) => void): () => void;
   /** Main shows the directory picker; resolves null when the user cancels. */
   addRepository(): Promise<Repository | null>;
   worktrees(repository: string): Promise<readonly Worktree[]>;
@@ -255,6 +255,7 @@ export type SidebarCommand =
   | { kind: "remove-repository"; repository: string }
   | { kind: "stop"; id: string }
   | { kind: "close"; id: string }
+  | { kind: "forget"; id: string }
   | { kind: "restart"; id: string }
   | { kind: "resume"; id: string }
   | {
