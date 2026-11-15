@@ -202,6 +202,7 @@ test("launches an agent in a managed worktree and routes its attention signals",
       "wait_for",
       "prompt",
       "send_keys",
+      "read_handoff",
       "operation_status",
     ],
   );
