@@ -140,7 +140,8 @@ Environment after assigning its committed lists, WorktreeStore after its commit
 callback, and SessionStore after rename. Settings reads expose committed values
 while a profile replacement is pending. Accepted config, workspace inventory,
 agent scans, registered-host actions/observations, fonts and sound catalogs also
-publish. Settings dependency comparisons avoid rechecking forge readiness for
+publish. Explicit agent rescans publish completion even when facts are unchanged;
+cached view reads stay quiet. Settings dependency comparisons avoid rechecking forge readiness for
 unrelated preference edits. Legacy write capabilities and their confirmations
 remain the closed typed commands; there is no generic mutation capability.
 
@@ -170,6 +171,11 @@ Only fixed `unavailable` and `too-large` errors cross this channel.
 | `sounds` | `{}` | Validated catalog entries; audio bytes keep their separate capability |
 | `readiness` | `{}` | Fixed Git/forge readiness; subscribed only on the owning readiness/Forges surface |
 
+Settings host views keep the saved-observation projection of the former list
+read; background board connection failures do not replace those observations.
+Entering Hosts retains its explicit list command to resume owner-held row/save
+retries; command replies cannot replace ordered snapshots.
+
 The host view primes sealed-build and local SSH-client display capabilities
 without retrying failed rows or connecting to a host. This preserves the opening
 notice and saved host-key-trust affordance while keeping subscriptions read-only
@@ -184,6 +190,10 @@ publications therefore cannot produce torn or indefinitely waiting page joins.
 Exhausting the board's subscription cap surfaces an error, never a silently
 truncated registration list. Other list hooks expose their bounded page; full
 board/sidebar conversion remains deferred below.
+
+Readiness views share a lazy main-owned probe result by view revision. Explicit
+recheck commands force a fresh probe; publication of that result does not run the
+probe again.
 
 Global publication revisions include live caches. Each subscription also has a
 fresh generation. Preload and the query adapter ignore stale generations and

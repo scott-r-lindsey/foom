@@ -536,20 +536,23 @@ test("terminal font picker updates open shells and config shells and refits thei
     (await window.desktop.workspace()).terminals.map((entry) => entry.id),
   );
   assert.equal(ids.length, 2);
-  await app.evaluate(({ ipcMain }) => {
+  await app.evaluate(({ app, ipcMain }) => {
     global.fontResizes = [];
     ipcMain.on("terminal:resize", (_event, id, cols, rows) =>
       global.fontResizes.push({ id, cols, rows }),
     );
     // OS enumeration may legitimately return [] (including after its bounded
     // PowerShell timeout). Exercise font changes with a font bundled on every OS.
-    ipcMain.removeHandler("setup:terminal-fonts");
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
     // Keep enumeration pending until Terminal has mounted. Typing before this
     // reply used to leave Geist present but inactive when it arrived later.
     global.fontList = new Promise((resolve) => {
       global.releaseFontList = resolve;
     });
-    ipcMain.handle("setup:terminal-fonts", () => global.fontList);
+    // Inject at the main-owned catalog so the real subscription/projection is exercised.
+    load("./build/main/fonts/terminal-fonts.js").listTerminalFonts = () => global.fontList;
   });
   await openSettingsScreen(page);
   await page

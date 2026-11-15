@@ -185,6 +185,7 @@ export function useView<K extends DataView>(
   const query = useQuery(
     {
       queryKey: key,
+      notifyOnChangeProps: ["data", "error", "status", "fetchStatus"],
       queryFn: async ({ signal }) => {
         const value = await read();
         signal.throwIfAborted();

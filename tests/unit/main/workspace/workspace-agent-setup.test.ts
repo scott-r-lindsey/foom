@@ -261,3 +261,16 @@ test("local installers use the bundled helper in a human recipe session without 
     agent: "shell",
   });
 });
+
+test("explicit agent refresh publishes completion even for identical facts; cached reads stay quiet", async () => {
+  const { viewChanges } = await import("../../../../src/main/data/view-changes");
+  const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
+  await workspace.scanAgents(false);
+  const revision = viewChanges.current("agents");
+  await workspace.scanAgents(false);
+  expect(viewChanges.current("agents")).toBe(revision);
+  await workspace.scanAgents(true);
+  expect(viewChanges.current("agents")).toBeGreaterThan(revision);
+  await workspace.dispose();
+});

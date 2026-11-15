@@ -2141,3 +2141,35 @@ test.each(["claude", "codex", "agy", "copilot", "opencode", "pi", "custom-agent"
     await expect(api.environmentState()).resolves.toEqual({ ...state, lists: { all: [] } });
   },
 );
+
+test("readiness view snapshots cross the projected bridge with bounded fixed facts", async () => {
+  const api = await bridge();
+  const receive = vi.fn<(snapshot: ViewSnapshot<"readiness">) => void>();
+  const off = api.subscribeView("readiness", {}, receive);
+  const request = mock.invoke.mock.calls.find(([name]) => name === "data:subscribe")?.[1];
+  if (typeof request !== "object" || request === null) throw new Error("Missing subscription");
+  const id: unknown = Reflect.get(request, "id");
+  const event = mock.on.mock.calls.find(([name]) => name === "data:snapshot")?.[1];
+  if (!event) throw new Error("Missing snapshot listener");
+  const data = {
+    git: "ready",
+    platform: "linux",
+    forges: [{ host: "forge.test", status: "not-signed-in" }],
+  };
+  event({}, { id, view: "readiness", params: {}, generation: 1, revision: 1, data });
+  expect(receive).toHaveBeenCalledWith(expect.objectContaining({ data }));
+  expect(receive.mock.calls[0]?.[0].data).not.toBe(data);
+  event(
+    {},
+    {
+      id,
+      view: "readiness",
+      params: {},
+      generation: 1,
+      revision: 2,
+      data: { ...data, private: "no" },
+    },
+  );
+  expect(receive).toHaveBeenCalledOnce();
+  off();
+});

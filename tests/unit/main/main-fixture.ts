@@ -376,6 +376,7 @@ vi.mock("../../../src/main/setup/setup", () => ({
   Setup: class {
     state = mock.setupState;
     readiness = () => Promise.resolve({ git: "ready", platform: "linux", forges: [] });
+    readinessView = this.readiness;
     refresh = mock.setupRefresh;
     constructor(deps: ConstructorParameters<typeof Setup>[0]) {
       mock.setup.deps = deps;

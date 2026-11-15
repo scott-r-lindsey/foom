@@ -323,3 +323,35 @@ test("live refetch reconnects the shared stream and rejects callbacks from its p
   f.data.settings = { ...f.data.settings, worktreeRoot: "/late" };
   act(() => f.emit.get("settings")?.());
 });
+
+test("unchanged publications keep Settings consumers from rendering again", async () => {
+  const f = fixture();
+  const clock = vi.spyOn(Date, "now").mockReturnValue(100);
+  let renders = 0;
+  try {
+    const hook = renderHook(() => {
+      renders++;
+      return useSettingsView(f.source, () => Promise.resolve(f.data.settings));
+    });
+    act(() => f.emit.get("settings")?.());
+    await waitFor(() => {
+      expect(hook.result.current.isSuccess).toBe(true);
+    });
+    const previous = renders;
+    clock.mockReturnValue(200);
+    f.revision(2);
+    f.data.settings = { ...f.data.settings };
+    act(() => f.emit.get("settings")?.());
+    expect(renders).toBe(previous);
+    clock.mockReturnValue(300);
+    f.revision(3);
+    f.data.settings = { ...f.data.settings, worktreeRoot: "/changed" };
+    act(() => f.emit.get("settings")?.());
+    await waitFor(() => {
+      expect(hook.result.current.data?.worktreeRoot).toBe("/changed");
+    });
+    expect(renders).toBeGreaterThan(previous);
+  } finally {
+    clock.mockRestore();
+  }
+});

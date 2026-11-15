@@ -696,6 +696,18 @@ export function HostsSettings({
   const [addBusy, setAddBusy] = useState(false);
   const [error, setError] = useState<ReactNode>("");
   const api = source.hosts;
+  useEffect(() => {
+    if (!source.views) return;
+    let active = true;
+    // Opening Hosts has always resumed owner-held row/save retries. A command
+    // still owns that work; its unversioned reply never replaces the live view.
+    void api?.({ action: "list" }).catch(() => {
+      if (active) setError("Unable to refresh hosts");
+    });
+    return () => {
+      active = false;
+    };
+  }, [api, source.views]);
   const [checkingHosts, setCheckingHosts] = useState<ReadonlySet<string>>(() => new Set());
   const [progress, setProgress] = useState<readonly HostCheckProgress[]>();
   const [rowPending, setRowPending] = useState<ReadonlySet<string>>(() => new Set());

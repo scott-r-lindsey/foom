@@ -467,7 +467,7 @@ export async function buildWindow(
           wiring.settings,
           wiring.worktrees.listRepositories.bind(wiring.worktrees),
           app.getVersion(),
-        ).state(),
+        ).state(undefined, true),
       agents: () => wiring.workspace.scanAgents(false),
       repositories: () => wiring.worktrees.listRepositories(),
       worktrees: (repository) => wiring.workspace.worktrees(repository),
@@ -476,7 +476,7 @@ export async function buildWindow(
       config: () => wiring.config.status(),
       fonts: () => listTerminalFonts(),
       sounds: () => soundLibrary.list(),
-      readiness: () => setup.readiness(),
+      readiness: () => setup.readinessView(),
     }),
   );
   window.once("closed", disposeDataViews);

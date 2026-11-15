@@ -2597,7 +2597,45 @@ test("Hosts reports dialog-unavailable when native trust presentation fails", {
 test("data views: host enrollment and removal update another open Agents machine picker", {
   timeout: deadline(60_000),
 }, async (context) => {
-  const { app, page, navigation } = await hostsFixture(context);
+  const app = await launchApp(context, { fixture: "repository" });
+  // This cross-platform view regression exercises the real commands and stores
+  // with an in-process fixture transport, rather than a POSIX-only SSH script.
+  await app.evaluate(({ app }) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const services = load("./build/main/setup/hosts.js");
+    const original = services.hostsForStore;
+    services.hostsForStore = (...args) => {
+      const owner = original(...args);
+      owner.profile = undefined;
+      owner.execute = async (_host, request) => ({
+        ok: true,
+        facts: {
+          codeFolder: request.codeFolder,
+          version: app.getVersion(),
+          sessions: 0,
+          cores: 1,
+          load: [0, 0, 0],
+          memoryTotal: 8000,
+          memoryAvailable: 4000,
+          agents: [],
+        },
+      });
+      return owner;
+    };
+  });
+  const page = await boardPage(app);
+  await openSettingsScreen(page);
+  const navigation = page.getByRole("navigation", { name: "Settings sections" });
+  await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
+  await page.evaluate(() =>
+    window.desktop.hosts({
+      action: "add",
+      host: "fixture-cloud",
+      codeFolder: "/home/fixture/code",
+    }),
+  );
   await page.evaluate(() => window.desktop.appMenu.execute("new-window"));
   let observer;
   await expect

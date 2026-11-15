@@ -152,16 +152,38 @@ export class Setup {
   }
 
   private readinessSignature = "";
+  private readinessCache: { revision: number; report: Promise<ReadinessReport> } | undefined;
+  readinessView(): Promise<ReadinessReport> {
+    return this.readinessCache?.revision === viewChanges.current("readiness")
+      ? this.readinessCache.report
+      : this.readiness();
+  }
   readiness() {
     if (!this.deps.readiness) throw new Error("Readiness unavailable");
-    return this.deps.readiness().then((report) => {
-      const signature = JSON.stringify(report);
-      if (signature !== this.readinessSignature) {
-        this.readinessSignature = signature;
-        viewChanges.publish("readiness");
-      }
-      return report;
-    });
+    const cache: { revision: number; report: Promise<ReadinessReport> } = {
+      revision: viewChanges.current("readiness"),
+      report: this.deps
+        .readiness()
+        .then((report) => {
+          if (this.readinessCache === cache && cache.revision !== viewChanges.current("readiness"))
+            this.readinessCache = undefined;
+          if (this.readinessCache === cache) {
+            const signature = JSON.stringify(report);
+            if (signature !== this.readinessSignature) {
+              this.readinessSignature = signature;
+              viewChanges.publish("readiness");
+            }
+            cache.revision = viewChanges.current("readiness");
+          }
+          return report;
+        })
+        .catch((error: unknown) => {
+          if (this.readinessCache === cache) this.readinessCache = undefined;
+          throw error;
+        }),
+    };
+    this.readinessCache = cache;
+    return cache.report;
   }
 
   restartToUpdate(): Promise<void> {

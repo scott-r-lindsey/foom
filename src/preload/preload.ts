@@ -1500,6 +1500,15 @@ const createdWorktree = both(
   validWorktree,
   shape({ outcome: literal("new", "existing", "origin", "open") }),
 );
+const validReadinessView: Validator<ReadinessReport> = copying(readinessReport, (value) =>
+  readinessReport(value)
+    ? {
+        git: value.git,
+        platform: value.platform,
+        forges: value.forges.map(({ host, status }) => ({ host, status })),
+      }
+    : undefined,
+);
 const viewValidators: { [K in DataView]: Validator<DataViews[K]> } = {
   settings: validSetupState,
   hosts: validHostsState,
@@ -1511,7 +1520,7 @@ const viewValidators: { [K in DataView]: Validator<DataViews[K]> } = {
   config: validConfigStatus,
   fonts: array(text),
   sounds: array(validSoundEntry),
-  readiness: readinessReport,
+  readiness: validReadinessView,
 };
 function validViewParams(view: DataView, params: unknown): params is ViewParams {
   if (!object(params)) return false;
