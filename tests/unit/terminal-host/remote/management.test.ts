@@ -1656,7 +1656,9 @@ test.skipIf(process.platform === "win32")(
     const { setupCatalogDigest } = await import(
       "../../../../src/node-common/repository-setup-digest"
     );
-    const { checkSetupList } = await import("../../../../src/node-common/repository-setup-check");
+    const { checkSetupList, repositorySetupEnvironment, setupProbeDependencies } = await import(
+      "../../../../src/node-common/repository-setup-check"
+    );
     const origin = "https://fixture.invalid/team/repository.git";
     const request = {
       type: "manage" as const,
@@ -1704,6 +1706,14 @@ test.skipIf(process.platform === "win32")(
       mock.probe.mock.calls.some(([, args]) => Array.isArray(args) && args.includes("status")),
     ).toBe(false);
     expect(checkSetupList).toHaveBeenCalledWith(request.list, {});
+    expect(vi.mocked(repositorySetupEnvironment).mock.calls.at(-1)?.[1]).toEqual([
+      join(home, "code"),
+      directory,
+    ]);
+    expect(vi.mocked(setupProbeDependencies).mock.calls.at(-1)?.[3]).toEqual([
+      join(home, "code"),
+      directory,
+    ]);
     await expect(
       manageHost({ ...request, path: join(directory, "missing") }, 0, "/fixture", "1", home),
     ).resolves.toMatchObject({ ok: false });

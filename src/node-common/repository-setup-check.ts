@@ -9,15 +9,24 @@ import { selectedToolchainBins } from "./repository-toolchain";
 import { setupVersionMatches } from "../shared/repository-setup-catalog";
 import type { RepositorySetupList, SetupCheck, SetupPlatform } from "../shared/repository-setup.d";
 
+const setupExcludedRoots = async (
+  roots: string | readonly string[] | undefined,
+): Promise<string[]> =>
+  Promise.all(
+    (typeof roots === "string" ? [roots] : (roots ?? [])).map((root) =>
+      realpath(root).catch(() => root),
+    ),
+  );
+
 /** A small complete environment, with no model/control credentials or checkout PATH entries. */
 export async function repositorySetupEnvironment(
   source: NodeJS.ProcessEnv,
-  checkout: string | undefined,
+  checkout: string | readonly string[] | undefined,
   prefix: string,
   tools: readonly ("node" | "pnpm")[],
   home = homedir(),
 ): Promise<Record<string, string>> {
-  const excluded = checkout ? await realpath(checkout).catch(() => checkout) : undefined;
+  const excluded = await setupExcludedRoots(checkout);
   const paths = [
     ...(await selectedToolchainBins(prefix, tools)),
     ...(source["PATH"] ?? "").split(delimiter),
@@ -28,10 +37,10 @@ export async function repositorySetupEnvironment(
     const canonical = await realpath(path).catch(() => undefined);
     if (
       !canonical ||
-      (excluded && (canonical === excluded || canonical.startsWith(`${excluded}${sep}`)))
+      excluded.some((root) => canonical === root || canonical.startsWith(`${root}${sep}`))
     )
       continue;
-    if (excluded) {
+    if (excluded.length) {
       const targets = await Promise.all(
         ["node", "pnpm", "brew"].map((tool) =>
           realpath(join(canonical, tool)).catch(() => undefined),
@@ -39,7 +48,9 @@ export async function repositorySetupEnvironment(
       );
       if (
         targets.some(
-          (target) => target && (target === excluded || target.startsWith(`${excluded}${sep}`)),
+          (target) =>
+            target &&
+            excluded.some((root) => target === root || target.startsWith(`${root}${sep}`)),
         )
       )
         continue;
@@ -59,11 +70,9 @@ export async function setupProbeDependencies(
   env: Record<string, string>,
   home = homedir(),
   signal?: AbortSignal,
-  excludedRoot?: string,
+  excludedRoot?: string | readonly string[],
 ): Promise<SetupProbeDependencies> {
-  const excluded = excludedRoot
-    ? await realpath(excludedRoot).catch(() => excludedRoot)
-    : undefined;
+  const excluded = await setupExcludedRoots(excludedRoot);
   const probeEnvironment = {
     ...env,
     COREPACK_ENABLE_NETWORK: "0",
@@ -158,7 +167,7 @@ export async function setupProbeDependencies(
         try {
           await access(command, constants.X_OK);
           const canonical = await realpath(command);
-          if (excluded && (canonical === excluded || canonical.startsWith(`${excluded}${sep}`)))
+          if (excluded.some((root) => canonical === root || canonical.startsWith(`${root}${sep}`)))
             continue;
           if ((await stat(canonical)).isFile()) return canonical;
         } catch {

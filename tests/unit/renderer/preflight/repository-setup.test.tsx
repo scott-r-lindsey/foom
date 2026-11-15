@@ -303,3 +303,36 @@ it("reports an unavailable saved-state read without running checks", async () =>
   expect((await screen.findByRole("alert")).textContent).toContain("Unable to read setup lists");
   expect(f.api).toHaveBeenCalledTimes(1);
 });
+
+it("keeps legacy operands visible and editable while disabling approval", async () => {
+  const legacy = {
+    ...list,
+    requirements: list.requirements.map((item) =>
+      item.kind === "package"
+        ? { ...item, packages: { ...item.packages, debian: ["g++", "libfoo1.2"] } }
+        : item,
+    ),
+  };
+  const f = fixture({ ...row, state: "review-needed", token: undefined, plan: undefined });
+  f.api.mockImplementation((action) =>
+    Promise.resolve({
+      rows: [{ ...row, state: "review-needed" }],
+      ...(action.action === "review"
+        ? { review: { ...review, list: legacy, previous: legacy } }
+        : {}),
+    }),
+  );
+  render(<RepositorySetupPanel source={f.source} host={null} />);
+  await screen.findByText(/Review needed/u);
+  fireEvent.click(screen.getByRole("button", { name: "Review list" }));
+  expect((await screen.findByRole("alert")).textContent).toContain("no longer supported");
+  const keep = screen.getByRole("button", { name: "Keep list" });
+  if (!(keep instanceof HTMLButtonElement)) throw new Error("No approval button");
+  expect(keep.disabled).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Edit draft" }));
+  const editor = screen.getByRole("textbox", { name: "Setup draft JSON" });
+  if (!(editor instanceof HTMLTextAreaElement)) throw new Error("No JSON editor");
+  expect(editor.value).toBe(
+    JSON.stringify({ ...legacy, requirements: [...legacy.requirements] }, null, 2),
+  );
+});

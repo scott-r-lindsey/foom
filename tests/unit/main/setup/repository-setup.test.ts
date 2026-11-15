@@ -1,4 +1,4 @@
-import { mkdtemp, rm, rename, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, rename, mkdir, writeFile, readFile, lstat } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { DialogContent } from "../../../../src/shared/confirmation";
@@ -524,3 +524,130 @@ it.each([null, "build"])(
     ).rejects.toThrow("sources changed");
   },
 );
+
+it("opens authentic catalog-v1 approvals as blocked editable records and never grants old operands authority", async () => {
+  const profile = await mkdtemp(join(tmpdir(), "setup-legacy-"));
+  try {
+    const raw: unknown = JSON.parse(
+      await readFile("tests/fixtures/repository-setup/catalog-v1-approval.json", "utf8"),
+    );
+    const directory = join(profile, "repository-setup");
+    await mkdir(directory, { mode: 0o700 });
+    await writeFile(
+      join(directory, "state.json"),
+      JSON.stringify({
+        version: 1,
+        approvals: [raw],
+        rows: [
+          {
+            repository: "/repo",
+            host: null,
+            state: "met",
+            revision: 7,
+            missing: [],
+            changed: [],
+            sourcesAtLaunch: false,
+          },
+        ],
+      }),
+      { mode: 0o600 },
+    );
+    const f = fixture();
+    const service = await RepositorySetup.open(profile, f.deps);
+    expect(
+      service
+        .state("board")
+        .rows.every((row) => row.state === "review-needed" && row.revision === 7 && !row.token),
+    ).toBe(true);
+    for (const host of [null, "build"])
+      await expect(service.admit(host, "/repo", "/repo")).rejects.toMatchObject({
+        reason: "repository_setup_changed",
+      });
+    expect(f.deps.check).not.toHaveBeenCalled();
+    const action = (input: RepositorySetupAction) =>
+      service.action("board", input, f.confirm, f.launch, f.abort.signal);
+    const reviewed = await action({ action: "review", repository: "/repo" });
+    if (!reviewed.review) throw new Error("No legacy review");
+    expect(reviewed.review.revision).toBe(7);
+    expect(reviewed.review.list.requirements[0]).toMatchObject({
+      packages: { debian: ["g++", "libfoo1.2"] },
+    });
+    expect(setupDigest(reviewed.review.previous)).toBe(
+      "437099f2ec466e0cc582da2803ec6c07deafb1a2dcdb8a6541a476d6de85d108",
+    );
+    await expect(action({ action: "approve", token: reviewed.review.token })).rejects.toThrow(
+      "Invalid setup package",
+    );
+    expect(f.confirm).not.toHaveBeenCalled();
+    expect(f.launch).not.toHaveBeenCalled();
+    await service.check("board", null, "/repo");
+    expect((await RepositorySetup.open(profile, f.deps)).state("board").rows[0]).toMatchObject({
+      state: "review-needed",
+      revision: 7,
+    });
+    const revised = {
+      ...reviewed.review.list,
+      requirements: reviewed.review.list.requirements.map((item) =>
+        item.kind === "package"
+          ? { ...item, packages: { ...item.packages, debian: ["gcc"] } }
+          : item,
+      ),
+    };
+    const next = await action({
+      action: "review",
+      repository: "/repo",
+      draft: JSON.stringify(revised),
+    });
+    if (!next.review) throw new Error("No revised review");
+    f.confirm.mockResolvedValueOnce(false);
+    await action({ action: "approve", token: next.review.token });
+    expect(service.state("board").rows[0]).toMatchObject({ state: "review-needed", revision: 7 });
+    await action({ action: "approve", token: next.review.token });
+    expect((await RepositorySetup.open(profile, f.deps)).state("board").rows[0]).toMatchObject({
+      state: "not-checked",
+      revision: 8,
+    });
+    // The historical reader is selected only for the exact old catalog, never for new authority.
+    if (typeof raw !== "object" || raw === null) throw new Error("Invalid fixture");
+    for (const catalog of [setupCatalogDigest, "b".repeat(64)]) {
+      await writeFile(
+        join(directory, "state.json"),
+        JSON.stringify({ approvals: [{ ...raw, catalog }] }),
+      );
+      await expect(RepositorySetup.open(profile, f.deps)).rejects.toThrow("Unable to read");
+    }
+  } finally {
+    await rm(profile, { recursive: true, force: true });
+  }
+});
+
+it("loads an unused setup owner without creating storage and verifies storage on first save", async () => {
+  const profile = await mkdtemp(join(tmpdir(), "setup-unused-"));
+  try {
+    const f = fixture();
+    const service = await RepositorySetup.open(profile, f.deps);
+    expect(service.state("board").rows.every((row) => row.state === "no-list")).toBe(true);
+    await expect(lstat(join(profile, "repository-setup"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    const reviewed = await service.action(
+      "board",
+      { action: "review", repository: "/repo", draft },
+      f.confirm,
+      f.launch,
+      f.abort.signal,
+    );
+    if (!reviewed.review) throw new Error("No review");
+    await service.action(
+      "board",
+      { action: "approve", token: reviewed.review.token },
+      f.confirm,
+      f.launch,
+      f.abort.signal,
+    );
+    expect((await lstat(join(profile, "repository-setup"))).isDirectory()).toBe(true);
+    expect((await RepositorySetup.open(profile, f.deps)).state("board").rows[0]?.revision).toBe(1);
+  } finally {
+    await rm(profile, { recursive: true, force: true });
+  }
+});

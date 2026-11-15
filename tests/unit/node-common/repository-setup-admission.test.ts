@@ -15,6 +15,7 @@ vi.mock("../../../src/node-common/repository-setup-check", () => ({
   setupProbeDependencies: vi.fn(() => Promise.resolve({})),
 }));
 const admission: SetupAdmission = {
+  codeRoot: "/fixture",
   list: {
     requirements: [
       {

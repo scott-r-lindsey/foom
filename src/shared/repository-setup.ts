@@ -65,7 +65,10 @@ export function setupVersion(value: unknown): value is string {
     )
   );
 }
-function requirement(value: unknown): SetupPackage | SetupToolchain {
+function requirement(
+  value: unknown,
+  packageName: (value: unknown, distro: SetupDistro) => value is string = setupPackageName,
+): SetupPackage | SetupToolchain {
   if (
     !object(value) ||
     typeof value["id"] !== "string" ||
@@ -103,7 +106,7 @@ function requirement(value: unknown): SetupPackage | SetupToolchain {
     if (
       !Array.isArray(names) ||
       names.length > 128 ||
-      !names.every((name: unknown) => setupPackageName(name, distro)) ||
+      !names.every((name: unknown) => packageName(name, distro)) ||
       new Set(names).size !== names.length
     )
       throw new Error("Invalid setup package");
@@ -160,7 +163,10 @@ function setupJson(text: string): unknown {
   }
   return value;
 }
-export function parseSetupList(text: string): RepositorySetupList {
+function parseList(
+  text: string,
+  packageName: (value: unknown, distro: SetupDistro) => value is string,
+): RepositorySetupList {
   const value = setupJson(text);
   if (
     !object(value) ||
@@ -171,7 +177,7 @@ export function parseSetupList(text: string): RepositorySetupList {
   )
     throw new Error("Invalid setup list");
   const requirements = value["requirements"]
-    .map(requirement)
+    .map((value: unknown) => requirement(value, packageName))
     .sort((a, b) => a.id.localeCompare(b.id, "en"));
   if (
     new Set(requirements.map((item) => item.id)).size !== requirements.length ||
@@ -284,10 +290,20 @@ export function validSetupList(value: unknown): value is RepositorySetupList {
     return false;
   }
 }
+function setupAbsolutePath(path: unknown): path is string {
+  return (
+    typeof path === "string" &&
+    path.length <= 4096 &&
+    !controls.test(path) &&
+    /^(?:\/|[A-Za-z]:[/\\])/u.test(path) &&
+    !path.split(/[/\\]/u).some((part) => part === "." || part === "..")
+  );
+}
 export function setupAdmission(value: unknown): value is SetupAdmission {
   return (
     object(value) &&
-    keys(value, ["list", "catalog", "revision", "sources"]) &&
+    keys(value, ["list", "catalog", "revision", "sources", "codeRoot"]) &&
+    setupAbsolutePath(value["codeRoot"]) &&
     validSetupList(value["list"]) &&
     typeof value["catalog"] === "string" &&
     /^[a-f0-9]{64}$/u.test(value["catalog"]) &&
@@ -315,20 +331,14 @@ export function setupRun(value: unknown): value is SetupRun {
     ]) &&
     object(value["location"]) &&
     keys(value["location"], ["root", "path", "present"]) &&
-    [value["location"]["root"], value["location"]["path"]].every(
-      (path: unknown) =>
-        typeof path === "string" &&
-        path.length <= 4096 &&
-        !controls.test(path) &&
-        /^(?:\/|[A-Za-z]:[/\\])/u.test(path) &&
-        !path.split(/[/\\]/u).some((part) => part === "." || part === ".."),
-    ) &&
+    [value["location"]["root"], value["location"]["path"]].every(setupAbsolutePath) &&
     typeof value["location"]["present"] === "boolean" &&
     setupAdmission({
       list: value["list"],
       catalog: value["catalog"],
       revision: value["revision"],
       sources: value["sources"],
+      codeRoot: value["location"]["root"],
     }) &&
     typeof value["repository"] === "string" &&
     value["repository"].length <= 4096 &&
@@ -363,6 +373,17 @@ export function setupRefusal(value: unknown): value is SetupRefusal {
     )
   );
 }
+
+/** Current executable schema, including all operand restrictions. */
+export const parseSetupList = (text: string): RepositorySetupList =>
+  parseList(text, setupPackageName);
+/** Read-only catalog-v1 compatibility. Never use for new approvals or execution. */
+export const parseSetupListV1 = (text: string): RepositorySetupList =>
+  parseList(
+    text,
+    (name: unknown): name is string =>
+      typeof name === "string" && /^[a-z0-9][a-z0-9+_.-]{0,79}$/u.test(name),
+  );
 
 /** Unsupported tool names remain explicit unresolved data and cannot be approved. */
 export function parseSetupDraft(text: string): SetupDraft {

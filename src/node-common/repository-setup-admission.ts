@@ -32,14 +32,14 @@ export async function validateSetupAdmission(
     throw new LaunchFailure("repository_setup_changed");
   const env = await repositorySetupEnvironment(
     source,
-    checkout,
+    [admission.codeRoot, checkout],
     prefix,
     setupSelectedTools(admission.list),
     home,
   );
   const checked = await checkSetupList(
     admission.list,
-    await setupProbeDependencies(env, home, signal),
+    await setupProbeDependencies(env, home, signal, [admission.codeRoot, checkout]),
   );
   if (checked.items.some((item) => item.state !== "met"))
     throw new LaunchFailure(

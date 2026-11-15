@@ -1,10 +1,16 @@
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
+import { realpath } from "node:fs/promises";
 import { readOwnedFile } from "../../node-common/owned-files";
-import { atomicPrivate, privateDirectory } from "../../node-common/private-files";
-import { setupCatalogDigest, setupDigest } from "../../node-common/repository-setup-digest";
+import { atomicPrivate, privateDirectory, verifyPrivate } from "../../node-common/private-files";
+import {
+  setupCatalogDigest,
+  setupDigest,
+  setupCatalogV1Digest,
+} from "../../node-common/repository-setup-digest";
 import {
   parseSetupList,
+  parseSetupListV1,
   parseSetupDraft,
   setupAction,
   setupSourcePath,
@@ -104,10 +110,13 @@ export class RepositorySetup {
     profile: string,
     deps: Omit<RepositorySetupDependencies, "save">,
   ): Promise<RepositorySetup> {
-    const directory = await privateDirectory(profile, "repository-setup");
+    const directory = join(await realpath(profile), "repository-setup");
+    let storageReady = false;
     let approvals: SetupApproval[] = [];
     const savedRows: SetupRow[] = [];
     try {
+      await verifyPrivate(directory, true);
+      storageReady = true;
       const value: unknown = JSON.parse(
         await readOwnedFile(join(directory, "state.json"), 16 * 1024 * 1024),
       );
@@ -205,7 +214,9 @@ export class RepositorySetup {
           !Number.isSafeInteger(entry.approvedAt)
         )
           throw new Error("Invalid setup approval");
-        const list = parseSetupList(JSON.stringify(entry.list));
+        const list = (entry.catalog === setupCatalogV1Digest ? parseSetupListV1 : parseSetupList)(
+          JSON.stringify(entry.list),
+        );
         if (entry.digest !== setupDigest(list)) throw new Error("Invalid setup digest");
         const sources = entry.sources;
         if (!setupSources(sources)) throw new Error("Invalid setup sources");
@@ -234,8 +245,13 @@ export class RepositorySetup {
     return new RepositorySetup(
       {
         ...deps,
-        save: (approvals, rows) =>
-          atomicPrivate(directory, "state.json", { version: 1, approvals, rows }),
+        save: async (approvals, rows) => {
+          if (!storageReady) {
+            await privateDirectory(profile, "repository-setup");
+            storageReady = true;
+          }
+          await atomicPrivate(directory, "state.json", { version: 1, approvals, rows });
+        },
       },
       approvals,
       savedRows,
@@ -289,17 +305,27 @@ export class RepositorySetup {
                 changed: [],
                 sourcesAtLaunch: false,
               }
-            : saved?.revision === active.revision
-              ? saved
-              : {
+            : active.catalog !== setupCatalogDigest
+              ? {
                   host,
                   repository: repo.path,
                   revision: active.revision,
-                  state: "not-checked",
+                  state: "review-needed",
                   missing: [],
                   changed: [],
-                  sourcesAtLaunch: host !== null,
-                };
+                  sourcesAtLaunch: false,
+                }
+              : saved?.revision === active.revision
+                ? saved
+                : {
+                    host,
+                    repository: repo.path,
+                    revision: active.revision,
+                    state: "not-checked",
+                    missing: [],
+                    changed: [],
+                    sourcesAtLaunch: host !== null,
+                  };
           const plan = [...this.plans].find(
             ([, value]) =>
               value.scope === scope &&
@@ -475,6 +501,8 @@ export class RepositorySetup {
         if (entry.review.unresolved?.length)
           throw new Error("Resolve or explicitly remove unsupported requirements before approval");
         const approval = entry.approval;
+        // Historical lists are display/edit data only, never executable approval.
+        parseSetupList(JSON.stringify(approval.list));
         if (
           !(await confirm({
             title: entry.review.revision
@@ -740,7 +768,12 @@ export class RepositorySetup {
     host: string | null,
     repository: string,
     checkout: string,
-  ): Promise<{ approval?: SetupApproval; paths: string[]; validate(): void }> {
+  ): Promise<
+    (
+      | { approval?: undefined; paths: string[] }
+      | { approval: SetupApproval; paths: string[]; codeRoot: string }
+    ) & { validate(): void }
+  > {
     const active = this.active(repository);
     const binding = this.binding(host, repository);
     if (!active && this.stored(repository))
@@ -781,7 +814,9 @@ export class RepositorySetup {
       );
     if (binding !== this.binding(host, repository))
       throw new LaunchFailure("repository_setup_changed");
+    if (!row.location) throw new LaunchFailure("repository_setup_unavailable");
     return {
+      codeRoot: row.location.root,
       approval: active,
       paths: host === null ? ((await this.deps.bins?.(active.list)) ?? []) : [],
       validate: () => {

@@ -145,6 +145,7 @@ export async function launchAgent(
         ...(setup?.approval
           ? {
               repositorySetup: {
+                codeRoot: setup.codeRoot,
                 list: setup.approval.list,
                 catalog: setup.approval.catalog,
                 revision: setup.approval.revision,
@@ -549,6 +550,7 @@ export async function startMachine(
         : undefined;
     if (remote && setup?.approval)
       remote.setupAdmission = {
+        codeRoot: setup.codeRoot,
         list: setup.approval.list,
         revision: setup.approval.revision,
         catalog: setup.approval.catalog,
@@ -653,6 +655,7 @@ export async function startMachine(
       if (remote && setup) {
         if (setup.approval)
           remote.setupAdmission = {
+            codeRoot: setup.codeRoot,
             list: setup.approval.list,
             revision: setup.approval.revision,
             catalog: setup.approval.catalog,

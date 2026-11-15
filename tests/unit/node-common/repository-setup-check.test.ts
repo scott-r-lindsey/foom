@@ -1,7 +1,22 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { validateSetupAdmission } from "../../../src/node-common/repository-setup-admission";
+import { inspectSetupSources } from "../../../src/node-common/repository-setup-sources";
+import { setupCatalogDigest } from "../../../src/node-common/repository-setup-digest";
 import type * as FileSystem from "node:fs/promises";
 import type * as Probe from "../../../src/node-common/repository-setup-probe";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdtemp, mkdir, chmod, rm, writeFile, open, realpath, symlink } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  chmod,
+  rm,
+  writeFile,
+  open,
+  realpath,
+  symlink,
+  readFile,
+} from "node:fs/promises";
 import { join, delimiter } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -30,7 +45,7 @@ vi.mock("node:fs/promises", async (original) => {
 beforeEach(async () => {
   const actual = await vi.importActual<typeof FileSystem>("node:fs/promises");
   vi.mocked(realpath).mockImplementation(actual.realpath);
-  root = await mkdtemp(join(tmpdir(), "setup-check-"));
+  root = await actual.realpath(await mkdtemp(join(tmpdir(), "setup-check-")));
   await writeFile(join(root, "libstdcpp"), "GLIBCXX_3.4.25\0");
   await writeFile(join(root, "os-release"), "ID=debian\n");
   const { open: realOpen } = await vi.importActual<typeof FileSystem>("node:fs/promises");
@@ -316,3 +331,94 @@ it("retains checkout exclusion when its canonical root becomes unreadable", asyn
   const d = await setupProbeDependencies(env, root, undefined, checkout);
   expect(await d.resolve("node")).toBeUndefined();
 });
+
+it.skipIf(process.platform === "win32").each([false, true])(
+  "remote admission excludes registered root and retargeted symlinks (external checkout: %s)",
+  async (externalCheckout) => {
+    const codeRoot = join(root, "code");
+    const checkout = externalCheckout ? join(root, "external-checkout") : join(codeRoot, "repo");
+    const tools = join(codeRoot, "tools");
+    const safe = join(root, "safe");
+    const external = join(root, "external");
+    await Promise.all([
+      mkdir(checkout, { recursive: true }),
+      mkdir(tools, { recursive: true }),
+      mkdir(safe),
+      mkdir(external),
+    ]);
+    await writeFile(join(checkout, "package.json"), "{}");
+    const calls = join(root, "calls");
+    const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+    for (const [directory, label] of [
+      [tools, "code-root"],
+      [checkout, "checkout"],
+      [safe, "safe"],
+      [external, "external"],
+    ]) {
+      if (!directory || !label) throw new Error("Invalid fixture");
+      await writeFile(
+        join(directory, "node"),
+        `#!/bin/sh\nprintf '%s\\n' ${quote(label)} >> ${quote(calls)}\nprintf 'v24.17.0\\n'\n`,
+        { mode: 0o700 },
+      );
+    }
+    const onlyNode = parseSetupList(
+      JSON.stringify({
+        requirements: [
+          {
+            kind: "toolchain",
+            id: "node",
+            tool: "node",
+            version: "24.x",
+            purpose: "Build",
+            sources: ["package.json"],
+          },
+        ],
+        evidence: [],
+      }),
+    );
+    const sources = await inspectSetupSources(checkout, ["package.json"]);
+    const admission = {
+      codeRoot,
+      list: onlyNode,
+      catalog: setupCatalogDigest,
+      revision: 1,
+      sources: sources.fingerprint,
+    };
+    const execute = promisify(execFile);
+    vi.mocked(setupProbe).mockImplementation(async (command, args, cwd, env) => {
+      if (command === "/usr/bin/getconf") return "glibc 2.36";
+      if (command === "/usr/bin/sw_vers") return "14.0";
+      if (!command.startsWith(root + "/")) throw new Error("Nonfixture CLI");
+      return (await execute(command, [...args], { cwd, env })).stdout;
+    });
+    const env = await validateSetupAdmission(
+      admission,
+      checkout,
+      join(root, "private"),
+      { PATH: [tools, safe].join(delimiter) },
+      root,
+    );
+    expect(env?.["PATH"]).toBe(safe);
+    expect(await readFile(calls, "utf8")).toBe("safe\n");
+    await rm(join(external, "node"));
+    await symlink(join(safe, "node"), join(external, "node"));
+    const prior = vi.mocked(setupProbe).getMockImplementation();
+    if (!prior) throw new Error("No fixture probe");
+    vi.mocked(setupProbe).mockImplementation(async (...args) => {
+      if (args[0] === "/usr/bin/getconf" || args[0] === "/usr/bin/sw_vers") {
+        await rm(join(external, "node"));
+        await symlink(join(checkout, "node"), join(external, "node"));
+      }
+      return prior(...args);
+    });
+    await validateSetupAdmission(
+      admission,
+      checkout,
+      join(root, "private"),
+      { PATH: [external, safe].join(delimiter) },
+      root,
+    );
+    expect(await readFile(calls, "utf8")).toBe("safe\nsafe\n");
+  },
+);

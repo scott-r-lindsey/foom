@@ -56,7 +56,8 @@ remain Unable to check, distinct from missing packages and wrong versions.
 Read-only probes disable [Corepack network access](https://github.com/nodejs/corepack#environment-variables)
 and [Homebrew auto-update/analytics](https://docs.brew.sh/Manpage#environment).
 Explicit setup retains the disclosed installer network behavior. Remote management
-and execution exclude the entire registered code root, including when the selected
+and execution, including remote daemon and child launch admission, exclude the
+entire registered code root and selected checkout, including when the selected
 checkout is absent. Executable resolution returns canonical paths and rejects
 Node/pnpm/Homebrew targets in that root before any `--version` probe.
 
@@ -69,7 +70,14 @@ to refuse explicit and solver removals. Homebrew uses `--formula --`, with
 ([documented behavior](https://docs.brew.sh/Manpage#environment)). Unmet OS packages
 on RHEL/Arch are manual until an atomic no-removal transaction is supported;
 checks, already-met packages and private toolchains remain available. Catalog
-revision 2 invalidates prior approvals and mismatched helpers.
+revision 3 invalidates prior approvals and mismatched helpers. Exact catalog-v1
+profiles retain their original lists and digests through a bounded historical
+reader. They remain Review needed and block launch/setup; obsolete package names
+are visible in review and editable, but cannot be approved under the current
+schema. Replacements use the trusted confirmation and the next list revision.
+Other malformed lists or invalid list/source digests still refuse startup.
+Unused setup storage is not created at startup; existing state and every write
+still receive private-directory/file verification.
 
 The initial catalog pins Node 24.17.0 for Linux/macOS x64/arm64 to official
 `nodejs.org` archive SHA-256 values and pnpm 10.34.7 to its fixed npm artifact and

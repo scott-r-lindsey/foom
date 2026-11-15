@@ -10,6 +10,7 @@ const {
   launchApp,
   boardPage,
   confirmationPage,
+  quitAndWait,
   openSettingsScreen,
   removeAfterApps,
 } = require("./harness.js");
@@ -470,5 +471,103 @@ test("repository setup IPC refuses source edits during launch preparation before
     await app.evaluate(() => globalThis.repositorySetupDispatchFailure),
     "Repository sources changed before dispatch",
   );
+  assert.equal((await page.evaluate(() => window.desktop.workspace())).terminals.length, 0);
+});
+
+test("catalog-v1 setup approvals preserve the launch block and open an editable review after restart", {
+  timeout: deadline(60_000),
+}, async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "setup-legacy-profile-"));
+  removeAfterApps(context, root);
+  const profile = path.join(root, "profile");
+  const first = await launchApp(context, {
+    fixture: "repository",
+    args: [`--user-data-dir=${profile}`],
+  });
+  const board = await boardPage(first);
+  const repository = (await board.evaluate(() => window.desktop.workspace())).repositories[0].path;
+  await writeFile(path.join(repository, "package.json"), "{}\n");
+  const reviewed = await board.evaluate(
+    (repository) =>
+      window.desktop.repositorySetup({
+        action: "review",
+        repository,
+        draft: JSON.stringify({ requirements: [], evidence: [] }),
+      }),
+    repository,
+  );
+  const pending = board.evaluate(
+    (token) => window.desktop.repositorySetup({ action: "approve", token }),
+    reviewed.review.token,
+  );
+  await approveDialog(first, board);
+  await pending;
+  await quitAndWait(first, () => first.evaluate(({ app }) => app.quit()));
+  const file = path.join(profile, "repository-setup", "state.json");
+  const saved = JSON.parse(await readFile(file, "utf8"));
+  const legacy = require("../fixtures/repository-setup/catalog-v1-approval.json");
+  saved.approvals[0] = {
+    ...saved.approvals[0],
+    list: legacy.list,
+    digest: legacy.digest,
+    catalog: legacy.catalog,
+    revision: 7,
+  };
+  saved.rows = [
+    {
+      repository,
+      host: null,
+      revision: 7,
+      state: "met",
+      missing: [],
+      changed: [],
+      sourcesAtLaunch: false,
+    },
+  ];
+  await writeFile(file, JSON.stringify(saved), { mode: 0o600 });
+  const app = await launchApp(context, {
+    fixture: "restored",
+    args: [`--user-data-dir=${profile}`],
+  });
+  const page = await boardPage(app);
+  await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .setContentSize(1400, 1000),
+  );
+  const state = await page.evaluate(() => window.desktop.repositorySetup({ action: "list" }));
+  assert.equal(state.rows[0].state, "review-needed");
+  assert.equal(state.rows[0].revision, 7);
+  assert.equal(state.rows[0].token, undefined);
+  await openSettingsScreen(page);
+  await page
+    .getByRole("navigation", { name: "Settings sections" })
+    .getByRole("button", { name: "Hosts", exact: true })
+    .click();
+  const panel = page.getByRole("region", { name: "Repository setup", exact: true });
+  await expect(panel.getByText("Review needed", { exact: false })).toBeVisible();
+  await capture(page, "legacy-blocked");
+  await panel.getByRole("button", { name: "Review list", exact: true }).click();
+  await expect(panel.getByRole("alert")).toContainText("no longer supported");
+  await expect(panel.getByRole("button", { name: "Keep list", exact: true })).toBeDisabled();
+  await expect(panel.getByRole("button", { name: "Set up", exact: true })).toHaveCount(0);
+  await capture(page, "legacy-review");
+  await panel.getByRole("button", { name: "Edit draft", exact: true }).click();
+  const editor = panel.getByRole("textbox", { name: "Setup draft JSON" });
+  const draft = JSON.parse(await editor.inputValue());
+  assert.deepEqual(draft.requirements[0].packages.debian, ["g++", "libfoo1.2"]);
+  await capture(page, "legacy-edit");
+  draft.requirements[0].packages.debian = ["gcc"];
+  await editor.fill(JSON.stringify(draft));
+  await panel.getByRole("button", { name: "Review draft", exact: true }).click();
+  await panel.getByRole("button", { name: "Approve list", exact: true }).click();
+  await approveDialog(app, page);
+  await expect
+    .poll(
+      async () =>
+        (await page.evaluate(() => window.desktop.repositorySetup({ action: "list" }))).rows[0]
+          .revision,
+    )
+    .toBe(8);
   assert.equal((await page.evaluate(() => window.desktop.workspace())).terminals.length, 0);
 });

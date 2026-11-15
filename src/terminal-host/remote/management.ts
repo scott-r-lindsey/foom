@@ -458,16 +458,17 @@ export async function manageHost(
         };
       }
       const prefix = remoteToolchainPrefix(home);
+      const excluded = [folder, ...(source ? [source.checkout] : [])];
       const safe = await repositorySetupEnvironment(
         env,
-        folder,
+        excluded,
         prefix,
         setupSelectedTools(request.list),
         home,
       );
       const check = await checkSetupList(
         request.list,
-        await setupProbeDependencies(safe, home, signal, folder),
+        await setupProbeDependencies(safe, home, signal, excluded),
       );
       const sources = source
         ? await inspectSetupSources(source.checkout, request.evidence)

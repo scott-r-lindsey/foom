@@ -146,7 +146,10 @@ it("composes one profile owner and never uses saved facts as launch authority", 
   expect((await service.admit(null, repository, repository)).paths).toEqual([
     "/private/toolchain/bin",
   ]);
-  expect((await service.admit("build", repository, "/remote/worktree")).approval?.revision).toBe(1);
+  const remoteAdmission = await service.admit("build", repository, "/remote/worktree");
+  expect(remoteAdmission.approval?.revision).toBe(1);
+  if (!remoteAdmission.approval) throw new Error("No admission");
+  expect(remoteAdmission.codeRoot).toBe("/remote");
   expect(hosts.repositorySetup).toHaveBeenCalledWith(
     "build",
     repository,

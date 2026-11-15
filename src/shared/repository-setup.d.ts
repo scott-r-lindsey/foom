@@ -114,6 +114,7 @@ export interface SetupRun {
   digest: string;
 }
 export interface SetupAdmission {
+  codeRoot: string;
   list: RepositorySetupList;
   catalog: string;
   revision: number;

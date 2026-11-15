@@ -322,10 +322,25 @@ test("setup evidence has a separate bounded budget without increasing agent prom
     })),
     evidence: [],
   };
-  const repositorySetup = { list, revision: 1, catalog: "a".repeat(64), sources: "b".repeat(64) };
+  const repositorySetup = {
+    codeRoot: "/code",
+    list,
+    revision: 1,
+    catalog: "a".repeat(64),
+    sources: "b".repeat(64),
+  };
   const request = { ...spec, repositorySetup, prompt: "p".repeat(16384) };
   expect(new TextEncoder().encode(JSON.stringify(request)).length).toBeGreaterThan(65536);
   expect(remoteAgentSpec(request)).toBe(true);
+  expect(
+    remoteAgentSpec({ ...request, repositorySetup: { ...repositorySetup, codeRoot: undefined } }),
+  ).toBe(false);
+  expect(
+    remoteAgentSpec({
+      ...request,
+      repositorySetup: { ...repositorySetup, codeRoot: "/code/../checkout" },
+    }),
+  ).toBe(false);
   expect(remoteAgentSpec({ ...request, prompt: "p".repeat(16385) })).toBe(false);
   expect(
     remoteAgentSpec({

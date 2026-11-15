@@ -99,6 +99,14 @@ production state to SQLite or enable #1153 phase-D guards incidentally. Main own
 records; renderer/preload receive bounded validated projections. Future migration
 follows [data ownership](../areas/data.md).
 
+Catalog-v1 approvals remain profile data when a newer operand grammar rejects
+their names. A version-specific historical reader verifies their original canonical
+list/source digests without granting execution authority. Startup succeeds and
+shows Review needed; review preserves the old mappings and offers Edit draft.
+Current parsing must succeed before trusted approval can replace the list with
+the next revision. Never silently drop the prerequisite or treat these authentic
+old records as corrupt. Unrecognized corrupt authority still refuses loading.
+
 Removing a list requires an explicit **Remove setup list** confirmation explaining
 that this removes the repository launch prerequisite. It uninstalls nothing.
 Repository removal deletes its lists and observations; host removal deletes that
@@ -190,6 +198,9 @@ probes and each recipe step. A changed snapshot refuses the obsolete plan.
 Remote helper PATH filtering uses the actual registered code root, even when the
 repository is absent; realpath checks exclude repository directories and login
 bins resolving Node/pnpm/Homebrew into that root before any version execution.
+Remote launch admission carries the main-selected registered code root, excludes
+both it and the actual selected checkout, and repeats executable exclusion after
+awaited ABI probes in both daemon and child launches.
 
 Install-only transactions take precedence over backend availability. Debian uses
 update then `apt-get install -y --no-remove --` (solver removals abort too). Homebrew
@@ -197,7 +208,7 @@ uses `install --formula --` via the validated login PATH, with automatic cleanup
 and installed-dependent upgrade/reinstall disabled. Missing RHEL/Arch packages
 require manual setup: the bundled DNF/pacman backends do not provide a verified
 atomic no-removal guarantee. Read-only presence checks, already-met requirements
-and private toolchain recipes remain supported there. Catalog revision 2 invalidates
+and private toolchain recipes remain supported there. Catalog revision 3 invalidates
 old approvals/peers so changed operand and transaction rules require fresh review.
 Prompts and
 sudo stay in the visible terminal; Foom cannot supply an answer. No silent fallback,

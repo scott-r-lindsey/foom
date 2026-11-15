@@ -5,7 +5,7 @@ import type {
   SetupDistro,
 } from "../../shared/repository-setup.d";
 import { setupArtifact, setupCatalog, setupPlan } from "../../shared/repository-setup-catalog";
-import { parseSetupList, setupDistros } from "../../shared/repository-setup";
+import { parseSetupList, setupDistros, validSetupList } from "../../shared/repository-setup";
 import type { SetupSource } from "./setup-source.d";
 import { HostTerminal } from "./host-terminal";
 
@@ -282,6 +282,12 @@ export function RepositorySetupPanel({
               {!!review.removed?.length && (
                 <p>Removed unresolved requirements · {review.removed.join(", ")}</p>
               )}
+              {!validSetupList(review.list) && (
+                <p role="alert">
+                  This saved list uses package names that are no longer supported. Edit the draft
+                  before approving. Repository launches remain blocked.
+                </p>
+              )}
               <p>Review all distribution mappings, toolchains and evidence before approving.</p>
               {review.list.requirements.length === 0 && <p>No host requirements</p>}
               {review.list.requirements.map((item) => (
@@ -395,7 +401,7 @@ export function RepositorySetupPanel({
                 </button>
                 <button
                   type="button"
-                  disabled={busy || !!review.unresolved?.length}
+                  disabled={busy || !!review.unresolved?.length || !validSetupList(review.list)}
                   onClick={() => {
                     void act({ action: "approve", token: review.token });
                   }}
