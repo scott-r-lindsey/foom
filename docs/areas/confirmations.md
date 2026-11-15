@@ -27,7 +27,16 @@ the last caller withdraws the row. Its former footprint becomes an inert, labell
 placeholder for 900 ms before space is reclaimed. Every decision control whose
 position or size changes (including after withdrawal, expiry, disclosure expansion
 or scrolling) receives a fresh monotonic 900 ms renderer guard. Geometry is
-rechecked synchronously at decision input as well as after layout changes. If a
+rechecked synchronously at decision input as well as after layout changes. Native
+queue bounds changes also revoke all decisions for 900 ms in main, before any
+`setBounds` write. Main observes native move/resize notifications and reads back
+bounds at answer time, closing notification/delivery races. A main-owned
+`geometryRevision` in the ordinary validated render payload re-arms the renderer
+even when CSS rectangles are unchanged; preload accepts only nonnegative safe
+integers. Repeated notifications for identical native bounds do not extend the
+guard. The bulk button uses `aria-disabled` with the same disabled styling and
+answer-time guard, retaining keyboard focus and its captured IDs through a native
+resize while a gesture is held. Deliberate focus changes or window blur cancel it. If a
 removed control held keyboard focus, Hide receives it. Renderer loss or presentation failure declines
 remaining callers without granting anything.
 

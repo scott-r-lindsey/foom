@@ -121,6 +121,8 @@ export interface DialogRequest
     "feed" | "removal" | "removalFeed" | "pluginFeed" | "approvalFeed" | "approval" | "userAction"
   > {
   id: string;
+  /** Main-owned revision of the queue window’s native bounds. */
+  geometryRevision?: number;
   /** Main has completed the native presentation attempt for this request. */
   presented: boolean;
   theme: InterfaceTheme;

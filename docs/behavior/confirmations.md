@@ -82,6 +82,8 @@ resolved request is replaced by a non-interactive “Request ended” placeholde
 for 900 ms. Reclaiming that space cannot immediately activate a different row:
 buttons that move are disabled for another 900 ms. Moving or resizing controls,
 including by scrolling or expanding details, restarts this reading interval.
+Moving or resizing the native approval window also disables decisions for 900 ms,
+including when it recenters after its board moves or resizes.
 Removing a focused decision moves focus to Hide. Empty queues close.
 The window grows down from a fixed top edge to 720 CSS pixels, then scrolls within
 the available board/display area. Its title and the sidebar show the live count.

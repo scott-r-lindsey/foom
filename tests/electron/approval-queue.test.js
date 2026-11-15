@@ -416,3 +416,51 @@ test("trusted approval gestures cannot retarget withdrawals, expiry or arrivals 
     await native.dispose();
   }
 });
+
+test("native queue recentering re-arms decisions before a stationary screen-point click", {
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, board } = await launchApprovalFixture(context);
+  const { dialog, native, row, approve } = await openFixtureDialog(app, board);
+  try {
+    await expect(approve("one")).toBeEnabled();
+    const decline = await row("one")
+      .getByRole("button", { name: "Decline", exact: true })
+      .boundingBox();
+    const cssBefore = await approve("one").boundingBox();
+    const before = await native.evaluate((window) => window.getContentBounds());
+    const screenPoint = {
+      x: before.x + decline.x + decline.width / 2,
+      y: before.y + decline.y + decline.height / 2,
+    };
+    await dialog.mouse.move(screenPoint.x - before.x, screenPoint.y - before.y);
+    await app.evaluate(({ BrowserWindow }) => {
+      const parent = BrowserWindow.getAllWindows().find(
+        (window) => window.webContents.getURL() === "app://bundle/index.html",
+      );
+      parent.setBounds({ x: 30, y: 10, width: 1000, height: 1000 });
+    });
+    await expect
+      .poll(() => native.evaluate((window) => window.getContentBounds().x))
+      .not.toBe(before.x);
+    await expect(approve("one")).toBeDisabled();
+    const after = await native.evaluate((window) => window.getContentBounds());
+    const cssAfter = await approve("one").boundingBox();
+    assert.deepEqual(cssAfter, cssBefore, "Native recentering leaves the CSS rectangle unchanged");
+    const click = { x: screenPoint.x - after.x, y: screenPoint.y - after.y };
+    assert.ok(
+      click.x >= cssAfter.x &&
+        click.x <= cssAfter.x + cssAfter.width &&
+        click.y >= cssAfter.y &&
+        click.y <= cssAfter.y + cssAfter.height,
+      "The old Decline screen point now hits Approve",
+    );
+    await dialog.mouse.click(click.x, click.y);
+    assert.equal(await app.evaluate(() => globalThis.approvalFixture.results.one), undefined);
+    await expect(approve("one")).toBeEnabled();
+    await approve("one").click();
+    await expect.poll(() => app.evaluate(() => globalThis.approvalFixture.results.one)).toBe(true);
+  } finally {
+    await native.dispose();
+  }
+});

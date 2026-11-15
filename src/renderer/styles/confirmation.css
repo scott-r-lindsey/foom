@@ -377,7 +377,8 @@ button:hover {
 .confirmation-accept:hover {
   background: color-mix(in srgb, var(--ink) 88%, var(--highlight));
 }
-button:disabled {
+button:disabled,
+button[aria-disabled="true"] {
   opacity: 0.45;
   cursor: default;
 }

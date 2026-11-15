@@ -1066,7 +1066,7 @@ test("approval queue preserves focus and keyed rows, guards moved controls and r
       detail: "Keep the branch",
     },
   });
-  const request: DialogRequest = {
+  let request: DialogRequest = {
     id: "queue",
     presented: true,
     theme: resolveInterfaceTheme("follow", false),
@@ -1087,6 +1087,24 @@ test("approval queue preserves focus and keyed rows, guards moved controls and r
   expect(view.getByRole("button", { name: "Approve all visible removals (1)" })).toBeTruthy();
   fireEvent.click(view.getByRole("button", { name: "Approve all visible removals (1)" }));
   expect(answer).not.toHaveBeenCalled();
+  request = { ...request, geometryRevision: 1 };
+  act(() => {
+    receive(request);
+  });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  expect(a.querySelector(".confirmation-accept")).toHaveProperty("disabled", true);
+  expect(
+    view.getByRole("button", { name: /Approve all visible/ }).getAttribute("aria-disabled"),
+  ).toBe("true");
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(900);
+  });
+  expect(a.querySelector(".confirmation-accept")).toHaveProperty("disabled", false);
+  expect(
+    view.getByRole("button", { name: /Approve all visible/ }).getAttribute("aria-disabled"),
+  ).toBe("false");
   await act(async () => {
     receive({
       ...request,

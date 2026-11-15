@@ -435,3 +435,27 @@ test("approval rows are recursively validated and projected without main capabil
     expect(receive).toHaveBeenLastCalledWith(null);
   }
 });
+
+test("buffers and projects only nonnegative safe-integer native geometry revisions", async () => {
+  await import("../../../src/preload/confirmation");
+  const api = mock.exposeInMainWorld.mock.calls[0]?.[1];
+  const listener = mock.on.mock.calls[0]?.[1];
+  if (!api || !listener) throw Error("Missing confirmation bridge");
+  const receive = vi.fn();
+  listener({}, { ...dialog, geometryRevision: 42 });
+  api.render(receive);
+  expect(receive).toHaveBeenLastCalledWith(expect.objectContaining({ geometryRevision: 42 }));
+  for (const geometryRevision of [
+    -1,
+    1.5,
+    NaN,
+    Infinity,
+    Number.MAX_SAFE_INTEGER + 1,
+    "42",
+    null,
+    {},
+  ]) {
+    listener({}, { ...dialog, geometryRevision });
+    expect(receive).toHaveBeenLastCalledWith(null);
+  }
+});

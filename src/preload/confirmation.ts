@@ -223,7 +223,10 @@ const validDialogSummaryLine: Validator<DialogSummaryLine> = shape({
   title: either(absent, summaryText),
 } satisfies Contract<DialogSummaryLine>);
 
+const geometryRevision: Validator<number> = (value): value is number =>
+  typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 const dialogFields = {
+  geometryRevision: either(absent, geometryRevision),
   id: nonempty,
   presented: boolean,
   pluginSetup: either(

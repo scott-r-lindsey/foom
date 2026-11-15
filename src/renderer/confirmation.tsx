@@ -892,7 +892,7 @@ export function ApprovalQueue({
     let timer: number | undefined;
     const update = () => {
       window.clearTimeout(timer);
-      const state = geometry.read(root);
+      const state = geometry.read(root, request.geometryRevision);
       setBlocked((previous) =>
         previous.length === state.blocked.length &&
         previous.every((id, index) => id === state.blocked[index])
@@ -920,9 +920,9 @@ export function ApprovalQueue({
   const ready = useCallback(
     (id: string) => {
       const root = rootRef.current;
-      return root !== null && geometry.ready(root, id);
+      return root !== null && geometry.ready(root, id, request.geometryRevision);
     },
-    [geometry],
+    [geometry, request.geometryRevision],
   );
   useEffect(() => {
     const focusSafe = () => {
@@ -1029,7 +1029,9 @@ export function ApprovalQueue({
         <button
           type="button"
           data-approval-decision="bulk"
-          disabled={!visible.length || blocked.includes("bulk")}
+          // Preserve a held keyboard gesture while a native resize re-arms the guard.
+          // Both renderer and main still refuse decisions during this disabled interval.
+          aria-disabled={!visible.length || blocked.includes("bulk")}
           onPointerDown={(event) => {
             gestureRef.current =
               event.isTrusted && event.button === 0 && ready("bulk") ? onScreen() : [];

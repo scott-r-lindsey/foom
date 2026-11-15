@@ -48,6 +48,9 @@ export class TrustedDialog {
     | undefined;
   private approvalFeed: DialogContent["approvalFeed"];
   private approvalsOpened = false;
+  private geometryRevision = 0;
+  private guardedBounds: Rectangle | undefined;
+  private approvalReadyAt = 0;
   private pluginFeed: DialogContent["pluginFeed"];
   private feed: DialogContent["feed"];
   private removalFeed: DialogContent["removalFeed"];
@@ -117,7 +120,10 @@ export class TrustedDialog {
     )
       return;
     if (this.approvalFeed) {
-      if (!this.isReachable() || typeof id !== "string") return;
+      // Read back bounds too: a native move notification can lag behind an input.
+      this.nativeGeometry();
+      if (performance.now() < this.approvalReadyAt || !this.isReachable() || typeof id !== "string")
+        return;
       if (typeof accepted === "boolean" && id !== this.pending.id)
         this.approvalFeed.answer(id, accepted);
       else if (
@@ -334,6 +340,8 @@ export class TrustedDialog {
     window.webContents.on("will-attach-webview", (event) => {
       event.preventDefault();
     });
+    window.on("move", this.nativeGeometry);
+    window.on("resize", this.nativeGeometry);
     window.on("hide", this.childUnavailable);
     window.on("minimize", this.childUnavailable);
     // Cocoa can deliver hide before key focus is relinquished. Recheck on blur
@@ -457,7 +465,9 @@ export class TrustedDialog {
         id,
         presented: false,
         theme: this.theme(),
-        ...(approvalFeed ? { approvals: approvalFeed.current() } : {}),
+        ...(approvalFeed
+          ? { approvals: approvalFeed.current(), geometryRevision: this.geometryRevision }
+          : {}),
         ...(feed ? { cleanup: feed.current() } : {}),
         ...(removalFeed ? removalContent(removalFeed.current()) : {}),
       };
@@ -586,6 +596,30 @@ export class TrustedDialog {
     this.queue = result;
     return result;
   }
+  private readonly nativeGeometry = () => {
+    if (this.window && !this.window.isDestroyed())
+      this.guardApprovalBounds(this.window.getBounds());
+  };
+  private guardApprovalBounds(bounds: Rectangle): void {
+    if (!this.approvalFeed || !this.pending || !this.window) return;
+    const previous = this.guardedBounds;
+    if (
+      previous &&
+      previous.x === bounds.x &&
+      previous.y === bounds.y &&
+      previous.width === bounds.width &&
+      previous.height === bounds.height
+    )
+      return;
+    this.guardedBounds = { ...bounds };
+    this.invalidateApprovalGeometry();
+  }
+  private invalidateApprovalGeometry(): void {
+    if (!this.approvalFeed || !this.pending || !this.window) return;
+    this.approvalReadyAt = performance.now() + 900;
+    this.pending.request = { ...this.pending.request, geometryRevision: ++this.geometryRevision };
+    this.window.webContents.send("confirmation:render", this.pending.request);
+  }
   private readonly syncBounds = () => {
     if (!this.pending || !this.size || this.parent.isDestroyed() || !this.window) return;
     const parent = this.parent.getContentBounds();
@@ -622,8 +656,12 @@ export class TrustedDialog {
     // Conversely, repeating already-correct pre-map coordinates after mapping
     // can trigger X11 frame/gravity compensation and visibly move the card.
     const actual = this.window.getBounds();
-    if (actual.x !== x || actual.y !== y || actual.width !== width || actual.height !== height)
+    if (actual.x !== x || actual.y !== y || actual.width !== width || actual.height !== height) {
+      // Revoke decisions before the native write, not after its asynchronous event.
+      this.guardApprovalBounds(actual);
+      this.invalidateApprovalGeometry();
       this.window.setBounds(this.bounds);
+    }
   };
   private readonly blockParentInput = (event: Event, input: Input | MouseInputEvent) => {
     event.preventDefault();
