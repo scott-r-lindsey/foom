@@ -100,7 +100,7 @@
   gap: 6px;
   padding: 0 6px;
   overflow: hidden;
-  font: 9px / 25px var(--font-mono);
+  font: var(--type-weight, 400) calc(9px * var(--type-scale, 1)) / 25px var(--font-mono);
   white-space: nowrap;
   color: var(--term-dim);
   background: var(--term-bar);
@@ -117,7 +117,7 @@
   flex-direction: column;
   justify-content: flex-end;
   overflow: hidden;
-  font: 9px / 1.45 var(--font-terminal);
+  font: var(--type-weight, 400) calc(9px * var(--type-scale, 1)) / 1.45 var(--font-terminal);
   color: var(--term-plain);
   white-space: pre;
   transition: opacity 400ms ease calc(var(--delay) + 450ms);
@@ -133,7 +133,7 @@
   color: var(--term-dim);
 }
 .tone-bold {
-  font-weight: 700;
+  font-weight: var(--type-strong-weight, 700);
 }
 .tone-accent {
   color: var(--term-accent);
@@ -165,7 +165,7 @@
 .noise-title .board-agent {
   color: var(--term-plain);
   background: var(--term-line);
-  font-size: 8px;
+  font-size: calc(8px * var(--type-scale, 1));
   line-height: 14px;
   min-width: 20px;
 }

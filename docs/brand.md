@@ -60,7 +60,7 @@ Badges and chips use the badge fills and stay neutral: no amber, magenta, or sta
 Themes are complete color-token data, not CSS. `src/shared/interface-theme.d.ts`
 defines the original version 1 schema: `{ version: 1, name, base, colors }`. `colors` contains
 all 19 required color tokens from `src/renderer/styles/tokens.css`, including `space-ink`;
-font tokens stay fixed. The optional `highlight` and `highlight-deep` keys must be
+built-in font tokens stay fixed. The optional `highlight` and `highlight-deep` keys must be
 supplied together; older themes fall back to `accent` and `accent-deep`. Names contain 1–40 letters, numbers, spaces, dots, hyphens
 or underscores. Every color is an opaque six-digit `#RRGGBB` value. Extra and
 missing fields are rejected. `base` must agree with the background's lightness
@@ -91,7 +91,9 @@ brand hue, reserved-color, distance, base-luminance and hole rules produce warni
   in every built-in theme.
 
 Version 2 user files additionally support per-area colors, explicit state colors
-and bounded shape values; see the architecture theme format. Typography stays fixed.
+bounded shape values, fixed additional areas, allowlisted typography and validated
+sRGB gradients; see the [theme format](areas/themes.md#additional-areas-typography-and-gradients-1188).
+Typography can use only bundled faces or fixed system stacks. Terminal settings stay independent.
 
 The Theme menu on Appearance and first run is the only interface choice.
 Default follows OS appearance live; fixed themes keep their own base. Changing

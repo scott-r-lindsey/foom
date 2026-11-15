@@ -135,3 +135,62 @@ test("v2 installs portal-area, state and shape values and removes them on theme 
   expect(style.getPropertyValue("--state-selected")).toBe("");
   dispose();
 });
+
+test("projects fixed new areas, typography and sRGB paints and clears them on switching", async () => {
+  media();
+  let changed: ((state: SetupState) => void) | undefined;
+  const theme = {
+    ...interfaceThemes["eclipse-dark"],
+    version: 2 as const,
+    type: { family: "system" as const, scale: 1.2, weight: 450, "strong-weight": 650 },
+    areas: {
+      sidebar: {
+        bg: "#000000",
+        scrollbar: "#123456",
+        gradient: {
+          angle: 120,
+          stops: [
+            ["#000000", 0],
+            ["#010101", 100],
+          ] as [string, number][],
+        },
+      },
+      "tile-headers": { bg: "#020202" },
+      board: { bg: "#030303" },
+      wordmark: { ink: "#ffffff" },
+    },
+  };
+  const dispose = attachInterfaceTheme({
+    state: () => Promise.resolve(setupState({ interfaceTheme: theme })),
+    subscribe: (cb) => {
+      changed = cb;
+      return () => {};
+    },
+  });
+  await Promise.resolve();
+  const root = document.documentElement;
+  expect(root.style.getPropertyValue("--theme-sidebar-gradient")).toBe(
+    "linear-gradient(120deg in srgb, #000000 0%, #010101 100%)",
+  );
+  expect(root.style.getPropertyValue("--theme-sidebar-scrollbar")).toBe("#123456");
+  expect(root.style.getPropertyValue("--theme-tile-headers-bg")).toBe("#020202");
+  expect(root.style.getPropertyValue("--font-interface")).toBe("system-ui, sans-serif");
+  expect(root.style.getPropertyValue("--font-mono")).toBe("system-ui, sans-serif");
+  expect(root.style.getPropertyValue("--type-scale")).toBe("1.2");
+  expect(root.style.getPropertyValue("--type-weight")).toBe("450");
+  expect(root.style.getPropertyValue("--type-strong-weight")).toBe("650");
+  expect(root.dataset["themeAreas"]).toBe("sidebar tile-headers board wordmark");
+  changed?.(setupState());
+  for (const key of [
+    "theme-sidebar-gradient",
+    "font-interface",
+    "font-mono",
+    "type-scale",
+    "type-weight",
+    "type-strong-weight",
+  ])
+    expect(root.style.getPropertyValue(`--${key}`)).toBe("");
+  expect(root.dataset["themeAreas"]).toBe("");
+  dispose();
+  expect(root.dataset["themeGradients"]).toBeUndefined();
+});

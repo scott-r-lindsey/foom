@@ -1,4 +1,9 @@
-import { interfaceAreas, interfaceStates } from "../../shared/user-interface-theme";
+import type { InterfaceTheme, InterfaceGradient } from "../../shared/interface-theme";
+import {
+  interfaceAreas,
+  interfaceStates,
+  interfaceFontStacks,
+} from "../../shared/user-interface-theme";
 import type { ThemeCatalog } from "../../shared/theme-file";
 import {
   interfaceColorNames,
@@ -7,6 +12,24 @@ import {
 } from "../../shared/interface-themes";
 import type { Settings } from "../../shared/setup";
 import type { SetupSource } from "../preflight/setup-source.d";
+
+export function interfaceGradientCss(gradient: InterfaceGradient | undefined): string | undefined {
+  return gradient
+    ? `linear-gradient(${String(gradient.angle)}deg in srgb, ${gradient.stops.map(([color, percent]) => `${color} ${String(percent)}%`).join(", ")})`
+    : undefined;
+}
+export function applyInterfaceTypography(theme: InterfaceTheme, target: HTMLElement): void {
+  const family = theme.type?.family;
+  for (const name of ["interface", "mono"]) {
+    if (family) target.style.setProperty(`--font-${name}`, interfaceFontStacks[family]);
+    else target.style.removeProperty(`--font-${name}`);
+  }
+  for (const key of ["scale", "weight", "strong-weight"] as const) {
+    const value = theme.type?.[key];
+    if (value === undefined) target.style.removeProperty(`--type-${key}`);
+    else target.style.setProperty(`--type-${key}`, String(value));
+  }
+}
 
 /** One subscription updates tokens without coupling high-frequency board data to React. */
 export function attachInterfaceTheme(
@@ -48,6 +71,16 @@ export function attachInterfaceTheme(
         );
       }
     }
+    for (const area of interfaceAreas) {
+      const override = theme.areas?.[area];
+      property(`--theme-${area}-scrollbar`, override?.scrollbar ?? theme.states?.scrollbar);
+      property(`--theme-${area}-gradient`, interfaceGradientCss(override?.gradient));
+    }
+    target.dataset["themeAreas"] = Object.keys(theme.areas ?? {}).join(" ");
+    target.dataset["themeGradients"] = interfaceAreas
+      .filter((area) => theme.areas?.[area]?.gradient)
+      .join(" ");
+    applyInterfaceTypography(theme, target);
     for (const key of interfaceStates) property(`--state-${key}`, theme.states?.[key]);
     for (const key of ["radius", "panel-radius", "border", "shadow"] as const) {
       const value =
@@ -88,8 +121,18 @@ export function attachInterfaceTheme(
     for (const key of [...interfaceColorNames, ...interfaceHighlightNames])
       target.style.removeProperty(`--${key}`);
     for (const key of properties) target.style.removeProperty(key);
+    for (const key of [
+      "font-interface",
+      "font-mono",
+      "type-scale",
+      "type-weight",
+      "type-strong-weight",
+    ])
+      target.style.removeProperty(`--${key}`);
     target.style.removeProperty("color-scheme");
     delete target.dataset["themeReady"];
+    delete target.dataset["themeAreas"];
+    delete target.dataset["themeGradients"];
     delete target.dataset["panelColor"];
     delete target.dataset["panelContrast"];
   };
