@@ -1,9 +1,11 @@
+import { ENABLED_AGENTS } from "../../../helpers/enabled-agents";
 import { expect, test, vi } from "vitest";
 import { Workspace } from "../../../../src/main/workspace/workspace";
 import { agents, configDep, deps, launched, repo, scan, start, tree } from "./workspace-fixture";
 
 test("sidebar inventory includes empty trees and the actual shell; launches use registered location identities", async () => {
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   vi.stubEnv("SHELL", "/bin/zsh");
   expect(await workspace.sidebarInventory()).toMatchObject({
     repositories: [{ ...repo, worktrees: [tree], canDeleteMerged: false }],
@@ -53,6 +55,7 @@ test("sidebar inventory includes empty trees and the actual shell; launches use 
 
 test("main checkout supports shells and confirms a second agent; cancellation creates nothing", async () => {
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([
     { ...tree, path: repo.path, managed: false },
   ]);
@@ -82,6 +85,7 @@ test("main checkout supports shells and confirms a second agent; cancellation cr
 
 test("sidebar Codex launches start without notifier consent", async () => {
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   agents.scan.mockResolvedValue({
     ...scan,
     agents: [
@@ -129,6 +133,7 @@ test.each(["home", "config-shell", "config-agent"] as const)(
       throw new Error("Repository has not been added");
     });
     const workspace = new Workspace(deps);
+    workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
     const confirm = vi.fn(() => Promise.resolve(true));
     await workspace.sidebarCommand(
       location === "home"
@@ -162,6 +167,7 @@ test("checkout close retains review ownership failures and the exited session", 
 
 test("an exited shell restarts in its original location and frees its old terminal", async () => {
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   await workspace.sidebarCommand(
     { kind: "launch", repository: repo.path, worktree: tree.path, run: "shell" },
     () => Promise.resolve(true),
@@ -175,6 +181,7 @@ test("an exited shell restarts in its original location and frees its old termin
 
 test("repository and external worktree removal confirm and protect the main checkout", async () => {
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   await workspace.sidebarCommand({ kind: "remove-repository", repository: repo.path }, () =>
     Promise.resolve(false),
   );
@@ -228,6 +235,7 @@ test("repository and external worktree removal confirm and protect the main chec
 test("New worktree reuses an external checkout for shells", async () => {
   vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([{ ...tree, managed: false }]);
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   await workspace.startWorktree({ ...start, run: "shell" });
   expect(deps.worktrees.createWorktree).not.toHaveBeenCalled();
   expect(vi.spyOn(deps.terminals, "create")).toHaveBeenCalledWith(
@@ -241,6 +249,7 @@ test("New worktree refuses a checkout replaced during launch validation", async 
     .mockResolvedValueOnce("old")
     .mockResolvedValueOnce("new");
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   await expect(workspace.startWorktree({ ...start, run: "shell" })).rejects.toThrow("changed");
   expect(vi.spyOn(deps.terminals, "create")).not.toHaveBeenCalled();
   await workspace.dispose();
@@ -250,6 +259,7 @@ test("home shells use only main-owned paths, persist and restart without a repos
   const create = vi.spyOn(deps.terminals, "create");
   const { homeDirectory } = await import("../../../../src/main/workspace/home-shell");
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   const result = await workspace.sidebarCommand({ kind: "home-shell" }, () =>
     Promise.resolve(false),
   );
@@ -267,6 +277,7 @@ test("home shells use only main-owned paths, persist and restart without a repos
 
 test("panel facts require a registered repository", async () => {
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   expect(() => workspace.panelFacts("/foreign", tree.path)).toThrow();
   await workspace.panelFacts(repo.path, tree.path);
   expect(deps.worktrees.panelFacts).toHaveBeenCalledWith(repo.path, tree.path);
@@ -299,6 +310,7 @@ test("restores home shells without repositories and rejects foreign home paths",
     flush: () => Promise.resolve(),
   };
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   await workspace.restore();
   expect(workspace.snapshot().terminals.map((entry) => entry.id)).toEqual(["home-1"]);
   expect(vi.mocked(deps.terminals, true).create.mock.calls).toHaveLength(0);
@@ -310,6 +322,7 @@ test("fact clipboard commands use main-owned values and reject unknown worktrees
   const copy = vi.fn();
   deps.copyText = copy;
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   await workspace.sidebarCommand({ kind: "copy-home-path" }, () => Promise.resolve(false));
   const { homeDirectory } = await import("../../../../src/main/workspace/home-shell");
   expect(copy).toHaveBeenLastCalledWith(homeDirectory);
@@ -342,6 +355,7 @@ test("publishes transient MCP connection changes and removes them on revocation"
 
 test("prune uses the named repository and checkout, refuses sessions and releases its operation lock", async () => {
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   const command = { kind: "prune-worktree", repository: repo.path, worktree: tree.path } as const;
   const confirm = vi.fn(() => Promise.resolve(true));
   await workspace.sidebarCommand(command, confirm);
@@ -372,6 +386,7 @@ test("prune uses the named repository and checkout, refuses sessions and release
 
 test("concurrent sidebar readers share pending inventory and reread after success or failure", async () => {
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   const read = vi.mocked(deps.worktrees.listWorktrees);
   const gate = Promise.withResolvers<ReadonlyArray<typeof tree>>();
   read.mockReturnValueOnce(gate.promise);
@@ -402,6 +417,7 @@ test("concurrent sidebar readers share pending inventory and reread after succes
 for (const change of ["refresh", "configure"] as const) {
   test(`sidebar ${change} invalidates pending inventory without letting its completion clear a newer read`, async () => {
     const workspace = new Workspace(deps);
+    workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
     const read = vi.mocked(deps.worktrees.listWorktrees);
     const old = Promise.withResolvers<ReadonlyArray<typeof tree>>();
     const current = Promise.withResolvers<ReadonlyArray<typeof tree>>();
@@ -428,6 +444,7 @@ for (const change of ["refresh", "configure"] as const) {
 
 test("broken-row cleanup uses its own safety capability rather than legacy prune", async () => {
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   await workspace.sidebarCommand(
     { kind: "cleanup-worktree", repository: repo.path, worktree: tree.path },
     () => Promise.resolve(true),
@@ -445,6 +462,7 @@ test("unavailable repository inventory is isolated and never becomes successful 
     return Promise.resolve([tree]);
   });
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   expect(await workspace.sidebarInventory()).toMatchObject({
     repositories: [
       { ...broken, unavailable: true, worktrees: [] },
@@ -495,6 +513,7 @@ test("checkout copy commands resolve main facts and refuse missing, redirected o
   const copy = vi.fn();
   deps.copyText = copy;
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   const command = (
     kind:
       | "copy-default-branch"
@@ -679,6 +698,7 @@ test.each([
   if (mode === "missing-clipboard") delete deps.copyText;
   else deps.copyText = copy;
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   try {
     await workspace.restore();
     hosts.rememberPlacement(repo.path, path, "worker", remote);
@@ -780,6 +800,7 @@ test("error text copies use only closed sentence IDs", async () => {
   const copy = vi.fn();
   deps.copyText = copy;
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   await workspace.sidebarCommand({ kind: "copy-error-text", error: "worktree-locked" }, () =>
     Promise.resolve(false),
   );
@@ -797,6 +818,7 @@ test("startup sharing holds the detached checkout reservation without blocking a
   const other = { ...tree, path: "/trees/app/other", branch: null };
   vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([{ ...tree, branch: null }, other]);
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   const command = {
     kind: "launch",
     repository: repo.path,
@@ -858,6 +880,7 @@ test("sidebar tracks retained detached review source branches and offers closed 
   vi.mocked(deps.worktrees.reviewIdentity).mockReturnValue("identity");
   deps.dialog = vi.fn(() => Promise.resolve(false));
   const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS, showPullRequests: true });
   await workspace.sidebarInventory();
   await vi.waitFor(() => {
     expect(deps.dialog).toHaveBeenCalledOnce();

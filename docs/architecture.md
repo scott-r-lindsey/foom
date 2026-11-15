@@ -18,6 +18,10 @@ See [Security defaults](areas/boundaries.md#security-defaults).
 
 See [Source layout](areas/boundaries.md#source-layout).
 
+## Data ownership and synchronization
+
+See [Data architecture](areas/data.md) for the decided #1153 target and rollout.
+
 ## Board
 
 See [Board](areas/board.md#board).

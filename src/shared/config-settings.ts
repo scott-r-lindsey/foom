@@ -73,18 +73,12 @@ export function parseConfigSettings(value: unknown): ConfigSettings {
         Object.keys(agents).length > 100 ||
         Object.entries(agents).some(
           ([id, enabled]) => !validAgentId(id) || typeof enabled !== "boolean",
-        ) ||
-        !["claude", "codex", "agy"].every((id) => typeof agents[id] === "boolean")
+        )
       )
         throw new Error("Invalid settings");
-      result.agents = {
-        ...Object.fromEntries(
-          Object.entries(agents).map(([id, enabled]) => [id, enabled === true]),
-        ),
-        claude: agents["claude"] === true,
-        codex: agents["codex"] === true,
-        agy: agents["agy"] === true,
-      };
+      result.agents = Object.fromEntries(
+        Object.entries(agents).map(([id, enabled]) => [id, enabled === true]),
+      );
     } else if (
       key === "panelColor" &&
       (entry === "vivid" || entry === "subtle" || entry === "plain")

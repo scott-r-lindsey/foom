@@ -102,7 +102,7 @@ export async function launchAgent(
     const hold = this.checkoutHolds.acquire(request.worktree, parentHold);
     if (!hold) throw new Error("This worktree is busy");
     try {
-      if (this.enabled[request.agent] === false) throw new LaunchFailure("agent_disabled");
+      if (this.enabled[request.agent] !== true) throw new LaunchFailure("agent_disabled");
       // Scan once so launches don't each probe the login shell.
       if (!extra.remoteCheckout && !remoteAgentTarget(process.argv, request.worktree))
         await this.scanAgents(false);
@@ -429,7 +429,7 @@ export async function startMachine(
     const ensureOpen = () => {
       validateLaunch?.();
       if (this.closed) throw new Error("Workspace is closed");
-      if (this.enabled[run] === false) throw new LaunchFailure("agent_disabled");
+      if (run !== "shell" && this.enabled[run] !== true) throw new LaunchFailure("agent_disabled");
     };
     ensureOpen();
     const hosts = this.deps.hosts;
@@ -697,7 +697,7 @@ export async function resumeId(
     await this.deps.worktrees.launchIdentity(checkout.repository, checkout.worktree);
     const scan = await this.scanAgents(false);
     if (
-      this.enabled[agent] === false ||
+      this.enabled[agent] !== true ||
       !scan.agents.some((entry) => entry.id === agent && entry.path)
     )
       throw new Error("Agent is unavailable");

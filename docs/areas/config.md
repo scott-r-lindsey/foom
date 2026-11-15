@@ -1,5 +1,10 @@
 # Config
 
+**Data architecture transition (#1153):** [Data ownership](data.md) defines the
+decided SQLite/Drizzle and subscribed-view target. Phase A (#1160) changes docs
+and an isolated spike only; current stores and channels described here remain
+in production until phases B–D migrate them.
+
 Decided implementation and security rules for this area. Read the [file map](../map.md) to locate related owners. User-visible rules: [behavior](../behavior/settings.md).
 
 Config-session launch and probe-credential plumbing live in `main/workspace/sidebar-commands.ts`, bound by `workspace-context.ts`. The public Workspace facade grants no additional config capability.
@@ -31,7 +36,11 @@ git command there. The check is installed before saved repositories load, so a
 conflicting saved registration is dropped, and config sessions refuse to start if a
 registered repository contains the folder. `foom config validate` skips the Foom-owned entries and `.gitkeep`.
 
-**Settings.** The allowlisted keys from #206 live in `config/settings.json`. On the
+**Settings.** The allowlisted keys from #206 live in `config/settings.json`.
+Provider-ID keys in `agents` and `agentArguments` are optional: absence means
+disabled or no extra arguments. Existing explicit entries are retained without
+filling other provider keys. See [profile downgrade recovery](settings.md#settings-and-setup)
+for the private one-time backup retained before profile migration. On the
 first launch with a version 1 profile, main writes them into a new `settings.json`
 (an existing file wins and the profile values are dropped), then rewrites the
 profile as version 2 without them in the same step. Values the file cannot express,

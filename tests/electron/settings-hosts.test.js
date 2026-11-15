@@ -60,7 +60,7 @@ async function captureHosts(app, page, name) {
         .toBe(mode === "dark");
       await area.screenshot({
         path: evidencePath(
-          `${/^(?:1059|1061|1062|1067|1074)\//u.test(name) ? name : `1074/${name}`}-${mode}.png`,
+          `${/^(?:1059|1061|1062|1067|1074|1131)\//u.test(name) ? name : `1074/${name}`}-${mode}.png`,
         ),
       });
     }
@@ -152,8 +152,9 @@ if (current.loginRejected) { clientError('user@fixture-cloud: Permission denied 
 for (const flag of ['BatchMode=yes','ClearAllForwardings=yes','ForwardAgent=no','ForwardX11=no','ConnectTimeout=10']) assert.ok(args.includes(flag));
 const split = args.indexOf('--'); const host = args[split+1];
 assert.ok(['fixture-cloud','other-cloud','offline-cloud','version-cloud','invalid-cloud','provider-cloud','configuration-cloud','cancelled-cloud'].includes(host));
+appendFileSync(${JSON.stringify(calls)},JSON.stringify({host,message:{type:'ssh'},pid:process.pid})+'\\n');
 if (host === 'offline-cloud') { process.stderr.write('RAW SSH SECRET'); process.exit(1); }
-if (args.at(-1) === 'uname -s; uname -m' && current.diagnosticOverflow) {
+if ((args.at(-1) === 'uname -s; uname -m' || args.at(-1).includes('FOOM-PROBED')) && current.diagnosticOverflow) {
  const diagnostic = args[args.indexOf('-E') + 1];
  assert.ok(diagnostic);
  require('node:fs').appendFileSync(${JSON.stringify(overflowInfo)}, JSON.stringify({diagnostic, pid:process.pid})+'\\n');
@@ -161,18 +162,24 @@ if (args.at(-1) === 'uname -s; uname -m' && current.diagnosticOverflow) {
  setInterval(() => {}, 1000);
  return;
 }
-if (args.at(-1) === 'uname -s; uname -m' && current.remoteHostKeyExit) { process.stderr.write('No ED25519 host key is known for fixture-cloud and you have requested strict checking.\\nHost key verification failed.\\n'); process.exit(current.remoteHostKeyExit); }
+if ((args.at(-1) === 'uname -s; uname -m' || args.at(-1).includes('FOOM-PROBED')) && current.remoteHostKeyExit) { process.stderr.write('No ED25519 host key is known for fixture-cloud and you have requested strict checking.\\nHost key verification failed.\\n'); process.exit(current.remoteHostKeyExit); }
 if (args.at(-1) === 'uname -s; uname -m') { process.stdout.write(${JSON.stringify(`${platform === "darwin" ? "Darwin" : "Linux"}\n${process.arch === "x64" ? "x86_64" : platform === "darwin" ? "arm64" : "aarch64"}\n`)}); process.exit(0); }
 // Standalone fixed libc preflight has no daemon protocol handshake.
-if (args.at(-1).includes('FOOM-LIBC-UNSUPPORTED') && !args.at(-1).includes('FOOM-READY')) { if(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8').includes('musl')) { process.stdout.write('FOOM-LIBC-UNSUPPORTED'); process.exit(1); } process.exit(0); }
-process.stdout.write('FOOM-READY\\n');
+if (args.at(-1).includes('FOOM-LIBC-UNSUPPORTED') && !args.at(-1).includes('FOOM-READY') && !args.at(-1).includes('FOOM-PROBED')) { if(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8').includes('musl')) { process.stdout.write('FOOM-LIBC-UNSUPPORTED'); process.exit(1); } process.exit(0); }
+const checking=args.at(-1).includes('FOOM-PROBED');
+if(checking) for(const option of ['ControlMaster=no','ControlPath=none','ControlPersist=no']) assert.ok(args.includes(option));
+if(checking) process.stdout.write(${JSON.stringify(`${platform === "darwin" ? "Darwin" : "Linux"}\n${process.arch === "x64" ? "x86_64" : platform === "darwin" ? "arm64" : "aarch64"}\n`)}+(JSON.stringify(current).includes('musl')?'FOOM-LIBC-UNSUPPORTED':'FOOM-LIBC-OK')+'\\nFOOM-PROBED\\n');
+else process.stdout.write('FOOM-READY\\n');
+let bootstrapPending=checking;
 let input=Buffer.alloc(0), terminalOutput='', recipeInput='', recipeEnded=false, finishTimer;
 const {spawnSync}=require('node:child_process');
 const {selectHostRecipe,recipeDigestInput}=require(${JSON.stringify(path.resolve("build/shared/registered-host-recipes.js"))});
 function frame(message) { const data=Buffer.from(JSON.stringify({version:3,message})); const head=Buffer.alloc(4); head.writeUInt32BE(data.length); return Buffer.concat([head,data]); }
 function send(message) { process.stdout.write(frame(message)); }
+function sendReady() {process.stdout.write('FOOM-READY\\n');}
 process.stdin.on('data', bytes => {
  input=Buffer.concat([input,bytes]);
+ if(bootstrapPending) {const end=input.indexOf(10);if(end<0)return; const size=Number(input.subarray(0,end).toString());if(input.length<end+1+size)return;input=input.subarray(end+1+size);bootstrapPending=false;sendReady();}
  while(input.length>=4 && input.length>=4+input.readUInt32BE(0)) {
   const n=input.readUInt32BE(0); const {message}=JSON.parse(input.subarray(4,4+n)); input=input.subarray(4+n);
   if(message.type==='open') {
@@ -233,10 +240,12 @@ process.stdin.on('data', bytes => {
     continue;
   }
   assert.equal('id' in message,false); appendFileSync(${JSON.stringify(calls)},JSON.stringify({host,message})+'\\n');
-  if(message.type==='hello') { const settings=JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8')); send({type:'hello',agentSettings:1,...(settings.compatibleBuild?{build:'b'.repeat(64),compatible:2,startupTheme:1,hostFacts:1,hostPreflight:1,hostRowCheck:1}:{build:host==='version-cloud'?'b'.repeat(64):${JSON.stringify(manifest.sha256)}})}); continue; }
+  if(message.type==='hello' && current.transportFailure) { if(current.transportFailure==='protocol') process.stdout.write(Buffer.from([0,0,0,1,255])); else process.exit(1); continue; }
+  if(message.type==='hello') { const settings=JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8')); send({type:'hello',hostCheckConnection:settings.oldCheckConnection?undefined:1,agentSettings:1,...(settings.compatibleBuild?{build:'b'.repeat(64),compatible:2,startupTheme:1,hostFacts:1,hostPreflight:1,hostRowCheck:1}:{build:host==='version-cloud'?'b'.repeat(64):${JSON.stringify(manifest.sha256)}})}); continue; }
   if(message.type==='inventory') {send({type:'inventory-result',own:[],foreign:[]}); continue;}
   assert.equal(message.type,'manage');
   const scenario=require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8'); const settings=JSON.parse(scenario);
+  if(settings.lateClientFailure && checking && message.operation==='inspect') {appendFileSync(args[args.indexOf('-E')+1],'fixture client connection reset\\n');process.exit(255);}
   let result;
   if(message.codeFolder==='~/unsafe') result={ok:false,reason:'unsafe-folder'};
   else if(message.codeFolder==='~/refused') result={ok:false,reason:'folder-refused'};
@@ -252,7 +261,7 @@ process.stdin.on('data', bytes => {
   if(host==='invalid-cloud') result={ok:true,facts:{}};
   const failures={'provider-cloud':'provider-invalid','configuration-cloud':'configuration-changed','cancelled-cloud':'cancelled'};
   if(failures[host]) result={ok:false,reason:failures[host]};
-  const held = settings.hold && message.operation===(settings.hold===true?'inspect':settings.hold);
+  const held = settings.hold && (!settings.holdHost || settings.holdHost===host) && message.operation===(settings.hold===true?'inspect':settings.hold);
   const heldClone = settings.holdClone && message.operation==='clone';
   if(held || heldClone) { appendFileSync(${JSON.stringify(calls)},JSON.stringify({host,message,phase:'held'})+'\\n'); const timer=setInterval(()=>{ const next=JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8')); if((!held || next.hold!==settings.hold) && (!heldClone || !next.holdClone)) {clearInterval(timer);send({type:'managed',result});}},20); } else send({type:'managed',result});
  }
@@ -663,9 +672,7 @@ test("Hosts renders Git failures and platform capability diagnostics", {
     origin: "origin-auth",
   });
   await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
-  await expect(
-    card.getByText("Origin authentication failed · origin-auth", { exact: true }),
-  ).toBeVisible();
+  await expect(card.getByText("Origin authentication failed", { exact: true })).toBeVisible();
   await expect(card.getByLabel("Git access fixes")).toBeVisible();
   await capture("failed-origin-fix-actions");
   await card.getByRole("button", { name: "Change folder", exact: true }).click();
@@ -674,12 +681,12 @@ test("Hosts renders Git failures and platform capability diagnostics", {
   await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
   await expect(card.getByText("/remote/account/new-code", { exact: true })).toBeVisible();
   // Each fixed no-prompt Git failure is rendered in the host checklist.
-  for (const reason of [
-    "origin-auth",
-    "origin-host-key",
-    "origin-unreachable",
-    "timed-out",
-    "checkout-invalid",
+  for (const [reason, label] of [
+    ["origin-auth", "Origin authentication failed"],
+    ["origin-host-key", "Origin SSH host key is not trusted"],
+    ["origin-unreachable", "Origin unreachable"],
+    ["timed-out", "Git operation timed out"],
+    ["checkout-invalid", "Checkout validation failed"],
   ]) {
     await updateScenario({
       facts: { tools: [{ id: "git", state: "ready", signIn: "unknown" }] },
@@ -687,8 +694,11 @@ test("Hosts renders Git failures and platform capability diagnostics", {
     });
     await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
     await expect(
-      card.locator(".host-check-row").filter({ hasText: "Git access to origin" }),
-    ).toContainText(reason);
+      card
+        .locator(".host-check-row")
+        .filter({ hasText: "Git access to origin" })
+        .locator(".host-status > span:last-child"),
+    ).toHaveText(label);
   }
   // Available facts do not claim a Keychain or Remote Login diagnosis.
   await updateScenario({
@@ -734,9 +744,7 @@ test("Hosts renders Git failures and platform capability diagnostics", {
   if (platform === "linux") {
     await updateScenario({ musl: true });
     await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
-    await expect(
-      card.getByText("Unsupported · musl libc · libc-unsupported", { exact: true }),
-    ).toBeVisible();
+    await expect(card.getByText("Unsupported · musl libc", { exact: true })).toBeVisible();
     await capture("unsupported-platform");
   }
 });
@@ -899,9 +907,7 @@ test("Hosts creates missing folders and reports enrollment and artifact failures
     await page.getByRole("button", { name: "Add host", exact: true }).click();
     await page.getByLabel("SSH host", { exact: true }).fill(host);
     await page.getByRole("button", { name: "Add host", exact: true }).click();
-    await expect(
-      page.getByText(host === "offline-cloud" ? `${text} · unreachable` : text, { exact: true }),
-    ).toBeVisible();
+    await expect(page.getByText(text, { exact: true }).first()).toBeVisible();
     if (enrolled) {
       const added = page.getByRole("region", { name: host, exact: true });
       await expect(added.getByRole("button", { name: "Remove", exact: true })).toBeEnabled();
@@ -916,7 +922,7 @@ test("Hosts creates missing folders and reports enrollment and artifact failures
     card
       .locator(".host-check-row")
       .filter({ hasText: "Remote daemon" })
-      .getByText("This build has no remote host support · artifact-unavailable", { exact: true }),
+      .getByText("Unavailable in this build", { exact: true }),
   ).toBeVisible();
   await expect(card.getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
   await capture("missing-build-support");
@@ -1124,6 +1130,7 @@ test("Hosts opens saved checks without SSH and keeps ready repositories compact"
         setupComplete: true,
         checkForUpdates: false,
         restoreSessions: false,
+        agents: { claude: true, codex: true, agy: true, copilot: true, opencode: true, pi: true },
         registeredHosts: [
           {
             host: "saved-fixture",
@@ -1372,9 +1379,7 @@ test("Hosts replaces a transient folder reload with the newest folder reply", {
   await card.getByLabel("Code folder", { exact: true }).fill("~/new");
   await card.getByRole("button", { name: "Save", exact: true }).click();
   await expect(card.getByRole("button", { name: "Create", exact: true })).toBeVisible();
-  await expect(
-    card.getByText("Code folder does not exist · folder-missing", { exact: true }),
-  ).toBeVisible();
+  await expect(card.getByText("Code folder does not exist", { exact: true })).toBeVisible();
   await expect(card.getByText("Pass · Valid", { exact: true })).toHaveCount(0);
   const registration = await page.evaluate(
     async () => (await window.desktop.setupState()).settings.registeredHosts[0],
@@ -2097,7 +2102,15 @@ test("Agents Global list and machine picker scale to twelve agents and twelve sa
         checkForUpdates: false,
         restoreSessions: false,
         registeredHosts,
-        agents: { claude: true, codex: true, agy: true, copilot: true, opencode: true, pi: true },
+        agents: {
+          claude: true,
+          codex: true,
+          agy: true,
+          copilot: true,
+          opencode: true,
+          pi: true,
+          ...Object.fromEntries(Array.from({ length: 6 }, (_, index) => [`sample-${index}`, true])),
+        },
       },
     }),
   );
@@ -2227,7 +2240,11 @@ test("Hosts accepts new SSH keys only through the trusted askpass dialog", {
     "No daemon or repository request before SSH trust",
   );
   const state = await page.evaluate(() => window.desktop.hosts({ action: "list" }));
-  assert.deepEqual(state.hosts[0].observation.preflight.repositories, []);
+  assert.ok(
+    state.hosts[0].observation.preflight.repositories.every(
+      (repo) => repo.origin.state === "not-checked",
+    ),
+  );
   const waitingOutput = card.getByRole("region", { name: "Host check output", exact: true });
   await expect(waitingOutput.getByRole("status")).toHaveText("Host key not trusted");
   await expect(waitingOutput.getByRole("button", { name: "Dismiss", exact: true })).toHaveCount(0);
@@ -2350,9 +2367,7 @@ test("Hosts never offers host-key trust from a remote command's forged SSH diagn
   for (const remoteHostKeyExit of [1, 255]) {
     await updateScenario({ remoteHostKeyExit });
     await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
-    await expect(
-      card.getByText("Host unreachable · unreachable", { exact: true }).first(),
-    ).toBeVisible();
+    await expect(card.getByText("Host unreachable", { exact: true }).first()).toBeVisible();
     // The row can show progress before the completed result replaces saved facts.
     await expect(
       card.getByRole("button", { name: "Check capabilities", exact: true }),
@@ -2371,9 +2386,7 @@ test("Hosts kills fixture SSH on live diagnostic overflow and removes its privat
   const { card, page, updateScenario, overflowInfo } = await hostsFixture(context, false);
   await updateScenario({ diagnosticOverflow: true });
   await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
-  await expect(
-    card.getByText("Host unreachable · unreachable", { exact: true }).first(),
-  ).toBeVisible();
+  await expect(card.getByText("Host unreachable", { exact: true }).first()).toBeVisible();
   // Checklist and background inventory probes finish independently. Wait for
   // the run, then observe cleanup for every fixture process instead of racing
   // the first failed row or checking only the last recorded process.
@@ -2673,9 +2686,7 @@ test("Hosts real OpenSSH client shows a visible trust dialog for a disposable lo
   // then the normal first check reports the authentication refusal. OpenSSH uses an
   // empty method list here (Permission denied ()), which retains the existing
   // conservative unreachable classification.
-  await expect(
-    card.getByText("Host unreachable · unreachable", { exact: true }).first(),
-  ).toBeVisible();
+  await expect(card.getByText("Host unreachable", { exact: true }).first()).toBeVisible();
   assert.ok((await readFile(fixture.knownHosts, "utf8")).includes("ssh-ed25519"));
   await expect(card.getByText("Platform", { exact: true })).toBeVisible();
 });
@@ -2723,4 +2734,358 @@ test("Hosts reports dialog-unavailable when native trust presentation fails", {
   await expect(output).not.toContainText("Fixture native presentation failure");
   await expect(card.getByRole("button", { name: "Trust host key…", exact: true })).toBeEnabled();
   assert.equal(await readFile(knownHosts, "utf8"), "");
+});
+
+test("Hosts status classification stays consistent with sealed catalog omission", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { page, card, navigation, capture, calls } = await hostsFixture(context);
+  const metadata = path.resolve("build/build-metadata.json");
+  const previous = await readFile(metadata);
+  fixtureCleanup(context).apps.push(() => writeFile(metadata, previous));
+  await writeFile(
+    metadata,
+    JSON.stringify({ ...JSON.parse(previous), remoteHostsAvailable: false }),
+  );
+  // Sidebar recovery can finish an earlier inventory independently of Settings.
+  // Count only capability/repository checks owned by the Hosts actions below.
+  const checkCalls = async () =>
+    (await readFile(calls, "utf8"))
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line))
+      .filter(({ message }) => message.type === "manage" && message.operation !== "list-worktrees");
+  const before = await checkCalls();
+  await navigation.getByRole("button", { name: "General", exact: true }).click();
+  await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
+  const expand = card.locator(".host-expand");
+  await expect(expand).toBeVisible();
+  if ((await expand.getAttribute("aria-expanded")) === "false") await expand.click();
+  await expect(
+    page.getByText("This build has no remote host support", { exact: true }),
+  ).toHaveCount(1);
+  assert.deepEqual(
+    await checkCalls(),
+    before,
+    "Opening Hosts reads only local build and saved state",
+  );
+  const unavailable = card
+    .locator(".host-check-row")
+    .filter({ hasText: "Remote daemon" })
+    .locator(".host-status");
+  await expect(unavailable).toContainText("Unavailable in this build");
+  await expect(unavailable).toHaveClass(/host-neutral/u);
+  await expect(card.getByText("Needs you", { exact: true })).toHaveCount(0);
+  await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
+  await expect(card.locator(".host-checks")).toHaveAttribute("aria-busy", "false");
+  await expect(unavailable).toHaveClass(/host-neutral/u);
+  await expect(card.locator(".host-fail")).toHaveCount(0);
+  await expect(
+    card.locator(".host-check-row").filter({ hasText: "Git access to origin" }),
+  ).toContainText("Not checked");
+  await capture("1131/sealed-omission");
+  await card.getByRole("button", { name: "Reload Remote daemon", exact: true }).click();
+  await expect(unavailable).toContainText("Unavailable in this build");
+  await expect(card.locator(".host-check-row[aria-busy=true]")).toHaveCount(0);
+  await navigation.getByRole("button", { name: "General", exact: true }).click();
+  await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
+  await expect(expand).toBeVisible();
+  if ((await expand.getAttribute("aria-expanded")) === "false") await expand.click();
+  await expect(unavailable).toHaveClass(/host-neutral/u);
+  await expect(card.getByText("Needs you", { exact: true })).toHaveCount(0);
+  assert.deepEqual(
+    await checkCalls(),
+    before,
+    "Without a catalog no daemon capability or repository check is dispatched",
+  );
+});
+
+test("Hosts status classification preserves transport failures with a fixture catalog", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { page, card, navigation, capture, updateScenario } = await hostsFixture(context);
+  for (const [transportFailure, reason] of [
+    ["exit", "unreachable"],
+    ["protocol", "version-mismatch"],
+  ]) {
+    await updateScenario({ transportFailure });
+    await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
+    await expect(card.locator(".host-checks")).toHaveAttribute("aria-busy", "false");
+    const state = await page.evaluate(() => window.desktop.hosts({ action: "list" }));
+    assert.equal(state.hosts[0].observation.preflight.result.reason, reason);
+    await expect(
+      card
+        .locator(".host-check-row")
+        .filter({ hasText: "Remote daemon" })
+        .locator(".host-status > span:last-child"),
+    ).toHaveText(reason === "unreachable" ? "Host unreachable" : "Host version mismatch");
+    assert.ok(
+      state.hosts[0].observation.preflight.repositories.every(
+        (repo) => repo.origin.state === "not-checked",
+      ),
+    );
+    await expect(card.getByText("Unavailable in this build", { exact: true })).toHaveCount(0);
+    await expect(card.getByText("Needs you", { exact: true })).toBeVisible();
+    await expect(card.locator(".host-check-row").filter({ hasText: "Code folder" })).toContainText(
+      "Not checked",
+    );
+    await card.getByRole("button", { name: "Reload Remote daemon", exact: true }).click();
+    await expect(card.locator(".host-check-row[aria-busy=true]")).toHaveCount(0);
+    const reloaded = await page.evaluate(() => window.desktop.hosts({ action: "list" }));
+    assert.equal(reloaded.hosts[0].observation.preflight.result.reason, reason);
+    await navigation.getByRole("button", { name: "General", exact: true }).click();
+    await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
+    await expect(card.getByText("Unavailable in this build", { exact: true })).toHaveCount(0);
+    await expect(card.locator(".host-expand")).toBeVisible();
+    if ((await card.locator(".host-expand").getAttribute("aria-expanded")) === "false")
+      await card.locator(".host-expand").click();
+    await expect(
+      card
+        .locator(".host-check-row")
+        .filter({ hasText: "Remote daemon" })
+        .locator(".host-status > span:last-child"),
+    ).toHaveText(reason === "unreachable" ? "Host unreachable" : "Host version mismatch");
+    if (transportFailure === "exit") await capture("1131/daemon-exit");
+  }
+});
+
+test("Hosts row reloads recover daemon state without inventing capability passes", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { page, card, navigation, capture, updateScenario } = await hostsFixture(context);
+  const ready = {
+    facts: {
+      tools: [
+        { id: "git", state: "ready", signIn: "unknown" },
+        { id: "gh", state: "ready", signIn: "signed-in" },
+      ],
+      agents: [
+        { id: "claude", state: "ready", signIn: "signed-in" },
+        { id: "codex", state: "ready", signIn: "signed-in" },
+      ],
+      folder: { state: "pass" },
+    },
+    checkout: "clean",
+  };
+  const registration = () =>
+    page.evaluate(async () => (await window.desktop.setupState()).settings.registeredHosts[0]);
+  const row = (name) =>
+    card.locator(".host-check-row").filter({
+      has: page.getByRole("button", { name: `Reload ${name}`, exact: true }),
+    });
+  await updateScenario(ready);
+  await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
+  await expect(card.getByText("Ready", { exact: true })).toBeVisible();
+  const checkedAt = (await registration()).observation.checkedAt;
+  await updateScenario({ transportFailure: "exit" });
+  await card.getByRole("button", { name: "Reload SSH", exact: true }).click();
+  await expect(card.locator(".host-check-row[aria-busy=true]")).toHaveCount(0);
+  await expect(row("Remote daemon").locator(".host-status > span:last-child")).toHaveText(
+    "Host unreachable",
+  );
+  await expect(row("SSH")).toContainText("Pass · Host key trusted");
+  assert.equal((await registration()).observation.preflight.result.ok, false);
+  await capture("1131/ssh-daemon-failure");
+
+  // Even a fixture returning full ready facts for a scoped read cannot make
+  // unrun dependent rows pass during recovery.
+  await updateScenario(ready);
+  await card.getByRole("button", { name: "Reload Remote daemon", exact: true }).click();
+  await expect(card.locator(".host-check-row[aria-busy=true]")).toHaveCount(0);
+  const recovered = await registration();
+  assert.equal(recovered.observation.preflight.result.ok, true);
+  assert.equal(recovered.observation.checkedAt, checkedAt);
+  assert.equal(recovered.observation.preflight.result.facts.tools, undefined);
+  assert.deepEqual(recovered.observation.preflight.result.facts.agents, []);
+  for (const name of ["SSH", "Platform", "Remote daemon"])
+    await expect(row(name)).toContainText("Pass");
+  for (const name of ["Code folder", "git / gh", "Agents"])
+    await expect(
+      card.locator(".host-check-row").filter({ has: page.getByText(name, { exact: true }) }),
+    ).toContainText("Not checked");
+  await expect(card.getByText("Host unreachable", { exact: true })).toHaveCount(0);
+  await expect(card.getByText("Needs you", { exact: true })).toHaveCount(0);
+  await expect(card.getByText("Ready", { exact: true })).toHaveCount(0);
+  await navigation.getByRole("button", { name: "General", exact: true }).click();
+  await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
+  assert.deepEqual(await registration(), recovered);
+  await card.getByRole("button", { name: "Expand fixture-cloud", exact: true }).click();
+  await expect(card.getByText("Needs you", { exact: true })).toHaveCount(0);
+  await expect(card.getByText("Ready", { exact: true })).toHaveCount(0);
+  await capture("1131/daemon-recovery");
+  await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
+  await expect(card.getByText("Ready", { exact: true })).toBeVisible();
+});
+
+test("Hosts capability checks share one SSH connection and hosts finish independently", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { page, app, calls, updateScenario } = await hostsFixture(context);
+  const rows = async () =>
+    (await readFile(calls, "utf8"))
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+  const check = (host) =>
+    page.evaluate(
+      (host) =>
+        window.desktop.hosts({ action: "preflight", host, codeFolder: "/remote/account/foom" }),
+      host,
+    );
+  await updateScenario({ facts: { tools: [{ id: "git", state: "ready", signIn: "unknown" }] } });
+  const repositories = await page.evaluate(
+    async () => (await window.desktop.workspace()).repositories,
+  );
+  const measure = async (mode) => {
+    const before = (await rows()).length;
+    const measured = await app.evaluate(
+      async ({ app }, { repositories, mode }) => {
+        const load = process
+          .getBuiltinModule("node:module")
+          .createRequire(app.getAppPath() + "/package.json");
+        const { Hosts } = load("./build/main/setup/hosts.js");
+        const { DEFAULT_SETTINGS } = load("./build/main/setup/settings.js");
+        const { remoteManagement } = load("./build/main/terminals/remote-transport.js");
+        let settings = {
+          ...DEFAULT_SETTINGS,
+          agents: {
+            claude: false,
+            codex: false,
+            agy: false,
+            copilot: false,
+            opencode: false,
+            pi: false,
+          },
+          registeredHosts: [{ host: "other-cloud", codeFolder: "/remote/account/foom" }],
+        };
+        const store = {
+          get: () => settings,
+          update: async (patch) => {
+            settings = { ...settings, ...patch };
+            return settings;
+          },
+        };
+        // Reconstruct the old per-request transport with the same checks/fixture.
+        // A separate alias excludes the app's ordinary sidebar inventory reads.
+        const execute =
+          mode === "before"
+            ? (host, request) => remoteManagement({ host }, app.getVersion(), request)
+            : undefined;
+        const hosts = new Hosts(
+          store,
+          () => repositories,
+          app.getVersion(),
+          execute,
+          "f".repeat(32),
+        );
+        const started = performance.now();
+        try {
+          const state = await hosts.action({
+            action: "preflight",
+            host: "other-cloud",
+            codeFolder: "/remote/account/foom",
+          });
+          return {
+            elapsedMs: performance.now() - started,
+            repositories: state.preflight.repositories.length,
+          };
+        } finally {
+          hosts.dispose();
+        }
+      },
+      { repositories, mode },
+    );
+    const requests = (await rows()).slice(before).filter(({ host }) => host === "other-cloud");
+    const sshConnections = requests.filter(({ message }) => message.type === "ssh").length;
+    assert.equal(measured.repositories, repositories.length);
+    assert.equal(
+      sshConnections,
+      mode === "before" ? (process.platform === "linux" ? 7 : 6) + 4 * repositories.length : 1,
+    );
+    assert.equal(
+      requests.filter(({ message }) => message.operation === "origin").length,
+      repositories.length,
+    );
+    assert.equal(
+      requests.filter(({ message }) => message.operation === "repository").length,
+      repositories.length,
+    );
+    assert.equal(requests.filter(({ message }) => message.type === "inventory").length, 1);
+    assert.equal(
+      requests.filter(({ message }) => message.operation === "list-worktrees").length,
+      1,
+    );
+    context.diagnostic(JSON.stringify({ mode, ...measured, sshConnections }));
+  };
+  await measure("before");
+  await measure("after");
+  const extra = await mkdtemp(path.join(tmpdir(), "hosts-batch-repositories-"));
+  removeAfterApps(context, extra);
+  for (let index = 0; index < 2; index++) {
+    const repository = path.join(extra, `project-${index}`);
+    await mkdir(repository);
+    gitSync(["init", "-q", "-b", "main"], { cwd: repository });
+    gitSync(["remote", "add", "origin", `git@forge.test:team/project-${index}.git`], {
+      cwd: repository,
+    });
+    repositories.push({ path: repository, name: `project-${index}` });
+  }
+  await measure("before");
+  await measure("after");
+  await updateScenario({ hold: "inspect", holdHost: "fixture-cloud" });
+  await page.evaluate(() => {
+    window.hostChecks = {};
+    for (const host of ["fixture-cloud", "other-cloud", "offline-cloud"])
+      window.desktop
+        .hosts({ action: "draft-preflight", host, codeFolder: "/remote/account/foom" })
+        .then((state) => {
+          window.hostChecks[host] = state;
+        });
+  });
+  await expect
+    .poll(async () =>
+      (await rows()).some(({ host, phase }) => host === "fixture-cloud" && phase === "held"),
+    )
+    .toBe(true);
+  await expect
+    .poll(() => page.evaluate(() => Object.keys(window.hostChecks).sort()))
+    .toEqual(["offline-cloud", "other-cloud"]);
+  const state = await page.evaluate(() => window.desktop.hosts({ action: "progress" }));
+  assert.equal(state.progress.length, 1);
+  assert.equal(state.progress[0].host, "fixture-cloud");
+  assert.equal(
+    await page.evaluate(() => window.hostChecks["offline-cloud"].preflight.result.reason),
+    "unreachable",
+  );
+  await updateScenario({});
+  await expect.poll(() => page.evaluate(() => !!window.hostChecks["fixture-cloud"])).toBe(true);
+  await updateScenario({ compatibleBuild: true, oldCheckConnection: true });
+  assert.equal((await check("fixture-cloud")).preflight.result.reason, "version-mismatch");
+  await quitAndWait(app, () => app.evaluate(({ app }) => app.quit()));
+});
+
+test("Hosts retains SSH client diagnostics when a check connection fails after discovery", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { page, updateScenario } = await hostsFixture(context);
+  await updateScenario({ lateClientFailure: true });
+  const state = await page.evaluate(() =>
+    window.desktop.hosts({
+      action: "preflight",
+      host: "fixture-cloud",
+      codeFolder: "/remote/account/foom",
+    }),
+  );
+  const { output, ...observations } = state;
+  assert.equal(state.preflight.result.reason, "unreachable");
+  assert.match(output.text, /fixture client connection reset/u);
+  assert.equal(output.failed, true);
+  assert.ok(!JSON.stringify(observations).includes("fixture client connection reset"));
 });

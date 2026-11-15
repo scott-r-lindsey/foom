@@ -94,7 +94,7 @@ export class WorkspaceContext {
   readonly checkoutHolds = new CheckoutHolds();
   readonly repositoryOperations = new Map<string, Set<symbol>>();
   readonly removingRepositories = new Set<string>();
-  enabled: Readonly<Record<AgentId, boolean>> = { claude: true, codex: true, agy: true };
+  enabled: Readonly<Record<AgentId, boolean>> = {};
   readonly now: () => number;
 
   /** Publish credential-free discovery for humans even before the first agent launch. */
@@ -457,6 +457,7 @@ export class WorkspaceContext {
       settings.unreadChildMinutes ?? 5,
     );
     this.cleanup.configure(settings.autoRemoveMergedWorktrees ?? false);
+    this.agents.setEnabled(settings.agents);
     this.agents.setBypassIdentities(settings.agentBypassIdentities);
     if (settings.agentHooks) this.agents.setHooksEnabled(settings.hooks, settings.agentHooks);
     else this.agents.setHooksEnabled(settings.hooks);

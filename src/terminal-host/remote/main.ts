@@ -11,8 +11,6 @@ import { homedir } from "node:os";
 import { serveHost } from "./daemon";
 import { checkSocket, hostSocket } from "./private-path";
 
-// Hash the SEA itself: identical application versions with different builds cannot
-// silently attach to each other or replace a daemon with live sessions.
 export function runHost(argv: readonly string[] = process.argv): void {
   if (argv[2] === "--recipe" || argv[2] === "--trust-origin") {
     void (
@@ -57,11 +55,13 @@ export function runHost(argv: readonly string[] = process.argv): void {
     });
     return;
   }
-  const build = createHash("sha256").update(readFileSync(process.execPath)).digest("hex");
   if (argv.length !== 3 || !["--daemon", "--connect"].includes(argv[2] ?? "")) {
     process.stderr.write("Usage: foom-host --daemon|--connect\n");
     process.exitCode = 2;
   } else if (argv[2] === "--daemon") {
+    // Only the daemon publishes build identity. The connector relays the hub hello
+    // unchanged; its own executable digest never participates in negotiation.
+    const build = createHash("sha256").update(readFileSync(process.execPath)).digest("hex");
     const terminalUmask = process.umask(0o077);
     const host = serveHost(build, terminalUmask);
     host.server.once("error", () => {

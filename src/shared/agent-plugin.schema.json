@@ -1704,6 +1704,30 @@
           },
           "maxItems": 8,
           "minItems": 0
+        },
+        "environment": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/installerVariable"
+          },
+          "maxItems": 8,
+          "minItems": 0
+        }
+      }
+    },
+    "installerVariable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "value"],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/envName"
+        },
+        "value": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[^\\p{Cc}\\p{Cf}\\p{Co}\\p{Cs}\\u2028\\u2029]*$"
         }
       }
     },

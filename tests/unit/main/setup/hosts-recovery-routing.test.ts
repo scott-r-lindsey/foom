@@ -1,3 +1,4 @@
+import { ENABLED_AGENTS } from "../../../helpers/enabled-agents";
 import type * as remoteTransport from "../../../../src/main/terminals/remote-transport";
 
 import type * as childProcess from "node:child_process";
@@ -49,7 +50,10 @@ let repositories = [{ path: "/local/repo", name: "repo" }];
 const run = vi.fn<(host: string, request: HostManagement) => Promise<HostResult>>();
 beforeEach(() => {
   vi.clearAllMocks();
-  settings = { ...DEFAULT_SETTINGS };
+  settings = {
+    ...DEFAULT_SETTINGS,
+    agents: ENABLED_AGENTS,
+  };
   repositories = [{ path: "/local/repo", name: "repo" }];
   run.mockReset().mockResolvedValue({ ok: true, facts });
   mock.execute.mockReset().mockResolvedValue({ stdout: "git@forge.test:me/repo.git\n" });

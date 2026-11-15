@@ -183,9 +183,11 @@ export interface HostOutput {
   failed: boolean;
 }
 export interface HostsState {
+  /** Sealed local build capability; independent of host connectivity. */
+  remoteHostsAvailable?: boolean;
   output?: HostOutput;
   recipeSession?: string;
-  progress?: HostCheckProgress;
+  progress?: readonly HostCheckProgress[];
   preflight?: HostPreflight;
   recipeFailure?: "recipe-unavailable";
   hosts: readonly HostRow[];

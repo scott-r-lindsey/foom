@@ -35,7 +35,7 @@ export class Workspace {
     this.orchestration = this.owner.orchestration;
   }
   async startLocalAgentInstall(id: string): Promise<string> {
-    if (!bundledAgentData.some((data) => data.id === id) || this.owner.enabled[id] === false)
+    if (!bundledAgentData.some((data) => data.id === id) || this.owner.enabled[id] !== true)
       throw new Error("Installer unavailable");
     const directory = this.owner.deps.config?.cliDirectory;
     if (!directory || (process.platform !== "linux" && process.platform !== "darwin"))

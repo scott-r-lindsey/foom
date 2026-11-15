@@ -343,7 +343,11 @@ test("a new shell has a rendered blinking cursor after reusing an exited termina
     .locator(".tree-name")
     .click();
   await expect(page.locator(".board-row[data-kind='shell']")).toHaveCount(1);
-  const created = (await page.evaluate(() => window.desktop.workspace())).terminals[0];
+  // Background close can retain the exited row after the sidebar hides it.
+  const created = (await page.evaluate(() => window.desktop.workspace())).terminals.find(
+    (terminal) => terminal.id !== previous.id && !terminal.exited && !terminal.closeState,
+  );
+  assert.ok(created);
   assert.notEqual(created.id, previous.id);
   assert.equal(
     await app.evaluate(

@@ -316,7 +316,7 @@ test("launch menus follow catalog publications and discard stale loads", async (
   const base: LaunchOptions = {
     repositories: [],
     agents: [],
-    enabled: {},
+    enabled: { fixturecode: true },
     hooks: false,
   };
   let changed: (() => void) | undefined;

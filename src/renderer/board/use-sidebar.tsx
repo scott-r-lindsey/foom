@@ -45,7 +45,7 @@ export function launcherActions(
 ): { label: string; badge: string; run: AgentId }[] {
   return [
     ...(options?.agents
-      .filter((agent) => agent.path && options.enabled[agent.id] !== false)
+      .filter((agent) => agent.path && options.enabled[agent.id] === true)
       .map((agent) => ({
         label: agent.name ?? agentNames.get(agent.id) ?? agent.id,
         badge: agent.mark ?? agentBadges.get(agent.id) ?? agent.id,

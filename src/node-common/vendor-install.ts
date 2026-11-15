@@ -78,6 +78,7 @@ export interface VendorScript {
   url: string;
   interpreter: "sh" | "bash";
   arguments: readonly string[];
+  environment?: readonly { name: string; value: string }[] | undefined;
 }
 
 /** HTTPS applies to every hop. The response is bounded before any byte is executed. */
@@ -201,7 +202,12 @@ export async function runVendorScript(
           : [path, ...script.arguments],
         {
           cwd: home,
-          env,
+          env: {
+            ...env,
+            ...Object.fromEntries(
+              script.environment?.map(({ name, value }) => [name, value]) ?? [],
+            ),
+          },
           shell: false,
           stdio: posix ? ["inherit", "inherit", "inherit", "pipe", "pipe"] : "inherit",
           detached: posix,

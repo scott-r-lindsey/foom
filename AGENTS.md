@@ -30,6 +30,13 @@ Keep that import beside every nested `AGENTS.md`; maintain rules in `AGENTS.md` 
 
 ## Product architecture
 
+- Follow [data ownership and synchronization](docs/areas/data.md) for persistence
+  and main-owned renderer data. #1160 is docs and an isolated spike only: JSON
+  stores remain in production through phases B/C. The target is main-owned
+  SQLite via Drizzle, STRICT tables, asserted foreign keys and RESTRICT deletes,
+  trigger-driven revisions, typed commands and subscribed TanStack Query views.
+  Never move data or enable the phase-D guards as an incidental refactor.
+
 Before changing an area, use `docs/map.md` to find and read its relevant area rules and behavior. For terminal changes read `docs/areas/terminals.md`; evaluator changes read `docs/areas/evaluator.md` and `docs/areas/execution.md`; agent changes read `docs/areas/agent-launch.md` and the affected hook, provider or probe area doc. Read linked protocol sections when changing that surface. These rules are decided; changing one needs its own PR that also updates the docs.
 
 - Every IPC message about a terminal carries its ID and is validated like any other untrusted payload.

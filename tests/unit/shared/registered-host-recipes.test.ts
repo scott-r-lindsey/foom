@@ -270,3 +270,20 @@ test("gh recipe digests bind both explicit argv variants; other recipe digests s
   if (!install) throw new Error("Missing installer");
   expect(recipeDigestInput(install)).toBe(JSON.stringify(install.steps));
 });
+
+test("vendor recipe digest inputs include declared installer environment", () => {
+  const request = { tool: "fixture", action: "install", distro: "debian" } as const;
+  const script = {
+    url: "https://vendor.test/install",
+    interpreter: "sh",
+    arguments: [],
+    environment: [{ name: "VENDOR_MODE", value: "1" }],
+  } as const;
+  const steps = selectHostRecipe(request, facts, { script })?.steps;
+  expect(steps?.[0]?.at(-1)).toBe(JSON.stringify(script.environment));
+  expect(steps).not.toEqual(
+    selectHostRecipe(request, facts, {
+      script: { ...script, environment: [{ name: "VENDOR_MODE", value: "2" }] },
+    })?.steps,
+  );
+});

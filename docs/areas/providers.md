@@ -130,8 +130,8 @@ policy or install a connector. Extension/disabling flags are reserved in Foom's
 default arguments so defaults cannot replace its attachment. No global or project
 Pi files are read or written by Foom. See [measurements](../agents.md#pi-140-extension-spike-834).
 
-Existing settings keep their original required keys; absent Pi settings use the
-normal enabled/empty-default behavior without rewriting the profile. Pi uses the
+Existing settings keep their explicit keys; absent Pi settings use the
+normal disabled/empty-default behavior without rewriting the profile. Pi uses the
 shared provider/disclosure-bound bypass consent: a legacy `pi: true` acknowledgement,
 a custom provider identity, or an identity for an older manifest cannot authorize
 `--approve` or `-a`. Cancelling disclosure saves no new consent; approving a single
@@ -210,7 +210,14 @@ sign-in remains unknown and does not claim credential or hook trust.
 ## Bundled installer manifests (#1071)
 
 Optional `hostSetup.script` carries a fixed HTTPS URL, `sh`/`bash` interpreter and
-fixed argument list. The parser rejects it for config origin even under a new ID;
+fixed argument list, plus an optional bounded literal `environment` list (#1166).
+The [manifest contract](../agent-plugins.md#remote-host-setup-data-971) defines its
+name/value limits and reserved names. Installer entries reuse the launch manifest's
+reserved-name policy for runtime injection, shell controls, proxies and credentials;
+bundled origin cannot opt out. Installer account/XDG restrictions apply as well.
+Codex declares `CODEX_NON_INTERACTIVE=1`
+to skip vendor prompts and decline launching or uninstalling another installation.
+The parser rejects it for config origin even under a new ID;
 JSON cannot self-declare bundled provenance. The application-owned manifest lock
 covers this data. Package-manager recipes retain their closed argv validation and
 priority. Adding a bundled agent needs manifest data, not a new installer branch.

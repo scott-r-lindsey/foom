@@ -1,3 +1,4 @@
+import { ENABLED_AGENTS } from "../../../helpers/enabled-agents";
 import { expect, test, vi } from "vitest";
 import { Workspace } from "../../../../src/main/workspace/workspace";
 import { readSessions } from "../../../../src/main/workspace/session-store";
@@ -126,6 +127,7 @@ test("quit persists in-flight Close and restart surfaces interrupted cleanup wit
   await pending;
   deps.sessions.load = () => Promise.resolve(readSessions(frozen));
   const restored = new Workspace(deps);
+  restored.configure({ hooks: true, agents: ENABLED_AGENTS });
   await restored.restore();
   await restored.restartSaved();
   expect(restored.snapshot().terminals[0]).toMatchObject({
@@ -160,6 +162,7 @@ test("failed durable acceptance prevents cleanup and restores the row", async ()
     flush: () => Promise.resolve(),
   };
   const restored = new Workspace(deps);
+  restored.configure({ hooks: true, agents: ENABLED_AGENTS });
   await restored.restore();
   await expect(restored.sidebarCommand(close, confirm)).rejects.toThrow("disk full");
   expect(restored.snapshot().terminals[0]?.closeState).toBe("failed");
