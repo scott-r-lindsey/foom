@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, mkdir, open, realpath, rename, rm, writeFile } from "node:fs/promises";
+import { link, lstat, mkdir, open, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { ThemeValidationError } from "../../shared/theme-validation";
@@ -87,6 +87,25 @@ export class ConfigFiles {
     if (!(await this.contained(dirname(relative).replace(/^\.$/, ""))))
       throw new ThemeValidationError("$", "unsafe-file");
     return readConfigFile(this.path(relative));
+  }
+
+  /** Publish a complete initial file without replacing another profile's file. */
+  async createFile(relative: string, content: string): Promise<boolean> {
+    if (!(await this.contained(dirname(relative).replace(/^\.$/, ""))))
+      throw new Error("A Foom config folder is redirected outside the config folder");
+    const temporary = this.path(`.foom-${randomUUID()}.tmp`);
+    try {
+      await writeFile(temporary, content, { flag: "wx", mode: 0o644 });
+      try {
+        await link(temporary, this.path(relative));
+        return true;
+      } catch (error) {
+        if (error instanceof Error && "code" in error && error.code === "EEXIST") return false;
+        throw error;
+      }
+    } finally {
+      await rm(temporary, { force: true });
+    }
   }
 
   /** Atomic replacement inside the folder; the temporary name is hidden from the catalogs. */

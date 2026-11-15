@@ -708,6 +708,11 @@ run repository scripts, plugins or package-manager probes. Preparing a host to
 build a repository is left to an agent the user runs on that host
 ([#1024](https://github.com/scott-r-lindsey/foom/issues/1024)).
 
+**Proposed, unimplemented (#1080):** the
+[repository setup design](../design/1080-repository-setup.md) adds a separately
+approved profile-only requirements list. It does not change the shipped checks
+above until the user approves the design and implementation follows.
+
 ## Checklist refresh scope (#1061)
 
 A full check runs only for **Check capabilities** and the first check on Add
