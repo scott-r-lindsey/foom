@@ -416,7 +416,10 @@ export class WorkspaceContext {
           prepareControl,
           this.agyPlugin,
           async (content) => {
-            const approved = await deps.dialog?.(content, this.launchAbort.signal);
+            const approved = await deps.dialog?.(
+              { ...content, userAction: true },
+              this.launchAbort.signal,
+            );
             return approved === true && !this.closed;
           },
           {

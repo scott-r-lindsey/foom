@@ -928,13 +928,19 @@ export function ApprovalQueue({
     const focusSafe = () => {
       hideRef.current?.focus();
     };
+    const restoreSafeDefault = () => {
+      if (document.hasFocus() && document.activeElement === document.body) focusSafe();
+    };
     const clearGesture = () => {
       gestureRef.current = [];
     };
     window.addEventListener("focus", focusSafe);
+    document.addEventListener("focusin", restoreSafeDefault);
+    restoreSafeDefault();
     window.addEventListener("blur", clearGesture);
     return () => {
       window.removeEventListener("focus", focusSafe);
+      document.removeEventListener("focusin", restoreSafeDefault);
       window.removeEventListener("blur", clearGesture);
     };
   }, []);

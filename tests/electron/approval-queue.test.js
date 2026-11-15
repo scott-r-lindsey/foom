@@ -20,7 +20,7 @@ async function launchApprovalFixture(context) {
   app = await launchApp(context, { fixture: "running-shell" });
   const board = await boardPage(app);
   // Real main-owned queue and native isolation/renderer; data and agent attribution are fixtures.
-  await app.evaluate(({ app, BrowserWindow, session }) => {
+  await app.evaluate(({ app, BrowserWindow, session, screen }) => {
     const load = process
       .getBuiltinModule("node:module")
       .createRequire(app.getAppPath() + "/package.json");
@@ -38,6 +38,9 @@ async function launchApprovalFixture(context) {
       (w) => w.webContents.getURL() === "app://bundle/index.html",
     );
     parent.setBounds({ x: 30, y: 10, width: 1200, height: 1000 });
+    // Keep the full 720-CSS-pixel queue visible on shorter CI desktops too.
+    const work = screen.getDisplayMatching(parent.getBounds()).workArea;
+    parent.webContents.setZoomFactor(Math.max(0.5, Math.min(1, (work.height - 80) / 720)));
     globalThis.approvalFixture = {
       theme: resolveInterfaceTheme("eclipse-light", false),
       results: {},
@@ -429,17 +432,18 @@ test("native queue recentering re-arms decisions before a stationary screen-poin
       .boundingBox();
     const cssBefore = await approve("one").boundingBox();
     const before = await native.evaluate((window) => window.getContentBounds());
+    const zoom = await native.evaluate((window) => window.webContents.getZoomFactor());
     const screenPoint = {
-      x: before.x + decline.x + decline.width / 2,
-      y: before.y + decline.y + decline.height / 2,
+      x: before.x + (decline.x + decline.width / 2) * zoom,
+      y: before.y + (decline.y + decline.height / 2) * zoom,
     };
-    await dialog.mouse.move(screenPoint.x - before.x, screenPoint.y - before.y);
-    await app.evaluate(({ BrowserWindow }) => {
+    await dialog.mouse.move((screenPoint.x - before.x) / zoom, (screenPoint.y - before.y) / zoom);
+    await app.evaluate(({ BrowserWindow }, zoom) => {
       const parent = BrowserWindow.getAllWindows().find(
         (window) => window.webContents.getURL() === "app://bundle/index.html",
       );
-      parent.setBounds({ x: 30, y: 10, width: 1000, height: 1000 });
-    });
+      parent.setBounds({ x: 30, y: 10, width: Math.round(1200 - 200 * zoom), height: 1000 });
+    }, zoom);
     await expect
       .poll(() => native.evaluate((window) => window.getContentBounds().x))
       .not.toBe(before.x);
@@ -447,7 +451,7 @@ test("native queue recentering re-arms decisions before a stationary screen-poin
     const after = await native.evaluate((window) => window.getContentBounds());
     const cssAfter = await approve("one").boundingBox();
     assert.deepEqual(cssAfter, cssBefore, "Native recentering leaves the CSS rectangle unchanged");
-    const click = { x: screenPoint.x - after.x, y: screenPoint.y - after.y };
+    const click = { x: (screenPoint.x - after.x) / zoom, y: (screenPoint.y - after.y) / zoom };
     assert.ok(
       click.x >= cssAfter.x &&
         click.x <= cssAfter.x + cssAfter.width &&

@@ -14,6 +14,7 @@ const {
   assertAccessible,
   boardPage,
   approvalPage,
+  clickApproval,
   launchApp,
   removeAfterApps,
 } = require("./harness.js");
@@ -115,7 +116,10 @@ for (const scenario of [
     await expect(
       confirmation.getByText(/Close its exited children, discarding their final screens/),
     ).toBeVisible();
-    await confirmation.getByRole("button", { name: "Make orchestrator" }).click();
+    await clickApproval(
+      confirmation,
+      confirmation.getByRole("button", { name: "Approve · Make orchestrator", exact: true }),
+    );
     await expect.poll(async () => (await call("whoami")).role).toBe("orchestrator");
     const mcpUrl = parent.controlUrl.replace("/control/v1", "/mcp");
     let mcpSession;
@@ -421,7 +425,10 @@ test("an orchestrator wait_for wakes on a child PR required-check conclusion", {
     .click();
   await page.getByRole("menuitem", { name: "Make orchestrator…" }).click();
   const confirmation = await approvalPage(app);
-  await confirmation.getByRole("button", { name: "Make orchestrator" }).click();
+  await clickApproval(
+    confirmation,
+    confirmation.getByRole("button", { name: "Approve · Make orchestrator", exact: true }),
+  );
   await expect.poll(async () => (await call("whoami")).role).toBe("orchestrator");
   const tree = await call("create_worktree", { branch: "child-one", idempotencyKey: "forge-tree" });
   const child = await call("launch", {

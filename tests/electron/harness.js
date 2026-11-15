@@ -398,6 +398,17 @@ async function approvalPage(app) {
   return page;
 }
 
+/** Reveal a decision first, then let its movement guard settle before native input. */
+async function clickApproval(page, button) {
+  await button.scrollIntoViewIfNeeded();
+  // Scrolling and its ResizeObserver/React update must finish before checking enabled.
+  await page.evaluate(
+    () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+  );
+  await expect(button).toBeEnabled();
+  await button.click();
+}
+
 async function boardCommand(app, keyCode, shift = true) {
   await app.evaluate(
     ({ BrowserWindow }, { keyCode, mac, shift }) => {
@@ -1191,6 +1202,7 @@ module.exports = {
   stopSession,
   confirmationPage,
   approvalPage,
+  clickApproval,
   boardCommand,
   assertAccessible,
   quitAndWait,

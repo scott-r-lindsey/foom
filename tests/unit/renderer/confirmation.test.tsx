@@ -1131,6 +1131,11 @@ test("approval queue preserves focus and keyed rows, guards moved controls and r
     "Request ended",
   ]);
   expect(document.activeElement).toBe(view.getByRole("button", { name: "Hide" }));
+  const hasFocus = vi.spyOn(document, "hasFocus").mockReturnValue(true);
+  view.getByRole("button", { name: "Hide" }).blur();
+  fireEvent.focusIn(document.body);
+  expect(document.activeElement).toBe(view.getByRole("button", { name: "Hide" }));
+  hasFocus.mockRestore();
   // Updates during the settle interval retain the same inert slot.
   act(() => {
     receive({ ...request, approvals: [row("b", "Authority"), row("d")] });

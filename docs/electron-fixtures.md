@@ -86,6 +86,19 @@ scenarios. Their native attachment, focus, identity and cleanup assertions remai
 in the shared implementations. Scenario-specific frame helpers, stuck handoffs,
 agent setup and moved-pixel inspection stay in their owning suites.
 
+## Trusted approval decisions (#1105)
+
+`approvalPage` explicitly opens the background queue through its waiting indicator.
+`clickApproval` reveals the specific decision, waits for scroll/layout delivery and
+its enabled state, then uses native Playwright input. A click's implicit scroll can
+move a guarded control immediately before dispatch; tests must reveal it first,
+just as a person scrolls to read it. The helper never forces or retries a decision,
+changes deadlines, or submits answers through the bridge. Immediate human actions,
+including launch-bypass consent, continue to use `confirmationPage`. The queue
+fixture scales its parent to fit the full 720 CSS-pixel cap on short desktops,
+preserving the assertion that two rows are fully visible. Native screen-point
+checks convert CSS coordinates using the actual zoom factor.
+
 ## Preview navigation focus ordering (#1133)
 
 The user-clicked preview navigation and stuck handoff cases record a test-only

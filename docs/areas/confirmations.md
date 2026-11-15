@@ -7,7 +7,7 @@ Decided implementation and security rules for this area. Read the [file map](../
 `main/confirmations/approvals.ts` owns one app-wide queue of agent/background
 requests; application wiring routes removals, pairing, plugin requests, orchestrator
 grants and host trust into it. The user approved `mockups/approvals.html` on #1105.
-Explicit user-action terminal links, tile-close/dirty removal, quit and merged
+Explicit user-action launch-bypass consent, terminal links, tile-close/dirty removal, quit and merged
 cleanup retain the board-local TrustedDialog path below.
 
 The queue uses one additional isolated TrustedDialog window with the same private
@@ -37,7 +37,9 @@ integers. Repeated notifications for identical native bounds do not extend the
 guard. The bulk button uses `aria-disabled` with the same disabled styling and
 answer-time guard, retaining keyboard focus and its captured IDs through a native
 resize while a gesture is held. Deliberate focus changes or window blur cancel it. If a
-removed control held keyboard focus, Hide receives it. Renderer loss or presentation failure declines
+removed control held keyboard focus, Hide receives it. Explicit opening also
+restores Hide if native WebContents focus arrives late and resets DOM focus to
+the body; it leaves a surviving control and unfocused terminal input alone. Renderer loss or presentation failure declines
 remaining callers without granting anything.
 
 Unlike action dialogs, queue presentation does not install a scrim, board input

@@ -15,6 +15,7 @@ const {
   boardPage,
   confirmationPage,
   approvalPage,
+  clickApproval,
   launchApp,
   quitAndWait,
   removeAfterApps,
@@ -247,7 +248,10 @@ for (const scenario of [
     await expect(
       confirmation.getByText(/Close its exited children, discarding their final screens/),
     ).toBeVisible();
-    await confirmation.getByRole("button", { name: "Make orchestrator" }).click();
+    await clickApproval(
+      confirmation,
+      confirmation.getByRole("button", { name: "Approve · Make orchestrator", exact: true }),
+    );
     await expect.poll(async () => (await call("whoami")).role).toBe("orchestrator");
     // This fixture explicitly chooses its reviewer; production starts with no provider default.
     await page.evaluate(() => window.desktop.saveSetup({ defaultAgent: "claude" }));

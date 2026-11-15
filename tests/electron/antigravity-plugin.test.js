@@ -10,6 +10,7 @@ const {
   boardPage,
   confirmationPage,
   approvalPage,
+  clickApproval,
   launchApp,
   openSettingsScreen,
   removeAfterApps,
@@ -656,7 +657,10 @@ test("Antigravity plugin MCP inherits an owned child's read-only role", {
     .click();
   await page.getByRole("menuitem", { name: "Make orchestrator…" }).click();
   const elevate = await approvalPage(app);
-  await elevate.getByRole("button", { name: "Make orchestrator" }).click();
+  await clickApproval(
+    elevate,
+    elevate.getByRole("button", { name: "Approve · Make orchestrator", exact: true }),
+  );
   await expect.poll(async () => (await call("whoami")).role).toBe("orchestrator");
   const tree = await call("create_worktree", { branch: "child-agy", idempotencyKey: "agy-tree" });
   expect(tree.status).toBe("succeeded");
