@@ -34,6 +34,18 @@ animation-frame assertion and startup diagnostics. The sandbox, controlled login
 shell/PATH, agent guard, process audit and quit-before-directory-removal ordering
 are unchanged.
 
+## Hosts navigation request window (#1199)
+
+Host enrollment publishes a sidebar refresh independently of the completed Hosts
+checklist. Wait for the saved full-check timestamp and enabled Check capabilities
+control, and complete enrollment-owned locations reconciliation. Before measuring requests caused by reopening Hosts, await
+`window.desktop.sidebarInventory()` to join that refresh's shared inventory reads.
+The sealed-catalog case does this before changing build metadata; otherwise a
+repository request from enrollment can land in the navigation capture window.
+Opening Hosts must leave the entire fixture request log unchanged. Explicit
+checks still retain the separate assertion against daemon and repository requests
+when the catalog is omitted.
+
 ## Agents scope review captures (#1070)
 
 The twelve-agent/twelve-host case checks desktop/light and narrow/dark, including
