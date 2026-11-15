@@ -17,13 +17,11 @@ import {
 import type { ConfigSettings } from "../../shared/config";
 import { DEFAULT_SOUND, migrateSoundSettings } from "../../shared/sounds";
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { link, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
 import { validAgentId } from "../../shared/providers/catalog";
-import type { LegacyAgentId } from "../../shared/agents";
 import type { Settings, SettingsPatch } from "../../shared/setup";
 
-const AGENTS: readonly LegacyAgentId[] = ["claude", "codex", "agy"];
 /** Twice the theme folder limit, so renames settle before old entries are removed. */
 const MAX_THEME_DIGESTS = 100;
 
@@ -46,9 +44,9 @@ export const DEFAULT_SETTINGS: Settings = Object.freeze({
   autoRemoveMergedWorktrees: false,
   forges: Object.freeze({ github: true, gitlab: true }),
   forgeHosts: Object.freeze({ "github.com": "github", "gitlab.com": "gitlab" }),
-  agents: Object.freeze({ claude: true, codex: true, agy: true }),
+  agents: Object.freeze({}),
   agentArguments: EMPTY_AGENT_ARGUMENTS,
-  agentBypassAcknowledged: Object.freeze({ claude: false, codex: false, agy: false }),
+  agentBypassAcknowledged: Object.freeze({}),
   worktreeLocation: "root",
   panelColor: "vivid",
   interfaceTheme: "follow",
@@ -91,17 +89,13 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
       key === "agentBypassAcknowledged" &&
       record(entry) &&
       Object.keys(entry).length <= 100 &&
-      AGENTS.every((id) => typeof entry[id] === "boolean") &&
       Object.entries(entry).every(
         ([id, enabled]) => validAgentId(id) && typeof enabled === "boolean",
       )
     )
-      patch[key] = {
-        ...Object.fromEntries(Object.entries(entry).map(([id, enabled]) => [id, enabled === true])),
-        claude: entry["claude"] === true,
-        codex: entry["codex"] === true,
-        agy: entry["agy"] === true,
-      };
+      patch[key] = Object.fromEntries(
+        Object.entries(entry).map(([id, enabled]) => [id, enabled === true]),
+      );
     else if (
       key === "agentBypassIdentities" &&
       record(entry) &&
@@ -206,6 +200,7 @@ export class SettingsStore {
     const store = new SettingsStore(join(userData, "settings.json"));
     let migrated = false;
     let hasRemoteProfile = false;
+    let backup: string | undefined;
     try {
       const state: unknown = JSON.parse(await readFile(store.file, "utf8"));
       const version = record(state) ? state["version"] : undefined;
@@ -235,6 +230,7 @@ export class SettingsStore {
               recovered[agent] = parseAgentArguments(agent, agentArguments[agent]);
             } catch {
               // A newer reserved-argument rule invalidates only this agent's defaults.
+              recovered[agent] = [];
             }
           }
         }
@@ -308,10 +304,30 @@ export class SettingsStore {
             ).map((key) => [key, store.settings[key]]),
           );
         }
+        // Older builds reject sparse profile consent maps and may rewrite defaults.
+        // Retain the original valid profile once, without retired inference secrets.
+        const original = { ...state["settings"] };
+        delete original["inference"];
+        delete original["inferenceTimeoutMs"];
+        backup = JSON.stringify({ ...state, settings: original });
         migrated ||= legacy || legacyAutoRemove;
       }
     } catch {
       // Defaults.
+    }
+    if (backup !== undefined) {
+      const temporary = `${store.file}.${randomUUID()}.tmp`;
+      try {
+        await writeFile(temporary, backup, { flag: "wx", mode: 0o600 });
+        try {
+          // A hard link publishes complete bytes exclusively; later loads never replace them.
+          await link(temporary, join(userData, "settings-before-optional-agents.json"));
+        } catch (error) {
+          if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
+        }
+      } finally {
+        await rm(temporary, { force: true });
+      }
     }
     if (migrated || !hasRemoteProfile) await store.write(() => {});
     store.committedSettings = store.settings;

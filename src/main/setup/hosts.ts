@@ -47,7 +47,12 @@ import type { RemoteSavedPlacement } from "../workspace/session-restore.d";
 import type { DialogContent, DialogOutcome, PlainDialogContent } from "../../shared/confirmation";
 import type { RemoteSessionInfo, RemoteInventoryResult } from "../../shared/remote-host";
 import { locationId } from "../control/metadata";
-import { remoteInventory, remoteManagement } from "../terminals/remote-transport";
+import {
+  RemoteCheckConnection,
+  remoteInventory,
+  remoteManagement,
+} from "../terminals/remote-transport";
+import { remoteHostsAvailable } from "../terminals/remote-bootstrap";
 import { sshEnvironment } from "../terminals/remote-bootstrap";
 
 /** Background inspections carry the same main-classified failure without a checklist. */
@@ -56,6 +61,73 @@ function unknownHostKey(result: HostResult | undefined): boolean {
   return ssh
     ? ssh.state === "fail" && ssh.reason === "host-key-unknown"
     : result?.ok === false && result.reason === "host-key-unknown";
+}
+
+/** The same closed classification serves full checks and individual connection rows. */
+function connectionChecks(
+  result: HostResult,
+): Pick<HostPreflight, "ssh" | "platform" | "artifact"> {
+  const pass: HostCheck = { state: "pass" };
+  const unknown: HostCheck = { state: "not-checked" };
+  const fail = (reason: HostFailure): HostCheck => ({ state: "fail", reason });
+  const reason = result.ok ? undefined : result.reason;
+  const platformFailure =
+    reason === "unsupported" || reason === "libc-too-old" || reason === "libc-unsupported";
+  const requirements = result.ok ? result.facts.requirements : undefined;
+  const platform: HostCheck = platformFailure
+    ? fail(reason)
+    : result.ok
+      ? requirements?.libc === "too-old"
+        ? fail("libc-too-old")
+        : requirements?.libc === "unsupported"
+          ? fail("libc-unsupported")
+          : pass
+      : unknown;
+  return {
+    ssh:
+      result.connection?.ssh ??
+      (result.ok || platformFailure || reason === "facts-unavailable"
+        ? pass
+        : reason === "unreachable"
+          ? fail(reason)
+          : unknown),
+    platform: result.connection?.platform ?? platform,
+    artifact:
+      (!result.ok && result.connection?.artifact.state === "pass"
+        ? fail(result.reason)
+        : result.connection?.artifact) ??
+      (result.ok ? pass : reason === "artifact-unavailable" ? fail(reason) : unknown),
+  };
+}
+
+/** Row-local failures do not invalidate a healthy connection. Everything else does. */
+function connectionFailure(result: Extract<HostResult, { ok: false }>): boolean {
+  return (
+    [result.connection?.ssh, result.connection?.platform, result.connection?.artifact].some(
+      (check) => check?.state === "fail",
+    ) ||
+    ![
+      "folder-missing",
+      "folder-refused",
+      "unsafe-folder",
+      "origin-unavailable",
+      "origin-auth",
+      "origin-host-key",
+      "origin-unreachable",
+      "timed-out",
+      "checkout-invalid",
+      "clone-failed",
+      "checkout-refused",
+    ].includes(result.reason)
+  );
+}
+
+/** A recovered connection has not rechecked dependent capabilities or repositories. */
+function recoveredConnection(result: Extract<HostResult, { ok: true }>): HostResult {
+  const facts: HostFacts = { ...result.facts, folder: { state: "not-checked" }, agents: [] };
+  delete facts.tools;
+  delete facts.requirements;
+  return { ok: true, facts, connection: connectionChecks(result) };
 }
 
 /** Only the folder observation (including macOS's path warning) changes. */
@@ -150,7 +222,11 @@ export class Hosts {
     this.worktreeInventories.delete(host);
     this.worktreeReads.delete(host);
   }
-  private async readWorktrees(host: string, fresh = false): Promise<readonly RemoteWorktree[]> {
+  private async readWorktrees(
+    host: string,
+    fresh = false,
+    connection?: RemoteCheckConnection,
+  ): Promise<readonly RemoteWorktree[]> {
     const cached = this.worktreeInventories.get(host);
     const registration = this.registered(host);
     if (
@@ -166,12 +242,16 @@ export class Hosts {
     const work = (async () => {
       this.worktreeInventories.delete(host);
       if (!this.profile) return [];
-      const result = await this.run(host, {
-        type: "manage",
-        operation: "list-worktrees",
-        codeFolder: registration.codeFolder,
-        profile: this.profile,
-      });
+      const result = await this.run(
+        host,
+        {
+          type: "manage",
+          operation: "list-worktrees",
+          codeFolder: registration.codeFolder,
+          profile: this.profile,
+        },
+        { connection },
+      );
       // A completed mutation or forgotten registration supersedes this read.
       // Its callers join the current observation; its reply cannot refill the cache.
       if (this.worktreeReads.get(host)?.token !== token) return this.readWorktrees(host);
@@ -249,19 +329,20 @@ export class Hosts {
     }
     return rows;
   }
-  private async readSessions(host: string): Promise<RemoteInventoryResult> {
+  private async readSessions(
+    host: string,
+    connection?: RemoteCheckConnection,
+  ): Promise<RemoteInventoryResult> {
     const registered = this.registered(host);
     if (!this.profile) throw new Error("Profile unavailable");
-    const result = await remoteInventory(
-      { host },
-      this.version,
-      {
-        type: "inventory",
-        profile: this.profile,
-        ...(registered.codeFolder.startsWith("/") ? { codeFolder: registered.codeFolder } : {}),
-      },
-      this.cancellation.signal,
-    );
+    const request = {
+      type: "inventory" as const,
+      profile: this.profile,
+      ...(registered.codeFolder.startsWith("/") ? { codeFolder: registered.codeFolder } : {}),
+    };
+    const result = connection
+      ? await connection.inventory(request)
+      : await remoteInventory({ host }, this.version, request, this.cancellation.signal);
     this.registered(host, registered.codeFolder);
     this.sessionInventories.set(host, result);
     return result;
@@ -389,7 +470,7 @@ export class Hosts {
     return entry;
   }
   async requireAgent(host: string, agent: string): Promise<void> {
-    if (this.store.get().agents[agent] === false) throw new LaunchFailure("agent_disabled");
+    if (this.store.get().agents[agent] !== true) throw new LaunchFailure("agent_disabled");
     if (agentProviders().find((provider) => provider.id === agent)?.origin !== "bundled")
       throw new LaunchFailure("remote_agent_unsupported");
     const result = await this.inventory(host);
@@ -573,7 +654,20 @@ export class Hosts {
   private readonly results = new HostObservations<string, HostResult>();
   /** Display-only resource replies never seed the launch inventory. */
   private readonly resourceResults = new HostObservations<string, HostResult>();
-  private progress: HostCheckProgress | undefined;
+  private readonly progress = new Map<string, HostCheckProgress>();
+  private readonly hostPending = new Map<string, Promise<unknown>>();
+  private checksRunning = 0;
+  private readonly checkWaiters: (() => void)[] = [];
+  private async enterCheck(): Promise<() => void> {
+    if (this.checksRunning >= 4)
+      await new Promise<void>((resolve) => this.checkWaiters.push(resolve));
+    else this.checksRunning++;
+    return () => {
+      const next = this.checkWaiters.shift();
+      if (next) next();
+      else this.checksRunning--;
+    };
+  }
   private output: HostOutput | undefined;
   private outputGeneration = 0;
   private appendOutput(text: string, startLine = false): void {
@@ -593,14 +687,15 @@ export class Hosts {
     private readonly store: Pick<SettingsStore, "get" | "update">,
     private readonly repositories: () => readonly Repository[],
     private readonly version: string,
-    private readonly execute: (
+    private readonly execute?: (
       host: string,
       request: HostManagement,
       output?: (text: string, startLine?: boolean) => void,
-    ) => Promise<HostResult> = (host, request, output) =>
-      remoteManagement({ host }, version, request, this.cancellation.signal, output),
+    ) => Promise<HostResult>,
     private readonly profile?: string,
+    private readonly buildSupport?: () => Promise<boolean>,
   ) {}
+  private remoteHostsAvailable: boolean | undefined;
   private projectedResult(host: string, result = this.results.get(host)): HostResult | undefined {
     const inventory = this.sessionInventories.get(host);
     return result?.ok && inventory
@@ -695,7 +790,7 @@ export class Hosts {
     this.registered(host);
     const system = result?.ok ? result.facts.requirements : undefined;
     if (!hostRequirements(system) || system.distro === "unknown") return undefined;
-    if (this.store.get().agents[tool] === false) return undefined;
+    if (tool !== "git" && tool !== "gh" && this.store.get().agents[tool] !== true) return undefined;
     const model = bundledAgentData
       .map((data) => parseAgentManifest(JSON.stringify(data), "bundled").model)
       .find((model) => model.id === tool);
@@ -703,6 +798,9 @@ export class Hosts {
   }
   state(result?: HostResult, savedOnly = false): HostsState {
     return {
+      ...(this.remoteHostsAvailable === undefined
+        ? {}
+        : { remoteHostsAvailable: this.remoteHostsAvailable }),
       hosts: (this.store.get().registeredHosts ?? []).map((host) => {
         const rowFailures = (this.pendingRows.get(host.host) ?? []).flatMap((row) =>
           row.reason ? [{ target: row.target, reason: row.reason }] : [],
@@ -728,7 +826,7 @@ export class Hosts {
             "git",
             "gh",
             ...agentProviders()
-              .filter((provider) => this.store.get().agents[provider.id] !== false)
+              .filter((provider) => this.store.get().agents[provider.id] === true)
               .map((provider) => provider.id),
           ].map((tool) => ({
             tool,
@@ -761,7 +859,7 @@ export class Hosts {
           this.repositories().some((repo) => repo.path === location.repository),
       ),
       ...(result ? { result } : {}),
-      ...(this.progress ? { progress: this.progress } : {}),
+      ...(this.progress.size ? { progress: [...this.progress.values()] } : {}),
       ...(this.output ? { output: this.output } : {}),
     };
   }
@@ -788,7 +886,7 @@ export class Hosts {
         "git",
         "gh",
         ...agentProviders()
-          .filter((provider) => this.store.get().agents[provider.id] !== false)
+          .filter((provider) => this.store.get().agents[provider.id] === true)
           .map((provider) => provider.id),
       ].includes(target.tool)
     )
@@ -803,7 +901,21 @@ export class Hosts {
       await this.updateRegistrations((hosts) =>
         hosts.map((entry) =>
           entry.host === host && entry.observation
-            ? { ...entry, observation: { ...entry.observation, preflight: saved } }
+            ? {
+                ...entry,
+                observation: {
+                  ...entry.observation,
+                  ...(!saved.result.ok && entry.observation.preflight.result.ok
+                    ? {
+                        lastAgents: entry.observation.lastAgents ?? {
+                          checkedAt: entry.observation.checkedAt,
+                          result: entry.observation.preflight.result,
+                        },
+                      }
+                    : {}),
+                  preflight: saved,
+                },
+              }
             : entry,
         ),
       );
@@ -822,7 +934,10 @@ export class Hosts {
         result: current,
       };
       const updated = change({ ...base, result: current });
-      if (!this.inventoryReads.has(host)) this.results.set(host, updated.result);
+      if (!this.inventoryReads.has(host)) {
+        if (!current.ok && updated.result.ok) this.observed.delete(host);
+        this.results.set(host, updated.result);
+      }
       // Return a transient display update even when enrollment has no saved
       // checklist. This neither saves an observation nor invents Last checked.
       preflight ??= updated;
@@ -870,33 +985,63 @@ export class Hosts {
         { output },
       );
     }
+    const previous = registration.observation?.preflight;
+    const displayed = previous?.result ?? this.results.get(host);
+    const connectionRow = ["ssh", "platform", "artifact"].includes(target.kind);
+    const failedConnection = !result.ok && (connectionRow || connectionFailure(result));
+    if (!previous && !this.results.has(host) && failedConnection)
+      return { ...connectionChecks(result), result, repositories: [] };
     if (
+      !failedConnection &&
       (target.kind === "power" || target.kind === "command-line-tools") &&
       (!result.ok || !result.facts.requirements?.mac)
     )
       throw new HostRowUnavailable("Unable to check host row");
-    const previous = registration.observation?.preflight;
-    const displayed = previous?.result ?? this.results.get(host);
-    const connectionRow = ["ssh", "platform", "artifact"].includes(target.kind);
     if (
-      (!previous && (!displayed?.ok || "repository" in target)) ||
-      ("repository" in target &&
-        !previous?.repositories.some((repo) => repo.repository === target.repository)) ||
-      (!connectionRow && !("repository" in target) && !displayed?.ok) ||
-      ("tool" in target &&
-        displayed?.ok &&
-        ![...displayed.facts.agents, ...(displayed.facts.tools ?? [])].some(
-          (entry) => entry.id === target.tool,
-        )) ||
-      ((target.kind === "power" || target.kind === "command-line-tools") &&
-        displayed?.ok &&
-        !displayed.facts.requirements?.mac)
+      !failedConnection &&
+      ((!previous && (!displayed?.ok || "repository" in target)) ||
+        ("repository" in target &&
+          !previous?.repositories.some((repo) => repo.repository === target.repository)) ||
+        (!connectionRow && !("repository" in target) && !displayed?.ok) ||
+        ("tool" in target &&
+          displayed?.ok &&
+          ![...displayed.facts.agents, ...(displayed.facts.tools ?? [])].some(
+            (entry) => entry.id === target.tool,
+          )) ||
+        ((target.kind === "power" || target.kind === "command-line-tools") &&
+          displayed?.ok &&
+          !displayed.facts.requirements?.mac))
     )
       throw new HostRowUnavailable("Unable to display host row without a full check");
     const check: HostCheck = result.ok
       ? { state: "pass" }
       : { state: "fail", reason: result.reason };
     const change = (previous: HostPreflight): HostPreflight => {
+      if (failedConnection || connectionRow) {
+        const connection = connectionChecks(result);
+        const recovering = result.ok && !previous.result.ok;
+        const next = !result.ok
+          ? result
+          : recovering
+            ? recoveredConnection(result)
+            : {
+                ...previous.result,
+                connection,
+              };
+        return {
+          ...previous,
+          ...connection,
+          result: next,
+          repositories:
+            failedConnection || recovering
+              ? previous.repositories.map((repo) => ({
+                  ...repo,
+                  origin: { state: "not-checked" as const },
+                  checkout: next,
+                }))
+              : previous.repositories,
+        };
+      }
       if ("repository" in target)
         return {
           ...previous,
@@ -909,23 +1054,6 @@ export class Hosts {
               : repo,
           ),
         };
-      if (target.kind === "ssh") {
-        const ssh = result.connection?.ssh ?? check;
-        return {
-          ...previous,
-          ssh,
-          result: {
-            ...previous.result,
-            connection: {
-              ssh,
-              platform: previous.platform,
-              artifact: previous.artifact,
-            },
-          },
-        };
-      }
-      if (target.kind === "platform" || target.kind === "artifact")
-        return { ...previous, [target.kind]: result.connection?.[target.kind] ?? check };
       if (!previous.result.ok) return previous;
       const facts = previous.result.facts;
       const observed = result.ok ? result.facts : undefined;
@@ -977,10 +1105,13 @@ export class Hosts {
       }
       return { ...previous, result: { ...previous.result, facts: next } };
     };
-    const save = () => {
+    const save = async () => {
       if (this.registeredRow(host, target).codeFolder !== registration.codeFolder)
-        return Promise.reject(new HostRowUnavailable("Folder changed"));
-      return this.updateChecklist(host, change);
+        throw new HostRowUnavailable("Folder changed");
+      const updated = await this.updateChecklist(host, change);
+      if (connectionRow && result.ok && this.resourceResults.get(host)?.ok === false)
+        this.resourceResults.delete(host);
+      return updated;
     };
     try {
       return await save();
@@ -1032,44 +1163,53 @@ export class Hosts {
       const signal = trustSignal
         ? AbortSignal.any([this.cancellation.signal, trustSignal])
         : this.cancellation.signal;
-      const work = this.pending
-        .catch(() => undefined)
-        .then(async () => {
-          const registration = this.registered(host);
-          const latest = this.results.get(host) ?? registration.observation?.preflight.result;
-          const cancelled = () => signal.aborted;
-          const report = (reason: HostKeyTrustFailure) => {
-            this.outputGeneration++;
-            this.output = {
-              host,
-              text: `Unable to trust host key · ${reason}\n`,
-              running: false,
-              failed: true,
-            };
+      const work = Promise.allSettled([
+        this.pending,
+        this.hostPending.get(host) ?? Promise.resolve(),
+      ]).then(async () => {
+        const generation = this.outputGeneration;
+        const registration = this.registered(host);
+        const latest = this.results.get(host) ?? registration.observation?.preflight.result;
+        const cancelled = () => signal.aborted;
+        const report = (reason: HostKeyTrustFailure) => {
+          if (this.outputGeneration !== generation) return;
+          this.outputGeneration++;
+          this.output = {
+            host,
+            text: `Unable to trust host key · ${reason}\n`,
+            running: false,
+            failed: true,
           };
-          if (cancelled()) return false;
-          if (!unknownHostKey(latest)) {
-            report("trust-not-eligible");
-            return false;
-          }
-          if (!confirmHostKey) {
-            report("dialog-unavailable");
-            return false;
-          }
-          const supported = await askpassSupported(undefined, signal);
-          if (cancelled()) return false;
-          this.hostKeyTrust = supported ? "askpass" : "manual";
-          if (!supported) {
-            report("trust-unavailable");
-            return false;
-          }
-          this.registered(host, registration.codeFolder);
-          return trustHostKey(host, confirmHostKey, signal, undefined, report).catch(() => {
-            if (!cancelled()) report("trust-unavailable");
-            return false;
-          });
+        };
+        if (cancelled()) return false;
+        if (!unknownHostKey(latest)) {
+          report("trust-not-eligible");
+          return false;
+        }
+        if (!confirmHostKey) {
+          report("dialog-unavailable");
+          return false;
+        }
+        const supported = await askpassSupported(undefined, signal);
+        if (cancelled()) return false;
+        this.hostKeyTrust = supported ? "askpass" : "manual";
+        if (!supported) {
+          report("trust-unavailable");
+          return false;
+        }
+        this.registered(host, registration.codeFolder);
+        return trustHostKey(host, confirmHostKey, signal, undefined, report).catch(() => {
+          if (!cancelled()) report("trust-unavailable");
+          return false;
         });
+      });
       this.pending = work;
+      this.hostPending.set(host, work);
+      void work
+        .finally(() => {
+          if (this.hostPending.get(host) === work) this.hostPending.delete(host);
+        })
+        .catch(() => undefined);
       return work.then(async (accepted) => {
         const registration = this.registered(host);
         // Prior successes survive failed checks through lastAgents (#1061).
@@ -1123,12 +1263,21 @@ export class Hosts {
       "reload",
       "refresh",
     ].includes(input.action);
-    const work = this.pending
+    const isCheck = input.action === "preflight" || input.action === "draft-preflight";
+    const host = "host" in input ? input.host : undefined;
+    let release: (() => void) | undefined;
+    let outputGeneration: number | undefined;
+    const hostWork = host ? (this.hostPending.get(host) ?? Promise.resolve()) : Promise.resolve();
+    const prior = host
+      ? Promise.allSettled(isCheck ? [hostWork] : [this.pending, hostWork])
+      : this.pending;
+    const work = prior
       .catch(() => undefined)
       .then(async () => {
+        if (isCheck) release = await this.enterCheck();
         if (input.action === "recipe") this.output = undefined;
         if (showOutput && "host" in input) {
-          this.outputGeneration++;
+          outputGeneration = ++this.outputGeneration;
           this.output = { host: input.host, text: "", running: true, failed: false };
         }
         if (input.action === "list") {
@@ -1296,20 +1445,32 @@ export class Hosts {
               : hosts.find((entry) => entry.host === input.host);
           if (registration && registration.codeFolder !== input.codeFolder)
             throw new Error("Folder changed");
-          this.progress = {
+          this.progress.set(input.host, {
             host: input.host,
             phase: "inspect",
             repositories: this.repositories().map((repo) => ({ repository: repo.path })),
-          };
+          });
+          const generation = this.outputGeneration;
+          const connection = this.execute
+            ? undefined
+            : new RemoteCheckConnection(
+                { host: input.host },
+                this.version,
+                this.cancellation.signal,
+                (text, startLine) => {
+                  if (this.outputGeneration === generation && this.output?.host === input.host)
+                    this.appendOutput(text, startLine);
+                },
+              );
           try {
-            const preflight = await this.preflight(input.host, input.codeFolder);
+            const preflight = await this.preflight(input.host, input.codeFolder, connection);
             if (registration) {
               this.resourceResults.delete(input.host);
               this.results.set(input.host, preflight.result);
               await this.expandRegistration(input.host);
               if (this.profile && preflight.result.ok) {
-                await this.readSessions(input.host).catch(() => undefined);
-                await this.readWorktrees(input.host, true);
+                await this.readSessions(input.host, connection).catch(() => undefined);
+                await this.readWorktrees(input.host, true, connection);
               }
               const row = this.state().hosts.find((entry) => entry.host === input.host);
               await this.updateRegistrations((hosts) =>
@@ -1319,14 +1480,16 @@ export class Hosts {
                         ...entry,
                         observation: {
                           ...(!preflight.result.ok && entry.observation
-                            ? {
-                                lastAgents: entry.observation.preflight.result.ok
-                                  ? {
+                            ? entry.observation.lastAgents
+                              ? { lastAgents: entry.observation.lastAgents }
+                              : entry.observation.preflight.result.ok
+                                ? {
+                                    lastAgents: {
                                       checkedAt: entry.observation.checkedAt,
                                       result: entry.observation.preflight.result,
-                                    }
-                                  : entry.observation.lastAgents,
-                              }
+                                    },
+                                  }
+                                : {}
                             : {}),
                           checkedAt: Date.now(),
                           preflight: { ...preflight, result: row?.result ?? preflight.result },
@@ -1343,7 +1506,7 @@ export class Hosts {
               );
               this.pendingRows.delete(input.host);
             }
-            this.progress = undefined;
+            this.progress.delete(input.host);
             if (registration)
               this.locations = [
                 ...this.locations.filter((entry) => entry.host !== input.host),
@@ -1362,7 +1525,8 @@ export class Hosts {
             if (registration) this.cacheHostLocations(state, repositories);
             return state;
           } finally {
-            this.progress = undefined;
+            connection?.close();
+            this.progress.delete(input.host);
           }
         }
         if (input.action === "create-folder" || input.action === "change-folder") {
@@ -1476,10 +1640,12 @@ export class Hosts {
           return this.state(result);
         }
         if (input.action === "locations") {
-          this.locations = [];
+          const key = (entry: RepositoryLocation) => JSON.stringify([entry.host, entry.repository]);
+          const before = new Map(this.locations.map((entry) => [key(entry), entry]));
+          const locations: RepositoryLocation[] = [];
           for (const repo of this.repositories())
             for (const host of hosts)
-              this.locations.push(
+              locations.push(
                 this.rememberLocation(
                   {
                     repository: repo.path,
@@ -1489,6 +1655,23 @@ export class Hosts {
                   observedAt,
                 ),
               );
+          const current = new Map(this.locations.map((entry) => [key(entry), entry]));
+          for (const entry of locations) {
+            const saved = current.get(key(entry));
+            if (saved && saved !== before.get(key(entry))) continue;
+            const folder = hosts.find((host) => host.host === entry.host)?.codeFolder;
+            if (
+              this.store
+                .get()
+                .registeredHosts?.some(
+                  (host) => host.host === entry.host && host.codeFolder === folder,
+                )
+            )
+              current.set(key(entry), entry);
+          }
+          this.locations = [...current.values()].filter((entry) =>
+            this.repositories().some((repo) => repo.path === entry.repository),
+          );
           return this.state();
         }
         const host = hosts.find((entry) => entry.host === input.host);
@@ -1572,13 +1755,32 @@ export class Hosts {
         return state;
       })
       .finally(() => {
-        if (showOutput && this.output) this.output = { ...this.output, running: false };
+        release?.();
+        if (
+          showOutput &&
+          this.outputGeneration === outputGeneration &&
+          this.output &&
+          this.output.host === host
+        )
+          this.output = { ...this.output, running: false };
       })
       .then((state) => ({ ...state, ...(this.output ? { output: this.output } : {}) }));
-    this.pending = work;
+    if (host) {
+      this.hostPending.set(host, work);
+      void work
+        .finally(() => {
+          if (this.hostPending.get(host) === work) this.hostPending.delete(host);
+        })
+        .catch(() => undefined);
+    }
+    if (!isCheck) this.pending = work;
     return work.then((state) => this.trustState(state, trustSignal));
   }
   private async trustState(state: HostsState, signal?: AbortSignal): Promise<HostsState> {
+    if (this.buildSupport) {
+      this.remoteHostsAvailable = await this.buildSupport();
+      state = { ...state, remoteHostsAvailable: this.remoteHostsAvailable };
+    }
     const cancellation = signal
       ? AbortSignal.any([this.cancellation.signal, signal])
       : this.cancellation.signal;
@@ -1599,20 +1801,25 @@ export class Hosts {
       currentObservation?: () => boolean;
       output?: boolean;
       beforeDispatch?: () => boolean;
+      connection?: RemoteCheckConnection | undefined;
     } = {},
   ): Promise<HostResult> {
     const currentObservation = options.currentObservation ?? (() => true);
+    const generation = this.outputGeneration;
+    const currentOutput = () =>
+      options.output &&
+      this.outputGeneration === generation &&
+      this.output?.running &&
+      this.output.host === host
+        ? this.output
+        : undefined;
     const failed = (
       reason: HostFailure,
       step: "providers" | "connection" | "reply" | "configuration" | "cancellation",
     ): HostResult => {
-      if (
-        options.output &&
-        this.output?.running &&
-        this.output.host === host &&
-        !this.output.failed
-      ) {
-        this.output.failed = true;
+      const output = currentOutput();
+      if (output && !output.failed && reason !== "artifact-unavailable") {
+        output.failed = true;
         this.appendOutput(`Failed · ${reason}\n`, true);
       }
       console.warn(`Host check failed: reason=${reason} step=${step}`);
@@ -1626,7 +1833,7 @@ export class Hosts {
       const changed = () =>
         providerRevision() !== revision || JSON.stringify(this.store.get().agents) !== enabled;
       const providers = agentProviders().filter(
-        (provider) => this.store.get().agents[provider.id] !== false,
+        (provider) => this.store.get().agents[provider.id] === true,
       );
       try {
         for (const provider of providers) await provider.validate?.();
@@ -1652,22 +1859,43 @@ export class Hosts {
       // Provider preparation can await. Revoke stale mutation authority before dispatch.
       if (options.beforeDispatch?.() === false) return failed("checkout-refused", "configuration");
       try {
-        const generation = this.outputGeneration;
         const output =
-          options.output &&
-          this.output?.running &&
-          this.output.host === host &&
-          request.operation === "inspect"
+          currentOutput() && request.operation === "inspect"
             ? (text: string, startLine = false) => {
-                if (this.outputGeneration === generation) this.appendOutput(text, startLine);
+                if (currentOutput()) this.appendOutput(text, startLine);
               }
             : undefined;
+        const execute =
+          this.execute ??
+          ((
+            host: string,
+            request: HostManagement,
+            output?: (text: string, startLine?: boolean) => void,
+          ) =>
+            options.connection
+              ? options.connection.manage(request)
+              : remoteManagement(
+                  { host },
+                  this.version,
+                  request,
+                  this.cancellation.signal,
+                  output,
+                ));
         result = output
-          ? await this.execute(host, { ...request, agents: probes }, output)
-          : await this.execute(host, { ...request, agents: probes });
+          ? await execute(host, { ...request, agents: probes }, output)
+          : await execute(host, { ...request, agents: probes });
         if (output && hostResult(result)) {
-          output(result.ok ? "Done\n" : `Failed · ${result.reason}\n`, true);
-          if (this.output && !result.ok) this.output.failed = true;
+          output(
+            result.ok
+              ? "Done\n"
+              : result.reason === "artifact-unavailable"
+                ? "Unavailable in this build\n"
+                : `Failed · ${result.reason}\n`,
+            true,
+          );
+          const current = currentOutput();
+          if (current && !result.ok && result.reason !== "artifact-unavailable")
+            current.failed = true;
         }
       } catch {
         return cancelled()
@@ -1728,7 +1956,11 @@ export class Hosts {
     this.locations = this.locations.filter((entry) => entry.host !== host);
     this.invalidateWorktrees(host);
   }
-  private async preflight(host: string, codeFolder: string): Promise<HostPreflight> {
+  private async preflight(
+    host: string,
+    codeFolder: string,
+    channel?: RemoteCheckConnection,
+  ): Promise<HostPreflight> {
     const result = await this.run(
       host,
       {
@@ -1739,43 +1971,34 @@ export class Hosts {
         readOnly: true,
         partial: true,
       },
-      { output: true },
+      { output: true, connection: channel },
     );
     const pass: HostCheck = { state: "pass" };
     const unknown: HostCheck = { state: "not-checked" };
     const fail = (reason: HostFailure): HostCheck => ({ state: "fail", reason });
-    const reason = result.ok ? undefined : result.reason;
-    const platformFailure =
-      reason === "unsupported" || reason === "libc-too-old" || reason === "libc-unsupported";
-    const requirements = result.ok ? result.facts.requirements : undefined;
-    const platform: HostCheck = platformFailure
-      ? fail(reason)
-      : result.ok
-        ? requirements?.libc === "too-old"
-          ? fail("libc-too-old")
-          : requirements?.libc === "unsupported"
-            ? fail("libc-unsupported")
-            : pass
-        : unknown;
-    const connection = {
-      ssh:
-        result.connection?.ssh ??
-        (result.ok || platformFailure || reason === "facts-unavailable"
-          ? pass
-          : reason === "unreachable"
-            ? fail(reason)
-            : unknown),
-      platform: result.connection?.platform ?? platform,
-      artifact:
-        result.connection?.artifact ??
-        (result.ok ? pass : reason === "artifact-unavailable" ? fail(reason) : unknown),
-    };
+    const connection = connectionChecks(result);
     const repositories: HostPreflight["repositories"][number][] = [];
-    if (connection.ssh.state === "fail" || unknownHostKey(result))
-      return { ...connection, result, repositories };
-    const planned = this.progress?.repositories ?? [];
+    if (
+      !result.ok ||
+      connection.artifact.state !== "pass" ||
+      connection.ssh.state === "fail" ||
+      unknownHostKey(result)
+    )
+      return {
+        ...connection,
+        result,
+        repositories:
+          connection.ssh.state === "fail" || unknownHostKey(result)
+            ? []
+            : (this.progress.get(host)?.repositories ?? []).map((repo) => ({
+                repository: repo.repository,
+                origin: unknown,
+                checkout: result,
+              })),
+      };
+    const planned = this.progress.get(host)?.repositories ?? [];
     const update = (phase: "origin" | "checkout", repository: string, origin?: HostCheck) => {
-      this.progress = {
+      this.progress.set(host, {
         host,
         phase,
         repository,
@@ -1786,12 +2009,12 @@ export class Hosts {
             completed ?? (repo.repository === repository && origin ? { ...repo, origin } : repo)
           );
         }),
-      };
+      });
     };
     for (const repo of planned) {
       update("origin", repo.repository);
       let origin: HostCheck;
-      const git = result.ok ? result.facts.tools?.find((tool) => tool.id === "git") : undefined;
+      const git = result.facts.tools?.find((tool) => tool.id === "git");
       try {
         if (git && git.state !== "ready") {
           update("checkout", repo.repository, unknown);
@@ -1800,21 +2023,27 @@ export class Hosts {
             origin: unknown,
             checkout: await this.repository(
               host,
-              result.ok ? result.facts.codeFolder : codeFolder,
+              result.facts.codeFolder,
               repo.repository,
               false,
+              undefined,
+              channel,
             ),
           });
           continue;
         }
         const url = await this.origin(repo.repository);
-        const access = await this.run(host, {
-          type: "manage",
-          operation: "origin",
-          codeFolder,
-          origin: url,
-          directory: `repository-${createHash("sha256").update(url).digest("hex").slice(0, 24)}`,
-        });
+        const access = await this.run(
+          host,
+          {
+            type: "manage",
+            operation: "origin",
+            codeFolder,
+            origin: url,
+            directory: `repository-${createHash("sha256").update(url).digest("hex").slice(0, 24)}`,
+          },
+          { connection: channel },
+        );
         origin = access.ok ? pass : fail(access.reason);
       } catch {
         origin = fail("origin-unavailable");
@@ -1822,9 +2051,11 @@ export class Hosts {
       update("checkout", repo.repository, origin);
       const checkout = await this.repository(
         host,
-        result.ok ? result.facts.codeFolder : codeFolder,
+        result.facts.codeFolder,
         repo.repository,
         false,
+        undefined,
+        channel,
       );
       repositories.push({ repository: repo.repository, origin, checkout });
     }
@@ -1908,6 +2139,7 @@ export class Hosts {
     repository: string,
     clone: boolean,
     expectedOrigin?: string,
+    connection?: RemoteCheckConnection,
   ): Promise<HostResult> {
     let origin: string;
     try {
@@ -1935,7 +2167,7 @@ export class Hosts {
         origin,
         directory,
       },
-      clone ? { beforeDispatch: authorized } : {},
+      clone ? { beforeDispatch: authorized } : { connection },
     );
     if (result.ok && (!result.checkout || result.checkout.path !== `${codeFolder}/${directory}`))
       return { ok: false, reason: "checkout-refused" };
@@ -1952,7 +2184,14 @@ export function hostsForStore(
 ): Hosts {
   let hosts = services.get(store);
   if (!hosts) {
-    hosts = new Hosts(store, repositories, version, undefined, store.profileTag?.());
+    hosts = new Hosts(
+      store,
+      repositories,
+      version,
+      undefined,
+      store.profileTag?.(),
+      remoteHostsAvailable,
+    );
     services.set(store, hosts);
     onQuit?.(hosts.dispose.bind(hosts));
   }

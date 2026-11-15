@@ -162,7 +162,7 @@ export function AgentsStep({
   const choices = [
     ...agentChoices(report),
     ...rejected.filter((plugin) => !agentChoices(report).some((agent) => agent.id === plugin.id)),
-  ];
+  ].sort((left, right) => left.name.localeCompare(right.name));
   return (
     <div className="agents-page">
       {!machine && (
@@ -210,7 +210,7 @@ export function AgentsStep({
       )}
       <div className="agent-cards">
         {choices
-          .filter(({ id }) => !machine || state.settings.agents[id] !== false)
+          .filter(({ id }) => !machine || state.settings.agents[id] === true)
           .map(({ id, name, command }) => {
             const receipt = results[id];
             const setupResult = receipt?.epoch === receiptEpoch ? receipt.text : undefined;
@@ -219,7 +219,7 @@ export function AgentsStep({
             const installed = Boolean(agent?.path);
             const blocked = Boolean(plugin);
             const missing = !installed && !blocked;
-            const enabled = installed && !blocked && state.settings.agents[id] !== false;
+            const enabled = !blocked && state.settings.agents[id] === true;
             const policy = builtinAgent(id);
             const sourceFile = plugin?.file ?? agent?.source;
             const capabilities = [
@@ -266,7 +266,7 @@ export function AgentsStep({
                           : "Not found"
                         : blocked
                           ? "Launch blocked"
-                          : state.settings.agents[id] === false
+                          : state.settings.agents[id] !== true
                             ? "Turned off"
                             : "Version unknown")}
                   </span>
@@ -290,7 +290,7 @@ export function AgentsStep({
                           role="switch"
                           aria-label={name}
                           checked={enabled}
-                          disabled={!installed || blocked}
+                          disabled={blocked}
                           onChange={(event) => {
                             save({
                               agents: { ...state.settings.agents, [id]: event.target.checked },
@@ -306,7 +306,7 @@ export function AgentsStep({
                 {source &&
                   installable.includes(id) &&
                   !blocked &&
-                  state.settings.agents[id] !== false &&
+                  state.settings.agents[id] === true &&
                   (missing || source.installs?.sessions().has(`local:${id}`)) && (
                     <LocalInstall
                       id={id}

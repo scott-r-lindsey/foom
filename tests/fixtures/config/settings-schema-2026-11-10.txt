@@ -1,0 +1,356 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "foom:settings",
+  "title": "Foom settings",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind"
+  ],
+  "properties": {
+    "kind": {
+      "const": "settings"
+    },
+    "panelColor": {
+      "enum": [
+        "vivid",
+        "subtle",
+        "plain"
+      ]
+    },
+    "interfaceTheme": {
+      "anyOf": [
+        {
+          "enum": [
+            "follow",
+            "eclipse-light",
+            "eclipse-dark",
+            "high-contrast",
+            "deep-field",
+            "graphite",
+            "midnight-indigo",
+            "moonlight"
+          ]
+        },
+        {
+          "type": "string",
+          "pattern": "^user:[\\p{L}\\p{N}_-][\\p{L}\\p{N} ._-]*\\.json$"
+        }
+      ]
+    },
+    "terminalTheme": {
+      "anyOf": [
+        {
+          "enum": [
+            "follow",
+            "foom-light",
+            "foom-dark",
+            "solarized-light",
+            "solarized-dark",
+            "dracula"
+          ]
+        },
+        {
+          "type": "string",
+          "pattern": "^user:[\\p{L}\\p{N}_-][\\p{L}\\p{N} ._-]*\\.json$"
+        }
+      ]
+    },
+    "interfaceScale": {
+      "enum": [
+        80,
+        90,
+        100,
+        110,
+        120,
+        130,
+        140,
+        150,
+        175,
+        200,
+        250,
+        300
+      ]
+    },
+    "terminalFont": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[\\p{L}\\p{N}][\\p{L}\\p{N} ._()+-]*$",
+      "not": {
+        "pattern": " $"
+      }
+    },
+    "terminalFontSize": {
+      "type": "integer",
+      "minimum": 10,
+      "maximum": 32
+    },
+    "sound": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "choices",
+        "working",
+        "workingVolume",
+        "alerts",
+        "alertVolume"
+      ],
+      "properties": {
+        "choices": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "working",
+            "done",
+            "needs-you",
+            "refusal"
+          ],
+          "properties": {
+            "working": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "source",
+                "file"
+              ],
+              "properties": {
+                "source": {
+                  "enum": [
+                    "builtin",
+                    "user"
+                  ]
+                },
+                "file": {
+                  "type": "string",
+                  "maxLength": 100
+                }
+              }
+            },
+            "done": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "source",
+                "file"
+              ],
+              "properties": {
+                "source": {
+                  "enum": [
+                    "builtin",
+                    "user"
+                  ]
+                },
+                "file": {
+                  "type": "string",
+                  "maxLength": 100
+                }
+              }
+            },
+            "needs-you": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "source",
+                "file"
+              ],
+              "properties": {
+                "source": {
+                  "enum": [
+                    "builtin",
+                    "user"
+                  ]
+                },
+                "file": {
+                  "type": "string",
+                  "maxLength": 100
+                }
+              }
+            },
+            "refusal": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "source",
+                "file"
+              ],
+              "properties": {
+                "source": {
+                  "enum": [
+                    "builtin",
+                    "user"
+                  ]
+                },
+                "file": {
+                  "type": "string",
+                  "maxLength": 100
+                }
+              }
+            }
+          }
+        },
+        "volume": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "muted": {
+          "type": "boolean"
+        },
+        "working": {
+          "type": "boolean"
+        },
+        "workingVolume": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "alerts": {
+          "type": "boolean"
+        },
+        "alertVolume": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "agents": {
+      "type": "object",
+      "maxProperties": 100,
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9-]{0,39}$",
+        "not": {
+          "enum": [
+            "shell",
+            "all",
+            "constructor",
+            "prototype"
+          ]
+        }
+      },
+      "additionalProperties": {
+        "type": "boolean"
+      },
+      "required": [
+        "claude",
+        "codex",
+        "agy"
+      ],
+      "properties": {
+        "claude": {
+          "type": "boolean"
+        },
+        "codex": {
+          "type": "boolean"
+        },
+        "agy": {
+          "type": "boolean"
+        }
+      }
+    },
+    "agentArguments": {
+      "type": "object",
+      "maxProperties": 100,
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9-]{0,39}$",
+        "not": {
+          "enum": [
+            "shell",
+            "all",
+            "constructor",
+            "prototype"
+          ]
+        }
+      },
+      "additionalProperties": {
+        "type": "array",
+        "maxItems": 64,
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "^[^\\p{Cc}]+$"
+        }
+      },
+      "required": [
+        "claude",
+        "codex",
+        "agy"
+      ],
+      "properties": {
+        "claude": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "pattern": "^[^\\p{Cc}]+$"
+          }
+        },
+        "codex": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "pattern": "^[^\\p{Cc}]+$"
+          }
+        },
+        "agy": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "pattern": "^[^\\p{Cc}]+$"
+          }
+        }
+      },
+      "description": "Literal launch arguments. Reserved arguments are rejected by foom config validate. Every file change requires Allow."
+    },
+    "hooks": {
+      "type": "boolean"
+    },
+    "restoreSessions": {
+      "type": "boolean"
+    },
+    "showNewChildren": {
+      "type": "boolean",
+      "default": true
+    },
+    "closeFinishedAgents": {
+      "type": "boolean",
+      "default": true
+    },
+    "defaultAgent": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[a-z][a-z0-9-]{0,39}$",
+      "not": {
+        "enum": [
+          "shell",
+          "all",
+          "constructor",
+          "prototype"
+        ]
+      }
+    },
+    "concurrentChildren": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 16
+    },
+    "recentRepositoryDays": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 365,
+      "default": 30
+    }
+  }
+}

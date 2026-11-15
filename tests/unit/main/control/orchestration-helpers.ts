@@ -18,7 +18,7 @@ export const history = (view: OrchestrationView | undefined) =>
 export const other = join(tmpdir(), "elsewhere");
 
 export function harness(
-  overrides: Pick<OrchestrationHost, "reviewSnapshot"> = {},
+  overrides: Pick<OrchestrationHost, "reviewSnapshot" | "unavailable"> = {},
   board?: MessageBoard,
 ) {
   let limit = 4;

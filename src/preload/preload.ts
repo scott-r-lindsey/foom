@@ -548,19 +548,21 @@ const validHostCheckTarget: Validator<HostCheckTarget> = either(
 const validHostsState: Validator<HostsState> = shape({
   progress: either(
     absent,
-    shape({
-      host: hostAlias,
-      phase: literal("inspect", "origin", "checkout"),
-      repository: either(absent, text),
-      result: either(absent, validHostResult),
-      repositories: array(
-        shape({
-          repository: text,
-          origin: either(absent, validHostCheck),
-          checkout: either(absent, validHostResult),
-        }),
-      ),
-    }),
+    array(
+      shape({
+        host: hostAlias,
+        phase: literal("inspect", "origin", "checkout"),
+        repository: either(absent, text),
+        result: either(absent, validHostResult),
+        repositories: array(
+          shape({
+            repository: text,
+            origin: either(absent, validHostCheck),
+            checkout: either(absent, validHostResult),
+          }),
+        ),
+      }),
+    ),
   ),
   preflight: either(absent, validHostPreflight),
   recipeSession: either(absent, (value): value is string => nonempty(value) && value.length <= 200),
@@ -607,6 +609,7 @@ const validHostsState: Validator<HostsState> = shape({
       foreignWorktrees: either(absent, count),
     }),
   ),
+  remoteHostsAvailable: either(absent, boolean),
   locations: array(shape({ repository: text, host: hostAlias, result: validHostResult })),
   result: either(absent, validHostResult),
 } satisfies Contract<HostsState>);
@@ -633,30 +636,9 @@ const validSettings: Validator<Settings> = shape({
   terminalClipboardWrites: boolean,
   forges: dictionary(boolean),
   forgeHosts: dictionary(text),
-  agents: both(
-    shape({
-      claude: boolean,
-      codex: boolean,
-      agy: boolean,
-    }),
-    dictionary(boolean),
-  ),
-  agentArguments: both(
-    shape({
-      claude: array(text),
-      codex: array(text),
-      agy: array(text),
-    }),
-    dictionary(array(text)),
-  ),
-  agentBypassAcknowledged: both(
-    shape({
-      claude: boolean,
-      codex: boolean,
-      agy: boolean,
-    }),
-    dictionary(boolean),
-  ),
+  agents: dictionary(boolean),
+  agentArguments: dictionary(array(text)),
+  agentBypassAcknowledged: dictionary(boolean),
   agentBypassIdentities: either(absent, dictionary(text)),
   worktreeLocation: literal("root", "adjacent"),
   panelColor: literal("vivid", "subtle", "plain"),
@@ -1266,9 +1248,6 @@ const validEnvironmentRow: Validator<EnvironmentRow> = copying(
 const validEnvironmentState: Validator<EnvironmentState> = shape({
   lists: both(
     shape({
-      claude: array(validEnvironmentRow),
-      codex: array(validEnvironmentRow),
-      agy: array(validEnvironmentRow),
       all: array(validEnvironmentRow),
     }),
     dictionary(array(validEnvironmentRow)),
@@ -2051,8 +2030,9 @@ const desktop: DesktopApi = {
   actionLog: (query) => reply("workspace:action-log", validActionLogPage, query),
   clearActionLog: () => invokeVoid("workspace:clear-action-log"),
   onWorkspaceChange(callback) {
-    const listener = () => {
-      callback();
+    const listener = (_event: Electron.IpcRendererEvent, localOnly: unknown) => {
+      if (localOnly === true) callback(true);
+      else callback();
     };
     ipcRenderer.on("workspace:changed", listener);
     return () => {

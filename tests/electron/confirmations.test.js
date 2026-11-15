@@ -1664,9 +1664,9 @@ test("config file agent arguments require trusted Allow before a fake Codex laun
   const banner = page.getByRole("region", { name: "Change waiting for approval" });
   await writeFile(file, proposal);
   await expect(banner).toContainText("change Codex launch arguments");
-  assert.deepEqual(
+  assert.equal(
     (await page.evaluate(() => window.desktop.setupState())).settings.agentArguments.codex,
-    [],
+    undefined,
   );
   await banner.getByRole("button", { name: "Keep it on" }).click();
   await expect(banner).toHaveCount(0);

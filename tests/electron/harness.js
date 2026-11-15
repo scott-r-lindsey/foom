@@ -581,7 +581,14 @@ async function prepareProfile(options) {
   if (options.fixture !== "first-run") {
     await writeFile(
       path.join(profile, "settings.json"),
-      JSON.stringify({ version: 1, settings: { setupComplete: true, checkForUpdates: false } }),
+      JSON.stringify({
+        version: 1,
+        settings: {
+          setupComplete: true,
+          checkForUpdates: false,
+          agents: { claude: true, codex: true, agy: true, copilot: true, opencode: true, pi: true },
+        },
+      }),
       { flag: "wx" },
     ).catch((error) => {
       if (error.code !== "EEXIST") throw error;

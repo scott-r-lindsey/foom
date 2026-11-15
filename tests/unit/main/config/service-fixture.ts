@@ -43,7 +43,7 @@ export async function fixture({
   const statuses: unknown[] = [];
   const service = new ConfigService({
     root: folder,
-    defaults: configPart(DEFAULT_SETTINGS),
+    defaults: configPart({ ...DEFAULT_SETTINGS, agents: { claude: true, codex: true, agy: true } }),
     apply: (values) => {
       applied.push(values);
     },
@@ -110,7 +110,7 @@ export async function restart(f: Awaited<ReturnType<typeof fixture>>) {
   await f.service.dispose();
   const again = new ConfigService({
     root: f.folder,
-    defaults: configPart(DEFAULT_SETTINGS),
+    defaults: configPart({ ...DEFAULT_SETTINGS, agents: { claude: true, codex: true, agy: true } }),
     apply: () => {},
     baseline: { get: () => f.baseline(), set: () => Promise.resolve() },
     appliedText: { get: () => f.copy(), set: () => Promise.resolve() },

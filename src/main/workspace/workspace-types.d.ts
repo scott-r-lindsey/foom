@@ -218,7 +218,13 @@ export interface WorkspaceMethods {
 }
 export type Agents = Pick<
   AgentService,
-  "scan" | "launch" | "release" | "dispose" | "setHooksEnabled" | "setBypassIdentities"
+  | "scan"
+  | "launch"
+  | "release"
+  | "dispose"
+  | "setEnabled"
+  | "setHooksEnabled"
+  | "setBypassIdentities"
 >;
 export interface WorkspaceDependencies {
   hosts?: Pick<Hosts, "fleet" | "worktree" | "registered" | "requireAgent"> &
@@ -302,7 +308,7 @@ export interface WorkspaceDependencies {
   prepareWorktreeRemoval?(worktree: string): Promise<() => void>;
   onExecution?(event: ExecutionTransition): void;
   onState(state: TerminalState): void;
-  onChange?(): void;
+  onChange?(localOnly?: boolean): void;
   watcher?: Pick<InventoryWatch, "sync" | "dispose">;
   acknowledgeAgyPluginOffer?(): Promise<void>;
   forge?: ForgeTracking;

@@ -276,8 +276,8 @@ export async function initializeWorkspace(
           throw error;
         }
       },
-      onChange: () => {
-        for (const entry of wiring.windows.values()) entry.workspaceIpc.sendChanged();
+      onChange: (localOnly) => {
+        for (const entry of wiring.windows.values()) entry.workspaceIpc.sendChanged(localOnly);
         for (const host of wiring.previewHosts.values())
           void host.reconcile().catch(() => {
             console.warn("Unable to reconcile previews");

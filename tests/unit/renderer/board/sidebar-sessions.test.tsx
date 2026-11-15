@@ -762,3 +762,27 @@ test.each([false, true])(
     expect(view.getByRole("button", { name: "Actions for Tests in feature" })).toBeTruthy();
   },
 );
+
+test.each([true, false])(
+  "unavailable exited sessions offer Forget and retain Copy with dormant=%s",
+  (dormant) => {
+    const view = setup();
+    act(() => {
+      view.base.update("a", {
+        dormant,
+        unavailable: true,
+        exited: true,
+        conversationId: "saved",
+      });
+    });
+    fireEvent.click(view.getByRole("button", { name: "Actions for Claude Code in feature" }));
+    expect(view.queryByRole("menuitem", { name: "Close" })).toBeNull();
+    expect(view.getByRole("menuitem", { name: "Copy session ID" })).toBeTruthy();
+    expect(view.queryByRole("menuitem", { name: "Resume conversation" })).toBeNull();
+    expect(view.queryByRole("menuitem", { name: "New conversation here" })).toBeNull();
+    act(() => {
+      fireEvent.click(view.getByRole("menuitem", { name: "Forget…" }));
+    });
+    expect(view.command).toHaveBeenCalledWith({ kind: "forget", id: "a" });
+  },
+);

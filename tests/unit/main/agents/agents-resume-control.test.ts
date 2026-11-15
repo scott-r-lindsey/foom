@@ -1,4 +1,6 @@
+import { ENABLED_AGENTS } from "../../../helpers/enabled-agents";
 import {
+  enabledAgentService,
   agentFixture,
   binding,
   cleanup,
@@ -13,7 +15,6 @@ import {
 } from "./agents-fixture";
 import { readFile } from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
-import { AgentService } from "../../../../src/main/agents/agents";
 import { PluginSetup } from "../../../../src/main/agents/plugin-setup";
 import type { TerminalSpec } from "../../../../src/shared/desktop";
 
@@ -66,7 +67,7 @@ it.each([true, false])(
         dispose: disposeControl,
       }),
     );
-    agentFixture.service = new AgentService(
+    agentFixture.service = enabledAgentService(
       { listWorktrees, launchIdentity },
       { create },
       prepare,
@@ -97,7 +98,7 @@ it.each(["spawn", "shutdown", "early-exit"])(
       if (mode === "early-exit") agentFixture.service.release("early");
       return "early";
     });
-    agentFixture.service = new AgentService(
+    agentFixture.service = enabledAgentService(
       { listWorktrees, launchIdentity },
       { create: spawn },
       prepare,
@@ -114,7 +115,7 @@ it.each(["spawn", "shutdown", "early-exit"])(
 );
 
 it("revokes prepared hooks if control setup fails", async () => {
-  agentFixture.service = new AgentService(
+  agentFixture.service = enabledAgentService(
     { listWorktrees, launchIdentity },
     { create },
     prepare,
@@ -128,7 +129,7 @@ it("rotates control credentials when resuming the same terminal", async () => {
   const first = { env: { FOOM_CONTROL_TOKEN: "first" }, bind: vi.fn(), dispose: vi.fn() };
   const second = { env: { FOOM_CONTROL_TOKEN: "second" }, bind: vi.fn(), dispose: vi.fn() };
   const control = vi.fn().mockResolvedValueOnce(first).mockResolvedValueOnce(second);
-  agentFixture.service = new AgentService(
+  agentFixture.service = enabledAgentService(
     { listWorktrees, launchIdentity },
     { create },
     prepare,
@@ -161,7 +162,7 @@ it.each([true, false])(
     agentFixture.help += "\n--mcp-config <file>";
     const revoke = vi.fn();
     const bind = vi.fn();
-    agentFixture.service = new AgentService(
+    agentFixture.service = enabledAgentService(
       { listWorktrees, launchIdentity },
       { create },
       prepare,
@@ -174,7 +175,7 @@ it.each([true, false])(
     );
     agentFixture.service.setHooksEnabled(hooks);
     try {
-      expect((await agentFixture.service.scan()).agents[0]?.mcp).toBe(true);
+      expect((await agentFixture.service.scan(ENABLED_AGENTS)).agents[0]?.mcp).toBe(true);
       await agentFixture.service.launch(request);
       expect(bind).toHaveBeenCalledWith("terminal-id", true);
       const args = create.mock.calls.at(-1)?.[0].args ?? [];
@@ -202,7 +203,7 @@ it("restores an orchestrator's role without a launch prompt and appends a child'
       dispose: vi.fn(),
     }),
   );
-  agentFixture.service = new AgentService(
+  agentFixture.service = enabledAgentService(
     { listWorktrees, launchIdentity },
     { create },
     prepare,
@@ -216,7 +217,7 @@ it("restores an orchestrator's role without a launch prompt and appends a child'
   versions.claude = "2.1.293 (Claude Code)";
   agentFixture.help += "\n--mcp-config <file>";
   try {
-    await agentFixture.service.scan();
+    await agentFixture.service.scan(ENABLED_AGENTS);
     await agentFixture.service.launch({ ...request, control: { role: "orchestrator" } });
     expect(controlFor).toHaveBeenLastCalledWith(root, tree, expect.anything(), {
       role: "orchestrator",
@@ -247,7 +248,7 @@ it.each([
   const previous = versions[agent];
   versions[agent] = agent === "claude" ? "2.1.293 (Claude Code)" : "codex-cli 0.161.0";
   agentFixture.help += "\n--mcp-config <configs...>\n--no-alt-screen";
-  agentFixture.service = new AgentService(
+  agentFixture.service = enabledAgentService(
     { listWorktrees, launchIdentity },
     { create },
     prepare,
@@ -304,7 +305,7 @@ it.each(["denied", "spawn", "early-exit"])("cleans MCP launch on %s", async (mod
     agentFixture.service.release("early");
     return "early";
   };
-  agentFixture.service = new AgentService(
+  agentFixture.service = enabledAgentService(
     { listWorktrees, launchIdentity },
     { create: spawn },
     prepare,

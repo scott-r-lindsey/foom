@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const { writeFile } = require("node:fs/promises");
 const path = require("node:path");
 const { deadline, expect } = require("./test-policy.js");
-const { launchApp, boardPage, openSettingsScreen } = require("./harness.js");
+const { launchApp, boardPage, openSettingsScreen, stopSession } = require("./harness.js");
 
 async function twoBoards(context) {
   const app = await launchApp(context, { fixture: "repository" });
@@ -143,4 +143,57 @@ test("data views: main write-to-push latency is measured with the real sandboxed
   });
   context.diagnostic(`write-to-push milliseconds: ${JSON.stringify(timings)}`);
   assert.ok(Math.max(...timings) < deadline(2000), JSON.stringify(timings));
+});
+
+test("data views: checkout, session and agent lifecycle changes publish across boards", {
+  timeout: deadline(60_000),
+}, async (context) => {
+  const { writer, observer } = await twoBoards(context);
+  const repository = (await writer.evaluate(() => window.desktop.workspace())).repositories[0].path;
+  await observer.evaluate((repository) => {
+    window.pushedViews = {};
+    window.viewDisposers = [
+      window.desktop.subscribeView("worktrees", { repository }, (snapshot) => {
+        window.pushedViews.worktrees = snapshot;
+      }),
+      window.desktop.subscribeView("sessions", {}, (snapshot) => {
+        window.pushedViews.sessions = snapshot;
+      }),
+      window.desktop.subscribeView("agents", { machine: "local" }, (snapshot) => {
+        window.pushedViews.agents = snapshot;
+      }),
+    ];
+  }, repository);
+  await observer.waitForFunction(() =>
+    ["worktrees", "sessions", "agents"].every((view) => window.pushedViews[view]?.data),
+  );
+  const previousAgents = await observer.evaluate(() => window.pushedViews.agents.revision);
+  await writer.evaluate(() => window.desktop.scanAgents(true));
+  await observer.waitForFunction(
+    (revision) => window.pushedViews.agents.revision > revision,
+    previousAgents,
+  );
+  const checkout = await writer.evaluate(
+    (repository) => window.desktop.createWorktree(repository, "view-channel"),
+    repository,
+  );
+  await observer.waitForFunction(
+    (checkout) => window.pushedViews.worktrees.data.some((row) => row.path === checkout.path),
+    checkout,
+  );
+  await writer.evaluate(() => window.desktop.sidebarCommand({ kind: "home-shell" }));
+  await observer.waitForFunction(() =>
+    window.pushedViews.sessions.data.some((row) => row.kind === "shell" && !row.exited),
+  );
+  const id = await observer.evaluate(
+    () => window.pushedViews.sessions.data.find((row) => row.kind === "shell" && !row.exited).id,
+  );
+  await stopSession(writer, id);
+  await observer.waitForFunction(
+    (id) => window.pushedViews.sessions.data.find((row) => row.id === id)?.exited,
+    id,
+  );
+  await observer.evaluate(() => {
+    for (const off of window.viewDisposers) off();
+  });
 });

@@ -236,3 +236,12 @@ All write commands keep their existing domain validation and trusted confirmatio
 `setup:state` takes no arguments and `setup:save` exactly one validated patch.
 The sandboxed preload reuses its inline response validators; no new runtime
 imports or sandbox-loader exceptions are introduced.
+
+## Local session forgetting (#1114)
+
+`workspace:sidebar-command` accepts `{kind: "forget", id}` through the existing
+registered-board sender and owned-session checks. Main validates dormancy and cached
+host unavailability and asks through the trusted dialog. No renderer-supplied
+cleanup or force field is accepted as authority. A `workspace:changed` notification
+may carry `true` to request a snapshot-only refresh; preload treats every other
+value as an ordinary full refresh. This hint grants no capability.

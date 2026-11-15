@@ -149,6 +149,7 @@ function sidebarCommand(value: unknown): SidebarCommand {
   if (
     kind === "stop" ||
     kind === "close" ||
+    kind === "forget" ||
     kind === "restart" ||
     kind === "resume" ||
     kind === "new-conversation" ||
@@ -267,7 +268,7 @@ export function attachWorkspace(
 ): {
   sendExecution(event: ExecutionTransition): void;
   sendState(state: TerminalState): void;
-  sendChanged(): void;
+  sendChanged(localOnly?: boolean): void;
   dispose(): void;
 } {
   const contents = window.webContents;
@@ -721,9 +722,11 @@ export function attachWorkspace(
       if (!contents.isDestroyed() && contents.mainFrame.url === APP_URL && owns(event.terminalId))
         contents.send("agent:execution", event);
     },
-    sendChanged() {
-      if (!contents.isDestroyed() && contents.mainFrame.url === APP_URL)
-        contents.send("workspace:changed");
+    sendChanged(localOnly) {
+      if (!contents.isDestroyed() && contents.mainFrame.url === APP_URL) {
+        if (localOnly === true) contents.send("workspace:changed", true);
+        else contents.send("workspace:changed");
+      }
     },
     sendState(state) {
       if (contents.isDestroyed() || contents.mainFrame.url !== APP_URL || !owns(state.id)) return;

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { harness, history, other } from "./orchestration-helpers";
 
@@ -74,3 +74,19 @@ describe("close exited children", () => {
     expect(h.orchestration.view(id)).toMatchObject({ role: "child" });
   });
 });
+
+it.each([true, false])(
+  "unavailable owned child close reports host_unavailable even when exited=%s",
+  async (exited) => {
+    const unavailable = vi.fn(() => Promise.resolve(true));
+    const h = harness({ unavailable });
+    const { id } = await h.child("offline");
+    if (exited) h.exit(id);
+    await expect(h.mutate("close", { id })).rejects.toThrow("host_unavailable");
+    expect(h.host.close).not.toHaveBeenCalled();
+    const foreign = h.launchParent("other-parent", other);
+    unavailable.mockClear();
+    await expect(foreign.mutate("close", { id })).rejects.toThrow("not_found");
+    expect(unavailable).not.toHaveBeenCalled();
+  },
+);

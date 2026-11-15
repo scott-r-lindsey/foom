@@ -132,8 +132,13 @@ export class ViewRegistry {
   acknowledge(id: unknown, generation: unknown, revision: unknown): void {
     if (
       typeof id !== "string" ||
+      !/^[a-zA-Z0-9-]{1,64}$/.test(id) ||
+      typeof generation !== "number" ||
       !Number.isSafeInteger(generation) ||
-      !Number.isSafeInteger(revision)
+      generation < 1 ||
+      typeof revision !== "number" ||
+      !Number.isSafeInteger(revision) ||
+      revision < 0
     )
       throw new Error("Invalid view acknowledgement");
     const entry = this.subscriptions.get(id);

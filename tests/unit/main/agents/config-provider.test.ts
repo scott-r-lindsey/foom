@@ -51,13 +51,15 @@ it("exposes config providers to discovery choices and checkout launchers", () =>
     name: manifest.name,
     command: "foom-test-agent",
   });
-  expect(readyAgents(report, setupState())).toEqual([installation]);
+  expect(readyAgents(report, setupState({ agents: { [manifest.id]: true } }))).toEqual([
+    installation,
+  ]);
   expect(
     launcherActions(
       {
         agents: [installation],
         repositories: [],
-        enabled: setupState().settings.agents,
+        enabled: { ...setupState().settings.agents, [installation.id]: true },
         hooks: true,
       },
       "sh",

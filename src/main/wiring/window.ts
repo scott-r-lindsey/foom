@@ -336,6 +336,7 @@ export async function buildWindow(
   };
   let localInstallPending = false;
   const setup = new Setup({
+    hostSessions: () => wiring.workspace.snapshot().terminals,
     hostsChanged: () => {
       wiring.workspace.refresh();
     },
@@ -345,7 +346,7 @@ export async function buildWindow(
           ? bundledAgentData
               .map((data) => parseAgentManifest(JSON.stringify(data), "bundled").model)
               .filter(
-                (data) => data.hostSetup?.script && wiring.settings.get().agents[data.id] !== false,
+                (data) => data.hostSetup?.script && wiring.settings.get().agents[data.id] === true,
               )
               .map((data) => data.id)
           : [];

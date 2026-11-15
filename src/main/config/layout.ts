@@ -93,12 +93,6 @@ const settingsSchema = schema("foom:settings", {
         not: { enum: ["shell", "all", "constructor", "prototype"] },
       },
       additionalProperties: { type: "boolean" },
-      required: ["claude", "codex", "agy"],
-      properties: {
-        claude: { type: "boolean" },
-        codex: { type: "boolean" },
-        agy: { type: "boolean" },
-      },
     },
     agentArguments: {
       type: "object",
@@ -112,17 +106,6 @@ const settingsSchema = schema("foom:settings", {
         maxItems: 64,
         items: { type: "string", minLength: 1, maxLength: 4096, pattern: "^[^\\p{Cc}]+$" },
       },
-      required: ["claude", "codex", "agy"],
-      properties: Object.fromEntries(
-        ["claude", "codex", "agy"].map((agent) => [
-          agent,
-          {
-            type: "array",
-            maxItems: 64,
-            items: { type: "string", minLength: 1, maxLength: 4096, pattern: "^[^\\p{Cc}]+$" },
-          },
-        ]),
-      ),
       description:
         "Literal launch arguments. Reserved arguments are rejected by foom config validate. Every file change requires Allow.",
     },
@@ -283,7 +266,7 @@ valid changes live. It is plain files: Foom keeps no history of it.
   \`colorMode\` is retired. Older files migrate: follow + system becomes Default,
   follow + light/dark becomes eclipse-light/eclipse-dark; fixed themes stay selected.
   Omit colorMode in new edits; the validator reports a legacy-key warning.
-  \`agentArguments\` requires the three legacy profile keys and accepts other provider IDs: \`{ "claude": [], "codex": [], "agy": [] }\`.
+  Every provider key in \`agents\` and \`agentArguments\` is optional. Missing keys mean disabled and no extra arguments: \`{ "agents": { "opencode": true }, "agentArguments": { "opencode": [] } }\`.
   Each list is literal argv, one string per argument, with no shell parsing.
   Every change to these lists waits for the user's Allow, including removal or harmless flags.
   Default launch arguments affect new, resumed and restored sessions; running sessions keep theirs.
@@ -300,7 +283,7 @@ valid changes live. It is plain files: Foom keeps no history of it.
 
 - Put declarative version 2 manifests in \`agents/<id>.json\`. Foom never fetches plugins or loads scripts from them.
 - Version 2 supports launch, discovery, resume, prompt/guidance, MCP, screen rules, hooks, health review and setup. Hook health and setup controls are in Settings → Agents.
-- IDs match filenames and cannot be claude, codex, agy or shell. Executables are names on PATH, not paths or shell command strings. Every argv entry is literal. Unknown keys and unsafe detection regexes are rejected.
+- IDs match filenames and cannot use a bundled provider ID, all or shell. Executables are names on PATH, not paths or shell command strings. Every argv entry is literal. Unknown keys and unsafe detection regexes are rejected.
 - A valid manifest loads as soon as Foom reads it; an edit reloads it. An invalid file is rejected whole and cannot launch. Running sessions keep their original launch bindings.
 - Forge v1 manifests in \`forges/<id>.json\` are validated and watched as a separate catalog. Loading grants no CLI execution or host assignment; Settings → Forges controls profile-only enablement and host assignments. Enable a provider and assign hosts there before use.
 - Run \`foom config validate\` after editing a manifest. To remove a plugin, remove its manifest.
@@ -545,6 +528,7 @@ const GUIDE_HISTORY = [
   "197ce9f5c8a83ae4d96a177e54086666d8ce1db64fd346f8de39f9fc1bea7d48",
   "4d609f128aa111b25852800fb3def37bcca9c291dc81fddd97eda92ba90ce41c",
   "059593f9163e5235069e812137968e794883fce7f457af91c7a9a72bfb901c4e",
+  "ca48dcaf187f27ed7163ac19b234047dfb9e10aa48897893a81c6ff657b393fe",
 ];
 
 export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
@@ -571,6 +555,7 @@ export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
     "e975ab7aba189e009bbcd16becb6c096679dc5c46017d585a46cbda130af804e",
     "24d2c65f96e90c242c21990e919dee89287addcd1ddbb2d39892f9033beb49f6",
     "29d7ba557c6979de9e6a2b9bbb98524350046e847f36739ca13cbfeec4603e6a",
+    "42873dc0068e251a5fd89261fe4b5ddf00247c1aeeb03ad8cfb22c123a1066bc",
   ],
 };
 
