@@ -253,3 +253,67 @@ test("machine launch dismisses its menu before a slow command completes", async 
     await Promise.resolve();
   });
 });
+
+test("single-machine home panel launches installed enabled agents and groups local home agents", async () => {
+  const { Board } = await import("../../../../src/renderer/board/board-view");
+  const { setup } = await import("./sidebar-view-fixtures");
+  localStorage.clear();
+  const view = setup();
+  await act(async () => {
+    await Promise.resolve();
+  });
+  fireEvent.click(view.getByRole("button", { name: "Actions for Home shell" }));
+  expect(view.getByRole("menuitem", { name: "New shell" })).toBeTruthy();
+  expect(view.queryByRole("menuitem", { name: "New Codex" })).toBeNull();
+  expect(view.queryByRole("menuitem", { name: "New Antigravity" })).toBeNull();
+  fireEvent.click(view.getByRole("menuitem", { name: "New Claude Code" }));
+  await waitFor(() => {
+    expect(view.command).toHaveBeenCalledWith({
+      kind: "machine-launch",
+      host: null,
+      run: "claude",
+    });
+  });
+  const original = view.source.getSnapshot()[0];
+  if (!original) throw new Error("fixture row missing");
+  const rows: (typeof original)[] = [
+    { ...original, id: "home-agent", home: true, machine: true, placement: { kind: "local" } },
+    {
+      ...original,
+      id: "remote-agent",
+      home: true,
+      machine: true,
+      placement: { kind: "remote", host: "forgotten" },
+    },
+  ];
+  view.source.getSnapshot = () => rows;
+  view.rerender(<Board source={view.source} />);
+  await waitFor(() => {
+    expect(
+      view.container.querySelector('[aria-label="Home shell"] [data-drag-session="home-agent"]'),
+    ).toBeTruthy();
+  });
+  expect(
+    view.container.querySelector('[aria-label="Home shell"] [data-drag-session="remote-agent"]'),
+  ).toBeNull();
+  expect(view.container.querySelectorAll('[data-drag-session="home-agent"]')).toHaveLength(1);
+  view.source.getMachines = () => [
+    {
+      host: null,
+      name: "localhost",
+      available: true,
+      agents: [{ id: "claude", name: "Claude Code" }],
+    },
+    { host: "worker", name: "worker", available: true, agents: [] },
+  ];
+  view.rerender(<Board source={view.source} />);
+  expect(
+    view.container.querySelector('[aria-label="Home shell"] [data-drag-session="home-agent"]'),
+  ).toBeNull();
+  expect(
+    view.container.querySelector('.machine-section [data-drag-session="home-agent"]'),
+  ).toBeTruthy();
+  fireEvent.click(view.getByRole("button", { name: "Actions for Home shell" }));
+  expect(view.queryByRole("menuitem", { name: "New Claude Code" })).toBeNull();
+  expect(view.getByRole("menuitem", { name: "New shell" })).toBeTruthy();
+});
