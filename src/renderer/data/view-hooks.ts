@@ -229,7 +229,11 @@ export function useView<K extends DataView>(
     },
     [api, view, normalized, queryRefetch],
   );
-  return { ...query, setData, refetch };
+  const getData = useCallback(
+    () => client.getQueryData<DataViews[K]>([cachePrefix, view, normalized]),
+    [client, cachePrefix, view, normalized],
+  );
+  return { ...query, setData, refetch, getData };
 }
 export const useSettingsView = (
   source: ViewSource | undefined,

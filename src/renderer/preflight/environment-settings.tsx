@@ -181,7 +181,11 @@ export function EnvironmentSettings({
    * Takes main's rows for a scope, keeping unsaved edits, including edits made to the saving
    * row after its save was sent.
    */
-  const accept = (next: EnvironmentState, scope: EnvironmentScope, sent?: Sent) => {
+  const accept = (reply: EnvironmentState, scope: EnvironmentScope, sent?: Sent) => {
+    // Live command replies acknowledge only the sent draft. Reconcile against the
+    // latest ordered snapshot, including publications that arrived while awaiting.
+    const next = source.views ? query.getData() : reply;
+    if (!next) return;
     const key = sent?.key;
     setState(next);
     setLists((current) => {

@@ -129,6 +129,7 @@ export function runApplication() {
     );
   }
   function themesChanged() {
+    viewChanges.publish("settings");
     applyThemeSettings();
     for (const entry of windows.values()) {
       entry.updateBackground();
