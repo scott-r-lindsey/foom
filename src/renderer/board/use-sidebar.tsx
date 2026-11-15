@@ -469,6 +469,7 @@ export function useSidebar(props: SidebarProps) {
     const identity = sessionIdentity(row, source.shellName?.());
     const exited =
       row.exited ?? (row.kind === "sample" && (row.state === "done" || row.state === "failed"));
+    const forget = Boolean(row.unavailable && row.exited);
     const items: (RowAction | null)[] = exited
       ? [
           ...(row.orchestration?.role === "orchestrator" && row.orchestration.restoreOnResume
@@ -489,7 +490,7 @@ export function useSidebar(props: SidebarProps) {
               ]
             : []),
           ...(row.kind === "shell"
-            ? row.worktreeRemoved
+            ? row.worktreeRemoved || forget
               ? []
               : [
                   {
@@ -502,7 +503,7 @@ export function useSidebar(props: SidebarProps) {
                   null,
                 ]
             : [
-                ...(!row.worktreeRemoved && row.conversationId && row.kind === "agent"
+                ...(!row.worktreeRemoved && !forget && row.conversationId && row.kind === "agent"
                   ? [
                       {
                         label: "Resume conversation",
@@ -512,7 +513,7 @@ export function useSidebar(props: SidebarProps) {
                       },
                     ]
                   : []),
-                ...(!row.worktreeRemoved
+                ...(!row.worktreeRemoved && !forget
                   ? [
                       {
                         label: "New conversation here",
@@ -533,10 +534,10 @@ export function useSidebar(props: SidebarProps) {
                 null,
               ]),
           {
-            label: "Close",
+            label: forget ? "Forget…" : "Close",
             glyph: "close" as const,
             run: () => {
-              return command({ kind: "close", id: row.id });
+              return command({ kind: forget ? "forget" : "close", id: row.id });
             },
           },
         ]

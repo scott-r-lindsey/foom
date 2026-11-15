@@ -6,7 +6,7 @@ import { prepareTail } from "../evaluator/terminal-tail";
 import { locationId } from "../control/metadata";
 import { LaunchFailure } from "../../shared/launch-failure";
 import { UncertainEffect } from "./worktree-outcome";
-import { remoteAgentTarget } from "../terminals/remote-bootstrap";
+import { remoteAgentTarget, remoteSpikeTarget } from "../terminals/remote-bootstrap";
 import { ControlError } from "../../shared/control-validation";
 import { hasBypassArgument } from "../agents/default-arguments";
 import type { OrchestrationHost } from "../control/orchestration.d";
@@ -363,6 +363,20 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
       if (!branch) return undefined;
       const identity = await caps.deps.worktrees.launchIdentity(repository, path);
       return { branch, identity };
+    },
+    unavailable: async (id) => {
+      const row = caps.snapshot().terminals.find((row) => row.id === id);
+      if (!row?.remote || row.placement?.kind !== "remote") return false;
+      const host = row.placement.host;
+      // Explicit developer transports have no registered fleet entry.
+      if (
+        host === remoteAgentTarget(process.argv)?.target.host ||
+        host === remoteSpikeTarget(process.argv)?.host
+      )
+        return false;
+      return !(await caps.deps.hosts?.fleet(false))?.some(
+        (entry) => entry.host === host && entry.result.ok,
+      );
     },
     stop: (id) => caps.deps.terminals.stop(id),
     close: async (id, validate, signal, onReview) => {

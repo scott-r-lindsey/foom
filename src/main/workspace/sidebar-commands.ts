@@ -496,6 +496,10 @@ export async function sidebarCommand(
     if (command.kind === "close") throw new ApplicationError("session-busy");
     throw new Error("Session is busy");
   }
+  if (command.kind === "forget") {
+    await this.forgetSession(command.id);
+    return;
+  }
   if (
     command.kind === "resume" ||
     command.kind === "new-conversation" ||

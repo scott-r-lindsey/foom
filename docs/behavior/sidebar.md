@@ -152,6 +152,16 @@ offers **Resume conversation** with a short ID hint when a validated Claude Code
 Codex or Antigravity conversation ID was recorded, **New conversation here**, **Copy session
 ID** when an ID exists, then a separator and **Close**.
 
+A dormant session on an unavailable host, including after a local disconnect exit,
+offers **Forget…** in its sidebar and
+tile menus. Its confirmation explains that only local saved metadata is removed;
+the remote process may still be running. Worktrees and files are kept. If the
+host returns, live daemon sessions can be recovered as human-owned, without their
+previous parent or orchestrator authority. Removing a host in Settings lists its
+dormant/exited saved sessions in the same removal confirmation; live attached
+tiles remain usable until exit or Close. Interrupted Close recovery rows remain
+after host removal; explicit Forget can discard a dormant row's recovery metadata.
+
 An exited orchestrator with current disclosure consent and supported-provider
 capabilities for pending automatic role recovery offers **Revoke
 orchestrator** in its session menu. Revoking cancels recovery before Resume, which

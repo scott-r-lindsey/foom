@@ -1900,8 +1900,9 @@ const desktop: DesktopApi = {
   actionLog: (query) => reply("workspace:action-log", validActionLogPage, query),
   clearActionLog: () => invokeVoid("workspace:clear-action-log"),
   onWorkspaceChange(callback) {
-    const listener = () => {
-      callback();
+    const listener = (_event: Electron.IpcRendererEvent, localOnly: unknown) => {
+      if (localOnly === true) callback(true);
+      else callback();
     };
     ipcRenderer.on("workspace:changed", listener);
     return () => {

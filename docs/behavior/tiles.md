@@ -224,6 +224,8 @@ The tile removal button and tile menu offer **Hide** for running sessions and
 exited agents with a saved conversation ID. Hide clears the tile and keeps the
 sidebar row and Resume conversation. Exited shells, agents without a saved
 conversation and previews offer **Close**. The session sidebar menu retains Close.
+A retained dormant tile on an unavailable host offers **Forget…** in its menu,
+with the same local-only confirmation as the [sidebar](sidebar.md).
 A refused Close keeps the tile and shows a fixed reason. Parents with child rows
 show “Close its N children first” (singular “child” for one), counting all rows
 still naming that parent, including exited children.
