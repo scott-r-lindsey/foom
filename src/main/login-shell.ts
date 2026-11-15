@@ -7,6 +7,8 @@ interface LoginShellOptions {
   cwd: string;
   env?: NodeJS.ProcessEnv;
   signal?: AbortSignal;
+  /** Help commands may report usage with a nonzero exit status. */
+  allowNonzeroExit?: boolean;
 }
 
 /** Bounded login-shell reads must never acquire the application's controlling terminal. */
@@ -73,7 +75,8 @@ export function readLoginShell(
       clearTimeout(timer);
       options.signal?.removeEventListener("abort", abort);
       if (failure) reject(failure);
-      else if (code !== 0) reject(new Error("Login shell failed"));
+      else if (code !== 0 && !(options.allowNonzeroExit && code !== null))
+        reject(new Error("Login shell failed"));
       else
         resolve({
           stdout: Buffer.concat(stdout).toString("utf8"),

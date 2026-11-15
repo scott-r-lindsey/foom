@@ -21,6 +21,8 @@ import {
   remoteCheckout,
 } from "../../../../src/terminal-host/remote/agent-discovery";
 import { parseAgentManifest } from "../../../../src/shared/agent-plugin-parser";
+import agy from "../../../../src/shared/bundled-agents/agy.json";
+import { discoveryFacts } from "../../../../src/shared/agent-launch-values";
 import claude from "../../../../src/shared/bundled-agents/claude.json";
 import { HOST_CLONE_TIMEOUT_MS } from "../../../../src/shared/registered-hosts";
 let root: string;
@@ -254,5 +256,44 @@ test.skipIf(process.platform === "win32")(
       expect((await hostLoginEnvironment(shell, root, undefined, true))["PATH"]).toBe("");
       expect((await hostLoginEnvironment(shell, root))["PATH"]).toBe(root);
     }
+  },
+);
+
+test.skipIf(process.platform === "win32").each([0, 2])(
+  "remote discovery retains stderr help with exit %s and stdout-first version",
+  async (code) => {
+    await script(
+      "agy",
+      `
+if (process.argv[2] === '--version') { process.stdout.write('1.3.3'); process.stderr.write('diagnostic'); }
+else { process.stdout.write('usage'); process.stderr.write('--prompt-interactive'); process.exitCode = ${String(code)}; }
+`,
+    );
+    const model = parseAgentManifest(JSON.stringify(agy), "bundled").model;
+    const found = await hostDiscovery(model, "unused", root, undefined, { PATH: root });
+    expect(found.version).toBe("1.3.3");
+    expect(found.help).toBe("usage\n--prompt-interactive");
+    expect(discoveryFacts(model, found.version, found.help, {})).toMatchObject({ guidance: true });
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "help probes still reject overflow, invalid UTF-8, cancellation and signal termination",
+  async () => {
+    const help = (program: string, signal?: AbortSignal) =>
+      hostProbe(process.execPath, ["-e", program], root, {}, false, 5000, signal, "help");
+    for (const stream of ["stdout", "stderr"]) {
+      await expect(help(`process.${stream}.write(Buffer.alloc(262145))`)).rejects.toThrow(
+        "exceeded",
+      );
+      await expect(
+        help(`process.${stream}.write(Buffer.from([255])); process.exitCode = 2`),
+      ).rejects.toThrow("Invalid remote probe output");
+    }
+    await expect(help("process.kill(process.pid, 'SIGKILL')")).rejects.toThrow("failed");
+    const controller = new AbortController();
+    const pending = help("setTimeout(() => {}, 10000)", controller.signal);
+    controller.abort();
+    await expect(pending).rejects.toThrow("cancelled");
   },
 );

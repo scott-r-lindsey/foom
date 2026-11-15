@@ -26,7 +26,14 @@ Normal agent `--version` and `--help` discovery uses this same bounded reader
 per output stream. Deadline, overflow and executable exit kill the Unix process
 group with SIGKILL, including descendants that ignore SIGTERM or hold pipes open.
 Failed reads retain the existing discovery fallback and do not strand the scan
-of other providers.
+of other providers. Help-token discovery reads stdout followed by stderr (separated
+by a newline), including ordinary nonzero help exits (#1187). Local discovery,
+config-owned verification probes and remote host discovery use this rule within
+their existing per-stream limits; timeout, cancellation, signal termination,
+spawn and output-limit failures still discard the read. Version discovery retains
+stdout-only parsing and requires a successful exit. This enables Antigravity's
+`--prompt-interactive` gate when agy writes help to stderr, including initial child
+prompts and the fixed new-config-session greeting.
 
 ### Launch environment (#215)
 

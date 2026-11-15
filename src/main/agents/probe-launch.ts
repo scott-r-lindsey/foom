@@ -133,10 +133,15 @@ export async function prepareProbe(
   if (bypassEnvironment(provider.model, launchEnvironment, process.platform === "win32").length)
     throw Error("Probe bypass environment refused");
   const command = await executable(provider, launchEnvironment);
-  const read = async (flag: string) => {
+  const read = async (flag: "--version" | "--help") => {
     try {
-      return (await readLoginShell(command, [flag], { ...options, cwd, env: launchEnvironment }))
-        .stdout;
+      const output = await readLoginShell(command, [flag], {
+        ...options,
+        cwd,
+        env: launchEnvironment,
+        allowNonzeroExit: flag === "--help",
+      });
+      return flag === "--help" ? `${output.stdout}\n${output.stderr}` : output.stdout;
     } catch {
       return "";
     }
