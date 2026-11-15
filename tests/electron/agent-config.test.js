@@ -237,3 +237,69 @@ test("config agents receive only the bundled manual and revoke the attachment on
     })
     .toBe(true);
 });
+
+test("an exited agy config tile closes in place with a saved conversation", {
+  timeout: deadline(60_000),
+  skip: process.platform === "win32" && "The fake CLI is a POSIX executable",
+}, async (context) => {
+  const { chmod } = require("node:fs/promises");
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-config-close-")));
+  removeAfterApps(context, root);
+  const bin = path.join(root, "bin");
+  const home = path.join(root, "home");
+  const plugin = path.join(home, ".gemini/config/plugins/foom");
+  await mkdir(bin);
+  await mkdir(plugin, { recursive: true });
+  await writeFile(
+    path.join(plugin, "plugin.json"),
+    JSON.stringify({ name: "foom", foomObserverVersion: 2 }),
+  );
+  await writeFile(
+    path.join(bin, "agy"),
+    `#!/usr/bin/env node
+const args = process.argv.slice(2);
+if (args[0] === "--version") { console.log("1.3.3"); process.exit(0); }
+if (args[0] === "--help") { console.log("--conversation <id>"); process.exit(0); }
+if (args[0] === "plugin" && args[1] === "list") { console.log(JSON.stringify({ imports: [{ name: "foom" }] })); process.exit(0); }
+process.stdout.write("CONFIG_AGENT_READY\\r\\n");
+process.stdin.setRawMode(true);
+process.stdin.once("data", () => {
+  const request = require("node:http").request(process.env.FOOM_HOOK_URL, {
+    method: "POST",
+    headers: { Authorization: process.env.FOOM_TOKEN, "X-Foom-Session": process.env.FOOM_SESSION, "X-Foom-Event": "Stop", "X-Foom-Sequence": "1", "Content-Type": "application/json" },
+  }, response => {
+    response.resume();
+    response.on("end", () => process.exit(response.statusCode === 204 ? 0 : 1));
+  });
+  request.on("error", () => process.exit(1));
+  request.end(JSON.stringify({ conversationId: "config-conversation", fullyIdle: true, terminationReason: "NO_TOOL_CALL" }));
+});
+`,
+  );
+  await chmod(path.join(bin, "agy"), 0o755);
+  const app = await launchApp(context, { fixture: "agent", home, env: { HOME: home, PATH: bin } });
+  const page = await boardPage(app);
+  await page.locator(".config-gear").click();
+  await page
+    .getByRole("dialog", { name: "Foom config details and commands" })
+    .getByRole("menuitem", { name: "Via Antigravity", exact: true })
+    .click();
+  const terminal = async () =>
+    (await page.evaluate(() => window.desktop.workspace())).terminals.find((row) => row.config);
+  await expect.poll(terminal).toMatchObject({ agent: "agy", exited: false });
+  const id = (await terminal()).id;
+  await expect
+    .poll(() => page.evaluate(async (id) => (await window.desktop.tail(id, 40)).join("\n"), id))
+    .toContain("CONFIG_AGENT_READY");
+  const tile = page.locator('.terminal-tile[data-kind="agent"]');
+  await expect(tile.getByRole("button", { name: "Hide", exact: true })).toBeVisible();
+  await page.evaluate((id) => window.desktop.input(id, "q"), id);
+  await expect
+    .poll(terminal)
+    .toMatchObject({ exited: true, exitCode: 0, conversationId: "config-conversation" });
+  await expect(tile.getByRole("button", { name: "Close", exact: true })).toBeVisible();
+  await tile.getByRole("button", { name: "Close", exact: true }).click();
+  await expect.poll(terminal).toBeUndefined();
+  await expect(tile).toHaveCount(0);
+  await expect(page.locator(".config-dock")).toHaveCount(0);
+});

@@ -48,6 +48,8 @@ another tile, that tile empties.
 Terminal title bars show the state light, agent badge, location and session name, followed by
 an always-visible tile number with a chevron ("Tile N menu"). Maximize/Restore and
 Hide (running) or Close (exited) appear on hover, focus, or the focused tile.
+Exited agents with saved conversations keep Hide, except config agents: every
+exited config-agent tile offers Close, including those with a saved conversation.
 Child terminals also show the sidebar’s robot mark, named Worker, including after takeover.
 Review-loop reviewers use the lens variant named Reviewer; authors and other children keep Worker.
 Double-clicking the title bar toggles maximize. Right-click opens the same tile
