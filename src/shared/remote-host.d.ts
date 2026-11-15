@@ -1,3 +1,4 @@
+import type { SetupRun, SetupAdmission } from "./repository-setup.d";
 import type { HostPressure } from "./host-pressure.d";
 import type { ImagePut, ImagePutResult } from "./image-paste.d";
 import type { HostManagement, HostResult, HostRecipeLaunch } from "./registered-hosts.d";
@@ -49,7 +50,10 @@ export interface MachineLaunch {
   repository?: { directory: string; origin: string };
 }
 export type RemoteTarget = {
+  repositorySetup?: SetupRun;
+  setupAdmission?: SetupAdmission;
   machine?: MachineLaunch;
+  beforeOpen?: () => void;
   /** Main-only observation of the daemon-selected home for a new machine session. */
   machineHome?: (home: string) => void;
   trustOrigin?: string;
@@ -73,6 +77,8 @@ export type RemoteRequest =
   | { type: "hello"; build: string }
   | {
       type: "open";
+      repositorySetup?: SetupRun;
+      setupAdmission?: SetupAdmission;
       machine?: MachineLaunch;
       trustOrigin?: string;
       recipe?: HostRecipeLaunch;
@@ -136,6 +142,7 @@ export type RemoteResponse =
       hostFacts?: 1;
       hostPreflight?: 1;
       hostCheckConnection?: 1;
+      repositorySetup?: string;
       hostRowCheck?: 1;
       agentSettings?: 1;
       humanMachines?: 1;

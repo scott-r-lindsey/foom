@@ -1,0 +1,102 @@
+# Repository setup (#1080)
+
+The [approved design](../design/1080-repository-setup.md) owns behavior. This
+feature retains serialized JSON persistence, without SQLite or phase-D guards.
+`main/setup/repository-setup.ts` owns immutable active approvals, board-scoped
+review/run tokens and row observations. Registration incarnation IDs belong to
+`worktrees.json`; legacy incarnations are durably flushed before saving setup
+approval, and removal/re-registration cannot resurrect an earlier approval.
+The private `repository-setup/state.json` holds canonical list digests, catalog
+identity, source fingerprints, attribution and monotonic revisions. Saving fails
+closed and retains the prior approval and editable draft. Stored observations
+never authorize a launch.
+
+## Evidence membership
+
+Inspection reads dirty and untracked regular files without running Git, scripts,
+interpreters or plugins. It compares sorted path membership and SHA-256 bytes;
+HEAD is attribution only. Approved evidence paths add documentation to this set.
+Root and nested names are exactly:
+
+```text
+package.json package-lock.json npm-shrinkwrap.json pnpm-lock.yaml
+pnpm-workspace.yaml yarn.lock bun.lock bun.lockb Cargo.toml Cargo.lock
+rust-toolchain rust-toolchain.toml go.mod go.sum go.work go.work.sum
+pyproject.toml requirements.txt Pipfile Pipfile.lock poetry.lock uv.lock
+.python-version Gemfile Gemfile.lock .ruby-version pom.xml build.gradle
+build.gradle.kts gradle.properties global.json Directory.Build.props
+Directory.Packages.props composer.json composer.lock .nvmrc .node-version
+.tool-versions mise.toml .mise.toml Makefile CMakeLists.txt CMakePresets.json
+meson.build meson_options.txt Dockerfile Containerfile AGENTS.md CLAUDE.md
+CONTRIBUTING.md
+```
+
+Also includes root `.github/workflows/*.yml` / `*.yaml`, and nested `*.csproj`,
+`*.fsproj`, `*.vcxproj`. Directory exclusions are `.git`, `node_modules`, `.venv`,
+`vendor`, `target`, `dist`, `build`, `out`, `coverage`, `test-results`, `inspiration`
+and root `docs/mockups`. Explicit evidence can name regular files in excluded
+non-Git directories; it cannot traverse links or `.git`.
+
+Limits are 64 evidence/matching files, 1 MiB each, 4 MiB aggregate, 64 directory
+levels and 20,000 entries visited. Absolute paths, parent traversal, links, special
+files, redirected reads and exceeded limits report Unable to verify sources.
+This is bounded filesystem observation, not atomic isolation from another local
+process replacing entries. No watcher or periodic inspection is added.
+
+## Checks and catalog
+
+Package probes are fixed `dpkg-query --show --showformat=${db:Status-Status} --`,
+`rpm --query --`, `pacman -Q --`, or validated-login-PATH `brew list --versions`,
+followed by narrowly validated literal package operands. Toolchain probes use only
+`--version` and exact/major-range parsing. Probes run outside checkouts with a
+normalized PATH excluding relative/current/checkout entries and login bins whose
+Node/pnpm/Homebrew executable resolves into the checkout, and a small complete
+environment without Foom-added secrets or control grants. Failed/timed-out probes
+remain Unable to check, distinct from missing packages and wrong versions.
+Read-only probes disable [Corepack network access](https://github.com/nodejs/corepack#environment-variables)
+and [Homebrew auto-update/analytics](https://docs.brew.sh/Manpage#environment).
+Explicit setup retains the disclosed installer network behavior.
+
+The initial catalog pins Node 24.17.0 for Linux/macOS x64/arm64 to official
+`nodejs.org` archive SHA-256 values and pnpm 10.34.7 to its fixed npm artifact and
+SHA-512 integrity. No latest resolution, checkout installer, arbitrary address,
+package removal or distribution upgrade is exposed. Native Windows setup is
+manual. Node checks its own minimum ABI separately from daemon readiness: Linux kernel
+4.18, glibc 2.28 and the bounded system libstdc++ `GLIBCXX_3.4.25` symbol; macOS
+13.5. The [pinned Node platform contract](https://github.com/nodejs/node/blob/v24.17.0/BUILDING.md#platform-list)
+is the source. Library reads are fixed-path regular files bounded to 16 MiB each.
+
+Downloads refuse redirects, exceed neither 128 MiB compressed nor 512 MiB
+uncompressed, and verify integrity before parsing tar members. Member count,
+header checksums, traversal, links and special file types are checked before
+private staging. Bounded GNU long-name records receive the same path checks as
+ordinary names; dangling or duplicate metadata refuses the archive. Node publishes only its executable; pnpm extracts package bytes
+without lifecycle scripts. Atomic private publication never edits shell startup
+files. Only catalog-selected private bins affect repository launch PATH.
+
+## Approval, execution and launch
+
+Only registered board main-frame `setup:repository-setup` IPC exposes the closed
+list, copy-brief, review, cancel-review, approve, remove, check and run actions. No agent/control operation
+approves or runs setup. Removal asks through the trusted dialog and explains
+that the launch prerequisite is removed without uninstalling anything.
+
+Review tokens bind board, repository incarnation, expected revision, canonical
+list, evidence and catalog. Back, Cancel and Edit revoke the review token, including
+reviews awaiting a source read. Unsupported toolchains remain unresolved data;
+approval requires resolution or explicit removal, with removed IDs shown in review.
+Setup tokens bind the exact displayed plan and host
+registration. Set up refreshes sources/platform/facts and refuses changed plans.
+The terminal is human-owned and embeds in Settings with the existing Stop / Keep
+open behavior. Run cancellation/revocation stops future steps, without rollback.
+Exit triggers only the affected host/repository row check; terminal exit zero
+alone never marks requirements met.
+
+Remote protocol capability `repositorySetup` carries the exact catalog digest.
+Older/mismatched daemons refuse before dispatch. Remote child specs retain the
+existing 64 KiB agent-field budget; the independently validated setup admission
+carries its own 64 KiB canonical list bound. Helpers reconstruct fixed argv
+and verify the run digest. Host mutation reservations serialize setup with
+existing mutations; the app-wide local reservation also excludes vendor installers; reconnect never replays it. Remote repository launches bind
+list revision and source fingerprint and recheck requirements on the host before
+spawn. Local and remote main checks retain final identity/revision validation.

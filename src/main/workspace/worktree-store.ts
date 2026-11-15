@@ -28,6 +28,15 @@ export class WorktreeStore {
     return {
       version: 1,
       repositories: state["repositories"].filter(absolutePath),
+      registrations: Array.isArray(state["registrations"])
+        ? state["registrations"].filter(
+            (entry): entry is { path: string; id: string } =>
+              record(entry) &&
+              absolutePath(entry["path"]) &&
+              typeof entry["id"] === "string" &&
+              /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/u.test(entry["id"]),
+          )
+        : [],
       pendingRemovals: Array.isArray(state["pendingRemovals"])
         ? state["pendingRemovals"].filter(
             (entry): entry is NonNullable<WorktreeStoredState["pendingRemovals"]>[number] =>

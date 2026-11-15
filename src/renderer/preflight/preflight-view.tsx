@@ -1,3 +1,4 @@
+import type { SetupRefusal } from "../../shared/repository-setup.d";
 import { useSetupState } from "./use-setup-state";
 import { useSetupSaves } from "./use-setup-saves";
 import { useRepositorySelection } from "./use-repository-selection";
@@ -43,13 +44,15 @@ function PreflightContents({
   onClose,
   settingsMode = false,
   initialSection,
+  setupRefusal,
 }: {
   source: SetupSource;
   initial: SetupState;
   onLaunched: (state: SetupState) => void;
   onClose?: () => void;
   settingsMode?: boolean;
-  initialSection?: "config";
+  initialSection?: "config" | "hosts";
+  setupRefusal?: SetupRefusal;
 }) {
   const setup = useSetupState(source, initial);
   const { state, receiveState } = setup;
@@ -199,6 +202,7 @@ function PreflightContents({
 
   const content = (
     <PreflightSections
+      {...(setupRefusal ? { setupRefusal } : {})}
       source={source}
       state={state}
       step={step}

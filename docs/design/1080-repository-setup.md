@@ -1,11 +1,8 @@
 # Repository setup on hosts (#1080)
 
-**Phase 1 proposal — requires user approval before implementation.** This PR adds
-only this design and the [clickable mockup](../mockups/repository-setup/README.md).
-It does not extend host execution, persistence or launch behavior. The user merges
-this design PR; implementation follows only after approval of the design and light
-and dark screenshots. `Closes #1080` in the PR is the requested issue reference,
-not a claim that the runtime acceptance criteria have been implemented.
+**Approved design.** Phase 1 was approved by the user and merged in #1192.
+Phase 2 implements the runtime and fixture acceptance below. The user merges the
+implementation because this extends host execution and trusted human approvals.
 
 ## Current behavior and scope
 

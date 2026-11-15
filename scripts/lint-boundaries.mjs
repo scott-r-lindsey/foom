@@ -51,7 +51,17 @@ export const processBoundaries = {
         !(
           from === "terminal-host" &&
           local &&
-          resolve(dirname(filename), name) === resolve(sourceRoot, "node-common/vendor-install")
+          [
+            "vendor-install",
+            "repository-setup-sources",
+            "repository-setup-check",
+            "repository-setup-digest",
+            "repository-setup-run",
+            "repository-setup-admission",
+          ].some(
+            (helper) =>
+              resolve(dirname(filename), name) === resolve(sourceRoot, `node-common/${helper}`),
+          )
         )
       ) {
         context.report({ node, messageId: "boundary", data: { from, to } });

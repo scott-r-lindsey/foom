@@ -1,3 +1,4 @@
+import type { RepositorySetup } from "../setup/repository-setup";
 import type { CheckoutHold } from "./worktree-reservations";
 import type { ParentIdentity } from "../control/orchestration.d";
 import type { RemoteTarget } from "../../shared/remote-host";
@@ -227,6 +228,7 @@ export type Agents = Pick<
   | "setBypassIdentities"
 >;
 export interface WorkspaceDependencies {
+  repositorySetup?: Pick<RepositorySetup, "admit">;
   hosts?: Pick<Hosts, "fleet" | "worktree" | "registered" | "requireAgent"> &
     Partial<
       Pick<

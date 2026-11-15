@@ -228,3 +228,11 @@ writes (OSC 52)** on every platform with a disclosure that any local or remote
 terminal program can replace the clipboard without a click and the user could
 paste that content elsewhere. Clipboard reads are always refused. Only the
 preference persists; terminal output cannot enable it.
+
+## Repository setup (#1080)
+
+Hosts adds Repository setup, including This computer. Repositories exposes the
+same profile-only editor on each registered repository. Review, approval and
+execution are separate actions; approval tokens belong to their requesting board
+and expected active revision. The editor remains available when launch is blocked.
+See [the owning policy](repository-setup.md).

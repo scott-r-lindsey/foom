@@ -67,6 +67,13 @@ export function attachSetup(
     ],
     ["setup:state", () => setup.state()],
     [
+      "setup:repository-setup",
+      (...args) => {
+        if (args.length !== 1) throw new Error("Invalid repository setup request");
+        return setup.repositorySetup(args[0]);
+      },
+    ],
+    [
       "setup:local-agent-install",
       (...args) => {
         if (args.length !== 1) throw new Error("Invalid installer request");

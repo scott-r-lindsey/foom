@@ -326,7 +326,9 @@ process.stdin.on('data', bytes => {
   await expect(card.getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
   await expect(card.getByText("Not found", { exact: true })).toHaveCount(1);
   await expect(card.getByRole("button", { name: "Install codex", exact: true })).toHaveCount(0);
-  await expect(card.getByText("Not checked", { exact: true })).toHaveCount(1);
+  await expect(
+    card.locator(".host-check-row").getByText("Not checked", { exact: true }),
+  ).toHaveCount(1);
   if (captureEnrollment) await capture("partial-facts");
   return {
     app,

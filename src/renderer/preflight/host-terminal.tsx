@@ -18,14 +18,22 @@ export function HostTerminal({
   useEffect(() => view.onContextMenu?.(setMenu), [view]);
   const [exit, setExit] = useState<{ exited: boolean; code?: number }>({ exited: false });
   const [observed, setObserved] = useState(false);
+  const [ready, setReady] = useState(false);
   const [dismissed, setDismissed] = useState(false);
+  const [stopping, setStopping] = useState(false);
+  const [stopFailed, setStopFailed] = useState(false);
   const mount = useCallback(
     (element: HTMLDivElement | null) => (element ? view.mount(element) : undefined),
     [view],
   );
   useEffect(() => {
-    if (!dismissed && observed) void view.open(id);
+    let current = true;
+    if (!dismissed && observed)
+      void view.open(id).then(() => {
+        if (current) setReady(!view.getSnapshot().toggleDisabled);
+      });
     return () => {
+      current = false;
       void view.hide();
     };
   }, [view, id, dismissed, observed]);
@@ -42,7 +50,7 @@ export function HostTerminal({
   }, [source, id, finished]);
   if (dismissed) return null;
   return (
-    <section className="host-terminal" aria-label="Install terminal">
+    <section className="host-terminal" aria-label="Install terminal" aria-busy={!ready}>
       <header>
         <span
           role="status"
@@ -54,6 +62,22 @@ export function HostTerminal({
               : `Failed · exit code ${String(exit.code ?? "unknown")}`
             : "Installing…"}
         </span>
+        {!exit.exited && source.stop && (
+          <button
+            type="button"
+            disabled={stopping}
+            onClick={() => {
+              setStopping(true);
+              setStopFailed(false);
+              void source.stop?.(id).catch(() => {
+                setStopFailed(true);
+                setStopping(false);
+              });
+            }}
+          >
+            Stop
+          </button>
+        )}
         {exit.exited && (
           <button
             type="button"
@@ -65,6 +89,7 @@ export function HostTerminal({
           </button>
         )}
       </header>
+      {stopFailed && <p role="alert">Unable to stop setup. Try again.</p>}
       <div className="host-terminal-view" ref={mount} />
       {menu?.id === id && (
         <TerminalMenu

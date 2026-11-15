@@ -1,3 +1,4 @@
+import type { SetupRefusal } from "../../shared/repository-setup.d";
 import { useState } from "react";
 import { AgentsScopes } from "./agents-scopes";
 import { HostsSettings } from "./hosts-settings";
@@ -34,6 +35,7 @@ type SectionProps = Pick<
     state: SetupState;
     step: number;
     settingsMode: boolean;
+    setupRefusal?: SetupRefusal;
     headingRef: RefObject<HTMLHeadingElement | null>;
     go: (next: number) => void;
     receiveState: (state: SetupState) => void;
@@ -46,6 +48,7 @@ export function PreflightSections({
   state,
   step,
   settingsMode,
+  setupRefusal,
   headingRef,
   go,
   receiveState,
@@ -213,6 +216,7 @@ export function PreflightSections({
   } else if (step === 13 && settingsMode) {
     content = (
       <HostsSettings
+        {...(setupRefusal ? { setupRefusal } : {})}
         source={source}
         headingRef={headingRef}
         agents={state.settings.agents}

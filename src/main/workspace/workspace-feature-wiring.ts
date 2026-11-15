@@ -111,6 +111,9 @@ export function workspaceFeatureWiring(owner: WorkspaceContext): {
         return owner.worktrees.bind(owner);
       },
       deps: {
+        get repositorySetup() {
+          return owner.deps.repositorySetup;
+        },
         get hosts() {
           return owner.deps.hosts;
         },

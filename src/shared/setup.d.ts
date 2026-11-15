@@ -1,3 +1,8 @@
+import type {
+  RepositorySetupAction,
+  RepositorySetupState,
+  SetupRefusal,
+} from "./repository-setup.d";
 import type { RegisteredHost, HostsApi } from "./registered-hosts.d";
 import type { UpdateState } from "./updates";
 import type { ReadinessReport } from "./readiness";
@@ -120,6 +125,8 @@ export interface SetupState {
 }
 
 export interface SetupApi extends HostsApi {
+  onRepositorySetupRefused(callback: (refusal: SetupRefusal) => void): () => void;
+  repositorySetup(action: RepositorySetupAction): Promise<RepositorySetupState>;
   localAgentInstall(id?: string): Promise<{ available: readonly string[]; recipeSession?: string }>;
   restartToUpdate(): Promise<void>;
   checkReadiness(): Promise<ReadinessReport>;

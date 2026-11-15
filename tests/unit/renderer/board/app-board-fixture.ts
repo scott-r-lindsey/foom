@@ -165,6 +165,8 @@ beforeEach(() => {
           secrets: true,
         }),
       onSetupChange: () => () => {},
+      onRepositorySetupRefused: () => () => {},
+      repositorySetup: () => Promise.resolve({ rows: [] }),
       configStatus: mock.configStatus,
       decideConfig: mock.configStatus,
       revertConfig: mock.configStatus,

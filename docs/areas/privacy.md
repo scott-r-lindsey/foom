@@ -207,3 +207,15 @@ The internal Settings launch environment marker is an accidental-use guard, not
 authorization. Same-user processes can forge it and already have the ability to
 execute vendor scripts independently. No agent, child, control API or remote
 management operation gains an install capability.
+
+## Repository requirements (#1080)
+
+Approved lists, purposes, evidence path digests and display-only host observations
+stay in the profile. Source inspection reads bounded regular files as data. No
+source bytes, model requests or automatic agent launches are added. Copy draft
+brief writes only a fixed brief; an explicitly opened ordinary repository agent
+retains its existing permissions and provider disclosure. Setup downloads only
+catalog-pinned official Node/pnpm artifacts from the selected execution host,
+without credentials. Visible human terminals own passwords and sudo. Recipe
+environments omit Foom control credentials and Environment secrets. See
+[repository setup](repository-setup.md).

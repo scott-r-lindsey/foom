@@ -1,3 +1,8 @@
+import type {
+  RepositorySetupAction,
+  RepositorySetupState,
+  SetupRefusal,
+} from "../../shared/repository-setup.d";
 import type { TerminalViewSource } from "../terminal/terminal-view-source.d";
 import type { HostsApi } from "../../shared/registered-hosts.d";
 import type { ReadinessReport } from "../../shared/readiness";
@@ -18,6 +23,9 @@ import type { ConfigStatus } from "../../shared/foom-config";
 
 /** What preflight needs from main. Components use this, never the bridge directly. */
 export interface SetupSource {
+  onRepositorySetupRefused?: (callback: (refusal: SetupRefusal) => void) => () => void;
+  draftSetupAgent?: (repository: string) => Promise<void>;
+  repositorySetup?: (action: RepositorySetupAction) => Promise<RepositorySetupState>;
   /** Installs started in this Settings window; sign-in tiles are separate. */
   installs?: {
     sessions(): ReadonlyMap<string, string>;
@@ -28,6 +36,7 @@ export interface SetupSource {
     dispose(): void;
   };
   hostTerminal?: {
+    stop?(id: string): Promise<void>;
     createView(): TerminalViewSource;
     observe(id: string, listener: (exit: { exited: boolean; code?: number }) => void): () => void;
   };

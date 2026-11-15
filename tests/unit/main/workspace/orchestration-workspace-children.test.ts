@@ -428,3 +428,54 @@ it("unreadable local measurements launch explicitly unmeasured and retain facts 
     memoryAvailable: 128 * 1024 ** 3,
   });
 });
+
+it("repository setup refusal consumes no child slot and carries bounded missing items", async () => {
+  const { LaunchFailure } = await import("../../../../src/shared/launch-failure");
+  const workspace = createWorkspace(deps);
+  await orchestrate(workspace);
+  workspace.configure({ hooks: true, agents: { claude: true }, concurrentChildren: 1 });
+  const operations = new Operations(
+    () => Promise.resolve(),
+    () => {},
+  );
+  const actor = principal();
+  const tree = (await workspace.orchestration.call(
+    actor,
+    "create_worktree",
+    { idempotencyKey: "setup-tree", branch: "feature" },
+    operations,
+  )) as Operation;
+  const admit = vi.fn<NonNullable<typeof deps.repositorySetup>["admit"]>(() =>
+    Promise.reject(
+      new LaunchFailure("repository_setup_missing", undefined, {
+        repository: repo.path,
+        host: null,
+        missing: [{ id: "node", version: "24.x" }],
+      }),
+    ),
+  );
+  deps.repositorySetup = { admit };
+  launch.mockClear();
+  const refused = await workspace.orchestration.call(
+    actor,
+    "launch",
+    { idempotencyKey: "setup-refused", worktreeId: tree.resultId, agent: "claude" },
+    operations,
+  );
+  expect(refused).toMatchObject({
+    status: "failed",
+    reason: "repository_setup_missing",
+    setupMissing: [{ id: "node", version: "24.x" }],
+  });
+  expect(launch).not.toHaveBeenCalled();
+  admit.mockResolvedValue({ paths: [], validate: () => {} });
+  launch.mockResolvedValueOnce({ id: "setup-child", attention: "evaluator" });
+  expect(
+    await workspace.orchestration.call(
+      actor,
+      "launch",
+      { idempotencyKey: "setup-retry", worktreeId: tree.resultId, agent: "claude" },
+      operations,
+    ),
+  ).toMatchObject({ status: "succeeded", resultId: "setup-child" });
+});

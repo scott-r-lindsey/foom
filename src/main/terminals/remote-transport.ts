@@ -1,3 +1,4 @@
+import { setupCatalogDigest } from "../../node-common/repository-setup-digest";
 import { createHash, randomBytes } from "node:crypto";
 import { IMAGE_TIMEOUT_MS } from "../../shared/image-paste";
 import type { ImagePut, ImagePutResult } from "../../shared/image-paste.d";
@@ -167,6 +168,7 @@ export class RemoteTransport extends EventEmitter {
   }
 
   private openRequest(request: number, reattach: boolean): RemoteRequest {
+    if (!reattach && !this.target.reattach) this.target.beforeOpen?.();
     this.startupSent = true;
     const session = this.session;
     if (!session) throw new Error("Remote session unavailable");
@@ -204,6 +206,12 @@ export class RemoteTransport extends EventEmitter {
           ...(this.target.human ? { human: true } : {}),
           ...(!reattach && this.target.machine ? { machine: this.target.machine } : {}),
           ...(!reattach && this.target.trustOrigin ? { trustOrigin: this.target.trustOrigin } : {}),
+          ...(!reattach && this.target.repositorySetup
+            ? { repositorySetup: this.target.repositorySetup }
+            : {}),
+          ...(!reattach && this.target.setupAdmission
+            ? { setupAdmission: this.target.setupAdmission }
+            : {}),
           ...(!reattach && this.target.recipe ? { recipe: this.target.recipe } : {}),
           ...(this.target.checkout ? { checkout: this.target.checkout } : {}),
         };
@@ -409,6 +417,17 @@ export class RemoteTransport extends EventEmitter {
               throw new Error("Host version mismatch");
             }
             this.childPressure = value.childPressure === 1;
+            if (
+              (this.target.repositorySetup ||
+                this.target.setupAdmission ||
+                this.target.agent?.spec.repositorySetup ||
+                (this.management?.type === "manage" &&
+                  this.management.operation === "repository-setup")) &&
+              value.repositorySetup !== setupCatalogDigest
+            ) {
+              this.managementFailure = "version-mismatch";
+              throw new Error("Repository setup catalog mismatch");
+            }
             // This recipe stages assets from the daemon's own executable. Protocol
             // compatibility alone cannot bind those bytes to the desktop's approval.
             if (

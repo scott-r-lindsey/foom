@@ -1,3 +1,4 @@
+import type { SetupAdmission } from "./repository-setup.d";
 import type { HostPressure } from "./host-pressure.d";
 /** Bounded host evidence; contains no file content or process authority. */
 export interface RemoteReviewSnapshot {
@@ -7,6 +8,7 @@ export interface RemoteReviewSnapshot {
 import type { HookSignal } from "./hooks";
 /** Main-only mapping; paths authorize nothing without the selected local checkout. */
 export interface RemoteAgentSpec {
+  repositorySetup?: SetupAdmission;
   childPressure?: true;
   agent: string;
   repository: string;

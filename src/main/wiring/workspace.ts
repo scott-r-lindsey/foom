@@ -1,3 +1,4 @@
+import { openRepositorySetup } from "../setup/repository-setup-service";
 import { locationId, metadataName } from "../control/metadata";
 import { hostsForStore } from "../setup/hosts";
 import type { BrowserWindow } from "electron";
@@ -167,7 +168,18 @@ export async function initializeWorkspace(
       };
     }
     const probeNotices = new ProbeNotices(app.getPath("userData"));
+    const repositorySetup = await openRepositorySetup(
+      wiring.settings,
+      app.getPath("userData"),
+      wiring.worktrees,
+      hostsForStore(
+        wiring.settings,
+        wiring.worktrees.listRepositories.bind(wiring.worktrees),
+        app.getVersion(),
+      ),
+    );
     wiring.workspace = new Workspace({
+      repositorySetup,
       openExternal: (url) => shell.openExternal(url),
       pluginStagingRoot: app.getPath("userData"),
       ...(forge === undefined ? {} : { forge }),
