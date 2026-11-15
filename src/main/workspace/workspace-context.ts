@@ -560,7 +560,7 @@ export class WorkspaceContext {
     this.orchestration.syncUnreadChildEvents();
     this.orchestration.childEvents.publish();
     this.deps.watcher?.sync(this.deps.worktrees.listRepositories());
-    viewChanges.publish("sessions", "repositories", "worktrees");
+    viewChanges.publish("sessions", "worktrees");
     this.deps.onChange?.(this.localOnlyChange || undefined);
   }
 

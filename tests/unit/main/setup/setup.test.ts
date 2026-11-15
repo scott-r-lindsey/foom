@@ -709,3 +709,49 @@ test("readiness invalidation during a probe keeps its new inputs pending", async
   await expect(setup.readinessView()).resolves.toEqual(next);
   expect(probe).toHaveBeenCalledTimes(2);
 });
+
+test("repository commit topics invalidate a warm readiness result", async () => {
+  const { viewChanges } = await import("../../../../src/main/data/view-changes");
+  const initial: ReadinessReport = { git: "ready", platform: "linux", forges: [] };
+  const next: ReadinessReport = {
+    ...initial,
+    forges: [{ host: "new-forge.test", status: "ready" }],
+  };
+  const probe = vi
+    .fn<NonNullable<SetupDependencies["readiness"]>>()
+    .mockResolvedValueOnce(initial)
+    .mockResolvedValue(next);
+  deps.readiness = probe;
+  const setup = new Setup(deps);
+  await expect(setup.readinessView()).resolves.toEqual(initial);
+  viewChanges.publish("repositories", "worktrees");
+  await expect(setup.readinessView()).resolves.toEqual(next);
+  expect(probe).toHaveBeenCalledTimes(2);
+});
+
+test("windows share a profile's readiness probe and changed explicit recheck result", async () => {
+  const initial: ReadinessReport = { git: "ready", platform: "linux", forges: [] };
+  const next: ReadinessReport = {
+    ...initial,
+    forges: [{ host: "new-forge.test", status: "not-signed-in" }],
+  };
+  const pending = Promise.withResolvers<ReadinessReport>();
+  const probe = vi
+    .fn<NonNullable<SetupDependencies["readiness"]>>()
+    .mockReturnValueOnce(pending.promise)
+    .mockResolvedValue(next);
+  deps.readiness = probe;
+  const a = new Setup(deps);
+  const b = new Setup({ ...deps });
+  const first = a.readinessView();
+  expect(b.readinessView()).toBe(first);
+  pending.resolve(initial);
+  await first;
+  await expect(b.readinessView()).resolves.toEqual(initial);
+  await expect(a.readinessView()).resolves.toEqual(initial);
+  expect(probe).toHaveBeenCalledOnce();
+  await b.readiness();
+  await expect(a.readinessView()).resolves.toEqual(next);
+  await expect(b.readinessView()).resolves.toEqual(next);
+  expect(probe).toHaveBeenCalledTimes(2);
+});

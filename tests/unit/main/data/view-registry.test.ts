@@ -195,3 +195,25 @@ test("cyclic requests refuse and synchronous acknowledgements preserve a coalesc
   await flush();
   expect(send).toHaveBeenCalledTimes(2);
 });
+
+test("repository commits recompute an open readiness subscription; worktree-only commits do not", async () => {
+  const changes = new ViewChanges();
+  const read = vi.fn(() =>
+    Promise.resolve({ git: "ready" as const, platform: "linux" as const, forges: [] }),
+  );
+  const registry = new ViewRegistry(changes, read);
+  registries.push(registry);
+  const send = vi.fn<(snapshot: ViewSnapshot) => void>();
+  registry.subscribe({ id: "ready", view: "readiness", params: {} }, send);
+  await flush();
+  const initial = send.mock.calls[0]?.[0];
+  if (!initial) throw new Error("Missing initial readiness snapshot");
+  registry.acknowledge(initial.id, initial.generation, initial.revision);
+  changes.publish("worktrees");
+  await flush();
+  expect(read).toHaveBeenCalledOnce();
+  changes.publish("repositories", "worktrees");
+  await flush();
+  expect(read).toHaveBeenCalledTimes(2);
+  expect(send).toHaveBeenCalledTimes(2);
+});

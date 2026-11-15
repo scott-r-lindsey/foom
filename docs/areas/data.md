@@ -171,8 +171,9 @@ Only fixed `unavailable` and `too-large` errors cross this channel.
 | `sounds` | `{}` | Validated catalog entries; audio bytes keep their separate capability |
 | `readiness` | `{}` | Fixed Git/forge readiness; subscribed only on the owning readiness/Forges surface |
 
-Settings host views keep the saved-observation projection of the former list
-read; background board connection failures do not replace those observations.
+Settings host views keep saved full-check observations while overlaying explicit
+Refresh facts results, including failures. Background board connection failures
+do not replace those observations.
 Entering Hosts retains its explicit list command to resume owner-held row/save
 retries; command replies cannot replace ordered snapshots.
 
@@ -191,9 +192,11 @@ Exhausting the board's subscription cap surfaces an error, never a silently
 truncated registration list. Other list hooks expose their bounded page; full
 board/sidebar conversion remains deferred below.
 
-Readiness views share a lazy main-owned probe result by view revision. Explicit
-recheck commands force a fresh probe; publication of that result does not run the
-probe again.
+Readiness views across all windows share one lazy profile-owned probe result.
+The cache depends on readiness and repository revisions; repository commits also
+invalidate open readiness subscriptions. Worktree-only metadata commits retain
+the repository revision. Explicit recheck commands replace the shared result;
+publication lets every window reuse it without repeating auth probes.
 
 Global publication revisions include live caches. Each subscription also has a
 fresh generation. Preload and the query adapter ignore stale generations and

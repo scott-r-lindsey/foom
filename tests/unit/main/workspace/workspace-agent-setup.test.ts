@@ -274,3 +274,12 @@ test("explicit agent refresh publishes completion even for identical facts; cach
   expect(viewChanges.current("agents")).toBeGreaterThan(revision);
   await workspace.dispose();
 });
+
+test("ordinary workspace refresh preserves the repository input revision", async () => {
+  const { viewChanges } = await import("../../../../src/main/data/view-changes");
+  const workspace = new Workspace(deps);
+  const revision = viewChanges.current("repositories");
+  workspace.refresh();
+  expect(viewChanges.current("repositories")).toBe(revision);
+  await workspace.dispose();
+});

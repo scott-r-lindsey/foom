@@ -141,3 +141,22 @@ test("Settings dependencies target host/agent/readiness views and ignore unrelat
   settingsChanged(DEFAULT_SETTINGS, { ...DEFAULT_SETTINGS, forges: { github: false } });
   expect(changed).toHaveBeenLastCalledWith(new Set(["settings", "readiness"]), expect.any(Number));
 });
+
+test("worktree metadata commits retain the repository revision, including after reopening the store", async () => {
+  const directory = await root();
+  const file = join(directory, "worktrees.json");
+  const state = { version: 1 as const, repositories: [directory], managed: [] };
+  const store = new WorktreeStore(file);
+  await store.save(() => state);
+  const revision = viewChanges.current("repositories");
+  const changed = vi.fn();
+  disposers.push(viewChanges.subscribe(changed));
+  await store.save(() => state);
+  expect(changed).toHaveBeenLastCalledWith(new Set(["worktrees"]), expect.any(Number));
+  const reopened = new WorktreeStore(file);
+  await reopened.read();
+  await reopened.save(() => state);
+  expect(viewChanges.current("repositories")).toBe(revision);
+  await reopened.save(() => ({ ...state, repositories: [] }));
+  expect(viewChanges.current("repositories")).toBeGreaterThan(revision);
+});

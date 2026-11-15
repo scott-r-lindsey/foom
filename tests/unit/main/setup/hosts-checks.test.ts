@@ -776,3 +776,33 @@ test("a folder-local failure preserves capabilities while an explicit connection
   expect(failed.preflight?.result.ok).toBe(false);
   expect(failed.preflight?.ssh).toEqual({ state: "fail", reason: "host-key-changed" });
 });
+
+test("saved Settings views overlay explicit resource refresh success and failure, preserving the full check", async () => {
+  checkedHost();
+  expect(hosts.state(undefined, true).hosts[0]?.result).toMatchObject({
+    ok: true,
+    facts: { cores: 8 },
+  });
+  execute.mockResolvedValue({ ok: true, facts: { ...facts, cores: 99 } });
+  await hosts.action({ action: "refresh", host: "fixture" });
+  expect(hosts.state(undefined, true).hosts[0]?.result).toMatchObject({
+    ok: true,
+    facts: { cores: 99 },
+  });
+  execute.mockResolvedValue({ ok: false, reason: "unreachable" });
+  await hosts.action({ action: "refresh", host: "fixture" });
+  const saved = hosts.state(undefined, true).hosts[0];
+  expect(saved?.result).toEqual({ ok: false, reason: "unreachable" });
+  expect(saved?.observation?.preflight.result).toMatchObject({ ok: true, facts: { cores: 8 } });
+});
+
+test("saved Settings views exclude unsolicited inventory failures", async () => {
+  checkedHost();
+  execute.mockResolvedValue({ ok: false, reason: "unreachable" });
+  await hosts.inventory("fixture");
+  expect(hosts.state().hosts[0]?.result).toEqual({ ok: false, reason: "unreachable" });
+  expect(hosts.state(undefined, true).hosts[0]?.result).toMatchObject({
+    ok: true,
+    facts: { cores: 8 },
+  });
+});

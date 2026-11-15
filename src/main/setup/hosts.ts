@@ -817,9 +817,11 @@ export class Hosts {
         // Saved facts provide presentation only; actions select from a fresh inspection below.
         const displayResult =
           (!savedOnly && this.results.get(host.host)) || host.observation?.preflight.result;
-        const runtimeResult = savedOnly
-          ? undefined
-          : (this.resourceResults.get(host.host) ?? this.results.get(host.host));
+        // Explicit Refresh facts belongs to Settings even when background board
+        // inventory is excluded from its saved observation projection.
+        const runtimeResult =
+          this.resourceResults.get(host.host) ??
+          (savedOnly ? undefined : this.results.get(host.host));
         return {
           ...host,
           ...(this.hostKeyTrust ? { hostKeyTrust: this.hostKeyTrust } : {}),

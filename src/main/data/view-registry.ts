@@ -104,7 +104,10 @@ export class ViewRegistry {
   ) {
     this.off = changes.subscribe((views) => {
       for (const entry of this.subscriptions.values())
-        if (views.has(entry.request.view)) {
+        if (
+          views.has(entry.request.view) ||
+          (entry.request.view === "readiness" && views.has("repositories"))
+        ) {
           entry.dirty = true;
           this.schedule(entry.request.id);
         }
