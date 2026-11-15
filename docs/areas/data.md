@@ -196,8 +196,9 @@ params; TanStack Query performs structural sharing. Multiple consumers share a
 subscription, and the last consumer releases it. Explicit refetch reconnects a
 live subscription instead of allowing an unordered legacy read into its cache.
 Command acknowledgements cannot
-overwrite ordered pushed data. Editable Environment rows and a pending Sound
-slider remain local drafts. Sample/test sources retain their typed reader/event
+overwrite ordered pushed data. Editable Environment rows, pending preference
+commands and a pending Sound slider remain local drafts. Preference previews
+release when their command group settles; they never populate the query cache. Sample/test sources retain their typed reader/event
 adapters through the same query cache. The host picker consumes the hosts query
 and no longer uses registeredHosts from a Settings snapshot.
 

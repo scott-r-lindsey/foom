@@ -1,11 +1,11 @@
 import { useSettingsView } from "../data/view-hooks";
 import { useCallback, useEffect, useRef, useState, useLayoutEffect } from "react";
-import type { SetupState } from "../../shared/setup";
+import type { SetupState, SettingsPatch } from "../../shared/setup";
 import type { Dispatch, SetStateAction } from "react";
 import type { SoundSettings } from "../../shared/sound";
 import type { SetupSource } from "./setup-source.d";
 
-/** Main snapshots with only the pending local sound edit overlaid. */
+/** Ordered main snapshots with pending local edits overlaid until their commands settle. */
 export function useSetupState(
   source: Pick<SetupSource, "subscribe" | "views" | "state">,
   initial: SetupState,
@@ -13,9 +13,31 @@ export function useSetupState(
   const query = useSettingsView(source, source.state.bind(source), initial);
   const persisted = query.data ?? initial;
   const [soundDraft, setSoundDraft] = useState<SoundSettings>();
-  const state = soundDraft
-    ? { ...persisted, settings: { ...persisted.settings, sound: soundDraft } }
-    : persisted;
+  const [edits, setEdits] = useState<readonly { patch: SettingsPatch; complete: boolean }[]>([]);
+  const previewSettings = useCallback((patch: SettingsPatch) => {
+    const edit = { patch, complete: false };
+    setEdits((current) => [...current, edit]);
+    return () => {
+      setEdits((current) => {
+        const next = current.map((entry) =>
+          entry === edit ? { ...entry, complete: true } : entry,
+        );
+        // Keep the latest intent visible when concurrent commands finish out of order.
+        return next.every((entry) => entry.complete) ? [] : next;
+      });
+    };
+  }, []);
+  const editedSettings = edits.reduce(
+    (settings, edit) => ({ ...settings, ...edit.patch }),
+    persisted.settings,
+  );
+  const state =
+    soundDraft || edits.length
+      ? {
+          ...persisted,
+          settings: { ...editedSettings, ...(soundDraft ? { sound: soundDraft } : {}) },
+        }
+      : persisted;
   const persistedRef = useRef(persisted);
   useLayoutEffect(() => {
     persistedRef.current = persisted;
@@ -50,5 +72,5 @@ export function useSetupState(
     () => (source.views ? undefined : source.subscribe(receiveState)),
     [source, receiveState],
   );
-  return { state, setState, receiveState, pendingSoundRef, error: query.isError };
+  return { state, setState, receiveState, pendingSoundRef, previewSettings, error: query.isError };
 }

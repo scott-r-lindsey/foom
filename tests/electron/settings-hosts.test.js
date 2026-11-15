@@ -2636,6 +2636,14 @@ test("Hosts status classification stays consistent with sealed catalog omission"
   timeout: deadline(60000),
 }, async (context) => {
   const { page, card, navigation, capture, calls } = await hostsFixture(context);
+  // Add publishes the registration before its full check and concurrent sidebar
+  // locations finish. Prime the completed observation/locations before sealing.
+  await expect(card.locator("time")).toBeVisible();
+  await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
+  await page.evaluate(async () => {
+    await window.desktop.hosts({ action: "locations" });
+    await window.desktop.sidebarInventory();
+  });
   const metadata = path.resolve("build/build-metadata.json");
   const previous = await readFile(metadata);
   fixtureCleanup(context).apps.push(() => writeFile(metadata, previous));

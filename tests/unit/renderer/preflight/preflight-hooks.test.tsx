@@ -3,6 +3,7 @@ import { viewStream } from "../../../fixtures/view-stream";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { ErrorPresentation } from "../../../../src/renderer/board/error-presentation";
+import { useSettingsView } from "../../../../src/renderer/data/view-hooks";
 import { useSetupState } from "../../../../src/renderer/preflight/use-setup-state";
 import { useSetupSaves } from "../../../../src/renderer/preflight/use-setup-saves";
 import { useRepositorySelection } from "../../../../src/renderer/preflight/use-repository-selection";
@@ -444,4 +445,67 @@ test("live Sound edits remain local drafts across stale pushes and command repli
   });
   view.unmount();
   expect(f.source.subscribe).not.toHaveBeenCalled();
+});
+
+test("live preference previews stay local, preserve newer intent across reordered replies and release to pushed truth", async () => {
+  const f = fixture();
+  const stream = viewStream(f.initial);
+  Object.assign(f.source, { views: stream.api });
+  const first = deferred<SetupState>();
+  const second = deferred<SetupState>();
+  f.source.save
+    .mockImplementationOnce(() => first.promise)
+    .mockImplementationOnce(() => second.promise);
+  const view = saves(f);
+  const observer = renderHook(() => useSettingsView({ views: stream.api }, f.source.state));
+  await act(async () => {
+    await Promise.resolve();
+  });
+  act(() => {
+    view.result.current.save({ panelColor: "subtle" });
+    view.result.current.save({ panelColor: "plain" });
+    stream.data.settings = setupState({ interfaceScale: 150 });
+    stream.push("settings");
+  });
+  expect(view.result.current.state.settings.panelColor).toBe("plain");
+  expect(observer.result.current.data?.settings.panelColor).toBe("vivid");
+  expect(view.result.current.state.settings.interfaceScale).toBe(150);
+  await act(async () => {
+    second.resolve(setupState({ panelColor: "plain" }));
+    await second.promise;
+  });
+  expect(view.result.current.state.settings.panelColor).toBe("plain");
+  act(() => {
+    stream.data.settings = setupState({ panelColor: "vivid", interfaceScale: 120 });
+    stream.push("settings");
+  });
+  await act(async () => {
+    first.resolve(setupState({ panelColor: "subtle" }));
+    await first.promise;
+  });
+  expect(view.result.current.state.settings.panelColor).toBe("vivid");
+  expect(view.result.current.state.settings.interfaceScale).toBe(120);
+});
+
+test("a refused live preference command releases its local preview to the latest pushed settings", async () => {
+  const f = fixture();
+  const stream = viewStream(f.initial);
+  Object.assign(f.source, { views: stream.api });
+  const reply = deferred<SetupState>();
+  f.source.save.mockImplementationOnce(() => reply.promise);
+  const error = vi.fn();
+  const view = saves(f, error);
+  await act(async () => {
+    await Promise.resolve();
+  });
+  act(() => {
+    view.result.current.save({ hooks: false });
+  });
+  expect(view.result.current.state.settings.hooks).toBe(false);
+  await act(async () => {
+    reply.reject(new Error("Refused"));
+    await Promise.resolve();
+  });
+  expect(error).toHaveBeenCalledWith("Unable to update settings.");
+  expect(view.result.current.state.settings.hooks).toBe(f.initial.settings.hooks);
 });
