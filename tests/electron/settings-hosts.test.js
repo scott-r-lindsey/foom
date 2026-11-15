@@ -2162,12 +2162,61 @@ test("Agents Global list and machine picker scale to twelve agents and twelve sa
       );
       assert.equal(await page.locator(".agents-panel button:not(:disabled)").count(), 0);
       const list = page.getByRole("region", { name: "Machine agents", exact: true });
-      await list.focus();
-      await expect(list).toBeFocused();
-      await page.keyboard.press("End");
-      await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
-      await page.keyboard.press("Home");
-      await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBe(0);
+      const scrollTrace = await list.evaluateHandle((element) => {
+        const events = [];
+        const started = performance.now();
+        const record = (event) => {
+          if (event.type.startsWith("key") && !["Home", "End"].includes(event.key)) return;
+          if (event.type === "scroll" && event.target !== element) return;
+          const active = document.activeElement;
+          if (events.length === 80) events.shift();
+          events.push({
+            ms: Math.round(performance.now() - started),
+            event: event.type,
+            key: event.key,
+            scrollTop: element.scrollTop,
+            maximum: element.scrollHeight - element.clientHeight,
+            connected: element.isConnected,
+            focused: active === element,
+            activeTag: active?.tagName,
+            activeLabel: active?.getAttribute("aria-label"),
+          });
+        };
+        const types = ["keydown", "keyup", "focusin", "focusout", "scroll"];
+        for (const type of types) document.addEventListener(type, record, true);
+        record({ type: "start" });
+        return {
+          stop() {
+            record({ type: "stop" });
+            for (const type of types) document.removeEventListener(type, record, true);
+            return events;
+          },
+        };
+      });
+      try {
+        await list.focus();
+        await expect(list).toBeFocused();
+        await page.keyboard.press("End");
+        // Native keyboard scrolling animates. Any movement is not End's completion:
+        // Home can otherwise arrive while the list is still scrolling down (#1183).
+        await expect
+          .poll(() =>
+            list.evaluate(
+              (element) =>
+                element.scrollTop > 0 &&
+                Math.abs(element.scrollHeight - element.clientHeight - element.scrollTop) <= 1,
+            ),
+          )
+          .toBe(true);
+        await expect(list).toBeFocused();
+        await page.keyboard.press("Home");
+        await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBe(0);
+        await expect(list).toBeFocused();
+      } finally {
+        const events = await scrollTrace.evaluate((trace) => trace.stop());
+        context.diagnostic(`Machine agents scroll (${mode}, ${width}): ${JSON.stringify(events)}`);
+        await scrollTrace.dispose();
+      }
       await expect(page.getByText(/^Off:/)).toHaveCount(0);
       await capture("offline", mode, width);
     }
