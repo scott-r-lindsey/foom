@@ -14,7 +14,36 @@ export const previewId = (n = 0) => n.toString(16).padStart(32, "0");
 export const theme = {
   ...interfaceThemes["eclipse-dark"],
   version: 2 as const,
-  areas: { dialogs: { bg: "#000000" } },
+  areas: {
+    dialogs: { bg: "#000000" },
+    sidebar: {
+      bg: "#000000",
+      scrollbar: "#665588",
+      gradient: {
+        angle: 120,
+        stops: [
+          ["#000000", 0],
+          ["#020202", 100],
+        ] as [string, number][],
+      },
+    },
+    titlebar: { bg: "#000000" },
+    "tile-headers": { surface: "#010101" },
+    board: { bg: "#000000" },
+    badges: { "badge-ink": "#ffffff" },
+    wordmark: { ink: "#ffffff" },
+    "dialog-headers": {
+      bg: "#000000",
+      gradient: {
+        angle: 90,
+        stops: [
+          ["#000000", 0],
+          ["#010101", 100],
+        ] as [string, number][],
+      },
+    },
+  },
+  type: { family: "system" as const, scale: 1.1, weight: 450, "strong-weight": 650 },
   states: { focus: "#ffffff" },
   shape: { radius: 4, "panel-radius": 8, border: 1, shadow: 0.5 },
 };

@@ -7,7 +7,7 @@ body {
   overflow: hidden;
   background: var(--surface);
   color: var(--ink);
-  font: 13px / 1.5 var(--font-interface);
+  font: var(--type-weight, 400) calc(13px * var(--type-scale, 1)) / 1.5 var(--font-interface);
 }
 button {
   font: inherit;
@@ -29,6 +29,11 @@ button {
   width: 540px;
 }
 .dlg-head {
+  --lift: light-dark(#fff, var(--ink));
+  --raised-top: color-mix(in srgb, var(--surface) 92%, var(--lift));
+  --raised-bottom: var(--surface);
+  --raised-line: color-mix(in srgb, var(--highlight) 25%, var(--line));
+  --raised-hover: var(--state-hover, color-mix(in srgb, var(--highlight) 12%, var(--raised-top)));
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: 4px 14px;
@@ -56,13 +61,14 @@ button {
 }
 h1 {
   margin: 0;
-  font: 600 16px / 1.35 var(--font-interface);
+  font:
+    var(--type-strong-weight, 600) calc(16px * var(--type-scale, 1)) / 1.35 var(--font-interface);
   text-wrap: balance;
   align-self: end;
 }
 .subject {
   margin: 0;
-  font: 12px / 1.5 var(--font-mono);
+  font: var(--type-weight, 400) calc(12px * var(--type-scale, 1)) / 1.5 var(--font-mono);
   color: var(--muted);
   overflow-wrap: anywhere;
 }
@@ -74,14 +80,14 @@ h1 {
 }
 .prose {
   margin: 0;
-  font-size: 13.5px;
+  font-size: calc(13.5px * var(--type-scale, 1));
   line-height: 1.6;
   max-width: 60ch;
   text-wrap: pretty;
 }
 .prose.quiet {
   color: var(--muted);
-  font-size: 13px;
+  font-size: calc(13px * var(--type-scale, 1));
 }
 
 .section {
@@ -94,13 +100,13 @@ h1 {
   align-items: baseline;
   gap: 8px;
   margin: 0;
-  font: 600 11px var(--font-interface);
+  font: var(--type-strong-weight, 600) calc(11px * var(--type-scale, 1)) var(--font-interface);
   letter-spacing: 0.07em;
   text-transform: uppercase;
   color: var(--muted);
 }
 .label .n {
-  font: 500 11px var(--font-mono);
+  font: var(--type-strong-weight, 500) calc(11px * var(--type-scale, 1)) var(--font-mono);
   letter-spacing: 0;
   color: var(--ink);
 }
@@ -142,23 +148,24 @@ h1 {
   stroke-linejoin: round;
 }
 .row .name {
-  font: 12.5px / 18px var(--font-mono);
+  font: var(--type-weight, 400) calc(12.5px * var(--type-scale, 1)) / 18px var(--font-mono);
   overflow-wrap: anywhere;
 }
 .row .sub {
   display: block;
-  font: 11.5px / 17px var(--font-mono);
+  font: var(--type-weight, 400) calc(11.5px * var(--type-scale, 1)) / 17px var(--font-mono);
   color: var(--muted);
   overflow-wrap: anywhere;
 }
 .row .why {
-  font: 12px / 18px var(--font-interface);
+  font: var(--type-weight, 400) calc(12px * var(--type-scale, 1)) / 18px var(--font-interface);
   color: var(--muted);
   white-space: nowrap;
   text-align: right;
 }
 .row.sans .name {
-  font: 500 13px / 18px var(--font-interface);
+  font:
+    var(--type-strong-weight, 500) calc(13px * var(--type-scale, 1)) / 18px var(--font-interface);
 }
 .spin {
   animation: spin 1s linear infinite;
@@ -203,7 +210,7 @@ h1 {
   border-radius: 4px;
   background: var(--badge-fill);
   color: var(--badge-ink);
-  font: 500 10.5px / 18px var(--font-mono);
+  font: var(--type-strong-weight, 500) calc(10.5px * var(--type-scale, 1)) / 18px var(--font-mono);
   text-align: center;
 }
 .row.change {
@@ -220,12 +227,12 @@ h1 {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--type-scale, 1));
 }
 .progress .meta span:last-child {
   color: var(--muted);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: calc(12px * var(--type-scale, 1));
   font-variant-numeric: tabular-nums;
 }
 
@@ -235,7 +242,7 @@ h1 {
   grid-template-columns: max-content minmax(0, 1fr);
   gap: 7px 16px;
   margin: 0;
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--type-scale, 1));
 }
 .facts dt {
   color: var(--muted);
@@ -246,7 +253,7 @@ h1 {
 }
 .facts .mono {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: calc(12px * var(--type-scale, 1));
 }
 
 /* Pairing code */
@@ -261,12 +268,12 @@ h1 {
   background: color-mix(in srgb, var(--bg) 70%, var(--surface));
 }
 .code strong {
-  font: 500 26px / 1 var(--font-mono);
+  font: var(--type-strong-weight, 500) calc(26px * var(--type-scale, 1)) / 1 var(--font-mono);
   letter-spacing: 0.14em;
   font-variant-numeric: tabular-nums;
 }
 .code span {
-  font-size: 12px;
+  font-size: calc(12px * var(--type-scale, 1));
   color: var(--muted);
 }
 
@@ -282,7 +289,7 @@ h1 {
 .points li {
   position: relative;
   padding-left: 20px;
-  font-size: 13px;
+  font-size: calc(13px * var(--type-scale, 1));
   line-height: 1.5;
   text-wrap: pretty;
 }
@@ -304,7 +311,7 @@ h1 {
   border: var(--shape-border, 1px) solid var(--line);
   border-radius: var(--shape-panel-radius, 8px);
   background: color-mix(in srgb, var(--bg) 70%, var(--surface));
-  font-size: 13px;
+  font-size: calc(13px * var(--type-scale, 1));
 }
 .note svg {
   width: 14px;
@@ -326,7 +333,7 @@ h1 {
   border-radius: 5px;
   background: var(--badge-fill);
   color: var(--badge-ink);
-  font: 12px / 20px var(--font-mono);
+  font: var(--type-weight, 400) calc(12px * var(--type-scale, 1)) / 20px var(--font-mono);
   overflow-wrap: anywhere;
 }
 
@@ -336,7 +343,7 @@ h1 {
   gap: 4px;
 }
 .argument-lines code {
-  font: 12px / 20px var(--font-mono);
+  font: var(--type-weight, 400) calc(12px * var(--type-scale, 1)) / 20px var(--font-mono);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -368,7 +375,7 @@ button:hover {
   background: var(--ink);
   color: var(--bg);
   border-color: var(--ink);
-  font-weight: 600;
+  font-weight: var(--type-strong-weight, 600);
 }
 .confirmation-accept:hover {
   background: color-mix(in srgb, var(--ink) 88%, var(--highlight));
@@ -452,7 +459,7 @@ progress::-webkit-progress-value {
 pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font: 12px / 1.7 var(--font-mono);
+  font: var(--type-weight, 400) calc(12px * var(--type-scale, 1)) / 1.7 var(--font-mono);
   margin: 0;
   padding: 12px;
   background: var(--bg);
@@ -462,7 +469,7 @@ pre {
 
 .subject b {
   color: var(--ink);
-  font-weight: 500;
+  font-weight: var(--type-strong-weight, 500);
 }
 
 .well > li[data-dirty="true"] {
@@ -495,7 +502,7 @@ li[data-dirty="true"] > .row > .why svg {
 .disclosure-summary {
   display: block;
   margin-top: 4px;
-  font: 11px / 1.5 var(--font-mono);
+  font: var(--type-weight, 400) calc(11px * var(--type-scale, 1)) / 1.5 var(--font-mono);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -565,7 +572,7 @@ li[data-dirty="true"] > .row > .why svg {
 }
 .plugin-location,
 .plugin-command {
-  font: 12px / 1.6 var(--font-mono);
+  font: var(--type-weight, 400) calc(12px * var(--type-scale, 1)) / 1.6 var(--font-mono);
   overflow-wrap: anywhere;
   color: var(--muted);
 }

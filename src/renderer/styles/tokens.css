@@ -149,6 +149,7 @@
 
 :root[data-theme-ready] .sidebar-shell {
   --bg: var(--theme-sidebar-bg, var(--theme-bg));
+  --state-scrollbar: var(--theme-sidebar-scrollbar, var(--line));
   --surface: var(--theme-sidebar-surface, var(--theme-surface));
   --line: var(--theme-sidebar-line, var(--theme-line));
   --ink: var(--theme-sidebar-ink, var(--theme-ink));
@@ -179,6 +180,7 @@
 :root[data-theme-ready] .tile-area,
 :root[data-theme-ready] .terminal-tile {
   --bg: var(--theme-tiles-bg, var(--theme-bg));
+  --state-scrollbar: var(--theme-tiles-scrollbar, var(--line));
   --surface: var(--theme-tiles-surface, var(--theme-surface));
   --line: var(--theme-tiles-line, var(--theme-line));
   --ink: var(--theme-tiles-ink, var(--theme-ink));
@@ -208,6 +210,7 @@
 
 :root[data-theme-ready] .row-menu.sidebar-panel {
   --bg: var(--theme-panels-bg, var(--theme-bg));
+  --state-scrollbar: var(--theme-panels-scrollbar, var(--line));
   --surface: var(--theme-panels-surface, var(--theme-surface));
   --line: var(--theme-panels-line, var(--theme-line));
   --ink: var(--theme-panels-ink, var(--theme-ink));
@@ -240,6 +243,7 @@
 :root[data-theme-ready] .confirmation-window,
 :root[data-theme-ready] dialog {
   --bg: var(--theme-dialogs-bg, var(--theme-bg));
+  --state-scrollbar: var(--theme-dialogs-scrollbar, var(--line));
   --surface: var(--theme-dialogs-surface, var(--theme-surface));
   --line: var(--theme-dialogs-line, var(--theme-line));
   --ink: var(--theme-dialogs-ink, var(--theme-ink));
@@ -271,6 +275,7 @@
 :root[data-theme-ready] .row-menu:not(.sidebar-panel),
 :root[data-theme-ready] .wordmark-menu {
   --bg: var(--theme-menus-bg, var(--theme-bg));
+  --state-scrollbar: var(--theme-menus-scrollbar, var(--line));
   --surface: var(--theme-menus-surface, var(--theme-surface));
   --line: var(--theme-menus-line, var(--theme-line));
   --ink: var(--theme-menus-ink, var(--theme-ink));
@@ -291,6 +296,191 @@
   --badge-ink: var(--theme-menus-badge-ink, var(--theme-badge-ink));
   --highlight: var(--theme-menus-highlight, var(--theme-highlight));
   --highlight-deep: var(--theme-menus-highlight-deep, var(--theme-highlight-deep));
+  --lift: light-dark(#fff, var(--ink));
+  --raised-top: color-mix(in srgb, var(--surface) 92%, var(--lift));
+  --raised-bottom: var(--surface);
+  --raised-line: color-mix(in srgb, var(--highlight) 25%, var(--line));
+  --raised-hover: var(--state-hover, color-mix(in srgb, var(--highlight) 12%, var(--raised-top)));
+}
+
+:root[data-theme-areas~="titlebar"] .board-top {
+  --state-scrollbar: var(--theme-titlebar-scrollbar, var(--line));
+  --bg: var(--theme-titlebar-bg, var(--theme-bg));
+  --surface: var(--theme-titlebar-surface, var(--theme-surface));
+  --line: var(--theme-titlebar-line, var(--theme-line));
+  --ink: var(--theme-titlebar-ink, var(--theme-ink));
+  --muted: var(--theme-titlebar-muted, var(--theme-muted));
+  --accent: var(--theme-titlebar-accent, var(--theme-accent));
+  --accent-deep: var(--theme-titlebar-accent-deep, var(--theme-accent-deep));
+  --attention: var(--theme-titlebar-attention, var(--theme-attention));
+  --attention-ink: var(--theme-titlebar-attention-ink, var(--theme-attention-ink));
+  --done: var(--theme-titlebar-done, var(--theme-done));
+  --done-ink: var(--theme-titlebar-done-ink, var(--theme-done-ink));
+  --failed: var(--theme-titlebar-failed, var(--theme-failed));
+  --failed-ink: var(--theme-titlebar-failed-ink, var(--theme-failed-ink));
+  --hole: var(--theme-titlebar-hole, var(--theme-hole));
+  --space-ink: var(--theme-titlebar-space-ink, var(--theme-space-ink));
+  --badge-label-fill: var(--theme-titlebar-badge-label-fill, var(--theme-badge-label-fill));
+  --badge-label-ink: var(--theme-titlebar-badge-label-ink, var(--theme-badge-label-ink));
+  --badge-fill: var(--theme-titlebar-badge-fill, var(--theme-badge-fill));
+  --badge-ink: var(--theme-titlebar-badge-ink, var(--theme-badge-ink));
+  --highlight: var(--theme-titlebar-highlight, var(--theme-highlight));
+  --highlight-deep: var(--theme-titlebar-highlight-deep, var(--theme-highlight-deep));
+  --lift: light-dark(#fff, var(--ink));
+  --raised-top: color-mix(in srgb, var(--surface) 92%, var(--lift));
+  --raised-bottom: var(--surface);
+  --raised-line: color-mix(in srgb, var(--highlight) 25%, var(--line));
+  --raised-hover: var(--state-hover, color-mix(in srgb, var(--highlight) 12%, var(--raised-top)));
+}
+
+:root[data-theme-areas~="tile-headers"] .tile-title {
+  --state-scrollbar: var(--theme-tile-headers-scrollbar, var(--line));
+  --bg: var(--theme-tile-headers-bg, var(--theme-bg));
+  --surface: var(--theme-tile-headers-surface, var(--theme-surface));
+  --line: var(--theme-tile-headers-line, var(--theme-line));
+  --ink: var(--theme-tile-headers-ink, var(--theme-ink));
+  --muted: var(--theme-tile-headers-muted, var(--theme-muted));
+  --accent: var(--theme-tile-headers-accent, var(--theme-accent));
+  --accent-deep: var(--theme-tile-headers-accent-deep, var(--theme-accent-deep));
+  --attention: var(--theme-tile-headers-attention, var(--theme-attention));
+  --attention-ink: var(--theme-tile-headers-attention-ink, var(--theme-attention-ink));
+  --done: var(--theme-tile-headers-done, var(--theme-done));
+  --done-ink: var(--theme-tile-headers-done-ink, var(--theme-done-ink));
+  --failed: var(--theme-tile-headers-failed, var(--theme-failed));
+  --failed-ink: var(--theme-tile-headers-failed-ink, var(--theme-failed-ink));
+  --hole: var(--theme-tile-headers-hole, var(--theme-hole));
+  --space-ink: var(--theme-tile-headers-space-ink, var(--theme-space-ink));
+  --badge-label-fill: var(--theme-tile-headers-badge-label-fill, var(--theme-badge-label-fill));
+  --badge-label-ink: var(--theme-tile-headers-badge-label-ink, var(--theme-badge-label-ink));
+  --badge-fill: var(--theme-tile-headers-badge-fill, var(--theme-badge-fill));
+  --badge-ink: var(--theme-tile-headers-badge-ink, var(--theme-badge-ink));
+  --highlight: var(--theme-tile-headers-highlight, var(--theme-highlight));
+  --highlight-deep: var(--theme-tile-headers-highlight-deep, var(--theme-highlight-deep));
+  --lift: light-dark(#fff, var(--ink));
+  --raised-top: color-mix(in srgb, var(--surface) 92%, var(--lift));
+  --raised-bottom: var(--surface);
+  --raised-line: color-mix(in srgb, var(--highlight) 25%, var(--line));
+  --raised-hover: var(--state-hover, color-mix(in srgb, var(--highlight) 12%, var(--raised-top)));
+}
+
+:root[data-theme-areas~="board"] .board-terminal,
+:root[data-theme-areas~="board"] .tile-area {
+  --state-scrollbar: var(--theme-board-scrollbar, var(--line));
+  --bg: var(--theme-board-bg, var(--theme-bg));
+  --surface: var(--theme-board-surface, var(--theme-surface));
+  --line: var(--theme-board-line, var(--theme-line));
+  --ink: var(--theme-board-ink, var(--theme-ink));
+  --muted: var(--theme-board-muted, var(--theme-muted));
+  --accent: var(--theme-board-accent, var(--theme-accent));
+  --accent-deep: var(--theme-board-accent-deep, var(--theme-accent-deep));
+  --attention: var(--theme-board-attention, var(--theme-attention));
+  --attention-ink: var(--theme-board-attention-ink, var(--theme-attention-ink));
+  --done: var(--theme-board-done, var(--theme-done));
+  --done-ink: var(--theme-board-done-ink, var(--theme-done-ink));
+  --failed: var(--theme-board-failed, var(--theme-failed));
+  --failed-ink: var(--theme-board-failed-ink, var(--theme-failed-ink));
+  --hole: var(--theme-board-hole, var(--theme-hole));
+  --space-ink: var(--theme-board-space-ink, var(--theme-space-ink));
+  --badge-label-fill: var(--theme-board-badge-label-fill, var(--theme-badge-label-fill));
+  --badge-label-ink: var(--theme-board-badge-label-ink, var(--theme-badge-label-ink));
+  --badge-fill: var(--theme-board-badge-fill, var(--theme-badge-fill));
+  --badge-ink: var(--theme-board-badge-ink, var(--theme-badge-ink));
+  --highlight: var(--theme-board-highlight, var(--theme-highlight));
+  --highlight-deep: var(--theme-board-highlight-deep, var(--theme-highlight-deep));
+  --lift: light-dark(#fff, var(--ink));
+  --raised-top: color-mix(in srgb, var(--surface) 92%, var(--lift));
+  --raised-bottom: var(--surface);
+  --raised-line: color-mix(in srgb, var(--highlight) 25%, var(--line));
+  --raised-hover: var(--state-hover, color-mix(in srgb, var(--highlight) 12%, var(--raised-top)));
+}
+
+:root[data-theme-areas~="badges"] .panel-chip,
+:root[data-theme-areas~="badges"] .host-chip,
+:root[data-theme-areas~="badges"] .pull-request {
+  --state-scrollbar: var(--theme-badges-scrollbar, var(--line));
+  --bg: var(--theme-badges-bg, var(--theme-bg));
+  --surface: var(--theme-badges-surface, var(--theme-surface));
+  --line: var(--theme-badges-line, var(--theme-line));
+  --ink: var(--theme-badges-ink, var(--theme-ink));
+  --muted: var(--theme-badges-muted, var(--theme-muted));
+  --accent: var(--theme-badges-accent, var(--theme-accent));
+  --accent-deep: var(--theme-badges-accent-deep, var(--theme-accent-deep));
+  --attention: var(--theme-badges-attention, var(--theme-attention));
+  --attention-ink: var(--theme-badges-attention-ink, var(--theme-attention-ink));
+  --done: var(--theme-badges-done, var(--theme-done));
+  --done-ink: var(--theme-badges-done-ink, var(--theme-done-ink));
+  --failed: var(--theme-badges-failed, var(--theme-failed));
+  --failed-ink: var(--theme-badges-failed-ink, var(--theme-failed-ink));
+  --hole: var(--theme-badges-hole, var(--theme-hole));
+  --space-ink: var(--theme-badges-space-ink, var(--theme-space-ink));
+  --badge-label-fill: var(--theme-badges-badge-label-fill, var(--theme-badge-label-fill));
+  --badge-label-ink: var(--theme-badges-badge-label-ink, var(--theme-badge-label-ink));
+  --badge-fill: var(--theme-badges-badge-fill, var(--theme-badge-fill));
+  --badge-ink: var(--theme-badges-badge-ink, var(--theme-badge-ink));
+  --highlight: var(--theme-badges-highlight, var(--theme-highlight));
+  --highlight-deep: var(--theme-badges-highlight-deep, var(--theme-highlight-deep));
+  --lift: light-dark(#fff, var(--ink));
+  --raised-top: color-mix(in srgb, var(--surface) 92%, var(--lift));
+  --raised-bottom: var(--surface);
+  --raised-line: color-mix(in srgb, var(--highlight) 25%, var(--line));
+  --raised-hover: var(--state-hover, color-mix(in srgb, var(--highlight) 12%, var(--raised-top)));
+}
+
+:root[data-theme-areas~="wordmark"] .wordmark {
+  --state-scrollbar: var(--theme-wordmark-scrollbar, var(--line));
+  --bg: var(--theme-wordmark-bg, var(--theme-bg));
+  --surface: var(--theme-wordmark-surface, var(--theme-surface));
+  --line: var(--theme-wordmark-line, var(--theme-line));
+  --ink: var(--theme-wordmark-ink, var(--theme-ink));
+  --muted: var(--theme-wordmark-muted, var(--theme-muted));
+  --accent: var(--theme-wordmark-accent, var(--theme-accent));
+  --accent-deep: var(--theme-wordmark-accent-deep, var(--theme-accent-deep));
+  --attention: var(--theme-wordmark-attention, var(--theme-attention));
+  --attention-ink: var(--theme-wordmark-attention-ink, var(--theme-attention-ink));
+  --done: var(--theme-wordmark-done, var(--theme-done));
+  --done-ink: var(--theme-wordmark-done-ink, var(--theme-done-ink));
+  --failed: var(--theme-wordmark-failed, var(--theme-failed));
+  --failed-ink: var(--theme-wordmark-failed-ink, var(--theme-failed-ink));
+  --hole: var(--theme-wordmark-hole, var(--theme-hole));
+  --space-ink: var(--theme-wordmark-space-ink, var(--theme-space-ink));
+  --badge-label-fill: var(--theme-wordmark-badge-label-fill, var(--theme-badge-label-fill));
+  --badge-label-ink: var(--theme-wordmark-badge-label-ink, var(--theme-badge-label-ink));
+  --badge-fill: var(--theme-wordmark-badge-fill, var(--theme-badge-fill));
+  --badge-ink: var(--theme-wordmark-badge-ink, var(--theme-badge-ink));
+  --highlight: var(--theme-wordmark-highlight, var(--theme-highlight));
+  --highlight-deep: var(--theme-wordmark-highlight-deep, var(--theme-highlight-deep));
+  --lift: light-dark(#fff, var(--ink));
+  --raised-top: color-mix(in srgb, var(--surface) 92%, var(--lift));
+  --raised-bottom: var(--surface);
+  --raised-line: color-mix(in srgb, var(--highlight) 25%, var(--line));
+  --raised-hover: var(--state-hover, color-mix(in srgb, var(--highlight) 12%, var(--raised-top)));
+}
+
+:root[data-theme-areas~="dialog-headers"] .panel-header,
+:root[data-theme-areas~="dialog-headers"] dialog > header,
+:root[data-theme-areas~="dialog-headers"] .confirmation-window > header {
+  --state-scrollbar: var(--theme-dialog-headers-scrollbar, var(--line));
+  --bg: var(--theme-dialog-headers-bg, var(--theme-bg));
+  --surface: var(--theme-dialog-headers-surface, var(--theme-surface));
+  --line: var(--theme-dialog-headers-line, var(--theme-line));
+  --ink: var(--theme-dialog-headers-ink, var(--theme-ink));
+  --muted: var(--theme-dialog-headers-muted, var(--theme-muted));
+  --accent: var(--theme-dialog-headers-accent, var(--theme-accent));
+  --accent-deep: var(--theme-dialog-headers-accent-deep, var(--theme-accent-deep));
+  --attention: var(--theme-dialog-headers-attention, var(--theme-attention));
+  --attention-ink: var(--theme-dialog-headers-attention-ink, var(--theme-attention-ink));
+  --done: var(--theme-dialog-headers-done, var(--theme-done));
+  --done-ink: var(--theme-dialog-headers-done-ink, var(--theme-done-ink));
+  --failed: var(--theme-dialog-headers-failed, var(--theme-failed));
+  --failed-ink: var(--theme-dialog-headers-failed-ink, var(--theme-failed-ink));
+  --hole: var(--theme-dialog-headers-hole, var(--theme-hole));
+  --space-ink: var(--theme-dialog-headers-space-ink, var(--theme-space-ink));
+  --badge-label-fill: var(--theme-dialog-headers-badge-label-fill, var(--theme-badge-label-fill));
+  --badge-label-ink: var(--theme-dialog-headers-badge-label-ink, var(--theme-badge-label-ink));
+  --badge-fill: var(--theme-dialog-headers-badge-fill, var(--theme-badge-fill));
+  --badge-ink: var(--theme-dialog-headers-badge-ink, var(--theme-badge-ink));
+  --highlight: var(--theme-dialog-headers-highlight, var(--theme-highlight));
+  --highlight-deep: var(--theme-dialog-headers-highlight-deep, var(--theme-highlight-deep));
   --lift: light-dark(#fff, var(--ink));
   --raised-top: color-mix(in srgb, var(--surface) 92%, var(--lift));
   --raised-bottom: var(--surface);

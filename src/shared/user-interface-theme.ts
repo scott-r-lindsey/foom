@@ -1,10 +1,84 @@
-import type { InterfaceTheme } from "./interface-theme";
+import type { InterfaceTheme, InterfaceGradient, InterfaceAreaTheme } from "./interface-theme";
 import type { ThemeDiagnostic, ThemeReason } from "./theme-file";
 import { interfaceColorNames, interfaceHighlightNames } from "./interface-themes";
-import { colorDistance, contrast, hueSaturation } from "./theme-colors";
+import { colorDistance, contrast, hueSaturation, interpolatedContrast } from "./theme-colors";
 import { ThemeValidationError, themeColor, themeKeys, themeRecord } from "./theme-validation";
 
-export const interfaceAreas = ["sidebar", "tiles", "panels", "dialogs", "menus"] as const;
+export const interfaceAreas = [
+  "sidebar",
+  "tiles",
+  "panels",
+  "dialogs",
+  "menus",
+  "titlebar",
+  "tile-headers",
+  "board",
+  "badges",
+  "wordmark",
+  "dialog-headers",
+] as const;
+export const interfaceFontStacks = {
+  geist: '"Geist", sans-serif',
+  "geist-mono": '"Geist Mono", monospace',
+  system: "system-ui, sans-serif",
+  "system-mono": "ui-monospace, monospace",
+} as const;
+const interfaceFamilies = ["geist", "geist-mono", "system", "system-mono"] as const;
+const inkNames = [
+  "ink",
+  "muted",
+  "accent",
+  "attention-ink",
+  "done-ink",
+  "failed-ink",
+  "highlight",
+] as const;
+const gradientAreas = new Set(["sidebar", "board", "titlebar", "dialog-headers"]);
+
+function bounded(value: unknown, path: string, min: number, max: number): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < min || value > max)
+    throw new ThemeValidationError(path, "invalid-value");
+  return value;
+}
+function gradient(value: unknown, path: string): InterfaceGradient {
+  const record = themeRecord(value, path);
+  themeKeys(record, ["angle", "stops"], path);
+  const angle = bounded(record["angle"], `${path}.angle`, 0, 359);
+  const stops = record["stops"];
+  if (!Array.isArray(stops) || stops.length < 2 || stops.length > 4)
+    throw new ThemeValidationError(`${path}.stops`, "invalid-value");
+  let previous = -1;
+  const result: [string, number][] = [];
+  for (const [index, stop] of stops.entries()) {
+    const stopPath = `${path}.stops[${String(index)}]`;
+    if (!Array.isArray(stop) || stop.length !== 2)
+      throw new ThemeValidationError(stopPath, "invalid-value");
+    const color = themeColor(stop[0], `${stopPath}[0]`);
+    const percent = bounded(stop[1], `${stopPath}[1]`, 0, 100);
+    if (percent <= previous) throw new ThemeValidationError(`${stopPath}[1]`, "invalid-value");
+    previous = percent;
+    result.push([color, percent]);
+  }
+  return { angle, stops: result };
+}
+function areaPalette(value: unknown, path: string, area: string): InterfaceAreaTheme {
+  const record = themeRecord(value, path);
+  themeKeys(record, [], path, [...colorNames, "gradient", "scrollbar"]);
+  const colors = Object.fromEntries(
+    Object.entries(record).filter(([key]) => colorNames.some((name) => name === key)),
+  );
+  const result: InterfaceAreaTheme = { ...palette(colors, path, true) };
+  if (Object.hasOwn(record, "scrollbar"))
+    result.scrollbar = themeColor(record["scrollbar"], `${path}.scrollbar`);
+  if (Object.hasOwn(record, "gradient")) {
+    if (!gradientAreas.has(area))
+      throw new ThemeValidationError(`${path}.gradient`, "gradient-not-allowed");
+    // Explicit solid fallback remains required when a gradient is supplied.
+    if (!Object.hasOwn(record, "bg")) throw new ThemeValidationError(`${path}.bg`, "missing-key");
+    result.gradient = gradient(record["gradient"], `${path}.gradient`);
+  }
+  return result;
+}
 export const interfaceStates = ["selected", "hover", "focus", "scrollbar"] as const;
 export const interfaceShapeBounds = {
   radius: 12,
@@ -62,8 +136,14 @@ export function attentionConflicts(theme: InterfaceTheme): string[] {
   for (const area of interfaceAreas) {
     const colors = theme.areas?.[area];
     if (!colors) continue;
-    for (const partner of attentionPartners({ ...theme.colors, ...colors }))
+    const effective = { ...theme.colors, ...colors };
+    for (const partner of attentionPartners(effective))
       if (!global.includes(partner)) conflicts.push(`${area}:${partner}`);
+    for (const [index, [stop]] of (colors.gradient?.stops ?? []).entries())
+      if (colorDistance(effective.attention, stop) < 40)
+        conflicts.push(`${area}:gradient[${String(index)}]~attention`);
+    if (colors.scrollbar && colorDistance(effective.attention, colors.scrollbar) < 40)
+      conflicts.push(`${area}:attention~scrollbar`);
   }
   return conflicts;
 }
@@ -75,15 +155,7 @@ export function userThemeWarnings(theme: InterfaceTheme): ThemeDiagnostic[] {
     warnings.push({ file: "", path, reason, severity: "warning" });
   };
   const check = (colors: InterfaceTheme["colors"], path: string) => {
-    for (const foreground of [
-      "ink",
-      "muted",
-      "accent",
-      "attention-ink",
-      "done-ink",
-      "failed-ink",
-      "highlight",
-    ] as const)
+    for (const foreground of inkNames)
       for (const background of ["bg", "surface"] as const)
         if (contrast(colors[foreground] ?? colors.accent, colors[background]) < 4.5)
           throw new ThemeValidationError(`${path}.${foreground}`, "contrast");
@@ -122,8 +194,29 @@ export function userThemeWarnings(theme: InterfaceTheme): ThemeDiagnostic[] {
         warn(`${path}.${a}`, "color-distance");
   };
   check(theme.colors, "$.colors");
-  for (const area of interfaceAreas)
-    if (theme.areas?.[area]) check({ ...theme.colors, ...theme.areas[area] }, `$.areas.${area}`);
+  for (const area of interfaceAreas) {
+    const override = theme.areas?.[area];
+    if (!override) continue;
+    const colors = { ...theme.colors, ...override };
+    const path = `$.areas.${area}`;
+    check(colors, path);
+    if (override.scrollbar && colorDistance(colors.attention, override.scrollbar) < 40)
+      warn(`${path}.scrollbar`, "attention-distinctness");
+    const stops = override.gradient?.stops ?? [];
+    for (const [index, [stop]] of stops.entries()) {
+      const stopPath = `${path}.gradient.stops[${String(index)}]`;
+      if (colorDistance(colors.attention, stop) < 40) warn(stopPath, "attention-distinctness");
+      for (const ink of inkNames) {
+        const foreground = colors[ink] ?? colors.accent;
+        if (contrast(stop, foreground) < 4.5) throw new ThemeValidationError(stopPath, "contrast");
+        const next = stops[index + 1];
+        if (next)
+          for (let sample = 0; sample < 256; sample++)
+            if (interpolatedContrast(stop, next[0], foreground, sample / 255) < 4.5)
+              throw new ThemeValidationError(`${path}.gradient`, "contrast");
+      }
+    }
+  }
   const dark = contrast(theme.colors.bg, "#ffffff") > contrast(theme.colors.bg, "#000000");
   if (dark !== (theme.base === "dark")) warn("$.base", "base-luminance");
   return warnings.filter(
@@ -177,7 +270,23 @@ export function parseUserInterfaceTheme(value: Record<string, unknown>): Interfa
     theme.areas = {};
     for (const area of interfaceAreas)
       if (Object.hasOwn(areas, area))
-        theme.areas[area] = palette(areas[area], `$.areas.${area}`, true);
+        theme.areas[area] = areaPalette(areas[area], `$.areas.${area}`, area);
+  }
+  if (Object.hasOwn(value, "type")) {
+    const type = themeRecord(value["type"], "$.type");
+    themeKeys(type, [], "$.type", ["family", "scale", "weight", "strong-weight"]);
+    theme.type = {};
+    if (Object.hasOwn(type, "family")) {
+      const family = interfaceFamilies.find((entry) => entry === type["family"]);
+      if (!family) throw new ThemeValidationError("$.type.family", "invalid-value");
+      theme.type.family = family;
+    }
+    for (const [key, min, max] of [
+      ["scale", 0.85, 1.25],
+      ["weight", 400, 600],
+      ["strong-weight", 500, 800],
+    ] as const)
+      if (Object.hasOwn(type, key)) theme.type[key] = bounded(type[key], `$.type.${key}`, min, max);
   }
   if (Object.hasOwn(value, "states")) {
     const states = themeRecord(value["states"], "$.states");

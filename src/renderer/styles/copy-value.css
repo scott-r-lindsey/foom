@@ -52,5 +52,5 @@ button.copy-value[data-copied]:hover {
 .copy-value + [role="status"]:not(:empty) {
   margin-left: 6px;
   color: var(--muted);
-  font: 11px var(--font-interface);
+  font: var(--type-weight, 400) calc(11px * var(--type-scale, 1)) var(--font-interface);
 }
