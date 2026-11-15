@@ -43,6 +43,14 @@ run the full width/theme review matrix and save Global, Machines, remote-plugin
 and offline images under `test-results/1070-step2/`. Ordinary CI retains every
 functional assertion without repeating the full review matrix or writing images.
 
+The keyboard scroll check waits for End to reach the bottom before sending Home,
+then requires the top and retained list focus (#1183). Native scrolling can still
+be animating when the first nonzero position is observed. A bounded, test-only
+trace records Home/End delivery, list scroll positions, connection state and DOM
+focus around both keys in JUnit diagnostics, including assertion failures. Its
+listeners are removed before continuing or tearing down the fixture. No scroll
+position is assigned by the test and native animation remains enabled.
+
 ## Remote host SEA fixture (#905)
 
 On Linux and macOS, the development Electron runner builds one native remote-host

@@ -203,7 +203,7 @@ test("wires the forge catalog and shares the manifest selector between tracking 
   expect(provider).toEqual(expect.any(Function));
   expect(mock.openWorktrees).toHaveBeenCalledWith(
     "/test/user-data",
-    undefined,
+    join("/test/user-data", ".foom", "worktrees"),
     [join("/test/user-data", ".foom", "config")],
     provider,
   );

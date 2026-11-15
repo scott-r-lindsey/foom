@@ -181,7 +181,7 @@ test("normal startup forwards arguments, artifact environment and exit status ev
     log: f.log,
     launch(command, forwarded, options) {
       assert.equal(command, "pnpm");
-      assert.deepEqual(forwarded, ["start", ...args]);
+      assert.deepEqual(forwarded, ["start", ...args, "--foom-isolated-state"]);
       assert.equal(options.cwd, f.root);
       assert.equal(options.stdio, "inherit");
       assert.equal(options.env.FOOM_REMOTE_HOST_ARTIFACTS, f.cache);

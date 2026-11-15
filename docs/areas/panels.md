@@ -51,7 +51,13 @@ through its [identifier-only copy commands](ipc.md#visible-fact-copy-controls-96
 
 Machine home records (#1024) use an additional `machine` discriminator and also
 permit human-owned home agents. They retain the main-owned home identity and
-cannot restore a repository or child grant. Their host-selected launch directory
+cannot restore a repository or child grant. With no registered hosts (#1190),
+the home row menu and panel offer installed, enabled agents alongside New shell,
+using the existing path-free `{kind: "machine-launch", host: null, run}` command.
+Local machine home sessions group beneath that row; once hosts are registered,
+the Localhost machine row owns those sessions and agent launchers instead.
+Home agents resume only with a saved conversation ID, using fresh hooks and the
+user's current CLI defaults. Their host-selected launch directory
 is resolved in main/daemon, never from renderer-supplied paths.
 
 Remote machine shells and agents without a repository start in the remote account's

@@ -8,7 +8,9 @@ Before readiness or any profile store opens, unpackaged launches without
 `--user-data-dir` select `Foom Dev` beneath Electron's platform `appData` directory.
 This profile persists between launches. Packaged builds retain Electron's default
 profile; an explicit `--user-data-dir` always wins, including tests and `start:fresh`.
-There is no automatic migration or copying between profiles.
+There is no automatic migration or copying between profiles. Development
+launchers can also isolate HOME-keyed config/worktrees within that profile; see
+[config isolation](config.md#foom-config-environment-84).
 
 Main acquires Electron's single-instance lock after selecting the profile. A losing
 launch exits before opening stores, sessions, IPC or shutdown writers. A second
