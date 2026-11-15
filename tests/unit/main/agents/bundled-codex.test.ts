@@ -1,3 +1,4 @@
+import { CHILD_PROMPT } from "../../../../src/main/agents/providers/cli-launch";
 import { createHash } from "node:crypto";
 import {
   mkdtemp,
@@ -268,10 +269,7 @@ it("preserves resume/default/MCP/observer/prompt order without widening tool gra
       `mcp_servers.${name}={url="http://127.0.0.1:1234/mcp",bearer_token_env_var="FOOM_CONTROL_TOKEN"}`,
     );
     expect(args.slice(7, 19)).toEqual(codexHookArguments(codexObserverCommand("linux")));
-    expect(args.slice(-2)).toEqual([
-      "--",
-      "Task from your Foom orchestrator (another agent, not the user):\nBefore stopping when finished, blocked, or CI fails, report to your parent with handoff({ status: done|blocked|failed, summary, links?, idempotencyKey }), or foom handoff --status done|blocked|failed --summary-file FILE|- [--link HTTPS_URL] --idempotency-key KEY. Handoffs are pull-only; they never type into a terminal.\n\nFix it",
-    ]);
+    expect(args.slice(-2)).toEqual(["--", `${CHILD_PROMPT}\n\nFix it`]);
     expect(args.join(" ")).not.toMatch(/secret|enabled_tools|allowedTools/u);
   } finally {
     hooks.dispose();

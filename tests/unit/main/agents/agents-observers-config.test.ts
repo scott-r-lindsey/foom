@@ -1,3 +1,4 @@
+import { CHILD_PROMPT } from "../../../../src/main/agents/providers/cli-launch";
 import { ENABLED_AGENTS } from "../../../helpers/enabled-agents";
 import {
   enabledAgentService,
@@ -326,10 +327,7 @@ it.each([
         ),
       );
     }
-    expect(args.slice(-2)).toEqual([
-      "--",
-      "Task from your Foom orchestrator (another agent, not the user):\nBefore stopping when finished, blocked, or CI fails, report to your parent with handoff({ status: done|blocked|failed, summary, links?, idempotencyKey }), or foom handoff --status done|blocked|failed --summary-file FILE|- [--link HTTPS_URL] --idempotency-key KEY. Handoffs are pull-only; they never type into a terminal.\n\nShow the mockup",
-    ]);
+    expect(args.slice(-2)).toEqual(["--", `${CHILD_PROMPT}\n\nShow the mockup`]);
     if (attached) {
       expect(args.filter((arg) => arg === "--allowedTools")).toHaveLength(1);
       expect(args).toEqual(expect.arrayContaining(grants));

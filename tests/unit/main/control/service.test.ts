@@ -1,3 +1,4 @@
+import { roleGuidance } from "../../../../src/shared/control-guidance";
 import { launchReasons } from "../../../../src/shared/launch-failure";
 import { removalReasons } from "../../../../src/main/workspace/worktree-outcome";
 import { locationId, metadataName } from "../../../../src/main/control/metadata";
@@ -40,6 +41,7 @@ describe("control identity and capability checks", () => {
     expect(Object.isFrozen(actor)).toBe(true);
     expect(service.dispatch(actor, request("whoami"))).toEqual({
       ...actor,
+      guidance: roleGuidance(actor),
       repository: locationId(actor.repository),
       worktree: locationId(actor.worktree),
       name: metadataName(basename(actor.worktree)),

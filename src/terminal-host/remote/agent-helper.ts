@@ -1,3 +1,4 @@
+import { CHILD_GUIDANCE } from "../../shared/control-guidance";
 import type { Readable } from "node:stream";
 import { negotiateMcpVersion } from "../../shared/mcp-protocol";
 import { mcpTools } from "../../shared/control-tools";
@@ -236,7 +237,7 @@ export async function remoteMcp(
             protocolVersion: negotiateMcpVersion(params["protocolVersion"]),
             capabilities: { tools: {} },
             serverInfo: { name: "foom-remote", version: "1" },
-            instructions: REMOTE_PHASE_2_REASON,
+            instructions: `For questions about using Foom, call manual.\n${CHILD_GUIDANCE} ${REMOTE_PHASE_2_REASON}`,
           },
         });
       } else if (
