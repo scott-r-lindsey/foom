@@ -404,6 +404,11 @@ it("pins bounded server and discovery wording to the orchestration contract", as
     expect(String(tool?.["description"]).length).toBeLessThanOrEqual(650);
   }
   expect(descriptions.get("whoami")).toMatch(/^Call first:/u);
+  expect(descriptions.get("whoami")).toContain("manual section orchestrator-playbook");
+  expect(instructions).toContain("manual section orchestrator-playbook");
+  expect(instructions).not.toContain("in a background command");
+  expect(descriptions.get("wait_for")).toContain("otherwise repeat bounded wait_for calls");
+  expect(descriptions.get("wait_for")).toContain("re-arm after each wake");
   expect(descriptions.get("launch")).toContain("one task, acceptance criteria and limits");
   expect(descriptions.get("wait_for")).toContain("quiet is not proof of completion");
   expect(descriptions.get("read_handoff")).toContain(

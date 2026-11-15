@@ -435,3 +435,44 @@ test("offline config validation reports each launch environment entry diagnostic
     });
   }
 });
+
+test("offline theme validation reports new bounded fields and fixed gradient errors", async () => {
+  const root = await fixture();
+  const base = interfaceThemes["eclipse-dark"];
+  const value = {
+    ...base,
+    version: 2,
+    type: { family: "system", scale: 1.1 },
+    areas: {
+      sidebar: {
+        bg: "#000000",
+        gradient: {
+          angle: 45,
+          stops: [
+            ["#000000", 0],
+            ["#020202", 100],
+          ],
+        },
+      },
+    },
+  };
+  const file = await put(root, "gradient.json", JSON.stringify(value));
+  expect(await validateConfig(file)).toEqual({ problems: [], code: 0 });
+  const out = vi.fn<(text: string) => void>();
+  const io = {
+    out,
+    error: vi.fn(),
+    input: (async function* () {
+      yield await Promise.resolve("");
+    })(),
+  };
+  await writeFile(file, JSON.stringify({ ...value, type: { family: "url(private)" } }));
+  expect(await execute(["config", "validate", file], "1", io, {}, "/foom")).toBe(1);
+  expect(out).toHaveBeenCalledWith('"gradient.json": $.type.family: invalid-value\n');
+  out.mockClear();
+  await writeFile(file, JSON.stringify({ ...value, areas: { tiles: value.areas.sidebar } }));
+  expect(await execute(["config", "validate", file], "1", io, {}, "/foom")).toBe(1);
+  expect(out).toHaveBeenCalledWith(
+    '"gradient.json": $.areas.tiles.gradient: gradient-not-allowed\n',
+  );
+});

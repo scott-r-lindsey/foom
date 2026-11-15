@@ -177,7 +177,7 @@ test("launches an agent in a managed worktree and routes its attention signals",
   const listed = await (
     await mcpRequest({ id: 2, method: "tools/list", params: { _meta: { progressToken: 1 } } })
   ).json();
-  // Every agent lists the orchestration tools (#303); an ordinary agent's calls are refused.
+  // Agents list orchestration tools (#303), except read_handoff until elevated; ordinary calls are refused.
   assert.deepEqual(
     listed.result.tools.map((tool) => tool.name),
     [
@@ -209,7 +209,10 @@ test("launches an agent in a managed worktree and routes its attention signals",
     await mcpRequest({ id: 20, method: "tools/call", params: { name: "manual" } })
   ).json();
   assert.equal(manual.result.isError, false);
-  assert.equal(manual.result.structuredContent.sections.length, 13);
+  assert.equal(manual.result.structuredContent.sections.length, 14);
+  assert.ok(
+    manual.result.structuredContent.sections.some(({ id }) => id === "orchestrator-playbook"),
+  );
   const section = await (
     await mcpRequest({
       id: 21,

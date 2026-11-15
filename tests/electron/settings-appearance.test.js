@@ -10,6 +10,7 @@ const {
   assertAccessible,
   boardCommand,
   boardPage,
+  confirmationPage,
   launchApp,
   openSettingsScreen,
   quitAndWait,
@@ -888,4 +889,349 @@ test("first-run rail shares the Theme menu and saves its live selection", async 
     await page.screenshot({ path: evidencePath(`screenshots-878/first-run-${mode}.png`) });
     await page.keyboard.press("Escape");
   }
+});
+
+test("extended user themes apply through both bridges and reject malformed theme data", {
+  timeout: deadline(45000),
+}, async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "foom-extended-theme-"));
+  removeAfterApps(context, root);
+  const app = await launchApp(context, { fixture: "running-shell", home: root });
+  const page = await boardPage(app);
+  const dialog = await confirmationPage(app);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const { interfaceThemes } = require("../../build/shared/interface-themes.js");
+  const file = path.join(root, ".foom/config/themes/extended.json");
+  let theme;
+  const terminal = await page.locator(".xterm-rows").evaluate((node) => ({
+    size: getComputedStyle(node).fontSize,
+    family: getComputedStyle(node).fontFamily,
+  }));
+  for (const base of ["dark", "light"]) {
+    const palette = interfaceThemes[`eclipse-${base}`];
+    const bg = base === "dark" ? "#000000" : "#ffffff";
+    const end = base === "dark" ? "#080410" : "#f8f5ff";
+    const gradient = {
+      angle: 120,
+      stops: [
+        [bg, 0],
+        [end, 100],
+      ],
+    };
+    theme = {
+      ...palette,
+      version: 2,
+      name: "Extended theme",
+      type: { family: "system", scale: 1.1, weight: 450, "strong-weight": 650 },
+      areas: {
+        sidebar: { bg, gradient, scrollbar: "#665588" },
+        titlebar: { bg, gradient },
+        "tile-headers": { surface: bg },
+        board: { bg, gradient },
+        badges: { "badge-fill": palette.colors["badge-fill"] },
+        wordmark: { ink: palette.colors.ink },
+        "dialog-headers": { bg, gradient },
+      },
+    };
+    await writeFile(file, JSON.stringify(theme));
+    if (base === "dark") {
+      await openSettingsScreen(page);
+      await page.getByRole("button", { name: "Appearance", exact: true }).click();
+      await chooseTheme(page, theme.name);
+      await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
+    }
+    await expect(page.locator(".sidebar-shell")).toHaveCSS(
+      "background-color",
+      base === "dark" ? "rgb(0, 0, 0)" : "rgb(255, 255, 255)",
+    );
+    const transported = await page.evaluate(
+      async () =>
+        (await window.desktop.setupState()).themes.interface.find(
+          (entry) => entry.id === "user:extended.json",
+        ).theme,
+    );
+    assert.deepEqual(transported, theme, "Every bounded theme field survives the board bridge");
+    await expect(page.locator(".sidebar-shell")).toHaveCSS(
+      "background-image",
+      /linear-gradient\(120deg/,
+    );
+    assert.match(
+      await page.evaluate(() =>
+        document.documentElement.style.getPropertyValue("--theme-sidebar-gradient"),
+      ),
+      /120deg in srgb/,
+    );
+    await expect(page.locator(".board-list")).toHaveCSS(
+      "scrollbar-color",
+      "rgb(102, 85, 136) rgba(0, 0, 0, 0)",
+    );
+    await expect(page.locator(".tile-title").first()).toHaveCSS("--surface", bg);
+    await expect(page.locator(".wordmark")).toHaveCSS("--ink", palette.colors.ink);
+    await expect(page.locator(".tile-title").first()).toHaveCSS("font-size", "12.1px");
+    assert.deepEqual(
+      await page.locator(".xterm-rows").evaluate((node) => ({
+        size: getComputedStyle(node).fontSize,
+        family: getComputedStyle(node).fontFamily,
+      })),
+      terminal,
+      "Interface typography leaves terminal typography unchanged",
+    );
+    await page.screenshot({
+      path: evidencePath(`1188-gradient-${base}.png`),
+      animations: "disabled",
+    });
+  }
+  // Rejected file edits must retain the complete last-good theme through the watcher.
+  const good = structuredClone(theme);
+  await writeFile(file, JSON.stringify({ ...theme, type: { scale: 2 } }));
+  await openSettingsScreen(page);
+  await page.getByRole("button", { name: "Appearance", exact: true }).click();
+  await expect(
+    page.getByRole("status").filter({ hasText: "Rejected extended.json" }),
+  ).toContainText("invalid-value");
+  assert.deepEqual(
+    await page.evaluate(
+      async () =>
+        (await window.desktop.setupState()).themes.interface.find(
+          (entry) => entry.id === "user:extended.json",
+        ).theme,
+    ),
+    good,
+  );
+
+  // Main-authored fixtures exercise validation independently of the file parser.
+  const state = await page.evaluate(() => window.desktop.setupState());
+  const malformed = [
+    { ...good, type: { family: "url(private)" } },
+    ...[0.84, 1.26, null].map((scale) => ({ ...good, type: { scale } })),
+    { ...good, type: { weight: 601 } },
+    { ...good, type: { "strong-weight": 499 } },
+    ...[
+      {
+        angle: 360,
+        stops: [
+          ["#ffffff", 0],
+          ["#ffffff", 100],
+        ],
+      },
+      { angle: 0, stops: [] },
+      { angle: 0, stops: [["#ffffff", 0]] },
+      {
+        angle: 0,
+        stops: [
+          ["url(private)", 0],
+          ["#ffffff", 100],
+        ],
+      },
+      {
+        angle: 0,
+        stops: [
+          ["#ffffff", 50],
+          ["#ffffff", 50],
+        ],
+      },
+      {
+        angle: 0,
+        stops: [
+          ["#ffffff", -1],
+          ["#ffffff", 100],
+        ],
+      },
+      {
+        angle: 0,
+        stops: [
+          ["#ffffff", 0, 1],
+          ["#ffffff", 100],
+        ],
+      },
+    ].map((gradient) => ({ ...good, areas: { sidebar: { bg: "#ffffff", gradient } } })),
+    { ...good, areas: { tiles: good.areas.sidebar } },
+    { ...good, areas: { sidebar: { gradient: good.areas.sidebar.gradient } } },
+    { ...good, areas: { wordmark: { scrollbar: "url(private)" } } },
+  ];
+  const request = {
+    id: "theme-bridge",
+    presented: false,
+    title: "Theme bridge",
+    accept: "Continue",
+    theme: good,
+  };
+  await dialog.evaluate(() => {
+    window.themeRequests = [];
+    window.confirmation.render((request) => {
+      if (request) window.themeRequests.push(request);
+    });
+  });
+  await app.evaluate(
+    ({ BrowserWindow }, requests) => {
+      const child = BrowserWindow.getAllWindows().find(
+        (window) => window.webContents.getURL() === "app://confirmation/confirmation.html",
+      );
+      for (const request of requests) child.webContents.send("confirmation:render", request);
+    },
+    [
+      request,
+      ...malformed.map((theme) => ({ ...request, id: "invalid", theme })),
+      { ...request, id: "last-valid" },
+    ],
+  );
+  await expect
+    .poll(() => dialog.evaluate(() => window.themeRequests.at(-1)?.id))
+    .toBe("last-valid");
+  assert.deepEqual(
+    await dialog.evaluate(() => window.themeRequests),
+    [request, { ...request, id: "last-valid" }],
+    "Confirmation bridge copies valid extensions and drops malformed requests",
+  );
+  for (const theme of malformed) {
+    await app.evaluate(
+      ({ ipcMain }, state) => {
+        ipcMain.removeHandler("setup:state");
+        ipcMain.handle("setup:state", () => state);
+      },
+      { ...state, themes: { ...state.themes, interface: [{ id: "user:extended.json", theme }] } },
+    );
+    assert.equal(
+      await page.evaluate(() =>
+        window.desktop.setupState().then(
+          () => false,
+          () => true,
+        ),
+      ),
+      true,
+      "Malformed theme replies reject at the real board bridge",
+    );
+  }
+});
+
+test("sample user themes paint visible sidebar and board gradients in light and dark", async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "foom-gradient-samples-"));
+  removeAfterApps(context, root);
+  const app = await launchApp(context, { fixture: "repository", home: root });
+  const page = await boardPage(app);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await sizeTileBoard(app, page, 1200, 800);
+  for (const base of ["dark", "light"]) {
+    const text = await readFile(
+      path.join(__dirname, `../fixtures/themes/gradient-${base}.json`),
+      "utf8",
+    );
+    const sample = JSON.parse(text);
+    await writeFile(path.join(root, `.foom/config/themes/gradient-${base}.json`), text);
+    await openSettingsScreen(page);
+    await page.getByRole("button", { name: "Appearance", exact: true }).click();
+    await chooseTheme(page, sample.name);
+    await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
+    const expected =
+      base === "dark"
+        ? ["rgb(0, 60, 82)", "rgb(71, 22, 79)"]
+        : ["rgb(144, 233, 242)", "rgb(229, 181, 252)"];
+    for (const [selector, angle] of [
+      [".sidebar-shell", 160],
+      [".tile-area", 125],
+    ]) {
+      await expect(page.locator(selector)).toHaveCSS(
+        "background-image",
+        new RegExp(`linear-gradient\\(${angle}deg`),
+      );
+      const paint = await page
+        .locator(selector)
+        .evaluate((element) => getComputedStyle(element).backgroundImage);
+      for (const color of expected)
+        assert.ok(paint.includes(color), `${selector} paints the sample's distinct stops`);
+    }
+    await expect(page.locator(".tile-area")).toBeVisible();
+    await expect(page.locator(".xterm:visible")).toHaveCount(0);
+    await assertAccessible(page);
+    await page.screenshot({
+      path: evidencePath(`1188-gradient-visible-${base}.png`),
+      animations: "disabled",
+    });
+  }
+});
+
+test("nested theme inks stay readable over parent gradients and trusted header paint", async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "foom-nested-theme-"));
+  removeAfterApps(context, root);
+  const app = await launchApp(context, { fixture: "empty-board", home: root });
+  const page = await boardPage(app);
+  const dialog = await confirmationPage(app);
+  const { interfaceThemes } = require("../../build/shared/interface-themes.js");
+  const { contrast } = require("../../build/shared/theme-colors.js");
+  const light = interfaceThemes["eclipse-light"].colors;
+  const header = {
+    ...light,
+    bg: "#ffffff",
+    gradient: {
+      angle: 0,
+      stops: [
+        ["#ffffff", 0],
+        ["#ffffff", 100],
+      ],
+    },
+  };
+  const sample = {
+    ...interfaceThemes["eclipse-dark"],
+    version: 2,
+    name: "Nested palette",
+    areas: { titlebar: header },
+  };
+  const file = path.join(root, ".foom/config/themes/nested.json");
+  await writeFile(file, JSON.stringify(sample));
+  await openSettingsScreen(page);
+  await page.getByRole("button", { name: "Appearance", exact: true }).click();
+  await chooseTheme(page, sample.name);
+  await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
+  await expect(page.locator(".board-top")).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  await expect(page.locator(".wordmark-menu")).toHaveCSS("color", "rgb(20, 16, 31)");
+  assert.ok(
+    contrast("#f4efff", "#ffffff") < 1.13,
+    "Original white-on-white reproduction is unreadable",
+  );
+  await writeFile(
+    file,
+    JSON.stringify({ ...sample, areas: { ...sample.areas, wordmark: { ink: "#f4efff" } } }),
+  );
+  await expect
+    .poll(() =>
+      page.evaluate(
+        async () =>
+          (await window.desktop.setupState()).themes.errors.find(
+            (entry) => entry.file === "nested.json",
+          )?.reason,
+      ),
+    )
+    .toBe("contrast");
+  await expect(page.locator(".wordmark-menu")).toHaveCSS("color", "rgb(20, 16, 31)");
+  await app.evaluate(
+    ({ BrowserWindow }, theme) => {
+      BrowserWindow.getAllWindows()
+        .find((window) => window.webContents.getURL() === "app://confirmation/confirmation.html")
+        .webContents.send("confirmation:render", {
+          id: "header-ink-regression",
+          title: "Header palette regression",
+          accept: "Continue",
+          presented: false,
+          theme,
+        });
+    },
+    { ...sample, areas: { "dialog-headers": header } },
+  );
+  // This main-authored render fixture is deliberately hidden and grants no native consent.
+  // Read computed styles without a locator action that expects a presented native dialog.
+  await expect
+    .poll(() =>
+      dialog.evaluate(() => {
+        const header = document.querySelector(".dlg-head");
+        const title = document.querySelector(".dlg-head h1");
+        return header && title
+          ? {
+              background: getComputedStyle(header).backgroundColor,
+              ink: getComputedStyle(title).color,
+            }
+          : null;
+      }),
+    )
+    .toEqual({ background: "rgb(255, 255, 255)", ink: "rgb(20, 16, 31)" });
+  assert.ok(contrast(light.ink, "#ffffff") >= 4.5);
 });

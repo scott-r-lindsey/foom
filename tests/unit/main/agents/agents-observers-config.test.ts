@@ -1,4 +1,3 @@
-import { CHILD_PROMPT } from "../../../../src/main/agents/providers/cli-launch";
 import { ENABLED_AGENTS } from "../../../helpers/enabled-agents";
 import {
   enabledAgentService,
@@ -17,7 +16,11 @@ import { readFile } from "node:fs/promises";
 import { delimiter, join } from "node:path";
 import { expect, it, vi } from "vitest";
 import { PluginSetup } from "../../../../src/main/agents/plugin-setup";
-import { CLI_GUIDANCE, CONFIG_PROMPT } from "../../../../src/main/agents/providers/cli-launch";
+import {
+  CHILD_PROMPT,
+  CLI_GUIDANCE,
+  CONFIG_PROMPT,
+} from "../../../../src/main/agents/providers/cli-launch";
 import {
   agentProvider,
   replaceConfigProviders,
