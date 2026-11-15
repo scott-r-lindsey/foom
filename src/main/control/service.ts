@@ -366,9 +366,7 @@ export class ControlService {
     return actor.role === "cli"
       ? this.capabilities(actor)
       : [
-          ...this.capabilities({ ...actor, role: "orchestrator" }).filter(
-            (name) => name !== "read_handoff" || actor.role === "orchestrator",
-          ),
+          ...this.capabilities({ ...actor, role: "orchestrator" }),
           ...(this.orchestration?.canHandoff?.(actor) ? ["handoff"] : []),
         ];
   }

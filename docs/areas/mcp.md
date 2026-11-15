@@ -18,7 +18,8 @@ validates the session before returning 405 (no SSE stream). Revocation is rechec
 at dispatch. Ordinary agents can call `whoami`, `sessions`, `session_state`, `manual` and the three preview view actions.
 Because clients fetch tools once (#303), MCP lists the orchestration tools to every
 agent; calls without the role are refused with a message naming `whoami`, here and
-by direct invocation.
+by direct invocation. This includes `read_handoff` (#1202): its catalog entry
+survives a later human role grant; every call still checks current authority.
 
 The service reads a main-owned workspace snapshot, never a terminal tail. Sessions
 are repository-scoped, paginated by the preceding terminal ID and limited to 100
@@ -48,6 +49,12 @@ Foom (apart from the existing opt-in merged-clean removal policy). No other MCP
 server or non-Foom tool is granted; no global config is edited. Launches
 without MCP retain their default arguments unchanged. See the
 [per-launch disclosure](../contracts/mcp-attachment.md#claude-code).
+Codex also receives a separate invocation-only `-c` override setting
+`mcp_servers.<random-launch-name>.default_tools_approval_mode="approve"` (#1202).
+It applies only to Foom's server, including a manual-only launch, and survives
+remote stdio conversion. Other servers, global configuration and sandbox settings
+are untouched. See [per-agent approval evidence](../contracts/mcp-attachment.md#tool-approval-by-bundled-agent-1202)
+for client policy limits and the documented absence of scoped Antigravity/Pi grants.
 Tokens never enter argv or files. Exit, early exit,
 spawn/attachment failure and shutdown dispose attachments and revoke credentials.
 Managed policy may refuse attachment in the client; no settings are weakened. The control

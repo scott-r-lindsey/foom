@@ -1,5 +1,59 @@
 # Mcp Attachment
 
+## Tool approval by bundled agent (#1202)
+
+Evidence reviewed on 2026-11-15: the documented client configuration surfaces
+linked below and the checked-in manifests/launch tests. “Settings defaults” means
+user-supplied default arguments in Settings → Agents; Foom has no universal
+permission mode for those arguments. These are configuration findings, not a live
+model/permission-dialog measurement. No real agent CLI or provider request is
+needed by the regression tests.
+
+| Agent | Empty default arguments | With Settings default arguments | Invocation-scoped Foom approval |
+| --- | --- | --- | --- |
+| Claude Code | Foom adds exact tool names to `--allowedTools` | User allow lists are merged; deny/managed rules still apply | Existing manifest `toolPermissions`; random launch server only |
+| Codex | Foom adds `default_tools_approval_mode="approve"` to its launch server | Defaults remain in order; the Foom override follows them, without changing other servers or the sandbox/approval policy | Manifest MCP `-c` override, including manual-only attachments |
+| Antigravity | Unconfigured MCP tools default to Ask | Explicit rules and execution/toolPermission modes determine prompting; Foom adds no approval | No scoped tool allow flag in the documented CLI surface; permission lists live in global settings |
+| GitHub Copilot | Foom adds exact server/tool allow arguments | Defaults remain; client deny/policy rules apply | Existing manifest `toolPermissions` using `--allow-tool` |
+| OpenCode | Foom supplies exact action/resource allow rules | User policy can still refuse tools | Existing manifest `toolPermissions.fileRules` in private launch configuration |
+| Pi | Core has no per-call permission popups | User permission extensions may intercept MCP calls | No built-in per-tool approval option in the documented registration/CLI API; Foom preserves extension handlers |
+
+Codex's old “needs no corresponding grant” statement was stale. Its current
+[configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference)
+provides server defaults and per-tool approval overrides. Tests in
+`tests/unit/main/agents/mcp-launch.test.ts` parse the generated approval TOML with
+empty, Settings-style and explicit sandbox/approval defaults, check preservation
+of another server's configuration, and cover manual-only attachment. The bundled
+Codex test also checks Resume/observer/prompt ordering. The native Electron manual
+fixture rejects launches missing the scoped approval argument, including config
+sessions. The remote launch unit test checks that the override survives conversion.
+Unsupported or unattached
+launches add no approval. The separate approval argument survives remote HTTP to
+stdio conversion and applies only to the same generated server name.
+
+For Antigravity, the [CLI permissions](https://antigravity.google/docs/permissions/)
+reference places `permissions.allow/ask/deny` in global settings and documents MCP
+Ask fallback with Deny > Ask > Allow precedence. The
+[CLI flags](https://antigravity.google/docs/cli/reference/) expose a blanket
+`--dangerously-skip-permissions`, which is not a Foom-only grant. No scoped
+invocation option was found in that interface, so the manifest adds none. Foom
+never edits those global permission lists or uses a blanket bypass for attachment.
+
+Pi documents [MCP permission handlers](https://docs.pi.dev/latest/mcp#permissions)
+and [process-local project trust](https://docs.pi.dev/latest/cli): `--approve`
+trusts project resources, rather than approving individual tool calls. Its
+[core behavior](https://pi.dev/#what-we-didnt-build) has no permission popups.
+No built-in Foom-only approval setting was found; user extensions can still block
+or ask. The existing fixed adapter tests exercise registration and tool filtering,
+not the behavior of arbitrary installed permission extensions.
+
+Client pre-approval never grants a Foom role. `read_handoff` is always in the local
+control MCP catalog with the orchestrator-only description, including before a
+human grant. Each call still checks the live role and child ownership. Clients
+can use their cached catalog after a grant without reconnecting. The isolated
+manual-only and restricted remote servers keep their existing smaller catalogs.
+
+
 ### Claude Code
 
 `--mcp-config` accepts JSON strings or file paths. `--strict-mcp-config` excludes
@@ -48,8 +102,8 @@ This only removes Claude Code's per-call prompt: orchestration tools are refused
 server-side until the human grants the role. `remove_worktree` still
 needs human confirmation in Foom; the existing explicit Auto-remove merged worktrees
 setting remains the sole removal exception. `handoff` remains restricted to live
-owned children. No global agent or repository configuration is edited. Codex needs
-no corresponding grant; launches without MCP keep their defaults unchanged.
+owned children. No global agent or repository configuration is edited. Launches without MCP
+keep their defaults unchanged.
 [CLI allow options](https://code.claude.com/docs/en/cli-reference),
 [permission precedence](https://code.claude.com/docs/en/permissions).
 
@@ -78,7 +132,7 @@ configuration. Neither requires `codex mcp add` or a user config edit.
 Invocation HTTP argv fragment:
 
 ```json
-["-c", "mcp_servers.foom_launch_id={url=\"http://127.0.0.1:32199/mcp\",bearer_token_env_var=\"FOOM_CONTROL_TOKEN\"}"]
+["-c", "mcp_servers.foom_launch_id={url=\"http://127.0.0.1:32199/mcp\",bearer_token_env_var=\"FOOM_CONTROL_TOKEN\"}", "-c", "mcp_servers.foom_launch_id.default_tools_approval_mode=\"approve\""]
 ```
 
 Parser-probe evidence and limits: [#119](https://github.com/scott-r-lindsey/foom/issues/119).

@@ -273,7 +273,14 @@ it.each([
         expect.arrayContaining(
           agent === "claude"
             ? ["--mcp-config"]
-            : ["-c", expect.stringMatching(/^mcp_servers\.foom_[a-f0-9]+=/u)],
+            : [
+                "-c",
+                expect.stringMatching(/^mcp_servers\.foom_[a-f0-9]+=/u),
+                "-c",
+                expect.stringMatching(
+                  /^mcp_servers\.foom_[a-f0-9]+\.default_tools_approval_mode="approve"$/u,
+                ),
+              ],
         ),
       );
       if (prompt === undefined) expect(args).not.toContain("--");
