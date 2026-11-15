@@ -32,13 +32,13 @@
   gap: 4px;
 }
 .about-text .wordmark {
-  font: 40px / 1 var(--font-display);
+  font: var(--type-weight, 400) calc(40px * var(--type-scale, 1)) / 1 var(--font-display);
 }
 .about-by {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 13.5px;
+  font-size: calc(13.5px * var(--type-scale, 1));
 }
 .about-note-button {
   width: 18px;
@@ -46,16 +46,16 @@
   padding: 0;
   border-radius: 50%;
   color: var(--muted);
-  font-size: 11px;
+  font-size: calc(11px * var(--type-scale, 1));
 }
 .about-version {
   min-height: 16px;
   color: var(--muted);
-  font: 12px var(--font-mono);
+  font: var(--type-weight, 400) calc(12px * var(--type-scale, 1)) var(--font-mono);
 }
 .about-voice {
   margin: 8px 0 0;
-  font: 14px var(--font-voice);
+  font: var(--type-weight, 400) calc(14px * var(--type-scale, 1)) var(--font-voice);
 }
 .about-footer {
   display: flex;
@@ -66,7 +66,7 @@
   border-top: 1px solid var(--line);
 }
 .about-footer button {
-  font-size: 12px;
+  font-size: calc(12px * var(--type-scale, 1));
 }
 .about-footer > button:last-child {
   margin-left: auto;
@@ -82,7 +82,7 @@
   width: min(280px, calc(100% - 195px));
   min-width: 0;
   padding: 12px 14px;
-  font-size: 13px;
+  font-size: calc(13px * var(--type-scale, 1));
   line-height: 1.5;
 }
 .about-note p {
@@ -172,7 +172,8 @@
 }
 .legal-header h2 {
   margin: 0;
-  font: 600 16px / 1.4 var(--font-interface);
+  font:
+    var(--type-strong-weight, 600) calc(16px * var(--type-scale, 1)) / 1.4 var(--font-interface);
 }
 .legal-text {
   flex: 1;
@@ -182,6 +183,6 @@
   overflow: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font: 12px / 1.6 var(--font-mono);
+  font: var(--type-weight, 400) calc(12px * var(--type-scale, 1)) / 1.6 var(--font-mono);
   user-select: text;
 }

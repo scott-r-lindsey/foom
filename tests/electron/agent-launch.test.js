@@ -210,7 +210,10 @@ test("launches an agent in a managed worktree and routes its attention signals",
     await mcpRequest({ id: 20, method: "tools/call", params: { name: "manual" } })
   ).json();
   assert.equal(manual.result.isError, false);
-  assert.equal(manual.result.structuredContent.sections.length, 13);
+  assert.equal(manual.result.structuredContent.sections.length, 14);
+  assert.ok(
+    manual.result.structuredContent.sections.some(({ id }) => id === "orchestrator-playbook"),
+  );
   const section = await (
     await mcpRequest({
       id: 21,

@@ -165,3 +165,19 @@ it.each([
     expect(prepared.args.join(" ")).not.toContain("private-token");
   },
 );
+
+it("keeps the child brief bounded with CI ownership, evidence and host-setting limits", () => {
+  expect(Buffer.byteLength(CHILD_PROMPT)).toBeLessThan(16384);
+  for (const phrase of [
+    "PR number, head SHA",
+    "do not poll checks in a loop",
+    "documented flake",
+    "rerun the failed jobs once",
+    "then hand off",
+    "Never change host or system settings",
+    "sysctl, limits, packages or services",
+  ])
+    expect(CHILD_PROMPT).toContain(phrase);
+  expect(CLI_GUIDANCE).toContain("repeat bounded MCP wait_for calls");
+  expect(CLI_GUIDANCE).toContain("foreground blocking shell call when MCP is unavailable");
+});

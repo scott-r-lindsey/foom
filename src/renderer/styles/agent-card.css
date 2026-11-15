@@ -26,7 +26,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: calc(12px * var(--type-scale, 1));
 }
 .agent-cards {
   display: grid;
@@ -44,11 +44,11 @@
 }
 .agent-card-head h3 {
   margin: 0;
-  font: 600 15px var(--font-interface);
+  font: var(--type-strong-weight, 600) calc(15px * var(--type-scale, 1)) var(--font-interface);
 }
 .agent-version {
   color: var(--muted);
-  font: 11px var(--font-mono);
+  font: var(--type-weight, 400) calc(11px * var(--type-scale, 1)) var(--font-mono);
 }
 .agent-card-controls {
   display: flex;
@@ -60,7 +60,7 @@
   flex-basis: 100%;
   overflow-wrap: anywhere;
   color: var(--muted);
-  font: 11px var(--font-mono);
+  font: var(--type-weight, 400) calc(11px * var(--type-scale, 1)) var(--font-mono);
 }
 .agent-setting {
   display: grid;
@@ -68,7 +68,7 @@
   align-items: baseline;
   gap: 12px;
   margin-top: 16px;
-  font-size: 12px;
+  font-size: calc(12px * var(--type-scale, 1));
 }
 .agent-label {
   color: var(--muted);
@@ -95,7 +95,7 @@
 }
 .agent-signals button {
   padding: 4px 8px;
-  font-size: 12px;
+  font-size: calc(12px * var(--type-scale, 1));
 }
 .agent-signals button[aria-pressed="true"] {
   border-color: var(--highlight);
@@ -109,7 +109,7 @@
   border: 1px solid transparent;
   background: transparent;
   color: var(--ink);
-  font: 12px / 1.6 var(--font-mono);
+  font: var(--type-weight, 400) calc(12px * var(--type-scale, 1)) / 1.6 var(--font-mono);
   resize: vertical;
 }
 .agent-card textarea:hover {
@@ -212,7 +212,7 @@
   border-radius: 4px;
   background: var(--badge-fill);
   color: var(--badge-ink);
-  font: 11px var(--font-mono);
+  font: var(--type-weight, 400) calc(11px * var(--type-scale, 1)) var(--font-mono);
 }
 /* Textareas expose their bottom edge as a baseline; align their first text line. */
 .agent-setting:has(textarea) {
