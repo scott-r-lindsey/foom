@@ -817,11 +817,11 @@ export class Hosts {
         // Saved facts provide presentation only; actions select from a fresh inspection below.
         const displayResult =
           (!savedOnly && this.results.get(host.host)) || host.observation?.preflight.result;
-        // Explicit Refresh facts belongs to Settings even when background board
-        // inventory is excluded from its saved observation projection.
+        // Explicit Refresh facts belongs to Settings. Otherwise retain the
+        // saved check rather than a background board connection failure.
         const runtimeResult =
           this.resourceResults.get(host.host) ??
-          (savedOnly ? undefined : this.results.get(host.host));
+          (savedOnly ? host.observation?.preflight.result : this.results.get(host.host));
         return {
           ...host,
           ...(this.hostKeyTrust ? { hostKeyTrust: this.hostKeyTrust } : {}),
@@ -850,10 +850,10 @@ export class Hosts {
               ? { installReason: "recipe-unavailable" as const }
               : {}),
           })),
-          ...(!savedOnly && this.worktreeInventories.has(host.host)
+          ...(this.worktreeInventories.has(host.host)
             ? { foreignWorktrees: this.worktreeInventories.get(host.host)?.other ?? 0 }
             : {}),
-          ...(!savedOnly && this.sessionInventories.has(host.host)
+          ...(this.sessionInventories.has(host.host)
             ? {
                 foreignSessions:
                   this.sessionInventories

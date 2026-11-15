@@ -172,10 +172,11 @@ Only fixed `unavailable` and `too-large` errors cross this channel.
 | `readiness` | `{}` | Fixed Git/forge readiness; subscribed only on the owning readiness/Forges surface |
 
 Settings host views keep saved full-check observations while overlaying explicit
-Refresh facts results, including failures. Background board connection failures
-do not replace those observations.
+Refresh facts results, including failures, and current inventory counts.
+Background board connection failures do not replace those observations.
 Entering Hosts retains its explicit list command to resume owner-held row/save
-retries; command replies cannot replace ordered snapshots.
+retries; saved row controls wait for that command to settle, and command replies
+cannot replace ordered snapshots.
 
 The host view primes sealed-build and local SSH-client display capabilities
 without retrying failed rows or connecting to a host. This preserves the opening

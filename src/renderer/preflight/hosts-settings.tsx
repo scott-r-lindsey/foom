@@ -696,14 +696,19 @@ export function HostsSettings({
   const [addBusy, setAddBusy] = useState(false);
   const [error, setError] = useState<ReactNode>("");
   const api = source.hosts;
+  const [resuming, setResuming] = useState(!!source.views);
   useEffect(() => {
     if (!source.views) return;
     let active = true;
     // Opening Hosts has always resumed owner-held row/save retries. A command
     // still owns that work; its unversioned reply never replaces the live view.
-    void api?.({ action: "list" }).catch(() => {
-      if (active) setError("Unable to refresh hosts");
-    });
+    void Promise.resolve(api?.({ action: "list" }))
+      .catch(() => {
+        if (active) setError("Unable to refresh hosts");
+      })
+      .finally(() => {
+        if (active) setResuming(false);
+      });
     return () => {
       active = false;
     };
@@ -1121,7 +1126,11 @@ export function HostsSettings({
                 )}
               </span>
             </div>
-            <fieldset className="host-body" hidden={!open} disabled={busy.has(entry.host)}>
+            <fieldset
+              className="host-body"
+              hidden={!open}
+              disabled={resuming || busy.has(entry.host)}
+            >
               <div className="host-meta">
                 <CopyValue
                   value={entry.host}

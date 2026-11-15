@@ -2,6 +2,7 @@ const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const { writeFile } = require("node:fs/promises");
 const path = require("node:path");
+const { gitSync } = require("../helpers/git.js");
 const { deadline, expect } = require("./test-policy.js");
 const { launchApp, boardPage, openSettingsScreen, stopSession } = require("./harness.js");
 
@@ -150,6 +151,20 @@ test("data views: checkout, session and agent lifecycle changes publish across b
 }, async (context) => {
   const { writer, observer } = await twoBoards(context);
   const repository = (await writer.evaluate(() => window.desktop.workspace())).repositories[0].path;
+  // Older system Git cannot add a worktree from an unborn repository. Give
+  // this lifecycle fixture a HEAD before testing checkout publication.
+  gitSync([
+    "-C",
+    repository,
+    "-c",
+    "user.name=Fixture",
+    "-c",
+    "user.email=fixture@example.test",
+    "commit",
+    "--allow-empty",
+    "-qm",
+    "Fixture",
+  ]);
   await observer.evaluate((repository) => {
     window.pushedViews = {};
     window.viewDisposers = [
