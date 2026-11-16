@@ -33,6 +33,8 @@ export const DEFAULT_SETTINGS: Settings = Object.freeze({
   restoreSessions: true,
   showNewChildren: true,
   closeFinishedAgents: true,
+  wakeOrchestrator: false,
+  wakeIntervalMinutes: 3,
   showNestedRepositoryNames: false,
   middleClickPaste: false,
   copyOnSelect: false,
@@ -73,6 +75,7 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
     if (
       (key === "setupComplete" ||
         key === "checkForUpdates" ||
+        key === "wakeOrchestrator" ||
         key === "agyPluginOfferAnswered" ||
         key === "autoRemoveMergedWorktrees" ||
         key === "showPullRequests" ||
@@ -127,6 +130,14 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
       entry <= 1440
     )
       patch.unreadChildMinutes = entry;
+    else if (
+      key === "wakeIntervalMinutes" &&
+      typeof entry === "number" &&
+      Number.isInteger(entry) &&
+      entry >= 1 &&
+      entry <= 1440
+    )
+      patch.wakeIntervalMinutes = entry;
     else if (key === "registeredHosts" && registeredHosts(entry))
       patch.registeredHosts = entry.map((host) => ({ ...host }));
     else if (key === "forges") patch.forges = parseForgeEnablement(entry);

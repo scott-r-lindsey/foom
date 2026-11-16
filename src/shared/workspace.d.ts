@@ -107,6 +107,7 @@ export interface OrchestrationEntry {
     | "close"
     | "remove_worktree"
     | "prompt"
+    | "wake"
     | "send_keys"
     | "board_post"
     | "board_resolve"

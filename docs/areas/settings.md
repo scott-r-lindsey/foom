@@ -229,6 +229,17 @@ terminal program can replace the clipboard without a click and the user could
 paste that content elsewhere. Clipboard reads are always refused. Only the
 preference persists; terminal output cannot enable it.
 
+### Idle orchestrator wake (#548)
+
+`wakeOrchestrator` defaults to false; `wakeIntervalMinutes` is an integer 1–1440,
+default three. Both are profile-only preferences, excluded from agent-editable
+config. General discloses Escape cancellation, fixed notices and the best-effort
+[residual race](../orchestration.md#opt-in-idle-orchestrator-wake-548).
+
+The wake disclosure also states the cross-process revocation bound: a focus, authority or
+wake-setting change during the host's final synchronous check and write can still
+allow that one write; nothing later is written after withdrawal.
+
 ### Live data views (#1161)
 
 All Settings sections consume [subscribed query views](data.md#phase-b-channel-over-json-1161).

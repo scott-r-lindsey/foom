@@ -344,3 +344,14 @@ to override it. If unset, omission refuses with `agent_required` (or
 `review_agent_required` for a loop). An invalid, disabled or unavailable provider
 refuses; Foom never picks another provider. One-shot `review --agent codex` uses
 the same detached checkout and safe close cleanup as every other reviewer.
+
+## Optional parent wake (#548)
+
+General's **Wake idle orchestrators on child events** starts off. Enabling it
+permits fixed metadata notices in an unfocused orchestrator after current hook idle,
+a matching live composer, Escape and another screen check. Pending child events
+share a notice and a configurable minimum interval, default three minutes. The
+Action Log records attempts and outcomes. Menus, working screens and uncertain
+readiness queue the notice. Escape may cancel a prompt or interrupt work; the
+screen-to-input race after the final check remains accepted, not eliminated.
+See the [full disclosure](../orchestration.md#opt-in-idle-orchestrator-wake-548).
