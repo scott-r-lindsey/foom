@@ -323,7 +323,21 @@ test("General update opt-out persists; update notices and restart counts remain 
       page.evaluate(async () => (await window.desktop.setupState()).settings.checkForUpdates),
     )
     .toBe(false);
-  const state = await page.evaluate(() => window.desktop.setupState());
+  await app.evaluate(({ app }) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { Setup } = load("./build/main/setup/setup.js");
+    const original = Setup.prototype.state;
+    Setup.prototype.state = async function () {
+      const state = await original.call(this);
+      return {
+        ...state,
+        settings: { ...state.settings, checkForUpdates: true },
+        updates: globalThis.updatePresentation,
+      };
+    };
+  });
   for (const mode of ["light", "dark"]) {
     await page.evaluate(
       (colorMode) =>
@@ -333,20 +347,15 @@ test("General update opt-out persists; update notices and restart counts remain 
       mode,
     );
     for (const status of ["available", "downloaded", "error"]) {
-      // Fake local main facts exercise the real sandboxed bridge without any updater or HTTP call.
-      await app.evaluate(
-        ({ BrowserWindow }, state) => {
-          const board = BrowserWindow.getAllWindows().find(
-            (window) => window.webContents.getURL() === "app://bundle/index.html",
-          );
-          board.webContents.send("setup:changed", state);
-        },
-        {
-          ...state,
-          settings: { ...state.settings, interfaceTheme: `eclipse-${mode}`, checkForUpdates: true },
-          updates: { status, runningAgents: 3 },
-        },
-      );
+      // Inject presentation facts at their owner, then publish over the real
+      // subscribed channel. No updater or HTTP request runs in this fixture.
+      await app.evaluate(({ app }, status) => {
+        const load = process
+          .getBuiltinModule("node:module")
+          .createRequire(app.getAppPath() + "/package.json");
+        globalThis.updatePresentation = { status, runningAgents: 3 };
+        load("./build/main/data/view-changes.js").viewChanges.publish("settings");
+      }, status);
       if (status === "downloaded")
         await expect(
           page.getByRole("button", { name: "Restart to update · 3 running agents" }),
@@ -366,7 +375,7 @@ test("General update opt-out persists; update notices and restart counts remain 
       }
     }
   }
-  // Renderer facts do not authorize quit: the main service has no staged update.
+  // Presentation facts do not authorize quit: the main service has no staged update.
   const windows = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length);
   await page.evaluate(() => window.desktop.restartToUpdate());
   assert.equal(

@@ -1,3 +1,5 @@
+import { object } from "../../../../src/shared/control-validation";
+import { CHILD_GUIDANCE } from "../../../../src/shared/control-guidance";
 import { Readable, PassThrough } from "node:stream";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -212,6 +214,9 @@ test("stdio MCP terminates locally, exposes three tools and forwards only typed 
     { jsonrpc: "2.0", method: "unknown-notification" },
   ];
   await remoteMcp(input(lines.map((line) => JSON.stringify(line)).join("\n") + "\n"), out.pipe);
+  const initialized = object(JSON.parse(out.text().split("\n")[0] ?? "{}"));
+  expect(object(initialized["result"])["instructions"]).toContain(CHILD_GUIDANCE);
+  expect(object(initialized["result"])["instructions"]).not.toContain("As orchestrator");
   expect(out.text()).toContain('"foom-remote"');
   expect(out.text()).toContain('"name":"handoff"');
   expect(out.text()).not.toContain('"name":"sessions"');

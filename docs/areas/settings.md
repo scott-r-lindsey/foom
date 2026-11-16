@@ -239,3 +239,13 @@ config. General discloses Escape cancellation, fixed notices and the best-effort
 The wake disclosure also states the cross-process revocation bound: a focus, authority or
 wake-setting change during the host's final synchronous check and write can still
 allow that one write; nothing later is written after withdrawal.
+
+### Live data views (#1161)
+
+All Settings sections consume [subscribed query views](data.md#phase-b-channel-over-json-1161).
+Changes from another open board appear without reopening Settings. Hosts and
+Agents share the registered-host query, including observations; removing the
+selected host immediately falls back to This computer. Query subscriptions own
+loading, fixed errors and disposal. Pending sound edits and Environment drafts
+remain local to their editor. Legacy `setup:changed` remains for terminal options,
+interface theme and other consumers awaiting the later migration.

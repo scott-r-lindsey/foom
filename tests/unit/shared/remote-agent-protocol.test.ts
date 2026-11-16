@@ -1,3 +1,4 @@
+import { CHILD_GUIDANCE } from "../../../src/shared/control-guidance";
 import { expect, test } from "vitest";
 import {
   remoteAgentSpec,
@@ -200,6 +201,7 @@ test("remote result schema is exact, bounded and finite, including manual pages 
     alias: identity.alias,
     role: "child",
     capabilities: identity.capabilities,
+    guidance: CHILD_GUIDANCE,
   });
   expect(remotePublicResult(handoff)).toEqual({
     seq: 1,

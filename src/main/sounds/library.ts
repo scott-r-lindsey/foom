@@ -1,3 +1,4 @@
+import { viewChanges } from "../data/view-changes";
 import { matchesSoundHeader, soundSizeLimit, SOUND_FILE_LIMIT } from "../../shared/sound-files";
 export { matchesSoundHeader, soundSizeLimit } from "../../shared/sound-files";
 import { constants } from "node:fs";
@@ -8,6 +9,7 @@ import { parseSoundRequest, SOUND_KINDS, soundName, validSoundFile } from "../..
 
 /** All paths stay in main. Bounded reads use the inspected open descriptor, not a second open. */
 export class SoundLibrary {
+  private catalog = "";
   constructor(
     private readonly builtin: string,
     readonly user: string,
@@ -116,6 +118,11 @@ export class SoundLibrary {
           });
         }
       }
+    const signature = JSON.stringify(entries);
+    if (signature !== this.catalog) {
+      this.catalog = signature;
+      viewChanges.publish("sounds");
+    }
     return entries;
   }
 }

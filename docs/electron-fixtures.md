@@ -36,14 +36,24 @@ are unchanged.
 
 ## Hosts navigation request window (#1199)
 
-Host enrollment publishes a sidebar refresh independently of the completed Hosts
-checklist. Before measuring requests caused by reopening Hosts, await
-`window.desktop.sidebarInventory()` to join that refresh's shared inventory reads.
-The sealed-catalog case does this before changing build metadata; otherwise a
-repository request from enrollment can land in the navigation capture window.
-Opening Hosts must leave the entire fixture request log unchanged. Explicit
-checks still retain the separate assertion against daemon and repository requests
-when the catalog is omitted.
+Host enrollment publishes sidebar refreshes independently of the completed Hosts
+checklist. Wait for the saved full-check timestamp and enabled Check capabilities
+control, and complete enrollment-owned locations reconciliation. Refresh/configure
+can invalidate the shared sidebar promise while an older read is still running.
+Awaiting `window.desktop.sidebarInventory()` alone
+joins only the current read, leaving older repository/SSH discovery able to enter
+the navigation capture window. For this case, a test-only observer installed before
+enrollment tracks every sidebar read without replacing its work or result. Setup
+joins the current read and then drains all observed reads before sealing the catalog.
+
+The SSH fixture also returns a successful empty `inventory: {own: [], other: 0}`
+for `list-worktrees`, matching the daemon protocol. A successful facts-only reply
+leaves the worktree cache empty, so later sidebar refreshes start SSH discovery
+again. A valid empty inventory lets those readers reuse the normal cache. A second
+sidebar read asserts that setup now reuses the cache before measuring navigation.
+Opening Hosts must leave the entire fixture request log unchanged. Explicit checks
+retain the separate assertion against daemon and repository requests when the
+catalog is omitted.
 
 ## Agents scope review captures (#1070)
 

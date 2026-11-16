@@ -102,7 +102,10 @@ for (const scenario of [
       assert.equal(response.status, 200);
       return (await response.json()).result;
     };
-    const parentId = (await call("whoami")).terminalId;
+    const ordinaryIdentity = await call("whoami");
+    assert.match(ordinaryIdentity.guidance, /The human may make you/);
+    assert.doesNotMatch(ordinaryIdentity.guidance, /As orchestrator/);
+    const parentId = ordinaryIdentity.terminalId;
     const parentRow = page
       .locator(".session-entry")
       .filter({ has: page.locator(`[data-drag-session="${parentId}"]`) });
@@ -140,11 +143,14 @@ for (const scenario of [
       if (notification) return;
       return (await response.json()).result;
     };
-    await mcp("initialize", {
+    const initialized = await mcp("initialize", {
       protocolVersion: "2025-11-25",
       capabilities: {},
       clientInfo: { name: "fixture", version: "1" },
     });
+    assert.match(initialized.instructions, /You are this repository's Foom orchestrator/);
+    assert.doesNotMatch(initialized.instructions, /Before stopping/);
+    assert.match((await call("whoami")).guidance, /As orchestrator/);
     await mcp("notifications/initialized", {}, true);
     const tool = async (name, args) => {
       const result = await mcp("tools/call", { name, arguments: args });
