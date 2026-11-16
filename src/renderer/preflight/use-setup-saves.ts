@@ -8,8 +8,8 @@ import { message } from "./message";
 
 /** View-local write ordering; main remains the persisted source of truth. */
 export function useSetupSaves(
-  source: Pick<SetupSource, "save" | "state">,
-  { setState, receiveState, pendingSoundRef }: ReturnType<typeof useSetupState>,
+  source: Pick<SetupSource, "save" | "state" | "views">,
+  { setState, receiveState, pendingSoundRef, previewSettings }: ReturnType<typeof useSetupState>,
   setError: (error: string) => void,
 ) {
   const { report: reportFailure, clear } = useBackgroundErrors();
@@ -56,15 +56,25 @@ export function useSetupSaves(
 
   /** Shows the change at once; if main refuses it, shows main's settings again. */
   const save = (patch: Parameters<SetupSource["save"]>[0]) => {
-    setState((current) => ({ ...current, settings: { ...current.settings, ...patch } }));
-    if (patch.sound && Object.keys(patch).length === 1) {
+    const soundOnly = patch.sound && Object.keys(patch).length === 1;
+    const complete = source.views && !soundOnly ? previewSettings(patch) : undefined;
+    if (!complete)
+      setState((current) => ({ ...current, settings: { ...current.settings, ...patch } }));
+    if (patch.sound && soundOnly) {
       void saveSound(patch.sound);
       return;
     }
-    source.save(patch).then(receiveState, (caught: unknown) => {
-      setError(message(caught));
-      source.state().then(receiveState, () => undefined);
-    });
+    source.save(patch).then(
+      (next) => {
+        complete?.();
+        receiveState(next);
+      },
+      (caught: unknown) => {
+        complete?.();
+        setError(message(caught));
+        source.state().then(receiveState, () => undefined);
+      },
+    );
   };
   const saveArguments = (id: string, args: readonly string[]) => {
     const saving = argumentSaveRef.current

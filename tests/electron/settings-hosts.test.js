@@ -2685,6 +2685,81 @@ test("Hosts reports dialog-unavailable when native trust presentation fails", {
   assert.equal(await readFile(knownHosts, "utf8"), "");
 });
 
+test("data views: host enrollment and removal update another open Agents machine picker", {
+  timeout: deadline(60_000),
+}, async (context) => {
+  const app = await launchApp(context, { fixture: "repository" });
+  // This cross-platform view regression exercises the real commands and stores
+  // with an in-process fixture transport, rather than a POSIX-only SSH script.
+  await app.evaluate(({ app }) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const services = load("./build/main/setup/hosts.js");
+    const original = services.hostsForStore;
+    services.hostsForStore = (...args) => {
+      const owner = original(...args);
+      owner.profile = undefined;
+      owner.execute = async (_host, request) => ({
+        ok: true,
+        facts: {
+          codeFolder: request.codeFolder,
+          version: app.getVersion(),
+          sessions: 0,
+          cores: 1,
+          load: [0, 0, 0],
+          memoryTotal: 8000,
+          memoryAvailable: 4000,
+          agents: [],
+        },
+      });
+      return owner;
+    };
+  });
+  const page = await boardPage(app);
+  await openSettingsScreen(page);
+  const navigation = page.getByRole("navigation", { name: "Settings sections" });
+  await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
+  await page.evaluate(() =>
+    window.desktop.hosts({
+      action: "add",
+      host: "fixture-cloud",
+      codeFolder: "/home/fixture/code",
+    }),
+  );
+  await page.evaluate(() => window.desktop.appMenu.execute("new-window"));
+  let observer;
+  await expect
+    .poll(() => {
+      observer = app
+        .windows()
+        .find((candidate) => candidate !== page && candidate.url() === "app://bundle/index.html");
+      return Boolean(observer);
+    })
+    .toBe(true);
+  await expect(
+    observer.getByRole("button", { name: "Actions for Main checkout", exact: true }),
+  ).toBeVisible();
+  await openSettingsScreen(observer);
+  const settings = observer.getByRole("region", { name: "Settings" });
+  await settings.getByRole("button", { name: "Agents", exact: true }).click();
+  await observer.getByRole("tab", { name: "Machines", exact: true }).click();
+  const picker = observer.getByRole("combobox", { name: "Machine" });
+  await expect(picker.getByRole("option", { name: "fixture-cloud", exact: true })).toHaveCount(1);
+  await page.evaluate(() => window.desktop.hosts({ action: "remove", host: "fixture-cloud" }));
+  await expect(picker.getByRole("option", { name: "fixture-cloud", exact: true })).toHaveCount(0);
+  await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
+  await page.getByRole("button", { name: "Add host", exact: true }).click();
+  await page.getByRole("textbox", { name: "SSH host", exact: true }).fill("fixture-cloud");
+  await page.getByRole("textbox", { name: "Code folder", exact: true }).fill("/home/fixture/code");
+  await page.getByRole("button", { name: "Add host", exact: true }).click();
+  await expect(picker.getByRole("option", { name: "fixture-cloud", exact: true })).toHaveCount(1);
+  await picker.selectOption("host:fixture-cloud");
+  await page.evaluate(() => window.desktop.hosts({ action: "remove", host: "fixture-cloud" }));
+  await expect(picker).toHaveValue("local");
+  await expect(picker.getByRole("option", { name: "fixture-cloud", exact: true })).toHaveCount(0);
+});
+
 test("Hosts status classification stays consistent with sealed catalog omission", {
   skip: process.platform === "win32",
   timeout: deadline(60000),
@@ -2697,6 +2772,9 @@ test("Hosts status classification stays consistent with sealed catalog omission"
   );
   // Refresh/configure can replace the shared promise while older reads still run.
   // Drain all enrollment reads before sealing the catalog and measuring navigation.
+  await expect(card.locator("time")).toBeVisible();
+  await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
+  await page.evaluate(() => window.desktop.hosts({ action: "locations" }));
   await settleSidebar();
   const settled = await readFile(calls, "utf8");
   await page.evaluate(() => window.desktop.sidebarInventory());

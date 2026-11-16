@@ -1,3 +1,4 @@
+import { viewChanges } from "../data/view-changes";
 import { remoteAgentTarget, remoteSpikeTarget } from "../terminals/remote-bootstrap";
 import { CheckoutHolds, worktreeReservation } from "./worktree-reservations";
 import type { CheckoutHold } from "./worktree-reservations";
@@ -562,6 +563,7 @@ export class WorkspaceContext {
     this.orchestration.syncUnreadChildEvents();
     this.orchestration.childEvents.publish();
     this.deps.watcher?.sync(this.deps.worktrees.listRepositories());
+    viewChanges.publish("sessions", "worktrees");
     this.deps.onChange?.(this.localOnlyChange || undefined);
   }
 

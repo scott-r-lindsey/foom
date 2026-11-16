@@ -228,3 +228,13 @@ writes (OSC 52)** on every platform with a disclosure that any local or remote
 terminal program can replace the clipboard without a click and the user could
 paste that content elsewhere. Clipboard reads are always refused. Only the
 preference persists; terminal output cannot enable it.
+
+### Live data views (#1161)
+
+All Settings sections consume [subscribed query views](data.md#phase-b-channel-over-json-1161).
+Changes from another open board appear without reopening Settings. Hosts and
+Agents share the registered-host query, including observations; removing the
+selected host immediately falls back to This computer. Query subscriptions own
+loading, fixed errors and disposal. Pending sound edits and Environment drafts
+remain local to their editor. Legacy `setup:changed` remains for terminal options,
+interface theme and other consumers awaiting the later migration.

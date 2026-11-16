@@ -1,3 +1,4 @@
+import type * as SetupSourceModule from "../../../../src/renderer/preflight/setup-source";
 import type { ExecutionTransition } from "../../../../src/shared/execution";
 // @vitest-environment jsdom
 import { act, cleanup } from "@testing-library/react";
@@ -56,6 +57,19 @@ const mock = vi.hoisted(() => ({
   hide: vi.fn(),
   focus: vi.fn(),
 }));
+// This fixture exercises the legacy sample source adapter; Electron covers live view IPC.
+vi.mock("../../../../src/renderer/preflight/setup-source", async (importOriginal) => {
+  const actual = await importOriginal<typeof SetupSourceModule>();
+  return {
+    createSetupSource: (...args: Parameters<typeof actual.createSetupSource>) => {
+      const source = actual.createSetupSource(...args);
+      delete source.views;
+      if (source.environment) delete source.environment.views;
+      if (source.config) delete source.config.views;
+      return source;
+    },
+  };
+});
 vi.mock("../../../../src/renderer/terminal/terminal-view-source", () => ({
   createTerminalView: (
     _schedule: unknown,

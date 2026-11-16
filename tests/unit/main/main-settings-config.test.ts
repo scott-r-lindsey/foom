@@ -405,6 +405,35 @@ test("Settings host locations use the shared registered repository inventory", a
   expect(listRepositories).toHaveBeenCalled();
 });
 
+test("theme catalog additions, edits and removals publish the subscribed settings view", async () => {
+  await start();
+  const { viewChanges } = await import("../../../src/main/data/view-changes");
+  const changed = vi.fn();
+  const off = viewChanges.subscribe(changed);
+  try {
+    mock.catalog = {
+      interface: [{ id: "user:custom.json", theme: interfaceThemes.moonlight }],
+      terminal: [],
+      errors: [],
+    };
+    mock.themeChanged();
+    mock.catalog = {
+      ...mock.catalog,
+      interface: [{ id: "user:custom.json", theme: interfaceThemes["eclipse-dark"] }],
+    };
+    mock.themeChanged();
+    mock.catalog = { interface: [], terminal: [], errors: [] };
+    mock.themeChanged();
+    expect(changed.mock.calls).toEqual([
+      [new Set(["settings"]), expect.any(Number)],
+      [new Set(["settings"]), expect.any(Number)],
+      [new Set(["settings"]), expect.any(Number)],
+    ]);
+  } finally {
+    off();
+  }
+});
+
 test("adopting an existing shared file never writes legacy scale over a held proposal", async () => {
   mock.settingsStore.legacyConfig.mockReturnValueOnce({ interfaceScale: 110 });
   mock.config.initialize.mockResolvedValue({});

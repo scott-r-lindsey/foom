@@ -1,3 +1,6 @@
+import { createViewReader } from "../data/view-readers";
+import { listTerminalFonts } from "../fonts/terminal-fonts";
+import { attachViews } from "../data/view-ipc";
 import { parseAgentManifest } from "../../shared/agent-plugin-parser";
 import type { RemoteTarget } from "../../shared/remote-host";
 import { bundledAgentData } from "../../shared/bundled-agent-data";
@@ -127,9 +130,13 @@ export async function buildWindow(
   };
   nativeTheme.on("updated", updateBackground);
   const themeIpc = attachThemes(window, wiring.themes, ipc);
+  const soundLibrary = new SoundLibrary(
+    path.join(__dirname, "../../sounds"),
+    path.join(wiring.configRoot, "sounds"),
+  );
   const soundIpc = attachSounds(
     window,
-    new SoundLibrary(path.join(__dirname, "../../sounds"), path.join(wiring.configRoot, "sounds")),
+    soundLibrary,
     path.join(__dirname, "../../sounds/NOTICES.txt"),
     ipc,
   );
@@ -466,6 +473,36 @@ export async function buildWindow(
     },
     ipc,
   );
+  const disposeDataViews = attachViews(
+    window,
+    ipc,
+    createViewReader({
+      settings: () => setup.state(),
+      prepareHosts: () =>
+        hostsForStore(
+          wiring.settings,
+          wiring.worktrees.listRepositories.bind(wiring.worktrees),
+          app.getVersion(),
+        ).prepareView(),
+      hosts: () =>
+        // Settings follows current inventory counts; legacy saved-only lists do not.
+        hostsForStore(
+          wiring.settings,
+          wiring.worktrees.listRepositories.bind(wiring.worktrees),
+          app.getVersion(),
+        ).state(undefined, true, true),
+      agents: () => wiring.workspace.scanAgents(false),
+      repositories: () => wiring.worktrees.listRepositories(),
+      worktrees: (repository) => wiring.workspace.worktrees(repository),
+      sessions: () => wiring.workspace.snapshot().terminals,
+      environment: () => wiring.environment.state(),
+      config: () => wiring.config.status(),
+      fonts: () => listTerminalFonts(),
+      sounds: () => soundLibrary.list(),
+      readiness: () => setup.readinessView(),
+    }),
+  );
+  window.once("closed", disposeDataViews);
   const environmentIpc = attachEnvironment(
     window,
     wiring.environment,

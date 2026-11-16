@@ -1,3 +1,4 @@
+import { useAgentsView } from "../data/view-hooks";
 import { useSetupState } from "./use-setup-state";
 import { useSetupSaves } from "./use-setup-saves";
 import { useRepositorySelection } from "./use-repository-selection";
@@ -15,7 +16,6 @@ import { SettingsFrame } from "./settings-frame";
 import { message } from "./message";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { SetupState } from "../../shared/setup";
-import type { AgentReport } from "../../shared/workspace";
 import { AppearanceControls } from "./appearance-controls";
 import { centerStep } from "./center-step";
 import { scalePreflight } from "./scale-preflight";
@@ -54,10 +54,16 @@ function PreflightContents({
   const setup = useSetupState(source, initial);
   const { state, receiveState } = setup;
 
-  const [report, setReport] = useState<AgentReport>();
+  const agentsQuery = useAgentsView(source, () => source.scanAgents(false));
+  const report = agentsQuery.data;
+  const setReport = agentsQuery.setData;
   const [scanning, setScanning] = useState(false);
   const { report: reportFailure, clear } = useBackgroundErrors();
   const [error, setError] = useState<string>();
+  useEffect(() => {
+    if (setup.error) reportFailure("setup-settings", "Unable to load settings.");
+    else clear("setup-settings");
+  }, [setup.error, reportFailure, clear]);
   const [launching, setLaunching] = useState(false);
   const saves = useSetupSaves(source, setup, setError);
   const { save } = saves;
@@ -125,26 +131,12 @@ function PreflightContents({
         setScanning(false);
       }
     },
-    [source],
+    [source, setReport],
   );
   useEffect(() => {
-    // Until the first scan answers, every agent shows as "Looking…".
-    let live = true;
-    source.scanAgents(false).then(
-      (next) => {
-        if (live) {
-          setReport(next);
-          clear("setup-agents");
-        }
-      },
-      () => {
-        if (live) reportFailure("setup-agents", "Unable to load agent settings.");
-      },
-    );
-    return () => {
-      live = false;
-    };
-  }, [source, reportFailure, clear]);
+    if (agentsQuery.isError) reportFailure("setup-agents", "Unable to load agent settings.");
+    else if (agentsQuery.isSuccess) clear("setup-agents");
+  }, [agentsQuery.isError, agentsQuery.isSuccess, reportFailure, clear]);
   useEffect(() => {
     // Each step starts at its heading, including the first, so keys reach preflight.
     headingRef.current?.focus();

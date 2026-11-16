@@ -47,7 +47,8 @@ restart use Default without overwriting the saved ID, and recover when a valid f
 returns. Built-ins precede custom themes; colliding names gain “(custom)”.
 `theme:list` and `theme:open-folder` validate the owning top frame and exact argument
 counts. Open accepts only the enumerated theme kind and chooses the folder in main.
-Updates travel through `setup:changed`; native backgrounds, interface tokens,
+Catalog changes publish the `settings` view and retain legacy `setup:changed`
+broadcasts; native backgrounds, interface tokens,
 terminal views and the headless terminal host receive the resolved colors. The
 sandboxed preload adds no runtime imports and CSP remains unchanged.
 

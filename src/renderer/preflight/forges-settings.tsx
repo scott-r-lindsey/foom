@@ -1,9 +1,10 @@
+import type { ConfigStatus } from "../../shared/foom-config";
+import { useConfigView } from "../data/view-hooks";
 import { PluginSourceIcon } from "./plugin-source-icon";
 import { ForgeReadinessRows } from "./forge-readiness";
 import type { useReadiness } from "./use-readiness";
 import { ActionError, useBackgroundErrors } from "../board/error-presentation";
 import { useEffect, useState } from "react";
-import type { ConfigStatus } from "../../shared/foom-config";
 import type { Settings, SettingsPatch } from "../../shared/setup";
 import type { StepHeading } from "./preflight-step.d";
 import type { SetupSource } from "./setup-source.d";
@@ -23,11 +24,17 @@ export function ForgesSettings({
   save: (patch: SettingsPatch) => Promise<void>;
 }) {
   const { report: reportFailure, clear } = useBackgroundErrors();
-  const [catalog, setCatalog] = useState<ConfigStatus>();
+  const query = useConfigView(
+    source.config,
+    () => source.config?.status() ?? Promise.reject(new Error("Unavailable")),
+  );
+  const catalog = query.data;
+  const setCatalog = query.setData;
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [hosts, setHosts] = useState<ReadonlyMap<string, string>>(() => new Map());
   useEffect(() => {
+    if (source.config?.views) return;
     const config = source.config;
     if (!config) return;
     let active = true;
@@ -37,15 +44,16 @@ export function ForgesSettings({
         clear("forge-catalog");
       }
     };
-    void config.status().then(receive, () => {
-      if (active) reportFailure("forge-catalog", "Unable to load forge settings.");
-    });
     const dispose = config.subscribe(receive);
     return () => {
       active = false;
       dispose();
     };
-  }, [source, clear, reportFailure]);
+  }, [source, clear, reportFailure, setCatalog]);
+  useEffect(() => {
+    if (query.isError) reportFailure("forge-catalog", "Unable to load forge settings.");
+    else if (query.isSuccess) clear("forge-catalog");
+  }, [query.isError, query.isSuccess, reportFailure, clear]);
   const persist = async (patch: SettingsPatch) => {
     setBusy(true);
     setError("");

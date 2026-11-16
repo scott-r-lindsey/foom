@@ -1,3 +1,4 @@
+import { viewChanges } from "../data/view-changes";
 import { execFile } from "node:child_process";
 import { terminalFontFamilies } from "../../shared/terminal-fonts";
 
@@ -68,7 +69,9 @@ export async function listTerminalFonts(refresh = false): Promise<readonly strin
     inFlight = enumerateTerminalFonts()
       .then((fonts) => {
         if (fonts !== null) {
+          const changed = JSON.stringify(cached) !== JSON.stringify(fonts);
           cached = fonts;
+          if (changed) viewChanges.publish("fonts");
           refreshedAt = Date.now();
         }
         return cached ?? [];

@@ -1,3 +1,4 @@
+import { viewChanges } from "../data/view-changes";
 import { readFileSync } from "node:fs";
 import { autoUpdater } from "electron";
 import { UpdateActivity } from "../update-activity";
@@ -92,6 +93,7 @@ export function runApplication() {
   }
   /** Each setup owns its scan state; persisted choices are shared. */
   function publishSettings() {
+    viewChanges.publish("settings");
     queueMicrotask(() => {
       for (const entry of windows.values()) {
         entry.updateBackground();
@@ -108,6 +110,7 @@ export function runApplication() {
     });
   }
   function configStatusChanged() {
+    viewChanges.publish("config");
     const status = config.status();
     for (const { window } of windows.values())
       if (!window.webContents.isDestroyed() && window.webContents.mainFrame.url === APP_URL)
@@ -127,6 +130,7 @@ export function runApplication() {
     );
   }
   function themesChanged() {
+    viewChanges.publish("settings");
     applyThemeSettings();
     for (const entry of windows.values()) {
       entry.updateBackground();
