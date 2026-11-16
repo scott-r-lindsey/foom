@@ -262,13 +262,18 @@ it("preserves resume/default/MCP/observer/prompt order without widening tool gra
       "-c",
     ]);
     const attachment = args[6] ?? "";
-    expect(prepared.mcpArguments).toEqual(["-c", attachment]);
     const name = attachment.match(/^mcp_servers\.(foom_[a-f0-9]+)=/u)?.[1];
     if (!name) throw new Error("Missing MCP name");
+    expect(prepared.mcpArguments).toEqual([
+      "-c",
+      attachment,
+      "-c",
+      `mcp_servers.${name}.default_tools_approval_mode="approve"`,
+    ]);
     expect(attachment).toBe(
       `mcp_servers.${name}={url="http://127.0.0.1:1234/mcp",bearer_token_env_var="FOOM_CONTROL_TOKEN"}`,
     );
-    expect(args.slice(7, 19)).toEqual(codexHookArguments(codexObserverCommand("linux")));
+    expect(args.slice(9, 21)).toEqual(codexHookArguments(codexObserverCommand("linux")));
     expect(args.slice(-2)).toEqual(["--", `${CHILD_PROMPT}\n\nFix it`]);
     expect(args.join(" ")).not.toMatch(/secret|enabled_tools|allowedTools/u);
   } finally {

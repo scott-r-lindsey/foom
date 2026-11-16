@@ -24,6 +24,11 @@ const fs = require('node:fs');
 if (process.argv.includes('--version')) { console.log('codex-cli 0.161.0'); process.exit(0); }
 if (process.argv.includes('--help')) { console.log('-c --no-alt-screen'); process.exit(0); }
 (async () => {
+  const args = process.argv.slice(2);
+  const server = args.find(arg => arg.startsWith('mcp_servers.') && arg.includes('={url='));
+  if (!server) throw Error('Missing MCP attachment');
+  const name = server.slice(0, server.indexOf('='));
+  if (!args.includes(name + '.default_tools_approval_mode="approve"')) throw Error('Missing scoped MCP approval');
   const url = process.env.FOOM_CONTROL_URL.replace('/control/v1', '/mcp');
   let session;
   const request = async (message) => {

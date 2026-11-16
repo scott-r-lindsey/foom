@@ -138,6 +138,8 @@ test.skipIf(process.platform === "win32")(
     ).toBe(true);
     const attachment = prepared.spec.args.find((arg) => arg.startsWith("mcp_servers."));
     if (!attachment) throw new Error("No Codex MCP attachment");
+    const name = attachment.slice(0, attachment.indexOf("="));
+    expect(prepared.spec.args).toContain(`${name}.default_tools_approval_mode="approve"`);
     const table = tomlContainer(attachment.slice(attachment.indexOf("=") + 1), "fixture");
     if (!record(table) || !Array.isArray(table["env_vars"]))
       throw new Error("No Codex environment allowlist");

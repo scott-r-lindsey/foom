@@ -177,7 +177,7 @@ test("launches an agent in a managed worktree and routes its attention signals",
   const listed = await (
     await mcpRequest({ id: 2, method: "tools/list", params: { _meta: { progressToken: 1 } } })
   ).json();
-  // Agents list orchestration tools (#303), except read_handoff until elevated; ordinary calls are refused.
+  // Every agent lists orchestration tools, including read_handoff; ordinary calls are refused.
   assert.deepEqual(
     listed.result.tools.map((tool) => tool.name),
     [
@@ -202,6 +202,7 @@ test("launches an agent in a managed worktree and routes its attention signals",
       "wait_for",
       "prompt",
       "send_keys",
+      "read_handoff",
       "operation_status",
     ],
   );

@@ -163,11 +163,7 @@ export class ControlMcp {
       // requested background task synchronously (which could duplicate effects).
       requireField(params["task"] === undefined, "params.task");
       try {
-        if (
-          params["name"] !== "handoff" &&
-          params["name"] !== "read_handoff" &&
-          !available.some((tool) => tool.name === params["name"])
-        )
+        if (params["name"] !== "handoff" && !available.some((tool) => tool.name === params["name"]))
           throw new ControlError("forbidden");
         if (params["name"] === "wait_for")
           exact(object(params["arguments"] ?? {}), ["ids", "after", "timeoutMs", "boardAfter"]);

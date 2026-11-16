@@ -307,6 +307,47 @@ process.stdout.write("FOOM_AGENT_READY`,
     403,
   );
 
+  // Cache the MCP list before the human grants the role, as real clients do.
+  let handoffSession;
+  let handoffRequest = 0;
+  const handoffMcp = async (method, params = {}) => {
+    const response = await fetch(parent.controlUrl.replace("/control/v1", "/mcp"), {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${parent.controlToken}`,
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        ...(handoffSession ? { "Mcp-Session-Id": handoffSession } : {}),
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        ...(method.startsWith("notifications/") ? {} : { id: ++handoffRequest }),
+        method,
+        params,
+      }),
+    });
+    assert.ok([200, 202].includes(response.status), `MCP ${method}: HTTP ${response.status}`);
+    handoffSession ||= response.headers.get("mcp-session-id");
+    return response.status === 202 ? undefined : (await response.json()).result;
+  };
+  if (phase === "handoff") {
+    await handoffMcp("initialize", {
+      protocolVersion: "2025-11-25",
+      capabilities: {},
+      clientInfo: { name: "fixture", version: "1" },
+    });
+    await handoffMcp("notifications/initialized");
+    const listed = await handoffMcp("tools/list");
+    const readHandoff = listed.tools.find((tool) => tool.name === "read_handoff");
+    assert.match(readHandoff?.description, /^Orchestrator only:/);
+    const refused = await handoffMcp("tools/call", {
+      name: "read_handoff",
+      arguments: { id: "child" },
+    });
+    assert.equal(refused.isError, true);
+    assert.match(refused.content[0].text, /^forbidden: you are not this repository's.*call whoami/);
+  }
+
   // The human grants the role from the session menu; the agent keeps running.
   const parentRow = page
     .locator(".session-entry")
@@ -1131,6 +1172,13 @@ process.stdout.write("FOOM_AGENT_READY`,
       assert.deepEqual(woke.changed, [childId]);
       assert.deepEqual(woke.sessions[0].handoff, { seq: 1, status: "failed" });
       assert.ok(!JSON.stringify(woke).includes(summary));
+      // The original MCP connection can use the previously cached tool after elevation.
+      const pulled = await handoffMcp("tools/call", {
+        name: "read_handoff",
+        arguments: { id: childId },
+      });
+      assert.equal(pulled.isError, false);
+      assert.equal(pulled.structuredContent.summary, summary);
       assert.equal((await cli(parent, ["read-handoff", childId, "--seq", "1"])).summary, summary);
       const row = page.locator(`[data-drag-session="${childId}"]`);
       await expect(row.locator(".session-handoff")).toHaveText("■ failed");

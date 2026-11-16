@@ -67,7 +67,9 @@
     "mcp": {
       "arguments": [
         "-c",
-        "mcp_servers.{mcpName}={url={mcpUrl:toml},bearer_token_env_var=\"FOOM_CONTROL_TOKEN\"}"
+        "mcp_servers.{mcpName}={url={mcpUrl:toml},bearer_token_env_var=\"FOOM_CONTROL_TOKEN\"}",
+        "-c",
+        "mcp_servers.{mcpName}.default_tools_approval_mode=\"approve\""
       ],
       "when": {
         "all": [

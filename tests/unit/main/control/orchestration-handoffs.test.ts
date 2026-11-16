@@ -144,10 +144,10 @@ describe("child handoff ownership and waits", () => {
       expect(h.orchestration.waitingOn("parent")).toBe(0);
     },
   );
-  it("lists reports only for children, reads only for parents, and wakes a metadata-only wait", async () => {
+  it("lists reports only for children, advertises reads to all agents, and wakes a metadata-only wait", async () => {
     const { h, child, actor, report } = await setup();
     expect(h.service.listed(actor)).toContain("handoff");
-    expect(h.service.listed(actor)).not.toContain("read_handoff");
+    expect(h.service.listed(actor)).toContain("read_handoff");
     expect(h.service.listed(h.actor)).toContain("read_handoff");
     expect(h.service.listed(h.actor)).not.toContain("handoff");
     const ordinary = h.service.prepare(repo, repo);

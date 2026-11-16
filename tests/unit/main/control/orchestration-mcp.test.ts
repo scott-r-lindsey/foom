@@ -178,9 +178,12 @@ it("lists orchestration tools to agents but runs them only for the orchestrator"
   expect(JSON.stringify(await agent.init())).toMatch(
     /may make you this repository's Foom orchestrator/u,
   );
-  expect(JSON.stringify(await agent.send("tools/list"))).not.toContain('"name":"read_handoff"');
+  expect(JSON.stringify((await agent.send("tools/list"))?.result)).toContain(
+    '"name":"read_handoff"',
+  );
   expect(listed).toContain('"name":"read_handoff"');
   for (const [method, params] of [
+    ["read_handoff", { id: "child" }],
     ["review", { pullRequest: 7, agent: "codex", idempotencyKey: "no-review" }],
     ["launch", { worktreeId: "tree", agent: "codex", idempotencyKey: "no-launch" }],
     ["prompt", { id: "child", text: "Proceed", idempotencyKey: "no-prompt" }],
@@ -225,6 +228,12 @@ it("a human transfer takes effect on the next call over each client's existing M
       ],
     },
   });
+  const before = JSON.stringify((await agent.send("tools/list"))?.result);
+  expect(before).toContain('"name":"read_handoff"');
+  expect(await agent.tool("read_handoff", { id: "child" })).toMatchObject({
+    isError: true,
+    content: [{ text: expect.stringContaining("call whoami") as unknown }],
+  });
   service.setRole("parent", "agent");
   orchestration.revoke("parent");
   const slot = orchestration.reserve(repo);
@@ -248,6 +257,25 @@ it("a human transfer takes effect on the next call over each client's existing M
     (await agent.tool("create_worktree", { idempotencyKey: "a", branch: "next" }))
       .structuredContent,
   ).toMatchObject({ status: "succeeded" });
+  expect(JSON.stringify((await agent.send("tools/list"))?.result)).toBe(before);
+  const tree = await agent.tool("create_worktree", {
+    idempotencyKey: "report-tree",
+    branch: "report",
+  });
+  await agent.tool("launch", {
+    worktreeId: tree.structuredContent?.["resultId"],
+    agent: "claude",
+    idempotencyKey: "report-child",
+  });
+  const childGrant = service.prepare(repo, join(repo, "report"), "agent", "agent");
+  childGrant.bind("child");
+  const child = client(childGrant.env["FOOM_CONTROL_TOKEN"] ?? "");
+  await child.init();
+  await child.tool("handoff", { status: "done", summary: "After grant", idempotencyKey: "report" });
+  expect(await agent.tool("read_handoff", { id: "child" })).toMatchObject({
+    isError: false,
+    structuredContent: { summary: "After grant", untrusted: true },
+  });
   expect((await parent.tool("whoami", {})).structuredContent?.["guidance"]).toBe(
     roleGuidance({ role: "agent", parentId: null }),
   );
@@ -336,7 +364,7 @@ it("lists handoff only for owned children and refuses hidden direct calls", asyn
     name: "handoff",
     cli: "foom handoff",
   });
-  expect(JSON.stringify(await child.send("tools/list"))).not.toContain('"name":"read_handoff"');
+  expect(JSON.stringify(await child.send("tools/list"))).toContain('"name":"read_handoff"');
   expect(
     await child.tool("handoff", { status: "done", summary: "Completed", idempotencyKey: "report" }),
   ).toMatchObject({ isError: false, structuredContent: { seq: 1 } });
