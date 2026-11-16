@@ -63,9 +63,14 @@ and recursively canonicalizes static interpreter chains (at most four scripts),
 including simple `/usr/bin/env NAME` lookup through these pins and verified system
 directories. Relative interpreters, repository/checkout targets, cycles, deeper
 chains and unsupported env flags/assignments are blockers (Unable to check).
+Only an argument-free absolute interpreter or the single NAME operand of
+`/usr/bin/env NAME` (including a canonical alias of env) is accepted. Every other
+interpreter argument is refused, even apparently benign options; there is no
+safe-option allowlist. This blocks preload flags and script operands that could
+execute repository content without the interpreter itself residing in R/W.
 Accepted scripts run as `<canonical interpreter> <canonical script> --version`,
-with validated nested arguments preserved; their private PATH entries use the
-same canonical invocation. Native binaries execute directly. An absolute alias
+with only the canonical nested script paths prepended; their private PATH entries
+use the same canonical invocation. Native binaries execute directly. An absolute alias
 or PATH alias is never handed to the kernel as an unchecked script interpreter.
 
 `withSetupProbeDependencies` owns this scope in local human/child/resume admission,
@@ -98,7 +103,7 @@ to refuse explicit and solver removals. Homebrew uses `--formula --`, with
 ([documented behavior](https://docs.brew.sh/Manpage#environment)). Unmet OS packages
 on RHEL/Arch are manual until an atomic no-removal transaction is supported;
 checks, already-met packages and private toolchains remain available. Catalog
-revision 5 invalidates prior approvals and mismatched helpers. Exact catalog-v1
+revision 6 invalidates prior approvals and mismatched helpers. Exact catalog-v1
 profiles retain their original lists and digests through a bounded historical
 reader. They remain Review needed and block launch/setup; obsolete package names
 are visible in review and editable, but cannot be approved under the current

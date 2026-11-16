@@ -214,6 +214,11 @@ esac
   await expect(panel.getByRole("button", { name: "Set up", exact: true })).toBeVisible();
   await capture(page, "failed");
   await panel.getByRole("button", { name: "Set up", exact: true }).click();
+  // The old failed pane still has the same prompt and ready state until the
+  // asynchronous setup reply replaces it. Wait for the new terminal first.
+  await expect(
+    panel.getByRole("region", { name: "Install terminal", exact: true }).getByRole("status"),
+  ).toHaveText("Installing…");
   await expect(panel.locator(".xterm-screen")).toContainText("Fixture setup waiting");
   await expect(
     panel.getByRole("region", { name: "Install terminal", exact: true }),
@@ -695,6 +700,46 @@ printf 'v24.17.0\\n'
     await assert.rejects(access(forbidden), { code: "ENOENT" });
     await assert.rejects(access(launched), { code: "ENOENT" });
     assert.equal((await page.evaluate(() => window.desktop.workspace())).terminals.length, 0);
+  }
+  // Interpreter operands must never turn R/W content into executable setup code.
+  await require("node:fs/promises").unlink(path.join(bins, "node"));
+  for (const [scope, target] of [
+    ["R", repository],
+    ["W", worktree],
+  ]) {
+    for (const kind of ["preload", "script"]) {
+      const payload = path.join(target, kind === "preload" ? "payload.cjs" : "payload.sh");
+      await writeFile(
+        payload,
+        kind === "preload"
+          ? `require('node:fs').writeFileSync(${JSON.stringify(forbidden)}, 'preloaded');\n`
+          : `printf script > ${quote(forbidden)}\n`,
+      );
+      const alias = path.join(root, `payload-alias-${scope}-${kind}`);
+      await symlink(payload, alias);
+      for (const operand of [payload, alias]) {
+        const interpreter = await realpath(kind === "preload" ? process.execPath : "/bin/sh");
+        await writeFile(
+          path.join(bins, "node"),
+          `#!${interpreter} ${kind === "preload" ? "--require=" : ""}${operand}\n`,
+          { mode: 0o700 },
+        );
+        const refusal = await page.evaluate(
+          ({ repository, worktree }) =>
+            window.desktop
+              .launchAgent({ agent: "claude", repository, worktree, cols: 80, rows: 24 })
+              .then(
+                () => "unexpected",
+                (error) => error.message,
+              ),
+          { repository, worktree },
+        );
+        assert.match(refusal, /repository-setup-unavailable/u, `${scope} ${kind} ${operand}`);
+        await assert.rejects(access(forbidden), { code: "ENOENT" });
+        await assert.rejects(access(launched), { code: "ENOENT" });
+        assert.equal((await page.evaluate(() => window.desktop.workspace())).terminals.length, 0);
+      }
+    }
   }
 });
 

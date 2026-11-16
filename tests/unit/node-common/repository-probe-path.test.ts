@@ -235,11 +235,11 @@ describe.skipIf(process.platform === "win32")("private probe PATH", () => {
     ).rejects.toMatchObject({ code: 127 });
     await expect(lstat(marker)).rejects.toMatchObject({ code: "ENOENT" });
   });
-  it("flattens nested canonical interpreters and options, including env NAME", async () => {
+  it("flattens argument-free nested canonical interpreters, including env NAME", async () => {
     const bins = join(root, "bins'quote");
     await mkdir(bins);
     const interpreter = join(root, "interpreter'quote");
-    await writeFile(interpreter, "#!/bin/sh -e\nprintf '10.34.7\\n'\n", { mode: 0o700 });
+    await writeFile(interpreter, "#!/bin/sh\nprintf '10.34.7\\n'\n", { mode: 0o700 });
     const node = join(bins, "node"),
       pnpm = join(bins, "pnpm");
     await writeFile(node, `#!${interpreter}\n`, { mode: 0o700 });
@@ -248,7 +248,7 @@ describe.skipIf(process.platform === "win32")("private probe PATH", () => {
     const invocation = scope.invocation(pnpm, ["--version"]);
     expect(invocation).toEqual({
       command: await realpath("/bin/sh"),
-      args: ["-e", interpreter, node, pnpm, "--version"],
+      args: [interpreter, node, pnpm, "--version"],
     });
     expect(
       (
@@ -267,17 +267,22 @@ describe.skipIf(process.platform === "win32")("private probe PATH", () => {
       ).stdout,
     ).toBe("10.34.7\n");
   });
-  it("resolves env system interpreters only through verified fixed directories", async () => {
-    const bins = join(root, "bins");
-    await mkdir(bins);
-    const node = join(bins, "node");
-    await writeFile(node, "#!/usr/bin/env sh\nprintf 'v24.17.0\\n'\n", { mode: 0o700 });
-    const scope = await create(bins);
-    expect(scope.invocation(node, ["--version"])).toEqual({
-      command: await realpath("/bin/sh"),
-      args: [node, "--version"],
-    });
-  });
+  it.each([false, true])(
+    "resolves env system interpreters, including a canonical alias: %s",
+    async (alias) => {
+      const bins = join(root, "bins");
+      await mkdir(bins);
+      const node = join(bins, "node");
+      const env = alias ? join(root, "env-alias") : "/usr/bin/env";
+      if (alias) await symlink(await realpath("/usr/bin/env"), env);
+      await writeFile(node, `#!${env} sh\nprintf 'v24.17.0\\n'\n`, { mode: 0o700 });
+      const scope = await create(bins);
+      expect(scope.invocation(node, ["--version"])).toEqual({
+        command: await realpath("/bin/sh"),
+        args: [node, "--version"],
+      });
+    },
+  );
   it.each([3, 4])("enforces the four-script limit at its boundary: %s parents", async (parents) => {
     const bins = join(root, "bins");
     await mkdir(bins);
@@ -292,5 +297,63 @@ describe.skipIf(process.platform === "win32")("private probe PATH", () => {
     const scope = await create(bins);
     if (parents === 3) expect(scope.invocation(node, []).args).toHaveLength(4);
     else expect(() => scope.invocation(node, [])).toThrow("Unsafe probe interpreter chain");
+  });
+  it.each(
+    ["R", "W"].flatMap((scope) =>
+      [false, true].flatMap((alias) =>
+        ["preload", "script"].map((kind) => ({ scope, alias, kind })),
+      ),
+    ),
+  )(
+    "blocks interpreter payload operands: $scope alias=$alias $kind",
+    async ({ scope: selected, alias, kind }) => {
+      const repository = join(root, "R"),
+        worktree = join(root, "W"),
+        bins = join(root, "bin");
+      await Promise.all([mkdir(repository), mkdir(worktree), mkdir(bins)]);
+      const target = selected === "R" ? repository : worktree;
+      const marker = join(root, "payload-executed");
+      const payload = join(target, kind === "preload" ? "payload.cjs" : "payload.sh");
+      await writeFile(
+        payload,
+        kind === "preload"
+          ? `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'bad');\n`
+          : `printf bad > ${quote(marker)}\n`,
+      );
+      const operand = alias ? join(root, "payload-alias") : payload;
+      if (alias) await symlink(payload, operand);
+      const tool = join(bins, "pnpm");
+      const interpreter =
+        kind === "preload" ? await realpath(process.execPath) : await realpath("/bin/sh");
+      await writeFile(
+        tool,
+        `#!${interpreter} ${kind === "preload" ? "--require=" : ""}${operand}\n`,
+        { mode: 0o700 },
+      );
+      const scope = await create(bins, [repository, worktree]);
+      expect(() => scope.invocation(tool, ["--version"])).toThrow("Unsafe probe interpreter chain");
+      const pinned = scope.path.split(delimiter)[0];
+      if (!pinned) throw new Error("No pins");
+      await expect(
+        promisify(execFile)(join(pinned, "pnpm"), ["--version"], { env: { PATH: scope.path } }),
+      ).rejects.toMatchObject({ code: 127 });
+      await expect(lstat(marker)).rejects.toMatchObject({ code: "ENOENT" });
+    },
+  );
+  it.each(
+    ["-e", "-c", "--version", "--require=external.cjs", "external-script", "--"].flatMap(
+      (argument) => [false, true].map((nested) => ({ argument, nested })),
+    ),
+  )("refuses every non-env argument: $argument nested=$nested", async ({ argument, nested }) => {
+    const bins = join(root, "bin");
+    await mkdir(bins);
+    const tool = join(bins, "pnpm");
+    const interpreter = join(root, "interpreter");
+    await writeFile(interpreter, `#!/bin/sh ${argument}\n`, { mode: 0o700 });
+    await writeFile(tool, nested ? `#!${interpreter}\n` : `#!/bin/sh ${argument}\n`, {
+      mode: 0o700,
+    });
+    const scope = await create(bins);
+    expect(() => scope.invocation(tool, ["--version"])).toThrow("Unsafe probe interpreter chain");
   });
 });

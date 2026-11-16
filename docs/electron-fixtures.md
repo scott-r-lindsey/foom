@@ -46,6 +46,11 @@ The setup refusal and no-repository-tool/no-agent-execution assertions remain
 unchanged. Probe PATH pinning happens after checkout identity and cannot affect
 this membership lookup.
 
+The setup-terminal retry waits for the replacement pane's Installing status
+before checking its prompt/readiness or typing. The previous failed pane has the
+same prompt and ready attribute until the asynchronous setup reply replaces it;
+those conditions alone do not acknowledge the new terminal.
+
 ## Agents scope review captures (#1070)
 
 The twelve-agent/twelve-host case checks desktop/light and narrow/dark, including

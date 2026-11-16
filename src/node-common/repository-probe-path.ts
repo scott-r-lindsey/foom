@@ -99,7 +99,7 @@ export async function repositoryProbePath(
     const canonical = await realpath(interpreter);
     if (!outside(canonical)) throw new Error("Excluded probe interpreter");
     let selected = canonical;
-    let option = header[1];
+    const option = header[1];
     if (canonical === envCommand) {
       // Only the simple env NAME form is supported. No assignments, flags or -S.
       if (!option || !/^[a-zA-Z0-9][a-zA-Z0-9._+-]*$/u.test(option))
@@ -122,10 +122,9 @@ export async function repositoryProbePath(
           }
         }
       if (!selected) throw new Error("Missing env probe interpreter");
-      option = undefined;
-    }
+    } else if (option !== undefined) throw new Error("Probe interpreter arguments are unsupported");
     const parent = await chain(selected, [...seen, target]);
-    return { command: parent.command, args: [...parent.args, ...(option ? [option] : []), target] };
+    return { command: parent.command, args: [...parent.args, target] };
   };
   const plans = new Map<string, Invocation>();
   for (const target of targets.values()) {
