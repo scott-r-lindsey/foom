@@ -1,5 +1,17 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync, renameSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  existsSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+  renameSync,
+} from "node:fs";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { runInNewContext } from "node:vm";
+import { fixtureEnvironment } from "../tests/helpers/environment.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -268,4 +280,78 @@ test("CI runner forwards exact suites and shard environment, and fails closed on
     /spawn failed/,
   );
   assert.equal(runCI({ env: { FOOM_CI_ELECTRON_SUITES: "[]" }, run: () => ({ status: null }) }), 1);
+});
+
+test("workflow Electron env reaches the real CI entry through the package script in both modes", (context) => {
+  const root = mkdtempSync(join(tmpdir(), "foom-ci-electron-entry-"));
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(join(root, "scripts"));
+  const record = join(root, "runner.json");
+  // Substitute only the expensive suite runner. The package script, temp wrapper,
+  // environment sanitizer and runCI entry point all execute their real code.
+  writeFileSync(
+    join(root, "scripts/electron-tests.mjs"),
+    `
+    import { writeFileSync } from 'node:fs';
+    writeFileSync('runner.json', JSON.stringify({
+      args: process.argv.slice(2),
+      shard: process.env.FOOM_ELECTRON_SHARD,
+      suites: process.env.FOOM_CI_ELECTRON_SUITES,
+      session: process.env.FOOM_CONTROL_TOKEN,
+    }));
+  `,
+  );
+  const workflow = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
+  const desktop = workflow.split("\n  desktop:\n")[1].split("\n  remote-host:\n")[0];
+  const bindings = [
+    ...desktop
+      .split("    env:\n")[1]
+      .split("    steps:\n")[0]
+      .matchAll(/ {6}(FOOM_[A-Z_]+): \$\{\{ (.*?) \}\}/g),
+  ];
+  assert.equal(bindings.length, 2);
+  const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  const [node, ...scripts] = manifest.scripts["test:electron:affected"].split(" ");
+  assert.equal(node, "node");
+  const args = [
+    ...scripts.map((script) => fileURLToPath(new URL(`../${script}`, import.meta.url))),
+    "--ci",
+  ];
+  const run = (env) => {
+    rmSync(record, { force: true });
+    const result = spawnSync(process.execPath, args, { cwd: root, env, encoding: "utf8" });
+    assert.ifError(result.error);
+    return { ...result, output: result.stdout + result.stderr };
+  };
+  const mapped = selectAffected(["src/renderer/preview/markdown.ts"]).suites;
+  for (const [suites, shard] of [
+    [[], "1/4"],
+    [mapped, "1/1"],
+  ]) {
+    const env = fixtureEnvironment();
+    delete env.NODE_TEST_CONTEXT;
+    for (const [, name, expression] of bindings) {
+      env[name] = runInNewContext(expression, {
+        matrix: { shard },
+        needs: { changes: { outputs: { electron_suites: JSON.stringify(suites) } } },
+      });
+    }
+    env.FOOM_CONTROL_TOKEN = "fixture-session-must-be-stripped";
+    const result = run(env);
+    assert.equal(result.status, 0, result.output);
+    assert.deepEqual(JSON.parse(readFileSync(record, "utf8")), {
+      args: suites.map((suite) => `--suite=${suite}`),
+      shard,
+      suites: JSON.stringify(suites),
+    });
+    for (const invalid of [undefined, "", "broken", "null", "{}", "[1]", '["../a.test.js"]']) {
+      const invalidEnv = { ...env };
+      if (invalid === undefined) delete invalidEnv.FOOM_CI_ELECTRON_SUITES;
+      else invalidEnv.FOOM_CI_ELECTRON_SUITES = invalid;
+      const failure = run(invalidEnv);
+      assert.notEqual(failure.status, 0, failure.output);
+      assert.match(failure.output, /(?:Missing|Invalid) FOOM_CI_ELECTRON_SUITES/);
+      assert.equal(existsSync(record), false);
+    }
+  }
 });
