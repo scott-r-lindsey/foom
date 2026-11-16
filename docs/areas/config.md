@@ -78,7 +78,10 @@ settings file includes the profile arguments directly; empty profile defaults
 leave the key absent.
 Settings saves split
 the patch: config keys are written to the file atomically and applied; profile
-keys go to the profile. On Windows only, atomic
+keys go to the profile. Before merging a Settings patch, the serialized writer
+checks the current file through the ordinary validation and approval path. Safe
+edits made before the watcher runs are retained; held edits still follow the
+existing Settings-save replacement rule. On Windows only, atomic
 replacement retries EPERM/EBUSY up to five attempts with 25, 50, 100 and 200 ms
 backoff for transient external sharing locks. It never unlinks the destination;
 exhaustion removes the temporary file, reports a fixed error naming the config

@@ -373,3 +373,39 @@ test("child placement file changes apply live without approval and Settings writ
   await f.service.write({ showNewChildren: false });
   expect(JSON.parse(await f.read("settings.json"))).toMatchObject({ showNewChildren: false });
 });
+
+test("Settings patches preserve safe external preferences before the watcher runs", async () => {
+  const f = await fixture();
+  await f.service.initialize();
+  await f.settings({ interfaceScale: 120, terminalFontSize: 19 });
+  // No watcher notification or refresh: another profile has just saved the file.
+  await f.service.write({ agents: { claude: true } });
+  expect(JSON.parse(await f.read("settings.json"))).toEqual({
+    kind: "settings",
+    interfaceScale: 120,
+    terminalFontSize: 19,
+    agents: { claude: true },
+  });
+  expect(f.applied.at(-1)).toEqual({
+    interfaceScale: 120,
+    terminalFontSize: 19,
+    agents: { claude: true },
+  });
+});
+
+test.each([JSON.stringify({ kind: "settings", hooks: false }), "{"])(
+  "Settings patches never adopt unapproved or invalid external bytes (%s)",
+  async (text) => {
+    const f = await fixture();
+    await f.service.initialize({ interfaceScale: 120, terminalFontSize: 19 });
+    await f.write("settings.json", text);
+    await f.service.write({ agents: { claude: true } });
+    expect(JSON.parse(await f.read("settings.json"))).toEqual({
+      kind: "settings",
+      interfaceScale: 120,
+      terminalFontSize: 19,
+      agents: { claude: true },
+    });
+    expect(f.applied.every((values) => values.hooks !== false)).toBe(true);
+  },
+);

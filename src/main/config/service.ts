@@ -572,6 +572,9 @@ export class ConfigService {
   }
 
   private async writeSettings(patch: ConfigSettings): Promise<void> {
+    // The shared file may have changed before our watcher runs. Adopt safe edits
+    // through the usual approval gate before merging this field-specific patch.
+    await this.scanSettings();
     const text = `${JSON.stringify({ kind: "settings", ...this.applied.values, ...patch }, null, 2)}\n`;
     let values: ConfigSettings;
     try {

@@ -1017,3 +1017,54 @@ test("Settings Agents and Environment work without Claude Codex or Antigravity k
   const environment = JSON.parse(await readFile(path.join(profile, "environment.json"), "utf8"));
   assert.deepEqual(Object.keys(environment.lists).sort(), ["all", "opencode"]);
 });
+
+test("agent Settings patches preserve shortcut zoom and unrelated preferences", async (context) => {
+  const app = await launchApp(context, { fixture: "empty-board" });
+  const page = await boardPage(app);
+  await openSettingsScreen(page);
+  await page.evaluate(() =>
+    window.desktop.saveSetup({ terminalFontSize: 19, checkForUpdates: false }),
+  );
+  const zoom = () =>
+    app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()
+        .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+        .webContents.getZoomFactor(),
+    );
+  for (const scale of [110, 120]) {
+    await app.evaluate(({ BrowserWindow }, mac) => {
+      const window = BrowserWindow.getAllWindows().find(
+        (window) => window.webContents.getURL() === "app://bundle/index.html",
+      );
+      window.focus();
+      for (const type of ["keyDown", "keyUp"])
+        window.webContents.sendInputEvent({
+          type,
+          keyCode: "=",
+          modifiers: mac ? ["meta"] : ["control", "shift"],
+        });
+    }, process.platform === "darwin");
+    await expect.poll(zoom).toBeCloseTo(scale / 100);
+  }
+  await page.getByRole("button", { name: "Agents", exact: true }).click();
+  const enabled = page
+    .locator(".agent-global-row")
+    .filter({ hasText: "Claude Code" })
+    .getByRole("checkbox");
+  await enabled.check();
+  await expect
+    .poll(() =>
+      page.evaluate(async () => (await window.desktop.setupState()).settings.agents.claude),
+    )
+    .toBe(true);
+  assert.equal(await zoom(), 1.2);
+  assert.deepEqual(
+    await page.evaluate(async () => {
+      const { interfaceScale, terminalFontSize, checkForUpdates } = (
+        await window.desktop.setupState()
+      ).settings;
+      return { interfaceScale, terminalFontSize, checkForUpdates };
+    }),
+    { interfaceScale: 120, terminalFontSize: 19, checkForUpdates: false },
+  );
+});
