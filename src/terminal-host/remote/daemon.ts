@@ -1,3 +1,6 @@
+import { validateSetupAdmission } from "../../node-common/repository-setup-admission";
+import { remoteToolchainPrefix } from "../../node-common/repository-setup-run";
+import { setupCatalogDigest } from "../../node-common/repository-setup-digest";
 import { HostAdmission } from "../../shared/host-pressure";
 import type { HostPressure } from "../../shared/host-pressure.d";
 import { launchResources } from "./resources";
@@ -413,6 +416,7 @@ export function serveHost(
           hostFacts: 1,
           hostPreflight: 1,
           hostCheckConnection: 1,
+          repositorySetup: setupCatalogDigest,
           hostRowCheck: 1,
           agentSettings: 1,
           humanMachines: 1,
@@ -815,7 +819,7 @@ export function serveHost(
             return;
           }
           try {
-            if (message.recipe) {
+            if (message.recipe || message.repositorySetup) {
               if (mutating || recipeSessions.size > 0) throw new Error("Host mutation busy");
               recipeSessions.add(id);
             }
@@ -900,8 +904,21 @@ export function serveHost(
                       .find((model) => model.id === machine.agent)
                   : undefined;
                 if (machine.agent && !model) throw new LaunchFailure("remote_agent_unsupported");
+                const setupEnv =
+                  model && (machine.repository || message.checkout)
+                    ? await validateSetupAdmission(
+                        message.setupAdmission,
+                        cwd,
+                        remoteToolchainPrefix(home),
+                        await hostLoginEnvironment(remoteShell(), home, cancellation.signal),
+                        home,
+                        cancellation.signal,
+                      )
+                    : undefined;
                 const found = model
-                  ? await hostDiscovery(model, remoteShell(), home, cancellation.signal)
+                  ? setupEnv
+                    ? await hostDiscovery(model, remoteShell(), home, cancellation.signal, setupEnv)
+                    : await hostDiscovery(model, remoteShell(), home, cancellation.signal)
                   : undefined;
                 await approvedCodeFolder(machine.codeFolder, home);
                 await validateCheckout();
@@ -927,6 +944,14 @@ export function serveHost(
                   )
                     throw new LaunchFailure("remote_worktree_unavailable");
                 }
+                await validateSetupAdmission(
+                  message.setupAdmission,
+                  cwd,
+                  remoteToolchainPrefix(home),
+                  found?.env ?? {},
+                  home,
+                  cancellation.signal,
+                );
                 cancellation.signal.throwIfAborted();
                 if (!machine.repository && !message.checkout && owned.context)
                   owned.context = { ...owned.context, repository: home, worktree: home };
@@ -961,18 +986,22 @@ export function serveHost(
                   ? { ...owned.agent.spec, cols: message.cols, rows: message.rows }
                   : {
                       command:
-                        message.recipe || message.trustOrigin ? process.execPath : remoteShell(),
-                      args: message.recipe
-                        ? [
-                            "--recipe",
-                            message.recipe.tool,
-                            message.recipe.action,
-                            message.recipe.distro,
-                            message.recipe.digest,
-                          ]
-                        : message.trustOrigin
-                          ? ["--trust-origin", message.trustOrigin]
-                          : ["-i", "-l"],
+                        message.recipe || message.repositorySetup || message.trustOrigin
+                          ? process.execPath
+                          : remoteShell(),
+                      args: message.repositorySetup
+                        ? ["--repository-setup", JSON.stringify(message.repositorySetup)]
+                        : message.recipe
+                          ? [
+                              "--recipe",
+                              message.recipe.tool,
+                              message.recipe.action,
+                              message.recipe.distro,
+                              message.recipe.digest,
+                            ]
+                          : message.trustOrigin
+                            ? ["--trust-origin", message.trustOrigin]
+                            : ["-i", "-l"],
                       ...(message.recipe?.action === "install"
                         ? { env: { FOOM_SETTINGS_INSTALL: "1" } }
                         : {}),

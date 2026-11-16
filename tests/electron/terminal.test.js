@@ -803,6 +803,8 @@ test("terminal runs an interactive shell behind an isolated bridge", {
           "copyHost",
           "localAgentInstall",
           "hosts",
+          "repositorySetup",
+          "onRepositorySetupRefused",
           "listTerminalFonts",
           "listThemes",
           "openThemesFolder",

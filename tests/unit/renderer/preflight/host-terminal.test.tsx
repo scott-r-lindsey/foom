@@ -9,7 +9,7 @@ afterEach(cleanup);
 
 test.each([0, 17, undefined])(
   "recipe keeps its terminal until dismissed and reports exit %s outside output",
-  (code) => {
+  async (code) => {
     const dispose = vi.fn();
     const off = vi.fn();
     const open = vi.fn(async () => {});
@@ -37,7 +37,9 @@ test.each([0, 17, undefined])(
       }),
     };
     let observe: (exit: { exited: boolean; code?: number }) => void = () => {};
+    const stop = vi.fn(() => Promise.resolve()).mockRejectedValueOnce(new Error("unavailable"));
     const source: NonNullable<SetupSource["hostTerminal"]> = {
+      stop,
       createView: () => view,
       observe: (_id, listener) => {
         observe = listener;
@@ -67,6 +69,16 @@ test.each([0, 17, undefined])(
     expect(within(menu).queryByText("Split")).toBeNull();
     fireEvent.click(within(menu).getByRole("menuitem", { name: "Paste" }));
     expect(paste).toHaveBeenCalledOnce();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+      await Promise.resolve();
+    });
+    expect(screen.getByRole("alert").textContent).toContain("Unable to stop");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+      await Promise.resolve();
+    });
+    expect(stop).toHaveBeenCalledWith("recipe-1");
     act(() => {
       observe({ exited: true, ...(code === undefined ? {} : { code }) });
     });

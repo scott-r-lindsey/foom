@@ -1,3 +1,4 @@
+import { setupCatalogDigest } from "../../node-common/repository-setup-digest";
 import { createHash, randomBytes } from "node:crypto";
 import { IMAGE_TIMEOUT_MS } from "../../shared/image-paste";
 import type { ImagePut, ImagePutResult } from "../../shared/image-paste.d";
@@ -166,6 +167,24 @@ export class RemoteTransport extends EventEmitter {
     return this.startupSent ? false : this.kill();
   }
 
+  private dispatchOpen(request: number, reattach: boolean): void {
+    const connection = this.connection;
+    void (async () => {
+      if (!reattach && !this.target.reattach && this.target.beforeOpen)
+        await this.target.beforeOpen();
+      if (this.closed || connection !== this.connection || !this.ready) return;
+      this.send(this.openRequest(request, reattach));
+    })().catch((error: unknown) => {
+      if (this.closed || connection !== this.connection) return;
+      this.launchFailure =
+        error instanceof LaunchFailure ? error : new LaunchFailure("remote_prepare_refused");
+      for (const [pending, id] of this.pending)
+        this.emit("message", { type: "error", request: pending, id });
+      this.pending.clear();
+      this.kill();
+    });
+  }
+
   private openRequest(request: number, reattach: boolean): RemoteRequest {
     this.startupSent = true;
     const session = this.session;
@@ -204,6 +223,12 @@ export class RemoteTransport extends EventEmitter {
           ...(this.target.human ? { human: true } : {}),
           ...(!reattach && this.target.machine ? { machine: this.target.machine } : {}),
           ...(!reattach && this.target.trustOrigin ? { trustOrigin: this.target.trustOrigin } : {}),
+          ...(!reattach && this.target.repositorySetup
+            ? { repositorySetup: this.target.repositorySetup }
+            : {}),
+          ...(!reattach && this.target.setupAdmission
+            ? { setupAdmission: this.target.setupAdmission }
+            : {}),
           ...(!reattach && this.target.recipe ? { recipe: this.target.recipe } : {}),
           ...(this.target.checkout ? { checkout: this.target.checkout } : {}),
         };
@@ -409,6 +434,17 @@ export class RemoteTransport extends EventEmitter {
               throw new Error("Host version mismatch");
             }
             this.childPressure = value.childPressure === 1;
+            if (
+              (this.target.repositorySetup ||
+                this.target.setupAdmission ||
+                this.target.agent?.spec.repositorySetup ||
+                (this.management?.type === "manage" &&
+                  this.management.operation === "repository-setup")) &&
+              value.repositorySetup !== setupCatalogDigest
+            ) {
+              this.managementFailure = "version-mismatch";
+              throw new Error("Repository setup catalog mismatch");
+            }
             // This recipe stages assets from the daemon's own executable. Protocol
             // compatibility alone cannot bind those bytes to the desktop's approval.
             if (
@@ -540,7 +576,7 @@ export class RemoteTransport extends EventEmitter {
               if (this.opened) {
                 this.restoring = request;
               }
-              this.send(this.openRequest(request, this.opened));
+              this.dispatchOpen(request, this.opened);
             }
             return;
           }
@@ -892,8 +928,10 @@ export class RemoteTransport extends EventEmitter {
       }
     }
     this.pending.set(message.request, message.id);
-    if (this.ready)
-      this.send(message.type === "create" ? this.openRequest(message.request, false) : message);
+    if (this.ready) {
+      if (message.type === "create") this.dispatchOpen(message.request, false);
+      else this.send(message);
+    }
   }
   kill(): boolean {
     if (this.closed) return false;

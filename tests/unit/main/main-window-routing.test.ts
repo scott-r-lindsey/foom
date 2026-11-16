@@ -576,3 +576,104 @@ test("local install clicks enforce bundled enablement, serialize launch and refr
   expect(mock.workspace.scanAgents).toHaveBeenLastCalledWith(true, "claude");
   expect((await install("codex")).recipeSession).toBe("local-install");
 });
+
+test("repository setup shares the local installer reservation and aborts its human terminal", async () => {
+  const settings = mock.settingsStore.get();
+  vi.spyOn(mock.settingsStore, "get").mockReturnValue({
+    ...settings,
+    registeredHosts: [{ host: "worker", codeFolder: "/code" }],
+  });
+  await start();
+  const launch = mock.setup.deps?.launchRepositorySetup;
+  const install = mock.setup.deps?.localAgentInstall;
+  if (!launch || !install) throw new Error("Missing Settings setup launcher");
+  const { setupDigest, setupCatalogDigest } = await import(
+    "../../../src/node-common/repository-setup-digest"
+  );
+  const list = {
+    requirements: [
+      {
+        kind: "toolchain" as const,
+        id: "node",
+        tool: "node" as const,
+        version: "24.x",
+        purpose: "Build",
+        sources: [],
+      },
+    ],
+    evidence: [],
+  };
+  const approval = {
+    repository: "/repo",
+    identity: "registration",
+    revision: 1,
+    digest: setupDigest(list),
+    catalog: setupCatalogDigest,
+    sources: { files: [], fingerprint: setupDigest([]) },
+    checkout: "/repo",
+    head: "a".repeat(40),
+    approvedAt: 1,
+    list,
+  };
+  const row = {
+    repository: "/repo",
+    host: null,
+    revision: 1,
+    state: "needs-setup" as const,
+    sourcesAtLaunch: false,
+    location: { root: "/repo", path: "/repo", present: true },
+    missing: [],
+    changed: [],
+    plan: {
+      platform: {
+        distro: "debian" as const,
+        os: "linux" as const,
+        arch: "x64" as const,
+        nodeAbi: true,
+      },
+      packages: [],
+      toolchains: [],
+      steps: [],
+    },
+  };
+  const abort = new AbortController();
+  const finish = vi.fn();
+  const validate = vi.fn();
+  const withoutPlan: Omit<typeof row, "plan"> & { plan?: typeof row.plan } = { ...row };
+  delete withoutPlan.plan;
+  await expect(launch(null, approval, withoutPlan, finish, abort.signal, validate)).rejects.toThrow(
+    "unavailable",
+  );
+  mock.workspace.startRepositorySetup.mockRejectedValueOnce(new Error("fixture failure"));
+  await expect(launch(null, approval, row, finish, abort.signal, validate)).rejects.toThrow(
+    "fixture failure",
+  );
+  expect(await launch(null, approval, row, finish, abort.signal, validate)).toBe(
+    "repository-setup",
+  );
+  await expect(launch(null, approval, row, finish, abort.signal, validate)).rejects.toThrow(
+    "already running",
+  );
+  if (process.platform !== "win32")
+    await expect(install("claude")).rejects.toThrow("already running");
+  mock.terminals.kill.mockRejectedValueOnce(new Error("already exited"));
+  abort.abort();
+  expect(mock.terminals.kill).toHaveBeenCalledWith("repository-setup");
+  const listener = mock.terminals.onExit.mock.calls.at(-1)?.[0];
+  listener?.("repository-setup", 7);
+  expect(finish).toHaveBeenCalledOnce();
+  expect(
+    await launch(
+      "worker",
+      approval,
+      { ...row, missing: ["node"] },
+      finish,
+      new AbortController().signal,
+      validate,
+    ),
+  ).toBe("recipe");
+  expect(mock.window.webContents.send).not.toHaveBeenCalledWith(
+    "app-menu:session",
+    "repository-setup",
+  );
+});

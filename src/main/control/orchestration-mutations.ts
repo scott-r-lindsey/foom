@@ -46,6 +46,7 @@ function publicOperation(operation: Operation): Operation {
     detail,
     placement,
     pressure,
+    setupMissing,
   } = operation;
   return {
     operationId,
@@ -59,6 +60,7 @@ function publicOperation(operation: Operation): Operation {
     ...(detail ? { detail } : {}),
     ...(placement ? { placement } : {}),
     ...(pressure ? { pressure } : {}),
+    ...(setupMissing ? { setupMissing } : {}),
   };
 }
 
@@ -494,6 +496,7 @@ export class OrchestrationMutations extends OrchestrationAuthority {
         null,
         undefined,
         error instanceof LaunchFailure ? error.pressure : pressure,
+        error instanceof LaunchFailure ? error.setup?.missing : undefined,
       );
       this.note(parent, this.entry(record, label));
       return record;
@@ -729,6 +732,10 @@ export class OrchestrationMutations extends OrchestrationAuthority {
               : error instanceof ApplicationError
                 ? (
                     {
+                      "repository-setup-missing": "git_failed",
+                      "repository-setup-changed": "git_failed",
+                      "repository-setup-manual": "git_failed",
+                      "repository-setup-unavailable": "git_failed",
                       "origin-auth": "git_failed",
                       "origin-host-key": "git_failed",
                       "origin-unreachable": "git_failed",
