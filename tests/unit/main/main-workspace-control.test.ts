@@ -1,6 +1,26 @@
 import { mock, start, invokeWindow, newWindow } from "./main-fixture";
 import { expect, test, vi } from "vitest";
 
+test("wake eligibility follows the focused session and focus changes force a guarded recheck", async () => {
+  await start();
+  const dependencies = mock.workspace.deps;
+  if (!dependencies?.focused) throw new Error("Missing wake focus capability");
+  expect(dependencies.focused("wake-parent")).toBe(false);
+  mock.terminals.owns.mockReturnValue(true);
+  mock.workspace.ownsSession.mockReturnValue(true);
+  await invokeWindow(0, "windows:sync", ["wake-parent"]);
+  mock.terminals.recheckWake.mockClear();
+  await invokeWindow(0, "windows:audio-focus", "wake-parent");
+  expect(dependencies.focused("wake-parent")).toBe(true);
+  expect(dependencies.focused("another-session")).toBe(false);
+  expect(mock.terminals.recheckWake).toHaveBeenCalledWith(true);
+  mock.window.isFocused.mockReturnValue(false);
+  expect(dependencies.focused("wake-parent")).toBe(false);
+  await invokeWindow(0, "windows:audio-focus", null);
+  mock.window.isFocused.mockReturnValue(true);
+  expect(dependencies.focused("wake-parent")).toBe(false);
+});
+
 test("routes terminal events, hook signals and state through the workspace", async () => {
   await start();
   const events = mock.terminalEvents as {

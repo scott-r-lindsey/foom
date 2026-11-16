@@ -17,6 +17,7 @@ const {
 const path = require("node:path");
 const { tmpdir } = require("node:os");
 const { FAKE_GH } = require("../helpers/forge-cli.js");
+const { publishJson } = require("../helpers/publish-json.js");
 const { gitSync } = require("../helpers/git.js");
 const { launchTrustedParent } = require("./agent-fixture.js");
 const { deadline, expect } = require("./test-policy.js");
@@ -227,6 +228,7 @@ if (args[0]==='--help') {console.log('-c --no-alt-screen --plugin-dir --addition
 if (args[0]==='plugin') {console.log('[]'); process.exit(0);}
 if (agent==='codex' && args[0]==='login' && args[1]==='status') process.exit(0);
 const env=process.env;
+const publishJson=${publishJson.toString()};
 const attentionCase=${JSON.stringify(attentionCase)};
 function hook(event) {
  const definition=args.find(arg=>arg.startsWith('hooks.'+event+'='));
@@ -268,7 +270,7 @@ if(agent==='pi') {
   yield {id:'end',type:'session.execution.succeeded',data:{sessionID:conversation}};
  }}});
 }
-fs.writeFileSync(${JSON.stringify(path.join(root, `${agent}-launch.json`))},JSON.stringify({args,reviewer,resumed,cwd:process.cwd(),env:Object.fromEntries(Object.entries(env).filter(([key])=>key.startsWith('FOOM_'))),pid:process.pid,attachment,hookFile:env.OPENCODE_CONFIG}));
+publishJson(${JSON.stringify(path.join(root, `${agent}-launch.json`))},{args,reviewer,resumed,cwd:process.cwd(),env:Object.fromEntries(Object.entries(env).filter(([key])=>key.startsWith('FOOM_'))),pid:process.pid,attachment,hookFile:env.OPENCODE_CONFIG});
 process.stdout.write('REMOTE_'+agent.toUpperCase()+'_READY\\r\\n'); process.stdin.setRawMode(true);
 if(attentionCase) process.stdout.write(${JSON.stringify(hookReview)}+'\\r\\n');
 process.stdin.on('data', bytes=>{
@@ -289,7 +291,7 @@ process.stdin.on('data', bytes=>{
 
  const verdict=reviewer ? (reviewLoop==='clean' ? {verdict:'clean'} : {verdict:'findings',findings:[{file:'a.ts',line:1,summary:'Fixture defect',scenario:'Zero input'}]}) : undefined;
  const handoff=cli(['handoff','--status',resumed && reviewLoop==='findings' ? 'blocked' : 'done','--summary-file','-','--idempotency-key','fixture-'+agent,...(verdict ? ['--review',JSON.stringify(verdict)] : [])],agent+' fixture complete');
- fs.writeFileSync(${JSON.stringify(path.join(root, `${agent}-report.json`))},JSON.stringify({identity,forbidden,handoff,mcp}));
+ publishJson(${JSON.stringify(path.join(root, `${agent}-report.json`))},{identity,forbidden,handoff,mcp});
 });
 process.on('exit',()=>cleanup?.());
 })().catch(error=>{console.error(error);process.exit(1);});

@@ -37,7 +37,10 @@ evict their last-good versions; remaining names are sorted. Folder failures prod
 The read descriptor closes before parsing or waiting for the config approval queue,
 so a queued restore never waits behind a reader holding its rename target open.
 The folder watcher debounces changes for 250 ms, reloads serially and closes on
-shutdown. Parsed palettes and bounded diagnostics contain no absolute paths or
+shutdown. Reloads reconnect watchers before reading the catalog. They never close
+them after a read: an intervening edit may still have a pending notification on
+the old watcher, and a replacement watcher need not replay it (#1215).
+Parsed palettes and bounded diagnostics contain no absolute paths or
 raw file contents; diagnostics have a filename, JSON path and fixed reason code.
 They never echo parser exception messages or arbitrary unknown property names.
 

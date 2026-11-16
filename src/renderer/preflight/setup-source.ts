@@ -60,6 +60,7 @@ export function createSetupSource(
   return {
     views,
     hostTerminal: {
+      stop: (id) => closeSession?.(id) ?? desktop.kill(id),
       createView: () => createView(),
       observe: (id, listener) => {
         let active = true;
@@ -125,6 +126,17 @@ export function createSetupSource(
         }
       },
     },
+    onRepositorySetupRefused: (callback) => desktop.onRepositorySetupRefused(callback),
+    draftSetupAgent: async (repository) => {
+      const state = await desktop.setupState();
+      const run = state.settings.defaultAgent;
+      if (!run) throw new Error("Choose a default agent");
+      await desktop.sidebarCommand({ kind: "repository-launch", repository, host: null, run });
+    },
+    repositorySetup: (action) =>
+      action.action === "run"
+        ? trackInstall(`repository:${action.token}`, () => desktop.repositorySetup(action))
+        : desktop.repositorySetup(action),
     copyHost: (command) => desktop.copyHost(command),
     hosts: (action) => {
       if (action.action !== "recipe" || action.operation !== "install")
