@@ -118,3 +118,10 @@ test("child host pressure refuses with retry facts while human launches still st
 }, async (context) => {
   await runOrchestratorScenario(context, false, "pressure");
 });
+
+test("an orchestrator launches an agy child with stderr help and a nonzero help exit", {
+  timeout: deadline(90_000),
+  skip: process.platform === "win32" && "The fake agent is a POSIX script",
+}, async (context) => {
+  await runOrchestratorScenario(context, true, "agy-prompt");
+});

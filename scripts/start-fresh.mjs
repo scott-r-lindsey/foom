@@ -1,6 +1,6 @@
 // Starts Foom with a brand-new profile, so preflight runs as it would on first launch.
 // The profile lives in a temporary folder and is deleted when Foom quits. Your real
-// settings, repositories and keys are untouched. Pass --keep to keep the profile.
+// settings, config folder, worktrees, repositories and keys are untouched. Pass --keep to keep the profile.
 import { spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
@@ -15,7 +15,10 @@ const profile = await mkdtemp(join(tmpdir(), "foom-fresh-"));
 console.log(`Fresh profile: ${profile}${keep ? " (kept)" : ""}`);
 const env = { ...process.env };
 delete env.ELECTRON_RUN_AS_NODE;
-const child = spawn(electron, [root, `--user-data-dir=${profile}`], { stdio: "inherit", env });
+const child = spawn(electron, [root, `--user-data-dir=${profile}`, "--foom-isolated-state"], {
+  stdio: "inherit",
+  env,
+});
 // Ctrl+C reaches Electron through this wrapper, which stays alive to clean up.
 for (const signal of ["SIGINT", "SIGTERM"])
   process.on(signal, () => {

@@ -55,7 +55,9 @@ use the persistent **Foom Dev** profile; packaged builds use the everyday profil
 Only one app can own each profile. A repeated launch focuses the existing window,
 so quit Foom Dev before testing a rebuilt version. To run another development app
 alongside it, pass a distinct `--user-data-dir` to Electron. `pnpm run start:fresh`
-uses an isolated disposable profile and deletes it on exit.
+uses an isolated disposable profile and deletes it on exit. `start:fresh`,
+`start:samples`, and `start:hosts` keep config and managed worktrees inside their
+selected profile; they do not use the everyday `~/.foom` state.
 
 ## Planning and tasks
 
@@ -72,6 +74,16 @@ uses an isolated disposable profile and deletes it on exit.
 - Tests and Vitest configuration are type-checked. Production builds exclude test files and development tooling.
 
 ## Tests and coverage
+
+- When more than three children are running on one host, coordinate heavy validation
+  across worktrees with shared host-local `flock` slots: `pnpm run check`,
+  `pnpm run test:coverage`, Electron tests, `pnpm run make`, packaged tests and
+  `git commit` (which runs validation through Husky). The orchestrator supplies
+  the same bounded slot pool or wrapper to every child; never use per-worktree
+  locks. Each slot holds one command, including its commit hook; each child runs
+  at most one heavy command at a time. Where `flock` is unavailable, the
+  orchestrator must schedule equivalent bounded concurrency explicitly.
+  Wait for a slot; never relax test deadlines to compensate for host load.
 
 - Tests spawning Git must use `tests/helpers/git.js` (`git` or `gitSync`), which removes inherited Git variables and disables global/system Git configuration. Never launch Git directly from a test.
 

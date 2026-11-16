@@ -17,7 +17,7 @@
 }
 .preflight-brand {
   margin: 0 8px;
-  font: 24px var(--font-display);
+  font: var(--type-weight, 400) calc(24px * var(--type-scale, 1)) var(--font-display);
 }
 .preflight-rail ol {
   list-style: none;
@@ -42,7 +42,7 @@
 }
 .preflight-t,
 .preflight-tick {
-  font: 11px var(--font-mono);
+  font: var(--type-weight, 400) calc(11px * var(--type-scale, 1)) var(--font-mono);
   color: var(--muted);
 }
 .preflight-tick {
@@ -89,19 +89,19 @@
   margin: 0 0 12px;
 }
 :is(.preflight, .settings-view) h1 {
-  font: 64px var(--font-display);
+  font: var(--type-weight, 400) calc(64px * var(--type-scale, 1)) var(--font-display);
   letter-spacing: -2px;
 }
 :is(.preflight, .settings-view) h2 {
-  font: 22px var(--font-display);
-  font-weight: 400;
+  font: var(--type-weight, 400) calc(22px * var(--type-scale, 1)) var(--font-display);
+  font-weight: var(--type-weight, 400);
 }
 :is(.preflight, .settings-view) h1:focus,
 :is(.preflight, .settings-view) h2:focus {
   outline: none;
 }
 .preflight-lede {
-  font: 20px / 1.5 var(--font-voice);
+  font: var(--type-weight, 400) calc(20px * var(--type-scale, 1)) / 1.5 var(--font-voice);
 }
 .preflight-intro,
 .preflight-welcome > p:not(.preflight-lede),
@@ -111,7 +111,7 @@
 .preflight-sub,
 :is(.preflight, .settings-view) small {
   color: var(--muted);
-  font-size: 13px;
+  font-size: calc(13px * var(--type-scale, 1));
   line-height: 1.5;
 }
 :is(.preflight, .settings-view) small {
@@ -120,7 +120,7 @@
 }
 .preflight-eyebrow {
   margin: 0 0 6px;
-  font: 11px var(--font-mono);
+  font: var(--type-weight, 400) calc(11px * var(--type-scale, 1)) var(--font-mono);
   letter-spacing: 1px;
   text-transform: uppercase;
   color: var(--highlight);
@@ -128,7 +128,7 @@
 :is(.preflight, .settings-view) code,
 :is(.preflight, .settings-view) .mono {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: calc(12px * var(--type-scale, 1));
 }
 :is(.preflight, .settings-view) button.primary {
   background: var(--highlight);
@@ -148,7 +148,7 @@
   gap: 16px;
   margin: 24px 0 32px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: calc(13px * var(--type-scale, 1));
 }
 .preflight-list,
 .preflight-poll {
@@ -176,10 +176,10 @@
   grid-column: 1 / 3;
 }
 .preflight-name {
-  font-weight: 600;
+  font-weight: var(--type-strong-weight, 600);
 }
 .preflight-found {
-  font: 11px var(--font-mono);
+  font: var(--type-weight, 400) calc(11px * var(--type-scale, 1)) var(--font-mono);
   color: var(--muted);
 }
 .preflight-found[data-found="yes"] {
@@ -190,12 +190,12 @@
   flex-wrap: wrap;
   gap: 4px 8px;
   align-items: center;
-  font-size: 13px;
+  font-size: calc(13px * var(--type-scale, 1));
   color: var(--muted);
 }
 .preflight-empty {
   color: var(--muted);
-  font-size: 13px;
+  font-size: calc(13px * var(--type-scale, 1));
   padding: 12px 0;
 }
 .preflight-check,
@@ -221,7 +221,7 @@
   margin: 20px 0 8px;
 }
 .preflight-options legend {
-  font-weight: 600;
+  font-weight: var(--type-strong-weight, 600);
   margin-bottom: 4px;
 }
 .preflight-config {
@@ -237,7 +237,7 @@
 .preflight-fields label {
   display: grid;
   gap: 4px;
-  font-size: 12px;
+  font-size: calc(12px * var(--type-scale, 1));
   color: var(--muted);
   flex: 1 1 180px;
 }
@@ -245,7 +245,7 @@
 :is(.preflight, .settings-view) input[type="password"],
 :is(.preflight, .settings-view) input[type="number"],
 :is(.preflight, .settings-view) select {
-  font: 13px var(--font-interface);
+  font: var(--type-weight, 400) calc(13px * var(--type-scale, 1)) var(--font-interface);
   padding: 6px 8px;
   color: var(--ink);
   background: var(--bg);
@@ -260,7 +260,7 @@
   outline: 2px solid var(--state-focus, var(--highlight));
 }
 .preflight-key {
-  font-size: 13px;
+  font-size: calc(13px * var(--type-scale, 1));
 }
 .preflight-test {
   margin-top: 20px;
@@ -275,7 +275,7 @@
 }
 .preflight-test h3 {
   margin: 0;
-  font-size: 14px;
+  font-size: calc(14px * var(--type-scale, 1));
 }
 .preflight-tail {
   margin: 12px 0;
@@ -283,12 +283,12 @@
   background: var(--hole);
   color: var(--space-ink);
   border-radius: var(--shape-radius, 6px);
-  font: 12px / 1.6 var(--font-mono);
+  font: var(--type-weight, 400) calc(12px * var(--type-scale, 1)) / 1.6 var(--font-mono);
   white-space: pre-wrap;
 }
 .preflight-result {
   margin: 0;
-  font: 12px var(--font-mono);
+  font: var(--type-weight, 400) calc(12px * var(--type-scale, 1)) var(--font-mono);
   color: var(--muted);
 }
 .preflight-result[data-tone="ok"] {
@@ -299,14 +299,14 @@
   color: var(--failed-ink);
 }
 .preflight-in-use {
-  font-size: 13px;
+  font-size: calc(13px * var(--type-scale, 1));
   margin-top: 16px;
 }
 .preflight-warning {
   color: var(--muted);
   border-left: 2px solid var(--line);
   padding-left: 10px;
-  font-size: 13px;
+  font-size: calc(13px * var(--type-scale, 1));
 }
 .preflight-poll li {
   display: grid;
@@ -320,20 +320,20 @@
 }
 .preflight-system {
   overflow-wrap: anywhere;
-  font: 11px var(--font-mono);
+  font: var(--type-weight, 400) calc(11px * var(--type-scale, 1)) var(--font-mono);
   letter-spacing: 1px;
   text-transform: uppercase;
   color: var(--muted);
 }
 .preflight-detail {
-  font-size: 13px;
+  font-size: calc(13px * var(--type-scale, 1));
   overflow-wrap: anywhere;
 }
 .preflight-detail[data-attention="true"] {
   color: var(--attention-ink);
 }
 .preflight-pill {
-  font: 11px var(--font-mono);
+  font: var(--type-weight, 400) calc(11px * var(--type-scale, 1)) var(--font-mono);
   padding: 3px 8px;
   border-radius: var(--shape-radius, 4px);
   border: var(--shape-border, 1px) solid currentColor;
@@ -362,7 +362,7 @@
   background: var(--bg);
 }
 .board-preflight {
-  font-size: 12px;
+  font-size: calc(12px * var(--type-scale, 1));
 }
 @media (max-width: 650px) {
   :is(.preflight, .settings-view) {
@@ -404,7 +404,7 @@
     padding: 12px 16px;
   }
   :is(.preflight, .settings-view) h1 {
-    font-size: 44px;
+    font-size: calc(44px * var(--type-scale, 1));
   }
   .preflight-poll li {
     grid-template-columns: 1fr auto;
@@ -447,20 +447,20 @@
   display: grid;
   justify-items: start;
   gap: 12px;
-  font: 120px var(--font-display);
+  font: var(--type-weight, 400) calc(120px * var(--type-scale, 1)) var(--font-display);
 }
 .launch-count small {
-  font: 13px var(--font-mono);
+  font: var(--type-weight, 400) calc(13px * var(--type-scale, 1)) var(--font-mono);
   letter-spacing: 3px;
   text-transform: uppercase;
   color: var(--space-ink);
   opacity: 0.7;
 }
 .launch[data-phase="liftoff"] .launch-count {
-  font-size: 72px;
+  font-size: calc(72px * var(--type-scale, 1));
 }
 .launch[data-phase="liftoff"] .launch-count small {
-  font: 16px var(--font-voice);
+  font: var(--type-weight, 400) calc(16px * var(--type-scale, 1)) var(--font-voice);
   letter-spacing: 0;
   text-transform: none;
 }
@@ -471,15 +471,15 @@
   position: absolute;
   bottom: 24px;
   margin: 0;
-  font-size: 12px;
+  font-size: calc(12px * var(--type-scale, 1));
   opacity: 0.6;
 }
 :is(.preflight, .settings-view) button {
-  font-size: 13px;
+  font-size: calc(13px * var(--type-scale, 1));
   padding: 7px 14px;
 }
 .preflight-rail ol button {
-  font-size: 14px;
+  font-size: calc(14px * var(--type-scale, 1));
 }
 .preflight-item.plain > * {
   grid-column: 1 / -1;

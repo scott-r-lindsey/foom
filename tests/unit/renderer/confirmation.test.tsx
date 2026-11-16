@@ -60,7 +60,21 @@ test("focuses Cancel for every request, traps Tab, and renders untrusted content
     theme: {
       ...resolveInterfaceTheme("follow", false),
       version: 2,
-      areas: { dialogs: { ink: "#010203" } },
+      areas: {
+        dialogs: { ink: "#010203", highlight: "#445566" },
+        "dialog-headers": {
+          bg: "#eeeeee",
+          ink: "#112233",
+          gradient: {
+            angle: 90,
+            stops: [
+              ["#eeeeee", 0],
+              ["#ffffff", 100],
+            ],
+          },
+        },
+      },
+      type: { family: "system", scale: 1.1, weight: 450, "strong-weight": 650 },
       states: { focus: "#223344" },
       shape: { radius: 0, shadow: 0.4 },
     },
@@ -72,6 +86,16 @@ test("focuses Cancel for every request, traps Tab, and renders untrusted content
     await document.fonts.ready;
   });
   expect(document.documentElement.style.getPropertyValue("--ink")).toBe("#010203");
+  expect(
+    view.container.querySelector<HTMLElement>(".dlg-head")?.style.getPropertyValue("--highlight"),
+  ).toBe(resolveInterfaceTheme("follow", false).colors.accent);
+  expect(document.documentElement.style.getPropertyValue("--type-scale")).toBe("1.1");
+  expect(document.documentElement.style.getPropertyValue("--font-interface")).toBe(
+    "system-ui, sans-serif",
+  );
+  expect(
+    view.container.querySelector<HTMLElement>(".dlg-head")?.style.getPropertyValue("--ink"),
+  ).toBe("#112233");
   expect(document.documentElement.style.getPropertyValue("--shape-radius")).toBe("0px");
   expect(document.documentElement.style.getPropertyValue("--shape-shadow")).toBe("0.4");
   expect(document.documentElement.style.getPropertyValue("--state-focus")).toBe("#223344");
@@ -1069,7 +1093,11 @@ test("approval queue preserves focus and keyed rows, guards moved controls and r
   let request: DialogRequest = {
     id: "queue",
     presented: true,
-    theme: resolveInterfaceTheme("follow", false),
+    theme: {
+      ...resolveInterfaceTheme("follow", false),
+      version: 2,
+      areas: { "dialog-headers": { ink: "#112233", bg: "#eeeeee" } },
+    },
     title: "Approvals",
     accept: "Approve",
     approvals: [row("a"), row("b", "Authority")],
@@ -1080,6 +1108,11 @@ test("approval queue preserves focus and keyed rows, guards moved controls and r
   });
   expect(document.activeElement).toBe(terminal);
   expect(view.getByRole("dialog").getAttribute("aria-modal")).toBe("false");
+  expect(
+    [...view.container.querySelectorAll<HTMLElement>(".dlg-head")].map((header) =>
+      header.style.getPropertyValue("--ink"),
+    ),
+  ).toEqual(["#112233", "#112233"]);
   const a = view.getByRole("group", { name: "Remove a?" });
   await act(async () => {
     await vi.advanceTimersByTimeAsync(900);
@@ -1087,13 +1120,18 @@ test("approval queue preserves focus and keyed rows, guards moved controls and r
   expect(view.getByRole("button", { name: "Approve all visible removals (1)" })).toBeTruthy();
   fireEvent.click(view.getByRole("button", { name: "Approve all visible removals (1)" }));
   expect(answer).not.toHaveBeenCalled();
-  request = { ...request, geometryRevision: 1 };
+  request = { ...request, geometryRevision: 1, theme: resolveInterfaceTheme("follow", false) };
   act(() => {
     receive(request);
   });
   await act(async () => {
     await vi.advanceTimersByTimeAsync(0);
   });
+  expect(
+    [...view.container.querySelectorAll<HTMLElement>(".dlg-head")].map((header) =>
+      header.style.getPropertyValue("--ink"),
+    ),
+  ).toEqual(["", ""]);
   expect(a.querySelector(".confirmation-accept")).toHaveProperty("disabled", true);
   expect(
     view.getByRole("button", { name: /Approve all visible/ }).getAttribute("aria-disabled"),

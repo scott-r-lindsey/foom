@@ -237,3 +237,158 @@ test("config agents receive only the bundled manual and revoke the attachment on
     })
     .toBe(true);
 });
+
+for (const helpExit of [0, 2]) {
+  test(`an agy config session greets with stderr help and help exit ${helpExit}`, {
+    timeout: deadline(90_000),
+    skip: process.platform === "win32" && "The fake agent is a POSIX script",
+  }, async (context) => {
+    const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-agy-greeting-")));
+    removeAfterApps(context, root);
+    const bin = path.join(root, "bin");
+    const home = path.join(root, "home");
+    const report = path.join(root, "args.json");
+    await mkdir(bin);
+    await mkdir(home);
+    await writeFile(
+      path.join(bin, "agy"),
+      `#!${process.execPath}
+const { writeFileSync } = require("node:fs");
+const args = process.argv.slice(2);
+if (args[0] === "--version") { console.log("1.3.3"); process.exit(0); }
+if (args[0] === "--help") { console.error("--prompt-interactive <prompt>"); process.exit(${helpExit}); }
+if (args[0] === "plugin") { console.log("No imported plugins."); process.exit(0); }
+writeFileSync(${JSON.stringify(report)}, JSON.stringify(args));
+const index = args.indexOf("--prompt-interactive");
+if (index >= 0 && args[index + 1].includes("greet")) {
+  console.log("FAKE_AGY_GREETING: What would you like to change?");
+}
+process.stdin.resume();
+`,
+      { mode: 0o700 },
+    );
+    const app = await launchApp(context, {
+      fixture: "agent",
+      home,
+      env: { HOME: home, PATH: bin },
+    });
+    const page = await boardPage(app);
+    await page.locator(".config-gear").click();
+    await page
+      .getByRole("dialog", { name: "Foom config details and commands" })
+      .getByRole("menuitem", { name: "Via Antigravity", exact: true })
+      .click();
+    await expect
+      .poll(async () => {
+        const snapshot = await page.evaluate(() => window.desktop.workspace());
+        const id = snapshot.terminals.find((entry) => entry.config)?.id;
+        return id
+          ? page.evaluate(async (id) => (await window.desktop.tail(id, 40)).join("\n"), id)
+          : "";
+      })
+      .toContain("FAKE_AGY_GREETING");
+    const args = JSON.parse(await readFile(report, "utf8"));
+    assert.ok(args[args.indexOf("--prompt-interactive") + 1].includes("greet"));
+    assert.ok(!args.includes("--conversation"));
+  });
+}
+
+test("fresh profiles adopt shared config without resetting a running profile", {
+  timeout: deadline(60_000),
+}, async (context) => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-config-adoption-")));
+  removeAfterApps(context, root);
+  const home = path.join(root, "home");
+  const profileA = path.join(root, "a");
+  const profileB = path.join(root, "b");
+  const a = await launchApp(context, {
+    fixture: "empty-board",
+    home,
+    args: [`--user-data-dir=${profileA}`],
+  });
+  const pageA = await boardPage(a);
+  await pageA.evaluate(() =>
+    window.desktop.saveSetup({
+      interfaceTheme: "eclipse-dark",
+      terminalFontSize: 19,
+      hooks: false,
+    }),
+  );
+  const file = path.join(home, ".foom", "config", "settings.json");
+  const before = await readFile(file);
+  // A v1 profile and window placement must not overwrite an adopted file either.
+  await mkdir(profileB, { recursive: true });
+  await writeFile(
+    path.join(profileB, "settings.json"),
+    JSON.stringify({
+      version: 1,
+      settings: { interfaceTheme: "eclipse-light", interfaceScale: 110, checkForUpdates: false },
+    }),
+  );
+  const b = await launchApp(context, {
+    fixture: "first-run",
+    home,
+    args: [`--user-data-dir=${profileB}`],
+  });
+  const pageB = await boardPage(b);
+  await pageB.getByRole("button", { name: "Start preflight" }).waitFor();
+  assert.deepEqual(await readFile(file), before);
+  assert.equal(
+    (await pageB.evaluate(() => window.desktop.setupState())).settings.interfaceTheme,
+    "follow",
+  );
+  assert.equal(
+    (await pageA.evaluate(() => window.desktop.setupState())).settings.interfaceTheme,
+    "eclipse-dark",
+  );
+  assert.equal(
+    (await pageB.evaluate(() => window.desktop.configStatus())).pending.detail,
+    "hooks: on → off",
+  );
+  // Wait for A's real scanner to process a later event before checking its theme.
+  await writeFile(path.join(home, ".foom", "config", "themes", "barrier.json"), "{}");
+  await expect
+    .poll(async () =>
+      (await pageA.evaluate(() => window.desktop.configStatus())).rejected.some(
+        (entry) => entry.file === "themes/barrier.json",
+      ),
+    )
+    .toBe(true);
+  assert.equal(
+    (await pageA.evaluate(() => window.desktop.setupState())).settings.interfaceTheme,
+    "eclipse-dark",
+  );
+  assert.deepEqual(await readFile(file), before);
+});
+
+test("start:fresh state isolation keeps config and worktrees inside its temporary profile", async (context) => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-fresh-state-")));
+  removeAfterApps(context, root);
+  const home = path.join(root, "home");
+  const profile = path.join(root, "profile");
+  const shared = path.join(home, ".foom");
+  await mkdir(path.join(shared, "config"), { recursive: true });
+  const sentinel = '{ "kind": "settings", "interfaceTheme": "eclipse-light" }\n';
+  await writeFile(path.join(shared, "config", "settings.json"), sentinel);
+  const app = await launchApp(context, {
+    fixture: "empty-board",
+    home,
+    args: [`--user-data-dir=${profile}`, "--foom-isolated-state"],
+  });
+  const page = await boardPage(app);
+  const status = await page.evaluate(() => window.desktop.configStatus());
+  assert.equal(status.folder, path.join(profile, ".foom", "config"));
+  assert.equal(
+    (await page.evaluate(() => window.desktop.setupState())).worktreeRoot,
+    path.join(profile, ".foom", "worktrees"),
+  );
+  await page.evaluate(() => window.desktop.saveSetup({ interfaceTheme: "eclipse-dark" }));
+  assert.equal(
+    JSON.parse(await readFile(path.join(profile, ".foom", "config", "settings.json"), "utf8"))
+      .interfaceTheme,
+    "eclipse-dark",
+  );
+  assert.equal(await readFile(path.join(shared, "config", "settings.json"), "utf8"), sentinel);
+  const { readdir } = require("node:fs/promises");
+  assert.deepEqual(await readdir(shared), ["config"]);
+});

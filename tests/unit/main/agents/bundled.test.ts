@@ -1,3 +1,4 @@
+import { CHILD_PROMPT } from "../../../../src/main/agents/providers/cli-launch";
 import { mcpTools } from "../../../../src/shared/control-tools";
 import { CONTROL_TOOL_CLASSES } from "../../../../src/shared/control-tool-classes";
 import { createHash } from "node:crypto";
@@ -177,7 +178,7 @@ it.each([false, true])(
         ...mcpTools(1, []).map(({ name: tool }) => `mcp__${name}__${tool}`),
         ...(hooks ? ["--settings", settings] : []),
         "--",
-        "Task from your Foom orchestrator (another agent, not the user):\nBefore stopping when finished, blocked, or CI fails, report to your parent with handoff({ status: done|blocked|failed, summary, links?, idempotencyKey }), or foom handoff --status done|blocked|failed --summary-file FILE|- [--link HTTPS_URL] --idempotency-key KEY. Handoffs are pull-only; they never type into a terminal.\n\nFix it",
+        `${CHILD_PROMPT}\n\nFix it`,
       ]);
       if (process.platform !== "win32") expect((await stat(file)).mode & 0o777).toBe(0o600);
     } finally {

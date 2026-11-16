@@ -1,4 +1,6 @@
 import { ApprovalGeometry } from "./approval-geometry";
+import { applyInterfaceTypography, interfaceGradientCss } from "./ui/interface-theme";
+import { interfaceColorNames, interfaceHighlightNames } from "../shared/interface-themes";
 import { CopyValue } from "./ui/copy-value";
 import {
   createContext,
@@ -229,8 +231,29 @@ export function ConfirmationCard({
   useEffect(() => {
     if (!request) return;
     const colors = { ...request.theme.colors, ...request.theme.areas?.dialogs };
-    for (const [key, color] of Object.entries(colors))
-      document.documentElement.style.setProperty(`--${key}`, color);
+    for (const key of [...interfaceColorNames, ...interfaceHighlightNames]) {
+      const color = colors[key];
+      if (color) document.documentElement.style.setProperty(`--${key}`, color);
+    }
+    applyInterfaceTypography(request.theme, document.documentElement);
+    const header = cardRef.current?.querySelector<HTMLElement>(".dlg-head");
+    if (header) {
+      const area = request.theme.areas?.["dialog-headers"];
+      const palette = area ? { ...request.theme.colors, ...area } : undefined;
+      for (const key of [...interfaceColorNames, ...interfaceHighlightNames]) {
+        const color =
+          palette?.[key] ??
+          (key === "highlight"
+            ? palette?.accent
+            : key === "highlight-deep"
+              ? palette?.["accent-deep"]
+              : undefined);
+        if (color) header.style.setProperty(`--${key}`, color);
+        else header.style.removeProperty(`--${key}`);
+      }
+      header.style.backgroundImage = interfaceGradientCss(area?.gradient) ?? "";
+      header.style.backgroundColor = area ? "var(--bg)" : "";
+    }
     document.documentElement.style.setProperty("--highlight", colors.highlight ?? colors.accent);
     document.documentElement.style.setProperty(
       "--highlight-deep",

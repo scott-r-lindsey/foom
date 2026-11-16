@@ -4,7 +4,11 @@ import type {
   DialogSummaryLine,
   RemovalItem,
 } from "../shared/confirmation";
-import type { InterfaceTheme } from "../shared/interface-theme";
+import type {
+  InterfaceTheme,
+  InterfaceAreaTheme,
+  InterfaceGradient,
+} from "../shared/interface-theme";
 import type { CleanupDialog, CleanupReason } from "../shared/cleanup";
 import type { IpcRendererEvent } from "electron";
 import { contextBridge, ipcRenderer } from "electron";
@@ -130,6 +134,50 @@ const interfaceColorFields = {
   highlight: either(absent, color),
   "highlight-deep": either(absent, color),
 };
+// Theme extensions remain data: copy only validated scalar fields and stop tuples.
+const validGradient: Validator<InterfaceGradient> = copying(
+  (value): value is InterfaceGradient => {
+    if (
+      !object(value) ||
+      !range(0, 359)(value["angle"]) ||
+      !Array.isArray(value["stops"]) ||
+      value["stops"].length < 2 ||
+      value["stops"].length > 4
+    )
+      return false;
+    let previous = -1;
+    for (const stop of value["stops"]) {
+      if (
+        !Array.isArray(stop) ||
+        stop.length !== 2 ||
+        !color(stop[0]) ||
+        !range(0, 100)(stop[1]) ||
+        stop[1] <= previous
+      )
+        return false;
+      previous = stop[1];
+    }
+    return true;
+  },
+  (value) =>
+    validGradient(value)
+      ? {
+          angle: value.angle,
+          stops: value.stops.map(([hex, percent]) => [hex, percent]),
+        }
+      : undefined,
+);
+function themeArea(allowGradient = false): Validator<InterfaceAreaTheme> {
+  const fields = { ...interfaceColorFields, scrollbar: color, gradient: validGradient };
+  const check = partial(fields);
+  return copying(
+    (value): value is InterfaceAreaTheme =>
+      object(value) &&
+      check(value) &&
+      (value["gradient"] === undefined || (allowGradient && color(value["bg"]))),
+    (value) => project(check, value),
+  );
+}
 const validInterfaceTheme: Validator<InterfaceTheme> = shape({
   version: literal(1, 2),
   name: text,
@@ -138,11 +186,26 @@ const validInterfaceTheme: Validator<InterfaceTheme> = shape({
   areas: either(
     absent,
     shape({
-      sidebar: either(absent, partial(interfaceColorFields)),
-      tiles: either(absent, partial(interfaceColorFields)),
-      panels: either(absent, partial(interfaceColorFields)),
-      dialogs: either(absent, partial(interfaceColorFields)),
-      menus: either(absent, partial(interfaceColorFields)),
+      sidebar: either(absent, themeArea(true)),
+      tiles: either(absent, themeArea()),
+      panels: either(absent, themeArea()),
+      dialogs: either(absent, themeArea()),
+      menus: either(absent, themeArea()),
+      titlebar: either(absent, themeArea(true)),
+      "tile-headers": either(absent, themeArea()),
+      board: either(absent, themeArea(true)),
+      badges: either(absent, themeArea()),
+      wordmark: either(absent, themeArea()),
+      "dialog-headers": either(absent, themeArea(true)),
+    }),
+  ),
+  type: either(
+    absent,
+    partial({
+      family: literal("geist", "geist-mono", "system", "system-mono"),
+      scale: range(0.85, 1.25),
+      weight: range(400, 600),
+      "strong-weight": range(500, 800),
     }),
   ),
   states: either(

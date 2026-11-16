@@ -34,6 +34,25 @@ animation-frame assertion and startup diagnostics. The sandbox, controlled login
 shell/PATH, agent guard, process audit and quit-before-directory-removal ordering
 are unchanged.
 
+## Hosts navigation request window (#1199)
+
+Host enrollment publishes sidebar refreshes independently of the completed Hosts
+checklist. Refresh/configure can invalidate the shared sidebar promise while an
+older read is still running. Awaiting `window.desktop.sidebarInventory()` alone
+joins only the current read, leaving older repository/SSH discovery able to enter
+the navigation capture window. For this case, a test-only observer installed before
+enrollment tracks every sidebar read without replacing its work or result. Setup
+joins the current read and then drains all observed reads before sealing the catalog.
+
+The SSH fixture also returns a successful empty `inventory: {own: [], other: 0}`
+for `list-worktrees`, matching the daemon protocol. A successful facts-only reply
+leaves the worktree cache empty, so later sidebar refreshes start SSH discovery
+again. A valid empty inventory lets those readers reuse the normal cache. A second
+sidebar read asserts that setup now reuses the cache before measuring navigation.
+Opening Hosts must leave the entire fixture request log unchanged. Explicit checks
+retain the separate assertion against daemon and repository requests when the
+catalog is omitted.
+
 ## Agents scope review captures (#1070)
 
 The twelve-agent/twelve-host case checks desktop/light and narrow/dark, including
@@ -42,6 +61,14 @@ accessibility check covers both themes. Set `FOOM_AGENT_SCOPES_SCREENSHOTS=1` to
 run the full width/theme review matrix and save Global, Machines, remote-plugin
 and offline images under `test-results/1070-step2/`. Ordinary CI retains every
 functional assertion without repeating the full review matrix or writing images.
+
+The keyboard scroll check waits for End to reach the bottom before sending Home,
+then requires the top and retained list focus (#1183). Native scrolling can still
+be animating when the first nonzero position is observed. A bounded, test-only
+trace records Home/End delivery, list scroll positions, connection state and DOM
+focus around both keys in JUnit diagnostics, including assertion failures. Its
+listeners are removed before continuing or tearing down the fixture. No scroll
+position is assigned by the test and native animation remains enabled.
 
 ## Remote host SEA fixture (#905)
 
