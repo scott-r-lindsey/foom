@@ -1,11 +1,8 @@
 # Repository setup on hosts (#1080)
 
-**Phase 1 proposal — requires user approval before implementation.** This PR adds
-only this design and the [clickable mockup](../mockups/repository-setup/README.md).
-It does not extend host execution, persistence or launch behavior. The user merges
-this design PR; implementation follows only after approval of the design and light
-and dark screenshots. `Closes #1080` in the PR is the requested issue reference,
-not a claim that the runtime acceptance criteria have been implemented.
+**Approved design.** Phase 1 was approved by the user and merged in #1192.
+Phase 2 implements the runtime and fixture acceptance below. The user merges the
+implementation because this extends host execution and trusted human approvals.
 
 ## Current behavior and scope
 
@@ -72,7 +69,9 @@ RHEL-family, Arch, macOS), package names, toolchain version constraints, purpose
 evidence and any gaps. A distribution picker changes the displayed command preview;
 it does not hide other mappings from approval. Each mapping shows its exact argv
 steps and whether sudo is required. Package names are literal, narrowly validated
-operands; they cannot begin with a dash or contain whitespace, paths or expansion.
+operands. Per-manager allowlists reject leading or trailing modifiers, selectors,
+whitespace, paths and globs. Debian names also exclude dots to prevent apt regex
+fallback; Homebrew accepts only formula names with an optional numeric `@version`.
 Version constraints use a closed supported form (exact version or major range),
 not arbitrary expressions passed to a shell. Limits: 64 KiB input, 128 requirements,
 64 source paths, 160 characters per path and 500 characters per explanation.
@@ -81,10 +80,14 @@ Unknown fields, duplicates, invalid UTF-8/NUL and oversize input refuse import.
 Approval is distinct from execution. **Approve list** saves a new immutable active
 revision atomically in main. It installs nothing. **Cancel** leaves the previous
 active revision intact; drafts never replace it. Updating shows added, removed and
-changed requirements against the active revision. Approval can replace the whole
-list only from the registered board main frame using a main-held review token
-bound to repository identity, draft digest and expected active revision. Main
-revalidates the evidence snapshot and catalog revision before saving; a change
+changed requirements against the active revision. Initial approval and every
+whole-list replacement, including an empty list, require
+a separate main-owned trusted confirmation window. It names all requirements and
+discloses removal of all launch prerequisites for an empty list; Cancel is the
+default. A registered board may request this flow with its main-held review token
+bound to repository identity, draft digest and expected active revision, but the
+board and token cannot answer it. Main revalidates the review, evidence snapshot
+and catalog revision after confirmation before saving; a change
 requires review again. A concurrent window's approval makes an older review refuse.
 Failed persistence retains the active revision and the editable draft.
 
@@ -95,6 +98,14 @@ Profile writes use the current serialized JSON store; this work must not migrate
 production state to SQLite or enable #1153 phase-D guards incidentally. Main owns
 records; renderer/preload receive bounded validated projections. Future migration
 follows [data ownership](../areas/data.md).
+
+Catalog-v1 approvals remain profile data when a newer operand grammar rejects
+their names. A version-specific historical reader verifies their original canonical
+list/source digests without granting execution authority. Startup succeeds and
+shows Review needed; review preserves the old mappings and offers Edit draft.
+Current parsing must succeed before trusted approval can replace the list with
+the next revision. Never silently drop the prerequisite or treat these authentic
+old records as corrupt. Unrecognized corrupt authority still refuses loading.
 
 Removing a list requires an explicit **Remove setup list** confirmation explaining
 that this removes the repository launch prerequisite. It uninstalls nothing.
@@ -152,8 +163,28 @@ Read-only checks are new, closed host operations. Package presence uses fixed
 package-database queries for the selected distro and toolchain probes use bundled
 version parsers and fixed `--version` arguments. They run outside the checkout,
 with normalized host environment and a safe PATH excluding checkout/current-directory
-entries. They never call a checkout's package manager, config, script or plugin.
+entries. For local linked-worktree admission, exclude both the registered
+repository's complete directory tree and the selected checkout, including their
+canonical executable targets. Check these exclusions while pinning executable
+and interpreter targets before any ABI probe. Source observations retain the registered
+repository as code root; selecting a worktree must never narrow that scope. They
+never call a checkout's package manager, config, script or plugin.
 Version mismatch is **Needs setup**; a failed/timed-out probe is **Unable to check**.
+The executable probe environment uses a fresh private 0700 directory of links to
+canonical verified tool/interpreter targets, captured before ABI probes. Its PATH
+retains only these pins and verified fixed root-owned system directories, with
+missing tool names shadowed rather than falling through. It never carries mutable
+login-bin paths into an `env` shebang. The shared scoped checker removes this
+directory on completion/failure/cancellation; setup helpers retain it through
+recipes. Static shebang chains are checked recursively (at most four scripts),
+including simple env lookups. Only argument-free absolute interpreters and
+`/usr/bin/env NAME` (or a canonical alias of env) are accepted. Any further
+interpreter argument blocks the tool, without an option allowlist. Relative
+interpreters and any link into the registered root or selected checkout block
+the tool. Accepted scripts execute through their
+canonical interpreter rather than asking the kernel to follow an interpreter
+alias. The boundary is repository content; same-user retargeting outside both
+roots is out of scope. No amount of late rechecking substitutes for this scope.
 Saved results are presentation only, never launch authorization.
 
 **Set up** is the single execution click after an active list has been approved.
@@ -180,9 +211,27 @@ capability version advertises this extension; incompatible older daemons refuse
 before dispatch without falling back to generic execution. Exact recipe-catalog
 identity is required even for protocol-compatible peers. Registration, repository,
 approval and cancellation are rechecked after awaits and immediately before dispatch.
+The source fingerprint and actual checkout/root (or explicit absence) are bound
+into the run digest. Main re-reads sources after asynchronous local shell/remote
+connection preparation, immediately before dispatch; the helper re-reads before
+probes and each recipe step. A changed snapshot refuses the obsolete plan.
+Remote helper PATH filtering uses the actual registered code root, even when the
+repository is absent; realpath checks exclude repository directories and login
+bins resolving Node/pnpm/Homebrew into that root before any version execution.
+Remote launch admission carries the main-selected registered code root, excludes
+both it and the actual selected checkout, and pins canonical executable and
+interpreter targets before ABI probes in both daemon and child launches.
 
-OS packages retain existing recipe policy: Debian update then install, DNF install,
-Arch install without `-Sy`, and Homebrew via the validated login PATH. Prompts and
+Install-only transactions take precedence over backend availability. Debian uses
+update then `apt-get install -y --no-remove --` (solver removals abort too). Homebrew
+uses `install --formula --` through the pinned canonical target discovered from
+the validated login PATH, with automatic cleanup and installed-dependent
+upgrade/reinstall disabled. Missing RHEL/Arch packages
+require manual setup: the bundled DNF/pacman backends do not provide a verified
+atomic no-removal guarantee. Read-only presence checks, already-met requirements
+and private toolchain recipes remain supported there. Catalog revision 6 invalidates
+old approvals/peers so changed operand, transaction and probe rules require fresh review.
+Prompts and
 sudo stay in the visible terminal; Foom cannot supply an answer. No silent fallback,
 removal, distribution upgrade, arbitrary package repository or repository script.
 

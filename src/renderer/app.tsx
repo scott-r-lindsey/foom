@@ -1,3 +1,4 @@
+import type { SetupRefusal } from "../shared/repository-setup.d";
 import type { BoardSource } from "./board/board-source.d";
 import { attachTerminalSelectionBuffer } from "./terminal/middle-click";
 import { restoreBoardFocus } from "./board/focus-restore";
@@ -103,7 +104,11 @@ function AppContents({ source }: { source: BoardSource }) {
       proceed?.();
     });
   };
-  const [section, setSection] = useState<{ name?: "config"; version: number }>({ version: 0 });
+  const [setupRefusal, setSetupRefusal] = useState<SetupRefusal>();
+  useEffect(() => setup.onRepositorySetupRefused?.(setSetupRefusal), [setup]);
+  const [section, setSection] = useState<{ name?: "config" | "hosts"; version: number }>({
+    version: 0,
+  });
   const [board, setBoard] = useState(false);
   useEffect(() => {
     setup.state().then(
@@ -119,7 +124,7 @@ function AppContents({ source }: { source: BoardSource }) {
       },
     );
   }, [setup]);
-  const reopen = async (name?: "config") => {
+  const reopen = async (name?: "config" | "hosts") => {
     setSection((current) => ({ ...(name ? { name } : {}), version: current.version + 1 }));
     try {
       setState(await setup.state());
@@ -169,6 +174,7 @@ function AppContents({ source }: { source: BoardSource }) {
       )}
       {board && (
         <Board
+          {...(setupRefusal ? { setupRefusal } : {})}
           source={source}
           soundSetup={setup}
           inactive={preflight}
@@ -185,6 +191,7 @@ function AppContents({ source }: { source: BoardSource }) {
                 source={setup}
                 initial={state}
                 settingsMode
+                {...(section.name === "hosts" && setupRefusal ? { setupRefusal } : {})}
                 {...(section.name ? { initialSection: section.name } : {})}
                 onLaunched={setState}
                 onClose={() => {

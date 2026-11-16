@@ -1,13 +1,9 @@
+import type { DataViewApi } from "../../shared/data-views";
+import { useSoundsView } from "../data/view-hooks";
 import { ActionError, useBackgroundErrors } from "../board/error-presentation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { SettingsPatch } from "../../shared/setup";
-import type {
-  AudioSink,
-  SoundChoice,
-  SoundEntry,
-  SoundKind,
-  SoundSettings,
-} from "../../shared/sound";
+import type { AudioSink, SoundChoice, SoundKind, SoundSettings } from "../../shared/sound";
 import { parseSoundSettings, soundName, soundVolume } from "../../shared/sounds";
 import { createAudioSink } from "./web-audio";
 import { VolumeControl } from "./volume-control";
@@ -21,15 +17,23 @@ const choiceKey = (choice: SoundChoice) => `${choice.source}:${choice.file}`;
 export function SoundControls({
   settings,
   onChange,
+  views,
 }: {
+  views?: DataViewApi | undefined;
   settings: SoundSettings;
   onChange: (patch: SettingsPatch) => void;
 }) {
-  const [entries, setEntries] = useState<SoundEntry[]>([]);
+  const source = useMemo(() => (views ? { views } : {}), [views]);
+  const query = useSoundsView(source, () => window.desktop.sounds.list());
+  const entries = query.data ?? [];
   const [reasons, setReasons] = useState<Partial<Record<SoundKind, string | undefined>>>({});
   const [error, setError] = useState("");
   const [credits, setCredits] = useState("");
   const { report, clear } = useBackgroundErrors();
+  useEffect(() => {
+    if (query.isError) report("sound-catalog", "Unable to list sounds.");
+    else if (query.isSuccess) clear("sound-catalog");
+  }, [query.isError, query.isSuccess, report, clear]);
   const sinkRef = useRef<AudioSink>(undefined);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const stop = () => {
@@ -42,17 +46,6 @@ export function SoundControls({
     sinkRef.current = createAudioSink(undefined, window.desktop.sounds, (kind, reason) => {
       if (active) setReasons((previous) => ({ ...previous, [kind]: reason }));
     });
-    void window.desktop.sounds.list().then(
-      (list) => {
-        if (active) {
-          setEntries(list);
-          clear("sound-catalog");
-        }
-      },
-      () => {
-        if (active) report("sound-catalog", "Unable to list sounds.");
-      },
-    );
     return () => {
       active = false;
       stop();

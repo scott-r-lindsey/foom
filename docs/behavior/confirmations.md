@@ -18,7 +18,8 @@ After trusted lifecycle hooks have been observed working, later launches keep th
 user's notifier. Setup shows hook health and directs review to Codex's own `/hooks`
 screen.
 
-Decisions with content use a separate trusted Foom window. Removing a dirty
+User-action decisions with content use a separate trusted Foom window. Agent and
+background approvals instead use the shared queue described below. Removing a dirty
 worktree lists the exact uncommitted status from Git and offers **Cancel** and
 **Discard N changes and remove**. Quitting with live terminals lists each session,
 its status light and location, then **Cancel** and **Stop all and quit**. Cancel is
@@ -33,7 +34,8 @@ It remains usable if the board renderer crashes or hangs.
 After a user-started confirmation is shown and checked, switching to another app
 leaves it pending without taking focus back. Returning to Foom brings the dialog
 forward again; confirming still requires it to be focused and fully on screen.
-Agent, CLI pairing, preview and workspace requests still cancel when Foom is inactive.
+Agent and background approvals stay pending in the queue while Foom is inactive.
+User-action preview and workspace confirmations retain their existing availability checks.
 Confirmation buttons use solid ink; amber and magenta retain their status meanings.
 
 Folder pickers stay native. The New worktree branch field collects input and does not
@@ -55,7 +57,7 @@ file bytes in individually capped scrolling boxes. The dialog is capped at 800
 CSS pixels (and the available window height), with a scrolling content region
 and an always-visible action footer. Tab reaches the native disclosure summaries
 and expanded byte boxes; Enter or Space toggles summaries. A new request starts
-collapsed and focuses Cancel.
+collapsed. User-action dialogs focus Cancel; queue rows never move focus on arrival.
 
 Merged-worktree cleanup offers **Close when completed** to the left of its footer
 buttons before deletion and while running. It starts checked on every opening and
@@ -64,11 +66,37 @@ failed or refused removals stay visible for **Done**. Unchecking keeps the finis
 state open. **Hide** and Escape still hide a running cleanup without stopping it,
 and hidden completion follows the existing cleanup reporting behavior.
 
-Removal reviews appear one at a time across all Foom boards, including agent
-requests, **Delete merged worktrees…** and reviewer cleanup. Later reviews wait
-for the visible one to close. Checking and fetching keep Delete disabled and show
-the current checking state; neither a queued review nor a background cleanup
-grants approval to another removal.
+Agent and background requests share one approval window across all boards (#1105).
+Every row names its source (agent and tile/session identity when present, or
+background/no tile), repository or global settings scope, target and complete
+consequences. Each has its own Approve and Decline. The queue opens only through
+**N approvals waiting**, shown in amber with a text label in each board sidebar.
+Arrivals never focus it or capture Enter from a terminal. Hide, Escape and native
+close/minimize keep pending rows; they do not decline them. Switching apps leaves
+them pending. The board remains usable without a scrim.
+
+Rows append at the end with stable identities and both decisions disabled for
+900 ms after presentation. Repeated identical requests merge into one row; each
+caller's cancellation remains independent. A withdrawn, expired or externally
+resolved request is replaced by a non-interactive “Request ended” placeholder
+for 900 ms. Reclaiming that space cannot immediately activate a different row:
+buttons that move are disabled for another 900 ms. Moving or resizing controls,
+including by scrolling or expanding details, restarts this reading interval.
+Moving or resizing the native approval window also disables decisions for 900 ms,
+including when it recenters after its board moves or resizes.
+Removing a focused decision moves focus to Hide. Empty queues close.
+The window grows down from a fixed top edge to 720 CSS pixels, then scrolls within
+the available board/display area. Its title and the sidebar show the live count.
+
+**Approve all visible removals (N)** captures only fully visible, ready worktree
+removal rows when the primary pointer or Enter/Space key is pressed. Release
+approves only captured rows that are still visible and ready. Later arrivals,
+withdrawn requests and clipped/off-screen rows are excluded. Synthetic clicks or
+keyboard events never make a decision in any trusted confirmation.
+Authority, plugin trust, host trust and credential grants always require individual
+approval. Full plugin disclosures and progress remain in their own row. User-started
+link-open, tile-close, quit and merged-cleanup confirmations retain their existing
+local action flow; checking/fetching still grants no deletion consent.
 
 Plugin setup keeps the same dialog after Install, Reinstall, Update, Enable or
 Remove. Fixed steps use symbols and labels for pending, running, done and failed.

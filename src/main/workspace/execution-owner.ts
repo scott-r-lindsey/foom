@@ -13,6 +13,7 @@ import type { HookSignal } from "../../shared/hooks";
 import type { TerminalState, WorkspaceTerminal } from "../../shared/workspace";
 
 type Terminal = {
+  wakeHookIdle?: boolean;
   v2Hooks?: V2HookRuntime;
   execution?: AgentExecution;
   completedTurn?: number;
@@ -55,6 +56,7 @@ export interface ExecutionOwnerDependencies {
   enqueue: (id: string, work: () => Promise<void>) => Promise<void>;
   closed: () => boolean;
   refresh: () => void;
+  wakeEligibilityChanged?: () => void;
   recheck: (id: string) => void;
   exited: (id: string) => void;
   reset: (id: string) => void;
@@ -163,6 +165,9 @@ export class ExecutionOwner {
     const terminal = this.track(id);
     const event = this.execution(id).transition(phase, source, terminal.permissionProgress);
     if (!event) return;
+    if (phase === "working" || phase === "blocked" || phase === "exited")
+      delete terminal.wakeHookIdle;
+    this.deps.wakeEligibilityChanged?.();
     if (phase !== "blocked") {
       delete terminal.attentionKey;
       delete terminal.dismissedAttention;
@@ -507,6 +512,16 @@ export class ExecutionOwner {
     });
   }
 
+  /** Input never establishes readiness; only the current invocation's accepted hooks do. */
+  wakeIdle(id: string): boolean {
+    const terminal = this.terminals.get(id);
+    return (
+      terminal?.wakeHookIdle === true &&
+      terminal.execution?.snapshot().phase === "idle" &&
+      terminal.exitCode === undefined
+    );
+  }
+
   /** Only signals resolved against a current per-launch hook capability reach here. */
   hook(id: string, signal: HookSignal): Promise<void> {
     if (this.track(id).exitCode !== undefined) return Promise.resolve();
@@ -525,8 +540,11 @@ export class ExecutionOwner {
       !runtime.accept(signal, this.execution(id).snapshot().turn)
     )
       return Promise.resolve();
+    delete health.wakeHookIdle;
+    this.deps.wakeEligibilityChanged?.();
     if (signal.action === "ready" && signal.signal.startsWith("plugin:")) {
       if (runtime && health.hook?.action === "needs_input") return Promise.resolve();
+      health.wakeHookIdle = true;
       const wasWorking = this.execution(id).snapshot().phase === "working";
       this.transition(id, "idle", "hook");
       if (signal.endsTurn === false && wasWorking) delete health.completedTurn;
@@ -571,6 +589,7 @@ export class ExecutionOwner {
       this.transition(id, "blocked", "hook");
     } else if (signal.endsTurn !== false) {
       const terminal = this.track(id);
+      terminal.wakeHookIdle = true;
       const turn = terminal.execution?.snapshot().turn;
       if (turn && (signal.signal.startsWith("plugin:") || signal.signal === "agy:Stop"))
         terminal.completedTurn = turn;
@@ -611,11 +630,13 @@ export class ExecutionOwner {
   /** Drop the invocation; pending evaluations fail their identity check. */
   reset(id: string): void {
     this.terminals.delete(id);
+    this.deps.wakeEligibilityChanged?.();
     this.deps.reset(id);
   }
 
   removed(id: string): void {
     this.terminals.delete(id);
+    this.deps.wakeEligibilityChanged?.();
     this.deps.verdicts.forget(id);
   }
 
@@ -635,6 +656,8 @@ export class ExecutionOwner {
   input(id: string): void {
     const terminal = this.terminals.get(id);
     if (!terminal) return;
+    delete terminal.wakeHookIdle;
+    this.deps.wakeEligibilityChanged?.();
     terminal.inputVersion = (terminal.inputVersion ?? 0) + 1;
     if (terminal.hook?.action === "needs_input") {
       terminal.permissionReply = true;

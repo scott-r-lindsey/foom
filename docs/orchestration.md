@@ -168,3 +168,56 @@ trusted removal batch once their PR is merged or closed and their sessions are
 idle. Offline or unavailable evidence waits for a later inventory. Each checkout
 identity is offered once per app lifetime; declining preserves it. Approval still
 rechecks identity, membership, sessions, reservations and the final status snapshot.
+
+## Opt-in idle orchestrator wake (#548)
+
+Settings → General → **Wake idle orchestrators on child events** is off by default
+and profile-only. It submits a fixed Foom-authored notice such as
+`Foom: child events for child-one. Call wait_for and read_handoff.` Names are
+stripped to bounded ASCII letters, digits, dots, underscores and hyphens. No
+handoff summary, URL, PR text or terminal output enters the notice. Handoffs,
+idle/exit without a report for that turn, required-check changes and PR close/merge
+invalidate the shared child-event cursor; permission/credential attention alone
+does not enqueue a wake. Pending events coalesce per live orchestrator. The
+minimum interval is configurable from 1–1440 minutes, default three minutes.
+
+The 2026-11-15 human decision replaces the earlier absolute “never reaches a
+menu” requirement with a **best-effort** cancel-and-recheck flow. The latest
+accepted lifecycle hook must establish idle in this invocation, with no later
+human input or progress; a long unchanged idle wait does not expire this evidence. The current execution phase must
+still be idle. Foom queues uncertain, stale, working, starting, exited or focused
+recipients. Main checks the current grant and human focus before each operation.
+The terminal host checks the live parsed viewport, exact cursor composer and
+manifest-declared layout anchors, rejecting any declared prompt/menu marker and
+any pending parser output. After a positive check and durable Action Log intent,
+it rechecks and sends only the manifest's Escape cancel sequence. It waits 150 ms,
+checks authority/hook/focus again, then rechecks the live screen in the same host
+callback that writes the fixed line and its submit together. The host honors
+bracketed paste. Failure queues the notice for a later attempt; ambiguous delivery
+is logged as indeterminate and is never automatically retried.
+
+Escape can deny a newly appeared permission or interrupt a turn. It is **not** a
+provider-owned input fence: the process can change its input state before its
+redraw reaches Foom, including after the final check. A menu appearing after that
+check can still consume the submit. This residual race is accepted by the human
+opt-in; no claim that cancel eliminates it is made. Unknown layouts fail closed. Agent-editable config providers cannot opt themselves
+into this input capability; runtime policies currently require bundled provenance.
+Current remote hosts have no guarded-write capability and queue wakes rather than
+falling back to raw input. Restart/re-grant does not replay a saved wake queue.
+The existing atomic, question-specific channel exception for explicit orchestrator
+child input does not prove automatic wake safety; this separate opt-in and its
+screen checks govern automatic parent input. The human reviews and merges changes
+to this session-authority and terminal-input surface.
+
+Review correction: each dispatched host operation now carries a one-use eligibility
+token that main synchronously revokes on observed withdrawal. The host checks it
+at the actual cancel/submit write callback, so an earlier main check cannot survive
+focus, grant or enablement withdrawal while parsing is queued. Disabling also
+removes the queue's identity: re-enabling cannot revive an attempt paused in audit
+persistence. Each cancel and submit re-validates immediately before its own write,
+in one synchronous host tick with no await, callback or event-loop turn in between.
+Main and host run in different processes: revocation observed by main during the
+host's final synchronous check-then-write can still let that one write through.
+Nothing later is written after withdrawal. This is an instruction-window bound,
+not a wall-clock deadline under OS scheduling. Neither correction claims to fence
+the provider's own input state.

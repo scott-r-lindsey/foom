@@ -1,3 +1,8 @@
+import type {
+  RepositorySetupAction,
+  RepositorySetupState,
+  SetupRefusal,
+} from "./repository-setup.d";
 import type { RegisteredHost, HostsApi } from "./registered-hosts.d";
 import type { UpdateState } from "./updates";
 import type { ReadinessReport } from "./readiness";
@@ -22,6 +27,8 @@ export interface Settings {
   restoreSessions: boolean;
   showNewChildren: boolean;
   closeFinishedAgents: boolean;
+  wakeOrchestrator: boolean;
+  wakeIntervalMinutes: number;
   /** Starting, running and stopping children per orchestrator, integer 1–16. */
   concurrentChildren: number;
   /** User-chosen provider for omitted orchestration agent parameters; null means require one. */
@@ -120,6 +127,8 @@ export interface SetupState {
 }
 
 export interface SetupApi extends HostsApi {
+  onRepositorySetupRefused(callback: (refusal: SetupRefusal | undefined) => void): () => void;
+  repositorySetup(action: RepositorySetupAction): Promise<RepositorySetupState>;
   localAgentInstall(id?: string): Promise<{ available: readonly string[]; recipeSession?: string }>;
   restartToUpdate(): Promise<void>;
   checkReadiness(): Promise<ReadinessReport>;

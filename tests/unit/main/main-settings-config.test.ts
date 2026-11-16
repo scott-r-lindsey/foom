@@ -233,7 +233,7 @@ test("config Allow uses the trusted dialog and persists bypass consent without c
   const content = { title: "Allow agent launch arguments?", accept: "Allow" };
   mock.message.mockResolvedValueOnce({ response: 1 });
   expect(await deps.confirmArguments(content)).toBe(true);
-  expect(mock.message).toHaveBeenLastCalledWith(content);
+  expect(mock.message).toHaveBeenLastCalledWith({ ...content, userAction: true });
   mock.message.mockResolvedValueOnce({ response: 0 });
   expect(await deps.confirmArguments(content)).toBe(false);
   await deps.acknowledgeBypass(["codex", "claude"]);
@@ -403,6 +403,35 @@ test("Settings host locations use the shared registered repository inventory", a
   const state = await hosts.action({ action: "locations" });
   expect(state.locations).toEqual([]);
   expect(listRepositories).toHaveBeenCalled();
+});
+
+test("theme catalog additions, edits and removals publish the subscribed settings view", async () => {
+  await start();
+  const { viewChanges } = await import("../../../src/main/data/view-changes");
+  const changed = vi.fn();
+  const off = viewChanges.subscribe(changed);
+  try {
+    mock.catalog = {
+      interface: [{ id: "user:custom.json", theme: interfaceThemes.moonlight }],
+      terminal: [],
+      errors: [],
+    };
+    mock.themeChanged();
+    mock.catalog = {
+      ...mock.catalog,
+      interface: [{ id: "user:custom.json", theme: interfaceThemes["eclipse-dark"] }],
+    };
+    mock.themeChanged();
+    mock.catalog = { interface: [], terminal: [], errors: [] };
+    mock.themeChanged();
+    expect(changed.mock.calls).toEqual([
+      [new Set(["settings"]), expect.any(Number)],
+      [new Set(["settings"]), expect.any(Number)],
+      [new Set(["settings"]), expect.any(Number)],
+    ]);
+  } finally {
+    off();
+  }
 });
 
 test("adopting an existing shared file never writes legacy scale over a held proposal", async () => {

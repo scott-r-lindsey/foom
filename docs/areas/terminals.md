@@ -598,3 +598,32 @@ The main-only `setClosing(id, boolean)` capability blocks renderer attachment, k
 and input, and main reply/child input while cleanup retains an exited terminal.
 It invalidates queued paste leases; detach remains available for view teardown.
 Main's original host-aware kill still retains remote ownership on transport failure.
+
+### Guarded parent wake (#548)
+
+The main-only `wake-input` request validates terminal ID, the fixed sanitized
+notice and manifest policy at the utility-host boundary. Check, Escape cancel and
+submit operations drain the parser and reject pending output or an unmatched
+cursor composer/layout. Submit encodes the complete line plus CR as one PTY write,
+including bracketed paste when enabled. This is not an atomic provider input-state
+fence; see the [accepted residual race](../orchestration.md#opt-in-idle-orchestrator-wake-548).
+There is no renderer/control API exposing this capability. Older/remote hosts
+refuse it; no raw input fallback is allowed.
+
+Wake requests also carry a private, single-use eligibility token. Electron utility
+process messages cannot clone SharedArrayBuffers; main owns a private temporary
+inode containing a nonsecret nonce instead. Main synchronously truncates it when
+eligibility is withdrawn (including focus, authority, enablement, input and execution
+changes). The host performs a bounded synchronous, identity-checked read immediately
+before both cancel and submit writes, after the asynchronous parser barrier. A
+withdrawn token never becomes valid again. Replies/timeouts release the token;
+shutdown revokes and removes the private temporary directory. No input, output,
+credentials or durable authority is stored in these files. Cleanup precedes the
+final token observation, and that observation and its PTY write run in one
+synchronous host tick with no await, callback or event-loop turn between them,
+separately for cancel and submit. This is not cross-process atomicity: if main
+observes and revokes eligibility during that final synchronous check-then-write,
+that one write can still go through. Nothing later is written after withdrawal;
+subsequent operations require a fresh eligibility check. There is no wall-clock
+bound on this synchronous window under OS scheduling. The separate documented
+provider input-state race also remains.

@@ -1,3 +1,5 @@
+import type { SetupRefusal } from "../../shared/repository-setup.d";
+import { launchReasons } from "../../shared/launch-failure";
 import { ConfigThemeLauncherContext } from "../preflight/custom-theme-hint";
 import type { TerminalFocusRestoration } from "../terminal/terminal-view-source.d";
 import { restoreBoardFocus, captureTerminalFocusRestoration } from "./focus-restore";
@@ -116,6 +118,7 @@ function BoardContents({
   inactive = false,
   onSettings,
   settingsView,
+  setupRefusal,
   onCloseSettings,
   soundSetup,
 }: {
@@ -123,10 +126,13 @@ function BoardContents({
   soundSetup?: Pick<SetupSource, "state" | "subscribe"> & Partial<Pick<SetupSource, "save">>;
   /** Preflight is covering the board; it stays mounted so terminals keep running. */
   inactive?: boolean;
-  onSettings?: (section?: "config") => void;
+  onSettings?: (section?: "config" | "hosts") => void;
   settingsView?: ReactNode;
+  setupRefusal?: SetupRefusal;
   onCloseSettings?: (proceed?: () => void) => void;
 }) {
+  const [approvalCount, setApprovalCount] = useState(0);
+  useEffect(() => source.confirmations?.onApprovals?.(setApprovalCount), [source]);
   const configPanelRef = useRef<(() => void) | undefined>(undefined);
   const storageKey = source.windows ? `${TILE_STORAGE}.${source.windows.id}` : TILE_STORAGE;
   const [drag, setDrag] = useState<TileDrag>();
@@ -571,6 +577,12 @@ function BoardContents({
       };
       if (!defer && !place()) return Promise.resolve();
       const failed = (message: string) => {
+        if (
+          Object.entries(launchReasons).some(
+            ([code, text]) => code.startsWith("repository_setup_") && text === message,
+          )
+        )
+          setRemoveError(message);
         if (defer && !leaves(layoutRef.current.tree).some((tile) => sessionId(tile) === id))
           place();
         pendingLaunchesRef.current.delete(key);
@@ -855,6 +867,27 @@ function BoardContents({
         <ActionError
           returnFocus={() => actionOriginRef.current}
           message={actionMessage}
+          details={
+            setupRefusal &&
+            Object.entries(launchReasons).some(
+              ([code, message]) =>
+                code.startsWith("repository_setup_") && message === actionMessage,
+            ) ? (
+              <div>
+                <p>
+                  {setupRefusal.host ?? "This computer"} · {setupRefusal.repository}
+                </p>
+                <ul>
+                  {setupRefusal.missing.map((item) => (
+                    <li key={item.id}>
+                      {item.id}
+                      {item.version ? ` · ${item.version}` : ""}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : undefined
+          }
           close={() => {
             setRemoveError("");
           }}
@@ -866,7 +899,19 @@ function BoardContents({
                     void command({ ...prune, kind: "prune-worktree" });
                   },
                 }
-              : undefined
+              : onSettings &&
+                  Object.entries(launchReasons).some(
+                    ([code, message]) =>
+                      code.startsWith("repository_setup_") && message === actionMessage,
+                  )
+                ? {
+                    label: "Open setup",
+                    run: () => {
+                      setRemoveError("");
+                      onSettings("hosts");
+                    },
+                  }
+                : undefined
           }
         />
       )}
@@ -959,6 +1004,18 @@ function BoardContents({
                   }}
                 >
                   Board
+                </button>
+              )}
+              {approvalCount > 0 && (
+                <button
+                  type="button"
+                  className="approvals-waiting"
+                  onClick={() => {
+                    void source.confirmations?.openApprovals?.().catch(() => {});
+                  }}
+                >
+                  <span aria-hidden="true">● </span>
+                  {approvalCount} {approvalCount === 1 ? "approval" : "approvals"} waiting
                 </button>
               )}
               <SidebarControls source={soundSetup} />

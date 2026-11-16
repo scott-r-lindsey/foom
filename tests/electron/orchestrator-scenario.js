@@ -10,7 +10,8 @@ const {
   FAKE_ORCHESTRATED_CLAUDE,
   assertAccessible,
   boardPage,
-  confirmationPage,
+  approvalPage,
+  clickApproval,
   launchApp,
   openSettingsScreen,
   removeAfterApps,
@@ -20,7 +21,17 @@ const {
 async function runOrchestratorScenario(context, cliOnly, phase) {
   const { chmod, mkdir, readdir, readFile, symlink, writeFile } = require("node:fs/promises");
   const { existsSync } = require("node:fs");
-  const root = await mkdtemp(path.join(tmpdir(), "foom-orchestrator-"));
+  // Match macOS's longer temporary paths and smaller content viewport in the
+  // packaged cleanup case, including on Linux, so removal disclosures wrap.
+  const compactCleanup = cliOnly && phase === "cleanup";
+  const root = await mkdtemp(
+    path.join(
+      tmpdir(),
+      compactCleanup
+        ? "foom-orchestrator-long-temporary-prefix-for-wrapped-removal-disclosures-"
+        : "foom-orchestrator-",
+    ),
+  );
   removeAfterApps(context, root);
   const bin = path.join(root, "bin");
   const repo = path.join(root, "app");
@@ -28,6 +39,54 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
   await mkdir(bin);
   await mkdir(repo);
   await mkdir(home);
+  const wakeFixture = FAKE_ORCHESTRATED_CLAUDE.replace(
+    "let childTurns = 0;",
+    `let childTurns = 0;
+let wakeMode = "idle";
+let wakes = 0;
+let cancels = 0;
+let permissionOpen = false;
+let raceArmed = false;
+const renderWake = () => process.stdout.write("\\x1b[2J\\x1b[H────\\r\\n❯");
+const hookReady = () => {
+  const settings = JSON.parse(args[args.indexOf("--settings") + 1]);
+  const command = settings.hooks.Stop[0].hooks[0].command;
+  const hook = require("node:child_process").spawn("/bin/sh", ["-c", command], { stdio: ["pipe", "ignore", "ignore"] });
+  hook.stdin.end(JSON.stringify({ session_id: "wake-fixture", hook_event_name: "Stop" }));
+  hook.on("exit", () => record("wake-ready", JSON.stringify({ mode: wakeMode })));
+};`,
+  ).replace(
+    '  if (key.toString() === "q") process.exit(0);',
+    `  if (key.toString() === "q") process.exit(0);
+  if (!isChild) {
+    const text = key.toString();
+    if (["I", "P", "R", "L"].includes(text)) {
+      wakeMode = text === "P" ? "permission" : text === "R" ? "race" : text === "L" ? "lost-working" : "idle";
+      permissionOpen = wakeMode === "permission";
+      raceArmed = wakeMode === "race";
+      if (wakeMode === "permission") process.stdout.write("\\x1b[2J\\x1b[HAllow permission? Enter to approve");
+      else if (wakeMode === "lost-working") process.stdout.write("\\x1b[2J\\x1b[HWorking interrupt");
+      else renderWake();
+      hookReady();
+      return;
+    }
+    // Arm an input-state transition without redrawing. The menu opens at the
+    // next input, after Foom's screen check and before that key is interpreted.
+    if (raceArmed) { permissionOpen = true; raceArmed = false; }
+    if (text === "\\x1b") {
+      cancels++;
+      if (permissionOpen) { permissionOpen = false; record("wake-denied", "denied"); process.stdout.write("\\x1b[2J\\x1b[HPermission cancelled"); }
+      else renderWake();
+      record("wake-cancels", String(cancels));
+      return;
+    }
+    if (text.includes("Foom: child events")) {
+      if (permissionOpen) record("wake-approved", "BUG");
+      wakes++; record("wake-lines", JSON.stringify({ wakes, text })); return;
+    }
+    record("wake-unexpected", text); return;
+  }`,
+  );
   const waitingFixture = FAKE_ORCHESTRATED_CLAUDE.replace(
     '  if (key.toString() === "q") process.exit(0);',
     `  if (key.toString() === "q") process.exit(0);
@@ -40,18 +99,20 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
   );
   await writeFile(
     path.join(bin, "claude"),
-    ["waiting", "unread"].includes(phase)
-      ? waitingFixture
-      : ["resume", "resume-revoked"].includes(phase)
-        ? FAKE_ORCHESTRATED_CLAUDE.replace(
-            'process.stdout.write("FOOM_AGENT_READY',
-            `
+    phase === "wake"
+      ? wakeFixture
+      : ["waiting", "unread"].includes(phase)
+        ? waitingFixture
+        : ["resume", "resume-revoked"].includes(phase)
+          ? FAKE_ORCHESTRATED_CLAUDE.replace(
+              'process.stdout.write("FOOM_AGENT_READY',
+              `
 const settings = JSON.parse(args[args.indexOf("--settings") + 1]);
 const hook = require("node:child_process").spawn("sh", ["-c", settings.hooks.UserPromptSubmit[0].hooks[0].command], { stdio: ["pipe", "ignore", "inherit"] });
 hook.stdin.end(JSON.stringify({ session_id: "saved-1081", hook_event_name: "UserPromptSubmit" }));
 process.stdout.write("FOOM_AGENT_READY`,
-          )
-        : FAKE_ORCHESTRATED_CLAUDE,
+            )
+          : FAKE_ORCHESTRATED_CLAUDE,
   );
   if (cliOnly) {
     await writeFile(
@@ -117,6 +178,18 @@ process.stdout.write("FOOM_AGENT_READY`,
     },
   });
   const page = await boardPage(app);
+  if (compactCleanup) {
+    await app.evaluate(({ BrowserWindow }) => {
+      const board = BrowserWindow.getAllWindows().find(
+        (window) => window.webContents.getURL() === "app://bundle/index.html",
+      );
+      // Linux lacks macOS's title-bar inset at the same outer minimum height.
+      // Set the fixture's minimum explicitly so native clamping cannot hide it.
+      board.setMinimumSize(900, 612);
+      board.setContentSize(900, 612);
+    });
+    await expect.poll(() => page.evaluate(() => innerHeight)).toBe(612);
+  }
   await app.evaluate(({ dialog }, directory) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
   }, repo);
@@ -284,7 +357,7 @@ process.stdout.write("FOOM_AGENT_READY`,
     .getByRole("button", { name: /^Actions for/ })
     .click();
   await page.getByRole("menuitem", { name: "Make orchestrator…" }).click();
-  const confirmation = await confirmationPage(app);
+  const confirmation = await approvalPage(app);
   await expect(
     confirmation.getByRole("heading", {
       name: `Make ${cliOnly ? "Antigravity" : "Claude Code"} the Foom orchestrator?`,
@@ -311,7 +384,10 @@ process.stdout.write("FOOM_AGENT_READY`,
   await expect(confirmation.getByText(/Re-granting this tile before Foom restarts/)).toBeVisible();
   if (phase === "resume-revoked")
     await confirmation.screenshot({ path: evidencePath("1081-resume-disclosure.png") });
-  await confirmation.getByRole("button", { name: "Make orchestrator" }).click();
+  await clickApproval(
+    confirmation,
+    confirmation.getByRole("button", { name: "Approve · Make orchestrator", exact: true }),
+  );
   await expect
     .poll(async () => (await call(parent.controlToken, "whoami")).body.result?.role)
     .toBe("orchestrator");
@@ -319,6 +395,120 @@ process.stdout.write("FOOM_AGENT_READY`,
   const whoami = await call(parent.controlToken, "whoami");
   assert.ok(whoami.body.result.capabilities.includes("launch"));
   assert.equal(whoami.body.result.terminalId, parentId);
+
+  if (phase === "wake") {
+    const tree = await call(parent.controlToken, "create_worktree", {
+      idempotencyKey: "wake-tree",
+      branch: "child-wake",
+    });
+    const launched = await call(parent.controlToken, "launch", {
+      idempotencyKey: "wake-child",
+      worktreeId: tree.body.result.resultId,
+      agent: "claude",
+      prompt: "fixture",
+    });
+    assert.equal(launched.body.result.status, "succeeded");
+    await expect.poll(() => existsSync(`${credentials}.child-wake`)).toBe(true);
+    const child = await read("child-wake");
+    await openSettingsScreen(page);
+    const toggle = page.getByRole("checkbox", { name: "Wake idle orchestrators on child events" });
+    await expect(toggle).not.toBeChecked();
+    await toggle.check();
+    for (const base of ["light", "dark"]) {
+      await page.evaluate(
+        (base) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${base}` }),
+        base,
+      );
+      await expect
+        .poll(() => page.evaluate(() => document.documentElement.style.colorScheme))
+        .toBe(base);
+      await toggle.evaluate((node) => node.parentElement.scrollIntoView({ block: "start" }));
+      await page
+        .getByRole("region", { name: "Settings" })
+        .screenshot({ path: evidencePath(`548/wake-settings-${base}.png`) });
+    }
+    await expect
+      .poll(
+        async () =>
+          (await page.evaluate(() => window.desktop.setupState())).settings.wakeOrchestrator,
+      )
+      .toBe(true);
+    let report = 0;
+    const handoff = () =>
+      call(child.controlToken, "handoff", {
+        status: "done",
+        summary: "Untrusted report text must never be typed",
+        idempotencyKey: `wake-report-${++report}`,
+      });
+    const mode = async (text, expected) => {
+      await page.evaluate(({ parentId, text }) => window.desktop.input(parentId, text), {
+        parentId,
+        text,
+      });
+      await expect
+        .poll(async () => {
+          try {
+            return JSON.parse(await readFile(`${credentials}.wake-ready`, "utf8")).mode;
+          } catch {
+            return "";
+          }
+        })
+        .toBe(expected);
+      await expect
+        .poll(
+          async () =>
+            (await page.evaluate(() => window.desktop.workspace())).terminals.find(
+              (row) => row.id === parentId,
+            )?.execution?.phase,
+        )
+        .toBe("idle");
+    };
+    await mode("P", "permission");
+    await handoff();
+    // Two retry periods establish that the visible menu receives no bytes.
+    await new Promise((resolve) => setTimeout(resolve, 4500));
+    assert.equal(existsSync(`${credentials}.wake-cancels`), false);
+    assert.equal(existsSync(`${credentials}.wake-lines`), false);
+    await mode("L", "lost-working");
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    assert.equal(existsSync(`${credentials}.wake-cancels`), false);
+    assert.equal(existsSync(`${credentials}.wake-lines`), false);
+    await mode("R", "race");
+    await expect.poll(() => existsSync(`${credentials}.wake-denied`)).toBe(true);
+    assert.equal(existsSync(`${credentials}.wake-approved`), false);
+    assert.equal(existsSync(`${credentials}.wake-lines`), false);
+    // A fresh human grant drops the old queue/cooldown rather than replaying it.
+    await page.evaluate(
+      (id) => window.desktop.sidebarCommand({ kind: "revoke-orchestrator", id }),
+      parentId,
+    );
+    const granting = page.evaluate(
+      (id) => window.desktop.sidebarCommand({ kind: "make-orchestrator", id }),
+      parentId,
+    );
+    const grantPage = await approvalPage(app);
+    await clickApproval(
+      grantPage,
+      grantPage.getByRole("button", { name: "Approve · Make orchestrator", exact: true }),
+    );
+    await granting;
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    assert.equal(existsSync(`${credentials}.wake-lines`), false);
+    const nextReport = await handoff();
+    assert.equal(nextReport.status, 200, JSON.stringify(nextReport.body));
+    await mode("I", "idle");
+    await expect.poll(() => existsSync(`${credentials}.wake-lines`)).toBe(true);
+    const delivered = JSON.parse(await readFile(`${credentials}.wake-lines`, "utf8"));
+    assert.equal(delivered.wakes, 1);
+    assert.equal(
+      delivered.text,
+      "Foom: child events for child-wake. Call wait_for and read_handoff.\r",
+    );
+    assert.equal(existsSync(`${credentials}.wake-approved`), false);
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    assert.equal(JSON.parse(await readFile(`${credentials}.wake-lines`, "utf8")).wakes, 1);
+    return;
+  }
 
   if (phase === "agy-prompt") {
     const tree = await call(parent.controlToken, "create_worktree", {
@@ -439,7 +629,10 @@ process.stdout.write("FOOM_AGENT_READY`,
     await expect(
       confirmation.getByRole("heading", { name: "Make Claude Code the Foom orchestrator?" }),
     ).toBeVisible();
-    await confirmation.getByRole("button", { name: "Make orchestrator" }).click();
+    await clickApproval(
+      confirmation,
+      confirmation.getByRole("button", { name: "Approve · Make orchestrator", exact: true }),
+    );
     await expect
       .poll(async () => (await directCall(siteAgent.controlToken, "whoami")).body.result?.role)
       .toBe("orchestrator");
@@ -1299,108 +1492,123 @@ process.stdout.write("FOOM_AGENT_READY`,
     }
 
     if (phase === "cleanup") {
-      // Exercise the shared main-process policy once through MCP. The CLI case
-      // retains its transport and batch-review checks without duplicating this flow.
-      if (!cliOnly) {
-        // Part 2: profile opt-in, real Git fetch/ancestry, and operation completion.
-        const remote = path.join(root, "remote.git");
-        git("clone", "--bare", repo, remote);
-        git("remote", "add", "origin", remote);
-        await openSettingsScreen(page);
-        await page.getByRole("button", { name: "Repositories", exact: true }).click();
-        await expect(
-          page.getByRole("checkbox", { name: /Auto-remove merged worktrees/ }),
-        ).toHaveCount(0);
-        await page.getByRole("button", { name: "General", exact: true }).click();
-        const autoRemove = page.getByRole("checkbox", { name: "Auto-remove merged worktrees" });
-        await expect(autoRemove).not.toBeChecked();
-        await autoRemove.check();
-        await expect
-          .poll(
-            async () =>
-              (await page.evaluate(() => window.desktop.setupState())).settings
-                .autoRemoveMergedWorktrees,
-          )
-          .toBe(true);
-        await assertAccessible(page);
-        await page.keyboard.press("Escape");
-        const automaticTree = await call(parent.controlToken, "create_worktree", {
-          idempotencyKey: "auto-tree",
-          branch: "auto-merged",
-        });
-        assert.equal(automaticTree.body.result.status, "succeeded");
-        await call(parent.controlToken, "remove_worktree", {
-          idempotencyKey: "auto-remove",
-          worktreeId: automaticTree.body.result.resultId,
-        });
-        await expect
-          .poll(
-            async () =>
-              (
-                await call(parent.controlToken, "operation_status", {
-                  idempotencyKey: "auto-remove",
-                })
-              ).body.result.status,
-          )
-          .toBe("succeeded");
-        assert.equal(
-          String(git("worktree", "list", "--porcelain")).includes("refs/heads/auto-merged"),
-          false,
-        );
-        assert.match(String(git("branch", "--list", "auto-merged")), /auto-merged/);
-        await expect(
-          confirmation.getByRole("heading", { name: "Remove worktrees?" }),
-        ).not.toBeVisible();
-        const dirtyAuto = await call(parent.controlToken, "create_worktree", {
-          idempotencyKey: "auto-dirty-tree",
-          branch: "auto-dirty",
-        });
-        const dirtyAutoTree = (
-          await page.evaluate((repository) => window.desktop.worktrees(repository), repository)
-        ).find((worktree) => worktree.branch === "auto-dirty");
-        assert.ok(dirtyAutoTree);
-        // Reviewers detach to inspect a PR head; ownership must survive it.
-        git("-C", dirtyAutoTree.path, "checkout", "--detach", "HEAD");
-        await writeFile(path.join(dirtyAutoTree.path, "untracked.txt"), "needs review");
-        await call(parent.controlToken, "remove_worktree", {
-          idempotencyKey: "auto-dirty-remove",
-          worktreeId: dirtyAuto.body.result.resultId,
-        });
-        await expect(
-          confirmation.getByRole("heading", { name: "Remove worktree with uncommitted changes?" }),
-        ).toBeVisible();
-        await expect(confirmation.getByRole("list", { name: "Uncommitted changes" })).toContainText(
-          "untracked.txt",
-        );
-        await expect(confirmation.getByRole("list", { name: "Uncommitted changes" })).toContainText(
-          "untracked",
-        );
-        await confirmation
-          .getByRole("button", { name: "Discard changes and remove", exact: true })
-          .click();
-        await expect
-          .poll(
-            async () =>
-              (
-                await call(parent.controlToken, "operation_status", {
-                  idempotencyKey: "auto-dirty-remove",
-                })
-              ).body.result.status,
-          )
-          .toBe("succeeded");
-        await openSettingsScreen(page);
-        await page.getByRole("button", { name: "General", exact: true }).click();
-        await expect(autoRemove).toBeChecked();
-        await autoRemove.uncheck();
-        await expect
-          .poll(
-            async () =>
-              (await page.evaluate(() => window.desktop.setupState())).settings
-                .autoRemoveMergedWorktrees,
-          )
-          .toBe(false);
-        await page.keyboard.press("Escape");
-      }
+      // Both transports exercise profile opt-in, real Git proofs and automatic completion.
+      // Keep an unrelated review pending: automatic policy must not wait behind it
+      // or treat that queue's existing consent as its own approval.
+      const pendingReview = await call(parent.controlToken, "remove_worktree", {
+        idempotencyKey: "remove-1",
+        worktreeId: tree.body.result.resultId,
+      });
+      assert.equal(pendingReview.body.result.status, "pending_confirmation");
+      await expect(confirmation.locator(".approval-row")).toHaveCount(1);
+      const remote = path.join(root, "remote.git");
+      git("clone", "--bare", repo, remote);
+      git("remote", "add", "origin", remote);
+      await openSettingsScreen(page);
+      await page.getByRole("button", { name: "Repositories", exact: true }).click();
+      await expect(
+        page.getByRole("checkbox", { name: /Auto-remove merged worktrees/ }),
+      ).toHaveCount(0);
+      await page.getByRole("button", { name: "General", exact: true }).click();
+      const autoRemove = page.getByRole("checkbox", { name: "Auto-remove merged worktrees" });
+      await expect(autoRemove).not.toBeChecked();
+      await autoRemove.check();
+      await expect
+        .poll(
+          async () =>
+            (await page.evaluate(() => window.desktop.setupState())).settings
+              .autoRemoveMergedWorktrees,
+        )
+        .toBe(true);
+      await assertAccessible(page);
+      await page.keyboard.press("Escape");
+      await expect(confirmation.locator(".approval-row")).toHaveCount(1);
+      const automaticTree = await call(parent.controlToken, "create_worktree", {
+        idempotencyKey: "auto-tree",
+        branch: "auto-merged",
+      });
+      assert.equal(automaticTree.body.result.status, "succeeded");
+      await call(parent.controlToken, "remove_worktree", {
+        idempotencyKey: "auto-remove",
+        worktreeId: automaticTree.body.result.resultId,
+      });
+      await expect
+        .poll(
+          async () =>
+            (
+              await call(parent.controlToken, "operation_status", {
+                idempotencyKey: "auto-remove",
+              })
+            ).body.result.status,
+        )
+        .toBe("succeeded");
+      assert.equal(
+        String(git("worktree", "list", "--porcelain")).includes("refs/heads/auto-merged"),
+        false,
+      );
+      assert.match(String(git("branch", "--list", "auto-merged")), /auto-merged/);
+      await expect(confirmation.locator(".approval-row")).toHaveCount(1);
+      assert.equal(
+        (await call(parent.controlToken, "operation_status", { idempotencyKey: "remove-1" })).body
+          .result.status,
+        "pending_confirmation",
+      );
+      await expect(
+        confirmation.getByRole("heading", { name: "Remove worktrees?" }),
+      ).not.toBeVisible();
+      const dirtyAuto = await call(parent.controlToken, "create_worktree", {
+        idempotencyKey: "auto-dirty-tree",
+        branch: "auto-dirty",
+      });
+      const dirtyAutoTree = (
+        await page.evaluate((repository) => window.desktop.worktrees(repository), repository)
+      ).find((worktree) => worktree.branch === "auto-dirty");
+      assert.ok(dirtyAutoTree);
+      // Reviewers detach to inspect a PR head; ownership must survive it.
+      git("-C", dirtyAutoTree.path, "checkout", "--detach", "HEAD");
+      await writeFile(path.join(dirtyAutoTree.path, "untracked.txt"), "needs review");
+      await call(parent.controlToken, "remove_worktree", {
+        idempotencyKey: "auto-dirty-remove",
+        worktreeId: dirtyAuto.body.result.resultId,
+      });
+      await expect(
+        confirmation.getByRole("heading", { name: "Remove worktree with uncommitted changes?" }),
+      ).toBeVisible();
+      await expect(confirmation.getByRole("list", { name: "Uncommitted changes" })).toContainText(
+        "untracked.txt",
+      );
+      await expect(confirmation.getByRole("list", { name: "Uncommitted changes" })).toContainText(
+        "untracked",
+      );
+      await clickApproval(
+        confirmation,
+        confirmation.getByRole("button", {
+          name: "Approve · Discard changes and remove",
+          exact: true,
+        }),
+      );
+      await expect
+        .poll(
+          async () =>
+            (
+              await call(parent.controlToken, "operation_status", {
+                idempotencyKey: "auto-dirty-remove",
+              })
+            ).body.result.status,
+        )
+        .toBe("succeeded");
+      await openSettingsScreen(page);
+      await page.getByRole("button", { name: "General", exact: true }).click();
+      await expect(autoRemove).toBeChecked();
+      await autoRemove.uncheck();
+      await expect
+        .poll(
+          async () =>
+            (await page.evaluate(() => window.desktop.setupState())).settings
+              .autoRemoveMergedWorktrees,
+        )
+        .toBe(false);
+      await page.keyboard.press("Escape");
       // With the policy off, clean merged branches still join the review batch.
       const extraTrees = [];
       for (const branch of ["batch-selected", "batch-declined"]) {
@@ -1431,32 +1639,50 @@ process.stdout.write("FOOM_AGENT_READY`,
         });
         assert.equal(queued.body.result.status, "pending_confirmation");
       }
-      await expect(confirmation.getByRole("checkbox")).toHaveCount(3);
-      await expect(confirmation.getByRole("list", { name: "Worktrees to remove" })).toContainText(
-        "Clean",
-      );
+      await expect(confirmation.locator(".approval-row")).toHaveCount(3);
+      const removalRow = (branch) =>
+        confirmation
+          .locator(".approval-row")
+          .filter({ has: confirmation.locator(".subject", { hasText: branch }) });
+      await expect(removalRow("child-one")).toContainText("Clean");
       await assertAccessible(confirmation);
       await confirmation.screenshot({
         path: evidencePath(`batch-removal-${cliOnly ? "agy" : "claude"}.png`),
         animations: "disabled",
       });
-      await confirmation.getByRole("checkbox", { name: "child-one", exact: true }).check();
-      await confirmation.getByRole("checkbox", { name: "batch-selected", exact: true }).check();
-      await confirmation
-        .getByRole("button", { name: "Discard changes and remove selected" })
-        .click();
-      for (const tree of extraTrees) {
-        await expect
-          .poll(
-            async () =>
-              (
-                await call(parent.controlToken, "operation_status", {
-                  idempotencyKey: `remove-${tree.branch}`,
-                })
-              ).body.result.status,
-          )
-          .toBe(tree.branch === "batch-selected" ? "succeeded" : "declined");
+      const { startQuitOrdering } = require("./quit-diagnostics.js");
+      const ordering = startQuitOrdering(app);
+      try {
+        await ordering.install();
+        await clickApproval(
+          confirmation,
+          removalRow("child-one").getByRole("button", { name: /^Approve ·/ }),
+        );
+        await clickApproval(
+          confirmation,
+          removalRow("batch-selected").getByRole("button", { name: /^Approve ·/ }),
+        );
+        await clickApproval(
+          confirmation,
+          removalRow("batch-declined").getByRole("button", { name: "Decline", exact: true }),
+        );
+        for (const tree of extraTrees) {
+          await expect
+            .poll(
+              async () =>
+                (
+                  await call(parent.controlToken, "operation_status", {
+                    idempotencyKey: `remove-${tree.branch}`,
+                  })
+                ).body.result.status,
+            )
+            .toBe(tree.branch === "batch-selected" ? "succeeded" : "declined");
+        }
+      } finally {
+        ordering.stop();
+        context.diagnostic(`Removal approval ordering: ${JSON.stringify(ordering.snapshot())}`);
       }
+
       assert.equal(
         String(git("worktree", "list", "--porcelain")).includes("refs/heads/batch-selected"),
         false,
@@ -1493,10 +1719,18 @@ process.stdout.write("FOOM_AGENT_READY`,
             worktreeId: tree.id,
           });
         }
-        await expect(confirmation.getByRole("checkbox")).toHaveCount(2);
-        await confirmation
-          .getByRole("button", { name: approve ? "Approve all" : "Decline", exact: true })
-          .click();
+        await expect(confirmation.locator(".approval-row")).toHaveCount(2);
+        // Rows can exceed the native viewport; individual decisions preserve the
+        // exact visible-only bulk rule while exercising both operation outcomes.
+        for (const tree of batch) {
+          const row = confirmation
+            .locator(".approval-row")
+            .filter({ has: confirmation.locator(".subject", { hasText: tree.branch }) });
+          await clickApproval(
+            confirmation,
+            row.getByRole("button", { name: approve ? /^Approve ·/ : "Decline", exact: !approve }),
+          );
+        }
         for (const tree of batch) {
           await expect
             .poll(
@@ -1539,9 +1773,7 @@ process.stdout.write("FOOM_AGENT_READY`,
       await expect(history.getByText("make orchestrator", { exact: true }).first()).toBeVisible();
       await page.getByRole("searchbox").fill("remove_worktree");
       await page.getByLabel("Outcome", { exact: true }).selectOption("succeeded");
-      await expect(history.getByText("remove worktree", { exact: true })).toHaveCount(
-        cliOnly ? 4 : 6,
-      );
+      await expect(history.getByText("remove worktree", { exact: true })).toHaveCount(6);
       await page.screenshot({
         path: evidencePath(`action-log-${cliOnly ? "agy" : "claude"}.png`),
         animations: "disabled",
@@ -1663,9 +1895,12 @@ process.stdout.write("FOOM_AGENT_READY`,
         (id) => window.desktop.sidebarCommand({ kind: "make-orchestrator", id }),
         parentId,
       );
-      const recovery = await confirmationPage(app);
+      const recovery = await approvalPage(app);
       await expect(recovery.getByText(/Re-granting this tile before Foom restarts/)).toBeVisible();
-      await recovery.getByRole("button", { name: "Make orchestrator" }).click();
+      await clickApproval(
+        recovery,
+        recovery.getByRole("button", { name: "Approve · Make orchestrator", exact: true }),
+      );
       await regrant;
       assert.equal((await directCall(parent.controlToken, "tail", { id: liveId })).status, 200);
       assert.equal(

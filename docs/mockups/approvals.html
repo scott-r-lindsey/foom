@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Foom · Pending approvals proposal</title>
+<style>
+@font-face { font-family: Geist; src: url('../../src/renderer/fonts/geist.ttf'); }
+@font-face { font-family: 'Geist Mono'; src: url('../../src/renderer/fonts/geist-mono.ttf'); }
+@font-face { font-family: 'Archivo Black'; src: url('../../src/renderer/fonts/archivo-black.ttf'); }
+:root { --bg:#f3f0fa; --surface:#e9e4f5; --line:#ddd6ee; --ink:#14101f; --muted:#625a7a; --accent:#5b2bd9; --attention:#d98200; --attention-ink:#8c5000; --badge:#d6cfe9; --lift:#fff; color-scheme:light; }
+:root[data-theme="dark"] { --bg:#05040a; --surface:#0d0a17; --line:#251d3f; --ink:#f4efff; --muted:#9d93bd; --accent:#9b6bff; --attention:#ffb23e; --attention-ink:#ffb23e; --badge:#1c1632; --lift:#f4efff; color-scheme:dark; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--ink); font:13px/1.5 Geist,system-ui,sans-serif; }
+button, input { font:inherit; color:inherit; }
+button { cursor:pointer; background:transparent; border:1px solid var(--line); border-radius:6px; padding:6px 11px; }
+button:hover { background:color-mix(in srgb,var(--accent) 8%,transparent); }
+button:disabled { opacity:.45; cursor:default; }
+:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+.page { max-width:1420px; margin:auto; padding:24px; }
+.page-head { display:flex; justify-content:space-between; align-items:center; gap:16px; margin-bottom:16px; }
+h1 { margin:0; font-size:18px; font-weight:600; }
+.subtitle, .muted { color:var(--muted); }
+.controls { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+.controls button { border-style:dashed; color:var(--muted); font-size:12px; }
+.controls button[aria-pressed="true"] { color:var(--ink); border-style:solid; }
+.scenarios { margin-bottom:16px; }
+.stage { min-height:800px; height:calc(100vh - 205px); border:1px solid var(--line); border-radius:10px; overflow:hidden; position:relative; display:grid; grid-template-columns:245px 1fr; background:var(--bg); }
+.sidebar { background:var(--surface); border-right:1px solid var(--line); padding:20px 16px; }
+.wordmark { font:24px 'Archivo Black',sans-serif; margin-bottom:27px; }
+.repo { font-weight:600; margin:20px 0 12px; }
+.session { padding:8px 6px; color:var(--muted); font:12px/1.8 'Geist Mono',monospace; }
+.session strong { color:var(--ink); font-weight:500; }
+.light { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--accent); margin-right:8px; }
+.waiting-light { background:var(--attention); box-shadow:0 0 0 3px color-mix(in srgb,var(--attention) 25%,transparent); }
+#waiting { margin-top:26px; width:100%; text-align:left; color:var(--attention-ink); border-color:var(--attention); }
+.board { padding:16px 22px; }
+.tile-head { font:12px 'Geist Mono',monospace; padding-bottom:15px; border-bottom:1px solid var(--line); }
+.terminal { font:12px/1.9 'Geist Mono',monospace; color:var(--muted); padding-top:15px; }
+.terminal input { border:0; background:transparent; width:90%; font:inherit; padding:8px 0; outline-offset:1px; }
+.queue { position:absolute; top:72px; right:28px; width:min(750px,calc(100% - 300px)); max-height:min(720px,calc(100% - 100px)); display:flex; flex-direction:column; border:1px solid color-mix(in srgb,var(--accent) 25%,var(--line)); border-radius:12px; background:linear-gradient(color-mix(in srgb,var(--surface) 94%,var(--lift)),var(--surface)); box-shadow:0 22px 64px -22px #06050b88; }
+.queue[hidden] { display:none; }
+.queue-head { padding:20px 22px 14px; display:flex; align-items:start; gap:12px; }
+.glyph { border:1px solid var(--line); color:var(--accent); border-radius:9px; width:34px; height:34px; display:grid; place-items:center; font-size:21px; }
+h2 { margin:0 0 3px; font-size:17px; font-weight:600; }
+.queue-head p { margin:0; color:var(--muted); font-size:12px; }
+.queue-head > button { margin-left:auto; }
+.bulk { border-block:1px solid var(--line); padding:11px 22px; display:flex; align-items:center; gap:12px; }
+.bulk p { margin:0; flex:1; color:var(--muted); font-size:12px; }
+.bulk strong { display:block; color:var(--ink); font-weight:500; }
+.scroll { overflow:auto; overscroll-behavior:contain; padding:0 22px; scroll-behavior:auto; scrollbar-gutter:stable; }
+.request { padding:18px 0; border-bottom:1px solid var(--line); overflow-wrap:anywhere; }
+.request:last-child { border-bottom:0; }
+.request-head { display:flex; align-items:baseline; gap:10px; margin-bottom:6px; }
+h3 { margin:0; font-size:14px; font-weight:600; flex:1; }
+.chip { background:var(--badge); border-radius:4px; padding:2px 6px; font:10px/1.5 'Geist Mono',monospace; white-space:nowrap; }
+.origin { font:11px/1.7 'Geist Mono',monospace; color:var(--muted); margin:0 0 8px; }
+.consequence { margin:0 0 8px; }
+.subject { font-family:'Geist Mono',monospace; font-size:12px; }
+.details { margin:10px 0; padding:9px 12px; border:1px solid var(--line); border-radius:7px; background:var(--bg); color:var(--muted); font-size:12px; }
+.details p { margin:4px 0; }
+summary { cursor:pointer; color:var(--ink); }
+.actions { display:flex; justify-content:flex-end; gap:8px; align-items:center; }
+.arrival { color:var(--muted); font-size:11px; margin-right:auto; }
+.primary { background:var(--ink); color:var(--bg); border-color:var(--ink); font-weight:600; }
+.primary:hover { background:color-mix(in srgb,var(--ink) 90%,var(--accent)); }
+.queue-foot { padding:12px 22px; border-top:1px solid var(--line); color:var(--muted); font-size:12px; }
+.empty { padding:40px 0; text-align:center; color:var(--muted); }
+#log { min-height:24px; color:var(--muted); font:12px/1.8 'Geist Mono',monospace; margin:12px 0 0; }
+@media(max-width:900px) { .stage { grid-template-columns:185px 1fr; } .queue { right:12px; width:calc(100% - 210px); } .bulk { flex-wrap:wrap; } }
+@media(max-width:620px) { .page { padding:12px; } .page-head { flex-wrap:wrap; } .stage { display:block; min-height:850px; } .sidebar { padding:12px; border-right:0; } .sidebar .repo,.sidebar .session,.board { display:none; } .wordmark { margin:0; } #waiting { margin-top:10px; width:auto; } .queue { top:120px; right:8px; width:calc(100% - 16px); max-height:calc(100% - 135px); } .request-head { flex-wrap:wrap; } }
+</style>
+</head>
+<body>
+<main class="page">
+  <div class="page-head"><div><h1>One approval dialog</h1><span class="subtitle">#1105 · Proposed layout and interaction · mockup only</span></div><div class="controls"><button id="light" aria-pressed="true">Light</button><button id="dark" aria-pressed="false">Dark</button><button id="reset">Reset</button></div></div>
+  <div class="controls scenarios" aria-label="Mockup scenarios"><span class="muted">Simulate:</span><button id="add">New removal</button><button id="duplicate">Repeat first request</button><button id="withdraw">Withdraw first request</button><button id="expire">Expire host trust</button><button id="credential">Credential request</button><button id="typing">Arrival while typing (2s)</button></div>
+  <div class="stage">
+    <aside class="sidebar"><div class="wordmark">foom</div><div class="repo">⌄ foom</div><div class="session"><span class="light"></span><strong>1 · Claude Code</strong><br>　 Orchestrator · Working</div><div class="session"><span class="light"></span>2 · Codex<br>　 fix/sidebar · Working</div><div class="repo">⌄ observatory</div><div class="session"><span class="light"></span>3 · Codex<br>　 main · Working</div><button id="waiting"><span class="light waiting-light"></span><span id="waiting-label">5 approvals waiting</span></button></aside>
+    <section class="board" aria-label="Illustrative terminal"><div class="tile-head">1 · Claude Code　 /code/foom</div><div class="terminal">Cleanup requests sent to Foom.<br>Continuing with the next issue.<br><br><label for="terminal">❯ </label><input id="terminal" aria-label="Mock terminal input" placeholder="Type here to try a background arrival" autocomplete="off"></div></section>
+    <section class="queue" id="queue" role="dialog" aria-modal="false" aria-labelledby="queue-title" hidden>
+      <header class="queue-head"><span class="glyph" aria-hidden="true">≡</span><div><h2 id="queue-title">5 approvals waiting</h2><p>Requests from agents and background work</p></div><button id="hide">Hide</button></header>
+      <div class="bulk"><p><strong>Worktree removals</strong>Only fully visible, ready rows. Other kinds need individual approval.</p><button id="bulk" class="primary">Approve all visible removals (2)</button></div>
+      <div class="scroll" id="rows" tabindex="0" aria-label="Pending approval requests"></div>
+      <footer class="queue-foot">New requests join the end. Hide keeps every request pending.</footer>
+    </section>
+  </div>
+  <p id="log" role="status">Mockup controls above are outside the app. No real action is performed.</p>
+</main>
+<script>
+const byId = id => document.getElementById(id);
+let nextId = 10;
+let requests = [];
+const rows = byId('rows');
+const queue = byId('queue');
+const removal = (id, branch, dirty = false) => ({ id, kind:'Worktree removal', origin:'Claude Code · Tile 1 · foom', title:'Remove worktree', subject:'/code/foom-worktrees/' + branch, consequence:dirty ? 'Discard 2 uncommitted changes and remove this worktree. Keep its branch.' : 'Remove this clean worktree. Keep its branch.', details:dirty ? '<p>Modified · src/sidebar.tsx</p><p>Untracked · notes.txt</p>' : '<p>No uncommitted changes. Branch is merged into main.</p>', ready:true, repeats:1 });
+function say(message) { byId('log').textContent = message; }
+function visibleRemovals() {
+  const bounds = rows.getBoundingClientRect();
+  return requests.filter(request => {
+    const element = byId('request-' + request.id);
+    const rect = element.getBoundingClientRect();
+    return !queue.hidden && request.kind === 'Worktree removal' && request.ready && rect.top >= bounds.top && rect.bottom <= bounds.bottom;
+  });
+}
+function update() {
+  const text = requests.length + (requests.length === 1 ? ' approval waiting' : ' approvals waiting');
+  byId('queue-title').textContent = text;
+  byId('waiting-label').textContent = text;
+  byId('waiting').hidden = requests.length === 0;
+  const count = visibleRemovals().length;
+  byId('bulk').textContent = 'Approve all visible removals (' + count + ')';
+  byId('bulk').disabled = !count;
+  byId('bulk').setAttribute('aria-label', 'Approve all ' + count + ' fully visible worktree removals');
+}
+function remove(ids, reason) {
+  const active = document.activeElement;
+  const removedFocus = ids.some(id => byId('request-' + id)?.contains(active));
+  requests = requests.filter(request => !ids.includes(request.id));
+  ids.forEach(id => byId('request-' + id)?.remove());
+  if (!requests.length) {
+    queue.hidden = true;
+    if (removedFocus) byId('terminal').focus();
+  } else if (removedFocus) byId('hide').focus();
+  update();
+  say(reason + ' · ' + ids.length + ' request(s).');
+}
+function append(request, delayed = false) {
+  const existing = requests.find(item => item.kind === request.kind && item.subject === request.subject && item.origin === request.origin);
+  if (existing) {
+    existing.repeats++;
+    byId('repeat-' + existing.id).textContent = 'Repeated ' + existing.repeats + ' times · one decision';
+    say('Repeated request joined its existing row.');
+    return;
+  }
+  request.ready = !delayed;
+  requests.push(request);
+  const article = document.createElement('article');
+  article.className = 'request'; article.id = 'request-' + request.id;
+  // All fixture markup is authored here; no agent text or real data is loaded.
+  article.innerHTML = '<div class="request-head"><h3></h3><span class="chip"></span></div><p class="origin"></p><p class="subject"></p><p class="consequence"></p><details class="details"><summary>Review details</summary>' + request.details + '</details><div class="actions"><span class="arrival"></span><button data-answer="decline">Decline</button><button class="primary" data-answer="approve">Approve</button></div>';
+  article.querySelector('h3').textContent = request.title;
+  article.querySelector('.chip').textContent = request.kind;
+  article.querySelector('.origin').textContent = request.origin;
+  article.querySelector('.subject').textContent = request.subject;
+  article.querySelector('.consequence').textContent = request.consequence;
+  const arrival = article.querySelector('.arrival'); arrival.id = 'repeat-' + request.id;
+  arrival.textContent = delayed ? 'New · buttons ready shortly' : 'Awaiting your decision';
+  article.querySelectorAll('[data-answer]').forEach(button => {
+    button.disabled = delayed;
+    button.setAttribute('aria-label', button.textContent + ': ' + request.title + ' · ' + request.subject);
+    button.onclick = event => { if (event.isTrusted && request.ready) remove([request.id], button.dataset.answer === 'approve' ? 'Approved in mockup' : 'Declined in mockup'); };
+  });
+  rows.append(article);
+  if (delayed) setTimeout(() => {
+    if (!requests.includes(request)) return;
+    request.ready = true;
+    article.querySelectorAll('[data-answer]').forEach(button => button.disabled = false);
+    arrival.textContent = 'Awaiting your decision'; update();
+  }, 900);
+  update();
+}
+function addRemoval() { append(removal(nextId++, 'fix/cleanup-' + nextId), true); say('New removal appended. Focus and scroll position preserved; buttons wait 900 ms.'); }
+function reset() {
+  requests = []; rows.replaceChildren(); rows.scrollTop = 0;
+  append(removal(1,'fix/sidebar')); append(removal(2,'fix/focus',true));
+  append({ id:3, kind:'Authority', title:'Make orchestrator', origin:'Foom · Codex · Tile 3 · observatory', subject:'observatory / main · Codex', consequence:'Let this session create worktrees, launch up to 4 children, stop them and read their output. Replace no current orchestrator.', details:'<p><b>It reads:</b> Child terminal tails, handoffs and reports may reach this agent’s model provider. Redaction cannot catch every secret.</p><p><b>You keep:</b> Stop, take over or revoke at any time. Foom never types reports into a terminal or merges.</p><p><b>Resume:</b> With Restore sessions on launch on, a role running at quit restores on launch. Until Foom restarts, Resume may recover an exited role and its children. Revoke cancels recovery.</p>', repeats:1 });
+  append({ id:4, kind:'Host trust', title:'Trust SSH host key', origin:'Foom · Host setup · foom · no tile (background)', subject:'build-box · ed25519', consequence:'Trust this host key for the pending SSH connection to the registered host build-box.', details:'<p class="subject">SHA256:K4bW8yq9nP2sV6tX0cR3aM7dF1hJ5uL9eB2gN6zQ8wA</p><p>Compare this fingerprint with the host administrator before approving. Decline ends the connection attempt.</p>', repeats:1 });
+  append({ id:5, kind:'Plugin trust', title:'Install Foom lifecycle plugin', origin:'Foom · Agent setup · foom · no tile (background)', subject:'Antigravity · Foom lifecycle plugin', consequence:'Install the disclosed Foom plugin in Antigravity’s plugin state. It reports lifecycle events to Foom and stores no launch credentials.', details:'<p>Executable / fixed arguments: agy plugin install /staged/foom-plugin</p><p>Requires: plugin absent. Recheck state before installation.</p><p>Staged files, full hashes and exact bytes appear here in the implementation. This fixture is illustrative.</p><p>Removal: Settings → Agents → Remove plugin.</p>', repeats:1 });
+  queue.hidden = false; update(); say('Five pending requests in arrival order. Scroll to review each kind.');
+}
+byId('light').onclick = () => theme('light'); byId('dark').onclick = () => theme('dark');
+function theme(value) { document.documentElement.dataset.theme = value; ['light','dark'].forEach(id => byId(id).setAttribute('aria-pressed',String(id === value))); }
+byId('reset').onclick = reset;
+byId('hide').onclick = () => { queue.hidden = true; byId('waiting').focus(); update(); say('Queue hidden. Requests remain pending; the amber count opens it.'); };
+byId('waiting').onclick = () => { queue.hidden = false; update(); byId('hide').focus(); };
+byId('add').onclick = addRemoval;
+byId('duplicate').onclick = () => { const first = requests[0]; if (first) append({...first}); };
+byId('withdraw').onclick = () => { if (requests[0]) remove([requests[0].id],'Withdrawn by requester'); };
+byId('expire').onclick = () => { const host = requests.find(request => request.kind === 'Host trust'); if (host) remove([host.id],'Host trust expired'); };
+byId('credential').onclick = () => append({ id:nextId++,kind:'Credentials',title:'Allow read-only CLI pairing',origin:'Foom · Local console · foom · no tile (background)',subject:'foom CLI · repository /code/foom',consequence:'Compare code 381 920 with your local CLI. Grant read-only repository metadata access for 10 minutes. No terminal output or mutations.',details:'<p>Pairing code: 381 920. This mock request expires after 60 seconds; reopening does not extend it.</p>',repeats:1 },true);
+byId('credential').addEventListener('click', () => { const id = nextId - 1; setTimeout(() => { if (requests.some(request => request.id === id)) remove([id],'Pairing expired'); },60000); });
+byId('typing').onclick = () => { queue.hidden = true; update(); byId('terminal').focus(); say('Keep typing. A request will arrive in 2 seconds.'); setTimeout(addRemoval,2000); };
+byId('bulk').onclick = event => {
+  if (!event.isTrusted) return;
+  const ids = visibleRemovals().map(request => request.id);
+  if (ids.length) remove(ids,'Approved the fully visible removal snapshot; authority, trust and credential rows unchanged');
+};
+rows.addEventListener('scroll',update);
+rows.addEventListener('toggle',update,true);
+new ResizeObserver(update).observe(rows);
+queue.addEventListener('keydown',event => { if (event.key === 'Escape') { event.preventDefault(); byId('hide').click(); } });
+reset();
+</script>
+</body>
+</html>

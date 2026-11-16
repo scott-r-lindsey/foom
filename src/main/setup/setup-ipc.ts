@@ -65,7 +65,20 @@ export function attachSetup(
         return setup.copyHost(args[0]);
       },
     ],
-    ["setup:state", () => setup.state()],
+    [
+      "setup:state",
+      (...args) => {
+        if (args.length) throw new Error("Invalid settings request");
+        return setup.state();
+      },
+    ],
+    [
+      "setup:repository-setup",
+      (...args) => {
+        if (args.length !== 1) throw new Error("Invalid repository setup request");
+        return setup.repositorySetup(args[0]);
+      },
+    ],
     [
       "setup:local-agent-install",
       (...args) => {
@@ -89,7 +102,9 @@ export function attachSetup(
     ],
     [
       "setup:save",
-      async (patch) => {
+      async (...args) => {
+        if (args.length !== 1) throw new Error("Invalid settings command");
+        const patch = args[0];
         const zooming = typeof patch === "object" && patch !== null && "interfaceScale" in patch;
         if (zooming) pointerZoom(true);
         try {

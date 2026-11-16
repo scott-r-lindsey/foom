@@ -228,3 +228,32 @@ writes (OSC 52)** on every platform with a disclosure that any local or remote
 terminal program can replace the clipboard without a click and the user could
 paste that content elsewhere. Clipboard reads are always refused. Only the
 preference persists; terminal output cannot enable it.
+
+### Idle orchestrator wake (#548)
+
+`wakeOrchestrator` defaults to false; `wakeIntervalMinutes` is an integer 1–1440,
+default three. Both are profile-only preferences, excluded from agent-editable
+config. General discloses Escape cancellation, fixed notices and the best-effort
+[residual race](../orchestration.md#opt-in-idle-orchestrator-wake-548).
+
+The wake disclosure also states the cross-process revocation bound: a focus, authority or
+wake-setting change during the host's final synchronous check and write can still
+allow that one write; nothing later is written after withdrawal.
+
+### Live data views (#1161)
+
+All Settings sections consume [subscribed query views](data.md#phase-b-channel-over-json-1161).
+Changes from another open board appear without reopening Settings. Hosts and
+Agents share the registered-host query, including observations; removing the
+selected host immediately falls back to This computer. Query subscriptions own
+loading, fixed errors and disposal. Pending sound edits and Environment drafts
+remain local to their editor. Legacy `setup:changed` remains for terminal options,
+interface theme and other consumers awaiting the later migration.
+
+## Repository setup (#1080)
+
+Hosts adds Repository setup, including This computer. Repositories exposes the
+same profile-only editor on each registered repository. Review, approval and
+execution are separate actions; approval tokens belong to their requesting board
+and expected active revision. The editor remains available when launch is blocked.
+See [the owning policy](repository-setup.md).

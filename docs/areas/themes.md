@@ -37,7 +37,10 @@ evict their last-good versions; remaining names are sorted. Folder failures prod
 The read descriptor closes before parsing or waiting for the config approval queue,
 so a queued restore never waits behind a reader holding its rename target open.
 The folder watcher debounces changes for 250 ms, reloads serially and closes on
-shutdown. Parsed palettes and bounded diagnostics contain no absolute paths or
+shutdown. Reloads reconnect watchers before reading the catalog. They never close
+them after a read: an intervening edit may still have a pending notification on
+the old watcher, and a replacement watcher need not replay it (#1215).
+Parsed palettes and bounded diagnostics contain no absolute paths or
 raw file contents; diagnostics have a filename, JSON path and fixed reason code.
 They never echo parser exception messages or arbitrary unknown property names.
 
@@ -47,7 +50,8 @@ restart use Default without overwriting the saved ID, and recover when a valid f
 returns. Built-ins precede custom themes; colliding names gain “(custom)”.
 `theme:list` and `theme:open-folder` validate the owning top frame and exact argument
 counts. Open accepts only the enumerated theme kind and chooses the folder in main.
-Updates travel through `setup:changed`; native backgrounds, interface tokens,
+Catalog changes publish the `settings` view and retain legacy `setup:changed`
+broadcasts; native backgrounds, interface tokens,
 terminal views and the headless terminal host receive the resolved colors. The
 sandboxed preload adds no runtime imports and CSP remains unchanged.
 
@@ -170,6 +174,9 @@ the closed picker and menu row: `Default · Eclipse Light` / `Default · Eclipse
 `Default`: Chromium media follows the fixed base, and Electron 44 has no independent
 OS appearance API on every platform. Terminal Colors always shows
 `Default · Foom Light` / `Default · Foom Dark`, resolved from the current interface base.
+Both pickers read native appearance through a React external-store subscription
+that rechecks after installing its listener, so an update between render and
+subscription cannot leave the Default label or preview stale (#1219).
 Terminal font and font size use the same labeled keyboard menu as Theme and Colors.
 All four menus support arrow keys, Home/End, Escape and returning focus to the picker.
 Printable keys open the menu and focus a case-insensitive prefix match, including

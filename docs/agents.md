@@ -592,6 +592,26 @@ response before dispatch. Settings offers the reviewed Update; installed files
 change only through that explicit action. Real macOS/Windows agy behavior remains
 unmeasured, and real Foom tool execution remains the user's manual re-test.
 
+## Best-effort automatic wake (#548)
+
+The 2026-11-15 decision permits off-by-default automatic terminal notices after
+hook idle plus live composer verification, Escape, a 150 ms wait and a second
+composer verification. Each provider declares its cancel keys and composer/layout
+checks in its JSON manifest; this does not rely on background-command wake support.
+Claude and Codex declare Escape. Antigravity's recorded 1.4.12 file-access dialog
+says `esc to cancel`; Pi 1.4.0's measured model picker was dismissed by Escape
+without persisting a different selection. File permission behavior in Pi remains
+unobserved. The agy bare `>` plus divider composer declaration is conservative
+and is not a new real-CLI measurement; unfamiliar layouts queue. The fixtures
+exercise the declared layouts and cancellation without running real CLIs.
+
+This is best-effort, not the earlier “never on a menu” guarantee. Escape may deny
+a raced permission or interrupt work. Provider input-state changes are not fenced
+by terminal rendering, so a menu appearing after the final check can still consume
+Enter. A separate cross-process race remains: main observing revocation during
+the host's final synchronous eligibility check-then-write can still allow that
+one cancel or submit write. Nothing later is written after withdrawal. See [delivery, lifecycle validation, logging and limitations](orchestration.md#opt-in-idle-orchestrator-wake-548).
+
 ## Orchestrator waiting (#1201)
 
 Evidence audit on 2026-11-15, source revision

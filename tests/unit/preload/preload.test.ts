@@ -1,3 +1,4 @@
+import type { ViewSnapshot } from "../../../src/shared/data-views";
 import { DEFAULT_SETTINGS } from "../../../src/main/setup/settings";
 import { malformedValues, withUndeclaredFields } from "./malformed-values";
 import {
@@ -2038,6 +2039,85 @@ test("local installer bridge validates availability and terminal IDs", async () 
   }
 });
 
+test("data subscriptions project snapshots, acknowledge delivery and reject stale generations/revisions", async () => {
+  const api = await bridge();
+  const receive = vi.fn<(snapshot: ViewSnapshot<"settings">) => void>();
+  const off = api.subscribeView("settings", {}, receive);
+  const request = mock.invoke.mock.calls.find(([name]) => name === "data:subscribe")?.[1];
+  if (typeof request !== "object" || request === null) throw new Error("Missing subscription");
+  const id: unknown = Reflect.get(request, "id");
+  const event = mock.on.mock.calls.find(([name]) => name === "data:snapshot")?.[1];
+  if (!event) throw new Error("Missing snapshot listener");
+  const snapshot = {
+    id,
+    view: "settings",
+    params: {},
+    generation: 1,
+    revision: 1,
+    data: withUndeclaredFields(
+      setup,
+      new Set([
+        "$.settings.agentHooks",
+        "$.settings.forges",
+        "$.settings.forgeHosts",
+        "$.settings.agents",
+        "$.settings.agentArguments",
+        "$.settings.agentBypassAcknowledged",
+      ]),
+    ),
+  };
+  event({}, snapshot);
+  expect(receive).toHaveBeenCalledOnce();
+  expect(receive.mock.calls[0]?.[0].data).toEqual(setup);
+  expect(mock.invoke).toHaveBeenCalledWith("data:ack", id, 1, 1);
+  for (const change of [
+    { revision: 0 },
+    { revision: 1 },
+    { generation: 2, revision: 2 },
+    { id: "foreign", revision: 2 },
+    { params: { unexpected: true }, revision: 2 },
+    { data: {}, revision: 2 },
+    { revision: NaN },
+    { view: "sql", revision: 2 },
+  ])
+    event({}, { ...snapshot, ...change });
+  expect(receive).toHaveBeenCalledOnce();
+  event({}, { id, view: "settings", params: {}, generation: 1, revision: 2, error: "unavailable" });
+  expect(receive).toHaveBeenCalledTimes(2);
+  off();
+  event({}, { ...snapshot, revision: 3 });
+  expect(receive).toHaveBeenCalledTimes(2);
+  expect(mock.invoke).toHaveBeenCalledWith("data:unsubscribe", id);
+});
+
+test("view subscription requests reject malformed params and failed admission is a fixed error", async () => {
+  const api = await bridge();
+  const receive = vi.fn();
+  for (const [view, params] of [
+    ["sql", {}],
+    ["settings", { unexpected: true }],
+    ["settings", null],
+    ["repositories", { offset: -1 }],
+    ["repositories", { limit: 101 }],
+    ["agents", { machine: "unknown" }],
+    ["worktrees", {}],
+    ["worktrees", { repository: "" }],
+  ])
+    expect(() => {
+      void Reflect.apply(api.subscribeView.bind(api), api, [view, params, receive]);
+    }).toThrow("Invalid view");
+  mock.invoke.mockRejectedValueOnce(new Error("private failure"));
+  const off = api.subscribeView("settings", {}, receive);
+  await Promise.resolve();
+  expect(receive).toHaveBeenCalledWith(
+    expect.objectContaining({ error: "unavailable", generation: 0 }),
+  );
+  off();
+  const gone = api.subscribeView("fonts", {}, receive);
+  gone();
+  await Promise.resolve();
+});
+
 test.each(["claude", "codex", "agy", "copilot", "opencode", "pi", "custom-agent"])(
   "bridge accepts settings and Environment containing only %s",
   async (id) => {
@@ -2061,3 +2141,77 @@ test.each(["claude", "codex", "agy", "copilot", "opencode", "pi", "custom-agent"
     await expect(api.environmentState()).resolves.toEqual({ ...state, lists: { all: [] } });
   },
 );
+test("approvals expose only a validated count and opening capability, with stale initial reads ignored", async () => {
+  const api = await bridge();
+  const receive = vi.fn();
+  mock.invoke.mockResolvedValueOnce(2);
+  const off = api.confirmations.onApprovals?.(receive);
+  const listener = mock.on.mock.calls.at(-1)?.[1];
+  for (const value of [-1, 1.5, "2", null, NaN]) listener?.({}, value);
+  listener?.({}, 3);
+  await Promise.resolve();
+  expect(receive.mock.calls).toEqual([[3]]);
+  await api.confirmations.openApprovals?.();
+  expect(mock.invoke).toHaveBeenCalledWith("approval:open");
+  off?.();
+  expect(mock.removeListener).toHaveBeenCalledWith("approval:count", listener);
+  mock.invoke.mockResolvedValueOnce(4);
+  const initial = vi.fn();
+  const offInitial = api.confirmations.onApprovals?.(initial);
+  await Promise.resolve();
+  expect(initial).toHaveBeenCalledWith(4);
+  offInitial?.();
+});
+
+test("repository refusal events copy bounded details and explicitly clear stale launch context", async () => {
+  const api = await bridge();
+  const callback = vi.fn();
+  const off = api.onRepositorySetupRefused(callback);
+  const listener = mock.on.mock.calls.find(([name]) => name === "setup:launch-refused")?.[1];
+  if (!listener) throw new Error("Missing refusal listener");
+  const value = { repository: "/repo", host: null, missing: [{ id: "node", version: "24.x" }] };
+  listener({}, value);
+  expect(callback).toHaveBeenCalledExactlyOnceWith(value);
+  expect(callback.mock.calls[0]?.[0]).not.toBe(value);
+  value.missing[0] = { id: "changed", version: "26.x" };
+  expect(callback.mock.calls[0]?.[0]).toMatchObject({ missing: [{ id: "node" }] });
+  listener({}, null);
+  listener({}, { repository: "/repo", host: null, missing: "raw text" });
+  expect(callback).toHaveBeenCalledTimes(1);
+  listener({}, undefined);
+  expect(callback).toHaveBeenLastCalledWith(undefined);
+  off();
+  expect(mock.removeListener).toHaveBeenCalledWith("setup:launch-refused", listener);
+});
+
+test("readiness view snapshots cross the projected bridge with bounded fixed facts", async () => {
+  const api = await bridge();
+  const receive = vi.fn<(snapshot: ViewSnapshot<"readiness">) => void>();
+  const off = api.subscribeView("readiness", {}, receive);
+  const request = mock.invoke.mock.calls.find(([name]) => name === "data:subscribe")?.[1];
+  if (typeof request !== "object" || request === null) throw new Error("Missing subscription");
+  const id: unknown = Reflect.get(request, "id");
+  const event = mock.on.mock.calls.find(([name]) => name === "data:snapshot")?.[1];
+  if (!event) throw new Error("Missing snapshot listener");
+  const data = {
+    git: "ready",
+    platform: "linux",
+    forges: [{ host: "forge.test", status: "not-signed-in" }],
+  };
+  event({}, { id, view: "readiness", params: {}, generation: 1, revision: 1, data });
+  expect(receive).toHaveBeenCalledWith(expect.objectContaining({ data }));
+  expect(receive.mock.calls[0]?.[0].data).not.toBe(data);
+  event(
+    {},
+    {
+      id,
+      view: "readiness",
+      params: {},
+      generation: 1,
+      revision: 2,
+      data: { ...data, private: "no" },
+    },
+  );
+  expect(receive).toHaveBeenCalledOnce();
+  off();
+});

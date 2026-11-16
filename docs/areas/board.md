@@ -69,7 +69,9 @@ snapshot for tile panel facts; terminal output and activity stay outside React.
 Tile panels reuse the sidebar panel's portal, keyboard navigation and styling.
 Hide clears the leaf in place (subject to minimum-size repair) and records it as the
 landing spot without stopping
-its session, including exited agents with saved conversations; other exited sessions offer Close. Close uses the
+its session, including exited agents with saved conversations outside the config environment.
+Exited config sessions always offer Close, even with a saved conversation; other
+exited sessions without saved conversations also offer Close. Close uses the
 existing validated sidebar command; refused closes retain the view, while accepted
 closes release it before cleanup and restore a sidebar row if cleanup fails.
 Placement fills space, then grows a rightmost column with proportional existing

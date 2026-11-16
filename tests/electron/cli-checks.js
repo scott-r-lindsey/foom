@@ -1,10 +1,11 @@
+const { clickApproval } = require("./approval-actions.js");
 const assert = require("node:assert/strict");
 const { existsSync } = require("node:fs");
 const { join } = require("node:path");
 const { spawn } = require("node:child_process");
 const { deadline, expect } = require("./test-policy.js");
 
-async function assertCliPairing(context, executable, profile, repository, confirmation) {
+async function assertCliPairing(context, executable, profile, repository, openApproval) {
   // Control startup publishes discovery only after native ownership checks finish.
   await expect.poll(() => existsSync(join(profile, "control", "discovery.json"))).toBe(true);
   const env = { ...process.env };
@@ -38,13 +39,20 @@ async function assertCliPairing(context, executable, profile, repository, confir
   await expect
     .poll(() => stderr, { timeout: deadline(10000) })
     .toMatch(/Pairing code: [A-F0-9]{8}/);
+  const confirmation = await openApproval();
   const code = /Pairing code: ([A-F0-9]{8})/.exec(stderr)[1];
   await expect(
     confirmation.getByRole("heading", { name: "Pair this CLI with Foom?" }),
   ).toBeVisible();
   await expect(confirmation.locator(".code strong", { hasText: code })).toBeVisible();
-  await expect(confirmation.getByRole("button", { name: "Cancel", exact: true })).toBeFocused();
-  await confirmation.getByRole("button", { name: "Grant read-only access for 10 minutes" }).click();
+  await expect(confirmation.getByRole("button", { name: "Decline", exact: true })).toBeVisible();
+  await clickApproval(
+    confirmation,
+    confirmation.getByRole("button", {
+      name: "Approve · Grant read-only access for 10 minutes",
+      exact: true,
+    }),
+  );
   await expect.poll(() => stdout).toContain('"ready":true');
   child.stdin.write('["whoami"]\n["sessions"]\n');
   await expect.poll(() => stdout.split("\n").filter(Boolean).length).toBe(3);

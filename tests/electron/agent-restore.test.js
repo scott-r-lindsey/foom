@@ -10,7 +10,8 @@ const { deadline, expect } = require("./test-policy.js");
 const {
   FAKE_ORCHESTRATED_CLAUDE,
   boardPage,
-  confirmationPage,
+  approvalPage,
+  clickApproval,
   launchApp,
   quitAndWait,
   removeAfterApps,
@@ -104,7 +105,11 @@ req.end(JSON.stringify(payload));
     await first.evaluate((id) => {
       void window.desktop.sidebarCommand({ kind: "make-orchestrator", id });
     }, parentId);
-    await (await confirmationPage(app)).getByRole("button", { name: "Make orchestrator" }).click();
+    const grantPage = await approvalPage(app);
+    await clickApproval(
+      grantPage,
+      grantPage.getByRole("button", { name: "Approve · Make orchestrator", exact: true }),
+    );
     await expect.poll(async () => (await rows(first))[0].orchestration?.active).toBe(true);
     const readCredentials = async (name) =>
       JSON.parse(await readFile(`${credentials}.${name}`, "utf8"));
@@ -366,25 +371,14 @@ req.end(JSON.stringify(payload));
       ).status,
       "pending_confirmation",
     );
-    let removal;
-    await expect
-      .poll(async () => {
-        for (const candidate of restored
-          .windows()
-          .filter((window) => window.url() === "app://confirmation/confirmation.html")) {
-          if (
-            await candidate
-              .getByRole("heading", { name: "Remove worktree?", exact: true })
-              .isVisible()
-          ) {
-            removal = candidate;
-            return true;
-          }
-        }
-        return false;
-      })
-      .toBe(true);
-    await removal.getByRole("button", { name: "Remove worktree", exact: true }).click();
+    const removal = await approvalPage(restored);
+    await expect(
+      removal.getByRole("heading", { name: "Remove worktree?", exact: true }),
+    ).toBeVisible();
+    await clickApproval(
+      removal,
+      removal.getByRole("button", { name: "Approve · Remove worktree", exact: true }),
+    );
     await expect
       .poll(
         async () =>

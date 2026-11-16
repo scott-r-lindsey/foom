@@ -1,8 +1,17 @@
+import ts from "typescript";
 import { gitSync } from "../tests/helpers/git.js";
 import { evidencePath } from "../tests/helpers/evidence.js";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -333,4 +342,47 @@ test("reused fixture rejects a new checkout revision even with unchanged build i
   assert.notEqual(stale.status, 0, stale.output);
   assert.match(stale.output, /Host source revision mismatch/);
   assert.doesNotMatch(stale.output, /SELECTED_BODY/);
+});
+
+// Queue actions have an explicit accessible prefix; raw input in the dedicated
+// security suite deliberately exercises races and must not use the settle helper.
+function rawQueueClicks(source, file = "fixture.js") {
+  const tree = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  const lines = [];
+  function visit(node) {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      node.expression.name.text === "click" &&
+      /Approve ·|Grant read-only access for/.test(node.expression.expression.getText(tree))
+    )
+      lines.push(tree.getLineAndCharacterOfPosition(node.getStart(tree)).line + 1);
+    ts.forEachChild(node, visit);
+  }
+  visit(tree);
+  return lines;
+}
+test("ordinary queue decision clicks use the trusted readiness helper", () => {
+  assert.deepEqual(
+    rawQueueClicks('page.getByRole("button", { name: "Approve · Remove" }).click();'),
+    [1],
+  );
+  assert.deepEqual(
+    rawQueueClicks(
+      'await clickApproval(page, page.getByRole("button", { name: "Approve · Remove" }));',
+    ),
+    [],
+  );
+  const directory = new URL("../tests/electron/", import.meta.url);
+  const failures = [];
+  for (const file of readdirSync(directory)) {
+    if (!file.endsWith(".js") || file === "approval-queue.test.js") continue;
+    for (const line of rawQueueClicks(readFileSync(new URL(file, directory), "utf8"), file))
+      failures.push(`${file}:${line}`);
+  }
+  assert.deepEqual(
+    failures,
+    [],
+    "Reveal and settle queue decisions before native clicks; security regressions remain raw.",
+  );
 });

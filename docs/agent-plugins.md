@@ -507,3 +507,24 @@ are refused. Config-origin manifests naming this field are rejected with
 Package-manager argv wins when that manager exists, otherwise the bundled script
 is selected. The recipe digest covers URL/interpreter/arguments/environment. See
 [download, privacy and cleanup rules](areas/hosts.md#vendor-agent-installers-1071).
+
+## Best-effort wake composer (#548)
+
+An optional v2 `wake` object declares `cancelKeys` (one or two `"esc"` keys only),
+`composer` (1–8 exact trimmed cursor-line strings; `"empty"` denotes a blank
+cursor line), `contains` (up to eight required viewport layout strings), and
+`reject` (1–32 case-insensitive viewport veto strings). All strings are bounded
+to 128 characters. Missing declarations disable automatic wake for that provider.
+These declarations do not grant authority or enable the profile preference.
+Only build-owned bundled providers currently supply runtime wake policy;
+agent-editable config manifests cannot grant themselves automatic terminal input.
+They are a separate input guard, not attention rules or evidence of success.
+No arbitrary key, Enter, executable or input template can be declared here.
+See the [flow and residual race](orchestration.md#opt-in-idle-orchestrator-wake-548).
+
+Bundled Claude and Codex use Escape as requested in the 2026-11-15 decision.
+Antigravity uses Escape, supported by the measured file-access cancel footer in
+`agy-1.4.12-file-access.json`. Pi uses Escape, which dismissed its measured model
+picker without changing the selection. These observations do not establish
+universal behavior for user extensions or all menu types. Composer variants that
+do not match remain queued; no real agent CLI runs in validation.

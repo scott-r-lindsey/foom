@@ -1,3 +1,11 @@
+import { randomUUID } from "node:crypto";
+import type { RepositorySetup } from "./repository-setup";
+import type {
+  RepositorySetupState,
+  SetupApproval,
+  SetupRow,
+} from "../../shared/repository-setup.d";
+import { viewChanges } from "../data/view-changes";
 import type { WorkspaceTerminal } from "../../shared/workspace";
 import { hostsAction } from "../../shared/registered-hosts";
 import type { RemoteTarget } from "../../shared/remote-host";
@@ -23,6 +31,15 @@ import type {
 import type { WorktreeService } from "../workspace/worktrees";
 
 export interface SetupDependencies {
+  repositorySetup?: RepositorySetup;
+  launchRepositorySetup?: (
+    host: string | null,
+    approval: SetupApproval,
+    row: SetupRow,
+    finished: () => void,
+    signal: AbortSignal,
+    validate: () => Promise<void>,
+  ) => Promise<string>;
   hosts?: Hosts;
   hostsChanged?: () => void;
   hostSessions?: () => readonly WorkspaceTerminal[];
@@ -58,13 +75,50 @@ export interface SetupDependencies {
 /** How far the quick scan behind a suggestion's count looks. */
 const QUICK_SCAN_FOLDERS = 5000;
 
+interface ReadinessCache {
+  revision: number;
+  repositoriesRevision: number;
+  report: Promise<ReadinessReport>;
+}
+interface ReadinessOwner {
+  cache: ReadinessCache | undefined;
+}
+// All windows using one profile store share the same probe and published result.
+const readinessOwners = new WeakMap<SetupDependencies["store"], ReadinessOwner>();
+
 export class Setup {
+  private readonly setupScope = randomUUID();
+  repositorySetup(input: unknown): Promise<RepositorySetupState> {
+    if (!this.deps.repositorySetup || !this.deps.launchRepositorySetup)
+      throw new Error("Repository setup unavailable");
+    if (
+      typeof input === "object" &&
+      input !== null &&
+      "action" in input &&
+      input.action === "copy-brief" &&
+      Object.keys(input).length === 1
+    ) {
+      void this.deps.copyText?.(
+        'Read this repository’s build documentation and manifests as text. Do not install anything or request sudo. Propose distro-specific OS packages, required toolchain versions, purposes, evidence paths and uncertainties as structured JSON: {"requirements":[{"kind":"package","id":"native","purpose":"Why needed","sources":["package.json"],"packages":{"debian":[],"rhel":[],"arch":[],"darwin":[]}},{"kind":"toolchain","id":"node","tool":"node","version":"24.x","purpose":"Why needed","sources":["package.json"]}],"evidence":[]}. Do not include commands, executable paths, URLs, secrets or approval. The user reviews the list in Foom.',
+      );
+    }
+    return this.deps.repositorySetup.action(
+      this.setupScope,
+      input,
+      this.deps.confirmRemoteSessions ?? (() => Promise.resolve(false)),
+      this.deps.launchRepositorySetup,
+      this.hostTrust.signal,
+    );
+  }
   private saving: Promise<unknown> = Promise.resolve();
   private suggested: readonly string[] = [];
   /** Paths from the latest scan: the only ones the renderer may add or remove. */
   private scanned = new Set<string>();
 
+  private readonly readinessOwner: ReadinessOwner;
   constructor(private readonly deps: SetupDependencies) {
+    this.readinessOwner = readinessOwners.get(deps.store) ?? { cache: undefined };
+    readinessOwners.set(deps.store, this.readinessOwner);
     deps.apply(deps.store.get());
   }
 
@@ -83,6 +137,7 @@ export class Setup {
   }
   private hostTrust = new AbortController();
   cancelHostTrust(): void {
+    this.deps.repositorySetup?.cancelScope(this.setupScope);
     this.hostTrust.abort();
     this.hostTrust = new AbortController();
   }
@@ -138,7 +193,11 @@ export class Setup {
         this.hostTrust.signal,
         this.deps.confirmHostKey,
       )
-      .then((state) => {
+      .then(async (state) => {
+        if (hostsAction(input) && input.action === "preflight" && this.deps.repositorySetup) {
+          for (const repository of this.deps.code.worktrees.listRepositories())
+            await this.deps.repositorySetup.check(this.setupScope, input.host, repository.path);
+        }
         if (hostsAction(input)) {
           if (input.action === "rename") this.refresh();
           if (
@@ -150,9 +209,41 @@ export class Setup {
       });
   }
 
+  readinessView(): Promise<ReadinessReport> {
+    const cache = this.readinessOwner.cache;
+    return cache?.revision === viewChanges.current("readiness") &&
+      cache.repositoriesRevision === viewChanges.current("repositories")
+      ? cache.report
+      : this.readiness();
+  }
   readiness() {
     if (!this.deps.readiness) throw new Error("Readiness unavailable");
-    return this.deps.readiness();
+    const owner = this.readinessOwner;
+    const cache: ReadinessCache = {
+      revision: viewChanges.current("readiness"),
+      repositoriesRevision: viewChanges.current("repositories"),
+      report: this.deps
+        .readiness()
+        .then((report) => {
+          if (
+            owner.cache === cache &&
+            (cache.revision !== viewChanges.current("readiness") ||
+              cache.repositoriesRevision !== viewChanges.current("repositories"))
+          )
+            owner.cache = undefined;
+          if (owner.cache === cache) {
+            viewChanges.publish("readiness");
+            cache.revision = viewChanges.current("readiness");
+          }
+          return report;
+        })
+        .catch((error: unknown) => {
+          if (owner.cache === cache) owner.cache = undefined;
+          throw error;
+        }),
+    };
+    owner.cache = cache;
+    return cache.report;
   }
 
   restartToUpdate(): Promise<void> {

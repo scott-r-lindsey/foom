@@ -1,3 +1,5 @@
+import type { RepositorySetup } from "../setup/repository-setup";
+import type { WakeInput } from "../../shared/agent-wake";
 import type { CheckoutHold } from "./worktree-reservations";
 import type { ParentIdentity } from "../control/orchestration.d";
 import type { RemoteTarget } from "../../shared/remote-host";
@@ -95,7 +97,7 @@ export interface WorkspaceMethods {
     configEnvironment?: Readonly<Record<string, string>>,
     checkout?: Awaited<ReturnType<Orchestration["remoteCheckout"]>>,
     remoteOverride?: RemoteTarget,
-    validateLaunch?: () => void,
+    validateLaunch?: () => void | Promise<void>,
     signal?: AbortSignal,
     parentHold?: CheckoutHold,
     localRecipe?: { command: string; args: readonly string[] },
@@ -227,6 +229,7 @@ export type Agents = Pick<
   | "setBypassIdentities"
 >;
 export interface WorkspaceDependencies {
+  repositorySetup?: Pick<RepositorySetup, "admit">;
   hosts?: Pick<Hosts, "fleet" | "worktree" | "registered" | "requireAgent"> &
     Partial<
       Pick<
@@ -281,6 +284,8 @@ export interface WorkspaceDependencies {
     setClosing?(id: string, closing: boolean): void;
     stop(id: string): Promise<boolean>;
     tail(id: string, lines: number): Promise<string[]>;
+    wakeInput?(id: string, input: WakeInput, eligible?: () => boolean): Promise<boolean>;
+    recheckWake?(force?: boolean): void;
     childInput?(id: string, data: ChildInput): Promise<void>;
     reply?(id: string, data: string): Promise<void>;
     screen?(id: string): Promise<{ lines: string[]; title: string }>;
@@ -306,6 +311,7 @@ export interface WorkspaceDependencies {
   receiver: () => Promise<HookRegistrar & { close(): Promise<void> }>;
   /** Release checkout resources before Git removal; restore availability afterward. */
   prepareWorktreeRemoval?(worktree: string): Promise<() => void>;
+  focused?(id: string): boolean;
   onExecution?(event: ExecutionTransition): void;
   onState(state: TerminalState): void;
   onChange?(localOnly?: boolean): void;

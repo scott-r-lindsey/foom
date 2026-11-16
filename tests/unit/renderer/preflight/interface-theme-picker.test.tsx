@@ -164,3 +164,34 @@ test("fixed themes never describe the override as the OS Default, including an o
   view.rerender(<InterfaceThemePicker settings={setupState().settings} onChange={onChange} />);
   expect(screen.getByRole("button", { name: "Theme Default · Eclipse Light" })).toBeTruthy();
 });
+
+test.each([false, true])(
+  "Default catches an appearance change before subscription (initial dark=%s)",
+  (initialDark) => {
+    const media = {
+      matches: initialDark,
+      addEventListener: vi.fn((_name: string, _listener: () => void) => {
+        // The native update happened after render read matches, before the listener existed.
+        media.matches = !initialDark;
+      }),
+      removeEventListener: vi.fn(),
+    };
+    vi.stubGlobal("matchMedia", () => media);
+    const view = render(
+      <InterfaceThemePicker settings={setupState().settings} onChange={vi.fn()} />,
+    );
+    expect(
+      screen.getByRole("button", {
+        name: `Theme Default · Eclipse ${media.matches ? "Dark" : "Light"}`,
+      }),
+    ).toBeTruthy();
+    expect(screen.getByLabelText("Interface theme preview").style.colorScheme).toBe(
+      media.matches ? "dark" : "light",
+    );
+    view.unmount();
+    expect(media.removeEventListener).toHaveBeenCalledWith(
+      "change",
+      media.addEventListener.mock.calls[0]?.[1],
+    );
+  },
+);

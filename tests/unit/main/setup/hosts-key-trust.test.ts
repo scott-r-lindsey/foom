@@ -305,3 +305,35 @@ test("a delayed trust failure cannot replace a newer host check's output", async
   release.resolve(undefined);
   expect((await pending).output).toEqual(checked.output);
 });
+
+test("subscribed host views prime saved trust and sealed-build display state without remote work", async () => {
+  await enroll();
+  run.mockResolvedValue(good);
+  await hosts.action({ action: "preflight", host: "box", codeFolder: "/code" });
+  run.mockResolvedValue(unknownKey);
+  await hosts.action({ action: "reload", host: "box", target: { kind: "ssh" } });
+  run.mockClear();
+  mock.supported.mockClear();
+  const support = vi.fn(() => Promise.resolve(false));
+  const reloaded = new Hosts(
+    { get: () => settings, update: () => Promise.resolve(settings) },
+    () => [],
+    "0.1.0",
+    run,
+    undefined,
+    support,
+  );
+  try {
+    await reloaded.prepareView();
+    expect(reloaded.state().remoteHostsAvailable).toBe(false);
+    expect(reloaded.state().hosts[0]?.hostKeyTrust).toBe("askpass");
+    await reloaded.prepareView();
+    expect(mock.supported).toHaveBeenCalledOnce();
+    support.mockResolvedValueOnce(true);
+    await reloaded.prepareView();
+    expect(reloaded.state().remoteHostsAvailable).toBe(true);
+    expect(run).not.toHaveBeenCalled();
+  } finally {
+    reloaded.dispose();
+  }
+});

@@ -32,6 +32,7 @@ class FakeWindow extends EventEmitter {
     setZoomFactor: vi.fn(),
     setWindowOpenHandler: vi.fn<(handler: () => { action: string }) => void>(),
   });
+  isDestroyed = vi.fn(() => false);
   removeMenu = vi.fn();
   bounds = { x: 0, y: 0, width: 440, height: 240 };
   setBounds = vi.fn((bounds: typeof this.bounds) => {
@@ -40,6 +41,7 @@ class FakeWindow extends EventEmitter {
   getBounds = vi.fn(() => this.bounds);
   setBackgroundColor = vi.fn();
   show = vi.fn();
+  restore = vi.fn();
   setParentWindow = vi.fn();
   moveTop = vi.fn();
   isVisible = vi.fn(() => true);
@@ -1753,3 +1755,138 @@ test.each(["linux", "darwin", "win32"] as const)(
     }
   },
 );
+
+test("approval queues stay hidden without blocking the board, open explicitly, and validate row answers", async () => {
+  vi.useFakeTimers();
+  const approve = vi.fn();
+  const presented = vi.fn();
+  let publish = () => {};
+  const row = {
+    kind: "Worktree removal" as const,
+    origin: "Claude · Tile 1 · repo",
+    repeats: 1,
+    request: { ...content, id: "row", presented: true, theme },
+  };
+  const dialog = setup();
+  const abort = new AbortController();
+  const result = dialog.request(
+    {
+      title: "Approvals",
+      accept: "Approve",
+      approvalFeed: {
+        current: () => [row],
+        subscribe: (listener) => {
+          publish = listener;
+          return vi.fn();
+        },
+        answer: approve,
+        presented,
+      },
+    },
+    abort.signal,
+  );
+  await vi.advanceTimersByTimeAsync(200);
+  expect(window().show).not.toHaveBeenCalled();
+  expect(parent.webContents.listenerCount("before-input-event")).toBe(0);
+  expect(parent.webContents.send).not.toHaveBeenCalledWith("confirmation:scrim", true);
+  const event = { sender: window().webContents, senderFrame: window().webContents.mainFrame };
+  dialog.openApprovals();
+  const id = await shown();
+  expect(presented).toHaveBeenCalledWith(true);
+  expect(window().getBounds().y).toBe(44);
+  window().emit("move");
+  await vi.advanceTimersByTimeAsync(900);
+  answer("row", true, { ...event, senderFrame: { url: CONFIRMATION_URL } });
+  answer("unknown", true);
+  answer("row", ["row"]);
+  expect(approve).not.toHaveBeenCalled();
+  answer("row", true);
+  answer(id, ["row"]);
+  answer(id, [42]);
+  expect(approve.mock.calls).toEqual([
+    ["row", true],
+    [id, ["row"]],
+  ]);
+  approve.mockClear();
+  parent.getContentBounds.mockReturnValue({ x: 10, y: 20, width: 1000, height: 800 });
+  parent.emit("resize");
+  window().emit("resize");
+  const revision: unknown = window().webContents.send.mock.calls.at(-1)?.[1];
+  if (!revision || typeof revision !== "object" || !("geometryRevision" in revision))
+    throw Error("Missing native geometry revision");
+  expect(typeof revision.geometryRevision).toBe("number");
+  answer("row", true);
+  answer("row", false);
+  answer(id, ["row"]);
+  expect(approve).not.toHaveBeenCalled();
+  // Wall-clock changes and repeated native notifications cannot shorten or extend the guard.
+  vi.setSystemTime(Date.now() + 100000);
+  await vi.advanceTimersByTimeAsync(899);
+  window().emit("move");
+  window().emit("resize");
+  answer("row", true);
+  expect(approve).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(1);
+  answer("row", true);
+  answer(id, ["row"]);
+  expect(approve).toHaveBeenCalledTimes(2);
+  mock.autoSize = false;
+  // Native events may arrive after input. Even a one-DIP change within the
+  // existing reachability tolerance must revoke approval before the event.
+  for (const field of ["x", "y", "width", "height"] as const) {
+    approve.mockClear();
+    window().bounds = { ...window().bounds, [field]: window().bounds[field] + 1 };
+    answer("row", true);
+    expect(approve).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(899);
+    window().emit(field === "x" || field === "y" ? "move" : "resize");
+    answer("row", false);
+    expect(approve).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    answer("row", true);
+    expect(approve).toHaveBeenCalledOnce();
+  }
+  answer(id, ["row"]);
+  window().isFocused.mockReturnValue(false);
+  answer("row", true);
+  expect(approve).toHaveBeenCalledTimes(2);
+  publish();
+  const hide = mock.ipc.get("confirmation:hide-approvals");
+  hide?.({ ...event, senderFrame: { url: CONFIRMATION_URL } });
+  expect(window().hide).not.toHaveBeenCalled();
+  hide?.(event);
+  expect(window().hide).toHaveBeenCalledOnce();
+  expect(presented).toHaveBeenLastCalledWith(false);
+  window().emit("hide");
+  window().isVisible.mockReturnValue(false);
+  window().emit("minimize");
+  expect(presented).toHaveBeenLastCalledWith(false);
+  window().isVisible.mockReturnValue(true);
+  const closing = { preventDefault: vi.fn() };
+  window().emit("close", closing);
+  expect(closing.preventDefault).toHaveBeenCalled();
+  abort.abort();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(await result).toBe(false);
+  dialog.dispose();
+});
+
+test("an explicitly opened queue fails closed when its trusted page never becomes ready", async () => {
+  vi.useFakeTimers();
+  mock.autoSize = false;
+  const dialog = setup();
+  const presented = vi.fn();
+  const result = dialog.request({
+    title: "Approvals",
+    accept: "Approve",
+    approvalFeed: { current: () => [], subscribe: () => () => {}, answer: vi.fn(), presented },
+  });
+  await vi.advanceTimersByTimeAsync(0);
+  window().isMinimized.mockReturnValue(true);
+  dialog.openApprovals();
+  expect(window().restore).toHaveBeenCalledOnce();
+  await vi.advanceTimersByTimeAsync(1001);
+  expect(await result).toBe(false);
+  expect(window().show).not.toHaveBeenCalled();
+  dialog.dispose();
+});

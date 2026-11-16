@@ -1,3 +1,4 @@
+import type { DataViewApi } from "./data-views";
 /** All sessions, or one agent. Shells get "all" only; agents get "all" then their own. */
 export type EnvironmentScope = string;
 
@@ -45,6 +46,7 @@ export interface EnvironmentCandidate {
 }
 
 export interface EnvironmentApi {
+  views?: DataViewApi;
   environmentState(): Promise<EnvironmentState>;
   saveEnvironment(change: EnvironmentChange): Promise<EnvironmentState>;
   removeEnvironment(scope: EnvironmentScope, name: string): Promise<EnvironmentState>;

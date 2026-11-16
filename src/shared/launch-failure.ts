@@ -1,6 +1,14 @@
+import type { SetupRefusal } from "./repository-setup.d";
 import type { HostPressure } from "./host-pressure.d";
 /** Fixed diagnostics only: never carry host output or provider text. */
 export const launchReasons = {
+  repository_setup_missing:
+    "This host needs repository setup. Open Settings → Hosts and set up this repository before launching again.",
+  repository_setup_changed:
+    "Repository requirements or sources changed. Review the setup list before launching again.",
+  repository_setup_manual: "Repository requirements need manual setup on this host.",
+  repository_setup_unavailable:
+    "Unable to check repository setup. Recheck its Hosts row before launching again.",
   host_busy: "The host is busy. Wait and retry with a new idempotency key, or choose another host.",
   agent_disabled: "This agent is turned off in preflight.",
   agent_unavailable: "The local agent is not installed or discoverable.",
@@ -30,6 +38,7 @@ export class LaunchFailure extends Error {
   constructor(
     readonly reason: LaunchReason,
     readonly pressure?: HostPressure,
+    readonly setup?: SetupRefusal,
   ) {
     super(launchReasons[reason]);
   }

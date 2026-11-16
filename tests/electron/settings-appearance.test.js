@@ -537,20 +537,23 @@ test("terminal font picker updates open shells and config shells and refits thei
     (await window.desktop.workspace()).terminals.map((entry) => entry.id),
   );
   assert.equal(ids.length, 2);
-  await app.evaluate(({ ipcMain }) => {
+  await app.evaluate(({ app, ipcMain }) => {
     global.fontResizes = [];
     ipcMain.on("terminal:resize", (_event, id, cols, rows) =>
       global.fontResizes.push({ id, cols, rows }),
     );
     // OS enumeration may legitimately return [] (including after its bounded
     // PowerShell timeout). Exercise font changes with a font bundled on every OS.
-    ipcMain.removeHandler("setup:terminal-fonts");
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
     // Keep enumeration pending until Terminal has mounted. Typing before this
     // reply used to leave Geist present but inactive when it arrived later.
     global.fontList = new Promise((resolve) => {
       global.releaseFontList = resolve;
     });
-    ipcMain.handle("setup:terminal-fonts", () => global.fontList);
+    // Inject at the main-owned catalog so the real subscription/projection is exercised.
+    load("./build/main/fonts/terminal-fonts.js").listTerminalFonts = () => global.fontList;
   });
   await openSettingsScreen(page);
   await page
@@ -686,6 +689,11 @@ test("Default themes follow native appearance live and Settings theme menus shar
     ["light", "rgb(243, 240, 250)"],
     ["dark", "rgb(5, 4, 10)"],
   ]) {
+    // Preference previews can settle before their serialized save applies the native source.
+    // Finish those writes before simulating the next OS update.
+    const saved = await page.evaluate(() => window.desktop.saveSetup({}));
+    assert.equal(saved.settings.interfaceTheme, "follow");
+    assert.equal(saved.settings.terminalTheme, "follow");
     // Simulate the native OS appearance update, including Chromium media and host palettes.
     // No settings save occurs: both choices must remain Default across the change.
     await app.evaluate(({ nativeTheme }, mode) => {
@@ -822,7 +830,6 @@ test("first-run rail shares the Theme menu and saves its live selection", async 
       page.locator(".preflight-rail").evaluate((rail) => rail.scrollWidth - rail.clientWidth),
     )
     .toBe(0);
-  const systemDark = await app.evaluate(({ nativeTheme }) => nativeTheme.shouldUseDarkColors);
   await page.getByRole("button", { name: /^Theme / }).focus();
   await page.keyboard.type("Moon");
   await expect(page.getByRole("menuitemradio", { name: "Moonlight", exact: true })).toBeFocused();
@@ -837,10 +844,13 @@ test("first-run rail shares the Theme menu and saves its live selection", async 
   await page.getByRole("button", { name: "Theme Moonlight", exact: true }).click();
   await expect(page.getByRole("menuitemradio", { name: "Default", exact: true })).toBeVisible();
   await page.getByRole("menuitemradio", { name: "Default", exact: true }).click();
-  await expect(page.locator("html")).toHaveCSS("color-scheme", systemDark ? "dark" : "light");
   await expect
     .poll(() => app.evaluate(({ nativeTheme }) => nativeTheme.themeSource))
     .toBe("system");
+  // Electron can discover the OS preference after startup. Sample it after restoring
+  // system appearance, rather than assuming the launch-time value remains current.
+  const systemDark = await app.evaluate(({ nativeTheme }) => nativeTheme.shouldUseDarkColors);
+  await expect(page.locator("html")).toHaveCSS("color-scheme", systemDark ? "dark" : "light");
   // Force the opposite base and verify that Default remains unqualified there too.
   await chooseTheme(page, systemDark ? "Eclipse Light" : "Eclipse Dark");
   await page.getByRole("button", { name: /^Theme Eclipse / }).click();

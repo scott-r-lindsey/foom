@@ -8,6 +8,7 @@ import { bypassConsentIdentity } from "../../../../src/main/agents/default-argum
 import { agentProvider } from "../../../../src/main/agents/providers/registry";
 import { v2Provider } from "../../../../src/main/agents/providers/v2";
 import { legacyBypassIdentities } from "../../../../src/main/agents/providers/bundled";
+import type { ReadinessReport } from "../../../../src/shared/readiness";
 import type { SetupDependencies } from "../../../../src/main/setup/setup";
 import type { ScanProgress, Settings, SettingsPatch } from "../../../../src/shared/setup";
 
@@ -650,4 +651,135 @@ test("host removal lists dormant sessions, cancels safely and sends no remote re
   );
   expect(settings.registeredHosts).toHaveLength(1);
   hosts.dispose();
+});
+
+test("repository setup owns its board scope, cancellation and fixed draft brief", async () => {
+  const { RepositorySetup } = await import("../../../../src/main/setup/repository-setup");
+  const service = new RepositorySetup({
+    repositories: () => [],
+    identity: () => "fixture",
+    hosts: () => [],
+    sources: () => Promise.resolve(undefined),
+    check: () => Promise.reject(new Error("unused")),
+    save: () => Promise.resolve(),
+  });
+  const action = vi.spyOn(service, "action");
+  const cancel = vi.spyOn(service, "cancelScope");
+  const copy = vi.fn();
+  deps.repositorySetup = service;
+  deps.launchRepositorySetup = vi.fn(() => Promise.resolve("setup-1"));
+  deps.copyText = copy;
+  const setup = new Setup(deps);
+  await setup.repositorySetup({ action: "copy-brief" });
+  expect(copy).toHaveBeenCalledWith(expect.stringContaining("Do not install anything"));
+  expect(action.mock.calls[0]?.[0]).toMatch(/^[a-f0-9-]{36}$/u);
+  setup.cancelHostTrust();
+  expect(cancel).toHaveBeenCalledWith(action.mock.calls[0]?.[0]);
+  const withoutService = { ...deps };
+  delete withoutService.repositorySetup;
+  const unavailable = new Setup(withoutService);
+  expect(() => unavailable.repositorySetup({ action: "list" })).toThrow("unavailable");
+});
+
+test("readiness views share a lazy probe and its self-publication; commands and invalidations recheck", async () => {
+  const { viewChanges } = await import("../../../../src/main/data/view-changes");
+  const report = { git: "ready", platform: "linux", forges: [] } as const;
+  const readiness = vi.fn(() => Promise.resolve(report));
+  deps.readiness = readiness;
+  const setup = new Setup(deps);
+  const first = setup.readinessView();
+  expect(setup.readinessView()).toBe(first);
+  await first;
+  expect(setup.readinessView()).toBe(first);
+  expect(readiness).toHaveBeenCalledOnce();
+  await setup.readiness();
+  expect(readiness).toHaveBeenCalledTimes(2);
+  viewChanges.publish("readiness");
+  await setup.readinessView();
+  expect(readiness).toHaveBeenCalledTimes(3);
+});
+
+test("a newer readiness command wins and failed probes can recover", async () => {
+  const old = Promise.withResolvers<ReadinessReport>();
+  const ready = { git: "ready", platform: "linux", forges: [] } as const;
+  const missing = { ...ready, git: "not-installed" } as const;
+  const probe = vi
+    .fn<NonNullable<SetupDependencies["readiness"]>>()
+    .mockReturnValueOnce(old.promise)
+    .mockResolvedValueOnce(missing)
+    .mockRejectedValueOnce(new Error("Unavailable"))
+    .mockResolvedValue(ready);
+  deps.readiness = probe;
+  const setup = new Setup(deps);
+  const stale = setup.readinessView();
+  await setup.readiness();
+  old.resolve(ready);
+  await stale;
+  await expect(setup.readinessView()).resolves.toEqual(missing);
+  await expect(setup.readiness()).rejects.toThrow("Unavailable");
+  await expect(setup.readinessView()).resolves.toEqual(ready);
+});
+
+test("readiness invalidation during a probe keeps its new inputs pending", async () => {
+  const { viewChanges } = await import("../../../../src/main/data/view-changes");
+  const pending = Promise.withResolvers<ReadinessReport>();
+  const next: ReadinessReport = { git: "not-installed", platform: "linux", forges: [] };
+  const probe = vi
+    .fn<NonNullable<SetupDependencies["readiness"]>>()
+    .mockReturnValueOnce(pending.promise)
+    .mockResolvedValue(next);
+  deps.readiness = probe;
+  const setup = new Setup(deps);
+  const stale = setup.readinessView();
+  viewChanges.publish("readiness");
+  pending.resolve({ ...next, git: "ready" });
+  await stale;
+  await expect(setup.readinessView()).resolves.toEqual(next);
+  expect(probe).toHaveBeenCalledTimes(2);
+});
+
+test("repository commit topics invalidate a warm readiness result", async () => {
+  const { viewChanges } = await import("../../../../src/main/data/view-changes");
+  const initial: ReadinessReport = { git: "ready", platform: "linux", forges: [] };
+  const next: ReadinessReport = {
+    ...initial,
+    forges: [{ host: "new-forge.test", status: "ready" }],
+  };
+  const probe = vi
+    .fn<NonNullable<SetupDependencies["readiness"]>>()
+    .mockResolvedValueOnce(initial)
+    .mockResolvedValue(next);
+  deps.readiness = probe;
+  const setup = new Setup(deps);
+  await expect(setup.readinessView()).resolves.toEqual(initial);
+  viewChanges.publish("repositories", "worktrees");
+  await expect(setup.readinessView()).resolves.toEqual(next);
+  expect(probe).toHaveBeenCalledTimes(2);
+});
+
+test("windows share a profile's readiness probe and changed explicit recheck result", async () => {
+  const initial: ReadinessReport = { git: "ready", platform: "linux", forges: [] };
+  const next: ReadinessReport = {
+    ...initial,
+    forges: [{ host: "new-forge.test", status: "not-signed-in" }],
+  };
+  const pending = Promise.withResolvers<ReadinessReport>();
+  const probe = vi
+    .fn<NonNullable<SetupDependencies["readiness"]>>()
+    .mockReturnValueOnce(pending.promise)
+    .mockResolvedValue(next);
+  deps.readiness = probe;
+  const a = new Setup(deps);
+  const b = new Setup({ ...deps });
+  const first = a.readinessView();
+  expect(b.readinessView()).toBe(first);
+  pending.resolve(initial);
+  await first;
+  await expect(b.readinessView()).resolves.toEqual(initial);
+  await expect(a.readinessView()).resolves.toEqual(initial);
+  expect(probe).toHaveBeenCalledOnce();
+  await b.readiness();
+  await expect(a.readinessView()).resolves.toEqual(next);
+  await expect(b.readinessView()).resolves.toEqual(next);
+  expect(probe).toHaveBeenCalledTimes(2);
 });

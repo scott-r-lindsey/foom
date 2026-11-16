@@ -5,7 +5,7 @@ import type { useRepositorySelection } from "./use-repository-selection";
 
 export function usePreflightNavigation(
   settingsMode: boolean,
-  initialSection: "config" | undefined,
+  initialSection: "config" | "hosts" | undefined,
   closable: boolean,
   codeFolder: string | null,
   {
@@ -20,7 +20,9 @@ export function usePreflightNavigation(
   >,
   setError: (error: string | undefined) => void,
 ) {
-  const [step, setStep] = useState(settingsMode ? (initialSection === "config" ? 9 : 11) : 0);
+  const [step, setStep] = useState(
+    settingsMode ? (initialSection === "config" ? 9 : initialSection === "hosts" ? 13 : 11) : 0,
+  );
   const [reached, setReached] = useState(closable ? STEPS.length - 1 : 0);
   const move = (next: number) => {
     setStep(next);

@@ -602,6 +602,8 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     "showPullRequests",
     "terminalClipboardWrites",
     "unreadChildMinutes",
+    "wakeIntervalMinutes",
+    "wakeOrchestrator",
     "worktreeLocation",
   ]);
   const effective = (await page.evaluate(() => window.desktop.setupState())).settings;
@@ -619,6 +621,8 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     defaultAgent: null,
     recentRepositoryDays: 30,
     unreadChildMinutes: 5,
+    wakeIntervalMinutes: 3,
+    wakeOrchestrator: false,
     autoRemoveMergedWorktrees: false,
     showPullRequests: false,
     showNestedRepositoryNames: false,
