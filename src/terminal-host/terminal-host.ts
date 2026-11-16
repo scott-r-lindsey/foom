@@ -1,3 +1,4 @@
+import { wakeLeaseValid } from "./wake-lease";
 import { TerminalManager } from "./terminal-manager";
 import { hostRequest } from "../shared/terminal-host-protocol";
 import type { HostResponse } from "../shared/terminal-host";
@@ -88,6 +89,11 @@ port.on("message", (event: { data: unknown }) => {
         case "kill":
           manager.kill(id);
           owned.delete(id);
+          break;
+        case "wake-input":
+          signaled = await manager.wakeInput(id, message.input, () =>
+            wakeLeaseValid(message.guard),
+          );
           break;
         case "child-input":
           manager.childInput(id, message.input);

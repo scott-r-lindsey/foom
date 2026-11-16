@@ -11,6 +11,7 @@ function failureDetail(reason: Reason): { detail?: string } {
 }
 
 const actions: readonly string[] = [
+  "wake",
   "create_worktree",
   "launch",
   "stop",

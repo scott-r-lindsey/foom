@@ -29,6 +29,7 @@ export interface ControlLaunch extends McpAttachment {
   bind: (terminalId: string, mcp?: boolean) => void;
 }
 export type Action =
+  | "wake"
   | "create_worktree"
   | "launch"
   | "stop"

@@ -559,6 +559,7 @@ const mock = vi.hoisted(() => {
   return {
     terminals: {
       kill: vi.fn(() => Promise.resolve()),
+      recheckWake: vi.fn(),
       onExit: vi.fn<(listener: (id: string, code: number) => void) => () => void>(() => () => {}),
       dispose: vi.fn(() => Promise.resolve()),
       addWindow: vi.fn(),

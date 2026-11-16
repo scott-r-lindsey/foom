@@ -1,3 +1,4 @@
+import { isWakeInput, isWakeToken } from "./agent-wake";
 import { isChildInput } from "./child-input";
 import { foregroundName } from "./foreground-name";
 import { isAgentEvidence } from "./agent-evidence";
@@ -65,6 +66,8 @@ export function hostRequest(value: unknown): value is HostRequest {
     case "stop":
     case "kill":
       return true;
+    case "wake-input":
+      return isWakeInput(value["input"]) && isWakeToken(value["guard"]);
     case "child-input":
       return isChildInput(value["input"]);
     case "write":

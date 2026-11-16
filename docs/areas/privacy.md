@@ -219,3 +219,13 @@ catalog-pinned official Node/pnpm artifacts from the selected execution host,
 without credentials. Visible human terminals own passwords and sudo. Recipe
 environments omit Foom control credentials and Environment secrets. See
 [repository setup](repository-setup.md).
+
+## Idle orchestrator notices (#548)
+
+The profile-only wake opt-in can submit a fixed notice with bounded, sanitized
+child names into the orchestrator's terminal. That client may send the notice to
+its model provider as a new turn. No handoff summary, URL, PR text, terminal output
+or credential is copied into the notice. Screen matching stays local and is not
+retained as wake evidence. Durable operations retain metadata and input
+fingerprints, not the submitted notice. See the
+[best-effort delivery and residual race](../orchestration.md#opt-in-idle-orchestrator-wake-548).

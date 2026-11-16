@@ -1124,3 +1124,15 @@ test("a failed downgrade backup stops before rewriting the original profile", as
   }
   expect(await readdir(root)).toEqual(["settings.json"]);
 });
+
+test("wake is off by default and its profile-only interval is bounded", () => {
+  expect(DEFAULT_SETTINGS.wakeOrchestrator).toBe(false);
+  expect(DEFAULT_SETTINGS.wakeIntervalMinutes).toBe(3);
+  expect(parseSettingsPatch({ wakeOrchestrator: true, wakeIntervalMinutes: 1 })).toEqual({
+    wakeOrchestrator: true,
+    wakeIntervalMinutes: 1,
+  });
+  expect(parseSettingsPatch({ wakeIntervalMinutes: 1440 })).toEqual({ wakeIntervalMinutes: 1440 });
+  for (const bad of [0, 1441, 1.5, "3", NaN])
+    expect(() => parseSettingsPatch({ wakeIntervalMinutes: bad })).toThrow("Invalid settings");
+});

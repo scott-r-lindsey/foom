@@ -27,14 +27,14 @@ export const bundledProviders: readonly AgentProvider[] = [
   bundledProvider(
     claude,
     "claude",
-    "0863669e0c9ee37458ce376da7e872c1e4df741dfeeeddcd510c08cf0e7da648",
+    "c7c421400bd67cc157bd88acb2c2fbe6000221e6273704c8b90979f701a75eec",
   ),
   bundledProvider(
     codex,
     "codex",
-    "5cbd8e5c4bf0c0cc64e489c7f907c6baa623c11f163c0d2e0405bf7b978682aa",
+    "ae315467b2ffbe328f5a25e55014161779dd596057f079fdd2674a5e8e22f62f",
   ),
-  bundledProvider(agy, "agy", "5064d9514d4c1ea4c5de6577da1e53c10d03848d8d634497eec246243aaa5954"),
+  bundledProvider(agy, "agy", "f5ca8ccb1d4c1b41280cf58d231fc672ad0c857a050e0e0e906d2f132942b53d"),
   bundledProvider(
     copilot,
     "copilot",
@@ -45,7 +45,7 @@ export const bundledProviders: readonly AgentProvider[] = [
     "opencode",
     "2c1eca2b170e42f19f65ae893935744c8d47468763f26cfab3e26c5eac0ea315",
   ),
-  bundledProvider(pi, "pi", "5074f7a22784f37b30eb1df1ebac3054e03b6b154e3d65ad320e117ddd346177"),
+  bundledProvider(pi, "pi", "ae24e1b71a95436084cee548fda9c3babb5d873217e5bd9d6223a44a0d00ad80"),
 ];
 
 /** Build-owned migrations: retain old config rows, but require an explicit bundled resume. */

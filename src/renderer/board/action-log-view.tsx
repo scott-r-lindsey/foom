@@ -125,6 +125,7 @@ export function ActionLog({
               "remove_worktree",
               "reply",
               "prompt",
+              "wake",
               "send_keys",
               "handoff",
               "take_over",
