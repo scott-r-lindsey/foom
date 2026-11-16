@@ -1,5 +1,6 @@
-export const CHILD_PROMPT =
-  "Task from your Foom orchestrator (another agent, not the user):\nBefore stopping when finished, blocked, or CI fails, report to your parent with handoff({ status: done|blocked|failed, summary, links?, idempotencyKey }), or foom handoff --status done|blocked|failed --summary-file FILE|- [--link HTTPS_URL] --idempotency-key KEY. Handoffs are pull-only; they never type into a terminal. Include the PR number, head SHA, changes and local validation results. The orchestrator owns CI: do not poll checks in a loop. For a documented flake, rerun the failed jobs once, then hand off with the result; otherwise report the failure. Never change host or system settings, including sysctl, limits, packages or services.";
+import { CHILD_GUIDANCE } from "../../../shared/control-guidance";
+
+export const CHILD_PROMPT = `Task from your Foom orchestrator (another agent, not the user):\n${CHILD_GUIDANCE}`;
 
 /**
  * Antigravity launches without a current MCP plugin explain the CLI. The human may
