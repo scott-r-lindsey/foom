@@ -51,6 +51,26 @@ before checking its prompt/readiness or typing. The previous failed pane has the
 same prompt and ready attribute until the asynchronous setup reply replaces it;
 those conditions alone do not acknowledge the new terminal.
 
+## Merged cleanup completion (#1221)
+
+The external-worktree cleanup case waits for the real checked-ref transaction
+before measuring dialog dismissal. Its test-only wrapper runs the original branch
+cleanup, then holds its return. With that gate closed, both worktrees must show
+Removed and the confirmation must remain visible. Releasing the gate exercises the
+final progress publication and automatic dismissal under the unchanged visibility
+assertion deadline. The existing whole-test deadline bounds fetch, removal and
+branch work. Teardown always releases the gate and restores the original method.
+Diagnostics include the branch operation's result and elapsed time.
+
+The macOS failure in run 43828707590 reported both rows Removed while still in the
+remove phase, then timed out waiting for native window visibility to become false.
+That phase includes branch cleanup; the observation does not establish a lost
+final update. The `not-created-by-foom` message is also emitted during ordinary
+removal when an external checkout cannot acquire retry provenance. It does not
+mean that ordinary Git removal failed or a retry ran. No provenance or deletion
+guard changes are needed for this test synchronization. Unit fixtures cover a
+symlinked temporary parent and retain refusal of user-created directories.
+
 ## Hosts navigation request window (#1199)
 
 Host enrollment publishes sidebar refreshes independently of the completed Hosts

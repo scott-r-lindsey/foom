@@ -81,6 +81,61 @@ async function pendingFixture() {
   return { service, repo, root, path, profile, temporary };
 }
 
+for (const owned of [true, false]) {
+  test(
+    `a symlinked temporary parent ${owned ? "preserves Foom creation" : "grants no user-created"} retry authority`,
+    fixture.usingFixture(async () => {
+      const { temporary, repo } = await fixture.create();
+      const target = join(temporary, "parent");
+      const alias = join(temporary, "parent-alias");
+      await mkdir(target);
+      await symlink(target, alias, process.platform === "win32" ? "junction" : "dir");
+      const configuredRoot = join(alias, "root");
+      const profile = join(temporary, "profile");
+      const service = await WorktreeService.open(profile, configuredRoot);
+      await service.addRepository(repo);
+      const path = owned
+        ? (await service.createWorktree(repo, "retry-alias")).path
+        : join(target, "root", "manual");
+      if (!owned) {
+        await mkdir(join(target, "root"), { recursive: true });
+        await git(["worktree", "add", "-b", "manual", path], { cwd: repo });
+      }
+      expect(path).toBe(await fs.realpath(path));
+      await writeFile(join(path, "retained"), "retained data");
+      const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const removal = vi.spyOn(operations, "git").mockImplementation(async (cwd, args) => {
+        if (args[0] === "worktree" && args[1] === "remove") {
+          await rm(join(path, ".git"));
+          await git(["worktree", "prune", "--expire", "now"], { cwd });
+          return "";
+        }
+        return (await git(args, { cwd })).stdout;
+      });
+      await expect(service.removeWorktree(repo, path, true)).rejects.toThrow(
+        "worktree-removal-incomplete",
+      );
+      removal.mockRestore();
+      const state = await new WorktreeStore(join(profile, "worktrees.json")).read();
+      expect(state?.pendingRemovals ?? []).toHaveLength(owned ? 1 : 0);
+      const restored = await WorktreeService.open(profile, configuredRoot);
+      if (owned) {
+        await restored.retryRemoval(repo, path);
+        await expect(lstat(path)).rejects.toMatchObject({ code: "ENOENT" });
+      } else {
+        await expect(restored.retryRemoval(repo, path)).rejects.toThrow(
+          "worktree-removal-incomplete",
+        );
+        expect(log).toHaveBeenCalledWith(
+          "Worktree removal retry refused: not-created-by-foom",
+          path,
+        );
+        expect(await readFile(join(path, "retained"), "utf8")).toBe("retained data");
+      }
+    }),
+  );
+}
+
 for (const unavailable of [false, true]) {
   test(
     `retry resolves registered short-name aliases and refuses ${unavailable ? "unavailable resolution" : "re-registration"}`,
