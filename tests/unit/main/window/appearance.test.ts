@@ -3,6 +3,7 @@ import {
   anchoredOrigin,
   initialSize,
   nextScale,
+  scaleFromZoomFactor,
   scaledBounds,
   scaledSize,
 } from "../../../../src/main/window/appearance";
@@ -89,4 +90,14 @@ test("restored dimensions respect the minimum and current display without rescal
     width: 900,
     height: 640,
   });
+});
+
+test.each([
+  { factor: 1, scale: 100 },
+  { factor: 1.2, scale: 120 },
+  { factor: 1.2 ** 0.5, scale: 110 },
+  { factor: 0.25, scale: 80 },
+  { factor: 5, scale: 300 },
+])("native zoom factor $factor uses supported shared scale $scale", ({ factor, scale }) => {
+  expect(scaleFromZoomFactor(factor)).toBe(scale);
 });

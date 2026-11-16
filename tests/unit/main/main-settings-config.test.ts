@@ -535,3 +535,15 @@ test.each(["hooks", "theme"] as const)(
     }
   },
 );
+
+test("unrelated Settings apply never resets a native factor or rescales the window", async () => {
+  await start();
+  // The main fixture captures Setup's dependencies instead of running its constructor.
+  const before = { ...DEFAULT_SETTINGS, ...mock.settingsStore.get() };
+  mock.setup.deps?.apply(before);
+  mock.window.webContents.setZoomFactor.mockClear();
+  mock.window.setBounds.mockClear();
+  mock.setup.deps?.apply({ ...before, agents: { claude: true } });
+  expect(mock.window.webContents.setZoomFactor).not.toHaveBeenCalled();
+  expect(mock.window.setBounds).not.toHaveBeenCalled();
+});
