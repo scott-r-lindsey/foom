@@ -58,8 +58,15 @@ a fresh Foom-owned 0700 temporary directory. Every probe gets only that director
 plus canonical fixed system directories verified root-owned and not group/world
 writable. Missing supported tool names have private exit-127 blockers, so an
 `env node` shebang cannot fall through to another Node. Arbitrary login directories
-never enter the probe PATH. A symlink retarget during an awaited ABI query cannot
-change either the selected tool or its PATH-selected interpreter.
+never enter the probe PATH. Before probing, the checker reads bounded shebangs
+and recursively canonicalizes static interpreter chains (at most four scripts),
+including simple `/usr/bin/env NAME` lookup through these pins and verified system
+directories. Relative interpreters, repository/checkout targets, cycles, deeper
+chains and unsupported env flags/assignments are blockers (Unable to check).
+Accepted scripts run as `<canonical interpreter> <canonical script> --version`,
+with validated nested arguments preserved; their private PATH entries use the
+same canonical invocation. Native binaries execute directly. An absolute alias
+or PATH alias is never handed to the kernel as an unchecked script interpreter.
 
 `withSetupProbeDependencies` owns this scope in local human/child/resume admission,
 remote admission and management, and setup helpers. It removes the directory in
@@ -76,8 +83,11 @@ Explicit setup retains the disclosed installer network behavior. Local source
 observations retain the registered repository root when inspecting a linked
 worktree. Remote checks retain the entire registered code root and selected
 checkout. Selecting a worktree never narrows the exclusion scope. These are
-bounded filesystem observations, not isolation from a process already running
-with the user's full privileges and replacing a canonical trusted executable.
+bounded filesystem observations. The threat boundary is untrusted repository
+content under the registered root R and selected checkout W, including static
+interpreter chains that lead into either root. A same-user process retargeting or
+replacing files outside R/W during a check can already execute as that user and
+is explicitly outside this boundary; these checks do not attempt to isolate it.
 
 Package grammars are manager-specific allowlists. All reject leading `-`, trailing
 `-`/`+`, `=`, paths, globs and whitespace; Debian also rejects dots (apt regex
@@ -88,7 +98,7 @@ to refuse explicit and solver removals. Homebrew uses `--formula --`, with
 ([documented behavior](https://docs.brew.sh/Manpage#environment)). Unmet OS packages
 on RHEL/Arch are manual until an atomic no-removal transaction is supported;
 checks, already-met packages and private toolchains remain available. Catalog
-revision 4 invalidates prior approvals and mismatched helpers. Exact catalog-v1
+revision 5 invalidates prior approvals and mismatched helpers. Exact catalog-v1
 profiles retain their original lists and digests through a bounded historical
 reader. They remain Review needed and block launch/setup; obsolete package names
 are visible in review and editable, but cannot be approved under the current

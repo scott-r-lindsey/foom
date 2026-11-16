@@ -176,7 +176,12 @@ retains only these pins and verified fixed root-owned system directories, with
 missing tool names shadowed rather than falling through. It never carries mutable
 login-bin paths into an `env` shebang. The shared scoped checker removes this
 directory on completion/failure/cancellation; setup helpers retain it through
-recipes. No amount of late rechecking substitutes for this pinned lookup scope.
+recipes. Static shebang chains are checked recursively (at most four scripts),
+including simple env lookups. Relative interpreters and any link into the registered
+root or selected checkout block the tool. Accepted scripts execute through their
+canonical interpreter rather than asking the kernel to follow an interpreter
+alias. The boundary is repository content; same-user retargeting outside both
+roots is out of scope. No amount of late rechecking substitutes for this scope.
 Saved results are presentation only, never launch authorization.
 
 **Set up** is the single execution click after an active list has been approved.
@@ -221,7 +226,7 @@ the validated login PATH, with automatic cleanup and installed-dependent
 upgrade/reinstall disabled. Missing RHEL/Arch packages
 require manual setup: the bundled DNF/pacman backends do not provide a verified
 atomic no-removal guarantee. Read-only presence checks, already-met requirements
-and private toolchain recipes remain supported there. Catalog revision 4 invalidates
+and private toolchain recipes remain supported there. Catalog revision 5 invalidates
 old approvals/peers so changed operand, transaction and probe rules require fresh review.
 Prompts and
 sudo stay in the visible terminal; Foom cannot supply an answer. No silent fallback,

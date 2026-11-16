@@ -110,6 +110,7 @@ function deps(
 ): SetupProbeDependencies {
   return {
     dispose: () => Promise.resolve(),
+    invocation: (command, args) => ({ command, args }),
     platform: { distro, os: distro === "darwin" ? "darwin" : "linux", arch: "x64", nodeAbi: true },
     home: "/fixture",
     env: {},
@@ -417,7 +418,11 @@ it.skipIf(process.platform === "win32").each([false, true])(
     vi.mocked(setupProbe).mockImplementation(async (command, args, cwd, env) => {
       if (command === "/usr/bin/getconf") return "glibc 2.36";
       if (command === "/usr/bin/sw_vers") return "14.0";
-      if (!command.startsWith(root + "/")) throw new Error("Nonfixture CLI");
+      if (
+        !command.startsWith(root + "/") &&
+        !(command === (await realpath("/bin/sh")) && args[0]?.startsWith(root + "/"))
+      )
+        throw new Error("Nonfixture CLI");
       return (await execute(command, [...args], { cwd, env })).stdout;
     });
     const env = await validateSetupAdmission(
@@ -492,7 +497,11 @@ it.skipIf(process.platform === "win32").each(["symlink", "nested-bin", "retarget
         }
         return command === "/usr/bin/getconf" ? "glibc 2.36" : "14.0";
       }
-      if (!command.startsWith(root + "/")) throw new Error("Nonfixture executable");
+      if (
+        !command.startsWith(root + "/") &&
+        !(command === (await realpath("/bin/sh")) && args[0]?.startsWith(root + "/"))
+      )
+        throw new Error("Nonfixture executable");
       return (await execute(command, [...args], { cwd, env })).stdout;
     });
     const store = { get: () => ({ ...DEFAULT_SETTINGS, registeredHosts: [] }) };
@@ -592,7 +601,11 @@ it.skipIf(originalPlatform === "win32").each([false, true])(
         }
         return command === "/usr/bin/getconf" ? "glibc 2.36" : "14.0";
       }
-      if (!command.startsWith(root + "/")) throw new Error("Nonfixture executable");
+      if (
+        !command.startsWith(root + "/") &&
+        !(command === (await realpath("/bin/sh")) && args[0]?.startsWith(root + "/"))
+      )
+        throw new Error("Nonfixture executable");
       return (await execute(command, [...args], { cwd, env })).stdout;
     });
     const excluded = [repository, worktree];
@@ -649,7 +662,11 @@ it.skipIf(originalPlatform === "win32")(
     vi.mocked(setupProbe).mockImplementation(async (command, args, cwd, env) => {
       if (command === "/usr/bin/getconf") return "glibc 2.36";
       if (command === "/usr/bin/sw_vers") return "14.0";
-      if (!command.startsWith(root + "/")) throw new Error("Nonfixture executable");
+      if (
+        !command.startsWith(root + "/") &&
+        !(command === (await realpath("/bin/sh")) && args[0]?.startsWith(root + "/"))
+      )
+        throw new Error("Nonfixture executable");
       return (await execute(command, [...args], { cwd, env })).stdout;
     });
     const env = await repositorySetupEnvironment(
@@ -707,6 +724,7 @@ it("native Windows remains manual without exposing an interpreter PATH", async (
   const deps = await setupProbeDependencies({ PATH: "untrusted" }, root);
   expect(deps.platform.distro).toBe("unsupported");
   expect(deps.env["PATH"]).toBe("");
+  expect(() => deps.invocation("node", [])).toThrow("manual");
   expect(await deps.resolve("node")).toBeUndefined();
   await expect(deps.probe("node", ["--version"])).rejects.toThrow("manual");
 });

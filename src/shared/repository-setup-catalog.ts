@@ -8,7 +8,7 @@ import type {
 } from "./repository-setup.d";
 /** Official release checksums, fixed on 2026-11-15. No moving/latest addresses. */
 export const setupCatalog = {
-  version: 4,
+  version: 5,
   node: {
     version: "24.17.0",
     abi: { linuxKernel: "4.18", glibc: "2.28", glibcxx: "3.4.25", macOS: "13.5" },

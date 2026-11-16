@@ -108,8 +108,9 @@ export async function runRepositorySetup(
         } else {
           const command = step[0] === "brew" ? await deps.resolve("brew") : step[0];
           if (!command || !(await matchingSources())) return 2;
+          const invocation = deps.invocation(command, step.slice(1));
           const code = await new Promise<number>((resolve) => {
-            const child = spawn(command, step.slice(1), {
+            const child = spawn(invocation.command, invocation.args, {
               cwd: home,
               env: {
                 ...deps.env,

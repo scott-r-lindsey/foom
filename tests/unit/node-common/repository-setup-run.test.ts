@@ -233,6 +233,38 @@ it("keeps the canonical list bound separate from the bounded execution envelope"
   expect(await runRepositorySetup("x".repeat(128 * 1024 + 1), "/fixture", {}, "/fixture")).toBe(2);
 });
 
+it("executes a script recipe through its validated canonical interpreter", async () => {
+  const { setupProbeDependencies } = await import(
+    "../../../src/node-common/repository-setup-check"
+  );
+  const dependencies = await setupProbeDependencies({}, "/fixture");
+  vi.mocked(setupProbeDependencies).mockResolvedValueOnce({
+    ...dependencies,
+    invocation: (command, args) => ({ command: "/fixture/interpreter", args: [command, ...args] }),
+  });
+  const mac = {
+    ...binding,
+    check: {
+      ...check,
+      platform: { ...check.platform, os: "darwin" as const, distro: "darwin" as const },
+    },
+  };
+  mocks.check.mockResolvedValue(mac.check);
+  expect(
+    await runRepositorySetup(
+      JSON.stringify({ ...mac, digest: setupRunDigest(mac) }),
+      "/fixture/prefix",
+      {},
+      "/fixture",
+    ),
+  ).toBe(0);
+  expect(mocks.spawn).toHaveBeenCalledWith(
+    "/fixture/interpreter",
+    ["/fixture/brew", "install", "--formula", "--", "pkg-config"],
+    expect.objectContaining({ shell: false }),
+  );
+});
+
 it.each(["local", "builder"])(
   "binds %s checkout exclusion before probes and rechecks sources immediately before every recipe",
   async (host) => {

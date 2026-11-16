@@ -62,6 +62,10 @@ export async function repositorySetupEnvironment(
 }
 export interface SetupProbeDependencies {
   dispose: () => Promise<void>;
+  invocation: (
+    command: string,
+    args: readonly string[],
+  ) => { command: string; args: readonly string[] };
   platform: SetupPlatform;
   home: string;
   env: Record<string, string>;
@@ -86,6 +90,9 @@ export async function setupProbeDependencies(
       home,
       env: { ...env, PATH: "" },
       dispose: () => Promise.resolve(),
+      invocation: () => {
+        throw new Error("Native Windows setup is manual");
+      },
       resolve: () => Promise.resolve(undefined),
       probe: () => Promise.reject(new Error("Native Windows setup is manual")),
     };
@@ -100,7 +107,8 @@ export async function setupProbeDependencies(
     };
     const probe = (command: string, args: readonly string[]) => {
       scope.assertOpen();
-      return setupProbe(command, args, home, probeEnvironment, signal);
+      const invocation = scope.invocation(command, args);
+      return setupProbe(invocation.command, invocation.args, home, probeEnvironment, signal);
     };
     const libstdcpp = async (): Promise<boolean> => {
       const machine = process.arch === "arm64" ? "aarch64" : "x86_64";
@@ -178,6 +186,7 @@ export async function setupProbeDependencies(
       env: probeEnvironment,
       probe,
       dispose: scope.dispose,
+      invocation: scope.invocation,
       resolve: (tool) => Promise.resolve(scope.resolve(tool)),
     };
   } catch (error) {

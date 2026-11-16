@@ -6,6 +6,7 @@ export const fakeSetupProbes = (): Checker.SetupProbeDependencies => ({
   probe: () => Promise.reject(new Error("Unexpected fixture probe")),
   resolve: () => Promise.resolve("/fixture/brew"),
   dispose: () => Promise.resolve(),
+  invocation: (command, args) => ({ command, args }),
 });
 export const mockScopedProbes =
   (create: typeof Checker.setupProbeDependencies): typeof Checker.withSetupProbeDependencies =>

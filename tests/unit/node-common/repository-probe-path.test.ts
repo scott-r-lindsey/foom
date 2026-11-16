@@ -3,7 +3,6 @@ import {
   mkdtemp,
   mkdir,
   lstat,
-  readlink,
   readFile,
   realpath,
   rm,
@@ -17,6 +16,7 @@ import { promisify } from "node:util";
 import { execFile } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { repositoryProbePath } from "../../../src/node-common/repository-probe-path";
+const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 const recorded = vi.hoisted(() => ({ created: "" }));
 vi.mock("node:fs/promises", async (original) => {
   const fs = await original<typeof FS>();
@@ -70,7 +70,11 @@ describe.skipIf(process.platform === "win32")("private probe PATH", () => {
     expect(info.mode & 0o777).toBe(0o700);
     expect(info.uid).toBe(process.getuid?.());
     expect(scope.resolve("node")).toBe(join(safe, "node"));
-    expect(await readlink(join(pinned, "node"))).toBe(join(safe, "node"));
+    expect(scope.invocation(join(safe, "node"), ["--version"])).toEqual({
+      command: await realpath("/bin/sh"),
+      args: [join(safe, "node"), "--version"],
+    });
+    expect(await readFile(join(pinned, "node"), "utf8")).toContain(join(safe, "node"));
     expect(scope.resolve("pnpm")).toBeUndefined();
     expect(await readFile(join(pinned, "pnpm"), "utf8")).toContain("exit 127");
     expect(scope.path.split(delimiter)).not.toContain(bins);
@@ -82,6 +86,7 @@ describe.skipIf(process.platform === "win32")("private probe PATH", () => {
     await scope.dispose();
     expect(scope.resolve("node")).toBeUndefined();
     expect(scope.assertOpen).toThrow("closed");
+    expect(() => scope.invocation("/fixture", [])).toThrow("closed");
     await expect(lstat(pinned)).rejects.toMatchObject({ code: "ENOENT" });
   });
   it("cannot fall through to a system node when the verified interpreter is absent", async () => {
@@ -174,5 +179,118 @@ describe.skipIf(process.platform === "win32")("private probe PATH", () => {
     );
     await expect(create("")).rejects.toThrow("Lost directory");
     await expect(lstat(recorded.created)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+  it.each([
+    "absolute",
+    "symlink",
+    "relative",
+    "nested",
+    "cycle",
+    "deep",
+    "env-options",
+    "env-flag",
+    "worktree",
+    "env-missing",
+    "oversized",
+    "malformed",
+  ])("blocks unsafe static interpreter chains: %s", async (kind) => {
+    const repo = join(root, "repo"),
+      bins = join(root, "bins");
+    await Promise.all([mkdir(repo), mkdir(bins)]);
+    const bad = join(repo, "node");
+    const marker = join(root, "bad-called");
+    await writeFile(bad, `#!/bin/sh\nprintf bad > ${quote(marker)}\n`, { mode: 0o700 });
+    const alias = join(root, "node-alias");
+    await symlink(bad, alias);
+    const node = join(bins, "node");
+    let header = `#!${bad}\n`;
+    if (kind === "symlink") header = `#!${alias}\n`;
+    if (kind === "relative") header = "#!relative-node\n";
+    if (kind === "env-options") header = "#!/usr/bin/env -S node\n";
+    if (kind === "env-flag") header = "#!/usr/bin/env -S\n";
+    if (kind === "worktree") header = `#!${bad}\n`;
+    if (kind === "env-missing") header = "#!/usr/bin/env missing-fixture-interpreter\n";
+    if (kind === "oversized") header = "#!" + "x".repeat(4096);
+    if (kind === "malformed") header = "#!\n";
+    if (kind === "cycle") header = `#!${node}\n`;
+    if (kind === "nested" || kind === "deep") {
+      let parent = kind === "nested" ? bad : await realpath("/bin/sh");
+      for (let n = 0; n < (kind === "deep" ? 5 : 1); n++) {
+        const file = join(root, `interpreter-${String(n)}`);
+        await writeFile(file, `#!${parent}\n`, { mode: 0o700 });
+        parent = file;
+      }
+      header = `#!${parent}\n`;
+    }
+    await writeFile(node, header, { mode: 0o700 });
+    const scope = await create(
+      bins,
+      kind === "worktree" ? [join(root, "registered"), repo] : [repo],
+    );
+    expect(() => scope.invocation(node, ["--version"])).toThrow("Unsafe probe interpreter chain");
+    const pinned = scope.path.split(delimiter)[0];
+    if (!pinned) throw new Error("No pins");
+    await expect(
+      promisify(execFile)(join(pinned, "node"), ["--version"], { env: { PATH: scope.path } }),
+    ).rejects.toMatchObject({ code: 127 });
+    await expect(lstat(marker)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+  it("flattens nested canonical interpreters and options, including env NAME", async () => {
+    const bins = join(root, "bins'quote");
+    await mkdir(bins);
+    const interpreter = join(root, "interpreter'quote");
+    await writeFile(interpreter, "#!/bin/sh -e\nprintf '10.34.7\\n'\n", { mode: 0o700 });
+    const node = join(bins, "node"),
+      pnpm = join(bins, "pnpm");
+    await writeFile(node, `#!${interpreter}\n`, { mode: 0o700 });
+    await writeFile(pnpm, "#!/usr/bin/env node\n", { mode: 0o700 });
+    const scope = await create(bins);
+    const invocation = scope.invocation(pnpm, ["--version"]);
+    expect(invocation).toEqual({
+      command: await realpath("/bin/sh"),
+      args: ["-e", interpreter, node, pnpm, "--version"],
+    });
+    expect(
+      (
+        await promisify(execFile)(invocation.command, [...invocation.args], {
+          env: { PATH: scope.path },
+        })
+      ).stdout,
+    ).toBe("10.34.7\n");
+    const pinned = scope.path.split(delimiter)[0];
+    if (!pinned) throw new Error("No pins");
+    expect(
+      (
+        await promisify(execFile)(join(pinned, "pnpm"), ["--version"], {
+          env: { PATH: scope.path },
+        })
+      ).stdout,
+    ).toBe("10.34.7\n");
+  });
+  it("resolves env system interpreters only through verified fixed directories", async () => {
+    const bins = join(root, "bins");
+    await mkdir(bins);
+    const node = join(bins, "node");
+    await writeFile(node, "#!/usr/bin/env sh\nprintf 'v24.17.0\\n'\n", { mode: 0o700 });
+    const scope = await create(bins);
+    expect(scope.invocation(node, ["--version"])).toEqual({
+      command: await realpath("/bin/sh"),
+      args: [node, "--version"],
+    });
+  });
+  it.each([3, 4])("enforces the four-script limit at its boundary: %s parents", async (parents) => {
+    const bins = join(root, "bins");
+    await mkdir(bins);
+    let parent = await realpath("/bin/sh");
+    for (let n = 0; n < parents; n++) {
+      const file = join(root, `parent-${String(n)}`);
+      await writeFile(file, `#!${parent}\n`, { mode: 0o700 });
+      parent = file;
+    }
+    const node = join(bins, "node");
+    await writeFile(node, `#!${parent}\n`, { mode: 0o700 });
+    const scope = await create(bins);
+    if (parents === 3) expect(scope.invocation(node, []).args).toHaveLength(4);
+    else expect(() => scope.invocation(node, [])).toThrow("Unsafe probe interpreter chain");
   });
 });

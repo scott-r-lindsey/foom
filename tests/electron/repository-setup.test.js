@@ -785,8 +785,40 @@ printf '10.34.7\\n'
       repository,
     },
   );
+  const forbiddenAlias = path.join(root, "repository-node-alias");
+  await symlink(path.join(repository, "node"), forbiddenAlias);
   let checks = 0;
-  for (const retarget of [false, true]) {
+  for (const { label, interpreter, retarget, expected } of [
+    { label: "env", interpreter: "/usr/bin/env node", retarget: false, expected: "met" },
+    { label: "env retarget", interpreter: "/usr/bin/env node", retarget: true, expected: "met" },
+    {
+      label: "absolute repository interpreter",
+      interpreter: path.join(repository, "node"),
+      retarget: false,
+      expected: "unable",
+    },
+    {
+      label: "absolute alias into repository",
+      interpreter: forbiddenAlias,
+      retarget: false,
+      expected: "unable",
+    },
+    {
+      label: "relative interpreter",
+      interpreter: "relative-node",
+      retarget: false,
+      expected: "unable",
+    },
+    {
+      label: "canonical absolute interpreter",
+      interpreter: path.join(bins, "node"),
+      retarget: true,
+      expected: "met",
+    },
+  ]) {
+    await require("node:fs/promises").unlink(path.join(bins, "node"));
+    await symlink(path.join(safe, "node"), path.join(bins, "node"));
+    await writeFile(path.join(bins, "pnpm"), `#!${interpreter}\n`, { mode: 0o700 });
     await app.evaluate((_electron, retarget) => {
       globalThis.fixtureRetargetInterpreter = retarget;
     }, retarget);
@@ -794,8 +826,8 @@ printf '10.34.7\\n'
       (repository) => window.desktop.repositorySetup({ action: "check", repository, host: null }),
       repository,
     );
-    assert.equal(state.rows[0].state, "met");
-    checks++;
+    assert.equal(state.rows[0].state, expected, label);
+    if (expected === "met") checks++;
     assert.equal((await readFile(safeCalls, "utf8")).trim().split("\n").length, checks);
     await assert.rejects(access(badCalls), { code: "ENOENT" });
     assert.equal(
