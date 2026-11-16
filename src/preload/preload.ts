@@ -1,4 +1,5 @@
 import type { RepositorySetupState, SetupRefusal } from "../shared/repository-setup.d";
+import type { DataView, DataViews, ViewParams, ViewSnapshot } from "../shared/data-views";
 import type {
   BoardRead,
   BoardThreads,
@@ -1680,7 +1681,145 @@ const createdWorktree = both(
   validWorktree,
   shape({ outcome: literal("new", "existing", "origin", "open") }),
 );
+const validReadinessView: Validator<ReadinessReport> = copying(readinessReport, (value) =>
+  readinessReport(value)
+    ? {
+        git: value.git,
+        platform: value.platform,
+        forges: value.forges.map(({ host, status }) => ({ host, status })),
+      }
+    : undefined,
+);
+const viewValidators: { [K in DataView]: Validator<DataViews[K]> } = {
+  settings: validSetupState,
+  hosts: validHostsState,
+  agents: both(validAgentReport, shape({ machine: either(absent, validHostsState) })),
+  repositories: array(validRepository),
+  worktrees: array(validWorktree),
+  sessions: array(validWorkspaceTerminal),
+  environment: validEnvironmentState,
+  config: validConfigStatus,
+  fonts: array(text),
+  sounds: array(validSoundEntry),
+  readiness: validReadinessView,
+};
+function validViewParams(view: DataView, params: unknown): params is ViewParams {
+  if (!object(params)) return false;
+  return (
+    Object.entries(params).every(([key, value]) => {
+      if (key === "machine" && view === "agents")
+        return (
+          value === "local" ||
+          (typeof value === "string" && value.startsWith("host:") && hostAlias(value.slice(5)))
+        );
+      if (key === "repository" && view === "worktrees")
+        return (
+          typeof value === "string" &&
+          value.length > 0 &&
+          value.length <= 4096 &&
+          !value.includes("\0")
+        );
+      if (
+        (key === "offset" || key === "limit") &&
+        ["repositories", "worktrees", "sessions"].includes(view)
+      )
+        return (
+          typeof value === "number" &&
+          Number.isSafeInteger(value) &&
+          value >= (key === "limit" ? 1 : 0) &&
+          value <= (key === "limit" ? 100 : 1000000)
+        );
+      return false;
+    }) &&
+    (view !== "worktrees" || Object.hasOwn(params, "repository"))
+  );
+}
+function boundedView(value: unknown): boolean {
+  try {
+    return JSON.stringify(value).length <= 2 * 1024 * 1024;
+  } catch {
+    return false;
+  }
+}
+let viewSequence = 0;
+function validViewSnapshot<K extends DataView>(value: unknown, view: K): value is ViewSnapshot<K> {
+  if (
+    !object(value) ||
+    value["view"] !== view ||
+    !text(value["id"]) ||
+    !validViewParams(view, value["params"]) ||
+    !count(value["generation"]) ||
+    !count(value["revision"])
+  )
+    return false;
+  if (!boundedView(value)) return false;
+  if (value["viewRevision"] !== undefined && !count(value["viewRevision"])) return false;
+  if (
+    value["nextOffset"] !== undefined &&
+    (!["repositories", "worktrees", "sessions"].includes(view) ||
+      !count(value["nextOffset"]) ||
+      value["nextOffset"] <= (value["params"].offset ?? 0) ||
+      value["nextOffset"] > 1000000)
+  )
+    return false;
+  if (Object.hasOwn(value, "error"))
+    return (
+      (value["error"] === "unavailable" || value["error"] === "too-large") &&
+      !Object.hasOwn(value, "data")
+    );
+  return viewValidators[view](value["data"]);
+}
+
 const desktop: DesktopApi = {
+  subscribeView<K extends DataView>(
+    view: K,
+    params: ViewParams,
+    receive: (snapshot: ViewSnapshot<K>) => void,
+  ) {
+    if (!Object.hasOwn(viewValidators, view) || !validViewParams(view, params))
+      throw new Error("Invalid view");
+    const id = `view-${String(++viewSequence)}`;
+    let active = true;
+    let generation: number | undefined;
+    let revision = -1;
+    const listener = (_event: IpcRendererEvent, value: unknown) => {
+      if (
+        !active ||
+        !validViewSnapshot(value, view) ||
+        value.id !== id ||
+        JSON.stringify(value.params) !== JSON.stringify(params)
+      )
+        return;
+      if (generation !== undefined && value.generation !== generation) return;
+      if (value.revision <= revision) return;
+      generation = value.generation;
+      revision = value.revision;
+      void ipcRenderer
+        .invoke("data:ack", id, value.generation, value.revision)
+        .catch(() => undefined);
+      const base = { id, view, params, generation: value.generation, revision: value.revision };
+      if (value.error) receive({ ...base, error: value.error });
+      else {
+        const data: unknown = project(viewValidators[view], value.data);
+        const clean = {
+          ...base,
+          data,
+          ...(value.viewRevision === undefined ? {} : { viewRevision: value.viewRevision }),
+          ...(value.nextOffset === undefined ? {} : { nextOffset: value.nextOffset }),
+        };
+        if (validViewSnapshot(clean, view)) receive(clean);
+      }
+    };
+    ipcRenderer.on("data:snapshot", listener);
+    void ipcRenderer.invoke("data:subscribe", { id, view, params }).catch(() => {
+      if (active) receive({ id, view, params, generation: 0, revision: 0, error: "unavailable" });
+    });
+    return () => {
+      active = false;
+      ipcRenderer.removeListener("data:snapshot", listener);
+      void ipcRenderer.invoke("data:unsubscribe", id).catch(() => undefined);
+    };
+  },
   previews: {
     describe: (id) => reply("preview:describe", validPreviewSummary, id),
     onPlace(callback) {

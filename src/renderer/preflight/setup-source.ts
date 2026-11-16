@@ -1,3 +1,4 @@
+import type { DataViewApi } from "../../shared/data-views";
 import { createTerminalView } from "../terminal/terminal-view-source";
 import type { SetupSource } from "./setup-source.d";
 
@@ -53,7 +54,11 @@ export function createSetupSource(
       releaseObserver();
     });
   };
+  const views: DataViewApi = {
+    subscribeView: (view, params, receive) => desktop.subscribeView(view, params, receive),
+  };
   return {
+    views,
     hostTerminal: {
       stop: (id) => closeSession?.(id) ?? desktop.kill(id),
       createView: () => createView(),
@@ -158,6 +163,7 @@ export function createSetupSource(
     scan: (id, folder, onProgress) => desktop.scanCode(id, folder, onProgress),
     apply: (selected) => desktop.applyRepositories(selected),
     environment: {
+      views,
       environmentState: () => desktop.environmentState(),
       saveEnvironment: (change) => desktop.saveEnvironment(change),
       removeEnvironment: (scope, name) => desktop.removeEnvironment(scope, name),
@@ -165,6 +171,7 @@ export function createSetupSource(
       importEnvironment: (names) => desktop.importEnvironment(names),
     },
     config: {
+      views,
       status: () => desktop.configStatus(),
       decide: (decision, id) => desktop.decideConfig(decision, id),
       openFolder: () => desktop.openConfigFolder(),

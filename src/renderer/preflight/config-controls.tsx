@@ -1,3 +1,4 @@
+import { useConfigView } from "../data/view-hooks";
 import { ActionError, useBackgroundErrors } from "../board/error-presentation";
 import { errorMessage } from "../../shared/application-errors";
 import { useEffect, useState } from "react";
@@ -9,32 +10,26 @@ type ConfigSource = NonNullable<SetupSource["config"]>;
 /** Settings → Foom config: the folder, and only what needs the user now. */
 export function ConfigControls({ config }: { config: ConfigSource }) {
   const { report, clear } = useBackgroundErrors();
-  const [status, setStatus] = useState<ConfigStatus>();
+  const query = useConfigView(config, () => config.status());
+  const status = query.data;
+  const setStatus = query.setData;
   const pending = status?.pending;
   const [error, setError] = useState("");
 
   useEffect(() => {
-    let active = true;
-    void config.status().then(
-      (next) => {
-        if (active) {
-          setStatus(next);
-          clear("config-status");
-        }
-      },
-      () => {
-        if (active) report("config-status", "Foom config is unavailable.");
-      },
-    );
+    if (config.views) return;
     const unsubscribe = config.subscribe((status) => {
       setStatus(status);
       clear("config-status");
     });
     return () => {
-      active = false;
       unsubscribe();
     };
-  }, [config, clear, report]);
+  }, [config, clear, report, setStatus]);
+  useEffect(() => {
+    if (query.isError) report("config-status", "Foom config is unavailable.");
+    else if (query.isSuccess) clear("config-status");
+  }, [query.isError, query.isSuccess, report, clear]);
   const openFolder = () => {
     setError("");
     void config.openFolder().catch((reason: unknown) => {

@@ -1,3 +1,4 @@
+import { viewChanges } from "../data/view-changes";
 import type { CheckoutHold } from "./worktree-reservations";
 import { checkoutBusy, worktreeReservation } from "./worktree-reservations";
 import type { ParentIdentity } from "../control/orchestration.d";
@@ -1110,6 +1111,8 @@ export async function scanAgents(
     };
     if (this.scanned === pending) {
       const previous = resumeSupport(this.agentReport);
+      if (refresh || JSON.stringify(this.agentReport) !== JSON.stringify(report))
+        viewChanges.publish("agents");
       this.agentReport = report;
       if (previous !== resumeSupport(report)) this.deps.onChange?.();
     }

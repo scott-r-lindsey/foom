@@ -349,6 +349,7 @@ vi.mock("../../../src/main/workspace/workspace", () => ({
     dispose = mock.workspace.dispose;
     configure = mock.workspace.configure;
     scanAgents = mock.workspace.scanAgents;
+    worktrees = () => Promise.resolve([]);
     addRepository = mock.workspace.addRepository;
     removeRepository = mock.workspace.removeRepository;
     constructor(deps: WorkspaceDependencies) {
@@ -380,6 +381,8 @@ vi.mock("../../../src/main/window/window-state", () => ({
 vi.mock("../../../src/main/setup/setup", () => ({
   Setup: class {
     state = mock.setupState;
+    readiness = () => Promise.resolve({ git: "ready", platform: "linux", forges: [] });
+    readinessView = this.readiness;
     refresh = mock.setupRefresh;
     constructor(deps: ConstructorParameters<typeof Setup>[0]) {
       mock.setup.deps = deps;

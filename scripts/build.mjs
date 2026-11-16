@@ -153,6 +153,8 @@ await cp(join(root, "src/renderer/art"), join(root, "build/renderer/art"), { rec
 const thirdPartyNotices = [
   "src/shared/terminal-theme-LICENSE.txt",
   "node_modules/markdown-it/LICENSE",
+  "node_modules/@tanstack/react-query/LICENSE",
+  "node_modules/@tanstack/query-core/LICENSE",
   "node_modules/smol-toml/LICENSE",
   "node_modules/sharp/LICENSE",
   "node_modules/highlight.js/LICENSE",

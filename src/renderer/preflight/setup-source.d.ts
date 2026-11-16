@@ -3,6 +3,7 @@ import type {
   RepositorySetupState,
   SetupRefusal,
 } from "../../shared/repository-setup.d";
+import type { DataViewApi } from "../../shared/data-views";
 import type { TerminalViewSource } from "../terminal/terminal-view-source.d";
 import type { HostsApi } from "../../shared/registered-hosts.d";
 import type { ReadinessReport } from "../../shared/readiness";
@@ -26,6 +27,7 @@ export interface SetupSource {
   onRepositorySetupRefused?: (callback: (refusal: SetupRefusal | undefined) => void) => () => void;
   draftSetupAgent?: (repository: string) => Promise<void>;
   repositorySetup?: (action: RepositorySetupAction) => Promise<RepositorySetupState>;
+  views?: DataViewApi;
   /** Installs started in this Settings window; sign-in tiles are separate. */
   installs?: {
     sessions(): ReadonlyMap<string, string>;
@@ -66,6 +68,7 @@ export interface SetupSource {
   /** Settings → Environment; absent where main offers none, such as sample boards. */
   environment?: EnvironmentApi;
   config?: {
+    views?: DataViewApi;
     status(): Promise<ConfigStatus>;
     decide: (decision: "allow" | "keep", id: string) => Promise<ConfigStatus>;
     openFolder(): Promise<void>;
