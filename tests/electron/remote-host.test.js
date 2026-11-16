@@ -641,6 +641,78 @@ test("Forget removes an unavailable host session locally and recovers its live d
     return { app, page: await boardPage(app) };
   };
   const restored = await restart();
+  // Observe every read before creating the superseded-read regression. Joining
+  // only the current sidebar promise cannot drain a read invalidated by refresh.
+  await restored.app.evaluate(({ app }) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { Workspace } = load("./build/main/workspace/workspace.js");
+    const { Hosts } = load("./build/main/setup/hosts.js");
+    const sidebar = Workspace.prototype.sidebarInventory;
+    const inventory = Hosts.prototype.inventory;
+    const pending = new Set();
+    const state = { held: false, armed: false, draining: false, drained: false };
+    let workspace;
+    let release;
+    Workspace.prototype.sidebarInventory = function (...args) {
+      workspace = this;
+      const read = sidebar.apply(this, args);
+      pending.add(read);
+      void read.then(
+        () => pending.delete(read),
+        () => pending.delete(read),
+      );
+      return read;
+    };
+    Hosts.prototype.inventory = async function (...args) {
+      if (state.armed) {
+        state.armed = false;
+        state.held = true;
+        await new Promise((resolve) => {
+          release = resolve;
+        });
+      }
+      return inventory.apply(this, args);
+    };
+    globalThis.forgetSidebar = {
+      state,
+      pending: () => pending.size,
+      arm: () => {
+        state.armed = true;
+        workspace.refresh();
+      },
+      supersede: () => workspace.refresh(),
+      release: () => release(),
+      drain: async () => {
+        state.draining = true;
+        while (pending.size) await Promise.allSettled([...pending]);
+        state.drained = true;
+      },
+      restore: () => {
+        Workspace.prototype.sidebarInventory = sidebar;
+        Hosts.prototype.inventory = inventory;
+        delete globalThis.forgetSidebar;
+      },
+    };
+  });
+  await restored.page.evaluate(() => window.desktop.sidebarInventory());
+  await restored.app.evaluate(() => globalThis.forgetSidebar.drain());
+  await restored.app.evaluate(() => {
+    globalThis.forgetSidebar.state.draining = false;
+    globalThis.forgetSidebar.state.drained = false;
+    globalThis.forgetSidebar.arm();
+  });
+  await restored.page.evaluate(() => {
+    window.forgetSupersededSidebar = window.desktop.sidebarInventory();
+  });
+  await expect
+    .poll(() => restored.app.evaluate(() => globalThis.forgetSidebar.state.held))
+    .toBe(true);
+  await restored.app.evaluate(() => globalThis.forgetSidebar.supersede());
+  await restored.page.evaluate(() => window.desktop.sidebarInventory());
+  // A newer read completed while the older one has not even dispatched SSH.
+  assert.ok((await restored.app.evaluate(() => globalThis.forgetSidebar.pending())) > 0);
   await expect
     .poll(
       async () =>
@@ -659,6 +731,17 @@ test("Forget removes an unavailable host session locally and recovers its live d
   const dialog = await confirmationPage(restored.app);
   await expect(dialog.getByText(/remote process may still be running/)).toBeVisible();
   await dialog.screenshot({ path: evidencePath("1114-forget-session.png") });
+  const settling = restored.app.evaluate(() => globalThis.forgetSidebar.drain());
+  await expect
+    .poll(() => restored.app.evaluate(() => globalThis.forgetSidebar.state.draining))
+    .toBe(true);
+  assert.equal(await restored.app.evaluate(() => globalThis.forgetSidebar.state.drained), false);
+  const beforeRelease = await readFile(fixture.sshLog, "utf8");
+  await restored.app.evaluate(() => globalThis.forgetSidebar.release());
+  await settling;
+  await restored.page.evaluate(() => window.forgetSupersededSidebar);
+  assert.notEqual(await readFile(fixture.sshLog, "utf8"), beforeRelease);
+  await restored.app.evaluate(() => globalThis.forgetSidebar.restore());
   const before = await readFile(fixture.sshLog, "utf8");
   await dialog.getByRole("button", { name: "Forget", exact: true }).click();
   await expect
