@@ -2215,24 +2215,3 @@ test("readiness view snapshots cross the projected bridge with bounded fixed fac
   expect(receive).toHaveBeenCalledOnce();
   off();
 });
-
-test("native load and resize notifications carry no zoom value and contain synchronization failures", async () => {
-  const target = new EventTarget();
-  vi.stubGlobal("window", target);
-  try {
-    await bridge();
-    mock.invoke.mockRejectedValueOnce(new Error("fixture save failure"));
-    target.dispatchEvent(new Event("DOMContentLoaded"));
-    await Promise.resolve();
-    target.dispatchEvent(new Event("resize"));
-    await Promise.resolve();
-    target.dispatchEvent(new Event("resize"));
-    expect(mock.invoke.mock.calls).toEqual([
-      ["setup:sync-zoom"],
-      ["setup:sync-zoom"],
-      ["setup:sync-zoom"],
-    ]);
-  } finally {
-    vi.unstubAllGlobals();
-  }
-});

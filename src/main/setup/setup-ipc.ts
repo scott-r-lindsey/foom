@@ -42,19 +42,34 @@ export function attachSetup(
     if (!contents.isDestroyed() && contents.mainFrame.url === APP_URL)
       contents.send(channel, ...args);
   };
-  // Native zoom notifications, shortcuts and explicit controls share write order.
+  // Native zoom requests, shortcuts and explicit controls share write order.
   let pending: Promise<unknown> = Promise.resolve();
   const serial = <T>(work: () => Promise<T>): Promise<T> => {
     const next = pending.catch(() => undefined).then(work);
     pending = next;
     return next;
   };
-  const syncZoom = async () => {
-    const { settings } = await setup.state();
-    const scale = scaleFromZoomFactor(contents.getZoomFactor());
-    if (scale !== settings.interfaceScale)
-      send("setup:changed", await setup.save({ interfaceScale: scale }));
+  const ensureZoom = (scale: number) => {
+    const factor = scale / 100;
+    if (contents.getZoomFactor() !== factor) contents.setZoomFactor(factor);
   };
+  const zoom = (direction: ZoomDirection) =>
+    serial(async () => {
+      const { settings } = await setup.state();
+      // Adopt a native factor only in response to an explicit user zoom command.
+      const current = scaleFromZoomFactor(contents.getZoomFactor());
+      const scale = nextScale(current, direction);
+      if (scale === settings.interfaceScale && contents.getZoomFactor() === scale / 100) return;
+      const state = await setup.save({ interfaceScale: scale });
+      ensureZoom(state.settings.interfaceScale);
+      send("setup:changed", state);
+    });
+  const nativeZoom = (_event: Electron.Event, direction: "in" | "out") => {
+    void zoom(direction).catch(() => {
+      console.warn("Unable to change interface size");
+    });
+  };
+  contents.on("zoom-changed", nativeZoom);
   const handlers = new Map<string, (...args: unknown[]) => unknown>([
     [
       "setup:terminal-fonts",
@@ -114,24 +129,16 @@ export function attachSetup(
       },
     ],
     [
-      "setup:sync-zoom",
-      (...args) => {
-        if (args.length) throw new Error("Invalid zoom synchronization request");
-        return serial(syncZoom);
-      },
-    ],
-    [
       "setup:save",
       (...args) => {
         if (args.length !== 1) throw new Error("Invalid settings command");
         const patch = args[0];
         const zooming = typeof patch === "object" && patch !== null && "interfaceScale" in patch;
         return serial(async () => {
-          // A native/per-origin zoom may precede its resize notification.
-          if (!zooming) await syncZoom();
           if (zooming) pointerZoom(true);
           try {
             const state = await setup.save(patch);
+            if (zooming) ensureZoom(state.settings.interfaceScale);
             send("setup:changed", state);
             return state;
           } finally {
@@ -168,20 +175,13 @@ export function attachSetup(
   return {
     dispose() {
       cancelTrust();
+      contents.removeListener("zoom-changed", nativeZoom);
       contents.removeListener("destroyed", cancelTrust);
       contents.removeListener("render-process-gone", cancelTrust);
       contents.removeListener("did-start-navigation", navigating);
       for (const channel of handlers.keys()) ipc.removeHandler(channel);
     },
     /** A zoom shortcut: save the next scale and tell the renderer what changed. */
-    zoom(direction) {
-      return serial(async () => {
-        await syncZoom();
-        const { settings } = await setup.state();
-        const scale = nextScale(settings.interfaceScale, direction);
-        if (scale === settings.interfaceScale) return;
-        send("setup:changed", await setup.save({ interfaceScale: scale }));
-      });
-    },
+    zoom,
   };
 }

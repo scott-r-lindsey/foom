@@ -1149,6 +1149,7 @@ test("native and Foom zoom entry points survive agent Settings saves without rel
   });
   for (const mode of [
     "shortcut",
+    "native-request",
     "plain-shortcut",
     "wheel",
     "wheel-CDP",
@@ -1193,6 +1194,11 @@ test("native and Foom zoom entry points survive agent Settings saves without rel
           const item = Menu.buildFromTemplate([{ role: "zoomIn" }]).items[0];
           item.click({}, window, window.webContents);
           item.click({}, window, window.webContents);
+        } else if (mode === "native-request") {
+          // Linux CDP wheel injection bypasses Chromium's platform zoom request.
+          // Deliver that native Electron event; the app must persist its command.
+          window.webContents.emit("zoom-changed", {}, "in");
+          window.webContents.emit("zoom-changed", {}, "in");
         } else if (mode === "zoomLevel") window.webContents.setZoomLevel(1);
         else if (mode === "wheel")
           window.webContents.sendInputEvent({
@@ -1218,6 +1224,7 @@ test("native and Foom zoom entry points survive agent Settings saves without rel
     await page.evaluate(
       () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
     );
+    if (mode === "native-request") await expect.poll(async () => (await inspect()).saved).toBe(120);
     const before = await inspect();
     await openSettingsScreen(page);
     await page.getByRole("button", { name: "Agents", exact: true }).click();
@@ -1232,7 +1239,13 @@ test("native and Foom zoom entry points survive agent Settings saves without rel
     const events = await app.evaluate(() => global.zoomEntryEvents.splice(0));
     context.diagnostic(JSON.stringify({ mode, before, after, events }));
     assert.equal(after.actual, before.actual, `${mode} zoom must survive the agent save`);
-    assert.equal(after.saved, Math.round(after.actual * 100), `${mode} must use the saved scale`);
+    assert.equal(after.saved, before.saved, `${mode} agent save must not change the scale`);
+    if (mode === "role" || mode === "zoomLevel")
+      assert.equal(
+        after.saved,
+        100,
+        "programmatic native changes must not become saved zoom intent",
+      );
     assert.ok(!events.includes("navigation") && !events.includes("renderer-gone"));
   }
 });

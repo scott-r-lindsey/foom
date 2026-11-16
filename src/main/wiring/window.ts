@@ -301,11 +301,15 @@ export async function buildWindow(
     (bounds) => screen.getDisplayMatching(bounds).workArea,
     scale,
   );
+  let appliedScale: number | undefined;
   const applySettings = (next: Settings) => {
     updateBackground();
     // Each window remembers its own 100% size and only the origin has an anchor.
-    windowScale.apply(next.interfaceScale);
-    window.webContents.setZoomFactor(next.interfaceScale / 100);
+    if (next.interfaceScale !== appliedScale) {
+      windowScale.apply(next.interfaceScale);
+      window.webContents.setZoomFactor(next.interfaceScale / 100);
+      appliedScale = next.interfaceScale;
+    }
     previewHost.refresh();
     confirmations.refresh();
     wiring.refreshApprovals();

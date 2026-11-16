@@ -20,6 +20,7 @@ const contents = {
   isDestroyed: vi.fn(() => false),
   send: vi.fn(),
   getZoomFactor: vi.fn(() => 1),
+  setZoomFactor: vi.fn(),
 };
 const window = { webContents: contents } as unknown as BrowserWindow;
 const trusted = { sender: contents, senderFrame: frame };
@@ -46,6 +47,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   contents.getZoomFactor.mockReturnValue(1);
   setup.state.mockReturnValue({ settings: { interfaceScale: 100 } });
+  setup.save.mockReturnValue({ settings: { interfaceScale: 100 } });
   attached = attachSetup(window, setup as unknown as Setup);
 });
 
@@ -66,7 +68,6 @@ test("every channel rejects untrusted senders", () => {
     "setup:local-agent-install",
     "setup:hosts",
     "setup:restart-update",
-    "setup:sync-zoom",
     "setup:save",
     "setup:code-suggestions",
     "setup:scan-code",
@@ -87,9 +88,13 @@ test("every channel rejects untrusted senders", () => {
 
 test("passes payloads to Setup, which validates them, and never offers a key read", async () => {
   expect(invoke("setup:state")).toEqual({ settings: { interfaceScale: 100 } });
-  await expect(invoke("setup:save", [{ hooks: false }])).resolves.toBe("saved");
+  await expect(invoke("setup:save", [{ hooks: false }])).resolves.toEqual({
+    settings: { interfaceScale: 100 },
+  });
   expect(setup.save).toHaveBeenCalledWith({ hooks: false });
-  expect(contents.send).toHaveBeenCalledWith("setup:changed", "saved");
+  expect(contents.send).toHaveBeenCalledWith("setup:changed", {
+    settings: { interfaceScale: 100 },
+  });
   contents.send.mockClear();
   expect(invoke("setup:code-suggestions")).toBe("suggestions");
   expect(invoke("setup:scan-code", ["s1", "/code"])).toBe("scanned");
@@ -131,9 +136,11 @@ test("a size change from the page anchors the window around the save, even a fai
   attachSetup(window, setup as unknown as Setup, pointerZoom);
   setup.save.mockImplementationOnce(() => {
     expect(pointerZoom).toHaveBeenLastCalledWith(true);
-    return "saved";
+    return { settings: { interfaceScale: 110 } };
   });
-  await expect(invoke("setup:save", [{ interfaceScale: 110 }])).resolves.toBe("saved");
+  await expect(invoke("setup:save", [{ interfaceScale: 110 }])).resolves.toEqual({
+    settings: { interfaceScale: 110 },
+  });
   expect(pointerZoom.mock.calls).toEqual([[true], [false]]);
   setup.save.mockImplementationOnce(() => {
     throw new Error("Invalid settings");
@@ -222,26 +229,43 @@ test("local installer IPC accepts exactly one payload and delegates validation",
     expect(() => invoke("setup:local-agent-install", args)).toThrow("Invalid installer request");
 });
 
-test("native zoom synchronization reads main's factor, rejects payloads and preserves it before agent saves", async () => {
-  expect(() => invoke("setup:sync-zoom", [120])).toThrow("Invalid zoom");
-  contents.getZoomFactor.mockReturnValue(1.2);
-  let scale = 100;
-  setup.state.mockImplementation(() => ({ settings: { interfaceScale: scale } }));
-  setup.save.mockImplementation((patch?: unknown) => {
-    if (
-      typeof patch === "object" &&
-      patch !== null &&
-      "interfaceScale" in patch &&
-      typeof patch.interfaceScale === "number"
-    )
-      scale = patch.interfaceScale;
-    return { settings: { interfaceScale: scale } };
+test.each([1.2, 1.234567])(
+  "only user zoom requests adopt native factor %s; ordinary saves do not",
+  async (factor) => {
+    contents.getZoomFactor.mockReturnValue(factor);
+    await invoke("setup:save", [{ agents: { claude: true } }]);
+    expect(setup.save.mock.calls).toEqual([[{ agents: { claude: true } }]]);
+    expect(contents.setZoomFactor).not.toHaveBeenCalled();
+    setup.save.mockReturnValue({ settings: { interfaceScale: 130 } });
+    const native = contents.on.mock.calls.find(([name]) => name === "zoom-changed")?.[1];
+    native?.({}, "in");
+    await vi.waitFor(() => {
+      expect(setup.save).toHaveBeenLastCalledWith({ interfaceScale: 130 });
+    });
+    expect(contents.setZoomFactor).toHaveBeenLastCalledWith(1.3);
+  },
+);
+
+test.each(["Settings", "shortcut"])(
+  "explicit %s reset applies when the saved scale is already 100",
+  async (control) => {
+    contents.getZoomFactor.mockReturnValue(1.2);
+    if (control === "Settings") await invoke("setup:save", [{ interfaceScale: 100 }]);
+    else await attached.zoom("reset");
+    expect(contents.setZoomFactor).toHaveBeenCalledExactlyOnceWith(1);
+  },
+);
+
+test("native zoom failure is contained and the listener is disposed", async () => {
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  setup.save.mockImplementationOnce(() => {
+    throw new Error("fixture failure");
   });
-  await invoke("setup:save", [{ agents: { claude: true } }]);
-  expect(setup.save.mock.calls).toEqual([
-    [{ interfaceScale: 120 }],
-    [{ agents: { claude: true } }],
-  ]);
-  await invoke("setup:sync-zoom");
-  expect(setup.save).toHaveBeenCalledTimes(2);
+  const native = contents.on.mock.calls.find(([name]) => name === "zoom-changed")?.[1];
+  native?.({}, "in");
+  await vi.waitFor(() => {
+    expect(warn).toHaveBeenCalledExactlyOnceWith("Unable to change interface size");
+  });
+  attached.dispose();
+  expect(contents.removeListener).toHaveBeenCalledWith("zoom-changed", native);
 });

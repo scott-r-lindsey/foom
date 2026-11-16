@@ -55,7 +55,6 @@ Every channel checks the sender (a registered app window, its main frame, `app:/
 | `setup:readiness` | renderer → main (invoke) | no arguments → fixed Git/forge readiness and platform enums plus selected repository DNS hostnames; no CLI output or paths |
 | `setup:hosts` | renderer → main (invoke) | one closed host action; main owns registration, approved folders, origin and destination selection; fixed typed host/repository states only; see [Hosts](hosts.md) |
 | `setup:state` | renderer → main (invoke) | → `{ settings, themes?, worktreeRoot }` |
-| `setup:sync-zoom` | preload → main (invoke) | no arguments, no result; registered board main frame only; main reads native zoom and saves the nearest supported shared scale; no renderer-supplied factor |
 | `setup:save` | renderer → main (invoke) | settings patch (known fields only) → state |
 | `setup:changed` | main → renderer | setup state after a successful settings save or zoom shortcut |
 | `environment:state` | renderer → main (invoke) | → `{ lists, windows, secrets }`; saved secrets have a null value |
