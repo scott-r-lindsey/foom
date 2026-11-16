@@ -1,3 +1,4 @@
+import { CHILD_GUIDANCE } from "./control-guidance";
 import { ControlError, object as controlObject, exact as controlExact } from "./control-validation";
 import { handoffRequest } from "./handoff-validation";
 import type {
@@ -203,7 +204,12 @@ export function remoteControlResult(value: unknown): value is RemoteControlResul
 export function remotePublicResult(result: RemoteControlResult): unknown {
   if (result.type === "manual") return result.value;
   if (result.type === "identity")
-    return { alias: result.alias, role: result.role, capabilities: result.capabilities };
+    return {
+      alias: result.alias,
+      role: result.role,
+      capabilities: result.capabilities,
+      guidance: CHILD_GUIDANCE,
+    };
   if (result.type === "handoff")
     return { seq: result.seq, status: result.status, timestamp: result.timestamp };
   return {
