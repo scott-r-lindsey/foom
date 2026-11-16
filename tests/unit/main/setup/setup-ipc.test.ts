@@ -19,6 +19,7 @@ const contents = {
   mainFrame: frame,
   isDestroyed: vi.fn(() => false),
   send: vi.fn(),
+  getZoomFactor: vi.fn(() => 1),
 };
 const window = { webContents: contents } as unknown as BrowserWindow;
 const trusted = { sender: contents, senderFrame: frame };
@@ -30,8 +31,8 @@ const setup = {
   repositorySetup: vi.fn(() => "repository-setup"),
   restartToUpdate: vi.fn(() => Promise.resolve()),
   readiness: vi.fn(() => "readiness"),
-  state: vi.fn(() => "state"),
-  save: vi.fn(() => "saved"),
+  state: vi.fn(() => ({ settings: { interfaceScale: 100 } })),
+  save: vi.fn<(_patch?: unknown) => unknown>(() => "saved"),
   codeSuggestions: vi.fn(() => "suggestions"),
   scanCode: vi.fn((_folder: unknown, onProgress: (progress: unknown) => void) => {
     onProgress({ folders: 1, repositories: 0 });
@@ -43,6 +44,8 @@ let attached: ReturnType<typeof attachSetup>;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  contents.getZoomFactor.mockReturnValue(1);
+  setup.state.mockReturnValue({ settings: { interfaceScale: 100 } });
   attached = attachSetup(window, setup as unknown as Setup);
 });
 
@@ -63,6 +66,7 @@ test("every channel rejects untrusted senders", () => {
     "setup:local-agent-install",
     "setup:hosts",
     "setup:restart-update",
+    "setup:sync-zoom",
     "setup:save",
     "setup:code-suggestions",
     "setup:scan-code",
@@ -82,7 +86,7 @@ test("every channel rejects untrusted senders", () => {
 });
 
 test("passes payloads to Setup, which validates them, and never offers a key read", async () => {
-  expect(invoke("setup:state")).toBe("state");
+  expect(invoke("setup:state")).toEqual({ settings: { interfaceScale: 100 } });
   await expect(invoke("setup:save", [{ hooks: false }])).resolves.toBe("saved");
   expect(setup.save).toHaveBeenCalledWith({ hooks: false });
   expect(contents.send).toHaveBeenCalledWith("setup:changed", "saved");
@@ -103,16 +107,18 @@ test("passes payloads to Setup, which validates them, and never offers a key rea
 
 test("a zoom shortcut saves the next size and tells the renderer", async () => {
   const state = (interfaceScale: number) => ({ settings: { interfaceScale } });
-  setup.state.mockReturnValue(state(100) as never);
-  setup.save.mockReturnValue(state(110) as never);
+  setup.state.mockReturnValue(state(100));
+  setup.save.mockReturnValue(state(110));
   await attached.zoom("in");
   expect(setup.save).toHaveBeenCalledWith({ interfaceScale: 110 });
   expect(contents.send).toHaveBeenCalledWith("setup:changed", state(110));
   // At a limit nothing is saved; a destroyed window gets no message.
-  setup.state.mockReturnValue(state(300) as never);
+  setup.state.mockReturnValue(state(300));
+  contents.getZoomFactor.mockReturnValue(3);
   await attached.zoom("in");
   expect(setup.save).toHaveBeenCalledOnce();
-  setup.state.mockReturnValue(state(110) as never);
+  setup.state.mockReturnValue(state(110));
+  contents.getZoomFactor.mockReturnValue(1.1);
   contents.isDestroyed.mockReturnValueOnce(true);
   await attached.zoom("reset");
   expect(setup.save).toHaveBeenLastCalledWith({ interfaceScale: 100 });
@@ -214,4 +220,28 @@ test("local installer IPC accepts exactly one payload and delegates validation",
   expect(invoke("setup:local-agent-install", ["claude"])).toBe("installer");
   for (const args of [[], ["claude", "extra"]])
     expect(() => invoke("setup:local-agent-install", args)).toThrow("Invalid installer request");
+});
+
+test("native zoom synchronization reads main's factor, rejects payloads and preserves it before agent saves", async () => {
+  expect(() => invoke("setup:sync-zoom", [120])).toThrow("Invalid zoom");
+  contents.getZoomFactor.mockReturnValue(1.2);
+  let scale = 100;
+  setup.state.mockImplementation(() => ({ settings: { interfaceScale: scale } }));
+  setup.save.mockImplementation((patch?: unknown) => {
+    if (
+      typeof patch === "object" &&
+      patch !== null &&
+      "interfaceScale" in patch &&
+      typeof patch.interfaceScale === "number"
+    )
+      scale = patch.interfaceScale;
+    return { settings: { interfaceScale: scale } };
+  });
+  await invoke("setup:save", [{ agents: { claude: true } }]);
+  expect(setup.save.mock.calls).toEqual([
+    [{ interfaceScale: 120 }],
+    [{ agents: { claude: true } }],
+  ]);
+  await invoke("setup:sync-zoom");
+  expect(setup.save).toHaveBeenCalledTimes(2);
 });

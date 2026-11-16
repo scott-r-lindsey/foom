@@ -2487,3 +2487,13 @@ const desktop: DesktopApi = {
   },
 };
 contextBridge.exposeInMainWorld("desktop", desktop);
+
+// Chromium can restore or change per-origin zoom outside Foom's controls. Only
+// notify main; it reads the native factor itself and owns the saved percentage.
+if (typeof window !== "undefined") {
+  const syncZoom = () => {
+    void ipcRenderer.invoke("setup:sync-zoom").catch(() => undefined);
+  };
+  window.addEventListener("DOMContentLoaded", syncZoom, { once: true });
+  window.addEventListener("resize", syncZoom);
+}

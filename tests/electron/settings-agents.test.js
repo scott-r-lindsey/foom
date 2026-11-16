@@ -1114,3 +1114,125 @@ test("agent Settings patches preserve shortcut zoom and unrelated preferences", 
     { interfaceScale: 120, terminalFontSize: 19, checkForUpdates: false },
   );
 });
+
+test("native and Foom zoom entry points survive agent Settings saves without reload", async (context) => {
+  const profile = await mkdtemp(path.join(tmpdir(), "foom-zoom-entry-"));
+  removeAfterApps(context, profile);
+  await writeFile(
+    path.join(profile, "settings.json"),
+    JSON.stringify({
+      version: 1,
+      settings: { setupComplete: true, agents: {}, checkForUpdates: false },
+    }),
+  );
+  const app = await launchApp(context, {
+    fixture: "empty-board",
+    args: [`--user-data-dir=${profile}`],
+  });
+  const page = await boardPage(app);
+  const inspect = async () => ({
+    saved: (await page.evaluate(() => window.desktop.setupState())).settings.interfaceScale,
+    actual: await app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()
+        .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+        .webContents.getZoomFactor(),
+    ),
+  });
+  await app.evaluate(({ BrowserWindow }) => {
+    global.zoomEntryEvents = [];
+    const contents = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://bundle/index.html",
+    ).webContents;
+    contents.on("zoom-changed", (_event, direction) => global.zoomEntryEvents.push(direction));
+    contents.on("did-start-navigation", () => global.zoomEntryEvents.push("navigation"));
+    contents.on("render-process-gone", () => global.zoomEntryEvents.push("renderer-gone"));
+  });
+  for (const mode of [
+    "shortcut",
+    "plain-shortcut",
+    "wheel",
+    "wheel-CDP",
+    "role",
+    "Settings",
+    "menu",
+    "zoomLevel",
+  ]) {
+    await page.evaluate(() => window.desktop.saveSetup({ interfaceScale: 100, agents: {} }));
+    if (mode === "Settings") {
+      await openSettingsScreen(page);
+      await page.getByRole("button", { name: "Appearance", exact: true }).click();
+      for (const scale of [110, 120]) {
+        await page.getByRole("button", { name: "Larger", exact: true }).click();
+        await expect.poll(async () => (await inspect()).saved).toBe(scale);
+      }
+      await page.getByRole("button", { name: "Close settings (Esc)" }).click();
+    } else if (mode === "menu") {
+      await page.evaluate(async () => {
+        await window.desktop.appMenu.execute("zoom-in");
+        await window.desktop.appMenu.execute("zoom-in");
+      });
+    } else if (mode === "wheel-CDP") {
+      const cdp = await page.context().newCDPSession(page);
+      await cdp.send("Input.dispatchMouseEvent", {
+        type: "mouseWheel",
+        x: 500,
+        y: 400,
+        modifiers: 2,
+        deltaX: 0,
+        deltaY: -120,
+      });
+      await cdp.detach();
+    } else {
+      await app.evaluate(({ BrowserWindow, Menu }, mode) => {
+        const window = BrowserWindow.getAllWindows().find(
+          (window) => window.webContents.getURL() === "app://bundle/index.html",
+        );
+        window.focus();
+        window.webContents.focus();
+        if (mode === "role") {
+          const item = Menu.buildFromTemplate([{ role: "zoomIn" }]).items[0];
+          item.click({}, window, window.webContents);
+          item.click({}, window, window.webContents);
+        } else if (mode === "zoomLevel") window.webContents.setZoomLevel(1);
+        else if (mode === "wheel")
+          window.webContents.sendInputEvent({
+            type: "mouseWheel",
+            x: 400,
+            y: 300,
+            deltaY: -120,
+            modifiers: ["control"],
+            canScroll: true,
+          });
+        else
+          for (const type of ["keyDown", "keyUp"])
+            window.webContents.sendInputEvent({
+              type,
+              keyCode: "=",
+              modifiers:
+                process.platform === "darwin"
+                  ? ["meta"]
+                  : ["control", ...(mode === "shortcut" ? ["shift"] : [])],
+            });
+      }, mode);
+    }
+    await page.evaluate(
+      () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+    );
+    const before = await inspect();
+    await openSettingsScreen(page);
+    await page.getByRole("button", { name: "Agents", exact: true }).click();
+    await page.getByRole("checkbox", { name: "Enable Claude Code", exact: true }).check();
+    await expect
+      .poll(() =>
+        page.evaluate(async () => (await window.desktop.setupState()).settings.agents.claude),
+      )
+      .toBe(true);
+    await page.getByRole("button", { name: "Close settings (Esc)" }).click();
+    const after = await inspect();
+    const events = await app.evaluate(() => global.zoomEntryEvents.splice(0));
+    context.diagnostic(JSON.stringify({ mode, before, after, events }));
+    assert.equal(after.actual, before.actual, `${mode} zoom must survive the agent save`);
+    assert.equal(after.saved, Math.round(after.actual * 100), `${mode} must use the saved scale`);
+    assert.ok(!events.includes("navigation") && !events.includes("renderer-gone"));
+  }
+});

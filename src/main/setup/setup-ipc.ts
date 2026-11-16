@@ -2,7 +2,7 @@ import { listTerminalFonts } from "../fonts/terminal-fonts";
 import type { WindowIpc } from "../window/window-ipc";
 import { ipcMain } from "electron";
 import type { BrowserWindow, IpcMainInvokeEvent } from "electron";
-import { nextScale } from "../window/appearance";
+import { nextScale, scaleFromZoomFactor } from "../window/appearance";
 import type { ZoomDirection } from "../window/appearance";
 import type { Setup } from "./setup";
 
@@ -41,6 +41,19 @@ export function attachSetup(
   const send = (channel: string, ...args: unknown[]) => {
     if (!contents.isDestroyed() && contents.mainFrame.url === APP_URL)
       contents.send(channel, ...args);
+  };
+  // Native zoom notifications, shortcuts and explicit controls share write order.
+  let pending: Promise<unknown> = Promise.resolve();
+  const serial = <T>(work: () => Promise<T>): Promise<T> => {
+    const next = pending.catch(() => undefined).then(work);
+    pending = next;
+    return next;
+  };
+  const syncZoom = async () => {
+    const { settings } = await setup.state();
+    const scale = scaleFromZoomFactor(contents.getZoomFactor());
+    if (scale !== settings.interfaceScale)
+      send("setup:changed", await setup.save({ interfaceScale: scale }));
   };
   const handlers = new Map<string, (...args: unknown[]) => unknown>([
     [
@@ -101,19 +114,30 @@ export function attachSetup(
       },
     ],
     [
+      "setup:sync-zoom",
+      (...args) => {
+        if (args.length) throw new Error("Invalid zoom synchronization request");
+        return serial(syncZoom);
+      },
+    ],
+    [
       "setup:save",
-      async (...args) => {
+      (...args) => {
         if (args.length !== 1) throw new Error("Invalid settings command");
         const patch = args[0];
         const zooming = typeof patch === "object" && patch !== null && "interfaceScale" in patch;
-        if (zooming) pointerZoom(true);
-        try {
-          const state = await setup.save(patch);
-          send("setup:changed", state);
-          return state;
-        } finally {
-          if (zooming) pointerZoom(false);
-        }
+        return serial(async () => {
+          // A native/per-origin zoom may precede its resize notification.
+          if (!zooming) await syncZoom();
+          if (zooming) pointerZoom(true);
+          try {
+            const state = await setup.save(patch);
+            send("setup:changed", state);
+            return state;
+          } finally {
+            if (zooming) pointerZoom(false);
+          }
+        });
       },
     ],
     ["setup:code-suggestions", () => setup.codeSuggestions()],
@@ -150,11 +174,14 @@ export function attachSetup(
       for (const channel of handlers.keys()) ipc.removeHandler(channel);
     },
     /** A zoom shortcut: save the next scale and tell the renderer what changed. */
-    async zoom(direction) {
-      const { settings } = await setup.state();
-      const scale = nextScale(settings.interfaceScale, direction);
-      if (scale === settings.interfaceScale) return;
-      send("setup:changed", await setup.save({ interfaceScale: scale }));
+    zoom(direction) {
+      return serial(async () => {
+        await syncZoom();
+        const { settings } = await setup.state();
+        const scale = nextScale(settings.interfaceScale, direction);
+        if (scale === settings.interfaceScale) return;
+        send("setup:changed", await setup.save({ interfaceScale: scale }));
+      });
     },
   };
 }

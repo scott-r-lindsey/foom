@@ -11,6 +11,15 @@ export function nextScale(current: number, direction: ZoomDirection): number {
   return (direction === "in" ? larger : smaller) ?? current;
 }
 
+/** Native Chromium zoom levels may fall between Foom's supported percentages. */
+export function scaleFromZoomFactor(factor: number): number {
+  return SCALES.reduce(
+    (nearest, scale) =>
+      Math.abs(scale - factor * 100) < Math.abs(nearest - factor * 100) ? scale : nearest,
+    100,
+  );
+}
+
 export interface Size {
   width: number;
   height: number;
