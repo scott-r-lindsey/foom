@@ -5,6 +5,7 @@ import type { FetchFacts, ForgeProviderFor } from "./worktree-features.d";
 export interface WorktreeStoredState {
   version: 1;
   repositories: string[];
+  registrations?: { path: string; id: string }[];
   pendingRemovals?: PendingRemoval[];
   parents?: { path: string; identity: string }[];
   managed: {

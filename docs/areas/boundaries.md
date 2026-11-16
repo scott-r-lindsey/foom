@@ -153,3 +153,14 @@ main owns local checkout authorization, parent/child grants and result projectio
 No main/Electron policy module is imported by the remote host. Remote stdio clients
 receive independent per-launch capabilities, never terminal takeover IDs or hub
 authentication material. See [remote launch](agent-launch.md#remote-agent-phase-2-755).
+
+### Repository setup helpers (#1080)
+
+The terminal host may import the finite Node-only repository setup helpers for
+source inspection, read-only probes, catalog/run digests, pinned toolchains and
+host admission. These contain no Electron, main-store, IPC-authority or renderer
+code. This extends the existing vendor-install exception with exact module paths
+in the process-boundary rule; it does not permit arbitrary node-common imports.
+Main owns approval and identity and the daemon owns its mutation reservation.
+Browser-safe OS parsers remain in shared; node-common imports no process owner.
+Preload runtime imports and sandbox loader policy remain unchanged.

@@ -304,3 +304,13 @@ desktop, rather than accepting a different protocol-compatible build. A mismatch
 refuses with `remote_artifact_mismatch` before recipe dispatch. This binds the
 daemon's bundled plugin assets (staged by its own executable) to the reviewed
 desktop build; the fixed recipe-step digest alone does not bind asset contents.
+
+## Repository prerequisites (#1080)
+
+New repository agent processes pass the main-owned active setup list and actual
+checkout/source check before spawning. Existing PTY reattachment, machine shells
+and manual repair terminals retain their existing policy. Missing, stale,
+unavailable and manual setup have separate fixed launch reasons. No refusal runs
+setup or retries a launch. Remote starts bind the exact catalog, list revision and
+source fingerprint and independently check them on the execution host. See
+[repository setup](repository-setup.md).

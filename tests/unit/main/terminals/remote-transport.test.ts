@@ -2236,3 +2236,53 @@ test("invalid check preludes and missing artifacts keep their reason without ano
     }
   }
 });
+
+test.each(["allow", "deny", "disconnect"] as const)(
+  "awaits the final source gate before remote open (%s)",
+  async (outcome) => {
+    transport.kill();
+    let settle: () => void = () => {};
+    let reject: (error: Error) => void = () => {};
+    const beforeOpen = vi.fn(
+      () =>
+        new Promise<void>((resolve, rejectPromise) => {
+          settle = resolve;
+          reject = rejectPromise;
+        }),
+    );
+    transport = new RemoteTransport(
+      { host: "fixture", artifact: "/artifact", beforeOpen },
+      "0.1.0",
+    );
+    transport.on("message", (message) => events.push(message));
+    transport.postMessage(create);
+    await Promise.resolve();
+    child.greet();
+    expect(beforeOpen).toHaveBeenCalledOnce();
+    expect(
+      child.messages.some(
+        (message) =>
+          typeof message === "object" &&
+          message !== null &&
+          "type" in message &&
+          message.type === "open",
+      ),
+    ).toBe(false);
+    if (outcome === "deny") reject(new Error("Sources changed"));
+    else {
+      if (outcome === "disconnect") transport.kill();
+      settle();
+    }
+    await Promise.resolve();
+    await Promise.resolve();
+    const opens = child.messages.filter(
+      (message) =>
+        typeof message === "object" &&
+        message !== null &&
+        "type" in message &&
+        message.type === "open",
+    );
+    expect(opens).toHaveLength(outcome === "allow" ? 1 : 0);
+    if (outcome === "deny") expect(events).toContainEqual({ type: "error", request: 1, id: "one" });
+  },
+);
