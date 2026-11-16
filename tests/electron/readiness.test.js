@@ -130,3 +130,133 @@ if(args.includes('logged-out.example')&&JSON.parse(fs.readFileSync(${JSON.string
     /foom-error:operation-failed/,
   );
 });
+
+test("readiness views share probes across windows and follow repository commits without reopening", {
+  timeout: deadline(60_000),
+}, async (context) => {
+  const { gitSync } = require("../helpers/git.js");
+  const { openSettingsScreen } = require("./harness.js");
+  const app = await launchApp(context, { fixture: "repository" });
+  const writer = await boardPage(app);
+  const repository = (await writer.evaluate(() => window.desktop.workspace())).repositories[0].path;
+  gitSync([
+    "-C",
+    repository,
+    "-c",
+    "user.name=Fixture",
+    "-c",
+    "user.email=fixture@example.test",
+    "commit",
+    "--allow-empty",
+    "-qm",
+    "Fixture",
+  ]);
+  gitSync(["-C", repository, "remote", "add", "origin", "https://new-forge.test/team/project.git"]);
+  await app.evaluate(({ app }) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    globalThis.readinessProbeCalls = [];
+    globalThis.fixtureForgeStatus = "ready";
+    // Isolate the probe dependency; the profile owner, registry, IPC, query and UI stay real.
+    load("./build/main/setup/readiness.js").checkReadiness = async (repositories) => {
+      globalThis.readinessProbeCalls.push(repositories.length);
+      return {
+        git: "ready",
+        platform:
+          process.platform === "darwin"
+            ? "macos"
+            : process.platform === "win32"
+              ? "windows"
+              : "linux",
+        forges: repositories.length
+          ? [{ host: "new-forge.test", status: globalThis.fixtureForgeStatus }]
+          : [],
+      };
+    };
+  });
+  await writer.evaluate(async (folder) => {
+    await window.desktop.saveSetup({ codeFolder: folder });
+    await window.desktop.scanCode("readiness-remove", folder, () => {});
+    await window.desktop.applyRepositories([]);
+  }, path.dirname(repository));
+  await openSettingsScreen(writer);
+  await writer
+    .getByRole("navigation", { name: "Settings sections" })
+    .getByRole("button", { name: "Forges", exact: true })
+    .click();
+  await writer.evaluate(() => {
+    window.offReadiness = window.desktop.subscribeView("readiness", {}, (snapshot) => {
+      window.readinessSnapshot = snapshot;
+    });
+  });
+  await writer.waitForFunction(() => window.readinessSnapshot?.data?.git === "ready");
+  assert.deepEqual(await app.evaluate(() => globalThis.readinessProbeCalls), [0]);
+  await writer.evaluate(() => window.desktop.appMenu.execute("new-window"));
+  let observer;
+  await expect
+    .poll(() => {
+      observer = app
+        .windows()
+        .find((page) => page !== writer && page.url() === "app://bundle/index.html");
+      return Boolean(observer);
+    })
+    .toBe(true);
+  await observer.waitForLoadState("domcontentloaded");
+  await expect(observer.getByRole("button", { name: "Foom menu", exact: true })).toBeVisible();
+  await openSettingsScreen(observer);
+  await observer
+    .getByRole("navigation", { name: "Settings sections" })
+    .getByRole("button", { name: "Forges", exact: true })
+    .click();
+  await observer.evaluate(() => {
+    window.offReadiness = window.desktop.subscribeView("readiness", {}, (snapshot) => {
+      window.readinessSnapshot = snapshot;
+    });
+  });
+  await observer.waitForFunction(() => window.readinessSnapshot?.data?.git === "ready");
+  assert.deepEqual(
+    await app.evaluate(() => globalThis.readinessProbeCalls),
+    [0],
+    "Opening another window reuses the profile probe",
+  );
+  await writer.evaluate(
+    async ({ folder, repository }) => {
+      await window.desktop.scanCode("readiness-add", folder, () => {});
+      await window.desktop.applyRepositories([repository]);
+    },
+    { folder: path.dirname(repository), repository },
+  );
+  for (const page of [writer, observer]) {
+    await expect(page.getByText("new-forge.test", { exact: true })).toBeVisible();
+    await page.waitForFunction(() => window.readinessSnapshot?.data?.forges[0]?.status === "ready");
+  }
+  // Registration's Git-only guard plus exactly one new shared readiness probe.
+  assert.deepEqual(await app.evaluate(() => globalThis.readinessProbeCalls), [0, 0, 1]);
+  await writer.evaluate(
+    (repository) => window.desktop.createWorktree(repository, "ready-cache"),
+    repository,
+  );
+  assert.deepEqual(
+    await app.evaluate(() => globalThis.readinessProbeCalls),
+    [0, 0, 1],
+    "Worktree-only metadata does not repeat auth probes",
+  );
+  await app.evaluate(() => {
+    globalThis.fixtureForgeStatus = "not-signed-in";
+  });
+  await observer.getByRole("button", { name: "Recheck", exact: true }).click();
+  for (const page of [writer, observer]) {
+    await page.waitForFunction(
+      () => window.readinessSnapshot?.data?.forges[0]?.status === "not-signed-in",
+    );
+    await expect(page.getByText("Not signed in", { exact: false })).toBeVisible();
+  }
+  assert.deepEqual(
+    await app.evaluate(() => globalThis.readinessProbeCalls),
+    [0, 0, 1, 1],
+    "A changed recheck is shared without probes from other windows",
+  );
+  await writer.evaluate(() => window.offReadiness());
+  await observer.evaluate(() => window.offReadiness());
+});

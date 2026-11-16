@@ -1,3 +1,4 @@
+import type { DataViewApi } from "./data-views";
 import type { TerminalPaste } from "./image-paste.d";
 import type { RemoteTarget } from "./remote-host";
 import type { PreviewApi } from "./previews";
@@ -44,7 +45,7 @@ import type { SetupApi } from "./setup";
 import type { ConfigApi } from "./foom-config";
 import type { WorkspaceApi } from "./workspace";
 
-export interface DesktopApi extends WorkspaceApi, SetupApi, ConfigApi, EnvironmentApi {
+export interface DesktopApi extends WorkspaceApi, SetupApi, ConfigApi, EnvironmentApi, DataViewApi {
   previews?: PreviewApi;
   windows?: WindowsApi;
   sounds: SoundApi;

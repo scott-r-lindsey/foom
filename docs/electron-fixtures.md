@@ -37,8 +37,10 @@ are unchanged.
 ## Hosts navigation request window (#1199)
 
 Host enrollment publishes sidebar refreshes independently of the completed Hosts
-checklist. Refresh/configure can invalidate the shared sidebar promise while an
-older read is still running. Awaiting `window.desktop.sidebarInventory()` alone
+checklist. Wait for the saved full-check timestamp and enabled Check capabilities
+control, and complete enrollment-owned locations reconciliation. Refresh/configure
+can invalidate the shared sidebar promise while an older read is still running.
+Awaiting `window.desktop.sidebarInventory()` alone
 joins only the current read, leaving older repository/SSH discovery able to enter
 the navigation capture window. For this case, a test-only observer installed before
 enrollment tracks every sidebar read without replacing its work or result. Setup

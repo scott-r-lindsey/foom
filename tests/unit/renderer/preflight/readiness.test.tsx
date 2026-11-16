@@ -1,3 +1,4 @@
+import { viewStream } from "../../../fixtures/view-stream";
 // @vitest-environment jsdom
 import {
   act,
@@ -156,6 +157,38 @@ test("a missing catalog, late catalog or catalog read failure never holds readin
     empty.result.current.recheck();
   });
   await waitFor(() => {
-    expect(status).toHaveBeenCalledTimes(3);
+    expect(status).toHaveBeenCalledTimes(2);
   });
+});
+
+test("live readiness recheck tracks its operation and retains pushed truth on failure", async () => {
+  const stream = viewStream();
+  let finish: (report: ReadinessReport) => void = () => {};
+  const checkReadiness = vi.fn<() => Promise<ReadinessReport>>(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const source = { views: stream.api, checkReadiness };
+  const hook = renderHook(() => useReadiness(source, true, "initial"));
+  await waitFor(() => {
+    expect(hook.result.current.report).toEqual(ready);
+  });
+  act(() => {
+    hook.result.current.recheck();
+  });
+  expect(hook.result.current.busy).toBe(true);
+  await act(async () => {
+    finish(ready);
+    await Promise.resolve();
+  });
+  expect(hook.result.current.busy).toBe(false);
+  checkReadiness.mockRejectedValueOnce(new Error("fixture check failure"));
+  await act(async () => {
+    hook.result.current.recheck();
+    await Promise.resolve();
+  });
+  expect(hook.result.current.report).toEqual(ready);
+  expect(hook.result.current.busy).toBe(false);
 });

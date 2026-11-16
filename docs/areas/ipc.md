@@ -228,6 +228,15 @@ and checks the current profile-only `terminalClipboardWrites` preference before
 writing text through Electron's main-owned clipboard API. The bridge returns void;
 it exposes no reads or query replies. See [terminal policy](terminals.md#osc-52-clipboard-writes-1073).
 
+## Subscribed data views (#1161)
+
+Settings uses `data:subscribe`, `data:snapshot`, `data:ack` and
+`data:unsubscribe` with the closed [phase-B view schemas and limits](data.md#phase-b-channel-over-json-1161).
+All write commands keep their existing domain validation and trusted confirmations.
+`setup:state` takes no arguments and `setup:save` exactly one validated patch.
+The sandboxed preload reuses its inline response validators; no new runtime
+imports or sandbox-loader exceptions are introduced.
+
 ## Local session forgetting (#1114)
 
 `workspace:sidebar-command` accepts `{kind: "forget", id}` through the existing
