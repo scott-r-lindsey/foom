@@ -77,6 +77,43 @@ test("four removals maximum; Stop drains in-flight work and keeps unstarted chec
   expect(run.progress).toMatchObject({ done: 5, total: 9, stopped: true, phase: "finished" });
   expect(run.progress.items.filter((item) => item.reason === "not started")).toHaveLength(4);
 });
+test.each(["success", "failure"])(
+  "the last removal is not completion until branch cleanup settles (%s)",
+  async (outcome) => {
+    const { deps, run } = setup();
+    const entered = Promise.withResolvers<undefined>();
+    const branches = Promise.withResolvers<readonly string[]>();
+    deps.branches.mockImplementation(() => {
+      entered.resolve(undefined);
+      return branches.promise;
+    });
+    const phases: string[] = [];
+    run.subscribe(() => {
+      phases.push(run.current().progress.phase);
+    });
+    run.ready(candidates(2));
+    run.act();
+    try {
+      await entered.promise;
+      expect(run.progress).toMatchObject({ done: 2, total: 2, phase: "remove" });
+      expect(run.progress.items.every((item) => item.state === "removed")).toBe(true);
+      expect(run.pending).toBe(true);
+      expect(phases).not.toContain("finished");
+      if (outcome === "failure") branches.reject(new Error("ref transaction failed"));
+      else branches.resolve([]);
+      await run.settled();
+      expect(run.current().progress).toMatchObject({ done: 2, total: 2, phase: "finished" });
+      expect(run.pending).toBe(false);
+      expect(phases.filter((phase) => phase === "finished")).toHaveLength(1);
+      expect(run.progress.items.map((item) => item.reason)).toEqual(
+        outcome === "failure" ? ["branch kept", "branch kept"] : [undefined, undefined],
+      );
+    } finally {
+      branches.resolve([]);
+      await run.settled();
+    }
+  },
+);
 test("fixed reasons distinguish changed candidates and removal errors; others continue", async () => {
   const { deps, run } = setup();
   deps.remove

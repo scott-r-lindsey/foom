@@ -36,8 +36,43 @@ test("merged cleanup deletes external worktrees and branches while preserving a 
   git("clone", "--bare", repo, remote);
   git("remote", "add", "origin", remote);
   const app = await launchApp(context, { fixture: "empty-board", home });
+  fixtureCleanup(context).apps.unshift(async () => {
+    await app.evaluate(() => globalThis.mergedCleanupRestore?.()).catch(() => {});
+  });
   const page = await boardPage(app);
-  await app.evaluate(({ dialog }, repo) => {
+  await app.evaluate(({ app, dialog }, repo) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { WorktreeService } = load("./build/main/workspace/worktrees.js");
+    const original = WorktreeService.prototype.deleteMergedBranches;
+    const ready = Promise.withResolvers();
+    const release = Promise.withResolvers();
+    globalThis.mergedCleanupBranchesReady = ready.promise;
+    globalThis.mergedCleanupRelease = () => release.resolve();
+    globalThis.mergedCleanupBranchTiming = { state: "waiting" };
+    WorktreeService.prototype.deleteMergedBranches = async function (...args) {
+      const started = performance.now();
+      globalThis.mergedCleanupBranchTiming = { state: "running" };
+      try {
+        const result = await original.apply(this, args);
+        globalThis.mergedCleanupBranchTiming.state = "succeeded";
+        return result;
+      } catch (error) {
+        globalThis.mergedCleanupBranchTiming.state = "failed";
+        throw error;
+      } finally {
+        globalThis.mergedCleanupBranchTiming.elapsedMs = performance.now() - started;
+        // Run the real transaction first, then hold its return so 2/2 removals
+        // cannot accidentally stand in for the final cleanup progress update.
+        ready.resolve();
+        await release.promise;
+      }
+    };
+    globalThis.mergedCleanupRestore = () => {
+      release.resolve();
+      WorktreeService.prototype.deleteMergedBranches = original;
+    };
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
   }, repo);
   await page.getByRole("button", { name: "Add repository", exact: true }).click();
@@ -87,6 +122,23 @@ test("merged cleanup deletes external worktrees and branches while preserving a 
   const cleanupStarted = performance.now();
   await confirmation.getByRole("button", { name: "Delete 2", exact: true }).click();
   try {
+    // The owning test deadline bounds real fetch/removal/ref work. The existing
+    // visibility assertion measures dismissal after that work, not all phases.
+    await app.evaluate(() => globalThis.mergedCleanupBranchesReady);
+    await expect(
+      confirmation
+        .getByRole("list", { name: "Cleanup checklist" })
+        .getByText("removed", { exact: true }),
+    ).toHaveCount(2);
+    assert.equal(
+      await app.evaluate(({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows()
+          .find((window) => window.webContents.getURL() === "app://confirmation/confirmation.html")
+          .isVisible(),
+      ),
+      true,
+    );
+    await app.evaluate(() => globalThis.mergedCleanupRelease());
     await expect
       .poll(() =>
         app.evaluate(({ BrowserWindow }) =>
@@ -104,9 +156,11 @@ test("merged cleanup deletes external worktrees and branches while preserving a 
       2,
     );
   } finally {
+    await app.evaluate(() => globalThis.mergedCleanupRelease()).catch(() => {});
     context.diagnostic(
       `Merged cleanup: ${JSON.stringify({
         elapsedMs: performance.now() - cleanupStarted,
+        branches: await app.evaluate(() => globalThis.mergedCleanupBranchTiming),
         checklist: await confirmation.locator("body").innerText(),
       })}`,
     );

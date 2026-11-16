@@ -725,7 +725,11 @@ test("cleanup closes only complete successful runs and resets its choice on ever
       receive(request);
     });
   };
-  const finish = (state: "removed" | "error" | "kept" = "removed", stopped = false) => {
+  const finish = (
+    state: "removed" | "error" | "kept" = "removed",
+    stopped = false,
+    phase: "remove" | "finished" = "finished",
+  ) => {
     if (!base.cleanup) throw new Error("Missing cleanup");
     open({
       ...base,
@@ -733,7 +737,7 @@ test("cleanup closes only complete successful runs and resets its choice on ever
         stage: "run",
         progress: {
           ...base.cleanup.progress,
-          phase: "finished",
+          phase,
           done: 1,
           stopped,
           items: [
@@ -760,6 +764,8 @@ test("cleanup closes only complete successful runs and resets its choice on ever
   });
   open();
   expect(view.getByRole("checkbox")).toHaveProperty("checked", true);
+  finish("removed", false, "remove"); // 1/1 is still awaiting branch cleanup.
+  expect(answer).not.toHaveBeenCalled();
   finish("error");
   expect(answer).not.toHaveBeenCalled();
   finish("kept");
