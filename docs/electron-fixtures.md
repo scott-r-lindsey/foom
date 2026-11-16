@@ -62,13 +62,33 @@ run the full width/theme review matrix and save Global, Machines, remote-plugin
 and offline images under `test-results/1070-step2/`. Ordinary CI retains every
 functional assertion without repeating the full review matrix or writing images.
 
-The keyboard scroll check waits for End to reach the bottom before sending Home,
-then requires the top and retained list focus (#1183). Native scrolling can still
-be animating when the first nonzero position is observed. A bounded, test-only
-trace records Home/End delivery, list scroll positions, connection state and DOM
-focus around both keys in JUnit diagnostics, including assertion failures. Its
-listeners are removed before continuing or tearing down the fixture. No scroll
-position is assigned by the test and native animation remains enabled.
+The keyboard scroll check waits for End to reach the bottom **and emit
+`scrollend`** before sending Home, then requires exactly zero, Home's `scrollend`
+and retained list focus (#1183). Reaching even the final rounded pixel does not
+establish native animation completion. The macOS failure trace from run
+43785033101 shows End reaching 1385 at 176 ms, Home delivered to the same focused,
+connected list at 182 ms, and no subsequent movement for nine seconds. The passing
+desktop trace sends Home 241 ms after reaching the bottom. Waiting only for the
+bottom (#1193) therefore still allowed a reversal during animation completion.
+
+The renderer uses ordinary overflow scrolling, with no virtualizer or Home/End
+handler. The inferred browser mechanism is a compositor completion race:
+Chromium 152's `ScrollAnimator::WillAnimateToOffset` marks an in-flight animation
+as `kRunningOnCompositorButNeedsUpdate` when another key retargets it;
+[`CompositorAnimationFinished`](https://chromium.googlesource.com/chromium/src/+/refs/tags/152.0.7977.167/third_party/blink/renderer/core/scroll/scroll_animator_compositor_coordinator.cc)
+can move that state to post-animation cleanup before the pending retarget is
+serviced. The animation finish callback supplies the scrollend notification.
+The test must observe that completion before issuing its next independent scroll
+command, rather than infer it from a rounded offset. Linux attempts with twelve
+rapid reversals per width did not reproduce the lost Home; macOS CI validates
+that platform's completion ordering.
+
+A bounded, test-only trace records Home/End delivery, list scroll/scrollend events,
+connection state and DOM focus around both keys in JUnit diagnostics, including
+assertion failures. The scrollend counter is installed before input, filters by
+the exact list target, and remains observable even when the event precedes the
+poll. Its listeners are removed before continuing or tearing down the fixture.
+No scroll position is assigned by the test and native animation remains enabled.
 
 ## Remote host SEA fixture (#905)
 

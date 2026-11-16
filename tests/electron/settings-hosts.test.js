@@ -2209,9 +2209,11 @@ test("Agents Global list and machine picker scale to twelve agents and twelve sa
       const scrollTrace = await list.evaluateHandle((element) => {
         const events = [];
         const started = performance.now();
+        let completedScrolls = 0;
         const record = (event) => {
           if (event.type.startsWith("key") && !["Home", "End"].includes(event.key)) return;
-          if (event.type === "scroll" && event.target !== element) return;
+          if (["scroll", "scrollend"].includes(event.type) && event.target !== element) return;
+          if (event.type === "scrollend") completedScrolls++;
           const active = document.activeElement;
           if (events.length === 80) events.shift();
           events.push({
@@ -2226,10 +2228,11 @@ test("Agents Global list and machine picker scale to twelve agents and twelve sa
             activeLabel: active?.getAttribute("aria-label"),
           });
         };
-        const types = ["keydown", "keyup", "focusin", "focusout", "scroll"];
+        const types = ["keydown", "keyup", "focusin", "focusout", "scroll", "scrollend"];
         for (const type of types) document.addEventListener(type, record, true);
         record({ type: "start" });
         return {
+          completedScrolls: () => completedScrolls,
           stop() {
             record({ type: "stop" });
             for (const type of types) document.removeEventListener(type, record, true);
@@ -2241,8 +2244,9 @@ test("Agents Global list and machine picker scale to twelve agents and twelve sa
         await list.focus();
         await expect(list).toBeFocused();
         await page.keyboard.press("End");
-        // Native keyboard scrolling animates. Any movement is not End's completion:
-        // Home can otherwise arrive while the list is still scrolling down (#1183).
+        // The rounded endpoint can precede native animation completion. On macOS,
+        // Home in that window can be lost while End is finishing (#1183).
+        // Observe scrollend as well as the position before reversing direction.
         await expect
           .poll(() =>
             list.evaluate(
@@ -2252,9 +2256,11 @@ test("Agents Global list and machine picker scale to twelve agents and twelve sa
             ),
           )
           .toBe(true);
+        await expect.poll(() => scrollTrace.evaluate((trace) => trace.completedScrolls())).toBe(1);
         await expect(list).toBeFocused();
         await page.keyboard.press("Home");
         await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBe(0);
+        await expect.poll(() => scrollTrace.evaluate((trace) => trace.completedScrolls())).toBe(2);
         await expect(list).toBeFocused();
       } finally {
         const events = await scrollTrace.evaluate((trace) => trace.stop());
