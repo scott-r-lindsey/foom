@@ -198,3 +198,10 @@ The existing atomic, question-specific channel exception for explicit orchestrat
 child input does not prove automatic wake safety; this separate opt-in and its
 screen checks govern automatic parent input. The human reviews and merges changes
 to this session-authority and terminal-input surface.
+
+Review correction: each dispatched host operation now carries a one-use eligibility
+token that main synchronously revokes on observed withdrawal. The host checks it
+at the actual cancel/submit write callback, so an earlier main check cannot survive
+focus, grant or enablement withdrawal while parsing is queued. Disabling also
+removes the queue's identity: re-enabling cannot revive an attempt paused in audit
+persistence. Neither correction claims to fence the provider's own input state.

@@ -282,6 +282,7 @@ export class OrchestrationAuthority {
   }
 
   protected changed(): void {
+    this.host.recheckWakes?.();
     this.syncBoardPrs();
     this.childEvents.publish();
     this.host.changed();

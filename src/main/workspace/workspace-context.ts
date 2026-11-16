@@ -210,6 +210,7 @@ export class WorkspaceContext {
       },
     });
     this.executionOwner = new ExecutionOwner({
+      wakeEligibilityChanged: () => deps.terminals.recheckWake?.(),
       terminal: (id) => this.launched.get(id),
       tail: (id, lines) => deps.terminals.tail(id, lines),
       verdicts: deps.verdicts,
@@ -560,6 +561,7 @@ export class WorkspaceContext {
   }
 
   refresh(): void {
+    this.deps.terminals.recheckWake?.();
     if (this.closed) return;
     this.sidebarRead = undefined;
     this.orchestration.syncUnreadChildEvents();

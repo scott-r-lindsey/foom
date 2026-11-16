@@ -16,6 +16,7 @@ const commands = new Set<string>([
   "screen",
   "write",
   "child-input",
+  "wake-input",
   "resize",
   "acknowledge",
   "tail",

@@ -31,6 +31,7 @@ const mock = vi.hoisted(() => ({
   imageClose: vi.fn(),
   imageDiscard: vi.fn(),
   imagePath: vi.fn(),
+  recheckWake: vi.fn(),
 }));
 vi.mock("../../../../src/main/terminals/image-clipboard", () => ({ readPaste: mock.readPaste }));
 vi.mock("../../../../src/main/terminals/image-decoder", () => ({ normalizeImage: mock.normalize }));
@@ -85,8 +86,9 @@ vi.mock("../../../../src/main/terminals/terminal-host-client", async () => {
         this.manager.write(id, data);
         await Promise.resolve();
       }
-      wakeInput(id: string, input: WakeInput) {
-        return this.manager.wakeInput(id, input);
+      recheckWake = mock.recheckWake;
+      wakeInput(id: string, input: WakeInput, eligible: () => boolean) {
+        return this.manager.wakeInput(id, input, eligible);
       }
       async childInput(id: string, data: ChildInput) {
         this.manager.childInput(id, data);
@@ -2053,20 +2055,20 @@ test("wake host guard checks the live cursor composer, cancels separately and su
   };
   const input = { policy, step: "check" as const, line: wakeLine(["child"]) };
   output("\x1b[2J\x1b[H────\r\n❯");
-  expect(await manager.wakeInput(id, input)).toBe(true);
+  expect(await manager.wakeInput(id, input, () => true)).toBe(true);
   expect(pty().write).not.toHaveBeenCalled();
-  expect(await manager.wakeInput(id, { ...input, step: "cancel" })).toBe(true);
+  expect(await manager.wakeInput(id, { ...input, step: "cancel" }, () => true)).toBe(true);
   expect(pty().write).toHaveBeenLastCalledWith("\x1b");
-  expect(await manager.wakeInput(id, { ...input, step: "submit" })).toBe(true);
+  expect(await manager.wakeInput(id, { ...input, step: "submit" }, () => true)).toBe(true);
   expect(pty().write).toHaveBeenLastCalledWith(input.line + "\r");
   output("\x1b[2J\x1b[Hpermission\r\n────\r\n❯");
-  expect(await manager.wakeInput(id, input)).toBe(false);
+  expect(await manager.wakeInput(id, input, () => true)).toBe(false);
   expect(pty().write).toHaveBeenCalledTimes(2);
   await expect(manager.wakeInput(id, { ...input, line: "arbitrary\r" })).rejects.toThrow(
     "Invalid wake input",
   );
   pty().emitExit();
-  expect(await manager.wakeInput(id, input)).toBe(false);
+  expect(await manager.wakeInput(id, input, () => true)).toBe(false);
 });
 
 test("main wake capability refuses unknown/closing IDs and delegates guarded writes only", async () => {
@@ -2079,7 +2081,36 @@ test("main wake capability refuses unknown/closing IDs and delegates guarded wri
   expect(await terminalControl.wakeInput("unknown", input)).toBe(false);
   const id = await create();
   output("\x1b[2J\x1b[H❯");
-  expect(await terminalControl.wakeInput(id, input)).toBe(true);
+  expect(await terminalControl.wakeInput(id, input, () => true)).toBe(true);
   terminalControl.setClosing(id, true);
-  expect(await terminalControl.wakeInput(id, input)).toBe(false);
+  expect(mock.recheckWake).toHaveBeenCalled();
+  expect(await terminalControl.wakeInput(id, input, () => true)).toBe(false);
 });
+
+test.each(["cancel", "submit"] as const)(
+  "deferred %s parser callback checks current eligibility before any bytes",
+  async (step) => {
+    const { wakeLine } = await import("../../../../src/shared/agent-wake");
+    const id = manager.create(spec);
+    output("\x1b[2J\x1b[H────\r\n❯");
+    await manager.screen(id);
+    let eligible = true;
+    const pending = manager.wakeInput(
+      id,
+      {
+        policy: {
+          cancelKeys: ["esc"],
+          composer: ["❯"],
+          contains: ["────"],
+          reject: ["permission"],
+        },
+        step,
+        line: wakeLine(["child"]),
+      },
+      () => eligible,
+    );
+    eligible = false;
+    expect(await pending).toBe(false);
+    expect(pty().write).not.toHaveBeenCalled();
+  },
+);

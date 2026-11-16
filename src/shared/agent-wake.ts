@@ -2,6 +2,23 @@ import { wake } from "./agent-manifest-schema";
 import type { AgentManifestV2 } from "./agent-manifest-v2";
 
 export type WakePolicy = NonNullable<AgentManifestV2["wake"]>;
+export interface WakeToken {
+  path: string;
+  nonce: string;
+}
+export function isWakeToken(value: unknown): value is WakeToken {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const fields: Record<string, unknown> = { ...value };
+  return (
+    Object.keys(fields).sort().join() === "nonce,path" &&
+    typeof fields["path"] === "string" &&
+    fields["path"].length <= 4096 &&
+    fields["path"].length > 0 &&
+    !/[\p{Cc}\p{Cf}]/u.test(fields["path"]) &&
+    typeof fields["nonce"] === "string" &&
+    /^[a-f0-9]{32}$/u.test(fields["nonce"])
+  );
+}
 export interface WakeInput {
   policy: WakePolicy;
   step: "check" | "cancel" | "submit";

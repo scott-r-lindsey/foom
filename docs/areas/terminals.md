@@ -609,3 +609,14 @@ including bracketed paste when enabled. This is not an atomic provider input-sta
 fence; see the [accepted residual race](../orchestration.md#opt-in-idle-orchestrator-wake-548).
 There is no renderer/control API exposing this capability. Older/remote hosts
 refuse it; no raw input fallback is allowed.
+
+Wake requests also carry a private, single-use eligibility token. Electron utility
+process messages cannot clone SharedArrayBuffers; main owns a private temporary
+inode containing a nonsecret nonce instead. Main synchronously truncates it when
+eligibility is withdrawn (including focus, authority, enablement, input and execution
+changes). The host performs a bounded synchronous, identity-checked read immediately
+before both cancel and submit writes, after the asynchronous parser barrier. A
+withdrawn token never becomes valid again. Replies/timeouts release the token;
+shutdown revokes and removes the private temporary directory. No input, output,
+credentials or durable authority is stored in these files. This closes the
+main-observed eligibility gap; the documented provider input-state race remains.

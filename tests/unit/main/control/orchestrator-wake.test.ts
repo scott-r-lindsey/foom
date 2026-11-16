@@ -18,14 +18,14 @@ afterEach(() => {
   for (const instance of instances.splice(0)) instance.dispose();
   vi.useRealTimers();
 });
-function setup() {
+function setup(persist: () => Promise<void> = () => Promise.resolve()) {
   vi.useFakeTimers();
   vi.setSystemTime(1000);
   const records: StoredOperation[] = [];
   const operations = new Operations(
     (row) => {
       records.push(row);
-      return Promise.resolve();
+      return persist();
     },
     () => {},
   );
@@ -257,4 +257,33 @@ test("integrated authority logs owned child wakes and withdraws access on takeov
   } finally {
     h.orchestration.disposeUnreadChildren();
   }
+});
+
+test("disable then re-enable during durable intent cannot revive the withdrawn queue", async () => {
+  const intent = Promise.withResolvers<undefined>();
+  let first = true;
+  const f = setup(() => {
+    if (first) {
+      first = false;
+      return intent.promise;
+    }
+    return Promise.resolve();
+  });
+  let current: (() => boolean) | undefined;
+  f.wake.mockImplementationOnce(async (_id, _line, valid, begin) => {
+    current = valid;
+    await begin();
+    return valid() ? "sent" : "queued";
+  });
+  f.instance.configure(true, 1);
+  f.instance.event("p", "a");
+  await vi.advanceTimersByTimeAsync(0);
+  expect(current?.()).toBe(true);
+  f.instance.configure(false, 1);
+  f.instance.configure(true, 1);
+  expect(current?.()).toBe(false);
+  intent.resolve(undefined);
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(f.records.at(-1)?.operation.status).toBe("cancelled");
+  expect(f.wake).toHaveBeenCalledOnce();
 });

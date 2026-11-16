@@ -97,3 +97,22 @@ test("wake focus guard follows the focused window and its current tile", () => {
   expect(audio.isFocused("session-1")).toBe(false);
   f.dispose();
 });
+
+test("focus withdrawal notifies wake guards before focus observers can act", () => {
+  const audio = new WindowAudio();
+  const calls: string[] = [];
+  audio.setWakeChanged(() => {
+    calls.push("withdraw");
+  });
+  const f = fixture(audio, 1, () => {
+    calls.push("focus");
+  });
+  f.window.isFocused.mockReturnValue(true);
+  calls.length = 0;
+  f.invoke("audio-focus", "session-1");
+  expect(calls.slice(0, 2)).toEqual(["withdraw", "focus"]);
+  calls.length = 0;
+  f.window.emit("focus");
+  expect(calls.slice(0, 2)).toEqual(["withdraw", "focus"]);
+  f.dispose();
+});

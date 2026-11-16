@@ -256,7 +256,11 @@ export class TerminalManager {
   }
 
   /** Check the parsed live viewport in the same callback as the single PTY write. */
-  async wakeInput(id: string, input: WakeInput): Promise<boolean> {
+  async wakeInput(
+    id: string,
+    input: WakeInput,
+    eligible: () => boolean = () => false,
+  ): Promise<boolean> {
     if (!isWakeInput(input)) throw new Error("Invalid wake input");
     const session = this.get(id);
     return new Promise((resolve) => {
@@ -279,17 +283,21 @@ export class TerminalManager {
           return;
         }
         if (input.step === "check") {
-          resolve(true);
+          resolve(eligible());
           return;
         }
-        session.pty.write(
+        const data =
           input.step === "cancel"
             ? "\x1b".repeat(input.policy.cancelKeys.length)
             : childInputBytes(
                 { kind: "prompt", text: input.line },
                 session.screen.modes.bracketedPasteMode,
-              ),
-        );
+              );
+        if (!eligible()) {
+          resolve(false);
+          return;
+        }
+        session.pty.write(data);
         resolve(true);
       });
     });

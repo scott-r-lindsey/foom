@@ -730,6 +730,9 @@ export function workspaceFeatureWiring(owner: WorkspaceContext): {
           get stop() {
             return owner.deps.terminals.stop.bind(owner.deps.terminals);
           },
+          get recheckWake() {
+            return owner.deps.terminals.recheckWake?.bind(owner.deps.terminals);
+          },
           get wakeInput() {
             return owner.deps.terminals.wakeInput?.bind(owner.deps.terminals);
           },

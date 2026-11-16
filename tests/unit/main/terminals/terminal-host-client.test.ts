@@ -25,6 +25,9 @@ const mock = vi.hoisted(() => ({
     removeListener: vi.fn(),
   },
 }));
+vi.mock("../../../../src/node-common/private-file-permissions", () => ({
+  windowsAcl: vi.fn(() => Promise.resolve()),
+}));
 vi.mock("node:perf_hooks", async (original) => ({
   ...(await original<typeof PerfHooks>()),
   monitorEventLoopDelay: () => ({
@@ -1077,13 +1080,64 @@ test("wake input preserves host acceptance and never uses raw write", async () =
     step: "check" as const,
     line: wakeLine(["child"]),
   };
-  const accepted = client.wakeInput(id, input);
+  const accepted = client.wakeInput(id, input, () => true);
+  await vi.waitFor(() => {
+    expect(child.postMessage).toHaveBeenLastCalledWith(
+      expect.objectContaining({ type: "wake-input" }),
+    );
+  });
   child.reply(undefined, { signaled: true });
   expect(await accepted).toBe(true);
-  const rejected = client.wakeInput(id, input);
+  child.postMessage.mockClear();
+  const rejected = client.wakeInput(id, input, () => true);
+  await vi.waitFor(() => {
+    expect(child.postMessage).toHaveBeenLastCalledWith(
+      expect.objectContaining({ type: "wake-input" }),
+    );
+  });
   child.reply(undefined, { signaled: false });
   expect(await rejected).toBe(false);
-  const missing = client.wakeInput(id, input);
+  child.postMessage.mockClear();
+  const missing = client.wakeInput(id, input, () => true);
+  await vi.waitFor(() => {
+    expect(child.postMessage).toHaveBeenLastCalledWith(
+      expect.objectContaining({ type: "wake-input" }),
+    );
+  });
   child.reply();
   await expect(missing).rejects.toThrow("Missing wake input result");
 });
+
+test.each(["cancel", "submit"] as const)(
+  "%s carries a token revoked synchronously after dispatch",
+  async (step) => {
+    const { wakeLeaseValid } = await import("../../../../src/terminal-host/wake-lease");
+    const { wakeLine } = await import("../../../../src/shared/agent-wake");
+    const id = await create();
+    let eligible = true;
+    const pending = client.wakeInput(
+      id,
+      {
+        policy: { cancelKeys: ["esc"], composer: ["❯"], contains: [], reject: ["permission"] },
+        step,
+        line: wakeLine(["child"]),
+      },
+      () => eligible,
+    );
+    await vi.waitFor(() => {
+      expect(child.postMessage).toHaveBeenLastCalledWith(
+        expect.objectContaining({ type: "wake-input" }),
+      );
+    });
+    const message = child.postMessage.mock.calls.at(-1)?.[0];
+    if (!message || message === "shutdown" || message.type !== "wake-input")
+      throw new Error("Missing wake request");
+    expect(wakeLeaseValid(message.guard)).toBe(true);
+    eligible = false;
+    client.recheckWake();
+    eligible = true;
+    expect(wakeLeaseValid(message.guard)).toBe(false);
+    child.reply(undefined, { signaled: false });
+    expect(await pending).toBe(false);
+  },
+);

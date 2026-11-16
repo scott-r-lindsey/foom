@@ -113,12 +113,13 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
     return current;
   };
   return {
+    recheckWakes: () => caps.deps.terminals.recheckWake?.(),
     wake: async (id, line, valid, intent) => {
       const row = caps.snapshot().terminals.find((row) => row.id === id);
       const provider = row?.agent && agentProviders().find((provider) => provider.id === row.agent);
       // Agent-editable config cannot grant itself automatic terminal input policy.
       const policy = provider && provider.origin === "bundled" ? provider.model.wake : undefined;
-      const write = caps.deps.terminals.wakeInput;
+      const write = caps.deps.terminals.recheckWake ? caps.deps.terminals.wakeInput : undefined;
       const allowed = () =>
         valid() &&
         caps.wakeIdle(id) &&
@@ -126,7 +127,7 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
         !caps.sessions.isRestoring(id);
       const result = await deliverWake(
         policy || undefined,
-        write ? (input) => write(id, input) : undefined,
+        write ? (input, eligible) => write(id, input, eligible) : undefined,
         allowed,
         line,
         intent,

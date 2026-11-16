@@ -74,3 +74,20 @@ test("bundled composer declarations match captured layouts and reject each captu
     expect(readyComposer(policy, [...menu, ...lines], menu.length + cursor), id).toBe(false);
   }
 });
+
+test("host eligibility tokens validate bounded paths and exact nonces", async () => {
+  const { isWakeToken } = await import("../../../src/shared/agent-wake");
+  const token = { path: "/fixture/guard", nonce: "a".repeat(32) };
+  expect(isWakeToken(token)).toBe(true);
+  for (const bad of [
+    null,
+    [],
+    {},
+    { ...token, extra: true },
+    { ...token, path: "" },
+    { ...token, path: "x".repeat(4097) },
+    { ...token, path: "\n" },
+    { ...token, nonce: "wrong" },
+  ])
+    expect(isWakeToken(bad)).toBe(false);
+});

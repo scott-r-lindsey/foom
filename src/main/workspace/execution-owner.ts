@@ -56,6 +56,7 @@ export interface ExecutionOwnerDependencies {
   enqueue: (id: string, work: () => Promise<void>) => Promise<void>;
   closed: () => boolean;
   refresh: () => void;
+  wakeEligibilityChanged?: () => void;
   recheck: (id: string) => void;
   exited: (id: string) => void;
   reset: (id: string) => void;
@@ -166,6 +167,7 @@ export class ExecutionOwner {
     if (!event) return;
     if (phase === "working" || phase === "blocked" || phase === "exited")
       delete terminal.wakeHookIdle;
+    this.deps.wakeEligibilityChanged?.();
     if (phase !== "blocked") {
       delete terminal.attentionKey;
       delete terminal.dismissedAttention;
@@ -539,6 +541,7 @@ export class ExecutionOwner {
     )
       return Promise.resolve();
     delete health.wakeHookIdle;
+    this.deps.wakeEligibilityChanged?.();
     if (signal.action === "ready" && signal.signal.startsWith("plugin:")) {
       if (runtime && health.hook?.action === "needs_input") return Promise.resolve();
       health.wakeHookIdle = true;
@@ -627,11 +630,13 @@ export class ExecutionOwner {
   /** Drop the invocation; pending evaluations fail their identity check. */
   reset(id: string): void {
     this.terminals.delete(id);
+    this.deps.wakeEligibilityChanged?.();
     this.deps.reset(id);
   }
 
   removed(id: string): void {
     this.terminals.delete(id);
+    this.deps.wakeEligibilityChanged?.();
     this.deps.verdicts.forget(id);
   }
 
@@ -652,6 +657,7 @@ export class ExecutionOwner {
     const terminal = this.terminals.get(id);
     if (!terminal) return;
     delete terminal.wakeHookIdle;
+    this.deps.wakeEligibilityChanged?.();
     terminal.inputVersion = (terminal.inputVersion ?? 0) + 1;
     if (terminal.hook?.action === "needs_input") {
       terminal.permissionReply = true;

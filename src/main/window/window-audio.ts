@@ -3,6 +3,10 @@ import type { WindowIpc } from "./window-ipc";
 
 /** One renderer plays app sounds; focus suppression follows the focused board. */
 export class WindowAudio {
+  private wakeChanged: (() => void) | undefined;
+  setWakeChanged(listener: () => void): void {
+    this.wakeChanged = listener;
+  }
   private readonly windows = new Map<number, { window: BrowserWindow; focusedId: string | null }>();
   isFocused(id: string): boolean {
     return [...this.windows.values()].some(
@@ -17,6 +21,7 @@ export class WindowAudio {
     };
   }
   private publish = () => {
+    this.wakeChanged?.();
     for (const [id, entry] of this.windows)
       if (!entry.window.webContents.isDestroyed())
         entry.window.webContents.send("windows:audio", this.state(id));
@@ -41,6 +46,7 @@ export class WindowAudio {
       )
         throw new Error("Invalid audio focus");
       entry.focusedId = id;
+      this.wakeChanged?.();
       if (id !== null && window.isFocused()) focused(id);
       this.publish();
     });
@@ -49,6 +55,7 @@ export class WindowAudio {
       this.windows.values().next().value?.window.webContents.send("windows:refuse");
     });
     const onFocus = () => {
+      this.wakeChanged?.();
       if (entry.focusedId !== null) focused(entry.focusedId);
       this.publish();
     };

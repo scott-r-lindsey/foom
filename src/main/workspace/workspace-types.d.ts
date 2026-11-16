@@ -282,7 +282,8 @@ export interface WorkspaceDependencies {
     setClosing?(id: string, closing: boolean): void;
     stop(id: string): Promise<boolean>;
     tail(id: string, lines: number): Promise<string[]>;
-    wakeInput?(id: string, input: WakeInput): Promise<boolean>;
+    wakeInput?(id: string, input: WakeInput, eligible?: () => boolean): Promise<boolean>;
+    recheckWake?(force?: boolean): void;
     childInput?(id: string, data: ChildInput): Promise<void>;
     reply?(id: string, data: string): Promise<void>;
     screen?(id: string): Promise<{ lines: string[]; title: string }>;

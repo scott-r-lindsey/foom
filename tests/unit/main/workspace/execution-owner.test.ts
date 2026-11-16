@@ -839,3 +839,27 @@ test("screen progress invalidates old hook idle even if the next working hook is
   await f.hook("classify");
   expect(f.owner.wakeIdle("t1")).toBe(true);
 });
+
+test("hook/input withdrawal notifies pending writes even without an execution transition", async () => {
+  const f = setup(true);
+  f.tail(["Ready"]);
+  await f.hook("ready");
+  const observed: boolean[] = [];
+  f.deps.wakeEligibilityChanged = () => {
+    observed.push(f.owner.wakeIdle("t1"));
+  };
+  const classified = f.hook("classify", { endsTurn: false });
+  expect(observed).toEqual([false]);
+  expect(f.owner.view("t1").execution?.phase).toBe("idle");
+  await classified;
+  await f.hook("ready");
+  observed.length = 0;
+  f.owner.input("t1");
+  expect(observed).toEqual([false]);
+  await f.hook("ready");
+  observed.length = 0;
+  f.owner.reset("t1");
+  expect(observed).toEqual([false]);
+  f.owner.removed("t1");
+  expect(observed).toEqual([false, false]);
+});

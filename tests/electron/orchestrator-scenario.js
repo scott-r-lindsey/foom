@@ -344,10 +344,19 @@ process.stdout.write("FOOM_AGENT_READY`,
     const toggle = page.getByRole("checkbox", { name: "Wake idle orchestrators on child events" });
     await expect(toggle).not.toBeChecked();
     await toggle.check();
-    await toggle.evaluate((node) => node.parentElement.scrollIntoView({ block: "start" }));
-    await page
-      .getByRole("region", { name: "Settings" })
-      .screenshot({ path: evidencePath("548-wake-settings.png") });
+    for (const base of ["light", "dark"]) {
+      await page.evaluate(
+        (base) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${base}` }),
+        base,
+      );
+      await expect
+        .poll(() => page.evaluate(() => document.documentElement.style.colorScheme))
+        .toBe(base);
+      await toggle.evaluate((node) => node.parentElement.scrollIntoView({ block: "start" }));
+      await page
+        .getByRole("region", { name: "Settings" })
+        .screenshot({ path: evidencePath(`548/wake-settings-${base}.png`) });
+    }
     await expect
       .poll(
         async () =>

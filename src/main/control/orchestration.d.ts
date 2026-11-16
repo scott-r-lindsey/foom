@@ -11,6 +11,7 @@ import type { Principal } from "./types";
 
 /** Main-owned effects. Every path is chosen by main; the API only names IDs. */
 export interface OrchestrationHost {
+  recheckWakes?(): void;
   wake?(
     id: string,
     line: string,

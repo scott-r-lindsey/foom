@@ -17,7 +17,7 @@ export class OrchestratorWake {
   private readonly last = new Map<string, number>();
   private readonly busy = new Set<string>();
   constructor(
-    private readonly host: Pick<OrchestrationHost, "wake" | "terminals">,
+    private readonly host: Pick<OrchestrationHost, "wake" | "terminals" | "recheckWakes">,
     private readonly valid: (actor: Principal, childId?: string) => boolean,
     private readonly note: (actor: Principal, record: Operation) => void,
     private readonly now: () => number = Date.now,
@@ -36,9 +36,11 @@ export class OrchestratorWake {
     }
     if (actor.role !== "orchestrator") {
       this.bindings.delete(actor.terminalId);
+      this.host.recheckWakes?.();
       return;
     }
     this.bindings.set(actor.terminalId, { actor, operations });
+    this.host.recheckWakes?.();
   }
   event(parentId: string, childId: string): void {
     if (!this.enabled || this.disposed) return;
@@ -54,14 +56,17 @@ export class OrchestratorWake {
   }
   read(parentId: string, childId: string): void {
     this.pending.get(parentId)?.delete(childId);
+    this.host.recheckWakes?.();
   }
   dispose(): void {
     this.disposed = true;
     clearTimeout(this.timer);
     this.pending.clear();
     this.bindings.clear();
+    this.host.recheckWakes?.();
   }
   sync(): void {
+    this.host.recheckWakes?.();
     clearTimeout(this.timer);
     if (this.disposed || !this.enabled) return;
     for (const [id, queue] of this.pending) {
@@ -107,6 +112,7 @@ export class OrchestratorWake {
     const valid = () =>
       !this.disposed &&
       this.enabled &&
+      this.pending.get(id) === queue &&
       this.bindings.get(id) === run &&
       this.valid(actor) &&
       batch.some(([child, version]) => queue.get(child) === version && this.valid(actor, child));
@@ -149,18 +155,18 @@ export class OrchestratorWake {
 /** Main rechecks hook/focus/authority around every asynchronous host operation. */
 export async function deliverWake(
   policy: WakePolicy | undefined,
-  write: ((input: WakeInput) => Promise<boolean>) | undefined,
+  write: ((input: WakeInput, eligible: () => boolean) => Promise<boolean>) | undefined,
   allowed: () => boolean,
   line: string,
   intent: () => Promise<void>,
 ): Promise<"sent" | "queued"> {
   if (!policy || !write || !allowed()) return "queued";
-  if (!(await write({ policy, step: "check", line })) || !allowed()) return "queued";
+  if (!(await write({ policy, step: "check", line }, allowed)) || !allowed()) return "queued";
   await intent();
-  if (!allowed() || !(await write({ policy, step: "cancel", line }))) return "queued";
+  if (!allowed() || !(await write({ policy, step: "cancel", line }, allowed))) return "queued";
   await new Promise((resolve) => {
     setTimeout(resolve, 150);
   });
-  if (!allowed() || !(await write({ policy, step: "submit", line }))) return "queued";
+  if (!allowed() || !(await write({ policy, step: "submit", line }, allowed))) return "queued";
   return "sent";
 }

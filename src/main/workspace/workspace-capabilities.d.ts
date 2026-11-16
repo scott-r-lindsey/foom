@@ -327,6 +327,7 @@ export interface OrchestrationHostContext {
     >;
     readonly terminals: Pick<WorkspaceDependencies["terminals"], "stop" | "tail"> & {
       readonly childInput: WorkspaceDependencies["terminals"]["childInput"];
+      readonly recheckWake: WorkspaceDependencies["terminals"]["recheckWake"];
       readonly wakeInput: WorkspaceDependencies["terminals"]["wakeInput"];
     };
     readonly placeChild: WorkspaceDependencies["placeChild"];

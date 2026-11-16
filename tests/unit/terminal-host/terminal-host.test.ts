@@ -285,8 +285,14 @@ test("guarded wake input is validated and the acceptance result is returned", as
     line: wakeLine(["child"]),
   };
   mock.wakeInput.mockResolvedValue(true);
-  await message({ type: "wake-input", id: "parent", request: 2, input });
-  expect(mock.wakeInput).toHaveBeenCalledWith("parent", input);
+  await message({
+    type: "wake-input",
+    id: "parent",
+    request: 2,
+    input,
+    guard: { path: "/fixture", nonce: "a".repeat(32) },
+  });
+  expect(mock.wakeInput).toHaveBeenCalledWith("parent", input, expect.any(Function));
   expect(port.postMessage).toHaveBeenLastCalledWith(expect.objectContaining({ signaled: true }));
   await message({ type: "wake-input", id: "parent", request: 3, input: { ...input, line: "bad" } });
   expect(mock.wakeInput).toHaveBeenCalledOnce();

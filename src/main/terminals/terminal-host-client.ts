@@ -1,3 +1,4 @@
+import { WakeGuards } from "./wake-guards";
 import type { WakeInput } from "../../shared/agent-wake";
 import type { HostSnapshot, HostExitDiagnostic } from "./terminal-host-diagnostics";
 import { watchHostLiveness } from "./terminal-host-liveness";
@@ -58,6 +59,10 @@ type Session = {
 
 /** Main owns capabilities; the utility process owns PTYs and parses their output. */
 export class TerminalHostClient {
+  private readonly wakeGuards = new WakeGuards();
+  recheckWake(force = false): void {
+    this.wakeGuards.recheck(force);
+  }
   private child: UtilityProcess | RemoteTransport | undefined;
   private readonly remotes = new Map<string, TerminalHostClient>();
   private readonly sessions = new Map<string, Session>();
@@ -488,12 +493,21 @@ export class TerminalHostClient {
     if (this.remotes.has(id)) return this.remotes.get(id)?.reply(id, data);
     await this.request({ type: "write", id, data });
   }
-  async wakeInput(id: string, input: WakeInput): Promise<boolean> {
-    // Older/remote hosts have no guarded write; never fall back to raw input.
+  async wakeInput(
+    id: string,
+    input: WakeInput,
+    eligible: () => boolean = () => false,
+  ): Promise<boolean> {
     if (this.remotes.has(id)) return false;
-    const result = await this.request({ type: "wake-input", id, input });
-    if (result.signaled === undefined) throw new Error("Missing wake input result");
-    return result.signaled;
+    const lease = await this.wakeGuards.create(() => !this.shuttingDown && eligible());
+    if (!lease) return false;
+    try {
+      const result = await this.request({ type: "wake-input", id, input, guard: lease.token });
+      if (result.signaled === undefined) throw new Error("Missing wake input result");
+      return result.signaled;
+    } finally {
+      lease.release();
+    }
   }
   async childInput(id: string, input: ChildInput): Promise<void> {
     if (this.remotes.has(id)) return this.remotes.get(id)?.childInput(id, input);
@@ -635,6 +649,7 @@ export class TerminalHostClient {
   shutdown(): Promise<void> {
     if (this.stopping) return this.stopping;
     this.shuttingDown = true;
+    this.wakeGuards.recheck(true);
     this.stopping = (async () => {
       if (this.remotes.size)
         await Promise.all([...this.remotes.values()].map((client) => client.shutdown()));
@@ -655,6 +670,7 @@ export class TerminalHostClient {
   dispose(): Promise<void> {
     if (this.closing) return this.closing;
     this.disposed = true;
+    const guardsClosing = this.wakeGuards.dispose();
     nativeTheme.removeListener("updated", this.updateTheme);
     const child = this.child;
     const remoteClosing = Promise.all([...this.remotes.values()].map((client) => client.dispose()));
@@ -679,7 +695,9 @@ export class TerminalHostClient {
         resolve();
       }
     });
-    this.closing = Promise.all([remoteClosing, localClosing]).then(() => flushHostExits());
+    this.closing = Promise.all([remoteClosing, localClosing, guardsClosing]).then(() =>
+      flushHostExits(),
+    );
     void this.closing.then(() => {
       this.releaseDiagnostics?.();
       this.releaseDiagnostics = undefined;
