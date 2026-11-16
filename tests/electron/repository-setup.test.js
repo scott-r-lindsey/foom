@@ -1,6 +1,14 @@
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
-const { mkdtemp, mkdir, writeFile, readFile, symlink, access } = require("node:fs/promises");
+const {
+  mkdtemp,
+  mkdir,
+  writeFile,
+  readFile,
+  symlink,
+  access,
+  realpath,
+} = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const { gitSync } = require("../helpers/git.js");
@@ -576,7 +584,7 @@ test("local linked-worktree launch admission never probes tools in the registere
   timeout: deadline(45_000),
   skip: process.platform === "win32",
 }, async (context) => {
-  const root = await mkdtemp(path.join(tmpdir(), "setup-linked-roots-"));
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "setup-linked-roots-")));
   removeAfterApps(context, root);
   const bins = path.join(root, "login-bin");
   await mkdir(bins);
@@ -596,7 +604,9 @@ esac
   const app = await launchApp(context, { fixture: "repository", env: { PATH: bins } });
   const page = await boardPage(app);
   const repository = (await page.evaluate(() => window.desktop.workspace())).repositories[0].path;
-  const worktree = path.join(root, "linked-worktree");
+  const alias = path.join(root, "parent-alias");
+  await symlink(root, alias, "dir");
+  const createdWorktree = path.join(alias, "linked-worktree");
   await writeFile(path.join(repository, "package.json"), "{}\n");
   gitSync(["-C", repository, "add", "package.json"]);
   gitSync([
@@ -610,7 +620,16 @@ esac
     "-qm",
     "fixture requirements",
   ]);
-  gitSync(["-C", repository, "worktree", "add", "-b", "setup-linked", worktree]);
+  gitSync(["-C", repository, "worktree", "add", "-b", "setup-linked", createdWorktree]);
+  // Git canonicalizes the parent alias, like /var -> /private/var on macOS.
+  // Use main's inventory path, just as the renderer does; launch rejects aliases.
+  const trees = await page.evaluate(
+    (repository) => window.desktop.worktrees(repository),
+    repository,
+  );
+  const worktree = trees.find((tree) => tree.branch === "setup-linked")?.path;
+  assert.equal(worktree, await realpath(createdWorktree));
+  assert.notEqual(worktree, createdWorktree);
   const node = path.join(repository, "node");
   await writeFile(
     node,

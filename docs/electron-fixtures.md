@@ -34,6 +34,18 @@ animation-frame assertion and startup diagnostics. The sandbox, controlled login
 shell/PATH, agent guard, process audit and quit-before-directory-removal ordering
 are unchanged.
 
+## Repository setup linked-checkout identity (#1080)
+
+The linked-checkout setup-admission case creates its Git worktree through a
+symlinked parent on every supported POSIX platform. This reproduces macOS
+`/var` versus `/private/var` temporary paths on Linux too. Git registers the
+canonical checkout path; the test asserts that main's worktree inventory returns
+that path, then sends it through public launch IPC as the renderer does. Sending
+the original alias would correctly fail checkout identity before setup admission.
+The setup refusal and no-repository-tool/no-agent-execution assertions remain
+unchanged. Probe PATH pinning happens after checkout identity and cannot affect
+this membership lookup.
+
 ## Agents scope review captures (#1070)
 
 The twelve-agent/twelve-host case checks desktop/light and narrow/dark, including
