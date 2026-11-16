@@ -1,6 +1,7 @@
 @import "./copy-value.css";
 :root {
   font-family: var(--font-interface);
+  font-weight: var(--type-weight, 400);
   background: var(--bg);
   color: var(--ink);
 }
@@ -22,13 +23,13 @@ header {
   padding: 10px 16px;
   background: var(--surface);
   border-bottom: var(--shape-border, 1px) solid var(--line);
-  font-size: 12px;
+  font-size: calc(12px * var(--type-scale, 1));
 }
 strong {
   font-family: var(--font-display);
-  font-weight: 400;
+  font-weight: var(--type-weight, 400);
   color: var(--highlight);
-  font-size: 16px;
+  font-size: calc(16px * var(--type-scale, 1));
 }
 #status {
   color: var(--muted);

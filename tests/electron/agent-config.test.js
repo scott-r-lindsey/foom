@@ -238,6 +238,61 @@ test("config agents receive only the bundled manual and revoke the attachment on
     .toBe(true);
 });
 
+for (const helpExit of [0, 2]) {
+  test(`an agy config session greets with stderr help and help exit ${helpExit}`, {
+    timeout: deadline(90_000),
+    skip: process.platform === "win32" && "The fake agent is a POSIX script",
+  }, async (context) => {
+    const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-agy-greeting-")));
+    removeAfterApps(context, root);
+    const bin = path.join(root, "bin");
+    const home = path.join(root, "home");
+    const report = path.join(root, "args.json");
+    await mkdir(bin);
+    await mkdir(home);
+    await writeFile(
+      path.join(bin, "agy"),
+      `#!${process.execPath}
+const { writeFileSync } = require("node:fs");
+const args = process.argv.slice(2);
+if (args[0] === "--version") { console.log("1.3.3"); process.exit(0); }
+if (args[0] === "--help") { console.error("--prompt-interactive <prompt>"); process.exit(${helpExit}); }
+if (args[0] === "plugin") { console.log("No imported plugins."); process.exit(0); }
+writeFileSync(${JSON.stringify(report)}, JSON.stringify(args));
+const index = args.indexOf("--prompt-interactive");
+if (index >= 0 && args[index + 1].includes("greet")) {
+  console.log("FAKE_AGY_GREETING: What would you like to change?");
+}
+process.stdin.resume();
+`,
+      { mode: 0o700 },
+    );
+    const app = await launchApp(context, {
+      fixture: "agent",
+      home,
+      env: { HOME: home, PATH: bin },
+    });
+    const page = await boardPage(app);
+    await page.locator(".config-gear").click();
+    await page
+      .getByRole("dialog", { name: "Foom config details and commands" })
+      .getByRole("menuitem", { name: "Via Antigravity", exact: true })
+      .click();
+    await expect
+      .poll(async () => {
+        const snapshot = await page.evaluate(() => window.desktop.workspace());
+        const id = snapshot.terminals.find((entry) => entry.config)?.id;
+        return id
+          ? page.evaluate(async (id) => (await window.desktop.tail(id, 40)).join("\n"), id)
+          : "";
+      })
+      .toContain("FAKE_AGY_GREETING");
+    const args = JSON.parse(await readFile(report, "utf8"));
+    assert.ok(args[args.indexOf("--prompt-interactive") + 1].includes("greet"));
+    assert.ok(!args.includes("--conversation"));
+  });
+}
+
 test("fresh profiles adopt shared config without resetting a running profile", {
   timeout: deadline(60_000),
 }, async (context) => {

@@ -1,0 +1,50 @@
+{
+  "version": 2,
+  "name": "Gradient Study Dark",
+  "base": "dark",
+  "colors": {
+    "bg": "#05040a",
+    "surface": "#0d0a17",
+    "line": "#251d3f",
+    "ink": "#f4efff",
+    "muted": "#dad0f0",
+    "accent": "#ccb0ff",
+    "accent-deep": "#7a3cff",
+    "attention": "#ffb23e",
+    "attention-ink": "#ffd08a",
+    "done": "#6fe0a3",
+    "done-ink": "#a5f3c7",
+    "failed": "#ff2e88",
+    "failed-ink": "#ff70ad",
+    "hole": "#06050b",
+    "space-ink": "#f4efff",
+    "badge-label-fill": "#3a3060",
+    "badge-label-ink": "#f4efff",
+    "badge-fill": "#1c1632",
+    "badge-ink": "#f4efff",
+    "highlight": "#b7e9ff",
+    "highlight-deep": "#187b9c"
+  },
+  "type": {
+    "family": "geist",
+    "scale": 1.1,
+    "weight": 450,
+    "strong-weight": 650
+  },
+  "areas": {
+    "sidebar": {
+      "bg": "#003c52",
+      "gradient": {
+        "angle": 160,
+        "stops": [["#003c52", 0], ["#47164f", 100]]
+      }
+    },
+    "board": {
+      "bg": "#47164f",
+      "gradient": {
+        "angle": 125,
+        "stops": [["#47164f", 0], ["#003c52", 100]]
+      }
+    }
+  }
+}

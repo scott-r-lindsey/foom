@@ -805,7 +805,7 @@ export class Hosts {
     if (support !== this.remoteHostsAvailable || trust !== this.hostKeyTrust)
       viewChanges.publish("hosts", "agents");
   }
-  state(result?: HostResult, savedOnly = false): HostsState {
+  state(result?: HostResult, savedOnly = false, liveInventories = !savedOnly): HostsState {
     return {
       ...(this.remoteHostsAvailable === undefined
         ? {}
@@ -821,7 +821,11 @@ export class Hosts {
         // saved check rather than a background board connection failure.
         const runtimeResult =
           this.resourceResults.get(host.host) ??
-          (savedOnly ? host.observation?.preflight.result : this.results.get(host.host));
+          (savedOnly
+            ? liveInventories
+              ? host.observation?.preflight.result
+              : undefined
+            : this.results.get(host.host));
         return {
           ...host,
           ...(this.hostKeyTrust ? { hostKeyTrust: this.hostKeyTrust } : {}),
@@ -850,10 +854,10 @@ export class Hosts {
               ? { installReason: "recipe-unavailable" as const }
               : {}),
           })),
-          ...(this.worktreeInventories.has(host.host)
+          ...(liveInventories && this.worktreeInventories.has(host.host)
             ? { foreignWorktrees: this.worktreeInventories.get(host.host)?.other ?? 0 }
             : {}),
-          ...(this.sessionInventories.has(host.host)
+          ...(liveInventories && this.sessionInventories.has(host.host)
             ? {
                 foreignSessions:
                   this.sessionInventories

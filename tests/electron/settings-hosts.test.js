@@ -77,7 +77,12 @@ async function assertHostColumns(card) {
   assert.ok(Math.max(...starts) - Math.min(...starts) < 1, JSON.stringify(starts));
 }
 
-async function hostsFixture(context, captureEnrollment = false, initialScenario = {}) {
+async function hostsFixture(
+  context,
+  captureEnrollment = false,
+  initialScenario = {},
+  { trackSidebar = false } = {},
+) {
   const root = await mkdtemp(path.join(tmpdir(), "hosts-settings-"));
   removeAfterApps(context, root);
   const bin = path.join(root, "bin");
@@ -248,6 +253,8 @@ process.stdin.on('data', bytes => {
    result={ok:true,facts:{folder:{state:'pass'},codeFolder:folder,version:${JSON.stringify(manifest.version)},sessions:2,cores:8,load:[0.42,0.31,0.25],memoryTotal:17179869184,memoryAvailable:11811160064,requirements:{distro:'debian',libc:'supported',packageManager:'apt'},tools:[{id:'git',state:'missing',signIn:'unknown'},{id:'gh',state:'ready',signIn:'signed-out'}],agents:[{id:'claude',state:'ready'},{id:'codex',state:'missing'},{id:'agy',state:'unable'}]}};
    if(message.operation==='repository' || message.operation==='clone') result.checkout={path:folder+'/'+message.directory,state:message.operation==='clone'?'clean':'absent'};
   }
+  // Successful empty discovery must populate the same cache as a real daemon reply.
+  if(result.ok && message.operation==='list-worktrees') result.inventory={own:[],other:0};
   if(result.ok) { if(settings.facts) Object.assign(result.facts,settings.facts); if(message.operation==='origin' && settings.origin) result={ok:false,reason:settings.origin}; if(message.operation==='repository' && settings.checkout && result.ok) { result.checkout.state=settings.checkout; } }
   if(message.operation==='inspect' && message.target?.kind==='facts' && settings.factsFailure) result={ok:false,reason:settings.factsFailure};
   if(message.operation==='inspect' && !message.target && settings.inspectFailure) result={ok:false,reason:settings.inspectFailure};
@@ -263,6 +270,40 @@ process.stdin.on('data', bytes => {
     { mode: 0o700 },
   );
   const app = await launchApp(context, { fixture: "repository", env: { PATH: bin } });
+  if (trackSidebar) {
+    // Observe real work, including reads superseded by a later invalidation.
+    await app.evaluate(({ app }) => {
+      const load = process
+        .getBuiltinModule("node:module")
+        .createRequire(app.getAppPath() + "/package.json");
+      const workspace = load("./build/main/workspace/workspace.js");
+      const original = workspace.Workspace.prototype.sidebarInventory;
+      const pending = new Set();
+      workspace.Workspace.prototype.sidebarInventory = function (...args) {
+        const read = original.apply(this, args);
+        pending.add(read);
+        void read.then(
+          () => pending.delete(read),
+          () => pending.delete(read),
+        );
+        return read;
+      };
+      workspace.settleFixtureSidebar = async () => {
+        while (pending.size) await Promise.allSettled([...pending]);
+      };
+    });
+  }
+  const settleSidebar = async () => {
+    await page.evaluate(() => window.desktop.sidebarInventory());
+    if (trackSidebar)
+      await app.evaluate(async ({ app }) => {
+        const load = process
+          .getBuiltinModule("node:module")
+          .createRequire(app.getAppPath() + "/package.json");
+        await load("./build/main/workspace/workspace.js").settleFixtureSidebar();
+      });
+  };
+
   fixtureCleanup(context).apps.push(async () => {
     for (const name of ["foom-host.gz", "manifest.json"]) {
       const backup = backups.get(name);
@@ -344,6 +385,7 @@ process.stdin.on('data', bytes => {
     compressed,
     calls,
     cloneReason,
+    settleSidebar,
     recipeCalls,
   };
 }
@@ -2722,15 +2764,25 @@ test("Hosts status classification stays consistent with sealed catalog omission"
   skip: process.platform === "win32",
   timeout: deadline(60000),
 }, async (context) => {
-  const { page, card, navigation, capture, calls } = await hostsFixture(context);
-  // Finish Add's full check and locations, then join enrollment's independent
-  // sidebar refresh before sealing metadata and measuring Hosts navigation.
+  const { page, card, navigation, capture, calls, settleSidebar } = await hostsFixture(
+    context,
+    false,
+    {},
+    { trackSidebar: true },
+  );
+  // Refresh/configure can replace the shared promise while older reads still run.
+  // Drain all enrollment reads before sealing the catalog and measuring navigation.
   await expect(card.locator("time")).toBeVisible();
   await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
-  await page.evaluate(async () => {
-    await window.desktop.hosts({ action: "locations" });
-    await window.desktop.sidebarInventory();
-  });
+  await page.evaluate(() => window.desktop.hosts({ action: "locations" }));
+  await settleSidebar();
+  const settled = await readFile(calls, "utf8");
+  await page.evaluate(() => window.desktop.sidebarInventory());
+  assert.equal(
+    await readFile(calls, "utf8"),
+    settled,
+    "Successful empty worktree inventory is cached before navigation",
+  );
   const metadata = path.resolve("build/build-metadata.json");
   const previous = await readFile(metadata);
   fixtureCleanup(context).apps.push(() => writeFile(metadata, previous));

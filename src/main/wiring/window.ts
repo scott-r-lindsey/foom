@@ -463,11 +463,12 @@ export async function buildWindow(
           app.getVersion(),
         ).prepareView(),
       hosts: () =>
+        // Settings follows current inventory counts; legacy saved-only lists do not.
         hostsForStore(
           wiring.settings,
           wiring.worktrees.listRepositories.bind(wiring.worktrees),
           app.getVersion(),
-        ).state(undefined, true),
+        ).state(undefined, true, true),
       agents: () => wiring.workspace.scanAgents(false),
       repositories: () => wiring.worktrees.listRepositories(),
       worktrees: (repository) => wiring.workspace.worktrees(repository),

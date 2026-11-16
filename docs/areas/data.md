@@ -174,6 +174,8 @@ Only fixed `unavailable` and `too-large` errors cross this channel.
 Settings host views keep saved full-check observations while overlaying explicit
 Refresh facts results, including failures, and current inventory counts.
 Background board connection failures do not replace those observations.
+Legacy saved-only Hosts lists retain their saved inventory counts; the subscribed
+Settings projection explicitly opts into current counts.
 Entering Hosts retains its explicit list command to resume owner-held row/save
 retries; saved row controls wait for that command to settle, and command replies
 cannot replace ordered snapshots.

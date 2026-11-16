@@ -139,6 +139,18 @@ test("readiness views share probes across windows and follow repository commits 
   const app = await launchApp(context, { fixture: "repository" });
   const writer = await boardPage(app);
   const repository = (await writer.evaluate(() => window.desktop.workspace())).repositories[0].path;
+  gitSync([
+    "-C",
+    repository,
+    "-c",
+    "user.name=Fixture",
+    "-c",
+    "user.email=fixture@example.test",
+    "commit",
+    "--allow-empty",
+    "-qm",
+    "Fixture",
+  ]);
   gitSync(["-C", repository, "remote", "add", "origin", "https://new-forge.test/team/project.git"]);
   await app.evaluate(({ app }) => {
     const load = process

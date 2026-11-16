@@ -68,6 +68,16 @@ it.each([false, true])(
     );
     expect(greeting.args).toEqual(["--prompt-interactive", `-literal\n\n${CONFIG_PROMPT}`]);
     greeting.dispose();
+    const resumedConfig = await provider.prepareLaunch(
+      installation,
+      { ...request, conversationId: "existing" },
+      [],
+      undefined,
+      true,
+      false,
+    );
+    expect(resumedConfig.args).toEqual(["--conversation", "existing"]);
+    resumedConfig.dispose();
     const unsupported = provider.discover("", "1.0.0", "--other");
     await expect(
       provider.prepareLaunch(

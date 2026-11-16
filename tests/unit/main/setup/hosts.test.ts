@@ -509,7 +509,8 @@ test("profile inventories project only counts to Settings and End confirms exact
   mock.inventory.mockResolvedValue(snapshot);
   expect(await hosts.sessions()).toEqual([{ host: "worker", session: { id: "mine" } }]);
   expect(hosts.state().hosts[0]).toMatchObject({ foreignSessions: 1 });
-  expect(hosts.state(undefined, true).hosts[0]).toMatchObject({ foreignSessions: 1 });
+  expect(hosts.state(undefined, true).hosts[0]?.foreignSessions).toBeUndefined();
+  expect(hosts.state(undefined, true, true).hosts[0]).toMatchObject({ foreignSessions: 1 });
   await hosts.action({ action: "refresh", host: "worker" });
   expect(hosts.state().hosts[0]?.result).toMatchObject({ ok: true, facts: { sessions: 2 } });
   mock.inventory.mockResolvedValueOnce({
@@ -542,7 +543,7 @@ test("profile inventories project only counts to Settings and End confirms exact
     expect.any(AbortSignal),
   );
   expect(hosts.state().hosts[0]).toMatchObject({ foreignSessions: 0 });
-  expect(hosts.state(undefined, true).hosts[0]).toMatchObject({ foreignSessions: 0 });
+  expect(hosts.state(undefined, true, true).hosts[0]).toMatchObject({ foreignSessions: 0 });
   mock.inventory.mockResolvedValueOnce({ type: "inventory-result", own: [], foreign: [] });
   confirm.mockClear();
   await hosts.action({ action: "end", host: "worker" }, confirm);
@@ -845,7 +846,8 @@ test("tagged inventory survives a new hub owner, last-row absence and re-registr
   expect(hosts.placement(key, "/local/unknown")).toBeUndefined();
   repositories = repositories.filter((repo) => repo.path !== "/local/second");
   expect(hosts.state().hosts[0]).toMatchObject({ foreignWorktrees: 3 });
-  expect(hosts.state(undefined, true).hosts[0]).toMatchObject({ foreignWorktrees: 3 });
+  expect(hosts.state(undefined, true).hosts[0]?.foreignWorktrees).toBeUndefined();
+  expect(hosts.state(undefined, true, true).hosts[0]).toMatchObject({ foreignWorktrees: 3 });
   expect(JSON.stringify(hosts.state())).not.toContain(tree.path);
   expect(
     run.mock.calls.every(
@@ -1608,7 +1610,7 @@ test("saved full checks survive restart as display data, list makes no SSH reads
       foreign: [],
     });
     await second.sessions();
-    expect(second.state(undefined, true).hosts[0]).toMatchObject({
+    expect(second.state(undefined, true, true).hosts[0]).toMatchObject({
       observation,
       foreignSessions: 0,
       result: { ok: true, facts: { sessions: 1 } },

@@ -12,6 +12,7 @@ export type ThemeReason =
   | "base-luminance"
   | "hole-color"
   | "contrast"
+  | "gradient-not-allowed"
   | "reserved-color"
   | "too-large"
   | "unsafe-file"
