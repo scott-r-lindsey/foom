@@ -242,7 +242,7 @@ it.each(["local", "builder"])(
     expect(await runRepositorySetup(text, "/fixture/toolchains", {}, "/fixture")).toBe(2);
     expect(repositorySetupEnvironment).toHaveBeenCalledWith(
       {},
-      "/fixture",
+      ["/fixture", "/fixture/repo"],
       "/fixture/toolchains",
       ["node"],
       "/fixture",

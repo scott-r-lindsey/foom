@@ -163,7 +163,12 @@ Read-only checks are new, closed host operations. Package presence uses fixed
 package-database queries for the selected distro and toolchain probes use bundled
 version parsers and fixed `--version` arguments. They run outside the checkout,
 with normalized host environment and a safe PATH excluding checkout/current-directory
-entries. They never call a checkout's package manager, config, script or plugin.
+entries. For local linked-worktree admission, exclude both the registered
+repository's complete directory tree and the selected checkout, including their
+canonical executable targets. Recheck these exclusions during executable
+resolution after awaited ABI probes. Source observations retain the registered
+repository as code root; selecting a worktree must never narrow that scope. They
+never call a checkout's package manager, config, script or plugin.
 Version mismatch is **Needs setup**; a failed/timed-out probe is **Unable to check**.
 Saved results are presentation only, never launch authorization.
 

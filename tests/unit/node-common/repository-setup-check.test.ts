@@ -2,6 +2,9 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { validateSetupAdmission } from "../../../src/node-common/repository-setup-admission";
 import { inspectSetupSources } from "../../../src/node-common/repository-setup-sources";
+import { openRepositorySetup } from "../../../src/main/setup/repository-setup-service";
+import { DEFAULT_SETTINGS } from "../../../src/main/setup/settings";
+import type { Worktree } from "../../../src/shared/worktrees";
 import { setupCatalogDigest } from "../../../src/node-common/repository-setup-digest";
 import type * as FileSystem from "node:fs/promises";
 import type * as Probe from "../../../src/node-common/repository-setup-probe";
@@ -28,6 +31,10 @@ import type { SetupProbeDependencies } from "../../../src/node-common/repository
 import { setupProbe, SetupProbeExit } from "../../../src/node-common/repository-setup-probe";
 import { parseSetupList } from "../../../src/shared/repository-setup";
 import { selectedToolchainBins } from "../../../src/node-common/repository-toolchain";
+const login = vi.hoisted(() => ({ path: "" }));
+vi.mock("../../../src/main/agents/agents", () => ({
+  loginPath: vi.fn(() => Promise.resolve({ path: login.path })),
+}));
 vi.mock("../../../src/node-common/repository-setup-probe", async (original) => ({
   ...(await original<typeof Probe>()),
   setupProbe: vi.fn(),
@@ -420,5 +427,116 @@ it.skipIf(process.platform === "win32").each([false, true])(
       root,
     );
     expect(await readFile(calls, "utf8")).toBe("safe\nsafe\n");
+  },
+);
+
+it.skipIf(process.platform === "win32").each(["symlink", "nested-bin", "retarget"])(
+  "local linked-worktree admission excludes main repository tools (%s)",
+  async (kind) => {
+    const repository = join(root, "repository");
+    const worktree = join(root, "linked");
+    const bins = join(root, "login-bin");
+    const safe = join(root, "safe");
+    const nested = join(repository, "node_modules", ".bin");
+    await Promise.all([
+      mkdir(nested, { recursive: true }),
+      mkdir(worktree),
+      mkdir(bins),
+      mkdir(safe),
+    ]);
+    for (const path of [repository, worktree]) await writeFile(join(path, "package.json"), "{}");
+    const calls = join(root, "calls");
+    const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+    for (const [path, label] of [
+      [repository, "repository"],
+      [worktree, "worktree"],
+      [safe, "safe"],
+    ]) {
+      if (!path || !label) throw new Error("Invalid fixture");
+      await writeFile(
+        join(path, "node"),
+        `#!/bin/sh\nprintf '%s\\n' ${quote(label)} >> ${quote(calls)}\nprintf 'v24.17.0\\n'\n`,
+        { mode: 0o700 },
+      );
+    }
+    await symlink(join(repository, "node"), join(nested, "node"));
+    await symlink(join(kind === "retarget" ? safe : repository, "node"), join(bins, "node"));
+    login.path = [kind === "nested-bin" ? nested : bins, safe].join(delimiter);
+    const execute = promisify(execFile);
+    vi.mocked(setupProbe).mockImplementation(async (command, args, cwd, env) => {
+      if (command === "/usr/bin/getconf" || command === "/usr/bin/sw_vers") {
+        if (kind === "retarget") {
+          await rm(join(bins, "node"));
+          await symlink(join(repository, "node"), join(bins, "node"));
+        }
+        return command === "/usr/bin/getconf" ? "glibc 2.36" : "14.0";
+      }
+      if (!command.startsWith(root + "/")) throw new Error("Nonfixture executable");
+      return (await execute(command, [...args], { cwd, env })).stdout;
+    });
+    const store = { get: () => ({ ...DEFAULT_SETTINGS, registeredHosts: [] }) };
+    const trees: Worktree[] = [repository, worktree].map((path) => ({
+      path,
+      head: "a".repeat(40),
+      branch: "main",
+      bare: false,
+      managed: false,
+      locked: false,
+      prunable: false,
+    }));
+    const service = await openRepositorySetup(
+      store,
+      root,
+      {
+        listRepositories: () => [{ path: repository, name: "fixture" }],
+        registrationIdentity: () => "fixture-registration",
+        persistRegistrationIdentities: () => Promise.resolve(),
+        launchIdentity: () => Promise.resolve("fixture-identity"),
+        listWorktrees: () => Promise.resolve(trees),
+        onRemoved: () => () => {},
+      },
+      {
+        repositorySetup: () => Promise.reject(new Error("Unexpected remote check")),
+        onRemoved: () => () => {},
+      },
+    );
+    const signal = new AbortController().signal;
+    const confirm = () => Promise.resolve(true);
+    const launch = () => Promise.reject(new Error("Unexpected setup execution"));
+    const reviewed = await service.action(
+      "board",
+      {
+        action: "review",
+        repository,
+        draft: JSON.stringify({
+          requirements: [
+            {
+              kind: "toolchain",
+              id: "node",
+              tool: "node",
+              version: "24.x",
+              purpose: "Build",
+              sources: ["package.json"],
+            },
+          ],
+          evidence: [],
+        }),
+      },
+      confirm,
+      launch,
+      signal,
+    );
+    if (!reviewed.review) throw new Error("No review");
+    await service.action(
+      "board",
+      { action: "approve", token: reviewed.review.token },
+      confirm,
+      launch,
+      signal,
+    );
+    const admitted = await service.admit(null, repository, worktree);
+    if (!admitted.approval) throw new Error("No approval");
+    expect(admitted.codeRoot).toBe(repository);
+    expect(await readFile(calls, "utf8")).toBe("safe\n");
   },
 );

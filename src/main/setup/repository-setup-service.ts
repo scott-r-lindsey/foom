@@ -72,7 +72,7 @@ export async function openRepositorySetup(
       );
       if (!tree?.head || (await worktrees.launchIdentity(repository, selected)) !== identity)
         throw new Error("Checkout changed");
-      return { sources, checkout: selected, head: tree.head };
+      return { sources, root: repository, checkout: selected, head: tree.head };
     },
     bins: (list) =>
       selectedToolchainBins(
@@ -85,20 +85,21 @@ export async function openRepositorySetup(
         ),
       ),
     check: async (host, list, checkout, repository) => {
+      if (!repository) throw new Error("Repository required");
       if (host !== null) {
-        if (!repository) throw new Error("Repository required");
         return (await hosts.repositorySetup(host, repository, list, [], checkout)).check;
       }
+      const excluded = [repository, checkout ?? repository];
       const login = await loginPath();
       const env = await repositorySetupEnvironment(
         { PATH: login.path },
-        checkout,
+        excluded,
         prefix,
         setupSelectedTools(list),
       );
       return checkSetupList(
         list,
-        await setupProbeDependencies(env, homedir(), undefined, checkout),
+        await setupProbeDependencies(env, homedir(), undefined, excluded),
       );
     },
   });

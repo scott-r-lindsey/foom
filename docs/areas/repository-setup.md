@@ -59,7 +59,13 @@ Explicit setup retains the disclosed installer network behavior. Remote manageme
 and execution, including remote daemon and child launch admission, exclude the
 entire registered code root and selected checkout, including when the selected
 checkout is absent. Executable resolution returns canonical paths and rejects
-Node/pnpm/Homebrew targets in that root before any `--version` probe.
+Node/pnpm/Homebrew targets in that root before any `--version` probe. Local checks
+and admission exclude both the registered repository root (its complete directory
+tree, including `node_modules/.bin`) and the selected checkout. Local source
+observations retain the registered root even when checking a linked worktree.
+Both roots are canonicalized for PATH filtering and passed again to executable
+resolution after ABI probes. Setup helpers explicitly retain their bound root
+and selected checkout too; a linked checkout never narrows the exclusion scope.
 
 Package grammars are manager-specific allowlists. All reject leading `-`, trailing
 `-`/`+`, `=`, paths, globs and whitespace; Debian also rejects dots (apt regex

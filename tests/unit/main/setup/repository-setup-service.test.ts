@@ -7,9 +7,14 @@ import {
   repositorySetupFor,
   repositoryToolchainPrefix,
 } from "../../../../src/main/setup/repository-setup-service";
+import { RepositorySetup } from "../../../../src/main/setup/repository-setup";
 import { DEFAULT_SETTINGS } from "../../../../src/main/setup/settings";
 import { inspectSetupSources } from "../../../../src/node-common/repository-setup-sources";
-import { checkSetupList } from "../../../../src/node-common/repository-setup-check";
+import {
+  checkSetupList,
+  repositorySetupEnvironment,
+  setupProbeDependencies,
+} from "../../../../src/node-common/repository-setup-check";
 import type { SetupCheck } from "../../../../src/shared/repository-setup.d";
 import type { Worktree } from "../../../../src/shared/worktrees";
 import type { Hosts } from "../../../../src/main/setup/hosts";
@@ -39,9 +44,11 @@ beforeEach(async () => {
 });
 afterEach(async () => {
   vi.clearAllMocks();
+  vi.restoreAllMocks();
   await rm(profile, { recursive: true, force: true });
 });
 it("composes one profile owner and never uses saved facts as launch authority", async () => {
+  const factory = vi.spyOn(RepositorySetup, "open");
   const store = {
     get: () => ({
       ...DEFAULT_SETTINGS,
@@ -146,6 +153,30 @@ it("composes one profile owner and never uses saved facts as launch authority", 
   expect((await service.admit(null, repository, repository)).paths).toEqual([
     "/private/toolchain/bin",
   ]);
+  expect(vi.mocked(repositorySetupEnvironment).mock.calls.at(-1)?.[1]).toEqual([
+    repository,
+    repository,
+  ]);
+  expect(vi.mocked(setupProbeDependencies).mock.calls.at(-1)?.[3]).toEqual([
+    repository,
+    repository,
+  ]);
+  const deps = factory.mock.calls.at(-1)?.[1];
+  if (!deps) throw new Error("Missing service dependencies");
+  await deps.check(null, reviewed.review.list, undefined, repository);
+  expect(vi.mocked(repositorySetupEnvironment).mock.calls.at(-1)?.[1]).toEqual([
+    repository,
+    repository,
+  ]);
+  expect(vi.mocked(setupProbeDependencies).mock.calls.at(-1)?.[3]).toEqual([
+    repository,
+    repository,
+  ]);
+  const probes = vi.mocked(checkSetupList).mock.calls.length;
+  await expect(deps.check(null, reviewed.review.list, repository)).rejects.toThrow(
+    "Repository required",
+  );
+  expect(checkSetupList).toHaveBeenCalledTimes(probes);
   const remoteAdmission = await service.admit("build", repository, "/remote/worktree");
   expect(remoteAdmission.approval?.revision).toBe(1);
   if (!remoteAdmission.approval) throw new Error("No admission");

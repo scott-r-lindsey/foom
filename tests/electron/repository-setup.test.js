@@ -1,6 +1,6 @@
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
-const { mkdtemp, writeFile, readFile } = require("node:fs/promises");
+const { mkdtemp, mkdir, writeFile, readFile, symlink, access } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const { gitSync } = require("../helpers/git.js");
@@ -570,4 +570,111 @@ test("catalog-v1 setup approvals preserve the launch block and open an editable 
     )
     .toBe(8);
   assert.equal((await page.evaluate(() => window.desktop.workspace())).terminals.length, 0);
+});
+
+test("local linked-worktree launch admission never probes tools in the registered main checkout", {
+  timeout: deadline(45_000),
+  skip: process.platform === "win32",
+}, async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "setup-linked-roots-"));
+  removeAfterApps(context, root);
+  const bins = path.join(root, "login-bin");
+  await mkdir(bins);
+  const forbidden = path.join(root, "checkout-node-called");
+  const launched = path.join(root, "agent-started");
+  await writeFile(
+    path.join(bins, "claude"),
+    `#!/bin/sh
+case "$1" in
+--version) printf 'Claude Code 2.1.284\\n' ;;
+--help) printf -- '--settings\\n' ;;
+*) printf started > ${quote(launched)}; exit 99 ;;
+esac
+`,
+    { mode: 0o755 },
+  );
+  const app = await launchApp(context, { fixture: "repository", env: { PATH: bins } });
+  const page = await boardPage(app);
+  const repository = (await page.evaluate(() => window.desktop.workspace())).repositories[0].path;
+  const worktree = path.join(root, "linked-worktree");
+  await writeFile(path.join(repository, "package.json"), "{}\n");
+  gitSync(["-C", repository, "add", "package.json"]);
+  gitSync([
+    "-C",
+    repository,
+    "-c",
+    "user.name=Fixture",
+    "-c",
+    "user.email=fixture@example.test",
+    "commit",
+    "-qm",
+    "fixture requirements",
+  ]);
+  gitSync(["-C", repository, "worktree", "add", "-b", "setup-linked", worktree]);
+  const node = path.join(repository, "node");
+  await writeFile(
+    node,
+    `#!/bin/sh
+printf called >> ${quote(forbidden)}
+printf 'v24.17.0\\n'
+`,
+    { mode: 0o755 },
+  );
+  await symlink(node, path.join(bins, "node"));
+  const nested = path.join(repository, "node_modules", ".bin");
+  await mkdir(nested, { recursive: true });
+  await symlink(node, path.join(nested, "node"));
+  const review = await page.evaluate(
+    (repository) =>
+      window.desktop.repositorySetup({
+        action: "review",
+        repository,
+        draft: JSON.stringify({
+          requirements: [
+            {
+              kind: "toolchain",
+              id: "node",
+              tool: "node",
+              version: "24.x",
+              purpose: "Build linked worktree",
+              sources: ["package.json"],
+            },
+          ],
+          evidence: [],
+        }),
+      }),
+    repository,
+  );
+  const pending = page.evaluate(
+    (token) => window.desktop.repositorySetup({ action: "approve", token }),
+    review.review.token,
+  );
+  await approveDialog(app, page);
+  await pending;
+  await page.evaluate(() => window.desktop.saveSetup({ agents: { claude: true } }));
+  for (const pathValue of [bins, [nested, bins].join(path.delimiter)]) {
+    // Override only the fixture login-PATH source; use the production service,
+    // source inspection, canonical filtering, ABI probes and executable resolution.
+    await app.evaluate(
+      (_electron, { modulePath, pathValue }) => {
+        const load = process.getBuiltinModule("node:module").createRequire(modulePath);
+        load(modulePath).loginPath = () => Promise.resolve({ path: pathValue, warning: null });
+      },
+      { modulePath: path.resolve("build/main/agents/agents.js"), pathValue },
+    );
+    const refusal = await page.evaluate(
+      ({ repository, worktree }) =>
+        window.desktop
+          .launchAgent({ agent: "claude", repository, worktree, cols: 80, rows: 24 })
+          .then(
+            () => "unexpected",
+            (error) => error.message,
+          ),
+      { repository, worktree },
+    );
+    assert.match(refusal, /repository-setup-(?:missing|manual)/u);
+    await assert.rejects(access(forbidden), { code: "ENOENT" });
+    await assert.rejects(access(launched), { code: "ENOENT" });
+    assert.equal((await page.evaluate(() => window.desktop.workspace())).terminals.length, 0);
+  }
 });

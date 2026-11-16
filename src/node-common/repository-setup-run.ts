@@ -76,14 +76,15 @@ export async function runRepositorySetup(
       }
     };
     if (!(await matchingSources())) return 2;
+    const excluded = [root, value.location.path];
     const env = await repositorySetupEnvironment(
       source,
-      root,
+      excluded,
       prefix,
       setupSelectedTools(list),
       home,
     );
-    const deps = await setupProbeDependencies(env, home, abort.signal, root);
+    const deps = await setupProbeDependencies(env, home, abort.signal, excluded);
     const checked = await checkSetupList(list, deps);
     const plan = setupPlan(list, checked);
     if (!plan || setupDigest(plan) !== setupDigest(setupPlan(list, value.check))) return 2;
