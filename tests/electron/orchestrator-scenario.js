@@ -56,10 +56,13 @@ process.stdout.write("FOOM_AGENT_READY`,
   if (cliOnly) {
     await writeFile(
       path.join(bin, "agy"),
-      FAKE_ORCHESTRATED_CLAUDE.replace("2.1.296 (Claude Code)", "1.2.13 (Antigravity)").replace(
-        "--mcp-config <configs...>",
-        "--prompt-interactive <prompt>",
-      ),
+      FAKE_ORCHESTRATED_CLAUDE.replace("2.1.296 (Claude Code)", "1.2.13 (Antigravity)")
+        .replace("--mcp-config <configs...>", "--prompt-interactive <prompt>")
+        .replace(
+          'if (args[0] === "--help") { console.log(',
+          'if (args[0] === "--help") { console.error(',
+        )
+        .replace('Load MCP servers"); process.exit(0);', 'Load MCP servers"); process.exit(2);'),
     );
     await chmod(path.join(bin, "agy"), 0o755);
   }
@@ -316,6 +319,27 @@ process.stdout.write("FOOM_AGENT_READY`,
   const whoami = await call(parent.controlToken, "whoami");
   assert.ok(whoami.body.result.capabilities.includes("launch"));
   assert.equal(whoami.body.result.terminalId, parentId);
+
+  if (phase === "agy-prompt") {
+    const tree = await call(parent.controlToken, "create_worktree", {
+      idempotencyKey: "agy-help-tree",
+      branch: "child-agy-help",
+    });
+    assert.equal(tree.body.result.status, "succeeded", JSON.stringify(tree.body));
+    const launched = await call(parent.controlToken, "launch", {
+      idempotencyKey: "agy-help-launch",
+      worktreeId: tree.body.result.resultId,
+      agent: "agy",
+      prompt: "Summarize the README",
+    });
+    assert.equal(launched.body.result.status, "succeeded", JSON.stringify(launched.body));
+    await expect.poll(() => existsSync(`${credentials}.child-agy-help`)).toBe(true);
+    const child = await read("child-agy-help");
+    const index = child.args.indexOf("--prompt-interactive");
+    assert.ok(index >= 0);
+    assert.ok(child.args[index + 1].includes("Summarize the README"));
+    return;
+  }
 
   if (phase === "pressure") {
     const tree = await call(parent.controlToken, "create_worktree", {
