@@ -20,7 +20,7 @@ export function parseThemeFile(text: string, kind: ThemeKind): ParsedThemeFile {
       : ["kind", "name", "background", "foreground", "cursor", "ansi"],
     "$",
     kind === "theme"
-      ? ["version", ...(value["version"] === 2 ? ["areas", "states", "shape"] : [])]
+      ? ["version", ...(value["version"] === 2 ? ["areas", "states", "shape", "type"] : [])]
       : [],
   );
   if ((Object.hasOwn(value, "kind") || kind !== "theme") && value["kind"] !== kind)

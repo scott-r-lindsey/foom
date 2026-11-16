@@ -591,3 +591,34 @@ and failure paths; the Electron fake agy gates MCP `whoami` on the measured
 response before dispatch. Settings offers the reviewed Update; installed files
 change only through that explicit action. Real macOS/Windows agy behavior remains
 unmeasured, and real Foom tool execution remains the user's manual re-test.
+
+## Orchestrator waiting (#1201)
+
+Evidence audit on 2026-11-15, source revision
+`3bcace2a17d480daffe58e7877909635ee3dc247`: Foom's MCP `wait_for`
+accepts at most 30,000 ms. CLI `wait-for --until-event` disables the HTTP
+transport deadline; `--timeout` accepts seconds through 2,147,483, and exit 5
+means the explicit deadline elapsed. These are implementation bounds, covered by
+fixture tests in `tests/unit/cli/` and `tests/unit/main/control/`; they are not
+measurements of an agent client's shell or MCP deadline.
+
+| Client | Background exit wake | Shell deadline | MCP tool deadline | Guidance / evidence |
+| --- | --- | --- | --- | --- |
+| Claude Code | `run_in_background` continues running and wakes the agent on exit | Bash defaults to 120,000 ms; maximum 600,000 ms | **UNMEASURED** | Observed from the orchestrator's own tool contract, supplied by the orchestrator on 2026-11-15; use one background CLI watcher. These are contract limits, not an empirical deadline probe. |
+| Codex | **UNMEASURED** | **UNMEASURED** | **UNMEASURED** | Use repeated bounded MCP `wait_for` calls unless background exit wake is verified. |
+| Antigravity (agy) | **UNMEASURED** | **UNMEASURED** | **UNMEASURED** | Same capability check; use bounded foreground CLI waits if MCP is unavailable. |
+| Pi / Copilot / OpenCode | **UNMEASURED** | **UNMEASURED** | **UNMEASURED** | Same capability-based fallback until measured. |
+
+The bundled manual's 25-second CLI example is a conservative starting value,
+not a measured timeout for any client. Real-client timing qualification remains
+open: in a disposable session record client version/platform, shell deadline,
+MCP tool deadline, elapsed time and whether a completed background wait produces
+a new agent turn. Use harmless waits and fixture events, no provider or global
+configuration changes. Automated tests must continue to use fixture CLIs, not
+real agent executables. Real-client qualification is pending the user's decision; no real-client timing probe was run for this change.
+
+Required-check revisions already wake parent waits, so scratchpad PR watchers
+are unnecessary for those transitions. They do not cover every optional check,
+workflow log or forge outage. Inspect check details after a wake; if a required
+signal is outside forge tracking, use one shared slow poll rather than one
+watcher per child. No additional watcher mechanism is introduced here.

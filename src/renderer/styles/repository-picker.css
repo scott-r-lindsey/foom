@@ -16,7 +16,7 @@
 }
 .repo-found h3 {
   margin: 0 0 10px;
-  font: 10px var(--font-mono);
+  font: var(--type-weight, 400) calc(10px * var(--type-scale, 1)) var(--font-mono);
   letter-spacing: 0.5px;
   text-transform: uppercase;
   color: var(--muted);
@@ -46,11 +46,11 @@
   flex: 1;
   min-width: 0;
   overflow-wrap: anywhere;
-  font: 13px var(--font-mono);
+  font: var(--type-weight, 400) calc(13px * var(--type-scale, 1)) var(--font-mono);
   color: var(--ink);
 }
 .repo-found-count {
-  font-size: 12px;
+  font-size: calc(12px * var(--type-scale, 1));
   color: var(--muted);
   white-space: nowrap;
 }
@@ -62,19 +62,19 @@
   display: flex;
   gap: 10px;
   align-items: center;
-  font-size: 13px;
+  font-size: calc(13px * var(--type-scale, 1));
   color: var(--muted);
 }
 .repo-scanning {
   margin: 20px 0;
-  font: 13px var(--font-mono);
+  font: var(--type-weight, 400) calc(13px * var(--type-scale, 1)) var(--font-mono);
   color: var(--muted);
 }
 .repo-picker {
   margin: 20px 0 12px;
 }
 .repo-folder {
-  font-size: 13px;
+  font-size: calc(13px * var(--type-scale, 1));
   color: var(--muted);
 }
 .repo-tools {
@@ -82,10 +82,10 @@
   align-items: center;
   gap: 12px;
   margin: 12px 0;
-  font-size: 13px;
+  font-size: calc(13px * var(--type-scale, 1));
 }
 .preflight .repo-tools input[type="search"] {
-  font: 13px var(--font-interface);
+  font: var(--type-weight, 400) calc(13px * var(--type-scale, 1)) var(--font-interface);
   padding: 6px 8px;
   color: var(--ink);
   background: var(--bg);
@@ -98,17 +98,17 @@
 }
 .repo-count {
   margin-left: auto;
-  font: 12px var(--font-mono);
+  font: var(--type-weight, 400) calc(12px * var(--type-scale, 1)) var(--font-mono);
   color: var(--muted);
 }
 .repo-group h3 {
   margin: 16px 0 6px;
-  font-size: 12px;
-  font-weight: 600;
+  font-size: calc(12px * var(--type-scale, 1));
+  font-weight: var(--type-strong-weight, 600);
   color: var(--muted);
 }
 .repo-group h3 span {
-  font-weight: 400;
+  font-weight: var(--type-weight, 400);
 }
 .repo-group ul {
   list-style: none;
@@ -126,7 +126,7 @@
   gap: 10px;
   align-items: center;
   padding: 7px 12px;
-  font-size: 13px;
+  font-size: calc(13px * var(--type-scale, 1));
 }
 .repo-row + .repo-row {
   border-top: var(--shape-border, 1px) solid var(--line);
@@ -139,12 +139,12 @@
   cursor: pointer;
 }
 .repo-name {
-  font-weight: 600;
+  font-weight: var(--type-strong-weight, 600);
 }
 .repo-path,
 .repo-branch,
 .repo-age {
-  font: 12px var(--font-mono);
+  font: var(--type-weight, 400) calc(12px * var(--type-scale, 1)) var(--font-mono);
   color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;

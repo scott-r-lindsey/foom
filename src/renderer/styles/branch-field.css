@@ -38,7 +38,7 @@
   border: 0;
   outline: none;
   color: var(--ink);
-  font: 13px var(--font-mono);
+  font: var(--type-weight, 400) calc(13px * var(--type-scale, 1)) var(--font-mono);
 }
 .branch-box input:disabled {
   color: var(--muted);
@@ -50,7 +50,7 @@
   align-items: center;
   padding: 0 10px;
   overflow: hidden;
-  font: 13px var(--font-mono);
+  font: var(--type-weight, 400) calc(13px * var(--type-scale, 1)) var(--font-mono);
   white-space: pre;
   pointer-events: none;
 }
@@ -74,7 +74,7 @@
   padding: 0 2px;
   overflow-wrap: anywhere;
   color: var(--muted);
-  font: 11px var(--font-mono);
+  font: var(--type-weight, 400) calc(11px * var(--type-scale, 1)) var(--font-mono);
 }
 .branch-status[data-kind="new"] {
   color: var(--accent);
@@ -82,7 +82,7 @@
 /* Failures are square, so the state never depends on color alone. */
 .branch-status[data-invalid] {
   color: var(--failed-ink);
-  font: 12px var(--font-interface);
+  font: var(--type-weight, 400) calc(12px * var(--type-scale, 1)) var(--font-interface);
 }
 .branch-status[data-invalid]::before {
   content: "";

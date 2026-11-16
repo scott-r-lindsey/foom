@@ -46,3 +46,14 @@ export function hueSaturation(color: string): { hue: number; saturation: number 
     60 * (max === r ? (g - b) / delta : max === g ? (b - r) / delta + 2 : (r - g) / delta + 4);
   return { hue: (hue + 360) % 360, saturation: delta / (1 - Math.abs(max + min - 1)) };
 }
+
+/** Unrounded sRGB interpolation, shared with gradient contrast validation. */
+export function interpolatedContrast(a: string, b: string, ink: string, fraction: number): number {
+  const start = rgb(a),
+    end = rgb(b);
+  const channel = (index: 0 | 1 | 2) =>
+    linear(start[index] + (end[index] - start[index]) * fraction);
+  const background = 0.2126 * channel(0) + 0.7152 * channel(1) + 0.0722 * channel(2);
+  const foreground = luminance(ink);
+  return (Math.max(background, foreground) + 0.05) / (Math.min(background, foreground) + 0.05);
+}

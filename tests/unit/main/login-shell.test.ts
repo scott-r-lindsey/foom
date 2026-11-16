@@ -232,3 +232,69 @@ it.skipIf(process.platform === "win32")(
     ).rejects.toThrow("cancelled");
   },
 );
+
+it("accepts nonzero help exits without accepting timeout, overflow or signal termination", async () => {
+  directory = await mkdtemp(join(tmpdir(), "foom-help-read-"));
+  const options = {
+    encoding: "utf8" as const,
+    cwd: directory,
+    timeout: 5000,
+    maxBuffer: 4096,
+    allowNonzeroExit: true,
+  };
+  expect(
+    await readLoginShell(
+      process.execPath,
+      [
+        "-e",
+        "process.stdout.write('usage'); process.stderr.write('--prompt-interactive'); process.exitCode = 2",
+      ],
+      options,
+    ),
+  ).toEqual({ stdout: "usage", stderr: "--prompt-interactive" });
+  await expect(
+    readLoginShell(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+      ...options,
+      timeout: 100,
+    }),
+  ).rejects.toThrow("timed out");
+  for (const stream of ["stdout", "stderr"]) {
+    await expect(
+      readLoginShell(
+        process.execPath,
+        ["-e", `process.${stream}.write('x'.repeat(8192))`],
+        options,
+      ),
+    ).rejects.toThrow("output limit");
+  }
+  if (process.platform !== "win32") {
+    await expect(
+      readLoginShell(process.execPath, ["-e", "process.kill(process.pid, 'SIGKILL')"], options),
+    ).rejects.toThrow("failed");
+  }
+});
+
+it.each(["stdout", "stderr"])(
+  "strict reads reject malformed %s without changing default decoding",
+  async (stream) => {
+    directory = await mkdtemp(join(tmpdir(), "foom-invalid-help-"));
+    const options = { encoding: "utf8" as const, cwd: directory, timeout: 5000, maxBuffer: 4096 };
+    const args = [
+      "-e",
+      `process.${stream}.write(Buffer.from([255])); process.stderr.write(' --prompt-interactive'); process.exitCode = 2`,
+    ];
+    await expect(
+      readLoginShell(process.execPath, args, {
+        ...options,
+        allowNonzeroExit: true,
+        fatalUtf8: true,
+      }),
+    ).rejects.toThrow("Invalid login shell output");
+    const legacy = await readLoginShell(
+      process.execPath,
+      ["-e", `process.${stream}.write(Buffer.from([255]))`],
+      options,
+    );
+    expect(legacy[stream === "stdout" ? "stdout" : "stderr"]).toBe("\ufffd");
+  },
+);
