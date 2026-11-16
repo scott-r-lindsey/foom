@@ -321,3 +321,48 @@ test("an approved attention conflict does not approve a new one on the same colo
   await f.decide("keep");
   expect(await f.read("themes/personal.json")).toBe(original);
 });
+
+test("new area, gradient-stop and scrollbar attention conflicts use the existing approval gate", async () => {
+  for (const areas of [
+    { "tile-headers": { attention: palette.colors.ink } },
+    {
+      sidebar: {
+        bg: "#000000",
+        gradient: {
+          angle: 90,
+          stops: [
+            ["#000000", 0],
+            ["#020202", 100],
+          ],
+        },
+      },
+    },
+    { board: { scrollbar: "#010101" } },
+  ]) {
+    const f = await fixture();
+    await f.service.initialize();
+    const file = "themes/extended.json";
+    // Explicit UI selection approves existing global conflicts, not new area/stop pairs.
+    const original = JSON.stringify({
+      ...palette,
+      version: 2,
+      colors: { ...palette.colors, attention: "#010101" },
+    });
+    await f.write(file, original);
+    await f.service.refresh();
+    await f.service.write({ interfaceTheme: "user:extended.json" });
+    const proposed = JSON.stringify({
+      ...palette,
+      version: 2,
+      colors: { ...palette.colors, attention: "#010101" },
+      areas,
+    });
+    await f.write(file, proposed);
+    expect((await f.service.refresh()).pending?.detail).toBe("attention-distinctness");
+    expect(await f.service.reviewTheme(file, proposed, parseThemeFile(proposed, "theme"))).toEqual(
+      parseThemeFile(original, "theme"),
+    );
+    await f.decide("keep");
+    expect(await f.read(file)).toBe(original);
+  }
+});

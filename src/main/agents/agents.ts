@@ -97,7 +97,12 @@ async function detect(id: AgentId, path: string, probeEnabled = true): Promise<A
     await provider.validate?.();
     if (agentProvider(id) !== provider) throw new Error("Agent plugins changed. Scan again.");
     try {
-      return (await readLoginShell(executable, [flag], options)).stdout;
+      const output = await readLoginShell(executable, [flag], {
+        ...options,
+        allowNonzeroExit: flag === "--help",
+        fatalUtf8: flag === "--help",
+      });
+      return flag === "--help" ? `${output.stdout}\n${output.stderr}` : output.stdout;
     } catch {
       return "";
     }

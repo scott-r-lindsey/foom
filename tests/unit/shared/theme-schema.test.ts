@@ -18,6 +18,30 @@ test("generated theme schema and parser agree on versioned structural examples",
     {
       ...base,
       version: 2,
+      type: { family: "system", scale: 1.25, weight: 600, "strong-weight": 800 },
+      areas: {
+        sidebar: {
+          bg: "#000000",
+          scrollbar: "#665588",
+          gradient: {
+            angle: 90,
+            stops: [
+              ["#000000", 0],
+              ["#020202", 100],
+            ],
+          },
+        },
+        titlebar: {},
+        "tile-headers": {},
+        board: {},
+        badges: {},
+        wordmark: {},
+        "dialog-headers": {},
+      },
+    },
+    {
+      ...base,
+      version: 2,
       areas: { panels: { bg: "#010101" } },
       states: { hover: "#123456" },
       shape: { radius: 0, border: 2, shadow: 1 },
@@ -28,6 +52,37 @@ test("generated theme schema and parser agree on versioned structural examples",
   }
   for (const patch of [
     { version: 3 },
+    { type: { family: "url(x)" } },
+    { type: { scale: 2 } },
+    { type: { weight: 100 } },
+    {
+      areas: {
+        tiles: {
+          bg: "#000000",
+          gradient: {
+            angle: 0,
+            stops: [
+              ["#000000", 0],
+              ["#000000", 100],
+            ],
+          },
+        },
+      },
+    },
+    {
+      areas: {
+        sidebar: {
+          gradient: {
+            angle: 0,
+            stops: [
+              ["#000000", 0],
+              ["#000000", 100],
+            ],
+          },
+        },
+      },
+    },
+    { areas: { sidebar: { bg: "#000000", gradient: { angle: 360, stops: [] } } } },
     { version: null },
     { areas: { secret: {} } },
     { areas: { menus: { bg: "url(x)" } } },

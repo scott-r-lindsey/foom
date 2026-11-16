@@ -9,7 +9,7 @@
   margin: 0;
 }
 .environment-status {
-  font: 12px var(--font-mono);
+  font: var(--type-weight, 400) calc(12px * var(--type-scale, 1)) var(--font-mono);
   color: var(--done-ink);
 }
 .environment-grow {
@@ -23,7 +23,7 @@
   align-items: center;
   gap: 8px;
   margin: 0 0 6px;
-  font: 600 13px var(--font-interface);
+  font: var(--type-strong-weight, 600) calc(13px * var(--type-scale, 1)) var(--font-interface);
 }
 .environment-rows {
   border-top: var(--shape-border, 1px) solid var(--line);
@@ -43,7 +43,7 @@
   background: transparent;
   border: var(--shape-border, 1px) solid transparent;
   border-radius: var(--shape-radius, 5px);
-  font: 12px var(--font-mono);
+  font: var(--type-weight, 400) calc(12px * var(--type-scale, 1)) var(--font-mono);
 }
 .environment-row input:hover {
   border-color: var(--line);
@@ -62,7 +62,7 @@
 }
 .environment-row.locked {
   color: var(--muted);
-  font: 12px var(--font-mono);
+  font: var(--type-weight, 400) calc(12px * var(--type-scale, 1)) var(--font-mono);
 }
 .environment-row.locked span {
   display: flex;
@@ -84,13 +84,13 @@
 .environment-tag,
 .environment-suffix {
   flex-shrink: 0;
-  font: 10px var(--font-mono);
+  font: var(--type-weight, 400) calc(10px * var(--type-scale, 1)) var(--font-mono);
   color: var(--muted);
   white-space: nowrap;
 }
 .environment-suffix {
   padding-right: 8px;
-  font-size: 12px;
+  font-size: calc(12px * var(--type-scale, 1));
 }
 .environment-masked {
   display: flex;
@@ -98,12 +98,12 @@
   gap: 10px;
   height: 30px;
   padding: 0 8px;
-  font: 12px var(--font-mono);
+  font: var(--type-weight, 400) calc(12px * var(--type-scale, 1)) var(--font-mono);
   color: var(--muted);
 }
 .environment-masked button {
   padding: 2px 8px;
-  font-size: 11px;
+  font-size: calc(11px * var(--type-scale, 1));
 }
 .environment-icon {
   display: grid;
@@ -137,7 +137,7 @@
   align-items: center;
   gap: 6px;
   padding: 0 8px 4px;
-  font-size: 12px;
+  font-size: calc(12px * var(--type-scale, 1));
   color: var(--failed-ink);
 }
 /* Square mark: failure is never color alone. */
@@ -149,7 +149,7 @@
   background: var(--failed);
 }
 .environment-reading {
-  font: 12px var(--font-mono);
+  font: var(--type-weight, 400) calc(12px * var(--type-scale, 1)) var(--font-mono);
   color: var(--muted);
 }
 .environment-import {
@@ -165,7 +165,7 @@
   align-items: center;
   gap: 8px;
   padding: 5px 0;
-  font: 12px var(--font-mono);
+  font: var(--type-weight, 400) calc(12px * var(--type-scale, 1)) var(--font-mono);
 }
 .environment-pick input {
   width: 15px;

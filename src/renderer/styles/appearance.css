@@ -2,7 +2,7 @@
 .appearance {
   display: grid;
   gap: 10px;
-  font-size: 12px;
+  font-size: calc(12px * var(--type-scale, 1));
 }
 .appearance-mode {
   display: flex;
@@ -62,7 +62,7 @@
 }
 .preflight .appearance-size button:not(.link) {
   padding: 2px 9px;
-  font-size: 14px;
+  font-size: calc(14px * var(--type-scale, 1));
 }
 /* Scroll here to resize; the up-down cursor says so. */
 .appearance-size output {
@@ -70,12 +70,12 @@
   padding: 3px 0;
   min-width: 38px;
   text-align: center;
-  font: 12px var(--font-mono);
+  font: var(--type-weight, 400) calc(12px * var(--type-scale, 1)) var(--font-mono);
   color: var(--ink);
 }
 .appearance-hint {
   margin: 0;
-  font: 11px var(--font-mono);
+  font: var(--type-weight, 400) calc(11px * var(--type-scale, 1)) var(--font-mono);
   color: var(--muted);
 }
 @media (max-width: 650px) {

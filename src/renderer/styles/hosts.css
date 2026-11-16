@@ -20,7 +20,7 @@
   overflow: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font: 12px / 1.5 var(--font-mono);
+  font: var(--type-weight, 400) calc(12px * var(--type-scale, 1)) / 1.5 var(--font-mono);
   user-select: text;
 }
 .host-terminal-view {
@@ -42,7 +42,7 @@
 }
 .stop-install-dialog h2 {
   margin: 0 0 24px;
-  font-size: 18px;
+  font-size: calc(18px * var(--type-scale, 1));
 }
 .stop-install-dialog footer {
   display: flex;

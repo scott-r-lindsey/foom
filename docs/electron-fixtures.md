@@ -51,6 +51,25 @@ before checking its prompt/readiness or typing. The previous failed pane has the
 same prompt and ready attribute until the asynchronous setup reply replaces it;
 those conditions alone do not acknowledge the new terminal.
 
+## Hosts navigation request window (#1199)
+
+Host enrollment publishes sidebar refreshes independently of the completed Hosts
+checklist. Refresh/configure can invalidate the shared sidebar promise while an
+older read is still running. Awaiting `window.desktop.sidebarInventory()` alone
+joins only the current read, leaving older repository/SSH discovery able to enter
+the navigation capture window. For this case, a test-only observer installed before
+enrollment tracks every sidebar read without replacing its work or result. Setup
+joins the current read and then drains all observed reads before sealing the catalog.
+
+The SSH fixture also returns a successful empty `inventory: {own: [], other: 0}`
+for `list-worktrees`, matching the daemon protocol. A successful facts-only reply
+leaves the worktree cache empty, so later sidebar refreshes start SSH discovery
+again. A valid empty inventory lets those readers reuse the normal cache. A second
+sidebar read asserts that setup now reuses the cache before measuring navigation.
+Opening Hosts must leave the entire fixture request log unchanged. Explicit checks
+retain the separate assertion against daemon and repository requests when the
+catalog is omitted.
+
 ## Agents scope review captures (#1070)
 
 The twelve-agent/twelve-host case checks desktop/light and narrow/dark, including

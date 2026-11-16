@@ -93,7 +93,7 @@ brand hue and color-distance rules, contrast and the declared base. Built-in pal
 pass the same gate used for user data. The object requires the original 19 color
 tokens and optionally accepts the paired
 `highlight` / `highlight-deep` decoration colors, falling back to accent / accent-deep.
-Fonts stay fixed and bundled. There are no CSS filenames,
+Built-in fonts stay fixed; version 2 user themes can select bounded typography from bundled or fixed system stacks. There are no CSS filenames,
 imports, URLs or arbitrary CSS values in theme data. See [brand](../brand.md#interface-themes)
 for the numerical invariants. [Custom theme files](themes.md) use the same gate.
 
