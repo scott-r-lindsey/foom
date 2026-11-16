@@ -293,6 +293,9 @@ export class TerminalManager {
                 { kind: "prompt", text: input.line },
                 session.screen.modes.bracketedPasteMode,
               );
+        // One synchronous host tick for each cancel/submit: no yield after this final check.
+        // Main can still revoke concurrently within this check-to-write window; that one
+        // write may escape revocation. Every later operation needs a fresh check.
         if (!eligible()) {
           resolve(false);
           return;

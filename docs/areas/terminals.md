@@ -618,5 +618,12 @@ changes). The host performs a bounded synchronous, identity-checked read immedia
 before both cancel and submit writes, after the asynchronous parser barrier. A
 withdrawn token never becomes valid again. Replies/timeouts release the token;
 shutdown revokes and removes the private temporary directory. No input, output,
-credentials or durable authority is stored in these files. This closes the
-main-observed eligibility gap; the documented provider input-state race remains.
+credentials or durable authority is stored in these files. Cleanup precedes the
+final token observation, and that observation and its PTY write run in one
+synchronous host tick with no await, callback or event-loop turn between them,
+separately for cancel and submit. This is not cross-process atomicity: if main
+observes and revokes eligibility during that final synchronous check-then-write,
+that one write can still go through. Nothing later is written after withdrawal;
+subsequent operations require a fresh eligibility check. There is no wall-clock
+bound on this synchronous window under OS scheduling. The separate documented
+provider input-state race also remains.

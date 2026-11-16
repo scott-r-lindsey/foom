@@ -19,7 +19,7 @@
 }
 .settings-sections h2 {
   margin: 0 8px 12px;
-  font: 12px var(--font-mono);
+  font: var(--type-weight, 400) calc(12px * var(--type-scale, 1)) var(--font-mono);
   color: var(--muted);
 }
 .settings-sections button {
@@ -74,7 +74,7 @@
 }
 .settings-controls h2 {
   margin: 0 0 16px;
-  font: 24px var(--font-display);
+  font: var(--type-weight, 400) calc(24px * var(--type-scale, 1)) var(--font-display);
 }
 .settings-controls .preflight-eyebrow {
   display: none;
@@ -218,7 +218,7 @@
 }
 .theme-description {
   color: var(--muted);
-  font-size: 12px;
+  font-size: calc(12px * var(--type-scale, 1));
 }
 .interface-theme-swatches {
   display: flex;
@@ -239,7 +239,7 @@
 }
 .interface-theme-preview h3 {
   margin: 0 0 14px;
-  font: 14px var(--font-interface);
+  font: var(--type-weight, 400) calc(14px * var(--type-scale, 1)) var(--font-interface);
 }
 .theme-preview-row {
   display: grid;
@@ -247,7 +247,7 @@
   gap: 12px;
   padding: 12px;
   background: var(--surface);
-  font: 12px var(--font-mono);
+  font: var(--type-weight, 400) calc(12px * var(--type-scale, 1)) var(--font-mono);
 }
 .theme-preview-reason {
   color: var(--muted);
@@ -294,12 +294,12 @@
 .sound-credits {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font-size: 12px;
+  font-size: calc(12px * var(--type-scale, 1));
 }
 
 .session-bypass {
   color: var(--muted);
-  font-size: 10px;
+  font-size: calc(10px * var(--type-scale, 1));
   white-space: nowrap;
 }
 
@@ -311,7 +311,7 @@
 }
 .config-controls h3 {
   margin: 0;
-  font-size: 14px;
+  font-size: calc(14px * var(--type-scale, 1));
 }
 .config-folder {
   display: flex;
@@ -319,7 +319,7 @@
   gap: 16px;
 }
 .config-folder code {
-  font: 14px var(--mono, monospace);
+  font: var(--type-weight, 400) calc(14px * var(--type-scale, 1)) var(--mono, monospace);
   overflow-wrap: anywhere;
 }
 .config-note {
@@ -346,7 +346,7 @@
 }
 .config-pending small,
 .config-change small {
-  font: 12px var(--mono, monospace);
+  font: var(--type-weight, 400) calc(12px * var(--type-scale, 1)) var(--mono, monospace);
   color: var(--muted);
 }
 .config-changes {
@@ -371,14 +371,14 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  font-size: 13px;
+  font-size: calc(13px * var(--type-scale, 1));
   min-width: 0;
 }
 .config-status {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: calc(12px * var(--type-scale, 1));
 }
 .config-light {
   width: 8px;
@@ -391,7 +391,7 @@
 }
 .config-row .panel-chip {
   margin-inline-start: 4px;
-  font-size: 11px;
+  font-size: calc(11px * var(--type-scale, 1));
 }
 
 .concurrent-children input {
@@ -435,7 +435,7 @@
   min-width: 180px;
 }
 .theme-menu > span {
-  font-size: 12px;
+  font-size: calc(12px * var(--type-scale, 1));
   color: var(--muted);
 }
 .theme-menu > button {
@@ -476,14 +476,14 @@
   background: var(--raised-hover);
 }
 .theme-menu-options button[aria-checked="true"] {
-  font-weight: 600;
+  font-weight: var(--type-strong-weight, 600);
 }
 .theme-check {
   width: 16px;
   color: var(--highlight);
 }
 .custom-theme-hint {
-  font-size: 12px;
+  font-size: calc(12px * var(--type-scale, 1));
   line-height: 1.6;
   color: var(--muted);
 }
@@ -524,7 +524,7 @@
   gap: 12px;
   max-width: 360px;
   margin-bottom: 20px;
-  font-size: 12px;
+  font-size: calc(12px * var(--type-scale, 1));
 }
 
 /* Remote host onboarding: Add → Check → Fix. */
@@ -560,8 +560,8 @@
   padding: 18px 20px;
 }
 .host-card h3 {
-  font-size: 16px;
-  font-weight: 600;
+  font-size: calc(16px * var(--type-scale, 1));
+  font-weight: var(--type-strong-weight, 600);
 }
 .host-card h4 {
   margin: 0;
@@ -569,13 +569,13 @@
 .host-card code,
 .repository-hosts code {
   overflow-wrap: anywhere;
-  font-size: 11px;
+  font-size: calc(11px * var(--type-scale, 1));
 }
 .host-card label {
   display: grid;
   gap: 7px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: calc(12px * var(--type-scale, 1));
 }
 .host-card input {
   width: 100%;
@@ -604,13 +604,13 @@
   background: var(--accent);
   color: var(--bg);
   border-color: var(--accent);
-  font-weight: 600;
+  font-weight: var(--type-strong-weight, 600);
   height: 40px;
 }
 .host-notice {
   grid-column: 1 / -1;
   color: var(--muted);
-  font-size: 11px;
+  font-size: calc(11px * var(--type-scale, 1));
 }
 .host-cancel {
   position: absolute;
@@ -625,10 +625,10 @@
   gap: 10px;
   padding: 0 20px 16px;
   color: var(--muted);
-  font: 11px var(--font-mono);
+  font: var(--type-weight, 400) calc(11px * var(--type-scale, 1)) var(--font-mono);
 }
 .host-meta .host-remove {
-  font: 12px var(--font-interface);
+  font: var(--type-weight, 400) calc(12px * var(--type-scale, 1)) var(--font-interface);
   color: var(--ink);
 }
 .host-checks {
@@ -641,7 +641,7 @@
   grid-column: 1 / -1;
 }
 .host-check-group {
-  font: 10px var(--font-mono);
+  font: var(--type-weight, 400) calc(10px * var(--type-scale, 1)) var(--font-mono);
   text-transform: uppercase;
   letter-spacing: 0.1em;
   color: var(--muted);
@@ -658,11 +658,11 @@
   align-items: center;
   min-height: 39px;
   border-bottom: 1px solid var(--line);
-  font-size: 12px;
+  font-size: calc(12px * var(--type-scale, 1));
 }
 .host-check-name {
   padding-left: 25px;
-  font-weight: 500;
+  font-weight: var(--type-strong-weight, 500);
   min-width: 0;
   overflow-wrap: anywhere;
 }
@@ -673,7 +673,7 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-size: 11px;
+  font-size: calc(11px * var(--type-scale, 1));
   min-width: 0;
   overflow-wrap: anywhere;
 }
@@ -690,8 +690,8 @@
   justify-content: center;
   width: 12px;
   height: 12px;
-  font-size: 13px;
-  font-weight: 600;
+  font-size: calc(13px * var(--type-scale, 1));
+  font-weight: var(--type-strong-weight, 600);
 }
 .host-pass {
   color: var(--done-ink);
@@ -720,7 +720,7 @@
 .host-fail .host-symbol {
   background: var(--failed);
   color: var(--surface);
-  font-size: 9px;
+  font-size: calc(9px * var(--type-scale, 1));
 }
 .host-work .host-symbol {
   animation: host-spin 1s linear infinite;
@@ -736,11 +736,11 @@
   justify-content: end;
   gap: 8px;
   text-align: right;
-  font-size: 11px;
+  font-size: calc(11px * var(--type-scale, 1));
   min-width: 0;
 }
 .host-check-action button {
-  font-size: 11px;
+  font-size: calc(11px * var(--type-scale, 1));
   padding: 5px 9px;
 }
 .host-origin-fixes {
@@ -749,7 +749,7 @@
   gap: 14px;
   padding: 10px 0 12px 25px;
   border-bottom: 1px solid var(--line);
-  font-size: 11px;
+  font-size: calc(11px * var(--type-scale, 1));
 }
 .host-origin-fixes span {
   border-bottom: 1px dotted var(--muted);
@@ -764,7 +764,7 @@
   margin-top: 16px;
 }
 .host-count {
-  font-size: 11px;
+  font-size: calc(11px * var(--type-scale, 1));
   color: var(--muted);
 }
 .host-tag {
@@ -772,12 +772,12 @@
   background: var(--badge-fill);
   padding: 3px 6px;
   border-radius: 3px;
-  font: 10px var(--font-mono);
+  font: var(--type-weight, 400) calc(10px * var(--type-scale, 1)) var(--font-mono);
 }
 .host-details {
   border-top: 1px solid var(--line);
   padding: 12px 20px;
-  font-size: 11px;
+  font-size: calc(11px * var(--type-scale, 1));
 }
 .host-details summary {
   cursor: pointer;
@@ -823,7 +823,7 @@
   border-bottom: 0;
 }
 .host-repository-row > span:first-child {
-  font: 12px var(--font-mono);
+  font: var(--type-weight, 400) calc(12px * var(--type-scale, 1)) var(--font-mono);
   overflow-wrap: anywhere;
 }
 @media (max-width: 900px) {
@@ -860,7 +860,7 @@
 
 .settings-repository-picker {
   margin-top: 20px;
-  font-size: 12px;
+  font-size: calc(12px * var(--type-scale, 1));
 }
 .settings-repository-picker > summary {
   cursor: pointer;
@@ -873,7 +873,7 @@
 
 .repository-host-card > .hosts-heading h3 {
   flex: none;
-  font: 13px var(--font-mono);
+  font: var(--type-weight, 400) calc(13px * var(--type-scale, 1)) var(--font-mono);
 }
 
 .host-card .host-name {
@@ -906,7 +906,7 @@
 }
 .host-name-form [role="alert"] {
   flex-basis: 100%;
-  font-size: 12px;
+  font-size: calc(12px * var(--type-scale, 1));
 }
 
 .host-progress-summary {
@@ -969,7 +969,7 @@
 }
 .host-expand > span:nth-child(2) {
   overflow-wrap: anywhere;
-  font-weight: 600;
+  font-weight: var(--type-strong-weight, 600);
 }
 .host-expand[aria-expanded="true"] {
   flex: none;
@@ -983,7 +983,7 @@
   min-width: 0;
 }
 .host-title h3 {
-  font-size: 12px;
+  font-size: calc(12px * var(--type-scale, 1));
   margin: 0;
   min-width: 0;
 }
@@ -1003,7 +1003,7 @@
 .host-repositories {
   justify-self: start;
   margin-top: 16px;
-  font-size: 12px;
+  font-size: calc(12px * var(--type-scale, 1));
   color: var(--muted);
 }
 .host-repositories summary {
@@ -1063,7 +1063,7 @@
   flex-wrap: wrap;
   margin-bottom: 12px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: calc(12px * var(--type-scale, 1));
 }
 .agent-off,
 .agent-stale {
@@ -1144,7 +1144,7 @@
 .agent-global-head {
   padding: 0 12px 8px;
   color: var(--muted);
-  font: 11px var(--font-mono);
+  font: var(--type-weight, 400) calc(11px * var(--type-scale, 1)) var(--font-mono);
 }
 .agent-global-row {
   border-top: 1px solid var(--line);
@@ -1156,11 +1156,11 @@
   align-items: center;
   gap: 9px;
   min-width: 0;
-  font-size: 13px;
+  font-size: calc(13px * var(--type-scale, 1));
 }
 .agent-manifest {
   display: block;
-  font: 10px var(--font-mono);
+  font: var(--type-weight, 400) calc(10px * var(--type-scale, 1)) var(--font-mono);
   color: var(--muted);
   overflow-wrap: anywhere;
   margin-top: 3px;
@@ -1175,7 +1175,7 @@
   border: 1px solid var(--line);
   border-radius: 6px;
   color: var(--ink);
-  font: 12px / 1.5 var(--font-mono);
+  font: var(--type-weight, 400) calc(12px * var(--type-scale, 1)) / 1.5 var(--font-mono);
 }
 .agent-global-footer {
   border-top: 1px solid var(--line);
@@ -1191,7 +1191,7 @@
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 6px;
-  font: 13px var(--font-interface);
+  font: var(--type-weight, 400) calc(13px * var(--type-scale, 1)) var(--font-interface);
 }
 .agent-scope-bar {
   display: flex;
@@ -1200,10 +1200,10 @@
   flex: none;
 }
 .agents-scoped .agent-card {
-  font-size: 13px;
+  font-size: calc(13px * var(--type-scale, 1));
 }
 .agents-scoped .agent-setting {
-  font-size: 13px;
+  font-size: calc(13px * var(--type-scale, 1));
 }
 .agent-status {
   display: inline-flex;
@@ -1221,7 +1221,7 @@
   color: var(--muted);
 }
 .agent-missing-status {
-  font: 13px var(--font-interface);
+  font: var(--type-weight, 400) calc(13px * var(--type-scale, 1)) var(--font-interface);
 }
 @media (max-width: 680px) {
   .agent-global-head {
@@ -1272,10 +1272,10 @@
 }
 .agents-scoped > .agents-head h2 {
   margin: 0;
-  font: 650 20px var(--font-interface);
+  font: var(--type-strong-weight, 650) calc(20px * var(--type-scale, 1)) var(--font-interface);
 }
 .agent-global-identity strong {
-  font: 550 13px var(--font-interface);
+  font: var(--type-strong-weight, 550) calc(13px * var(--type-scale, 1)) var(--font-interface);
   color: var(--ink);
 }
 .agents-scoped input[type="checkbox"] {

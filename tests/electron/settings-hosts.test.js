@@ -2648,6 +2648,9 @@ test("Hosts status classification stays consistent with sealed catalog omission"
   timeout: deadline(60000),
 }, async (context) => {
   const { page, card, navigation, capture, calls } = await hostsFixture(context);
+  // Enrollment publishes an independent sidebar refresh. Join its shared
+  // inventory reads before sealing the catalog and measuring Hosts navigation.
+  await page.evaluate(() => window.desktop.sidebarInventory());
   const metadata = path.resolve("build/build-metadata.json");
   const previous = await readFile(metadata);
   fixtureCleanup(context).apps.push(() => writeFile(metadata, previous));
@@ -2655,8 +2658,8 @@ test("Hosts status classification stays consistent with sealed catalog omission"
     metadata,
     JSON.stringify({ ...JSON.parse(previous), remoteHostsAvailable: false }),
   );
-  // Sidebar recovery can finish an earlier inventory independently of Settings.
-  // Count only capability/repository checks owned by the Hosts actions below.
+  // Explicit checks below also invalidate sidebar worktree discovery. Keep all
+  // daemon capability and repository checks in the catalog-omission assertion.
   const checkCalls = async () =>
     (await readFile(calls, "utf8"))
       .trim()
@@ -2665,6 +2668,7 @@ test("Hosts status classification stays consistent with sealed catalog omission"
       .map((line) => JSON.parse(line))
       .filter(({ message }) => message.type === "manage" && message.operation !== "list-worktrees");
   const before = await checkCalls();
+  const beforeOpening = await readFile(calls, "utf8");
   await navigation.getByRole("button", { name: "General", exact: true }).click();
   await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
   const expand = card.locator(".host-expand");
@@ -2673,9 +2677,9 @@ test("Hosts status classification stays consistent with sealed catalog omission"
   await expect(
     page.getByText("This build has no remote host support", { exact: true }),
   ).toHaveCount(1);
-  assert.deepEqual(
-    await checkCalls(),
-    before,
+  assert.equal(
+    await readFile(calls, "utf8"),
+    beforeOpening,
     "Opening Hosts reads only local build and saved state",
   );
   const unavailable = card

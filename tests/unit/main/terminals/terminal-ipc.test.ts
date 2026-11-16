@@ -2114,3 +2114,96 @@ test.each(["cancel", "submit"] as const)(
     expect(pty().write).not.toHaveBeenCalled();
   },
 );
+
+test.each(["cancel", "submit"] as const)(
+  "%s final validation and PTY write share one synchronous host tick",
+  async (step) => {
+    const { wakeLine } = await import("../../../../src/shared/agent-wake");
+    const id = manager.create(spec);
+    output("\x1b[2J\x1b[H────\r\n❯");
+    await manager.screen(id);
+    const order: string[] = [];
+    let eligible = true;
+    let revokeLater: Promise<void> | undefined;
+    pty().write.mockImplementationOnce(() => {
+      expect(eligible).toBe(true);
+      order.push("write");
+    });
+    const accepted = await manager.wakeInput(
+      id,
+      {
+        policy: {
+          cancelKeys: ["esc"],
+          composer: ["❯"],
+          contains: ["────"],
+          reject: ["permission"],
+        },
+        step,
+        line: wakeLine(["child"]),
+      },
+      () => {
+        order.push("validate");
+        queueMicrotask(() => {
+          eligible = false;
+          order.push("microtask revocation");
+        });
+        revokeLater = new Promise((resolve) => {
+          setTimeout(() => {
+            eligible = false;
+            order.push("macrotask revocation");
+            resolve();
+          }, 0);
+        });
+        return eligible;
+      },
+    );
+    await revokeLater;
+    expect(accepted).toBe(true);
+    expect(order).toEqual(["validate", "write", "microtask revocation", "macrotask revocation"]);
+    expect(pty().write).toHaveBeenCalledTimes(1);
+  },
+);
+
+test.each(["cancel", "submit"] as const)(
+  "%s refuses microtask and macrotask revocations that land before final validation",
+  async (step) => {
+    const { wakeLine } = await import("../../../../src/shared/agent-wake");
+    const id = manager.create(spec);
+    output("\x1b[2J\x1b[H────\r\n❯");
+    await manager.screen(id);
+    for (const schedule of [queueMicrotask, (callback: () => void) => setTimeout(callback, 0)]) {
+      let eligible = true;
+      const order: string[] = [];
+      const barrier = vi
+        .spyOn(Terminal.prototype, "write")
+        .mockImplementationOnce((_, callback) => {
+          schedule(() => {
+            eligible = false;
+            order.push("revocation");
+            callback?.();
+          });
+        });
+      const accepted = await manager.wakeInput(
+        id,
+        {
+          policy: {
+            cancelKeys: ["esc"],
+            composer: ["❯"],
+            contains: ["────"],
+            reject: ["permission"],
+          },
+          step,
+          line: wakeLine(["child"]),
+        },
+        () => {
+          order.push("validate");
+          return eligible;
+        },
+      );
+      barrier.mockRestore();
+      expect(accepted).toBe(false);
+      expect(order).toEqual(["revocation", "validate"]);
+      expect(pty().write).not.toHaveBeenCalled();
+    }
+  },
+);

@@ -345,8 +345,10 @@ export function PreflightSections({
         <p>
           When unfocused, Foom checks hook idle and the live composer, sends Escape, checks again,
           then submits a fixed child-event notice. This is best-effort: a race may cancel a prompt
-          or interrupt work, and a menu appearing after the final check remains a risk. No child
-          output or report text is typed.
+          or interrupt work, and a menu appearing after the final check remains a risk. If focus,
+          authority or the wake setting changes during the final synchronous check and write, that
+          one write may still go through; nothing later is written. No child output or report text
+          is typed.
         </p>
         <label className="concurrent-children">
           Minimum minutes between wakes

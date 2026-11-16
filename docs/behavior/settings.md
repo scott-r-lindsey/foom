@@ -488,3 +488,21 @@ checkbox (off by default) and **Minimum minutes between wakes** (1–1440, defau
 three). Its adjacent disclosure explains fixed notices, Escape, composer checks,
 focus suppression and the accepted best-effort screen/input race. See
 [parent wake](../orchestration.md#opt-in-idle-orchestrator-wake-548).
+
+### Extended user themes (#1188)
+
+Version 2 theme files can separately color the title bar, tile headers, empty board,
+status badges, wordmark and dialog headers, and set scrollbar colors per area.
+Optional `type` selects `geist`, `geist-mono`, `system` or `system-mono`, a size
+scale from 0.85 to 1.25, normal weight 400–600 and strong weight 500–800. This does
+not change terminal fonts or sizes.
+
+Sidebar, board, title bar and dialog headers may use a linear gradient over a
+required solid `bg`. Provide `gradient: { "angle": 120, "stops": [["#000000", 0],
+["#020202", 100]] }` inside an area. There must be 2–4 opaque hex stops with
+increasing percentages from 0 to 100. Foom uses sRGB interpolation and checks text
+contrast at every stop and 256 points on every segment. Unreadable gradients,
+including ones with readable ends but unreadable middles, are rejected. Transparent child text, such as a wordmark over the title bar, must also contrast against its parent’s actual background and gradient. Gradients
+under terminal content are refused. Invalid edits retain the last good theme;
+new attention conflicts use the existing Allow / Keep it on approval. See the
+[complete format](../areas/themes.md#additional-areas-typography-and-gradients-1188).

@@ -29,14 +29,12 @@ export function wakeLeaseValid(token: WakeToken): boolean {
       return false;
     const value = Buffer.alloc(33);
     const count = readSync(fd, value, 0, value.length, 0);
+    // Finish cleanup before the final observation, keeping its path to PTY write synchronous.
+    closeSync(fd);
+    fd = undefined;
+    if (count !== 32 || value.subarray(0, count).toString("ascii") !== token.nonce) return false;
     const current = lstatSync(token.path);
-    return (
-      count === 32 &&
-      current.dev === opened.dev &&
-      current.ino === opened.ino &&
-      current.size === 32 &&
-      value.subarray(0, count).toString("ascii") === token.nonce
-    );
+    return current.dev === opened.dev && current.ino === opened.ino && current.size === 32;
   } catch {
     return false;
   } finally {

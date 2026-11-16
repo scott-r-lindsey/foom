@@ -4,6 +4,7 @@ import {
   interfaceAreas,
   interfaceStates,
   interfaceShapeBounds,
+  interfaceFontStacks,
 } from "../../shared/user-interface-theme";
 import { createHash } from "node:crypto";
 import { interfaceColorNames, interfaceThemes } from "../../shared/interface-themes";
@@ -177,7 +178,55 @@ const themeSchema = schema("foom:theme", {
         areas: {
           type: "object",
           additionalProperties: false,
-          properties: Object.fromEntries(interfaceAreas.map((area) => [area, areaColors])),
+          properties: Object.fromEntries(
+            interfaceAreas.map((area) => [
+              area,
+              {
+                ...areaColors,
+                properties: {
+                  ...areaColors.properties,
+                  scrollbar: color,
+                  ...(["sidebar", "board", "titlebar", "dialog-headers"].includes(area)
+                    ? {
+                        gradient: {
+                          type: "object",
+                          additionalProperties: false,
+                          required: ["angle", "stops"],
+                          properties: {
+                            angle: { type: "number", minimum: 0, maximum: 359 },
+                            stops: {
+                              type: "array",
+                              minItems: 2,
+                              maxItems: 4,
+                              items: {
+                                type: "array",
+                                minItems: 2,
+                                maxItems: 2,
+                                prefixItems: [color, { type: "number", minimum: 0, maximum: 100 }],
+                                items: false,
+                              },
+                            },
+                          },
+                          description:
+                            "Stop percentages must increase; runtime validation checks 4.5:1 contrast at stops and 256 points per sRGB segment.",
+                        },
+                      }
+                    : {}),
+                },
+                dependentRequired: { gradient: ["bg"] },
+              },
+            ]),
+          ),
+        },
+        type: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            family: { enum: Object.keys(interfaceFontStacks) },
+            scale: { type: "number", minimum: 0.85, maximum: 1.25 },
+            weight: { type: "number", minimum: 400, maximum: 600 },
+            "strong-weight": { type: "number", minimum: 500, maximum: 800 },
+          },
         },
         states: {
           type: "object",
@@ -458,8 +507,16 @@ edit their agent's global configuration. Validate the manifest with
   user's approval: turning alerts off, setting the alert volume to 0, turning hooks
   off, turning an agent off, or enabling restoreSessions (which can restore orchestrator control). Do not try to work around this.
 - User themes may use version 2 with optional areas (sidebar, tiles, panels, dialogs,
-  menus), states (selected, hover, focus, scrollbar), and shape (radius 0–12,
+  menus, titlebar, tile-headers, board, badges, wordmark, dialog-headers), per-area
+  scrollbar colors, states (selected, hover, focus, scrollbar), and shape (radius 0–12,
   panel-radius 0–16, border 0–2 px, shadow 0–1). Colors are six-digit hex only.
+  Optional type selects family geist, geist-mono, system or system-mono, scale
+  0.85–1.25, weight 400–600 and strong-weight 500–800. Terminal fonts are independent.
+  Optional area gradient has angle 0–359 and stops [[color, percent], ...], 2–4
+  opaque hex stops with increasing percentages 0–100. It requires an explicit bg
+  fallback and is allowed only on sidebar, board, titlebar and dialog-headers.
+  Interpolation is sRGB; stops and 256 points on every segment must pass 4.5:1
+  against each ink. Endpoint checks alone do not guarantee interior contrast.
   Area colors override global colors. Text contrast must remain at least 4.5:1
   within every area. Brand deviations apply with warnings, printed by the CLI.
 - A file edit that newly makes needs-you hard to distinguish in the active theme,
@@ -495,6 +552,7 @@ export const OWNED_FILES: Readonly<Record<string, string>> = {
  * is unedited and is replaced on upgrade; anything else belongs to the user.
  */
 const GUIDE_HISTORY = [
+  "48865503e8f33029f2dd535de5b8e050253d3e6de5c23955427ab7859c4ae243",
   "6680be1a90682e4b36deff51bb448822a68f51e037b0a9c8cd1a9bb9532d0b4c",
   "8c2d280e0ed7cb2833228f7ed823e2a5351abe545088c7cc7ad748556495401d",
   "6797d94d8c809145e4acc62f584e64c5a21af3db0cfd98fd451d45ab1f89c58c",
@@ -545,7 +603,10 @@ export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
     "a093e326009c7ef7dc48f8517b8b814667bce6101fde9e1b8639a37b38a24949",
     "648cead2a9d760fb80a48889b240441220d06f99b65d0f9213ec47045e2050a0",
   ],
-  "schemas/theme.schema.json": ["831094a9c9c8c13c87ab7ff227b70803dcd3a9f9f59b6f1cc352f67b43a8e1cc"],
+  "schemas/theme.schema.json": [
+    "831094a9c9c8c13c87ab7ff227b70803dcd3a9f9f59b6f1cc352f67b43a8e1cc",
+    "d1f8e5722da3ab7688b91b0b8a55c4508815d74fa844ca3df73da11e35ee9a3a",
+  ],
   "schemas/settings.schema.json": [
     "a1139bb152938886dba7212dc876064fb533fc1a7bbb64a4ac6ff444cc4cb9d8",
     "3a5858992c8b78a52bb2012dbfe6b5f118f4c7c216979368ba2fbc61f9e2f550",

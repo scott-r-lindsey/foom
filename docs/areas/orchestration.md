@@ -346,3 +346,9 @@ Escape, a short wait and guarded atomic submission. Revocation/disposal discards
 pending work; ambiguous delivery is not retried. This deliberately replaces the
 parked absolute safety requirement with the human-accepted
 [best-effort policy and residual race](../orchestration.md#opt-in-idle-orchestrator-wake-548).
+
+Each cancel and submit has its own final eligibility check and write in one
+synchronous host tick. Main-observed revocation during that check-then-write can
+still allow that one write; nothing later is written after withdrawal. This has
+no wall-clock bound under OS scheduling and is distinct from the provider menu
+race. See the linked best-effort policy for both accepted residuals.

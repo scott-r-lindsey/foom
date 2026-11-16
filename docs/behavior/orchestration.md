@@ -131,10 +131,16 @@ store forge tokens, change CLI login/configuration, or write to the forge.”
 Session metadata shows the validated PR/MR head, state and check conclusion, with
 its meaning (for example, GitHub required checks or a GitLab head pipeline).
 `wait_for` wakes on conclusion changes. Orchestrators can also run
-`foom wait-for --until-event` as a background command: it blocks until an owned
+`foom wait-for --until-event --timeout N`: it blocks until an owned
 child's state, handoff, PR state or checks change, then returns metadata without
 terminal content. An optional `--timeout SECONDS` exits 5 on timeout; role
-revocation returns an error. Tracking survives restart without transferring
+revocation returns an error. Arm one watcher covering all children in the launch
+turn and re-arm after each wake. Use background execution only if the client
+notifies on exit; otherwise repeat bounded MCP `wait_for` calls. When MCP is
+unavailable, block in the foreground with a timeout below the client's shell
+deadline and collect any yielded result. The bundled manual's
+`orchestrator-playbook` section covers client-aware waiting, shared CI observation,
+handoff verification and cleanup. Tracking survives restart without transferring
 authority over old children, pauses during sleep and screen lock, and stops on
 shutdown. See [the data, persistence and polling contract](../contracts/forge-tracking.md#child-pr-and-required-checks-340).
 
