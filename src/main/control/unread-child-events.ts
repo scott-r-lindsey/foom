@@ -24,6 +24,7 @@ export class UnreadChildEvents {
   constructor(
     private readonly changed: () => void,
     private readonly now: () => number = Date.now,
+    private readonly event: (row: ChildObservation) => void = () => {},
   ) {}
 
   configure(minutes: number): boolean {
@@ -71,8 +72,10 @@ export class UnreadChildEvents {
         report ||
         forge ||
         ((idle || exited) && (!row.handoff || entry.reportTurn !== row.execution?.turn))
-      )
+      ) {
         entry.unreadAt ??= this.now();
+        this.event(row);
+      }
       entry.observation = { ...row, pullRequest: pr ?? previous };
     }
     this.schedule();

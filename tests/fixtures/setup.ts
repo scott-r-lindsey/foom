@@ -16,6 +16,8 @@ export function setupState(
       restoreSessions: true,
       showNewChildren: true,
       closeFinishedAgents: true,
+      wakeOrchestrator: false,
+      wakeIntervalMinutes: 3,
       showNestedRepositoryNames: false,
       middleClickPaste: false,
       copyOnSelect: false,

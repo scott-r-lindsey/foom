@@ -357,3 +357,14 @@ trust and credential grants remain individual. Hide/minimize keeps rows pending.
 Main still rechecks the live actor/generation, checkout identity and exact disclosed
 changes after consent and before mutation. Nothing approves, types terminal input
 or grants authority merely by opening, showing or recovering the window.
+
+## Optional parent wake (#548)
+
+General's **Wake idle orchestrators on child events** starts off. Enabling it
+permits fixed metadata notices in an unfocused orchestrator after current hook idle,
+a matching live composer, Escape and another screen check. Pending child events
+share a notice and a configurable minimum interval, default three minutes. The
+Action Log records attempts and outcomes. Menus, working screens and uncertain
+readiness queue the notice. Escape may cancel a prompt or interrupt work; the
+screen-to-input race after the final check remains accepted, not eliminated.
+See the [full disclosure](../orchestration.md#opt-in-idle-orchestrator-wake-548).

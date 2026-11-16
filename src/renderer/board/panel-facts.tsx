@@ -57,6 +57,7 @@ const actionNames: Record<OrchestrationEntry["action"], string> = {
   reply: "Reviewed reply",
   prompt: "Prompt",
   send_keys: "Send keys",
+  wake: "Wake orchestrator",
 };
 const statusNames: Record<OrchestrationEntry["status"], string> = {
   pending_confirmation: "awaiting your confirmation",

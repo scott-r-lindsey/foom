@@ -1,3 +1,4 @@
+import type { WakeInput } from "../../shared/agent-wake";
 import { terminalClipboardText } from "../../shared/terminal-clipboard";
 import { terminalLink } from "../../shared/terminal-link";
 import type { DialogContent } from "../../shared/confirmation";
@@ -41,6 +42,8 @@ export interface TerminalControl
   owns(id: string): boolean;
   reply(id: string, data: string): Promise<void>;
   childInput(id: string, data: ChildInput): Promise<void>;
+  wakeInput(id: string, input: WakeInput, eligible?: () => boolean): Promise<boolean>;
+  recheckWake?(force?: boolean): void;
 }
 
 /** The app window owns capabilities for multiple independent main-owned sessions. */
@@ -543,6 +546,7 @@ export function attachTerminal(
         closing.add(id);
         invalidatePaste(id);
       } else closing.delete(id);
+      manager.recheckWake();
     },
     async kill(id: string, remoteHost?: string) {
       if (remoteHost === undefined) await manager.kill(id);
@@ -568,6 +572,13 @@ export function attachTerminal(
       if (!owned.has(id)) throw new Error("Unknown terminal");
       if (closing.has(id)) throw new Error("Session is closing");
       await manager.reply(id, data);
+    },
+    recheckWake: (force = false) => {
+      manager.recheckWake(force);
+    },
+    wakeInput: async (id: string, input: WakeInput, eligible: () => boolean = () => false) => {
+      if (!owned.has(id) || closing.has(id)) return false;
+      return manager.wakeInput(id, input, () => eligible() && owned.has(id) && !closing.has(id));
     },
     childInput: async (id: string, data: ChildInput) => {
       if (!owned.has(id)) throw new Error("Unknown terminal");

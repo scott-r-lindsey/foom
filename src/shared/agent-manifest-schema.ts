@@ -770,6 +770,15 @@ function hostSetup(v: unknown, p: string) {
     signIn: optional(hostRecipeMap)(d["signIn"], `${p}.signIn`),
   };
 }
+export function wake(v: unknown, p: string) {
+  const d = object(v, p, ["cancelKeys", "composer", "contains", "reject"], []);
+  return {
+    cancelKeys: array(literal("esc"), 2, 1)(d["cancelKeys"], `${p}.cancelKeys`),
+    composer: array(shortText, 8, 1)(d["composer"], `${p}.composer`),
+    contains: array(shortText, 8)(d["contains"], `${p}.contains`),
+    reject: array(shortText, 32, 1)(d["reject"], `${p}.reject`),
+  };
+}
 export function v2(v: unknown, p: string) {
   const d = object(
     v,
@@ -791,7 +800,7 @@ export function v2(v: unknown, p: string) {
       "attention",
       "execution",
     ],
-    ["files", "hooks", "health", "setup", "hostSetup"],
+    ["files", "hooks", "health", "setup", "hostSetup", "wake"],
   );
   return {
     kind: literal("agent")(d["kind"], `${p}.kind`),
@@ -814,5 +823,6 @@ export function v2(v: unknown, p: string) {
     health: optional(health)(d["health"], `${p}.health`),
     setup: optional(setup)(d["setup"], `${p}.setup`),
     hostSetup: optional(hostSetup)(d["hostSetup"], `${p}.hostSetup`),
+    wake: optional(wake)(d["wake"], `${p}.wake`),
   };
 }

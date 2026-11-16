@@ -83,6 +83,8 @@ export class Workspace {
           | "restoreSessions"
           | "defaultAgent"
           | "concurrentChildren"
+          | "wakeOrchestrator"
+          | "wakeIntervalMinutes"
           | "unreadChildMinutes"
           | "autoRemoveMergedWorktrees"
           | "showPullRequests"

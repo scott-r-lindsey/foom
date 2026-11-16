@@ -211,6 +211,7 @@ export class WorkspaceContext {
       },
     });
     this.executionOwner = new ExecutionOwner({
+      wakeEligibilityChanged: () => deps.terminals.recheckWake?.(),
       terminal: (id) => this.launched.get(id),
       tail: (id, lines) => deps.terminals.tail(id, lines),
       verdicts: deps.verdicts,
@@ -451,6 +452,8 @@ export class WorkspaceContext {
           | "restoreSessions"
           | "defaultAgent"
           | "concurrentChildren"
+          | "wakeOrchestrator"
+          | "wakeIntervalMinutes"
           | "unreadChildMinutes"
           | "autoRemoveMergedWorktrees"
           | "showPullRequests"
@@ -463,6 +466,10 @@ export class WorkspaceContext {
     this.concurrentChildren = settings.concurrentChildren ?? 4;
     this.showNewChildren = settings.showNewChildren ?? true;
     this.defaultAgent = settings.defaultAgent ?? null;
+    this.orchestration.configureWake(
+      settings.wakeOrchestrator ?? false,
+      settings.wakeIntervalMinutes ?? 3,
+    );
     this.orchestration.configureCloseFinished(settings.closeFinishedAgents ?? true);
     const reminderChanged = this.orchestration.unreadChildren.configure(
       settings.unreadChildMinutes ?? 5,
@@ -558,6 +565,7 @@ export class WorkspaceContext {
   }
 
   refresh(): void {
+    this.deps.terminals.recheckWake?.();
     if (this.closed) return;
     this.sidebarRead = undefined;
     this.orchestration.syncUnreadChildEvents();

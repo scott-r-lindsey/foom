@@ -67,6 +67,9 @@ export async function initializeWorkspace(
     );
   else wiring.terminals.addWindow(window);
   if (!wiring.initialized) {
+    wiring.audio.setWakeChanged(() => {
+      wiring.terminals.recheckWake(true);
+    });
     // Reattach starts from the saved palette, before any retained session opens.
     wiring.applyTerminalThemeSettings();
     await setupOffers.load(app.getPath("userData"));
@@ -187,6 +190,7 @@ export async function initializeWorkspace(
         },
       ),
       terminals: wiring.terminals,
+      focused: (id) => wiring.audio.isFocused(id),
       agentPluginDirectory: app.getPath("userData"),
       sessions: new SessionStore(app.getPath("userData")),
       copyText: (text) => clipboard.writeText(text),

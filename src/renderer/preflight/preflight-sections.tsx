@@ -332,6 +332,37 @@ export function PreflightSections({
           />
           <span>Close finished agents</span>
         </label>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={state.settings.wakeOrchestrator}
+            onChange={(event) => {
+              save({ wakeOrchestrator: event.target.checked });
+            }}
+          />
+          <span>Wake idle orchestrators on child events</span>
+        </label>
+        <p>
+          When unfocused, Foom checks hook idle and the live composer, sends Escape, checks again,
+          then submits a fixed child-event notice. This is best-effort: a race may cancel a prompt
+          or interrupt work, and a menu appearing after the final check remains a risk. If focus,
+          authority or the wake setting changes during the final synchronous check and write, that
+          one write may still go through; nothing later is written. No child output or report text
+          is typed.
+        </p>
+        <label className="concurrent-children">
+          Minimum minutes between wakes
+          <input
+            type="number"
+            min={1}
+            max={1440}
+            value={state.settings.wakeIntervalMinutes}
+            onChange={(event) => {
+              if (event.target.value !== "" && event.target.validity.valid)
+                save({ wakeIntervalMinutes: Number(event.target.value) });
+            }}
+          />
+        </label>
         <label className="concurrent-children">
           Default agent
           <select

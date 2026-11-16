@@ -22,6 +22,8 @@ export interface Settings {
   restoreSessions: boolean;
   showNewChildren: boolean;
   closeFinishedAgents: boolean;
+  wakeOrchestrator: boolean;
+  wakeIntervalMinutes: number;
   /** Starting, running and stopping children per orchestrator, integer 1–16. */
   concurrentChildren: number;
   /** User-chosen provider for omitted orchestration agent parameters; null means require one. */

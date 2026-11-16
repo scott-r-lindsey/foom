@@ -348,3 +348,20 @@ trust and credential grants remain individual. Hide/minimize keeps rows pending.
 Main still rechecks the live actor/generation, checkout identity and exact disclosed
 changes after consent and before mutation. Nothing approves, types terminal input
 or grants authority merely by opening, showing or recovering the window.
+
+## Idle parent wake (#548)
+
+`orchestrator-wake.ts` owns the opt-in, transient coalesced queue, interval, live
+principal checks and durable `wake` operations. It consumes the existing unread
+child-event comparison rather than terminal output. Its host adapter uses current
+hook idle, main-owned window focus and guarded terminal-host composer checks,
+Escape, a short wait and guarded atomic submission. Revocation/disposal discards
+pending work; ambiguous delivery is not retried. This deliberately replaces the
+parked absolute safety requirement with the human-accepted
+[best-effort policy and residual race](../orchestration.md#opt-in-idle-orchestrator-wake-548).
+
+Each cancel and submit has its own final eligibility check and write in one
+synchronous host tick. Main-observed revocation during that check-then-write can
+still allow that one write; nothing later is written after withdrawal. This has
+no wall-clock bound under OS scheduling and is distinct from the provider menu
+race. See the linked best-effort policy for both accepted residuals.

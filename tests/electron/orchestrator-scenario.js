@@ -39,6 +39,54 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
   await mkdir(bin);
   await mkdir(repo);
   await mkdir(home);
+  const wakeFixture = FAKE_ORCHESTRATED_CLAUDE.replace(
+    "let childTurns = 0;",
+    `let childTurns = 0;
+let wakeMode = "idle";
+let wakes = 0;
+let cancels = 0;
+let permissionOpen = false;
+let raceArmed = false;
+const renderWake = () => process.stdout.write("\\x1b[2J\\x1b[H────\\r\\n❯");
+const hookReady = () => {
+  const settings = JSON.parse(args[args.indexOf("--settings") + 1]);
+  const command = settings.hooks.Stop[0].hooks[0].command;
+  const hook = require("node:child_process").spawn("/bin/sh", ["-c", command], { stdio: ["pipe", "ignore", "ignore"] });
+  hook.stdin.end(JSON.stringify({ session_id: "wake-fixture", hook_event_name: "Stop" }));
+  hook.on("exit", () => record("wake-ready", JSON.stringify({ mode: wakeMode })));
+};`,
+  ).replace(
+    '  if (key.toString() === "q") process.exit(0);',
+    `  if (key.toString() === "q") process.exit(0);
+  if (!isChild) {
+    const text = key.toString();
+    if (["I", "P", "R", "L"].includes(text)) {
+      wakeMode = text === "P" ? "permission" : text === "R" ? "race" : text === "L" ? "lost-working" : "idle";
+      permissionOpen = wakeMode === "permission";
+      raceArmed = wakeMode === "race";
+      if (wakeMode === "permission") process.stdout.write("\\x1b[2J\\x1b[HAllow permission? Enter to approve");
+      else if (wakeMode === "lost-working") process.stdout.write("\\x1b[2J\\x1b[HWorking interrupt");
+      else renderWake();
+      hookReady();
+      return;
+    }
+    // Arm an input-state transition without redrawing. The menu opens at the
+    // next input, after Foom's screen check and before that key is interpreted.
+    if (raceArmed) { permissionOpen = true; raceArmed = false; }
+    if (text === "\\x1b") {
+      cancels++;
+      if (permissionOpen) { permissionOpen = false; record("wake-denied", "denied"); process.stdout.write("\\x1b[2J\\x1b[HPermission cancelled"); }
+      else renderWake();
+      record("wake-cancels", String(cancels));
+      return;
+    }
+    if (text.includes("Foom: child events")) {
+      if (permissionOpen) record("wake-approved", "BUG");
+      wakes++; record("wake-lines", JSON.stringify({ wakes, text })); return;
+    }
+    record("wake-unexpected", text); return;
+  }`,
+  );
   const waitingFixture = FAKE_ORCHESTRATED_CLAUDE.replace(
     '  if (key.toString() === "q") process.exit(0);',
     `  if (key.toString() === "q") process.exit(0);
@@ -51,18 +99,20 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
   );
   await writeFile(
     path.join(bin, "claude"),
-    ["waiting", "unread"].includes(phase)
-      ? waitingFixture
-      : ["resume", "resume-revoked"].includes(phase)
-        ? FAKE_ORCHESTRATED_CLAUDE.replace(
-            'process.stdout.write("FOOM_AGENT_READY',
-            `
+    phase === "wake"
+      ? wakeFixture
+      : ["waiting", "unread"].includes(phase)
+        ? waitingFixture
+        : ["resume", "resume-revoked"].includes(phase)
+          ? FAKE_ORCHESTRATED_CLAUDE.replace(
+              'process.stdout.write("FOOM_AGENT_READY',
+              `
 const settings = JSON.parse(args[args.indexOf("--settings") + 1]);
 const hook = require("node:child_process").spawn("sh", ["-c", settings.hooks.UserPromptSubmit[0].hooks[0].command], { stdio: ["pipe", "ignore", "inherit"] });
 hook.stdin.end(JSON.stringify({ session_id: "saved-1081", hook_event_name: "UserPromptSubmit" }));
 process.stdout.write("FOOM_AGENT_READY`,
-          )
-        : FAKE_ORCHESTRATED_CLAUDE,
+            )
+          : FAKE_ORCHESTRATED_CLAUDE,
   );
   if (cliOnly) {
     await writeFile(
@@ -304,6 +354,120 @@ process.stdout.write("FOOM_AGENT_READY`,
   const whoami = await call(parent.controlToken, "whoami");
   assert.ok(whoami.body.result.capabilities.includes("launch"));
   assert.equal(whoami.body.result.terminalId, parentId);
+
+  if (phase === "wake") {
+    const tree = await call(parent.controlToken, "create_worktree", {
+      idempotencyKey: "wake-tree",
+      branch: "child-wake",
+    });
+    const launched = await call(parent.controlToken, "launch", {
+      idempotencyKey: "wake-child",
+      worktreeId: tree.body.result.resultId,
+      agent: "claude",
+      prompt: "fixture",
+    });
+    assert.equal(launched.body.result.status, "succeeded");
+    await expect.poll(() => existsSync(`${credentials}.child-wake`)).toBe(true);
+    const child = await read("child-wake");
+    await openSettingsScreen(page);
+    const toggle = page.getByRole("checkbox", { name: "Wake idle orchestrators on child events" });
+    await expect(toggle).not.toBeChecked();
+    await toggle.check();
+    for (const base of ["light", "dark"]) {
+      await page.evaluate(
+        (base) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${base}` }),
+        base,
+      );
+      await expect
+        .poll(() => page.evaluate(() => document.documentElement.style.colorScheme))
+        .toBe(base);
+      await toggle.evaluate((node) => node.parentElement.scrollIntoView({ block: "start" }));
+      await page
+        .getByRole("region", { name: "Settings" })
+        .screenshot({ path: evidencePath(`548/wake-settings-${base}.png`) });
+    }
+    await expect
+      .poll(
+        async () =>
+          (await page.evaluate(() => window.desktop.setupState())).settings.wakeOrchestrator,
+      )
+      .toBe(true);
+    let report = 0;
+    const handoff = () =>
+      call(child.controlToken, "handoff", {
+        status: "done",
+        summary: "Untrusted report text must never be typed",
+        idempotencyKey: `wake-report-${++report}`,
+      });
+    const mode = async (text, expected) => {
+      await page.evaluate(({ parentId, text }) => window.desktop.input(parentId, text), {
+        parentId,
+        text,
+      });
+      await expect
+        .poll(async () => {
+          try {
+            return JSON.parse(await readFile(`${credentials}.wake-ready`, "utf8")).mode;
+          } catch {
+            return "";
+          }
+        })
+        .toBe(expected);
+      await expect
+        .poll(
+          async () =>
+            (await page.evaluate(() => window.desktop.workspace())).terminals.find(
+              (row) => row.id === parentId,
+            )?.execution?.phase,
+        )
+        .toBe("idle");
+    };
+    await mode("P", "permission");
+    await handoff();
+    // Two retry periods establish that the visible menu receives no bytes.
+    await new Promise((resolve) => setTimeout(resolve, 4500));
+    assert.equal(existsSync(`${credentials}.wake-cancels`), false);
+    assert.equal(existsSync(`${credentials}.wake-lines`), false);
+    await mode("L", "lost-working");
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    assert.equal(existsSync(`${credentials}.wake-cancels`), false);
+    assert.equal(existsSync(`${credentials}.wake-lines`), false);
+    await mode("R", "race");
+    await expect.poll(() => existsSync(`${credentials}.wake-denied`)).toBe(true);
+    assert.equal(existsSync(`${credentials}.wake-approved`), false);
+    assert.equal(existsSync(`${credentials}.wake-lines`), false);
+    // A fresh human grant drops the old queue/cooldown rather than replaying it.
+    await page.evaluate(
+      (id) => window.desktop.sidebarCommand({ kind: "revoke-orchestrator", id }),
+      parentId,
+    );
+    const granting = page.evaluate(
+      (id) => window.desktop.sidebarCommand({ kind: "make-orchestrator", id }),
+      parentId,
+    );
+    const grantPage = await approvalPage(app);
+    await clickApproval(
+      grantPage,
+      grantPage.getByRole("button", { name: "Approve · Make orchestrator", exact: true }),
+    );
+    await granting;
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    assert.equal(existsSync(`${credentials}.wake-lines`), false);
+    const nextReport = await handoff();
+    assert.equal(nextReport.status, 200, JSON.stringify(nextReport.body));
+    await mode("I", "idle");
+    await expect.poll(() => existsSync(`${credentials}.wake-lines`)).toBe(true);
+    const delivered = JSON.parse(await readFile(`${credentials}.wake-lines`, "utf8"));
+    assert.equal(delivered.wakes, 1);
+    assert.equal(
+      delivered.text,
+      "Foom: child events for child-wake. Call wait_for and read_handoff.\r",
+    );
+    assert.equal(existsSync(`${credentials}.wake-approved`), false);
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    assert.equal(JSON.parse(await readFile(`${credentials}.wake-lines`, "utf8")).wakes, 1);
+    return;
+  }
 
   if (phase === "agy-prompt") {
     const tree = await call(parent.controlToken, "create_worktree", {
