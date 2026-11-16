@@ -174,6 +174,9 @@ the closed picker and menu row: `Default · Eclipse Light` / `Default · Eclipse
 `Default`: Chromium media follows the fixed base, and Electron 44 has no independent
 OS appearance API on every platform. Terminal Colors always shows
 `Default · Foom Light` / `Default · Foom Dark`, resolved from the current interface base.
+Both pickers read native appearance through a React external-store subscription
+that rechecks after installing its listener, so an update between render and
+subscription cannot leave the Default label or preview stale (#1219).
 Terminal font and font size use the same labeled keyboard menu as Theme and Colors.
 All four menus support arrow keys, Home/End, Escape and returning focus to the picker.
 Printable keys open the menu and focus a case-insensitive prefix match, including

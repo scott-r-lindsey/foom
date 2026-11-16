@@ -689,6 +689,11 @@ test("Default themes follow native appearance live and Settings theme menus shar
     ["light", "rgb(243, 240, 250)"],
     ["dark", "rgb(5, 4, 10)"],
   ]) {
+    // Preference previews can settle before their serialized save applies the native source.
+    // Finish those writes before simulating the next OS update.
+    const saved = await page.evaluate(() => window.desktop.saveSetup({}));
+    assert.equal(saved.settings.interfaceTheme, "follow");
+    assert.equal(saved.settings.terminalTheme, "follow");
     // Simulate the native OS appearance update, including Chromium media and host palettes.
     // No settings save occurs: both choices must remain Default across the change.
     await app.evaluate(({ nativeTheme }, mode) => {
@@ -825,7 +830,6 @@ test("first-run rail shares the Theme menu and saves its live selection", async 
       page.locator(".preflight-rail").evaluate((rail) => rail.scrollWidth - rail.clientWidth),
     )
     .toBe(0);
-  const systemDark = await app.evaluate(({ nativeTheme }) => nativeTheme.shouldUseDarkColors);
   await page.getByRole("button", { name: /^Theme / }).focus();
   await page.keyboard.type("Moon");
   await expect(page.getByRole("menuitemradio", { name: "Moonlight", exact: true })).toBeFocused();
@@ -840,10 +844,13 @@ test("first-run rail shares the Theme menu and saves its live selection", async 
   await page.getByRole("button", { name: "Theme Moonlight", exact: true }).click();
   await expect(page.getByRole("menuitemradio", { name: "Default", exact: true })).toBeVisible();
   await page.getByRole("menuitemradio", { name: "Default", exact: true }).click();
-  await expect(page.locator("html")).toHaveCSS("color-scheme", systemDark ? "dark" : "light");
   await expect
     .poll(() => app.evaluate(({ nativeTheme }) => nativeTheme.themeSource))
     .toBe("system");
+  // Electron can discover the OS preference after startup. Sample it after restoring
+  // system appearance, rather than assuming the launch-time value remains current.
+  const systemDark = await app.evaluate(({ nativeTheme }) => nativeTheme.shouldUseDarkColors);
+  await expect(page.locator("html")).toHaveCSS("color-scheme", systemDark ? "dark" : "light");
   // Force the opposite base and verify that Default remains unqualified there too.
   await chooseTheme(page, systemDark ? "Eclipse Light" : "Eclipse Dark");
   await page.getByRole("button", { name: /^Theme Eclipse / }).click();

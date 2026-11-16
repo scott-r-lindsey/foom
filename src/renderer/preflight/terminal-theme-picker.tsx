@@ -8,7 +8,7 @@ import {
 } from "../../shared/terminal-fonts";
 import type { ThemeCatalog } from "../../shared/theme-file";
 import { ThemeFilesStatus } from "./theme-files-status";
-import { useEffect, useState } from "react";
+import { useDarkAppearance } from "./use-dark-appearance";
 import {
   parseTerminalThemeChoice,
   ansiNames,
@@ -28,17 +28,7 @@ export function TerminalThemePicker({
   settings: Settings;
   onChange: (patch: SettingsPatch) => void;
 }) {
-  const [media] = useState(() => matchMedia("(prefers-color-scheme: dark)"));
-  const [dark, setDark] = useState(media.matches);
-  useEffect(() => {
-    const changed = () => {
-      setDark(media.matches);
-    };
-    media.addEventListener("change", changed);
-    return () => {
-      media.removeEventListener("change", changed);
-    };
-  }, [media]);
+  const dark = useDarkAppearance();
   const interfaceDark =
     resolveInterfaceTheme(settings.interfaceTheme, dark, catalog).base === "dark";
   const theme = resolveTerminalTheme(settings.terminalTheme, interfaceDark, catalog);
