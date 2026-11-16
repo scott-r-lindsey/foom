@@ -746,3 +746,71 @@ need its own artifact/fixture-isolation design and queue-time comparison. The
 existing phase totals do not prove an avoidable operation inside the heavy
 fixtures, so this refresh removes none. Actual PR CI step wall times must still
 validate the new assignment; a passing run alone is not proof of 25% headroom.
+
+## macOS refresh for repeated step exhaustion (#1214)
+
+Download the original reports without replacing interrupted XML with synthesized
+cases:
+
+```sh
+for run in 43800091934 43822818958 43812020241; do
+  gh run download "$run" --pattern 'electron-results-*' \
+    --dir "test-results/rebalance/sources/$run"
+done
+```
+
+The macOS assignment uses per-case maxima from all six passing macOS reports in
+green main [43800091934](https://github.com/scott-r-lindsey/foom/actions/runs/43800091934)
+and the five passing macOS reports in main
+[43822818958](https://github.com/scott-r-lindsey/foom/actions/runs/43822818958).
+Exclude the latter's failed shard-3 report in its entirety; the green source
+measures those cases. Together the eleven reports measure all 399 current cases.
+Apply `balance` from `scripts/rebalance-electron-shards.mjs` to the macOS-only
+vectors, rounded to milliseconds, with six shards. This focused refresh changes
+only the six-way assignment: four/five-way assignments and their measurements
+retain the earlier sources. `sourceRuns` lists the union of those sources; the
+new six-way entries retain earlier Linux/Windows measurements where available,
+and use the new main reports for newly planned cases on those platforms.
+The ordinary all-platform CLI remains appropriate for a complete future refresh;
+it intentionally rejects these partially passing source runs.
+
+| macOS projected named-case seconds | Shards 1 / 2 / 3 / 4 / 5 / 6 |
+| --- | --- |
+| Before, including hash fallback | 638.2 / 649.3 / 651.3 / 727.7 / 572.1 / 588.0 |
+| After | 637.5 / 637.5 / 637.8 / 637.5 / 637.5 / 638.7 |
+
+Green main's observed step seconds were 645 / 728 / 732 / 790 / 663 / 636;
+its largest wall-minus-named-case residual was 113.9 seconds. Adding that
+residual to the new conservative maximum models 752.6 seconds, leaving 87.4
+seconds under the unchanged 840-second limit. This is a projection, not observed
+new-assignment performance or a guarantee against slower runners.
+
+### Pending approval-queue tests in #1191
+
+Compare [43812020241](https://github.com/scott-r-lindsey/foom/actions/runs/43812020241)
+with green main. The interrupted macOS shard-3 JUnit is only a 52-byte opening
+envelope, with no testcase durations. Its 49 completed fixture records total
+715.5 seconds; the same cases cost 467.7 seconds of JUnit time on green main.
+Fixture phases and JUnit are different measurements, but these observations
+show substantial slowdown in shared cases. The interrupted report is diagnostic
+evidence only, never a passing rebalance input.
+
+At #1191 head `4ab321841c95cad9d91f39fb97380976eaa4132b`, seven additional
+registrations hash to shards 1 / 2 / 3 / 5 / 5 / 5 / 6. Six have passing JUnit
+measurements in that run: 9.8 / 6.4 / 8.9 / 10.7 / 10.9 / 27.1 seconds.
+The missing shard-3 background-removal variant is budgeted at 10.9 seconds, the
+largest measured sibling; this is an estimate, not a fabricated observation.
+Exclude the five main-only repository-setup registrations absent from that head
+when modeling its workload. The resulting before/after projections are:
+
+| #1191 projected named-case seconds | Shards 1 / 2 / 3 / 4 / 5 / 6 |
+| --- | --- |
+| Before | 647.9 / 655.6 / 662.2 / 713.6 / 599.6 / 589.7 |
+| After | 630.3 / 641.0 / 642.5 / 629.1 / 667.9 / 657.9 |
+
+Adding the green source's largest residual gives a modeled peak of 781.8
+seconds, with 58.2 seconds of headroom. These pending names retain hash fallback
+until merged; adding them to the checked-in plan now would violate the stale-name
+registration guard. Limits, deadlines, shard counts and test bodies are unchanged.
+Actual CI step timings must validate the refresh, particularly given the slower
+shared fixtures on the interrupted run.
