@@ -2141,6 +2141,27 @@ test.each(["claude", "codex", "agy", "copilot", "opencode", "pi", "custom-agent"
     await expect(api.environmentState()).resolves.toEqual({ ...state, lists: { all: [] } });
   },
 );
+test("approvals expose only a validated count and opening capability, with stale initial reads ignored", async () => {
+  const api = await bridge();
+  const receive = vi.fn();
+  mock.invoke.mockResolvedValueOnce(2);
+  const off = api.confirmations.onApprovals?.(receive);
+  const listener = mock.on.mock.calls.at(-1)?.[1];
+  for (const value of [-1, 1.5, "2", null, NaN]) listener?.({}, value);
+  listener?.({}, 3);
+  await Promise.resolve();
+  expect(receive.mock.calls).toEqual([[3]]);
+  await api.confirmations.openApprovals?.();
+  expect(mock.invoke).toHaveBeenCalledWith("approval:open");
+  off?.();
+  expect(mock.removeListener).toHaveBeenCalledWith("approval:count", listener);
+  mock.invoke.mockResolvedValueOnce(4);
+  const initial = vi.fn();
+  const offInitial = api.confirmations.onApprovals?.(initial);
+  await Promise.resolve();
+  expect(initial).toHaveBeenCalledWith(4);
+  offInitial?.();
+});
 
 test("repository refusal events copy bounded details and explicitly clear stale launch context", async () => {
   const api = await bridge();

@@ -146,7 +146,7 @@ test("control startup publishes private discovery and binds trusted pairing call
     mock.window.isFocused.mockReturnValue(false);
     second.isFocused = vi.fn(() => true);
     await pairing?.approve("/repo", "NEXT1234", new AbortController().signal, Date.now() + 60000);
-    expect(mock.confirmParent).toHaveBeenLastCalledWith(second);
+    expect(mock.confirmParent).toHaveBeenLastCalledWith(mock.instances[0]);
     mock.readyEvents.get("closed")?.();
     const cancelled = new AbortController();
     cancelled.abort();
@@ -190,7 +190,7 @@ test("routes output, evidence and shell state into app-owned workspace", async (
   expect(mock.workspace.shellState).toHaveBeenCalledWith("t1", "ready");
 });
 
-test("pending removal reviews stay on the original board across focus changes", async () => {
+test("the one app-wide approval window keeps its anchor across actors and focus changes", async () => {
   await start();
   await newWindow();
   const firstBoard = mock.instances[0];
@@ -220,12 +220,12 @@ test("pending removal reviews stay on the original board across focus changes", 
   await request(content("two"), new AbortController().signal);
   expect(mock.confirmParent).toHaveBeenLastCalledWith(second);
   await request(content("foreign", "other"), new AbortController().signal);
-  expect(mock.confirmParent).toHaveBeenLastCalledWith(firstBoard);
+  expect(mock.confirmParent).toHaveBeenLastCalledWith(second);
   resolve({ response: 1 });
   await first;
-  // Once all requests settle, the next batch follows the currently focused board.
+  // The app-wide window keeps its anchor even as requests or actors change.
   await request(content("fresh"), new AbortController().signal);
-  expect(mock.confirmParent).toHaveBeenLastCalledWith(firstBoard);
+  expect(mock.confirmParent).toHaveBeenLastCalledWith(second);
 });
 
 test("child placement targets the parent's board or current board without focusing it", async () => {
@@ -253,4 +253,99 @@ test("child placement targets the parent's board or current board without focusi
   );
   expect(mock.window.focus).not.toHaveBeenCalled();
   expect(mock.window.show).not.toHaveBeenCalled();
+});
+
+test("background approvals carry main-owned attribution while user actions retain the local lane", async () => {
+  await start();
+  const request = mock.workspace.deps?.dialog;
+  if (!request) throw Error("Missing trusted routing");
+  for (const [id, name] of [
+    ["t1", "Claude Code"],
+    ["t2", "shell"],
+  ] as const) {
+    await request(
+      {
+        title: "Remove?",
+        accept: "Remove",
+        removal: {
+          group: JSON.stringify([id, "generation"]),
+          item: { id: "operation", branch: "feature", path: "/tree", changes: "" },
+        },
+      },
+      new AbortController().signal,
+    );
+    expect(mock.message).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        approval: { kind: "Worktree removal", origin: `${name} · Tile/session ${id} · /repo` },
+      }),
+    );
+  }
+  await request(
+    {
+      title: "Cleanup",
+      accept: "Remove",
+      removal: {
+        group: "{}",
+        item: { id: "cleanup", branch: "feature", path: "/tree", changes: "" },
+      },
+    },
+    new AbortController().signal,
+  );
+  expect(mock.message).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      approval: { kind: "Worktree removal", origin: "Foom · background cleanup · no tile · /tree" },
+    }),
+  );
+  await request(
+    {
+      title: "Trust",
+      accept: "Trust",
+      approval: { kind: "Host trust", origin: "Foom · host · no tile", key: "host" },
+    },
+    new AbortController().signal,
+  );
+  expect(mock.message).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      approval: { kind: "Host trust", origin: "Foom · host · no tile", key: "host" },
+    }),
+  );
+  await expect(invokeWindow(0, "approval:count")).resolves.toBe(0);
+  await expect(invokeWindow(0, "approval:open")).resolves.toBeUndefined();
+  await expect(invokeWindow(0, "approval:count", "extra")).rejects.toThrow();
+  await expect(invokeWindow(0, "approval:open", true)).rejects.toThrow();
+  await request(
+    {
+      title: "Install",
+      accept: "Install",
+      pluginFeed: { current: () => undefined, subscribe: () => () => {}, accept: vi.fn() },
+    },
+    new AbortController().signal,
+  );
+  expect(mock.message).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      approval: { kind: "Plugin trust", origin: "Foom · agent setup · global settings · no tile" },
+    }),
+  );
+  for (const subject of ["repo", undefined]) {
+    await request(
+      { title: "Background", accept: "Continue", ...(subject ? { subject } : {}) },
+      new AbortController().signal,
+    );
+    expect(mock.message).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        approval: {
+          kind: "Background",
+          origin: `Foom · background · no tile · ${subject ?? "application"}`,
+        },
+      }),
+    );
+  }
+  mock.theme.on.mock.calls[0]?.[1]?.();
+  mock.message.mockClear();
+  const abort = new AbortController();
+  abort.abort();
+  expect(
+    await request({ title: "User action", accept: "Continue", userAction: true }, abort.signal),
+  ).toBe(false);
+  expect(mock.message).not.toHaveBeenCalled();
 });

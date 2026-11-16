@@ -21,12 +21,34 @@ it("makes a running agent the orchestrator after the trusted disclosure, without
   await orchestrate(workspace);
   expect(launch).toHaveBeenCalledOnce();
   expect(launch.mock.calls[0]?.[0].control).toBeUndefined();
-  expect(confirm).toHaveBeenLastCalledWith({
-    kind: "orchestrator",
-    restoreOnResume: true,
-    agent: "claude",
-    subject: "app · main",
-  });
+  expect(confirm).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      kind: "orchestrator",
+      restoreOnResume: true,
+      agent: "claude",
+      subject: "app · main",
+    }),
+  );
+  const request = confirm.mock.calls.at(-1)?.[0];
+  if (request?.kind !== "orchestrator") throw Error("Missing trusted grant");
+  const key: unknown = JSON.parse(request.approvalKey);
+  const fields: readonly unknown[] = Array.isArray(key) ? key : [];
+  expect(fields).toHaveLength(4);
+  expect(fields[0]).toBe("parent");
+  expect(fields[2]).toBeNull();
+  expect(fields[3]).toBe(true);
+  const identity = fields[1];
+  if (
+    !identity ||
+    typeof identity !== "object" ||
+    !("repository" in identity) ||
+    !("worktree" in identity) ||
+    typeof identity.repository !== "string" ||
+    typeof identity.worktree !== "string"
+  )
+    throw Error("Missing captured checkout identities");
+  expect(identity.repository.length).toBeGreaterThan(0);
+  expect(identity.worktree.length).toBeGreaterThan(0);
   expect(setRole).toHaveBeenCalledExactlyOnceWith("parent", "orchestrator");
   expect(workspace.snapshot().terminals[0]?.orchestration).toEqual({
     role: "orchestrator",
@@ -52,13 +74,15 @@ it("transfers the role only after the human accepts, revoking the previous orche
   );
   confirm.mockResolvedValueOnce(false);
   await make(workspace, "second");
-  expect(confirm).toHaveBeenLastCalledWith({
-    kind: "orchestrator",
-    restoreOnResume: true,
-    agent: "claude",
-    replacing: "Claude Code on main",
-    subject: "app · feature",
-  });
+  expect(confirm).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      kind: "orchestrator",
+      restoreOnResume: true,
+      agent: "claude",
+      replacing: "Claude Code on main",
+      subject: "app · feature",
+    }),
+  );
   expect(workspace.orchestration.active(repo.path)).toBe("parent");
   expect(setRole).not.toHaveBeenCalledWith("parent", "agent");
   await make(workspace, "second");
@@ -210,11 +234,13 @@ it("makes CLI-only agents orchestrators, including Antigravity without interacti
     confirm,
   );
   await make(workspace);
-  expect(confirm).toHaveBeenLastCalledWith({
-    kind: "orchestrator",
-    agent: "agy",
-    subject: "app · main",
-  });
+  expect(confirm).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      kind: "orchestrator",
+      agent: "agy",
+      subject: "app · main",
+    }),
+  );
   expect(setRole).toHaveBeenCalledWith("parent", "orchestrator");
 });
 

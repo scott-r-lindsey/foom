@@ -18,7 +18,7 @@ import {
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 import type { DialogContent } from "../../shared/confirmation";
-import { interfaceThemeSource } from "../../shared/interface-themes";
+import { interfaceThemeSource, resolveInterfaceTheme } from "../../shared/interface-themes";
 import { builtinAgent } from "../../shared/providers/catalog";
 import type { Settings } from "../../shared/setup";
 import { isUserThemeId } from "../../shared/theme-validation";
@@ -27,7 +27,8 @@ import { bypassConsentIdentity } from "../agents/default-arguments";
 import { providerRevision, replaceConfigProviders } from "../agents/providers/registry";
 import { configPart } from "../config/approval";
 import { ConfigService } from "../config/service";
-import type { TrustedDialog } from "../confirmations/trusted-dialog";
+import { TrustedDialog } from "../confirmations/trusted-dialog";
+import { Approvals } from "../confirmations/approvals";
 import { RemovalPresentations } from "../confirmations/removal-review";
 import { ForgeRuntime } from "../control/forge-runtime";
 import type { PreviewBroker } from "../control/previews";
@@ -242,29 +243,79 @@ export function runApplication() {
   };
   /** Keep an actor's pending removals on one board even while its dialog owns focus. */
   const removalPresentations = new RemovalPresentations();
-  const removalDialogs = new Map<string, { dialog: TrustedDialog; pending: number }>();
-  /** A trusted dialog on the focused board, or the first; opens a board when none exists. */
-  async function requestTrusted(content: DialogContent, signal: AbortSignal): Promise<boolean> {
-    const cancelled = () => signal.aborted || quitting || quitPending;
-    if (cancelled()) return false;
-    let entry =
+  let approvalDialog: TrustedDialog | undefined;
+  const approvalTheme = () =>
+    resolveInterfaceTheme(
+      settings.get().interfaceTheme,
+      nativeTheme.shouldUseDarkColors,
+      themes.snapshot(),
+    );
+  const approvals = new Approvals(async (content, signal) => {
+    const entry =
       [...windows.values()].find(({ window }) => window.isFocused()) ??
       windows.values().next().value;
-    if (!entry) {
-      await createWindow();
-      entry = windows.values().next().value;
+    if (!entry) return Promise.resolve(false);
+    if (!approvalDialog) {
+      const current = new TrustedDialog(
+        entry.window,
+        session.fromPartition("confirmation"),
+        approvalTheme,
+      );
+      approvalDialog = current;
+      entry.window.once("closed", () => {
+        if (approvalDialog === current) approvalDialog = undefined;
+      });
     }
-    if (!entry || cancelled()) return false;
-    const group = content.removal?.group;
-    if (group === undefined) return entry.confirmations.request(content, signal);
-    const batch = removalDialogs.get(group) ?? { dialog: entry.confirmations, pending: 0 };
-    removalDialogs.set(group, batch);
-    batch.pending++;
-    try {
-      return await batch.dialog.request(content, signal);
-    } finally {
-      if (--batch.pending === 0) removalDialogs.delete(group);
+    return approvalDialog.request(content, signal);
+  }, approvalTheme);
+  /** All boards share one main-owned queue, regardless of the requesting window. */
+  async function requestApprovalOutcome(content: DialogContent, signal?: AbortSignal) {
+    const cancelled = () => signal?.aborted || quitting || quitPending;
+    if (cancelled()) return "cancelled" as const;
+    if (!windows.size) await createWindow();
+    if (cancelled()) return "cancelled" as const;
+    let origin = content.approval;
+    if (!origin && content.removal) {
+      let actor: unknown;
+      try {
+        const value: unknown = JSON.parse(content.removal.group);
+        if (Array.isArray(value)) actor = value[0];
+      } catch {
+        /* Background cleanup has no agent principal. */
+      }
+      const terminal = workspace.snapshot().terminals.find((row) => row.id === actor);
+      origin = {
+        kind: "Worktree removal",
+        origin: terminal
+          ? `${builtinAgent(terminal.agent)?.name ?? terminal.agent} · Tile/session ${terminal.id} · ${terminal.repository}`
+          : `Foom · background cleanup · no tile · ${content.removal.item.path}`,
+      };
     }
+    if (!origin)
+      origin = content.pairing
+        ? {
+            kind: "Credentials",
+            origin: `Foom CLI · no tile · ${content.facts?.find((fact) => fact.label === "Repository")?.value ?? content.subject ?? "repository metadata"}`,
+          }
+        : content.pluginFeed
+          ? { kind: "Plugin trust", origin: "Foom · agent setup · global settings · no tile" }
+          : {
+              kind: "Background",
+              origin: `Foom · background · no tile · ${content.subject ?? "application"}`,
+            };
+    return approvals.requestOutcome({ ...content, approval: origin }, signal);
+  }
+  async function requestTrusted(content: DialogContent, signal: AbortSignal): Promise<boolean> {
+    if (content.userAction) {
+      const cancelled = () => signal.aborted || quitting || quitPending;
+      if (cancelled()) return false;
+      if (!windows.size) await createWindow();
+      const entry =
+        [...windows.values()].find(({ window }) => window.isFocused()) ??
+        windows.values().next().value;
+      return !cancelled() && entry ? entry.confirmations.request(content, signal) : false;
+    }
+    return (await requestApprovalOutcome(content, signal)) === "accepted";
   }
   function requestPairing(
     repository: string,
@@ -398,6 +449,7 @@ export function runApplication() {
       } catch (error) {
         console.error("Unable to save the window size:", error);
       }
+      approvalDialog?.dispose();
       for (const current of windows.values()) current.confirmations.dispose();
       for (const host of previewHosts.values()) await host.dispose(true);
       previewHosts.clear();
@@ -482,6 +534,10 @@ export function runApplication() {
     get quitting() {
       return quitting;
     },
+    approvals,
+    openApprovals: () => approvalDialog?.openApprovals(),
+    refreshApprovals: () => approvalDialog?.refresh(),
+    requestApprovalOutcome,
     removingPreviewWorktrees,
     removalPresentations,
     requestPairing,
@@ -626,7 +682,8 @@ async function startApplication(wiring: ApplicationWiring): Promise<void> {
             console.error("Unable to refresh agent plugins");
           });
     },
-    confirmArguments: (content) => wiring.requestTrusted(content, new AbortController().signal),
+    confirmArguments: (content) =>
+      wiring.requestTrusted({ ...content, userAction: true }, new AbortController().signal),
     acknowledgeBypass: async (agents) => {
       const acknowledged = { ...wiring.settings.get().agentBypassAcknowledged };
       const identities = { ...wiring.settings.get().agentBypassIdentities };

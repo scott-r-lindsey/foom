@@ -431,7 +431,7 @@ test.each(["trusted", "destroyed", "navigated"])(
       sidebarCommand: (_command: unknown, confirm: ConfirmWorkspace) => {
         if (state === "destroyed") contents.isDestroyed.mockReturnValue(true);
         if (state === "navigated") frame.url = "app://foreign/index.html";
-        return confirm({ kind: "orchestrator", agent: "codex" });
+        return confirm({ kind: "orchestrator", agent: "codex", approvalKey: "captured-checkout" });
       },
     });
     requestDialog.mockResolvedValue(true);
@@ -439,7 +439,14 @@ test.each(["trusted", "destroyed", "navigated"])(
       invoke("workspace:sidebar-command", [{ kind: "make-orchestrator", id: "t1" }]),
     ).resolves.toBe(state === "trusted");
     if (state === "trusted")
-      expect(requestDialog).toHaveBeenCalledWith(orchestratorDisclosure("codex"));
+      expect(requestDialog).toHaveBeenCalledWith({
+        ...orchestratorDisclosure("codex"),
+        approval: {
+          kind: "Authority",
+          key: "captured-checkout",
+          origin: "Codex · Tile/session t1 · repository",
+        },
+      });
     else expect(requestDialog).not.toHaveBeenCalled();
   },
 );

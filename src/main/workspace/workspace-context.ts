@@ -418,7 +418,10 @@ export class WorkspaceContext {
           prepareControl,
           this.agyPlugin,
           async (content) => {
-            const approved = await deps.dialog?.(content, this.launchAbort.signal);
+            const approved = await deps.dialog?.(
+              { ...content, userAction: true },
+              this.launchAbort.signal,
+            );
             return approved === true && !this.closed;
           },
           {
@@ -722,6 +725,7 @@ export class WorkspaceContext {
         (branch, changes) =>
           this.deps.dialog?.(
             {
+              userAction: true,
               title: "Remove remote worktree?",
               accept: changes ? "Discard changes and remove" : "Remove worktree",
               glyph: "trash",
@@ -801,6 +805,7 @@ export class WorkspaceContext {
     if (
       !(await this.deps.dialog?.(
         {
+          userAction: true,
           title: "Forget session?",
           accept: "Forget",
           subject: id,

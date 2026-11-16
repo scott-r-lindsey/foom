@@ -665,6 +665,7 @@ export async function sidebarCommand(
             automatic === true ||
             (await this.deps.dialog?.(
               {
+                ...(!closeSignal ? { userAction: true as const } : {}),
                 title: "Remove review worktree?",
                 accept: changes ? "Discard changes and remove" : "Remove worktree",
                 removal: {

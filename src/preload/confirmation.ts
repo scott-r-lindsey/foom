@@ -286,7 +286,10 @@ const validDialogSummaryLine: Validator<DialogSummaryLine> = shape({
   title: either(absent, summaryText),
 } satisfies Contract<DialogSummaryLine>);
 
-const validDialogRequest: Validator<DialogRequest> = shape({
+const geometryRevision: Validator<number> = (value): value is number =>
+  typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+const dialogFields = {
+  geometryRevision: either(absent, geometryRevision),
   id: nonempty,
   presented: boolean,
   pluginSetup: either(
@@ -390,6 +393,27 @@ const validDialogRequest: Validator<DialogRequest> = shape({
       }),
     ),
   ),
+} satisfies Contract<Omit<DialogRequest, "approvals">>;
+const validDialogRequest: Validator<DialogRequest> = shape({
+  ...dialogFields,
+  approvals: either(
+    absent,
+    array(
+      shape({
+        origin: summaryText,
+        kind: literal(
+          "Worktree removal",
+          "Authority",
+          "Plugin trust",
+          "Host trust",
+          "Credentials",
+          "Background",
+        ),
+        repeats: positiveCount,
+        request: shape(dialogFields),
+      }),
+    ),
+  ),
 } satisfies Contract<DialogRequest>);
 ipcRenderer.on("confirmation:render", (_event: IpcRendererEvent, request: unknown) => {
   const clean = validDialogRequest(request) ? project(validDialogRequest, request) : null;
@@ -413,12 +437,15 @@ const api: ConfirmationWindowApi = {
       listeners.delete(callback);
     };
   },
+  hideApprovals() {
+    ipcRenderer.send("confirmation:hide-approvals");
+  },
   copyPath(id, pathId) {
     if (
       !nonempty(id) ||
       !nonempty(pathId) ||
       pathId.length > 256 ||
-      id !== current?.id ||
+      (id !== current?.id && !current?.approvals?.some((row) => row.request.id === id)) ||
       copyRequests.size >= 32
     )
       return Promise.reject(new Error("Unable to copy"));

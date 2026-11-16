@@ -124,6 +124,7 @@ export async function buildWindow(
 
   const updateBackground = () => {
     wiring.windows.get(window.id)?.confirmations.refresh();
+    wiring.refreshApprovals();
     window.setBackgroundColor(
       resolveInterfaceTheme(
         wiring.settings.get().interfaceTheme,
@@ -221,6 +222,23 @@ export async function buildWindow(
     process.platform,
     wiring.removalPresentations,
   );
+  const unsubscribeApprovals = wiring.approvals.feed.subscribe(() => {
+    if (!window.webContents.isDestroyed())
+      window.webContents.send("approval:count", wiring.approvals.feed.current().length);
+  });
+  ipc.handle("approval:count", (_event, ...args) => {
+    if (args.length) throw new Error("Invalid approval count request");
+    return wiring.approvals.feed.current().length;
+  });
+  ipc.handle("approval:open", (_event, ...args) => {
+    if (args.length) throw new Error("Invalid approval open request");
+    wiring.openApprovals();
+  });
+  window.once("closed", () => {
+    unsubscribeApprovals();
+    ipc.removeHandler("approval:count");
+    ipc.removeHandler("approval:open");
+  });
   wiring.terminals.setLinkConfirmation(window.webContents, (content, signal) =>
     confirmations.request(content, signal),
   );
@@ -266,7 +284,10 @@ export async function buildWindow(
     window,
     wiring.workspace,
     (id) => wiring.terminals.owns(id),
-    (content) => confirmations.request(content),
+    (content) =>
+      content.approval
+        ? wiring.requestTrusted(content, new AbortController().signal)
+        : confirmations.request(content),
     ipc,
     () => [...previewHost.registry.records.values()],
     () => wiring.agentPreviews?.history ?? [],
@@ -287,6 +308,7 @@ export async function buildWindow(
     window.webContents.setZoomFactor(next.interfaceScale / 100);
     previewHost.refresh();
     confirmations.refresh();
+    wiring.refreshApprovals();
   };
   const launchRecipe = async (
     target:

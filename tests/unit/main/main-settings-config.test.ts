@@ -233,7 +233,7 @@ test("config Allow uses the trusted dialog and persists bypass consent without c
   const content = { title: "Allow agent launch arguments?", accept: "Allow" };
   mock.message.mockResolvedValueOnce({ response: 1 });
   expect(await deps.confirmArguments(content)).toBe(true);
-  expect(mock.message).toHaveBeenLastCalledWith(content);
+  expect(mock.message).toHaveBeenLastCalledWith({ ...content, userAction: true });
   mock.message.mockResolvedValueOnce({ response: 0 });
   expect(await deps.confirmArguments(content)).toBe(false);
   await deps.acknowledgeBypass(["codex", "claude"]);

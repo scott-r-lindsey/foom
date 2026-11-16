@@ -14,6 +14,8 @@ const {
   FAKE_ORCHESTRATED_CLAUDE,
   boardPage,
   confirmationPage,
+  approvalPage,
+  clickApproval,
   launchApp,
   quitAndWait,
   removeAfterApps,
@@ -242,11 +244,14 @@ for (const scenario of [
       .getByRole("button", { name: /^Actions for/ })
       .click();
     await page.getByRole("menuitem", { name: "Make orchestrator…" }).click();
-    const confirmation = await confirmationPage(app);
+    const confirmation = await approvalPage(app);
     await expect(
       confirmation.getByText(/Close its exited children, discarding their final screens/),
     ).toBeVisible();
-    await confirmation.getByRole("button", { name: "Make orchestrator" }).click();
+    await clickApproval(
+      confirmation,
+      confirmation.getByRole("button", { name: "Approve · Make orchestrator", exact: true }),
+    );
     await expect.poll(async () => (await call("whoami")).role).toBe("orchestrator");
     // This fixture explicitly chooses its reviewer; production starts with no provider default.
     await page.evaluate(() => window.desktop.saveSetup({ defaultAgent: "claude" }));
@@ -570,13 +575,23 @@ for (const scenario of [
       );
       await rename(`${forgeState}.tmp`, forgeState);
       await page.evaluate(() => window.desktop.saveSetup({ showPullRequests: true }));
-      const confirmation = await confirmationPage(app);
+      const confirmation = await approvalPage(app);
       for (const checkout of retained)
         await expect(confirmation.getByText(checkout.path, { exact: true }).first()).toBeVisible();
       await expect(confirmation.getByText("review.txt", { exact: true })).toHaveCount(2);
-      await confirmation
-        .getByRole("button", { name: "Discard changes and remove all", exact: true })
-        .click();
+      await expect(confirmation.locator(".approval-row")).toHaveCount(2);
+      for (const checkout of retained) {
+        const request = confirmation
+          .locator(".approval-row")
+          .filter({ has: confirmation.getByText(checkout.path, { exact: true }) });
+        await clickApproval(
+          confirmation,
+          request.getByRole("button", {
+            name: "Approve · Discard changes and remove",
+            exact: true,
+          }),
+        );
+      }
       await expect.poll(() => retained.every((checkout) => !existsSync(checkout.path))).toBe(true);
       assert.equal(git("rev-parse", "--verify", "child-one").trim(), headSha);
       return;

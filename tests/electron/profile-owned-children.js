@@ -10,7 +10,8 @@ const {
   FAKE_ORCHESTRATED_CLAUDE,
   launchApp,
   boardPage,
-  confirmationPage,
+  approvalPage,
+  clickApproval,
   removeAfterApps,
 } = require("./harness.js");
 const { expect } = require("./test-policy.js");
@@ -130,8 +131,11 @@ if (isChild) {
     .getByRole("button", { name: /^Actions for/ })
     .click();
   await page.getByRole("menuitem", { name: "Make orchestrator…" }).click();
-  const confirmation = await confirmationPage(app);
-  await confirmation.getByRole("button", { name: "Make orchestrator", exact: true }).click();
+  const confirmation = await approvalPage(app);
+  await clickApproval(
+    confirmation,
+    confirmation.getByRole("button", { name: "Approve · Make orchestrator", exact: true }),
+  );
   await expect.poll(async () => (await call("whoami")).role).toBe("orchestrator");
   // inspector.Session profiles V8 in the MAIN process, not renderer CDP.
   await app.evaluate(async () => {

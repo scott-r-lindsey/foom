@@ -27,6 +27,8 @@ const {
   launchApp,
   quitAndWait,
   confirmationPage,
+  approvalPage,
+  clickApproval,
   openSettingsScreen,
   fixtureCleanup,
   createMemoryFixture,
@@ -453,7 +455,11 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
     (id) => window.desktop.sidebarCommand({ kind: "make-orchestrator", id }),
     parentId,
   );
-  await (await confirmationPage(app)).getByRole("button", { name: "Make orchestrator" }).click();
+  const grantPage = await approvalPage(app);
+  await clickApproval(
+    grantPage,
+    grantPage.getByRole("button", { name: "Approve · Make orchestrator", exact: true }),
+  );
   await elevate;
   // Draft origin preflight runs before enrollment below; exercise it once rather than
   // repeating its SSH/bootstrap work in every provider and review scenario.
@@ -744,9 +750,12 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
         (id) => window.desktop.sidebarCommand({ kind: "make-orchestrator", id }),
         parentId,
       );
-      const recovery = await confirmationPage(app);
+      const recovery = await approvalPage(app);
       await expect(recovery.getByText(/Re-granting this tile before Foom restarts/)).toBeVisible();
-      await recovery.getByRole("button", { name: "Make orchestrator" }).click();
+      await clickApproval(
+        recovery,
+        recovery.getByRole("button", { name: "Approve · Make orchestrator", exact: true }),
+      );
       await regrant;
       assert.ok((await call("tail", { id: launched.resultId })).lines.length > 0);
       assert.equal(
@@ -979,9 +988,12 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
         worktreeId: checkout.resultId,
         idempotencyKey: "remove-agy",
       });
-      const dialog = await confirmationPage(app);
+      const dialog = await approvalPage(app);
       await expect(dialog.getByText(`fleet-worker:${record.cwd}`, { exact: true })).toBeVisible();
-      await dialog.getByRole("button", { name: "Remove worktree", exact: true }).click();
+      await clickApproval(
+        dialog,
+        dialog.getByRole("button", { name: "Approve · Remove worktree", exact: true }),
+      );
       await expect
         .poll(
           async () => (await call("operation_status", { operationId: removal.operationId })).status,
@@ -1191,6 +1203,9 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
     review.getByRole("heading", { name: "Remove worktree?", exact: true }),
   ).toBeVisible();
   await expect(review.getByText(`fleet-worker:${expectedCheckout}`, { exact: true })).toBeVisible();
+  await expect(
+    review.getByRole("alertdialog", { name: "Remove worktree?", exact: true }),
+  ).toBeVisible();
   await review.getByRole("button", { name: "Remove worktree", exact: true }).click();
   await deleting;
   assert.ok(

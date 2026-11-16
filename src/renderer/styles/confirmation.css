@@ -386,7 +386,8 @@ button:hover {
 .confirmation-accept:hover {
   background: color-mix(in srgb, var(--ink) 88%, var(--highlight));
 }
-button:disabled {
+button:disabled,
+button[aria-disabled="true"] {
   opacity: 0.45;
   cursor: default;
 }
@@ -582,4 +583,122 @@ li[data-dirty="true"] > .row > .why svg {
   font: var(--type-weight, 400) calc(12px * var(--type-scale, 1)) / 1.6 var(--font-mono);
   overflow-wrap: anywhere;
   color: var(--muted);
+}
+
+/* App-wide background approvals. Stable top edge and keyed rows prevent arrivals
+   moving a decision under the pointer. The native window remains nonmodal. */
+.approval-queue {
+  width: 750px;
+  max-width: 100%;
+  max-height: min(720px, 100vh);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.approval-head {
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--line);
+}
+.approval-head h1 {
+  font-size: 17px;
+  margin: 0;
+}
+.approval-head p,
+.approval-bulk p {
+  color: var(--muted);
+  margin: 4px 0 0;
+  font-size: 12px;
+}
+.approval-head button {
+  align-self: start;
+}
+.approval-bulk {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px 22px;
+  border-bottom: 1px solid var(--line);
+}
+.approval-scroll {
+  overflow: auto;
+  min-height: 0;
+  scrollbar-gutter: stable;
+  overflow-anchor: none;
+}
+.approval-row {
+  padding: 14px 22px;
+  border-bottom: 1px solid var(--line);
+}
+.approval-origin {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font: 11px / 1.7 var(--font-mono);
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.approval-row .confirmation-window {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  max-height: none;
+}
+.approval-row .dlg-head {
+  padding: 10px 0 0;
+}
+.approval-row .confirmation-content {
+  overflow: visible;
+}
+.approval-row .confirmation-content > div {
+  gap: 10px;
+  padding: 8px 0;
+}
+.approval-row footer {
+  border: 0;
+  padding: 6px 0;
+  background: transparent;
+}
+.approval-status {
+  margin: 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+.approval-queue > footer {
+  padding: 12px 22px;
+  justify-content: start;
+  color: var(--muted);
+  font-size: 12px;
+}
+.approval-row .glyph {
+  display: none;
+}
+.approval-row .dlg-head {
+  grid-template-columns: minmax(0, 1fr);
+}
+.approval-head button,
+.approval-bulk button {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 12px;
+  background: var(--surface);
+  color: var(--ink);
+}
+.approval-bulk button {
+  font-variant-numeric: tabular-nums;
+  background: var(--ink);
+  color: var(--bg);
+  border-color: var(--ink);
+}
+.approval-placeholder {
+  box-sizing: border-box;
+  flex: none;
+  padding: 18px 22px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
 }

@@ -2002,6 +2002,28 @@ const desktop: DesktopApi = {
     notices: () => reply("sound:notices", text),
   },
   confirmations: {
+    onApprovals(callback) {
+      let received = false;
+      const listener = (_event: IpcRendererEvent, value: unknown) => {
+        if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) {
+          received = true;
+          callback(value);
+        }
+      };
+      ipcRenderer.on("approval:count", listener);
+      void ipcRenderer
+        .invoke("approval:count")
+        .then((value: unknown) => {
+          if (!received && typeof value === "number" && Number.isSafeInteger(value) && value >= 0)
+            callback(value);
+        })
+        .catch(() => {});
+      return () => {
+        received = true;
+        ipcRenderer.removeListener("approval:count", listener);
+      };
+    },
+    openApprovals: () => invokeVoid("approval:open"),
     onScrim(callback) {
       const listener = (_event: IpcRendererEvent, value: unknown) => {
         if (typeof value === "boolean") callback(value);

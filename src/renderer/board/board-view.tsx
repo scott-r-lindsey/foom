@@ -131,6 +131,8 @@ function BoardContents({
   setupRefusal?: SetupRefusal;
   onCloseSettings?: (proceed?: () => void) => void;
 }) {
+  const [approvalCount, setApprovalCount] = useState(0);
+  useEffect(() => source.confirmations?.onApprovals?.(setApprovalCount), [source]);
   const configPanelRef = useRef<(() => void) | undefined>(undefined);
   const storageKey = source.windows ? `${TILE_STORAGE}.${source.windows.id}` : TILE_STORAGE;
   const [drag, setDrag] = useState<TileDrag>();
@@ -1002,6 +1004,18 @@ function BoardContents({
                   }}
                 >
                   Board
+                </button>
+              )}
+              {approvalCount > 0 && (
+                <button
+                  type="button"
+                  className="approvals-waiting"
+                  onClick={() => {
+                    void source.confirmations?.openApprovals?.().catch(() => {});
+                  }}
+                >
+                  <span aria-hidden="true">● </span>
+                  {approvalCount} {approvalCount === 1 ? "approval" : "approvals"} waiting
                 </button>
               )}
               <SidebarControls source={soundSetup} />

@@ -1,9 +1,18 @@
+import { ApprovalGeometry } from "./approval-geometry";
 import { applyInterfaceTypography, interfaceGradientCss } from "./ui/interface-theme";
 import { interfaceColorNames, interfaceHighlightNames } from "../shared/interface-themes";
 import { CopyValue } from "./ui/copy-value";
-import { createContext, use, useEffect, useRef, useState } from "react";
+import {
+  createContext,
+  use,
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+  useLayoutEffect,
+} from "react";
 import { createRoot } from "react-dom/client";
-import type { DialogRequest } from "../shared/confirmation";
+import type { DialogRequest, ApprovalRow } from "../shared/confirmation";
 const stateLabels: Readonly<Record<string, string>> = {
   working: "Working",
   needs_input: "Needs you",
@@ -184,29 +193,41 @@ function Worktrees({
 }
 export function ConfirmationPage() {
   const [request, setRequest] = useState<DialogRequest | null>(null);
+  const [updatedAt, setUpdatedAt] = useState(Date.now);
+  useEffect(
+    () =>
+      window.confirmation.render((value) => {
+        setUpdatedAt(Date.now());
+        setRequest(value);
+      }),
+    [],
+  );
+  return request?.approvals ? (
+    <ApprovalQueue request={request} updatedAt={updatedAt} />
+  ) : (
+    <ConfirmationCard key={request?.id} request={request} updatedAt={updatedAt} />
+  );
+}
+export function ConfirmationCard({
+  request,
+  embedded = false,
+  updatedAt = 0,
+  canDecide,
+}: {
+  request: DialogRequest | null;
+  embedded?: boolean;
+  updatedAt?: number;
+  canDecide?: () => boolean;
+}) {
   const cardRef = useRef<HTMLElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const acceptRef = useRef<HTMLButtonElement>(null);
   const [closeWhenCompleted, setCloseWhenCompleted] = useState(true);
-  const openingIdRef = useRef<string | undefined>(undefined);
   const closedIdRef = useRef<string | undefined>(undefined);
   const [selected, setSelected] = useState<readonly string[]>([]);
-  const [now, setNow] = useState(Date.now);
-  useEffect(
-    () =>
-      window.confirmation.render((value) => {
-        if (openingIdRef.current !== value?.id) {
-          openingIdRef.current = value?.id;
-          closedIdRef.current = undefined;
-          setCloseWhenCompleted(true);
-        }
-        setRequest(value);
-        setSelected([]);
-        setNow(Date.now());
-      }),
-    [],
-  );
+  const [nowTick, setNowTick] = useState(Date.now);
+  const now = Math.max(nowTick, updatedAt);
   useEffect(() => {
     if (!request) return;
     const colors = { ...request.theme.colors, ...request.theme.areas?.dialogs };
@@ -215,7 +236,7 @@ export function ConfirmationPage() {
       if (color) document.documentElement.style.setProperty(`--${key}`, color);
     }
     applyInterfaceTypography(request.theme, document.documentElement);
-    const header = document.querySelector<HTMLElement>(".dlg-head");
+    const header = cardRef.current?.querySelector<HTMLElement>(".dlg-head");
     if (header) {
       const area = request.theme.areas?.["dialog-headers"];
       const palette = area ? { ...request.theme.colors, ...area } : undefined;
@@ -258,7 +279,7 @@ export function ConfirmationPage() {
   useEffect(() => {
     if (deadline === undefined && fetchedAt === undefined) return;
     const timer = window.setInterval(() => {
-      setNow(Date.now());
+      setNowTick(Date.now());
     }, 1000);
     return () => {
       window.clearInterval(timer);
@@ -275,7 +296,7 @@ export function ConfirmationPage() {
   const bounded = request?.sections?.some((section) => section.summary !== undefined) ?? false;
   const requestId = request?.id;
   useEffect(() => {
-    if (!requestId) return;
+    if (!requestId || embedded) return;
     // Native activation can select its own first tab stop after showing the
     // measured window. Keep the safe default until the user's first interaction.
     let initial = true;
@@ -296,11 +317,11 @@ export function ConfirmationPage() {
       document.removeEventListener("keydown", interacted, true);
       document.removeEventListener("pointerdown", interacted, true);
     };
-  }, [requestId]);
+  }, [requestId, embedded]);
   useEffect(() => {
     const card = cardRef.current;
     const body = bodyRef.current;
-    if (!requestId || !card || !body) return;
+    if (!requestId || !card || !body || embedded) return;
     const measure = () => {
       // Keep the natural body height even when its viewport is clamped and scrolling.
       // Fractional heights: rounded ones change with the clamped viewport under zoom,
@@ -328,7 +349,7 @@ export function ConfirmationPage() {
       cancelled = true;
       observer.disconnect();
     };
-  }, [requestId, wide, bounded]);
+  }, [requestId, wide, bounded, embedded]);
   useEffect(() => {
     const cleanup = request?.cleanup;
     if (
@@ -369,7 +390,8 @@ export function ConfirmationPage() {
   const content = (
     <main
       onKeyDown={(event) => {
-        if (event.key === "Escape") {
+        if (embedded) return;
+        if (event.key === "Escape" && event.isTrusted) {
           event.preventDefault();
           answer(false);
         }
@@ -400,9 +422,9 @@ export function ConfirmationPage() {
         ref={cardRef}
         key={request.id}
         className={`confirmation-window${wide ? " wide" : ""}${bounded ? " bounded" : ""}`}
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby="confirmation-title"
+        role={embedded ? "group" : "alertdialog"}
+        aria-modal={embedded ? undefined : true}
+        aria-labelledby={`confirmation-title-${request.id}`}
       >
         <header className="dlg-head">
           <span className="glyph">
@@ -419,7 +441,9 @@ export function ConfirmationPage() {
               }
             />
           </span>
-          <h1 id="confirmation-title">{running ? "Deleting merged worktrees" : request.title}</h1>
+          <h1 id={`confirmation-title-${request.id}`}>
+            {running ? "Deleting merged worktrees" : request.title}
+          </h1>
           <p className="subject">
             <b>{request.subject}</b>
             {cleanup?.stage === "checking"
@@ -740,16 +764,17 @@ export function ConfirmationPage() {
           <button
             type="button"
             ref={cancelRef}
-            disabled={plugin?.phase === "running"}
-            onClick={() => {
-              answer(false);
+            disabled={(embedded && !request.presented) || plugin?.phase === "running"}
+            data-approval-decision={embedded ? request.id : undefined}
+            onClick={(event) => {
+              if (event.isTrusted && (canDecide?.() ?? true)) answer(false);
             }}
           >
             {plugin
               ? plugin.phase === "running"
                 ? "Close"
                 : "Done"
-              : request.removals
+              : embedded || request.removals
                 ? "Decline"
                 : finished
                   ? "Done"
@@ -760,10 +785,12 @@ export function ConfirmationPage() {
           {request.removals && (
             <button
               type="button"
+              data-approval-decision={embedded ? request.id : undefined}
               disabled={
                 !request.presented || !request.removals.some((item) => selected.includes(item.id))
               }
-              onClick={() => {
+              onClick={(event) => {
+                if (!event.isTrusted || !(canDecide?.() ?? true)) return;
                 window.confirmation.answer(
                   request.id,
                   request.removals
@@ -783,8 +810,10 @@ export function ConfirmationPage() {
               disabled={disabled || (deadline !== undefined && now >= deadline)}
               ref={acceptRef}
               className="confirmation-accept"
-              onClick={() => {
-                answer(true);
+              aria-label={embedded ? `Approve · ${request.accept}` : undefined}
+              data-approval-decision={embedded ? request.id : undefined}
+              onClick={(event) => {
+                if (event.isTrusted && (canDecide?.() ?? true)) answer(true);
               }}
             >
               {running
@@ -795,7 +824,9 @@ export function ConfirmationPage() {
                     : `${forceCleanup ? "Force delete" : "Delete"} ${String(cleanup.progress.total)}`
                   : request.removals?.some((item) => item.changes)
                     ? "Discard changes and remove all"
-                    : request.accept}
+                    : embedded
+                      ? "Approve"
+                      : request.accept}
             </button>
           )}
         </footer>
@@ -806,6 +837,300 @@ export function ConfirmationPage() {
     <CopyPathContext value={(pathId) => window.confirmation.copyPath(request.id, pathId)}>
       {content}
     </CopyPathContext>
+  );
+}
+const noApprovals: readonly ApprovalRow[] = [];
+export function ApprovalQueue({
+  request,
+  updatedAt,
+}: {
+  request: DialogRequest;
+  updatedAt: number;
+}) {
+  const rootRef = useRef<HTMLElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState<readonly string[]>([]);
+  const rows = request.approvals ?? noApprovals;
+  const hideRef = useRef<HTMLButtonElement>(null);
+  const [geometry] = useState(() => new ApprovalGeometry());
+  const [blocked, setBlocked] = useState<readonly string[]>([]);
+  const gestureRef = useRef<readonly string[]>([]);
+  type Slot = { id: string; row: ApprovalRow | undefined; height: number; expiresAt: number };
+  const [presentation, setPresentation] = useState<{
+    source: readonly ApprovalRow[];
+    slots: Slot[];
+  }>(() => ({
+    source: rows,
+    slots: rows.map((row) => ({ id: row.request.id, row, height: 0, expiresAt: Infinity })),
+  }));
+  let slots = presentation.slots;
+  // Reconcile before commit, retaining the old DOM footprint as an inert slot.
+  if (presentation.source !== rows) {
+    const current = new Map(rows.map((row) => [row.request.id, row]));
+    slots = presentation.slots.map((slot) => {
+      const row = current.get(slot.id);
+      current.delete(slot.id);
+      if (row) return { ...slot, row };
+      if (!slot.row) return slot;
+      return {
+        ...slot,
+        row: undefined,
+        height: document.getElementById(`approval-${slot.id}`)?.getBoundingClientRect().height ?? 0,
+        expiresAt: updatedAt + 900,
+      };
+    });
+    slots.push(
+      ...[...current.values()].map((row) => ({
+        id: row.request.id,
+        row,
+        height: 0,
+        expiresAt: Infinity,
+      })),
+    );
+    setPresentation({ source: rows, slots });
+  }
+  useLayoutEffect(() => {
+    if (document.activeElement === document.body && slots.some((slot) => !slot.row))
+      hideRef.current?.focus();
+  }, [slots]);
+  useEffect(() => {
+    const expiresAt = Math.min(...slots.map((slot) => slot.expiresAt));
+    if (!Number.isFinite(expiresAt)) return;
+    const timer = window.setTimeout(
+      () => {
+        setPresentation((previous) => ({
+          ...previous,
+          slots: previous.slots.filter((slot) => slot.expiresAt > Date.now()),
+        }));
+      },
+      Math.max(0, expiresAt - Date.now()),
+    );
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [slots]);
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    let timer: number | undefined;
+    const update = () => {
+      window.clearTimeout(timer);
+      const state = geometry.read(root, request.geometryRevision);
+      setBlocked((previous) =>
+        previous.length === state.blocked.length &&
+        previous.every((id, index) => id === state.blocked[index])
+          ? previous
+          : state.blocked,
+      );
+      if (Number.isFinite(state.delay)) timer = window.setTimeout(update, state.delay);
+    };
+    timer = window.setTimeout(update, 0);
+    const observer = new ResizeObserver(update);
+    observer.observe(root);
+    for (const control of root.querySelectorAll("button[data-approval-decision]"))
+      observer.observe(control);
+    root.addEventListener("scroll", update, true);
+    root.addEventListener("toggle", update, true);
+    window.addEventListener("resize", update);
+    return () => {
+      window.clearTimeout(timer);
+      observer.disconnect();
+      root.removeEventListener("scroll", update, true);
+      root.removeEventListener("toggle", update, true);
+      window.removeEventListener("resize", update);
+    };
+  });
+  const ready = useCallback(
+    (id: string) => {
+      const root = rootRef.current;
+      return root !== null && geometry.ready(root, id, request.geometryRevision);
+    },
+    [geometry, request.geometryRevision],
+  );
+  useEffect(() => {
+    const focusSafe = () => {
+      hideRef.current?.focus();
+    };
+    const restoreSafeDefault = () => {
+      if (document.hasFocus() && document.activeElement === document.body) focusSafe();
+    };
+    const clearGesture = () => {
+      gestureRef.current = [];
+    };
+    window.addEventListener("focus", focusSafe);
+    document.addEventListener("focusin", restoreSafeDefault);
+    restoreSafeDefault();
+    window.addEventListener("blur", clearGesture);
+    return () => {
+      window.removeEventListener("focus", focusSafe);
+      document.removeEventListener("focusin", restoreSafeDefault);
+      window.removeEventListener("blur", clearGesture);
+    };
+  }, []);
+  const onScreen = useCallback(() => {
+    const viewport = scrollRef.current?.getBoundingClientRect();
+    if (!viewport) return [];
+    return rows
+      .filter((row) => {
+        const item = document.getElementById(`approval-${row.request.id}`)?.getBoundingClientRect();
+        return (
+          row.kind === "Worktree removal" &&
+          row.request.presented &&
+          ready(row.request.id) &&
+          item &&
+          item.top >= viewport.top &&
+          item.bottom <= viewport.bottom
+        );
+      })
+      .map((row) => row.request.id);
+  }, [rows, ready]);
+  useEffect(() => {
+    const element = rootRef.current;
+    const content = scrollRef.current;
+    if (!element || !content) return;
+    const update = () => {
+      setVisible(onScreen());
+      window.confirmation.size({
+        width: 750,
+        height: Math.min(
+          720,
+          element.getBoundingClientRect().height -
+            content.getBoundingClientRect().height +
+            Array.from(content.children).reduce(
+              (sum, child) => sum + child.getBoundingClientRect().height,
+              0,
+            ),
+        ),
+      });
+    };
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    observer.observe(content);
+    content.addEventListener("scroll", update);
+    content.addEventListener("toggle", update, true);
+    let alive = true;
+    void document.fonts.ready.then(() => {
+      if (alive) update();
+    });
+    return () => {
+      alive = false;
+      observer.disconnect();
+      content.removeEventListener("scroll", update);
+      content.removeEventListener("toggle", update, true);
+    };
+  }, [onScreen, blocked, slots]);
+  return (
+    <main
+      className="approval-queue"
+      role="dialog"
+      aria-modal="false"
+      aria-labelledby="approval-title"
+      ref={rootRef}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          window.confirmation.hideApprovals();
+        }
+      }}
+    >
+      <header className="approval-head">
+        <div>
+          <h1 id="approval-title">
+            {rows.length} {rows.length === 1 ? "approval" : "approvals"} waiting
+          </h1>
+          <p>Requests from agents and background work</p>
+        </div>
+        <button
+          type="button"
+          ref={hideRef}
+          onClick={() => {
+            window.confirmation.hideApprovals();
+          }}
+        >
+          Hide
+        </button>
+      </header>
+      <div className="approval-bulk">
+        <div>
+          <strong>Worktree removals</strong>
+          <p>Only fully visible, ready rows. Other kinds need individual approval.</p>
+        </div>
+        <button
+          type="button"
+          data-approval-decision="bulk"
+          // Preserve a held keyboard gesture while a native resize re-arms the guard.
+          // Both renderer and main still refuse decisions during this disabled interval.
+          aria-disabled={!visible.length || blocked.includes("bulk")}
+          onPointerDown={(event) => {
+            gestureRef.current =
+              event.isTrusted && event.button === 0 && ready("bulk") ? onScreen() : [];
+          }}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter" && event.key !== " ") return;
+            if (event.repeat) {
+              event.preventDefault();
+              return;
+            }
+            gestureRef.current = event.isTrusted && ready("bulk") ? onScreen() : [];
+          }}
+          onPointerCancel={() => {
+            gestureRef.current = [];
+          }}
+          onBlur={() => {
+            gestureRef.current = [];
+          }}
+          onClick={(event) => {
+            const captured = gestureRef.current;
+            gestureRef.current = [];
+            if (!event.isTrusted || !ready("bulk")) return;
+            const valid = onScreen();
+            const ids = captured.filter((id) => valid.includes(id));
+            if (ids.length) window.confirmation.answer(request.id, ids);
+          }}
+        >
+          Approve all visible removals ({visible.length})
+        </button>
+      </div>
+      <div
+        className="approval-scroll"
+        ref={scrollRef}
+        tabIndex={0}
+        role="region"
+        aria-label="Pending approvals"
+      >
+        {slots.map(({ id, row, height }) =>
+          row ? (
+            <article className="approval-row" id={`approval-${id}`} key={id}>
+              <div className="approval-origin">
+                <span>{row.origin}</span>
+                <span className="chip">{row.kind}</span>
+              </div>
+              <ConfirmationCard
+                request={{
+                  ...row.request,
+                  presented: row.request.presented && !blocked.includes(id),
+                  theme: request.theme,
+                }}
+                embedded
+                canDecide={() => ready(id)}
+              />
+              <p className="approval-status">
+                {!row.request.presented || blocked.includes(id)
+                  ? "Buttons ready shortly"
+                  : row.repeats > 1
+                    ? `Repeated ${String(row.repeats)} times · one decision`
+                    : "Awaiting your decision"}
+              </p>
+            </article>
+          ) : (
+            <div className="approval-placeholder" key={id} style={{ height }} role="status">
+              Request ended
+            </div>
+          ),
+        )}
+      </div>
+      <footer>New requests join the end. Hide keeps every request pending.</footer>
+    </main>
   );
 }
 const root = document.getElementById("root");
