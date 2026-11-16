@@ -72,6 +72,16 @@ Opening Hosts must leave the entire fixture request log unchanged. Explicit chec
 retain the separate assertion against daemon and repository requests when the
 catalog is omitted.
 
+## Forget session request window (#1217)
+
+The unavailable-host Forget case also drains all observed sidebar reads before
+capturing the exact SSH request log. Its test-only barrier holds one inventory
+read before SSH dispatch, invalidates the shared sidebar promise with a refresh,
+and lets a newer read finish. The drain must remain pending until the held read
+is released and its real offline request completes. Only then does the request
+window open. Forget must leave the entire log unchanged; local session removal,
+persistence and recovery of the same live daemon session remain asserted.
+
 ## Agents scope review captures (#1070)
 
 The twelve-agent/twelve-host case checks desktop/light and narrow/dark, including
