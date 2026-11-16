@@ -1,3 +1,4 @@
+import type * as importType from "../../../src/node-common/repository-setup-check";
 import type * as FileSystem from "node:fs/promises";
 import { realpath, lstat } from "node:fs/promises";
 import { EventEmitter } from "node:events";
@@ -23,15 +24,20 @@ vi.mock("../../../src/node-common/private-files", () => ({ privateDirectory: moc
 vi.mock("../../../src/node-common/repository-toolchain", () => ({
   installSetupToolchain: mocks.install,
 }));
-vi.mock("../../../src/node-common/repository-setup-check", () => ({
-  checkSetupList: mocks.check,
-  repositorySetupEnvironment: vi.fn(() =>
-    Promise.resolve({ HOME: "/fixture", PATH: "/fixture/bin" }),
-  ),
-  setupProbeDependencies: vi.fn(() =>
-    Promise.resolve({ resolve: () => Promise.resolve("/fixture/brew") }),
-  ),
-}));
+vi.mock("../../../src/node-common/repository-setup-check", async () => {
+  const { fakeSetupProbes, mockScopedProbes } = await import("../../helpers/setup-probes");
+  const create = vi.fn<typeof importType.setupProbeDependencies>(() =>
+    Promise.resolve(fakeSetupProbes()),
+  );
+  return {
+    checkSetupList: mocks.check,
+    repositorySetupEnvironment: vi.fn(() =>
+      Promise.resolve({ HOME: "/fixture", PATH: "/fixture/bin" }),
+    ),
+    setupProbeDependencies: create,
+    withSetupProbeDependencies: vi.fn(mockScopedProbes(create)),
+  };
+});
 import {
   runRepositorySetup,
   setupRunDigest,

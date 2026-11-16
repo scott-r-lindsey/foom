@@ -165,11 +165,18 @@ version parsers and fixed `--version` arguments. They run outside the checkout,
 with normalized host environment and a safe PATH excluding checkout/current-directory
 entries. For local linked-worktree admission, exclude both the registered
 repository's complete directory tree and the selected checkout, including their
-canonical executable targets. Recheck these exclusions during executable
-resolution after awaited ABI probes. Source observations retain the registered
+canonical executable targets. Check these exclusions while pinning executable
+and interpreter targets before any ABI probe. Source observations retain the registered
 repository as code root; selecting a worktree must never narrow that scope. They
 never call a checkout's package manager, config, script or plugin.
 Version mismatch is **Needs setup**; a failed/timed-out probe is **Unable to check**.
+The executable probe environment uses a fresh private 0700 directory of links to
+canonical verified tool/interpreter targets, captured before ABI probes. Its PATH
+retains only these pins and verified fixed root-owned system directories, with
+missing tool names shadowed rather than falling through. It never carries mutable
+login-bin paths into an `env` shebang. The shared scoped checker removes this
+directory on completion/failure/cancellation; setup helpers retain it through
+recipes. No amount of late rechecking substitutes for this pinned lookup scope.
 Saved results are presentation only, never launch authorization.
 
 **Set up** is the single execution click after an active list has been approved.
@@ -204,17 +211,18 @@ Remote helper PATH filtering uses the actual registered code root, even when the
 repository is absent; realpath checks exclude repository directories and login
 bins resolving Node/pnpm/Homebrew into that root before any version execution.
 Remote launch admission carries the main-selected registered code root, excludes
-both it and the actual selected checkout, and repeats executable exclusion after
-awaited ABI probes in both daemon and child launches.
+both it and the actual selected checkout, and pins canonical executable and
+interpreter targets before ABI probes in both daemon and child launches.
 
 Install-only transactions take precedence over backend availability. Debian uses
 update then `apt-get install -y --no-remove --` (solver removals abort too). Homebrew
-uses `install --formula --` via the validated login PATH, with automatic cleanup
-and installed-dependent upgrade/reinstall disabled. Missing RHEL/Arch packages
+uses `install --formula --` through the pinned canonical target discovered from
+the validated login PATH, with automatic cleanup and installed-dependent
+upgrade/reinstall disabled. Missing RHEL/Arch packages
 require manual setup: the bundled DNF/pacman backends do not provide a verified
 atomic no-removal guarantee. Read-only presence checks, already-met requirements
-and private toolchain recipes remain supported there. Catalog revision 3 invalidates
-old approvals/peers so changed operand and transaction rules require fresh review.
+and private toolchain recipes remain supported there. Catalog revision 4 invalidates
+old approvals/peers so changed operand, transaction and probe rules require fresh review.
 Prompts and
 sudo stay in the visible terminal; Foom cannot supply an answer. No silent fallback,
 removal, distribution upgrade, arbitrary package repository or repository script.

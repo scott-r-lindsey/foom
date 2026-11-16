@@ -1,3 +1,4 @@
+import type * as importType from "../../../../src/node-common/repository-setup-check";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -21,11 +22,18 @@ import type { Hosts } from "../../../../src/main/setup/hosts";
 vi.mock("../../../../src/main/agents/agents", () => ({
   loginPath: vi.fn(() => Promise.resolve({ path: "/fixture/bin" })),
 }));
-vi.mock("../../../../src/node-common/repository-setup-check", () => ({
-  checkSetupList: vi.fn(),
-  repositorySetupEnvironment: vi.fn(() => Promise.resolve({ PATH: "/fixture/bin" })),
-  setupProbeDependencies: vi.fn(() => Promise.resolve({})),
-}));
+vi.mock("../../../../src/node-common/repository-setup-check", async () => {
+  const { fakeSetupProbes, mockScopedProbes } = await import("../../../helpers/setup-probes");
+  const create = vi.fn<typeof importType.setupProbeDependencies>(() =>
+    Promise.resolve(fakeSetupProbes()),
+  );
+  return {
+    checkSetupList: vi.fn(),
+    repositorySetupEnvironment: vi.fn(() => Promise.resolve({ PATH: "/fixture/bin" })),
+    setupProbeDependencies: create,
+    withSetupProbeDependencies: vi.fn(mockScopedProbes(create)),
+  };
+});
 vi.mock("../../../../src/node-common/repository-toolchain", () => ({
   selectedToolchainBins: vi.fn(() => Promise.resolve(["/private/toolchain/bin"])),
 }));

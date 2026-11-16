@@ -11,6 +11,7 @@ import type * as Probe from "../../../src/node-common/repository-setup-probe";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   mkdtemp,
+  lstat,
   mkdir,
   chmod,
   rm,
@@ -25,7 +26,7 @@ import { tmpdir } from "node:os";
 import {
   checkSetupList,
   repositorySetupEnvironment,
-  setupProbeDependencies,
+  setupProbeDependencies as createProbeDependencies,
 } from "../../../src/node-common/repository-setup-check";
 import type { SetupProbeDependencies } from "../../../src/node-common/repository-setup-check";
 import { setupProbe, SetupProbeExit } from "../../../src/node-common/repository-setup-probe";
@@ -42,6 +43,12 @@ vi.mock("../../../src/node-common/repository-setup-probe", async (original) => (
 vi.mock("../../../src/node-common/repository-toolchain", () => ({
   selectedToolchainBins: vi.fn(() => Promise.resolve([])),
 }));
+const scopes: SetupProbeDependencies[] = [];
+const setupProbeDependencies = async (...args: Parameters<typeof createProbeDependencies>) => {
+  const deps = await createProbeDependencies(...args);
+  scopes.push(deps);
+  return deps;
+};
 let root: string;
 const originalPlatform = process.platform;
 const originalArch = process.arch;
@@ -72,6 +79,7 @@ beforeEach(async () => {
 afterEach(async () => {
   Object.defineProperty(process, "platform", { value: originalPlatform });
   Object.defineProperty(process, "arch", { value: originalArch });
+  await Promise.all(scopes.splice(0).map((deps) => deps.dispose()));
   vi.restoreAllMocks();
   await rm(root, { recursive: true, force: true });
 });
@@ -101,6 +109,7 @@ function deps(
   distro: SetupProbeDependencies["platform"]["distro"] = "debian",
 ): SetupProbeDependencies {
   return {
+    dispose: () => Promise.resolve(),
     platform: { distro, os: distro === "darwin" ? "darwin" : "linux", arch: "x64", nodeAbi: true },
     home: "/fixture",
     env: {},
@@ -203,56 +212,65 @@ describe("fixed host prerequisite queries", () => {
     );
     expect(env).toEqual({ HOME: root, PATH: bins, LANG: "C", LC_ALL: "C", TERM: "xterm-256color" });
   });
-  it("derives platform/ABI separately and resolves only safe installed executables", async () => {
-    Object.defineProperty(process, "platform", { value: "linux" });
-    Object.defineProperty(process, "arch", { value: "x64" });
-    await writeFile(join(root, "node"), "fixture");
-    await chmod(join(root, "node"), 0o700);
-    const d = await setupProbeDependencies({ PATH: [".", "/missing", root].join(delimiter) }, root);
-    expect(d.platform).toMatchObject({ distro: "debian", arch: "x64", nodeAbi: true });
-    expect(setupProbe).toHaveBeenCalledWith(
-      "/usr/bin/getconf",
-      ["GNU_LIBC_VERSION"],
-      root,
-      expect.objectContaining({
-        COREPACK_ENABLE_NETWORK: "0",
-        HOMEBREW_NO_AUTO_UPDATE: "1",
-        HOMEBREW_NO_ANALYTICS: "1",
-      }),
-      undefined,
-    );
-    expect(await d.resolve("node")).toBe(join(root, "node"));
-    expect(await d.resolve("pnpm")).toBeUndefined();
-    expect(await d.resolve("brew")).toBeUndefined();
-    vi.mocked(setupProbe).mockResolvedValueOnce("glibc 2.17\n");
-    expect((await setupProbeDependencies({}, root)).platform.nodeAbi).toBe(false);
-    Object.defineProperty(process, "platform", { value: "darwin" });
-    vi.mocked(setupProbe).mockResolvedValueOnce("13.4\n");
-    expect((await setupProbeDependencies({}, root)).platform.nodeAbi).toBe(false);
-    vi.mocked(setupProbe).mockResolvedValueOnce("14.0\n");
-    expect((await setupProbeDependencies({}, root)).platform.nodeAbi).toBe(true);
-    Object.defineProperty(process, "platform", { value: "win32" });
-    Object.defineProperty(process, "arch", { value: "ia32" });
-    expect((await setupProbeDependencies({}, root)).platform).toMatchObject({
-      distro: "unsupported",
-      nodeAbi: false,
-      arch: "unsupported",
-    });
-  });
+  it.skipIf(originalPlatform === "win32")(
+    "derives platform/ABI separately and resolves only safe installed executables",
+    async () => {
+      Object.defineProperty(process, "platform", { value: "linux" });
+      Object.defineProperty(process, "arch", { value: "x64" });
+      await writeFile(join(root, "node"), "fixture");
+      await chmod(join(root, "node"), 0o700);
+      const d = await setupProbeDependencies(
+        { PATH: [".", "/missing", root].join(delimiter) },
+        root,
+      );
+      expect(d.platform).toMatchObject({ distro: "debian", arch: "x64", nodeAbi: true });
+      expect(setupProbe).toHaveBeenCalledWith(
+        "/usr/bin/getconf",
+        ["GNU_LIBC_VERSION"],
+        root,
+        expect.objectContaining({
+          COREPACK_ENABLE_NETWORK: "0",
+          HOMEBREW_NO_AUTO_UPDATE: "1",
+          HOMEBREW_NO_ANALYTICS: "1",
+        }),
+        undefined,
+      );
+      expect(await d.resolve("node")).toBe(join(root, "node"));
+      expect(await d.resolve("pnpm")).toBeUndefined();
+      expect(await d.resolve("brew")).toBeUndefined();
+      vi.mocked(setupProbe).mockResolvedValueOnce("glibc 2.17\n");
+      expect((await setupProbeDependencies({}, root)).platform.nodeAbi).toBe(false);
+      Object.defineProperty(process, "platform", { value: "darwin" });
+      vi.mocked(setupProbe).mockResolvedValueOnce("13.4\n");
+      expect((await setupProbeDependencies({}, root)).platform.nodeAbi).toBe(false);
+      vi.mocked(setupProbe).mockResolvedValueOnce("14.0\n");
+      expect((await setupProbeDependencies({}, root)).platform.nodeAbi).toBe(true);
+      Object.defineProperty(process, "platform", { value: "win32" });
+      Object.defineProperty(process, "arch", { value: "ia32" });
+      expect((await setupProbeDependencies({}, root)).platform).toMatchObject({
+        distro: "unsupported",
+        nodeAbi: false,
+        arch: "unsupported",
+      });
+    },
+  );
 });
 
-it("fails ABI compatibility closed on unknown probes or missing runtime libraries", async () => {
-  Object.defineProperty(process, "platform", { value: "linux" });
-  await writeFile(join(root, "libstdcpp"), "old runtime");
-  expect((await setupProbeDependencies({}, root)).platform.nodeAbi).toBe(false);
-  await rm(join(root, "libstdcpp"));
-  expect((await setupProbeDependencies({}, root)).platform.nodeAbi).toBe(false);
-  vi.mocked(setupProbe).mockRejectedValueOnce(new Error("timeout"));
-  expect((await setupProbeDependencies({}, root)).platform.nodeAbi).toBe(false);
-  Object.defineProperty(process, "platform", { value: "darwin" });
-  vi.mocked(setupProbe).mockRejectedValueOnce(new Error("timeout"));
-  expect((await setupProbeDependencies({}, root)).platform.nodeAbi).toBe(false);
-});
+it.skipIf(originalPlatform === "win32")(
+  "fails ABI compatibility closed on unknown probes or missing runtime libraries",
+  async () => {
+    Object.defineProperty(process, "platform", { value: "linux" });
+    await writeFile(join(root, "libstdcpp"), "old runtime");
+    expect((await setupProbeDependencies({}, root)).platform.nodeAbi).toBe(false);
+    await rm(join(root, "libstdcpp"));
+    expect((await setupProbeDependencies({}, root)).platform.nodeAbi).toBe(false);
+    vi.mocked(setupProbe).mockRejectedValueOnce(new Error("timeout"));
+    expect((await setupProbeDependencies({}, root)).platform.nodeAbi).toBe(false);
+    Object.defineProperty(process, "platform", { value: "darwin" });
+    vi.mocked(setupProbe).mockRejectedValueOnce(new Error("timeout"));
+    expect((await setupProbeDependencies({}, root)).platform.nodeAbi).toBe(false);
+  },
+);
 
 it("excludes login bins whose tool symlink resolves back into the checkout", async () => {
   const bins = join(root, "bin");
@@ -323,21 +341,24 @@ it.skipIf(process.platform === "win32")(
   },
 );
 
-it("retains checkout exclusion when its canonical root becomes unreadable", async () => {
-  const checkout = join(root, "missing-checkout");
-  const bins = join(root, "login-bin");
-  await mkdir(bins);
-  const env = await repositorySetupEnvironment(
-    { PATH: bins },
-    checkout,
-    join(root, "private"),
-    [],
-    root,
-  );
-  expect(env["PATH"]).toBe(bins);
-  const d = await setupProbeDependencies(env, root, undefined, checkout);
-  expect(await d.resolve("node")).toBeUndefined();
-});
+it.skipIf(originalPlatform === "win32")(
+  "retains checkout exclusion when its canonical root becomes unreadable",
+  async () => {
+    const checkout = join(root, "missing-checkout");
+    const bins = join(root, "login-bin");
+    await mkdir(bins);
+    const env = await repositorySetupEnvironment(
+      { PATH: bins },
+      checkout,
+      join(root, "private"),
+      [],
+      root,
+    );
+    expect(env["PATH"]).toBe(bins);
+    const d = await setupProbeDependencies(env, root, undefined, checkout);
+    expect(await d.resolve("node")).toBeUndefined();
+  },
+);
 
 it.skipIf(process.platform === "win32").each([false, true])(
   "remote admission excludes registered root and retargeted symlinks (external checkout: %s)",
@@ -540,3 +561,152 @@ it.skipIf(process.platform === "win32").each(["symlink", "nested-bin", "retarget
     expect(await readFile(calls, "utf8")).toBe("safe\n");
   },
 );
+
+it.skipIf(originalPlatform === "win32").each([false, true])(
+  "env-selected pnpm interpreter remains pinned when login symlink changes: %s",
+  async (retarget) => {
+    const repository = join(root, "repository");
+    const worktree = join(root, "worktree");
+    const bins = join(root, "login-bin");
+    const safe = join(root, "safe");
+    await Promise.all([mkdir(repository), mkdir(worktree), mkdir(bins), mkdir(safe)]);
+    const marker = join(root, "repository-node-called");
+    await writeFile(join(safe, "node"), "#!/bin/sh\nprintf '10.34.7\\n'\n", { mode: 0o700 });
+    await writeFile(
+      join(repository, "node"),
+      `#!/bin/sh\nprintf called > '${marker}'\nprintf '10.34.7\\n'\n`,
+      { mode: 0o700 },
+    );
+    await symlink(join(safe, "node"), join(bins, "node"));
+    await writeFile(join(bins, "pnpm"), "#!/usr/bin/env node\n", { mode: 0o700 });
+    const execute = promisify(execFile);
+    let pinned = "";
+    vi.mocked(setupProbe).mockImplementation(async (command, args, cwd, env) => {
+      pinned = (env["PATH"] ?? "").split(delimiter)[0] ?? "";
+      expect((await lstat(pinned)).mode & 0o777).toBe(0o700);
+      expect((env["PATH"] ?? "").split(delimiter)).not.toContain(bins);
+      if (command === "/usr/bin/getconf" || command === "/usr/bin/sw_vers") {
+        if (retarget) {
+          await rm(join(bins, "node"));
+          await symlink(join(repository, "node"), join(bins, "node"));
+        }
+        return command === "/usr/bin/getconf" ? "glibc 2.36" : "14.0";
+      }
+      if (!command.startsWith(root + "/")) throw new Error("Nonfixture executable");
+      return (await execute(command, [...args], { cwd, env })).stdout;
+    });
+    const excluded = [repository, worktree];
+    const env = await repositorySetupEnvironment(
+      { PATH: bins },
+      excluded,
+      join(root, "prefix"),
+      ["pnpm"],
+      root,
+    );
+    const requirements = parseSetupList(
+      JSON.stringify({
+        evidence: [],
+        requirements: [
+          {
+            kind: "toolchain",
+            id: "pnpm",
+            tool: "pnpm",
+            version: "10.x",
+            purpose: "Build",
+            sources: [],
+          },
+        ],
+      }),
+    );
+    const { withSetupProbeDependencies } = await import(
+      "../../../src/node-common/repository-setup-check"
+    );
+    const checked = await withSetupProbeDependencies(env, root, undefined, excluded, (deps) =>
+      checkSetupList(requirements, deps),
+    );
+    expect(checked.items[0]?.state).toBe("met");
+    await expect(lstat(marker)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(lstat(pinned)).rejects.toMatchObject({ code: "ENOENT" });
+  },
+);
+
+it.skipIf(originalPlatform === "win32")(
+  "pnpm cannot select an excluded interpreter even when an external script is discoverable",
+  async () => {
+    const repository = join(root, "repository"),
+      bins = join(root, "pnpm-bin"),
+      nodeBins = join(root, "node-bin");
+    await Promise.all([mkdir(repository), mkdir(bins), mkdir(nodeBins)]);
+    const marker = join(root, "repository-node-called");
+    await writeFile(
+      join(repository, "node"),
+      `#!/bin/sh\nprintf called > '${marker}'\nprintf '10.34.7\\n'\n`,
+      { mode: 0o700 },
+    );
+    await symlink(join(repository, "node"), join(nodeBins, "node"));
+    await writeFile(join(bins, "pnpm"), "#!/usr/bin/env node\n", { mode: 0o700 });
+    const execute = promisify(execFile);
+    vi.mocked(setupProbe).mockImplementation(async (command, args, cwd, env) => {
+      if (command === "/usr/bin/getconf") return "glibc 2.36";
+      if (command === "/usr/bin/sw_vers") return "14.0";
+      if (!command.startsWith(root + "/")) throw new Error("Nonfixture executable");
+      return (await execute(command, [...args], { cwd, env })).stdout;
+    });
+    const env = await repositorySetupEnvironment(
+      { PATH: [bins, nodeBins].join(delimiter) },
+      repository,
+      join(root, "prefix"),
+      ["pnpm"],
+      root,
+    );
+    const requirements = parseSetupList(
+      JSON.stringify({
+        evidence: [],
+        requirements: [
+          {
+            kind: "toolchain",
+            id: "pnpm",
+            tool: "pnpm",
+            version: "10.x",
+            purpose: "Build",
+            sources: [],
+          },
+        ],
+      }),
+    );
+    const { withSetupProbeDependencies } = await import(
+      "../../../src/node-common/repository-setup-check"
+    );
+    const checked = await withSetupProbeDependencies(env, root, undefined, repository, (deps) =>
+      checkSetupList(requirements, deps),
+    );
+    expect(checked.items[0]?.state).toBe("unable");
+    await expect(lstat(marker)).rejects.toMatchObject({ code: "ENOENT" });
+  },
+);
+it.skipIf(originalPlatform === "win32")(
+  "cleans a scoped probe PATH when its caller fails or is cancelled",
+  async () => {
+    const { withSetupProbeDependencies } = await import(
+      "../../../src/node-common/repository-setup-check"
+    );
+    for (const failure of [new Error("Caller failed"), new DOMException("Aborted", "AbortError")]) {
+      let pinned = "";
+      await expect(
+        withSetupProbeDependencies({}, root, undefined, [], (deps) => {
+          pinned = (deps.env["PATH"] ?? "").split(delimiter)[0] ?? "";
+          return Promise.reject(failure);
+        }),
+      ).rejects.toBe(failure);
+      await expect(lstat(pinned)).rejects.toMatchObject({ code: "ENOENT" });
+    }
+  },
+);
+it("native Windows remains manual without exposing an interpreter PATH", async () => {
+  Object.defineProperty(process, "platform", { value: "win32" });
+  const deps = await setupProbeDependencies({ PATH: "untrusted" }, root);
+  expect(deps.platform.distro).toBe("unsupported");
+  expect(deps.env["PATH"]).toBe("");
+  expect(await deps.resolve("node")).toBeUndefined();
+  await expect(deps.probe("node", ["--version"])).rejects.toThrow("manual");
+});

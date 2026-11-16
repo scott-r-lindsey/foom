@@ -8,7 +8,7 @@ import { privateDirectory } from "./private-files";
 import {
   checkSetupList,
   repositorySetupEnvironment,
-  setupProbeDependencies,
+  withSetupProbeDependencies,
 } from "./repository-setup-check";
 import { setupCatalogDigest, setupDigest } from "./repository-setup-digest";
 import { installSetupToolchain } from "./repository-toolchain";
@@ -84,59 +84,60 @@ export async function runRepositorySetup(
       setupSelectedTools(list),
       home,
     );
-    const deps = await setupProbeDependencies(env, home, abort.signal, excluded);
-    const checked = await checkSetupList(list, deps);
-    const plan = setupPlan(list, checked);
-    if (!plan || setupDigest(plan) !== setupDigest(setupPlan(list, value.check))) return 2;
-    for (const [index, step] of plan.steps.entries()) {
-      abort.signal.throwIfAborted();
-      process.stdout.write(
-        `Step ${String(index + 1)} of ${String(plan.steps.length)}: ${JSON.stringify(step)}\n`,
-      );
-      if (step[0] === "foom-host") {
-        const tool = step[2];
-        if (tool !== "node" && tool !== "pnpm") return 2;
-        if (prefix === remoteToolchainPrefix(home))
-          await privateDirectory(home, ".foom-repository-setup");
-        if (!(await matchingSources())) return 2;
-        await installSetupToolchain(
-          prefix,
-          tool,
-          plan.platform,
-          AbortSignal.any([abort.signal, AbortSignal.timeout(120000)]),
+    return await withSetupProbeDependencies(env, home, abort.signal, excluded, async (deps) => {
+      const checked = await checkSetupList(list, deps);
+      const plan = setupPlan(list, checked);
+      if (!plan || setupDigest(plan) !== setupDigest(setupPlan(list, value.check))) return 2;
+      for (const [index, step] of plan.steps.entries()) {
+        abort.signal.throwIfAborted();
+        process.stdout.write(
+          `Step ${String(index + 1)} of ${String(plan.steps.length)}: ${JSON.stringify(step)}\n`,
         );
-      } else {
-        const command = step[0] === "brew" ? await deps.resolve("brew") : step[0];
-        if (!command || !(await matchingSources())) return 2;
-        const code = await new Promise<number>((resolve) => {
-          const child = spawn(command, step.slice(1), {
-            cwd: home,
-            env: {
-              ...env,
-              HOMEBREW_NO_AUTO_UPDATE: "1",
-              HOMEBREW_NO_ANALYTICS: "1",
-              HOMEBREW_NO_INSTALL_CLEANUP: "1",
-              HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: "1",
-            },
-            shell: false,
-            stdio: "inherit",
-            signal: abort.signal,
+        if (step[0] === "foom-host") {
+          const tool = step[2];
+          if (tool !== "node" && tool !== "pnpm") return 2;
+          if (prefix === remoteToolchainPrefix(home))
+            await privateDirectory(home, ".foom-repository-setup");
+          if (!(await matchingSources())) return 2;
+          await installSetupToolchain(
+            prefix,
+            tool,
+            plan.platform,
+            AbortSignal.any([abort.signal, AbortSignal.timeout(120000)]),
+          );
+        } else {
+          const command = step[0] === "brew" ? await deps.resolve("brew") : step[0];
+          if (!command || !(await matchingSources())) return 2;
+          const code = await new Promise<number>((resolve) => {
+            const child = spawn(command, step.slice(1), {
+              cwd: home,
+              env: {
+                ...deps.env,
+                HOMEBREW_NO_AUTO_UPDATE: "1",
+                HOMEBREW_NO_ANALYTICS: "1",
+                HOMEBREW_NO_INSTALL_CLEANUP: "1",
+                HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: "1",
+              },
+              shell: false,
+              stdio: "inherit",
+              signal: abort.signal,
+            });
+            child.once("error", () => {
+              resolve(1);
+            });
+            child.once("exit", (code) => {
+              resolve(code ?? 1);
+            });
           });
-          child.once("error", () => {
-            resolve(1);
-          });
-          child.once("exit", (code) => {
-            resolve(code ?? 1);
-          });
-        });
-        if (code !== 0) {
-          process.stdout.write(`Failed · step ${String(index + 1)} · exit ${String(code)}\n`);
-          return code;
+          if (code !== 0) {
+            process.stdout.write(`Failed · step ${String(index + 1)} · exit ${String(code)}\n`);
+            return code;
+          }
         }
       }
-    }
-    process.stdout.write("Done\n");
-    return 0;
+      process.stdout.write("Done\n");
+      return 0;
+    });
   } finally {
     process.removeListener("SIGHUP", stop);
     process.removeListener("SIGTERM", stop);

@@ -1,6 +1,7 @@
+import { repositoryProbePath } from "./repository-probe-path";
 import { homedir, release } from "node:os";
 import { isAbsolute, join, delimiter, sep } from "node:path";
-import { access, stat, realpath } from "node:fs/promises";
+import { realpath } from "node:fs/promises";
 import { constants } from "node:fs";
 import { setupProbe, SetupProbeExit } from "./repository-setup-probe";
 import { hostDistro, hostLibc } from "../shared/host-system";
@@ -60,6 +61,7 @@ export async function repositorySetupEnvironment(
   return { HOME: home, PATH: safe.join(delimiter), LANG: "C", LC_ALL: "C", TERM: "xterm-256color" };
 }
 export interface SetupProbeDependencies {
+  dispose: () => Promise<void>;
   platform: SetupPlatform;
   home: string;
   env: Record<string, string>;
@@ -73,110 +75,130 @@ export async function setupProbeDependencies(
   excludedRoot?: string | readonly string[],
 ): Promise<SetupProbeDependencies> {
   const excluded = await setupExcludedRoots(excludedRoot);
-  const probeEnvironment = {
-    ...env,
-    COREPACK_ENABLE_NETWORK: "0",
-    HOMEBREW_NO_AUTO_UPDATE: "1",
-    HOMEBREW_NO_ANALYTICS: "1",
-  };
-  const probe = (command: string, args: readonly string[]) =>
-    setupProbe(command, args, home, probeEnvironment, signal);
-  const libstdcpp = async (): Promise<boolean> => {
-    const machine = process.arch === "arm64" ? "aarch64" : "x86_64";
-    for (const path of [
-      `/usr/lib/${machine}-linux-gnu/libstdc++.so.6`,
-      `/lib/${machine}-linux-gnu/libstdc++.so.6`,
-      "/usr/lib64/libstdc++.so.6",
-      "/lib64/libstdc++.so.6",
-      "/usr/lib/libstdc++.so.6",
-    ]) {
-      try {
-        const file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK);
+  if (process.platform === "win32")
+    return {
+      platform: {
+        os: "win32",
+        arch: process.arch === "x64" || process.arch === "arm64" ? process.arch : "unsupported",
+        distro: "unsupported",
+        nodeAbi: false,
+      },
+      home,
+      env: { ...env, PATH: "" },
+      dispose: () => Promise.resolve(),
+      resolve: () => Promise.resolve(undefined),
+      probe: () => Promise.reject(new Error("Native Windows setup is manual")),
+    };
+  const scope = await repositoryProbePath(env, excluded);
+  try {
+    const probeEnvironment = {
+      ...env,
+      PATH: scope.path,
+      COREPACK_ENABLE_NETWORK: "0",
+      HOMEBREW_NO_AUTO_UPDATE: "1",
+      HOMEBREW_NO_ANALYTICS: "1",
+    };
+    const probe = (command: string, args: readonly string[]) => {
+      scope.assertOpen();
+      return setupProbe(command, args, home, probeEnvironment, signal);
+    };
+    const libstdcpp = async (): Promise<boolean> => {
+      const machine = process.arch === "arm64" ? "aarch64" : "x86_64";
+      for (const path of [
+        `/usr/lib/${machine}-linux-gnu/libstdc++.so.6`,
+        `/lib/${machine}-linux-gnu/libstdc++.so.6`,
+        "/usr/lib64/libstdc++.so.6",
+        "/lib64/libstdc++.so.6",
+        "/usr/lib/libstdc++.so.6",
+      ]) {
         try {
-          const info = await file.stat();
-          if (!info.isFile() || info.size > 16 * 1024 * 1024) continue;
-          const bytes = Buffer.alloc(16 * 1024 * 1024 + 1);
-          const { bytesRead } = await file.read(bytes, 0, bytes.length, 0);
-          if (
-            bytesRead <= 16 * 1024 * 1024 &&
-            bytes.subarray(0, bytesRead).includes(Buffer.from("GLIBCXX_3.4.25\0"))
-          )
-            return true;
-        } finally {
-          await file.close();
-        }
-      } catch {
-        /* Unknown/absent runtime libraries never establish ABI compatibility. */
-      }
-    }
-    return false;
-  };
-  let nodeAbi = false;
-  let distro: SetupPlatform["distro"] = process.platform === "darwin" ? "darwin" : "unsupported";
-  if (process.platform === "linux") {
-    const file = await open("/etc/os-release", constants.O_RDONLY | constants.O_NONBLOCK);
-    try {
-      const bytes = Buffer.alloc(65537);
-      const { bytesRead } = await file.read(bytes, 0, bytes.length, 0);
-      const observed =
-        bytesRead <= 65536
-          ? hostDistro(
-              new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, bytesRead)),
+          const file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK);
+          try {
+            const info = await file.stat();
+            if (!info.isFile() || info.size > 16 * 1024 * 1024) continue;
+            const bytes = Buffer.alloc(16 * 1024 * 1024 + 1);
+            const { bytesRead } = await file.read(bytes, 0, bytes.length, 0);
+            if (
+              bytesRead <= 16 * 1024 * 1024 &&
+              bytes.subarray(0, bytesRead).includes(Buffer.from("GLIBCXX_3.4.25\0"))
             )
-          : "unknown";
-      distro = observed === "unknown" ? "unsupported" : observed;
-    } finally {
-      await file.close();
-    }
-  }
-  if (process.platform === "linux") {
-    const kernel = /^(\d+)\.(\d+)/u.exec(release());
-    nodeAbi =
-      hostLibc(await probe("/usr/bin/getconf", ["GNU_LIBC_VERSION"]).catch(() => "")) ===
-        "supported" &&
-      !!kernel &&
-      (Number(kernel[1]) > 4 || (Number(kernel[1]) === 4 && Number(kernel[2]) >= 18)) &&
-      (await libstdcpp());
-  } else if (process.platform === "darwin") {
-    const version = /^(\d+)\.(\d+)/u.exec(
-      await probe("/usr/bin/sw_vers", ["-productVersion"]).catch(() => ""),
-    );
-    nodeAbi =
-      !!version &&
-      (Number(version[1]) > 13 || (Number(version[1]) === 13 && Number(version[2]) >= 5));
-  }
-  const platform: SetupPlatform = {
-    os: process.platform === "darwin" ? "darwin" : process.platform === "win32" ? "win32" : "linux",
-    arch: process.arch === "x64" || process.arch === "arm64" ? process.arch : "unsupported",
-    distro,
-    nodeAbi,
-  };
-  return {
-    platform,
-    home,
-    env: probeEnvironment,
-    probe,
-    resolve: async (tool) => {
-      for (const directory of (env["PATH"] ?? "").split(delimiter)) {
-        if (
-          !isAbsolute(directory) ||
-          (tool === "brew" && !["/opt/homebrew/bin", "/usr/local/bin"].includes(directory))
-        )
-          continue;
-        const command = join(directory, tool);
-        try {
-          await access(command, constants.X_OK);
-          const canonical = await realpath(command);
-          if (excluded.some((root) => canonical === root || canonical.startsWith(`${root}${sep}`)))
-            continue;
-          if ((await stat(canonical)).isFile()) return canonical;
+              return true;
+          } finally {
+            await file.close();
+          }
         } catch {
-          /* Continue to the next safe login directory. */
+          /* Unknown/absent runtime libraries never establish ABI compatibility. */
         }
       }
-      return undefined;
-    },
-  };
+      return false;
+    };
+    let nodeAbi = false;
+    let distro: SetupPlatform["distro"] = process.platform === "darwin" ? "darwin" : "unsupported";
+    if (process.platform === "linux") {
+      const file = await open("/etc/os-release", constants.O_RDONLY | constants.O_NONBLOCK);
+      try {
+        const bytes = Buffer.alloc(65537);
+        const { bytesRead } = await file.read(bytes, 0, bytes.length, 0);
+        const observed =
+          bytesRead <= 65536
+            ? hostDistro(
+                new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, bytesRead)),
+              )
+            : "unknown";
+        distro = observed === "unknown" ? "unsupported" : observed;
+      } finally {
+        await file.close();
+      }
+    }
+    if (process.platform === "linux") {
+      const kernel = /^(\d+)\.(\d+)/u.exec(release());
+      nodeAbi =
+        hostLibc(await probe("/usr/bin/getconf", ["GNU_LIBC_VERSION"]).catch(() => "")) ===
+          "supported" &&
+        !!kernel &&
+        (Number(kernel[1]) > 4 || (Number(kernel[1]) === 4 && Number(kernel[2]) >= 18)) &&
+        (await libstdcpp());
+    } else if (process.platform === "darwin") {
+      const version = /^(\d+)\.(\d+)/u.exec(
+        await probe("/usr/bin/sw_vers", ["-productVersion"]).catch(() => ""),
+      );
+      nodeAbi =
+        !!version &&
+        (Number(version[1]) > 13 || (Number(version[1]) === 13 && Number(version[2]) >= 5));
+    }
+    const platform: SetupPlatform = {
+      os: process.platform === "darwin" ? "darwin" : "linux",
+      arch: process.arch === "x64" || process.arch === "arm64" ? process.arch : "unsupported",
+      distro,
+      nodeAbi,
+    };
+    return {
+      platform,
+      home,
+      env: probeEnvironment,
+      probe,
+      dispose: scope.dispose,
+      resolve: (tool) => Promise.resolve(scope.resolve(tool)),
+    };
+  } catch (error) {
+    await scope.dispose();
+    throw error;
+  }
+}
+/** The private interpreter PATH must not outlive its check/recipe invocation. */
+export async function withSetupProbeDependencies<T>(
+  env: Record<string, string>,
+  home: string,
+  signal: AbortSignal | undefined,
+  excluded: string | readonly string[] | undefined,
+  action: (deps: SetupProbeDependencies) => Promise<T>,
+): Promise<T> {
+  const deps = await setupProbeDependencies(env, home, signal, excluded);
+  try {
+    return await action(deps);
+  } finally {
+    await deps.dispose();
+  }
 }
 /** Checks only package databases and bundled version arguments, always outside a checkout. */
 export async function checkSetupList(

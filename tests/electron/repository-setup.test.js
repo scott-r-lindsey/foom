@@ -678,3 +678,120 @@ printf 'v24.17.0\\n'
     assert.equal((await page.evaluate(() => window.desktop.workspace())).terminals.length, 0);
   }
 });
+
+test("repository setup pins env-selected pnpm interpreters across ABI awaits", {
+  timeout: deadline(45_000),
+  skip: process.platform === "win32",
+}, async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "setup-pinned-interpreter-"));
+  removeAfterApps(context, root);
+  const bins = path.join(root, "login-bin"),
+    safe = path.join(root, "safe");
+  await Promise.all([mkdir(bins), mkdir(safe)]);
+  const safeCalls = path.join(root, "safe-node-calls"),
+    badCalls = path.join(root, "repository-node-calls");
+  await writeFile(
+    path.join(safe, "node"),
+    `#!/bin/sh
+printf 'safe\\n' >> ${quote(safeCalls)}
+printf '10.34.7\\n'
+`,
+    { mode: 0o700 },
+  );
+  await symlink(path.join(safe, "node"), path.join(bins, "node"));
+  await writeFile(path.join(bins, "pnpm"), "#!/usr/bin/env node\n", { mode: 0o700 });
+  const app = await launchApp(context, { fixture: "repository" });
+  const page = await boardPage(app);
+  const repository = (await page.evaluate(() => window.desktop.workspace())).repositories[0].path;
+  await writeFile(
+    path.join(repository, "node"),
+    `#!/bin/sh
+printf bad > ${quote(badCalls)}
+printf '10.34.7\\n'
+`,
+    { mode: 0o700 },
+  );
+  const reviewed = await page.evaluate(
+    (repository) =>
+      window.desktop.repositorySetup({
+        action: "review",
+        repository,
+        draft: JSON.stringify({
+          requirements: [
+            {
+              kind: "toolchain",
+              id: "pnpm",
+              tool: "pnpm",
+              version: "10.x",
+              purpose: "Build",
+              sources: [],
+            },
+          ],
+          evidence: [],
+        }),
+      }),
+    repository,
+  );
+  const pending = page.evaluate(
+    (token) => window.desktop.repositorySetup({ action: "approve", token }),
+    reviewed.review.token,
+  );
+  await approveDialog(app, page);
+  await pending;
+  await app.evaluate(
+    (_electron, { agentsPath, probePath, bins, repository }) => {
+      const load = process.getBuiltinModule("node:module").createRequire(agentsPath);
+      load(agentsPath).loginPath = () => Promise.resolve({ path: bins, warning: null });
+      const module = load(probePath),
+        original = module.setupProbe;
+      module.setupProbe = async (...args) => {
+        if (args[0] === "/usr/bin/getconf" || args[0] === "/usr/bin/sw_vers") {
+          globalThis.fixturePinnedProbeDirectory = args[3].PATH.split(
+            process.getBuiltinModule("node:path").delimiter,
+          )[0];
+          if (globalThis.fixtureRetargetInterpreter) {
+            const fs = process.getBuiltinModule("node:fs/promises"),
+              path = process.getBuiltinModule("node:path");
+            await fs.unlink(path.join(bins, "node"));
+            await fs.symlink(path.join(repository, "node"), path.join(bins, "node"));
+          }
+        }
+        return original(...args);
+      };
+    },
+    {
+      agentsPath: path.resolve("build/main/agents/agents.js"),
+      probePath: path.resolve("build/node-common/repository-setup-probe.js"),
+      bins,
+      repository,
+    },
+  );
+  let checks = 0;
+  for (const retarget of [false, true]) {
+    await app.evaluate((_electron, retarget) => {
+      globalThis.fixtureRetargetInterpreter = retarget;
+    }, retarget);
+    const state = await page.evaluate(
+      (repository) => window.desktop.repositorySetup({ action: "check", repository, host: null }),
+      repository,
+    );
+    assert.equal(state.rows[0].state, "met");
+    checks++;
+    assert.equal((await readFile(safeCalls, "utf8")).trim().split("\n").length, checks);
+    await assert.rejects(access(badCalls), { code: "ENOENT" });
+    assert.equal(
+      await app.evaluate(async () => {
+        try {
+          await process
+            .getBuiltinModule("node:fs/promises")
+            .lstat(globalThis.fixturePinnedProbeDirectory);
+          return false;
+        } catch (error) {
+          return error.code === "ENOENT";
+        }
+      }),
+      true,
+      "the private probe PATH must be removed after each check",
+    );
+  }
+});

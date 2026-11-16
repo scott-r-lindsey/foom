@@ -2,7 +2,7 @@ import { setupSelectedTools } from "../../shared/repository-setup-catalog";
 import { inspectSetupSources } from "../../node-common/repository-setup-sources";
 import {
   checkSetupList,
-  setupProbeDependencies,
+  withSetupProbeDependencies,
   repositorySetupEnvironment,
 } from "../../node-common/repository-setup-check";
 import { setupCatalogDigest } from "../../node-common/repository-setup-digest";
@@ -466,9 +466,8 @@ export async function manageHost(
         setupSelectedTools(request.list),
         home,
       );
-      const check = await checkSetupList(
-        request.list,
-        await setupProbeDependencies(safe, home, signal, excluded),
+      const check = await withSetupProbeDependencies(safe, home, signal, excluded, (deps) =>
+        checkSetupList(request.list, deps),
       );
       const sources = source
         ? await inspectSetupSources(source.checkout, request.evidence)

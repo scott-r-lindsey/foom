@@ -12,7 +12,7 @@ import { inspectSetupSources } from "../../node-common/repository-setup-sources"
 import {
   checkSetupList,
   repositorySetupEnvironment,
-  setupProbeDependencies,
+  withSetupProbeDependencies,
 } from "../../node-common/repository-setup-check";
 const services = new WeakMap<object, RepositorySetup>();
 const prefixes = new WeakMap<object, string>();
@@ -97,9 +97,8 @@ export async function openRepositorySetup(
         prefix,
         setupSelectedTools(list),
       );
-      return checkSetupList(
-        list,
-        await setupProbeDependencies(env, homedir(), undefined, excluded),
+      return withSetupProbeDependencies(env, homedir(), undefined, excluded, (deps) =>
+        checkSetupList(list, deps),
       );
     },
   });

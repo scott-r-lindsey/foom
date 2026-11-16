@@ -1,3 +1,4 @@
+import type * as importType from "../../../src/node-common/repository-setup-check";
 import { afterEach, expect, it, vi } from "vitest";
 import { validateSetupAdmission } from "../../../src/node-common/repository-setup-admission";
 import { inspectSetupSources } from "../../../src/node-common/repository-setup-sources";
@@ -7,13 +8,20 @@ import type { SetupAdmission, SetupCheck } from "../../../src/shared/repository-
 vi.mock("../../../src/node-common/repository-setup-sources", () => ({
   inspectSetupSources: vi.fn(),
 }));
-vi.mock("../../../src/node-common/repository-setup-check", () => ({
-  checkSetupList: vi.fn(),
-  repositorySetupEnvironment: vi.fn(() =>
-    Promise.resolve({ HOME: "/fixture", PATH: "/fixture/bin" }),
-  ),
-  setupProbeDependencies: vi.fn(() => Promise.resolve({})),
-}));
+vi.mock("../../../src/node-common/repository-setup-check", async () => {
+  const { fakeSetupProbes, mockScopedProbes } = await import("../../helpers/setup-probes");
+  const create = vi.fn<typeof importType.setupProbeDependencies>(() =>
+    Promise.resolve(fakeSetupProbes()),
+  );
+  return {
+    checkSetupList: vi.fn(),
+    repositorySetupEnvironment: vi.fn(() =>
+      Promise.resolve({ HOME: "/fixture", PATH: "/fixture/bin" }),
+    ),
+    setupProbeDependencies: create,
+    withSetupProbeDependencies: vi.fn(mockScopedProbes(create)),
+  };
+});
 const admission: SetupAdmission = {
   codeRoot: "/fixture",
   list: {

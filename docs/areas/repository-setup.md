@@ -49,23 +49,35 @@ Package probes are fixed `dpkg-query --show --showformat=${db:Status-Status} --`
 `rpm --query --`, `pacman -Q --`, or validated-login-PATH `brew list --versions`,
 followed by narrowly validated literal package operands. Toolchain probes use only
 `--version` and exact/major-range parsing. Probes run outside checkouts with a
-normalized PATH excluding relative/current/checkout entries and login bins whose
-Node/pnpm/Homebrew executable resolves into the checkout, and a small complete
-environment without Foom-added secrets or control grants. Failed/timed-out probes
-remain Unable to check, distinct from missing packages and wrong versions.
-Read-only probes disable [Corepack network access](https://github.com/nodejs/corepack#environment-variables)
+normalized discovery PATH excluding relative/current/checkout entries, and a small
+complete environment without Foom-added secrets or control grants. Discovery is
+not the executable probe PATH. Before any ABI probe, the shared checker resolves
+all supported tools (Node, pnpm, Homebrew) to canonical targets outside both the
+registered code/repository root and selected checkout. It pins those targets in
+a fresh Foom-owned 0700 temporary directory. Every probe gets only that directory
+plus canonical fixed system directories verified root-owned and not group/world
+writable. Missing supported tool names have private exit-127 blockers, so an
+`env node` shebang cannot fall through to another Node. Arbitrary login directories
+never enter the probe PATH. A symlink retarget during an awaited ABI query cannot
+change either the selected tool or its PATH-selected interpreter.
+
+`withSetupProbeDependencies` owns this scope in local human/child/resume admission,
+remote admission and management, and setup helpers. It removes the directory in
+`finally`, including on failed checks, cancellation and partial construction.
+Helpers retain the pinned environment through recipe execution. Ordinary agent
+work resumes its normal filtered login environment after admission; the temporary
+probe directory is never returned as a durable agent PATH. Native Windows setup
+remains manual and creates no Unix probe scope.
+
+Failed/timed-out probes remain Unable to check, distinct from missing packages
+and wrong versions. Read-only probes disable [Corepack network access](https://github.com/nodejs/corepack#environment-variables)
 and [Homebrew auto-update/analytics](https://docs.brew.sh/Manpage#environment).
-Explicit setup retains the disclosed installer network behavior. Remote management
-and execution, including remote daemon and child launch admission, exclude the
-entire registered code root and selected checkout, including when the selected
-checkout is absent. Executable resolution returns canonical paths and rejects
-Node/pnpm/Homebrew targets in that root before any `--version` probe. Local checks
-and admission exclude both the registered repository root (its complete directory
-tree, including `node_modules/.bin`) and the selected checkout. Local source
-observations retain the registered root even when checking a linked worktree.
-Both roots are canonicalized for PATH filtering and passed again to executable
-resolution after ABI probes. Setup helpers explicitly retain their bound root
-and selected checkout too; a linked checkout never narrows the exclusion scope.
+Explicit setup retains the disclosed installer network behavior. Local source
+observations retain the registered repository root when inspecting a linked
+worktree. Remote checks retain the entire registered code root and selected
+checkout. Selecting a worktree never narrows the exclusion scope. These are
+bounded filesystem observations, not isolation from a process already running
+with the user's full privileges and replacing a canonical trusted executable.
 
 Package grammars are manager-specific allowlists. All reject leading `-`, trailing
 `-`/`+`, `=`, paths, globs and whitespace; Debian also rejects dots (apt regex
@@ -76,7 +88,7 @@ to refuse explicit and solver removals. Homebrew uses `--formula --`, with
 ([documented behavior](https://docs.brew.sh/Manpage#environment)). Unmet OS packages
 on RHEL/Arch are manual until an atomic no-removal transaction is supported;
 checks, already-met packages and private toolchains remain available. Catalog
-revision 3 invalidates prior approvals and mismatched helpers. Exact catalog-v1
+revision 4 invalidates prior approvals and mismatched helpers. Exact catalog-v1
 profiles retain their original lists and digests through a bounded historical
 reader. They remain Review needed and block launch/setup; obsolete package names
 are visible in review and editable, but cannot be approved under the current

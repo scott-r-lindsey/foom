@@ -1,15 +1,23 @@
-vi.mock("../../../../src/node-common/repository-setup-check", () => ({
-  repositorySetupEnvironment: vi.fn(() =>
-    Promise.resolve({ HOME: "/fixture", PATH: "/fixture/bin" }),
-  ),
-  setupProbeDependencies: vi.fn(() => Promise.resolve({})),
-  checkSetupList: vi.fn(() =>
-    Promise.resolve({
-      platform: { distro: "debian", os: "linux", arch: "x64", nodeAbi: true },
-      items: [],
-    }),
-  ),
-}));
+import type * as importType from "../../../../src/node-common/repository-setup-check";
+vi.mock("../../../../src/node-common/repository-setup-check", async () => {
+  const { fakeSetupProbes, mockScopedProbes } = await import("../../../helpers/setup-probes");
+  const create = vi.fn<typeof importType.setupProbeDependencies>(() =>
+    Promise.resolve(fakeSetupProbes()),
+  );
+  return {
+    repositorySetupEnvironment: vi.fn(() =>
+      Promise.resolve({ HOME: "/fixture", PATH: "/fixture/bin" }),
+    ),
+    setupProbeDependencies: create,
+    withSetupProbeDependencies: vi.fn(mockScopedProbes(create)),
+    checkSetupList: vi.fn(() =>
+      Promise.resolve({
+        platform: { distro: "debian", os: "linux", arch: "x64", nodeAbi: true },
+        items: [],
+      }),
+    ),
+  };
+});
 import { writeWorktreeProvenance } from "../../../../src/terminal-host/remote/worktree-provenance";
 import type * as fsPromises from "node:fs/promises";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -1705,7 +1713,8 @@ test.skipIf(process.platform === "win32")(
     expect(
       mock.probe.mock.calls.some(([, args]) => Array.isArray(args) && args.includes("status")),
     ).toBe(false);
-    expect(checkSetupList).toHaveBeenCalledWith(request.list, {});
+    const created: unknown = await vi.mocked(setupProbeDependencies).mock.results.at(-1)?.value;
+    expect(vi.mocked(checkSetupList).mock.calls.at(-1)).toEqual([request.list, created]);
     expect(vi.mocked(repositorySetupEnvironment).mock.calls.at(-1)?.[1]).toEqual([
       join(home, "code"),
       directory,

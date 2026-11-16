@@ -5,7 +5,7 @@ import { inspectSetupSources } from "./repository-setup-sources";
 import {
   checkSetupList,
   repositorySetupEnvironment,
-  setupProbeDependencies,
+  withSetupProbeDependencies,
 } from "./repository-setup-check";
 import { LaunchFailure } from "../shared/launch-failure";
 /** Re-run on the execution host; a peer cannot turn a hub observation into spawn authority. */
@@ -37,9 +37,12 @@ export async function validateSetupAdmission(
     setupSelectedTools(admission.list),
     home,
   );
-  const checked = await checkSetupList(
-    admission.list,
-    await setupProbeDependencies(env, home, signal, [admission.codeRoot, checkout]),
+  const checked = await withSetupProbeDependencies(
+    env,
+    home,
+    signal,
+    [admission.codeRoot, checkout],
+    (deps) => checkSetupList(admission.list, deps),
   );
   if (checked.items.some((item) => item.state !== "met"))
     throw new LaunchFailure(
