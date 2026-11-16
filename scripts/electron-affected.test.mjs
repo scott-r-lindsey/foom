@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { gitSync } from "../tests/helpers/git.js";
-import { changedPaths, runAffected, selectAffected } from "./electron-affected.mjs";
+import { changedPaths, runAffected, selectAffected, runCI } from "./electron-affected.mjs";
 
 test("affected selection unions mapped areas deterministically", () => {
   const paths = [
@@ -215,4 +215,57 @@ test("comparison failure, empty changes, missing suite and unknown paths run the
     /spawn failed/,
   );
   assert.equal(runAffected({ env: {}, paths: () => [], run: () => ({ status: null }) }), 1);
+});
+
+test("CI runner forwards exact suites and shard environment, and fails closed on invalid selection", () => {
+  for (const suites of [[], ["previews-files.test.js", "previews-focus.test.js"]]) {
+    const env = {
+      FOOM_CI_ELECTRON_SUITES: JSON.stringify(suites),
+      FOOM_ELECTRON_SHARD: suites.length ? "1/1" : "2/4",
+    };
+    assert.equal(
+      runCI({
+        env,
+        run: (command, args, options) => {
+          assert.equal(command, process.execPath);
+          assert.deepEqual(args, [
+            "scripts/electron-tests.mjs",
+            ...suites.map((suite) => `--suite=${suite}`),
+          ]);
+          assert.equal(options.env, env);
+          return { status: 7 };
+        },
+      }),
+      7,
+    );
+  }
+  for (const value of [
+    undefined,
+    "broken",
+    "null",
+    "{}",
+    "[1]",
+    '["../a.test.js"]',
+    '["--help"]',
+  ]) {
+    assert.throws(() =>
+      runCI({ env: { FOOM_CI_ELECTRON_SUITES: value }, run: () => assert.fail("must not launch") }),
+    );
+  }
+  assert.throws(
+    () =>
+      runCI({
+        env: { FOOM_CI_ELECTRON_SUITES: '["previews-files.test.js"]', FOOM_ELECTRON_SHARD: "2/4" },
+      }),
+    /shard 1\/1/,
+  );
+  assert.throws(
+    () =>
+      runCI({
+        env: { FOOM_CI_ELECTRON_SUITES: "[]" },
+        run: () => ({ error: Error("spawn failed") }),
+      }),
+    /spawn failed/,
+  );
+  assert.equal(runCI({ env: { FOOM_CI_ELECTRON_SUITES: "[]" }, run: () => ({ status: null }) }), 1);
 });

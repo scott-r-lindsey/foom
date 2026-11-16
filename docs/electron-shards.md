@@ -1,11 +1,16 @@
 # Electron test layout and shard balance
 
-CI runs four named-test shards on Linux, five on Windows and seven on macOS. `tests/electron/shard-plan.json`
+Full CI runs use four named-test shards on Linux, five on Windows and seven on macOS.
+Draft PRs with entirely mapped changes run the affected suites once per platform
+using shard `1/1`; any unmapped path retains the full matrix. Ready PRs always run
+the full matrix, including the readiness event without another push. `tests/electron/shard-plan.json`
 stores assignments keyed by shard count and the CI count for each platform; `test-shard.js` hashes new or renamed tests,
 and all tests at unplanned shard counts. With no shard setting the full suite runs.
 Native checks, packaging and packaged smoke run sequentially in one independent
 companion job per platform, alongside the Electron shards and static checks.
 The Quality gate requires all sixteen Electron jobs and all three companion jobs.
+Draft quality gate requires the selected Electron matrix and the same companions;
+it cannot satisfy the required Quality gate. See [merge safety](validation.md#ci-and-packages).
 Failed, cancelled or skipped required jobs fail the gate; documentation-only runs
 permit skipping both desktop matrices together. Native hook probes stay serial.
 Electron steps allow fourteen minutes on Linux, Windows and macOS. Per-test

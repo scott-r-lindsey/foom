@@ -118,7 +118,26 @@ export function runAffected({
   return result.status ?? 1;
 }
 
+// CI receives the reviewed selection from change detection, not shell text.
+// Full runs use [] and retain the existing named-test shard plan. Affected draft
+// runs use one 1/1 shard per platform so every selected suite executes once.
+export function runCI({ env = process.env, run = spawnSync } = {}) {
+  const suites = JSON.parse(env.FOOM_CI_ELECTRON_SUITES);
+  if (
+    !Array.isArray(suites) ||
+    !suites.every((suite) => typeof suite === "string" && /^[a-z-]+\.test\.js$/.test(suite))
+  )
+    throw new Error("Invalid CI Electron suites");
+  if (suites.length > 0 && env.FOOM_ELECTRON_SHARD !== "1/1")
+    throw new Error("Affected CI runs require shard 1/1");
+  const args = ["scripts/electron-tests.mjs", ...suites.map((suite) => `--suite=${suite}`)];
+  console.info(`CI Electron: ${suites.length > 0 ? suites.join(", ") : "full suite"}.`);
+  const result = run(process.execPath, args, { stdio: "inherit", env });
+  if (result.error) throw result.error;
+  return result.status ?? 1;
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   if (process.argv.length > 3) throw new Error("Usage: pnpm run test:electron:affected [base]");
-  process.exitCode = runAffected({ base: process.argv[2] });
+  process.exitCode = process.argv[2] === "--ci" ? runCI() : runAffected({ base: process.argv[2] });
 }

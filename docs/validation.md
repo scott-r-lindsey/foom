@@ -150,7 +150,31 @@ for the assignment method and measurement history.
 
 1. Independent Linux jobs for change detection, static checks (format, documentation integrity, lint, typecheck, full dependency audit and CI policy tests), and unit coverage.
 2. Electron launch tests and Forge installer/ZIP packaging on Ubuntu, Windows, and macOS, alongside static checks when desktop validation is required.
-3. A stable **Quality gate** status that requires all three Linux jobs to succeed and desktop validation to pass, or to be explicitly classified as unnecessary and skipped. Failed detection never permits a skip.
+3. A stable **Quality gate** status for ready PRs and non-PR runs that requires all three Linux jobs to succeed and desktop validation to pass, or to be explicitly classified as unnecessary and skipped. Failed detection never permits a skip. Draft PRs report **Draft quality gate** with the same dependency checks.
+
+Draft PRs select Electron suites using the existing mapping in
+`scripts/electron-affected.mjs` against the PR merge-base diff. When every changed
+path is mapped, those suites run once on each platform using shard `1/1`.
+Unmapped paths, empty diffs or missing mapped suites retain the full sixteen-shard
+matrix. Static checks, unit tests, coverage and native-check/packaging are unchanged.
+The `ready_for_review` event and every push while ready run the full matrix.
+`converted_to_draft` also starts a new run. Main pushes, schedules, manual runs,
+nightly publication and the documentation-only desktop skip retain their policy.
+
+Merge safety depends on the check name, not an asynchronous readiness check:
+the workflow names every draft aggregate **Draft quality gate**, including draft
+runs that fall back to full coverage or skip desktop for documentation. It never
+creates or skips a check named **Quality gate** for a draft. Existing branch
+protection requires **Quality gate** from GitHub Actions, so a successful partial
+draft run cannot satisfy it. Marking ready does not change the SHA; before the
+new full run starts, the required context is still absent. Only the full-policy
+run can publish that context. A previous green required context on the same SHA
+can only come from a full-policy run, never from affected draft coverage. The
+same invariant survives cancellation, reruns and conversion back to draft. No
+repository setting changes are required. Credential-only manual runs retain their
+skipped aggregate under **Credential-only gate**, preventing that skipped check
+from satisfying the full-validation requirement as well. CI-policy tests evaluate the actual
+workflow check-name expression and exercise draft-to-ready on the same SHA.
 
 Electron and native-check/packaging jobs restore `actions/cache` entries keyed by
 runner OS, architecture and the exact Electron version resolved by the frozen
