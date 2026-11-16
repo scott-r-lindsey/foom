@@ -4,6 +4,7 @@ import path from "node:path";
 import { expect, test, vi } from "vitest";
 import { configPart } from "../../../../src/main/config/approval";
 import { OWNED_FILES, digest } from "../../../../src/main/config/layout";
+import { ConfigFiles } from "../../../../src/main/config/files";
 import { ConfigService } from "../../../../src/main/config/service";
 import { DEFAULT_SETTINGS } from "../../../../src/main/setup/settings";
 import { services, roots, fixture, palette, theme } from "./service-fixture";
@@ -393,19 +394,57 @@ test("Settings patches preserve safe external preferences before the watcher run
   });
 });
 
-test.each([JSON.stringify({ kind: "settings", hooks: false }), "{"])(
-  "Settings patches never adopt unapproved or invalid external bytes (%s)",
-  async (text) => {
+test("Settings patches never adopt unapproved external bytes", async () => {
+  const f = await fixture();
+  await f.service.initialize({ interfaceScale: 120, terminalFontSize: 19 });
+  await f.settings({ hooks: false });
+  await f.service.write({ agents: { claude: true } });
+  expect(JSON.parse(await f.read("settings.json"))).toEqual({
+    kind: "settings",
+    interfaceScale: 120,
+    terminalFontSize: 19,
+    agents: { claude: true },
+  });
+  expect(f.applied.every((values) => values.hooks !== false)).toBe(true);
+});
+
+test.each(["partial JSON", "read failure"])(
+  "Settings save refuses %s without overwriting external preferences and can retry its patch",
+  async (failure) => {
     const f = await fixture();
     await f.service.initialize({ interfaceScale: 120, terminalFontSize: 19 });
-    await f.write("settings.json", text);
-    await f.service.write({ agents: { claude: true } });
+    const external = JSON.stringify({
+      kind: "settings",
+      interfaceScale: 150,
+      terminalFontSize: 21,
+    });
+    const bytes = failure === "partial JSON" ? external.slice(0, -1) : external;
+    await f.write("settings.json", bytes);
+    const patch = Object.freeze({ agents: Object.freeze({ claude: true }) });
+    const applied = f.applied.at(-1);
+    const reader =
+      failure === "read failure"
+        ? vi
+            .spyOn(ConfigFiles.prototype, "read")
+            .mockRejectedValueOnce(new Error("fixture read failure"))
+        : undefined;
+    try {
+      await expect(f.service.write(patch)).rejects.toThrow("Unable to read valid Foom settings");
+    } finally {
+      reader?.mockRestore();
+    }
+    expect(await f.read("settings.json")).toBe(bytes);
+    expect(f.applied.at(-1)).toBe(applied);
+    expect(f.service.status().rejected).toHaveLength(1);
+    expect(patch).toEqual({ agents: { claude: true } });
+    await f.write("settings.json", external);
+    await f.service.write(patch);
     expect(JSON.parse(await f.read("settings.json"))).toEqual({
       kind: "settings",
-      interfaceScale: 120,
-      terminalFontSize: 19,
+      interfaceScale: 150,
+      terminalFontSize: 21,
       agents: { claude: true },
     });
-    expect(f.applied.every((values) => values.hooks !== false)).toBe(true);
+    expect(f.service.status().rejected).toEqual([]);
   },
 );

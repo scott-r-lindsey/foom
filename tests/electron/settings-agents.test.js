@@ -1019,12 +1019,39 @@ test("Settings Agents and Environment work without Claude Codex or Antigravity k
 });
 
 test("agent Settings patches preserve shortcut zoom and unrelated preferences", async (context) => {
-  const app = await launchApp(context, { fixture: "empty-board" });
-  const page = await boardPage(app);
-  await openSettingsScreen(page);
-  await page.evaluate(() =>
-    window.desktop.saveSetup({ terminalFontSize: 19, checkForUpdates: false }),
+  const profile = await mkdtemp(path.join(tmpdir(), "foom-unchecked-zoom-"));
+  removeAfterApps(context, profile);
+  await writeFile(
+    path.join(profile, "settings.json"),
+    JSON.stringify({
+      version: 1,
+      settings: { setupComplete: true, agents: {}, terminalFontSize: 19, checkForUpdates: false },
+    }),
   );
+  const app = await launchApp(context, {
+    fixture: "empty-board",
+    args: [`--user-data-dir=${profile}`],
+  });
+  const page = await boardPage(app);
+  assert.deepEqual((await page.evaluate(() => window.desktop.setupState())).settings.agents, {});
+  await app.evaluate(({ BrowserWindow }, modulePath) => {
+    const { createRequire } = process.getBuiltinModule("node:module");
+    const { Setup } = createRequire(modulePath)(modulePath);
+    const originalSave = Setup.prototype.save;
+    global.preferenceTrace = { patches: [], zooms: [] };
+    Setup.prototype.save = function (patch) {
+      global.preferenceTrace.patches.push(patch);
+      return originalSave.call(this, patch);
+    };
+    const contents = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://bundle/index.html",
+    ).webContents;
+    const originalZoom = contents.setZoomFactor.bind(contents);
+    contents.setZoomFactor = (scale) => {
+      global.preferenceTrace.zooms.push(scale);
+      return originalZoom(scale);
+    };
+  }, path.resolve("build/main/setup/setup.js"));
   const zoom = () =>
     app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()
@@ -1046,18 +1073,37 @@ test("agent Settings patches preserve shortcut zoom and unrelated preferences", 
     }, process.platform === "darwin");
     await expect.poll(zoom).toBeCloseTo(scale / 100);
   }
-  await page.getByRole("button", { name: "Agents", exact: true }).click();
-  const enabled = page
-    .locator(".agent-global-row")
-    .filter({ hasText: "Claude Code" })
-    .getByRole("checkbox");
-  await enabled.check();
-  await expect
-    .poll(() =>
-      page.evaluate(async () => (await window.desktop.setupState()).settings.agents.claude),
-    )
-    .toBe(true);
+  await openSettingsScreen(page);
   assert.equal(await zoom(), 1.2);
+  await page.getByRole("button", { name: "Agents", exact: true }).click();
+  for (const [id, name] of [
+    ["claude", "Claude Code"],
+    ["codex", "Codex"],
+    ["agy", "Antigravity"],
+  ]) {
+    const enabled = page.getByRole("checkbox", { name: `Enable ${name}`, exact: true });
+    await expect(enabled).not.toBeChecked();
+    await enabled.check();
+    await expect
+      .poll(() =>
+        page.evaluate(async (id) => (await window.desktop.setupState()).settings.agents[id], id),
+      )
+      .toBe(true);
+    assert.equal(await zoom(), 1.2);
+  }
+  await page.getByRole("button", { name: "Close settings (Esc)" }).click();
+  assert.equal(await zoom(), 1.2);
+  const trace = await app.evaluate(() => global.preferenceTrace);
+  context.diagnostic(JSON.stringify(trace));
+  assert.deepEqual(trace.patches, [
+    { interfaceScale: 110 },
+    { interfaceScale: 120 },
+    { agents: { claude: true } },
+    { agents: { claude: true, codex: true } },
+    { agents: { claude: true, codex: true, agy: true } },
+  ]);
+  assert.ok(trace.zooms.includes(1.2));
+  assert.ok(trace.zooms.slice(trace.zooms.indexOf(1.2)).every((scale) => scale === 1.2));
   assert.deepEqual(
     await page.evaluate(async () => {
       const { interfaceScale, terminalFontSize, checkForUpdates } = (

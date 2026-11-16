@@ -318,17 +318,17 @@ export class ConfigService {
     }
   }
 
-  private async scanSettings(): Promise<void> {
+  private async scanSettings(): Promise<"accepted" | "held" | "rejected"> {
     let bytes: Buffer | null;
     try {
       bytes = await this.files.read(SETTINGS_FILE);
     } catch (error) {
       this.reject(SETTINGS_FILE, invalid(error), invalid(error));
-      return;
+      return "rejected";
     }
     if (bytes === null) {
       this.reject(SETTINGS_FILE, "missing", "$: missing");
-      return;
+      return "rejected";
     }
     let text: string;
     let values: ConfigSettings;
@@ -337,12 +337,12 @@ export class ConfigService {
       if (text === this.applied.text) {
         this.rejected.delete(SETTINGS_FILE);
         this.pending = null;
-        return;
+        return "accepted";
       }
       values = parseSettingsFile(text);
     } catch (error) {
       this.reject(SETTINGS_FILE, digest(bytes), invalid(error));
-      return;
+      return "rejected";
     }
     this.rejected.delete(SETTINGS_FILE);
     const before = effective(this.deps.defaults, this.applied.values);
@@ -354,9 +354,10 @@ export class ConfigService {
     ];
     if (weak.length) {
       if (this.pending?.text !== text) this.pending = { text, values, weak };
-      return;
+      return "held";
     }
     await this.applyValues(text, values);
+    return "accepted";
   }
 
   /** Applies validated settings and records them as the profile's baseline. */
@@ -574,7 +575,10 @@ export class ConfigService {
   private async writeSettings(patch: ConfigSettings): Promise<void> {
     // The shared file may have changed before our watcher runs. Adopt safe edits
     // through the usual approval gate before merging this field-specific patch.
-    await this.scanSettings();
+    if ((await this.scanSettings()) === "rejected") {
+      this.publish();
+      throw new Error("Unable to read valid Foom settings. Retry after the file is available.");
+    }
     const text = `${JSON.stringify({ kind: "settings", ...this.applied.values, ...patch }, null, 2)}\n`;
     let values: ConfigSettings;
     try {
