@@ -122,7 +122,11 @@ agent setup and moved-pixel inspection stay in their owning suites.
 withdrawal placeholders to settle, reveals the specific decision, waits for scroll/layout delivery and
 its enabled state, then uses native Playwright input. A click's implicit scroll can
 move a guarded control immediately before dispatch; tests must reveal it first,
-just as a person scrolls to read it. The helper never forces or retries a decision,
+just as a person scrolls to read it. After the one click, the helper waits for the
+consumed control to detach. Without this render acknowledgement, the next call
+can observe zero placeholders before the previous withdrawal commits, scroll too
+early and leave its target clipped after the retained footprint collapses.
+The click's implicit scroll then correctly triggers the movement guard. The helper never forces or retries a decision,
 changes deadlines, or submits answers through the bridge. Immediate human actions,
 including launch-bypass consent, continue to use `confirmationPage`. The queue
 fixture scales its parent to fit the full 720 CSS-pixel cap on short desktops,
@@ -132,6 +136,16 @@ clicks on queue-prefixed decisions outside the dedicated security suite, whose r
 mouse/keyboard/synthetic input intentionally exercises the guard. Ordinary CLI,
 cleanup, remote, preview, and review-loop callers use the shared helper; legacy
 human-action dialogs keep their native presentation checks.
+
+The packaged orchestrator cleanup case uses long temporary paths and a
+900×612 content viewport to exercise wrapped disclosures at the macOS CI size
+on Linux too. Both cleanup transports keep one unrelated review pending while a
+clean merged checkout auto-completes, asserting its branch survives and the
+pending caller remains independent. Dirty checkouts still require their own
+trusted decision. The manual batch records bounded native/renderer ordering
+before its clicks, including opaque row IDs, readiness, geometry revisions,
+button rectangles and native focus/bounds. These observations grant no consent,
+add no input retries or waits, and retain no disclosure or terminal content.
 
 ## Preview navigation focus ordering (#1133)
 
