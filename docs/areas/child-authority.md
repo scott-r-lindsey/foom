@@ -27,7 +27,12 @@ and confirmations are reused. Removal asks the human unless the profile opts thi
 repository into the [strict merged-clean policy](../contracts/control-mutations.md#orchestrators-and-children-155);
 no API force flag bypasses identity or dirty-state checks.
 
-Detached PR review checkouts (#843) are the sole additional exception. On close,
+A one-shot reviewer may borrow its exact owned idle/exited author's checkout
+with `review.authorId` (#1232), subject to the [shared-review lease and drift
+checks](../orchestration.md#reviews-in-the-authors-checkout-1232). While held,
+author prompts and keys return conflict. This grants no child new authority.
+
+Detached PR review checkouts (#843) remain an isolation option. On close,
 Foom may remove its own profile-owned review checkout, including a session from
 an earlier orchestrator grant, without confirmation independently of the
 merged-worktree setting or an open PR, only with matching creation identity, a

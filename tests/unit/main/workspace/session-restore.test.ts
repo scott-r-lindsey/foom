@@ -151,3 +151,18 @@ test("restart and tile Resume share the config-origin built-in ID refusal", () =
   expect(restoreAuthority(entry, "identity", agent, true)).toBe(false);
   expect(canRestoreControl({ ...entry, agent: "custom" }, { ...agent, id: "custom" })).toBe(true);
 });
+
+test("does not automatically resume either participant while a shared reviewer retains the checkout", () => {
+  const reviewer = {
+    ...row,
+    id: "reviewer",
+    sharedReview: {
+      authorId: row.id,
+      identity: "checkout",
+      head: "a".repeat(40),
+      digest: "b".repeat(64),
+    },
+  };
+  const unrelated = { ...row, id: "other", worktree: "/other" };
+  expect(restorePlan([row, reviewer, unrelated], true)).toEqual([unrelated]);
+});

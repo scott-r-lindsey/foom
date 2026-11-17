@@ -58,10 +58,12 @@ export interface OrchestrationHost {
       resume?: { id: string; conversationId: string };
       loop?: AgentLaunch["loop"];
       snapshot?: ReviewSnapshot;
+      authorId?: string;
       validateSnapshot?: () => Promise<void>;
       validate(): void;
     },
   ): Promise<string>;
+  inputBlocked?(id: string): boolean;
   reviewSnapshot?(repository: string, worktree: string, identity: string): Promise<ReviewSnapshot>;
   reviewAvailable?(agent: AgentId, worktree?: string): Promise<boolean>;
   /** Only an existing Foom-managed linked checkout in this repository is eligible. */

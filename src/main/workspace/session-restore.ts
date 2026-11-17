@@ -7,6 +7,9 @@ export function restorePlan(entries: readonly StoredSession[], enabled: boolean)
     ? entries.filter(
         (entry) =>
           !(entry.providerOrigin === "config" && builtinAgent(entry.agent)) &&
+          !entries.some(
+            (reviewer) => reviewer.sharedReview && reviewer.worktree === entry.worktree,
+          ) &&
           entry.closeState === undefined &&
           entry.review === undefined &&
           entry.running === true &&

@@ -16,6 +16,7 @@ export class ControlError extends Error {
       | "capacity"
       | "unavailable"
       | "pr_binding_unresolved"
+      | "review_worktree_changed"
       | "forge_unavailable"
       | "pr_not_open"
       | "pr_from_fork"

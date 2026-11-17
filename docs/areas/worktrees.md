@@ -272,6 +272,39 @@ them. Ignored paths keep ordinary Git behavior: deleted without listing.
 Removal operation reasons and fixed details are documented in the
 [control identity contract](../contracts/control-identity.md#removal-reason-codes-819).
 
+## Reviews in the author's checkout (#1232)
+
+Prefer `review` with `authorId: CHILD_ID` (CLI `foom review --pull-request N
+--author CHILD_ID --agent PROVIDER --idempotency-key KEY`) when the author has
+finished its current work. Main resolves that exact owned, non-taken-over author
+child and uses its existing worktree; it creates no checkout or branch. The author
+must be idle (Done/Quiet OK) or exited, with no other session, closing operation,
+launch or removal using the checkout. The checkout must be clean, including
+non-ignored untracked files, at the bound open same-repository PR head. Registered hosts must supply explicit
+clean-snapshot evidence; older hosts without that evidence refuse shared review. Missing
+identity, dirty state, stale PR head and busy authors refuse; Foom never falls
+back to a separate checkout. Unknown/foreign author IDs return `not_found`.
+
+The reviewer receives the read-only brief: do not edit, stage, commit, checkout or
+change HEAD; tests and builds may write only ignored output. A main-owned checkout
+lease spans preparation, the reviewer process and its exited screen until Close.
+It refuses author prompts/keys, other launches, Resume and checkout removal.
+The idle author is not stopped or resumed by a one-shot review; its optional
+review loop is unchanged. The parent reads the handoff, stops the reviewer and
+closes it normally. Closing compares the captured HEAD, index and tracked and
+non-ignored untracked bytes. Drift or unavailable evidence returns
+`review_worktree_changed`, records a child-thread event and retains both files and
+the exited reviewer for inspection; no cleanup or reset runs. Successful Close
+removes only the reviewer session, releases the lease and preserves the author's
+checkout. Ignored build output may remain.
+
+The baseline persists as private session metadata. Restart restores the lease
+before session launches and automatically resumes neither participant in that
+checkout. Review does not restart automatically. Close still verifies the saved
+baseline. Worktree identities and snapshots are evidence to recheck, never restored
+process or orchestration authority. These safeguards coordinate Foom operations;
+they do not sandbox another local process or prevent direct human terminal input.
+
 ## Detached PR review checkouts (#843)
 
 Orchestrator `create_worktree` accepts `review: true` only with `pullRequest`.

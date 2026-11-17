@@ -97,3 +97,19 @@ test("canonical checkout leases exclude independent owners and safely borrow liv
     checkoutBusy(holds, [session], worktreeReservation("/repo", "/tree", "feature"), undefined),
   ).toBe(true);
 });
+
+it("retains a review lease through reviewer exit until release, blocking only the author", () => {
+  const holds = new CheckoutHolds();
+  const hold = holds.acquire("/tree");
+  if (!hold) throw new Error("No hold");
+  const baseline = { authorId: "author", identity: "id", head: "head", digest: "digest" };
+  holds.retainReview("reviewer", hold, baseline);
+  expect(holds.review("reviewer")).toEqual({ hold, baseline });
+  expect(holds.blocksInput("author")).toBe(true);
+  expect(holds.blocksInput("reviewer")).toBe(false);
+  expect(holds.acquire("/tree")).toBeUndefined();
+  holds.releaseReview("unknown");
+  holds.releaseReview("reviewer");
+  expect(holds.blocksInput("author")).toBe(false);
+  expect(holds.busy("/tree")).toBe(false);
+});

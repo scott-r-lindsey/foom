@@ -6,6 +6,8 @@ import type { PullRequest } from "./forge.d";
 export interface ReviewSnapshot {
   head: string;
   digest: string;
+  /** Present only when main has established clean tracked/untracked Git state. */
+  clean?: boolean;
 }
 export interface ReviewLoopHost {
   row: (id: string) => WorkspaceTerminal | undefined;

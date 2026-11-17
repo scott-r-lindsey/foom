@@ -435,3 +435,29 @@ test.each(["closing", "failed"] as const)(
     expect(() => readSessions([{ ...record, closeState: "done" }])).toThrow("Invalid session");
   },
 );
+
+test("persists and validates shared-review baselines without restoring process authority", async () => {
+  const baseline = {
+    authorId: "author",
+    identity: "checkout",
+    head: "a".repeat(40),
+    digest: "b".repeat(64),
+  };
+  const { store } = await setup();
+  const entries = readSessions([{ ...record, sharedReview: baseline }]);
+  await store.save(entries);
+  expect((await store.load())[0]).toMatchObject({
+    sharedReview: baseline,
+    exited: true,
+    dormant: true,
+  });
+  for (const bad of [
+    null,
+    { ...baseline, extra: true },
+    { ...baseline, authorId: record.id },
+    { ...baseline, identity: "" },
+    { ...baseline, head: "main" },
+    { ...baseline, digest: 5 },
+  ])
+    expect(() => readSessions([{ ...record, sharedReview: bad }])).toThrow();
+});

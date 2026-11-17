@@ -109,7 +109,7 @@ See [area rules](contracts/control-previews.md#agent-previews-297).
 |---|---|
 | `manual` | Read reference documentation about Foom, not instructions for the current task. No arguments lists sections (id, title, summary). Supply section to read plain text; follow nextPage with the same section and page to continue. Offline bundled manual only. |
 | `whoami` | Call first: tells you whether you are this repository's Foom orchestrator, when your current role was granted (grantedAt), and your tools with CLI fallbacks. Only the human grants the role. If a tool is missing from your client, use its listed foom command with the same session credentials. As orchestrator, read manual section orchestrator-playbook for launch, waiting, CI and cleanup guidance. Verify handoffs against the diff or checks; you own integration and reporting to the human. |
-| `review` | Orchestrator only: the human grants this role, and whoami shows whether you hold it. Run one read-only review in a detached open same-repository PR checkout. Optional agent uses Settings default agent; agent_required if unset. since is a full commit SHA; focus is quoted scope. Returns an operation with reviewer ID. Read read_handoff, then stop and close it. The author loop is unchanged. Capacity, identity and takeover rules apply. No forge writes unless postFindings is true. |
+| `review` | Orchestrator only: the human grants this role, and whoami shows whether you hold it. Review an open same-repository PR read-only. authorId borrows your idle/exited author's clean checkout at the PR head; conflicts refuse without fallback. It blocks author input until Close, which checks drift and keeps the checkout. Omit authorId for detached concurrent review. Optional agent uses Settings default or agent_required. since is a full SHA; focus is quoted scope. Read read_handoff, then stop/close. Author loop unchanged. No forge writes unless postFindings is true. |
 | `launch` | Orchestrator only: the human grants this role, and whoami shows whether you hold it. Launch a child in your worktree after earlier sessions close. Give it one task, acceptance criteria and limits. Children cannot orchestrate. Omitted agent uses Settings default or agent_required. Review defaults: 3 rounds (max 5), Settings default or review_agent_required; shares capacity. PR/review settings persist; pullRequest binds before spawn. The 16 KiB prompt includes the brief. You remain the merge gate. resultId is the child ID. host_busy: wait, then use a new key or another host. Replies include pressure; older hosts allow unmeasured launches. |
 | `prompt` | Orchestrator only: the human grants this role, and whoami shows whether you hold it. Send text and submit to your own child, honoring bracketed paste. Available while idle, done or working, without human review. Tag credential answers sensitive (or use send_keys): delivered text is omitted from board storage. Credential/provider attention also defaults to sensitive. Mark automatic continuation nudges automatic. At most 16 KiB UTF-8; no control characters except newline and tab. Poll operation_status after a lost response; never retry with a new key. |
 | `send_keys` | Orchestrator only: the human grants this role, and whoami shows whether you hold it. Send 1–64 logical keys to your own child without human review, including answering permission, credential and provider prompts. Every key is validated before any bytes are written. Poll operation_status after a lost response; never retry with a new key. |
@@ -138,14 +138,48 @@ structured verdict. See [loop policy](areas/orchestration.md#optional-child-buil
 and [handoff schema](areas/handoffs.md#review-verdicts-690). Human New-worktree
 launches have no review option.
 
+## Reviews in the author's checkout (#1232)
+
+Prefer `review` with `authorId: CHILD_ID` (CLI `foom review --pull-request N
+--author CHILD_ID --agent PROVIDER --idempotency-key KEY`) when the author has
+finished its current work. Main resolves that exact owned, non-taken-over author
+child and uses its existing worktree; it creates no checkout or branch. The author
+must be idle (Done/Quiet OK) or exited, with no other session, closing operation,
+launch or removal using the checkout. The checkout must be clean, including
+non-ignored untracked files, at the bound open same-repository PR head. Registered hosts must supply explicit
+clean-snapshot evidence; older hosts without that evidence refuse shared review. Missing
+identity, dirty state, stale PR head and busy authors refuse; Foom never falls
+back to a separate checkout. Unknown/foreign author IDs return `not_found`.
+
+The reviewer receives the read-only brief: do not edit, stage, commit, checkout or
+change HEAD; tests and builds may write only ignored output. A main-owned checkout
+lease spans preparation, the reviewer process and its exited screen until Close.
+It refuses author prompts/keys, other launches, Resume and checkout removal.
+The idle author is not stopped or resumed by a one-shot review; its optional
+review loop is unchanged. The parent reads the handoff, stops the reviewer and
+closes it normally. Closing compares the captured HEAD, index and tracked and
+non-ignored untracked bytes. Drift or unavailable evidence returns
+`review_worktree_changed`, records a child-thread event and retains both files and
+the exited reviewer for inspection; no cleanup or reset runs. Successful Close
+removes only the reviewer session, releases the lease and preserves the author's
+checkout. Ignored build output may remain.
+
+The baseline persists as private session metadata. Restart restores the lease
+before session launches and automatically resumes neither participant in that
+checkout. Review does not restart automatically. Close still verifies the saved
+baseline. Worktree identities and snapshots are evidence to recheck, never restored
+process or orchestration authority. These safeguards coordinate Foom operations;
+they do not sandbox another local process or prevent direct human terminal input.
+
 ## Separate review checkouts (#843)
 
-To review an open same-repository PR while its author keeps working in their own
-checkout, use `create_worktree` with `pullRequest: N, review: true`, then launch
+For concurrent review while the author keeps working, reviewing a PR without
+an owned author child, or deliberate isolation, use `create_worktree` with `pullRequest: N, review: true`, then launch
 one reviewer in the returned worktree. No scratch branch is created. The CLI
 fallback is `foom create-worktree --pull-request N --review --idempotency-key KEY`.
 This checkout is detached at the fetched PR head. Ask the reviewer to report
-findings; editing or pushing is a deliberate separate choice. It counts against
+findings and remain read-only. One-shot `review` without `authorId` also selects
+this separate detached path. It counts against
 the unused-worktree budget until launch succeeds.
 
 Close the exited reviewer normally. Foom removes an unchanged, clean review

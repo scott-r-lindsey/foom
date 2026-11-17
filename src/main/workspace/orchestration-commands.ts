@@ -226,6 +226,7 @@ export async function launchChild(
     resume?: { id: string; conversationId: string };
     loop?: AgentLaunch["loop"];
     snapshot?: ReviewSnapshot;
+    authorId?: string;
     validateSnapshot?: () => Promise<void>;
     validate(): void;
   },
@@ -294,7 +295,7 @@ export async function launchChild(
               rows: 24,
             },
             false,
-            false,
+            step?.authorId !== undefined,
             identity,
             replacement,
             {
@@ -404,6 +405,7 @@ export function exited(this: ExecutionEventsContext, id: string, code: number): 
 
 export function removed(this: ExecutionEventsContext, id: string): void {
   this.probeIds.delete(id);
+  this.checkoutHolds.releaseReview(id);
   this.lifecycle.removed(id);
   this.orchestration.removed(id);
   this.launched.delete(id);

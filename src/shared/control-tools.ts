@@ -134,10 +134,16 @@ const orchestration = (childLimit: number, agents: readonly string[]) =>
     {
       name: "review",
       description:
-        "Run one read-only review in a detached open same-repository PR checkout. Optional agent uses Settings default agent; agent_required if unset. since is a full commit SHA; focus is quoted scope. Returns an operation with reviewer ID. Read read_handoff, then stop and close it. The author loop is unchanged. Capacity, identity and takeover rules apply. No forge writes unless postFindings is true.",
+        "Review an open same-repository PR read-only. authorId borrows your idle/exited author's clean checkout at the PR head; conflicts refuse without fallback. It blocks author input until Close, which checks drift and keeps the checkout. Omit authorId for detached concurrent review. Optional agent uses Settings default or agent_required. since is a full SHA; focus is quoted scope. Read read_handoff, then stop/close. Author loop unchanged. No forge writes unless postFindings is true.",
       properties: {
         idempotencyKey: key,
         pullRequest: { type: "integer", minimum: 1 },
+        authorId: {
+          type: "string",
+          maxLength: 200,
+          description:
+            "Owned author child whose idle or exited checkout is borrowed. Omit for a separate detached checkout.",
+        },
         agent: { type: "string", enum: agents },
         since: { type: "string", pattern: "^[a-f0-9]{40}([a-f0-9]{24})?$" },
         focus: { type: "string", maxLength: 4096 },

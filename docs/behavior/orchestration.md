@@ -317,7 +317,12 @@ when the checkout branch has another name. An unavailable binding refuses before
 launch with `pr_binding_unresolved`.
 
 `review --pull-request N [--agent PROVIDER] [--since SHA] [--focus TEXT] --idempotency-key KEY`
-creates one detached PR-head checkout and launches one read-only reviewer using the selected provider.
+launches one read-only reviewer using the selected provider. Add `--author CHILD_ID`
+to borrow that owned idle/exited author's clean checkout at the PR head. Foom
+refuses conflicts without falling back. It blocks author input and other checkout
+operations until reviewer Close; Close verifies no drift and preserves the checkout.
+Drift returns `review_worktree_changed` and retains the reviewer and files. Without
+`--author`, review uses a separate detached PR-head checkout for concurrent work.
 It leaves the author's loop alone. The parent reads its structured handoff and
 stops/closes it. `--since` takes a full commit SHA; the reviewer checks ancestry.
 No forge writes occur unless `--post-findings true` is explicit.
