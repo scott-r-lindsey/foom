@@ -4,7 +4,6 @@ import { bundledForgeManifests } from "../control/forge-manifests";
 import type { LoadedForgeManifest } from "./plugins";
 import type { AgentProvider } from "../agents/providers/registry";
 import { watch } from "node:fs";
-import { isDeepStrictEqual } from "node:util";
 import type { rename } from "node:fs/promises";
 import { lstat, mkdir } from "node:fs/promises";
 import {
@@ -20,14 +19,8 @@ import { SOUND_KINDS } from "../../shared/sounds";
 import type { ParsedThemeFile, ThemeKind } from "../../shared/theme-file";
 import { parseThemeFile } from "../../shared/theme-files";
 import { attentionConflicts } from "../../shared/user-interface-theme";
-import { isUserThemeId, ThemeValidationError, validThemeFile } from "../../shared/theme-validation";
-import {
-  argumentChanges,
-  argumentDisclosure,
-  effective,
-  retainApproved,
-  weakenings,
-} from "./approval";
+import { ThemeValidationError, validThemeFile } from "../../shared/theme-validation";
+import { argumentChanges, argumentDisclosure, effective, weakenings } from "./approval";
 import type { EffectiveConfig, Weakening } from "./approval";
 import { OWNED_FILES, SETTINGS_FILE, THEME_FOLDERS, digest, refreshable } from "./layout";
 
@@ -105,7 +98,6 @@ function themeKind(path: string): ThemeKind | undefined {
  */
 export class ConfigService {
   private applied: Applied = DEFAULTS;
-  private liveValues: ConfigSettings | undefined;
   private pending: Pending | null = null;
   private appliedThemes = new Map<string, { text: string; parsed: ParsedThemeFile }>();
   private heldThemes = new Map<string, { text: string; previous: string | null }>();
@@ -210,11 +202,11 @@ export class ConfigService {
       await this.recordBaseline(this.applied.text);
     }
     if (migrated && this.applied === migrated) await this.recordBaseline(migrated.text);
-    this.applyLive(this.applied.values);
+    this.deps.apply(this.applied.values);
     await this.scan();
     this.startWatching();
     this.started = true;
-    return this.liveValues ?? this.applied.values;
+    return this.applied.values;
   }
 
   /** The profile keeps the digest and a copy of the settings file it last applied. */
@@ -316,71 +308,61 @@ export class ConfigService {
 
   private async scanPlugins(): Promise<void> {
     await this.plugins.scanPlugins();
-    this.applyLive(this.applied.values);
+    const defaults = this.applied.values.agentArguments;
+    if (defaults) {
+      const recovered = recoverAgentDefaults(defaults);
+      if (JSON.stringify(recovered) !== JSON.stringify(defaults)) {
+        this.applied.values = { ...this.applied.values, agentArguments: recovered };
+        this.deps.apply(this.applied.values);
+      }
+    }
   }
 
-  private applyLive(values: ConfigSettings): void {
-    const live = values.agentArguments
-      ? { ...values, agentArguments: recoverAgentDefaults(values.agentArguments) }
-      : values;
-    if (isDeepStrictEqual(this.liveValues, live)) return;
-    this.liveValues = live;
-    this.deps.apply(live);
-  }
-
-  private async readSettings(): Promise<Applied | null> {
+  private async scanSettings(): Promise<"accepted" | "held" | "rejected"> {
     let bytes: Buffer | null;
     try {
       bytes = await this.files.read(SETTINGS_FILE);
     } catch (error) {
       this.reject(SETTINGS_FILE, invalid(error), invalid(error));
-      return null;
+      return "rejected";
     }
     if (bytes === null) {
       this.reject(SETTINGS_FILE, "missing", "$: missing");
-      return null;
+      return "rejected";
     }
     let text: string;
     let values: ConfigSettings;
     try {
       text = decode(bytes);
-      values = text === this.applied.text ? this.applied.values : parseSettingsFile(text);
+      if (text === this.applied.text) {
+        this.rejected.delete(SETTINGS_FILE);
+        this.pending = null;
+        return "accepted";
+      }
+      values = parseSettingsFile(text);
     } catch (error) {
       this.reject(SETTINGS_FILE, digest(bytes), invalid(error));
-      return null;
+      return "rejected";
     }
     this.rejected.delete(SETTINGS_FILE);
-    return { text, values };
-  }
-
-  private async settingsWeakenings(values: ConfigSettings): Promise<Weakening[]> {
     const before = effective(this.deps.defaults, this.applied.values);
     const after = effective(this.deps.defaults, values);
-    return [
+    const weak = [
       ...weakenings(before, after),
       ...argumentChanges(before, after),
       ...(await this.themeSelectionWeakening(before, after)),
     ];
-  }
-
-  private async scanSettings(): Promise<void> {
-    const current = await this.readSettings();
-    if (!current) return;
-    if (current.text === this.applied.text) {
-      this.pending = null;
-      return;
-    }
-    const weak = await this.settingsWeakenings(current.values);
     if (weak.length) {
-      this.pending = { ...current, weak };
-      return;
+      if (this.pending?.text !== text) this.pending = { text, values, weak };
+      return "held";
     }
-    await this.applyValues(current.text, current.values);
+    await this.applyValues(text, values);
+    return "accepted";
   }
 
   /** Applies validated settings and records them as the profile's baseline. */
   private async applyValues(text: string, values: ConfigSettings): Promise<void> {
-    this.applyLive(values);
+    this.deps.apply(values);
     this.applied = { text, values };
     this.pending = null;
     await this.recordBaseline(text).catch(ignore);
@@ -453,18 +435,20 @@ export class ConfigService {
     before: EffectiveConfig,
     after: EffectiveConfig,
   ): Promise<Weakening[]> {
-    if (before.interfaceTheme === after.interfaceTheme || !isUserThemeId(after.interfaceTheme))
+    if (
+      before.interfaceTheme === after.interfaceTheme ||
+      typeof after.interfaceTheme !== "string" ||
+      !after.interfaceTheme.startsWith("user:")
+    )
       return [];
     const file = `themes/${after.interfaceTheme.slice(5)}`;
     let parsed = this.appliedThemes.get(file)?.parsed;
-    let unreadable = false;
     try {
       const bytes = await this.files.read(file);
-      if (bytes) parsed = parseThemeFile(decode(bytes), "theme");
+      if (!bytes) return [];
+      parsed = parseThemeFile(decode(bytes), "theme");
     } catch {
-      // A cached warning can require approval, but a cached safe palette does
-      // not establish that the current file is safe to select.
-      unreadable = true;
+      /* Invalid or unreadable edits retain the catalog's last accepted palette. */
     }
     if (
       parsed?.kind === "theme" &&
@@ -472,17 +456,8 @@ export class ConfigService {
     )
       return [
         {
-          field: ["interfaceTheme"],
           action: "use a theme where needs-you is hard to tell apart",
           detail: "interfaceTheme: attention-distinctness",
-        },
-      ];
-    if (unreadable)
-      return [
-        {
-          field: ["interfaceTheme"],
-          action: "use a theme whose needs-you colors could not be checked",
-          detail: "interfaceTheme: palette unavailable",
         },
       ];
     return [];
@@ -603,86 +578,37 @@ export class ConfigService {
 
   private async writeSettingsLocked(patch: ConfigSettings): Promise<void> {
     // Read and merge while other profiles are excluded through the atomic rename.
-    const current = await this.readSettings();
-    const weak = current ? await this.settingsWeakenings(current.values) : [];
-    if (current && weak.length) this.pending = { ...current, weak };
-    if (!current || (weak.length && this.applied === DEFAULTS)) {
+    const scanned = await this.scanSettings();
+    if (scanned === "rejected" || (scanned === "held" && this.applied === DEFAULTS)) {
       this.publish();
       throw new Error(
         "Unable to read valid Foom settings. Retry after the file is available and reviewed.",
       );
     }
-    let next: Applied;
-    let approved: Applied;
+    const current = this.pending?.values ?? this.applied.values;
+    const text = `${JSON.stringify({ kind: "settings", ...current, ...patch }, null, 2)}\n`;
+    let values: ConfigSettings;
     try {
-      if (patch.agentArguments) parseAgentDefaults(patch.agentArguments);
-      next = this.settingsFile({ ...current.values, ...patch });
-      approved = weak.length ? this.approvedSettings(current.values, weak, patch) : next;
+      values = parseSettingsFile(text);
+      if (values.agentArguments) parseAgentDefaults(values.agentArguments);
     } catch {
       throw new Error("This setting cannot be stored in the Foom config folder");
     }
-    await this.commitSettings(next, approved, patch.interfaceTheme !== undefined);
+    await this.files.writeFile(SETTINGS_FILE, text);
+    if (scanned === "held") {
+      // Preserve unrelated proposals on disk without granting them approval.
+      const approved = { ...this.applied.values, ...patch };
+      await this.applyValues(
+        `${JSON.stringify({ kind: "settings", ...approved }, null, 2)}\n`,
+        approved,
+      );
+      await this.scanSettings();
+    } else await this.applyValues(text, values);
     this.publish();
   }
 
-  private approvedSettings(
-    proposal: ConfigSettings,
-    weak: readonly Weakening[],
-    patch: ConfigSettings = {},
-  ): Applied {
-    const baseline = this.applied.values;
-    const approved = retainApproved(this.deps.defaults, baseline, proposal, weak);
-    try {
-      return this.settingsFile({ ...approved, ...patch });
-    } catch (error) {
-      if (patch.agents !== undefined || !weak.some(({ field }) => field[0] === "agents"))
-        throw error;
-      // Restoring enabled entries can exceed the provider map limit. Keep the
-      // approved map intact if the per-provider projection cannot be stored.
-      if (baseline.agents === undefined) delete approved.agents;
-      else approved.agents = baseline.agents;
-      return this.settingsFile({ ...approved, ...patch });
-    }
-  }
-
-  private async commitSettings(
-    next: Applied,
-    approved: Applied,
-    explicitTheme = false,
-  ): Promise<void> {
-    // The settings lock excludes other Foom writers, but palette edits are
-    // independent. Prepare the fallback before writing, then review the palette
-    // again after rename, before the selection can enter the approved copy.
-    const before = effective(this.deps.defaults, this.applied.values);
-    const after = effective(this.deps.defaults, approved.values);
-    let withoutThemeChange: Applied | undefined;
-    if (
-      !explicitTheme &&
-      before.interfaceTheme !== after.interfaceTheme &&
-      isUserThemeId(after.interfaceTheme)
-    ) {
-      const fallback = { ...approved.values };
-      if (this.applied.values.interfaceTheme === undefined) delete fallback.interfaceTheme;
-      else fallback.interfaceTheme = this.applied.values.interfaceTheme;
-      withoutThemeChange = this.settingsFile(fallback);
-    }
-    await this.files.writeFile(SETTINGS_FILE, next.text);
-    const final =
-      withoutThemeChange && (await this.themeSelectionWeakening(before, after)).length
-        ? withoutThemeChange
-        : approved;
-    await this.applyValues(final.text, final.values);
-    if (next.text !== final.text) await this.scanSettings();
-  }
-
-  private settingsFile(values: ConfigSettings): Applied {
-    if (isDeepStrictEqual(values, this.applied.values)) return this.applied;
-    const text = `${JSON.stringify({ kind: "settings", ...values }, null, 2)}\n`;
-    return { text, values: parseSettingsFile(text) };
-  }
-
   /**
-   * Allow applies the held change; keep restores the held fields. `id`
+   * Allow applies the held change; keep restores the applied file. `id`
    * names the proposal the user saw, so a click never approves a later replacement.
    */
   decide(decision: unknown, id: unknown): Promise<ConfigStatus> {
@@ -740,14 +666,11 @@ export class ConfigService {
         await this.applyValues(pending.text, pending.values);
       } else {
         await this.files.withSettingsLock(async () => {
-          const weak = pending.weak.some(({ field }) => field[0] === "interfaceTheme")
-            ? pending.weak
-            : await this.settingsWeakenings(pending.values);
           const current = await this.files.read(SETTINGS_FILE);
           if (!current || decode(current) !== pending.text)
             throw new Error("The file changed. Review the new change.");
-          const approved = this.approvedSettings(pending.values, weak);
-          await this.commitSettings(approved, approved);
+          await this.files.writeFile(SETTINGS_FILE, this.applied.text);
+          this.pending = null;
         });
       }
       this.publish();

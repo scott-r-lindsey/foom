@@ -395,7 +395,7 @@ test("Settings patches preserve safe external preferences before the watcher run
   });
 });
 
-test("Settings patches apply safe file values and leave weakening bytes held", async () => {
+test("Settings patches never adopt unapproved external bytes", async () => {
   const f = await fixture();
   await f.service.initialize({ interfaceScale: 120, terminalFontSize: 19 });
   await f.settings({ hooks: false });
@@ -406,8 +406,11 @@ test("Settings patches apply safe file values and leave weakening bytes held", a
     agents: { claude: true },
   });
   expect(f.service.status().pending?.detail).toBe("hooks: on → off");
-  // The file omitted both size settings, so their defaults apply.
-  expect(f.applied.at(-1)).toEqual({ agents: { claude: true } });
+  expect(f.applied.at(-1)).toEqual({
+    interfaceScale: 120,
+    terminalFontSize: 19,
+    agents: { claude: true },
+  });
   expect(f.applied.every((values) => values.hooks !== false)).toBe(true);
 });
 

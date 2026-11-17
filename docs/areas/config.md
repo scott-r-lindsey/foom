@@ -109,19 +109,11 @@ ownership. Later acquisitions sweep complete `.foom-*.tmp` lock records only
 when the same-host process is proven dead by the lock recovery rules; other
 config temporaries and live, foreign or unverified owners remain untouched.
 Safe external edits are adopted through the approval gate. With a verified
-baseline, a Settings save applies safe values from the current file and the
-explicit patch. Unrelated held fields remain on disk for review and retain their
-approved values in the profile's baseline. Without a trusted baseline (including rejected profile loads),
+baseline, unrelated held keys remain on disk and held while only the Settings
+patch is applied. Without a trusted baseline (including rejected profile loads),
 a held file refuses Settings saves until reviewed. Missing, unreadable or invalid
 files also refuse saves without replacing external bytes. Keep it on uses the
 same lock and rechecks the proposal before replacement.
-Both paths assess an external interface theme selection against the palette
-under the lock. They recheck after the settings rename because palette files
-can change independently. If the selection then requires approval, it stays in
-the working file for review and the profile retains its previous selection.
-An unreadable or invalid palette holds a new external selection even when the
-library has a last-good palette.
-Explicit theme choices in Appearance continue to apply directly.
 The [#1234 investigation](../research/settings-reset-1234.md) records both
 reproduced races and recovery limits; it does not establish the historical
 incident trigger. On Windows only, atomic
@@ -154,28 +146,17 @@ attention-distinctness hold described below. Settings → Foom config
 and the config footer dock show the held change in amber. The held change carries an ID,
 the digest of its text, and a decision must name it: if an agent replaced the
 proposal after the banner was shown, the decision is refused and the new one shown.
-**Allow** rechecks that the file still has the held content and applies it.
-**Keep it on** rechecks the same proposal under the shared lock and restores
-approved values for the held fields, preserving safe edits from the current file.
-If restoring individual provider switches would produce an invalid `agents` map,
-Keep it on and unrelated Settings saves retain the entire approved map in the
-profile baseline. A Settings save still leaves the proposed map in the working
-file for review. If the resulting settings fail validation, the operation refuses
-the write without replacing the file or the approved baseline.
-At startup the working file is trusted only if its digest matches `configDigest`; otherwise the profile's `configText` is trusted if its
+**Allow** rechecks that the file still has the held content and applies it. **Keep it on** writes back the
+last applied text. At startup the working file is trusted only if its digest
+matches `configDigest`; otherwise the profile's `configText` is trusted if its
 digest matches; otherwise the baseline is the defaults (`{ "kind": "settings" }`),
-so an off switch written while Foom was closed is held and Keep it on restores
-the default for that switch. A Settings save preserves unrelated held keys. An
-unverified baseline refuses the save. Every file argument change holds, regardless of known bypass detection. Allow opens the existing main-owned trusted
+so an off switch written while Foom was closed is held and Keep it on restores a
+valid default file. A Settings save preserves unrelated held keys; an unverified baseline refuses the save. Every file argument change holds,
+regardless of known bypass detection. Allow opens the existing main-owned trusted
 dialog containing literal before/after lists and known bypass flags, then rechecks
 the proposal bytes before applying. Accepted bypass changes persist per-agent
 acknowledgement in the profile. Argument text never enters board status metadata.
 Settings UI edits use the config writer directly and retain their bypass dialog.
-When a provider reserves a previously saved argument, Foom suppresses that
-provider's list in the running app and keeps the approved list in the baseline
-and in the file. Removing the reservation makes the saved list effective again.
-Unrelated saves preserve the saved list, and explicit argument edits still
-validate against the current provider reservations.
 
 **Status.** Settings → Foom config shows the folder, **Open folder**, and only
 what needs the user now: a held change, or each rejected file with its fixed

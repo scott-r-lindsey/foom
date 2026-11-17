@@ -1,4 +1,4 @@
-import { mkdir, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, test } from "vitest";
 import { digest } from "../../../../src/main/config/layout";
@@ -147,107 +147,6 @@ test("inactive themes and hue-only warnings apply; file selection is held and UI
   );
   await f.service.refresh();
   expect(f.service.status().pending).toBeNull();
-});
-
-test("Keep rechecks a proposed theme weakened by an independent library review", async () => {
-  const f = await fixture();
-  await f.service.initialize();
-  const file = "themes/personal.json";
-  const interfaceTheme = "user:personal.json";
-  await f.write(file, theme("Personal"));
-  await f.settings({ hooks: false, interfaceTheme, interfaceScale: 120 });
-  const pending = (await f.service.refresh()).pending;
-  expect(pending?.detail).toBe("hooks: on → off");
-
-  const warned = theme("Personal", { ...palette.colors, attention: palette.colors.ink });
-  await f.write(file, warned);
-  const parsed = parseThemeFile(warned, "theme");
-  // The independent library callback runs before the settings watcher rescans.
-  expect(await f.service.reviewTheme(file, warned, parsed)).toEqual(parsed);
-  expect(f.service.status().pending).toEqual(pending);
-  expect((await f.service.decide("keep", pending?.id)).pending).toBeNull();
-
-  expect(f.applied.at(-1)).toEqual({ interfaceScale: 120 });
-  expect(JSON.parse(await f.read("settings.json"))).toEqual({
-    kind: "settings",
-    interfaceScale: 120,
-  });
-  expect(f.copy()).toBe(await f.read("settings.json"));
-  expect((await f.service.refresh()).pending).toBeNull();
-  const again = await restart(f);
-  expect(again.status().pending).toBeNull();
-});
-
-test.each(["save", "keep"])(
-  "a palette weakened at the settings rename stays unapproved after %s",
-  async (decision) => {
-    const { promise: renaming, resolve: atRename } = Promise.withResolvers<undefined>();
-    const { promise: resume, resolve: finishRename } = Promise.withResolvers<undefined>();
-    let pause = false;
-    const f = await fixture({
-      rename: async (from, to) => {
-        if (pause && to === path.join(f.folder, "settings.json")) {
-          pause = false;
-          atRename(undefined);
-          await resume;
-        }
-        await rename(from, to);
-      },
-    });
-    await f.service.initialize();
-    const file = "themes/personal.json";
-    const interfaceTheme = "user:personal.json";
-    const warned = theme("Personal", { ...palette.colors, attention: palette.colors.ink });
-    await f.write(file, theme("Personal"));
-    await f.settings({ hooks: false, interfaceTheme, interfaceScale: 110 });
-    expect((await f.service.refresh()).pending?.detail).toBe("hooks: on → off");
-    // Put the warned palette in the library, then expose safe bytes only
-    // for the locked preflight. No config watcher runs during the write.
-    await f.write(file, warned);
-    await f.service.reviewTheme(file, warned, parseThemeFile(warned, "theme"));
-    await f.write(file, theme("Personal"));
-    pause = true;
-    const saving =
-      decision === "save" ? f.service.write({ interfaceScale: 120 }) : f.decide("keep");
-    await renaming;
-    try {
-      await f.write(file, warned);
-    } finally {
-      finishRename(undefined);
-    }
-    await saving;
-
-    const interfaceScale = decision === "save" ? 120 : 110;
-    expect(JSON.parse(await f.read("settings.json"))).toEqual({
-      kind: "settings",
-      ...(decision === "save" ? { hooks: false } : {}),
-      interfaceTheme,
-      interfaceScale,
-    });
-    expect(f.applied.at(-1)).toEqual({ interfaceScale });
-    expect(f.applied.every((values) => values.interfaceTheme !== interfaceTheme)).toBe(true);
-    expect(JSON.parse(f.copy() ?? "")).toEqual({ kind: "settings", interfaceScale });
-    expect(f.baseline()).toBe(digest(f.copy() ?? ""));
-    const detail =
-      (decision === "save" ? "hooks: on → off, " : "") + "interfaceTheme: attention-distinctness";
-    expect(f.service.status().pending?.detail).toBe(detail);
-    expect((await f.service.refresh()).pending?.detail).toBe(detail);
-    expect((await restart(f)).status().pending?.detail).toBe(detail);
-  },
-);
-
-test("an invalid palette cannot inherit approval from a cached safe palette on selection", async () => {
-  const f = await fixture();
-  await f.service.initialize();
-  const file = "themes/personal.json";
-  const safe = theme("Personal");
-  await f.write(file, safe);
-  await f.service.reviewTheme(file, safe, parseThemeFile(safe, "theme"));
-  await f.write(file, "{");
-  await f.settings({ interfaceTheme: "user:personal.json" });
-  await f.service.write({ interfaceScale: 120 });
-  expect(f.applied.at(-1)).toEqual({ interfaceScale: 120 });
-  expect(f.service.status().pending?.detail).toBe("interfaceTheme: palette unavailable");
 });
 
 test("a replaced theme proposal cannot be approved, and invalid replacements clear the obsolete hold", async () => {

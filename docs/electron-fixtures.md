@@ -48,6 +48,8 @@ The sparse agent and Environment test polls the resolved IPC values with
 it resolves, so an async predicate can finish the wait when its result is still
 false. Pausing the argument save through the final snapshot reproduced the
 empty argument map, and releasing it made the expected arguments visible.
+The Antigravity plugin and first-run preflight agent-toggle waits use the
+same polling for the same reason.
 The test checks the committed arguments before the Environment edits, then
 checks the live and on-disk arguments afterward. Config unit tests queue a
 scan and another Settings write behind a paused rename and verify that both
