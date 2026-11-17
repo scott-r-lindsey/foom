@@ -19,7 +19,8 @@ import * as tables from "./schema";
 
 const sources = ["settings.json", "worktrees.json", "sessions.json"] as const;
 type Source = (typeof sources)[number];
-type Originals = Record<Source, string | null>;
+export type LegacyOriginals = Readonly<Record<string, string | null>>;
+type Originals = LegacyOriginals;
 export interface ImportReport {
   accepted: number;
   quarantined: number;
@@ -27,7 +28,7 @@ export interface ImportReport {
 }
 const importName = "hosts-worktrees-sessions-v1";
 
-async function readSource(profile: string, source: Source): Promise<string | null> {
+async function readSource(profile: string, source: string): Promise<string | null> {
   const path = join(profile, source);
   try {
     await verifyLegacyProfileFile(path);
@@ -60,9 +61,22 @@ async function readSource(profile: string, source: Source): Promise<string | nul
  * leaves either no snapshot or the complete immutable input for the next attempt.
  * Production JSON files remain writable by their existing owners in phase C.
  */
-async function originals(profile: string): Promise<Originals> {
+async function originals(
+  profile: string,
+  name: string,
+  files: readonly string[],
+): Promise<Originals> {
+  if (
+    !/^[a-z0-9-]+$/u.test(name) ||
+    files.some(
+      (file) =>
+        !/^[a-zA-Z0-9_./-]+$/u.test(file) ||
+        file.split("/").some((part) => !part || part === "." || part === ".."),
+    )
+  )
+    throw new Error("Invalid legacy source");
   const directory = await privateDirectory(await privateDirectory(profile, "data"), "recovery");
-  const file = join(directory, `${importName}.json`);
+  const file = join(directory, `${name}.json`);
   try {
     const info = await lstat(file);
     if (
@@ -77,25 +91,21 @@ async function originals(profile: string): Promise<Originals> {
     const value: unknown = JSON.parse(await readFile(file, "utf8"));
     if (
       !record(value) ||
-      Object.keys(value).length !== 3 ||
-      !(value["settings.json"] === null || typeof value["settings.json"] === "string") ||
-      !(value["worktrees.json"] === null || typeof value["worktrees.json"] === "string") ||
-      !(value["sessions.json"] === null || typeof value["sessions.json"] === "string")
+      Object.keys(value).length !== files.length ||
+      !files.every((file) => value[file] === null || typeof value[file] === "string")
     )
       throw new Error("Invalid recovery snapshot; restore the original files");
-    return {
-      "settings.json": value["settings.json"],
-      "worktrees.json": value["worktrees.json"],
-      "sessions.json": value["sessions.json"],
-    };
+    const result: Record<string, string | null> = {};
+    for (const file of files) {
+      const text = value[file];
+      if (text === null || typeof text === "string") result[file] = text;
+    }
+    return result;
   } catch (error) {
     if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
   }
-  const contents: Originals = {
-    "settings.json": await readSource(profile, "settings.json"),
-    "worktrees.json": await readSource(profile, "worktrees.json"),
-    "sessions.json": await readSource(profile, "sessions.json"),
-  };
+  const contents: Record<string, string | null> = {};
+  for (const file of files) contents[file] = await readSource(profile, file);
   const temporary = join(directory, `${randomUUID()}.tmp`);
   const handle = await createPrivateFile(temporary);
   try {
@@ -126,7 +136,7 @@ export function importRows(db: DataTransaction, input: Originals): ImportReport 
   const report: ImportReport = {
     accepted: 0,
     quarantined: 0,
-    sources: sources.filter((source) => input[source] !== null),
+    sources: sources.filter((source) => input[source] != null),
   };
   const quarantine = (
     source: string,
@@ -160,7 +170,7 @@ export function importRows(db: DataTransaction, input: Originals): ImportReport 
     }
   }
   function parse(source: Source): unknown {
-    const text = input[source];
+    const text = input[source] ?? null;
     if (text === null) return undefined;
     try {
       const result: unknown = JSON.parse(text);
@@ -342,26 +352,31 @@ export function importRows(db: DataTransaction, input: Originals): ImportReport 
 /** Explicit opt-in preparation only; never called from production startup in C. */
 const importing = new WeakMap<ProfileDatabase, Promise<unknown>>();
 export function importLegacy(database: ProfileDatabase, profile: string) {
+  return importLegacyGroup(database, profile, importName, sources, importRows);
+}
+export function importLegacyGroup(
+  database: ProfileDatabase,
+  profile: string,
+  name: string,
+  files: readonly string[],
+  ingest: (db: DataTransaction, input: LegacyOriginals) => unknown,
+) {
   const next = (importing.get(database) ?? Promise.resolve())
     .catch(() => undefined)
-    .then(() => runImport(database, profile));
+    .then(async () => {
+      const snapshot = await originals(profile, name, files);
+      return database.write((db) => {
+        const previous = db
+          .select()
+          .from(tables.imports)
+          .where(eq(tables.imports.name, name))
+          .get();
+        if (previous) return { alreadyImported: true, report: previous.report };
+        const report = JSON.stringify(ingest(db, snapshot));
+        db.insert(tables.imports).values({ name, report }).run();
+        return { alreadyImported: false, report };
+      });
+    });
   importing.set(database, next);
   return next;
-}
-async function runImport(database: ProfileDatabase, profile: string) {
-  // File acquisition and the completion marker share the serialized import slot;
-  // a second invocation never touches the mutable production files again.
-  const snapshot = await originals(profile);
-  return database.write((db) => {
-    const previous = db
-      .select()
-      .from(tables.imports)
-      .where(eq(tables.imports.name, importName))
-      .get();
-    if (previous) return { alreadyImported: true, report: previous.report };
-    const report = importRows(db, snapshot);
-    const encoded = JSON.stringify(report);
-    db.insert(tables.imports).values({ name: importName, report: encoded }).run();
-    return { alreadyImported: false, report: encoded };
-  });
 }

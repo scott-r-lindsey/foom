@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { drizzle } from "drizzle-orm/node-sqlite";
@@ -12,8 +12,10 @@ import { viewChanges } from "../view-changes";
 import type { DataView } from "../../../shared/data-views";
 import type { ViewChanges } from "../view-changes";
 
-const migration = () =>
-  readFileSync(join(__dirname, "migrations/20261117073834_medical_morg/migration.sql"), "utf8");
+const migrations = () =>
+  readdirSync(join(__dirname, "migrations"))
+    .sort()
+    .map((name) => readFileSync(join(__dirname, "migrations", name, "migration.sql"), "utf8"));
 const internal = new Set(["_changes", "_imports", "_schema"]);
 const views: Readonly<Record<string, readonly DataView[]>> = {
   hosts: ["hosts", "settings", "agents"],
@@ -24,6 +26,9 @@ const views: Readonly<Record<string, readonly DataView[]>> = {
   pending_removals: ["worktrees"],
   worktree_parents: ["worktrees"],
   quarantine: [],
+  profile_settings: ["settings", "hosts", "agents", "readiness"],
+  agent_consents: ["settings", "agents"],
+  profile_metadata: ["config", "settings"],
 };
 const allViews: DataView[] = [
   "settings",
@@ -91,27 +96,43 @@ export class ProfileDatabase {
     }
   }
   private migrate(): void {
+    const scripts = migrations();
     const version = this.connection.prepare("PRAGMA user_version").get()?.["user_version"];
-    if (version !== 0 && version !== 1)
+    if (
+      typeof version !== "number" ||
+      !Number.isInteger(version) ||
+      version < 0 ||
+      version > scripts.length
+    )
       throw new Error("Unsupported profile database version; use a compatible Foom build");
-    const sql = migration();
-    const digest = createHash("sha256").update(sql).digest("hex");
-    if (version === 1) {
+    const digests = scripts.map((script) => createHash("sha256").update(script).digest("hex"));
+    if (version > 0) {
+      const applied = this.connection
+        .prepare("SELECT version,digest FROM _schema ORDER BY version")
+        .all();
       if (
-        this.connection.prepare("SELECT digest FROM _schema WHERE version=1").get()?.["digest"] !==
-        digest
+        applied.length !== version ||
+        applied.some(
+          (row, index) => row["version"] !== index + 1 || row["digest"] !== digests[index],
+        )
       )
         throw new Error("Profile database migration checksum mismatch; restore a verified backup");
-      return;
     }
+    if (version === scripts.length) return;
     this.connection.exec("BEGIN IMMEDIATE");
     try {
-      this.connection.exec(sql);
-      this.connection.exec(
-        "CREATE TABLE _schema (version INTEGER PRIMARY KEY, digest TEXT NOT NULL) STRICT",
-      );
-      this.connection.prepare("INSERT INTO _schema VALUES(1, ?)").run(digest);
-      this.connection.exec("PRAGMA user_version=1; COMMIT");
+      if (version === 0)
+        this.connection.exec(
+          "CREATE TABLE _schema (version INTEGER PRIMARY KEY, digest TEXT NOT NULL) STRICT",
+        );
+      for (const [index, script] of scripts.entries()) {
+        if (index < version) continue;
+        this.connection.exec(script);
+        this.connection
+          .prepare("INSERT INTO _schema VALUES(?, ?)")
+          .run(index + 1, digests[index] ?? "");
+      }
+      this.connection.exec(`PRAGMA user_version=${String(scripts.length)}; COMMIT`);
       this.invalidateAll = true;
     } catch (error) {
       this.connection.exec("ROLLBACK");

@@ -102,3 +102,66 @@ test("data SQLite: Drizzle, importer and commit publications run in Electron mai
     `SQLite importer commit-to-publication including file preparation: ${result.latency.toFixed(1)} ms`,
   );
 });
+
+test("data SQLite: profile settings and consent import preserve JSON and publish after commit", {
+  timeout: deadline(45_000),
+}, async (context) => {
+  const app = await launchApp(context, { fixture: "empty-board" });
+  const result = await app.evaluate(async ({ app }, modulePath) => {
+    const load = process.getBuiltinModule("node:module").createRequire(modulePath);
+    const { ProfileDatabase } = load(modulePath);
+    const { importProfileSettings, saveProfileSettings, saveAgentConsent } = load("./settings.js");
+    const fs = load("node:fs/promises");
+    const path = load("node:path");
+    const { DatabaseSync } = load("node:sqlite");
+    const profile = await fs.mkdtemp(path.join(app.getPath("userData"), "sqlite-settings-"));
+    const original = JSON.stringify({
+      version: 2,
+      settings: {
+        terminalClipboardWrites: false,
+        agentBypassAcknowledged: { "custom-agent": true },
+      },
+    });
+    await fs.writeFile(path.join(profile, "settings.json"), original, { mode: 0o600 });
+    const pushed = [];
+    const db = await ProfileDatabase.open(profile, {
+      publish(...views) {
+        const connection = new DatabaseSync(path.join(profile, "data/profile.sqlite"));
+        try {
+          pushed.push({
+            views,
+            value: connection
+              .prepare("SELECT value FROM profile_settings WHERE key='terminalClipboardWrites'")
+              .get()?.value,
+          });
+        } finally {
+          connection.close();
+        }
+      },
+    });
+    try {
+      await importProfileSettings(db, profile);
+      await saveProfileSettings(db, { terminalClipboardWrites: true });
+      await saveAgentConsent(db, "custom-agent", true, null);
+      const connection = new DatabaseSync(path.join(profile, "data/profile.sqlite"));
+      try {
+        return {
+          pushed,
+          consent: connection.prepare("SELECT identity FROM agent_consents").get().identity,
+          unchanged: (await fs.readFile(path.join(profile, "settings.json"), "utf8")) === original,
+        };
+      } finally {
+        connection.close();
+      }
+    } finally {
+      await db.close();
+    }
+  }, path.resolve("build/main/data/sqlite/database.js"));
+  assert.equal(result.unchanged, true);
+  assert.equal(result.consent, null);
+  assert.deepEqual(
+    result.pushed.map((row) => row.value),
+    ["false", "true", "true"],
+  );
+  assert.ok(result.pushed.every((row) => row.views.includes("settings")));
+});

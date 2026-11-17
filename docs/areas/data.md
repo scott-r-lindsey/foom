@@ -271,7 +271,7 @@ completion marker commit together. Row savepoints isolate constraint failures;
 missing/rejected parents never manufacture authority. Unsupported file versions
 refuse the import. Reports contain counts and fixed source names, never rejected
 payloads. Other settings and per-feature stores are not imported by this first
-group and remain in JSON. Later groups under #1162 still need settings/consents,
+group and remain in JSON. Later groups under #1162 still need
 environment ciphertext, board/forge/offers/control/audit and window/update state.
 The eventual cutover and retirement of JSON writers belong to phase D.
 
@@ -279,3 +279,23 @@ The phase-A report supplies observational timings, **not** agreed cold-start or
 write-to-view budgets. This group records real Electron import/publication timing;
 a CI budget needs an explicit workload and approved limits before it can become
 a performance gate. It does not claim that spike write-to-changes is IPC latency.
+
+### Settings and consents preparation
+
+The next reviewed migration adds `profile_settings`, `agent_consents` and
+`profile_metadata`. The migration runner verifies every already-applied digest,
+then applies pending scripts and version records atomically. Existing first-group
+databases upgrade in place. All new domain tables are STRICT with change triggers;
+settings keys, boolean preferences, closed choices and consent identities have
+SQL checks as well as the existing runtime validators.
+
+`importProfileSettings` has its own frozen recovery source and completion marker.
+It reads only profile `settings.json`, never the external config folder. Version-2
+config keys cannot become an accepted projection merely because they occur on
+disk; only a validated `configText` with its matching recorded SHA-256 baseline is
+retained. Pending per-agent arguments keep their documented profile migration
+status. Unknown or retired settings are quarantined, not written into SQLite.
+Consent acknowledgements and disclosure identities are separate columns. ID-only
+historical built-ins retain their historical identity; custom IDs do not gain a
+current identity. Existing launch-time identity checks remain required. These
+preparations add no production writer, approval, consent or read capability.

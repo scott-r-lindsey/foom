@@ -111,3 +111,59 @@ export const changes = sqliteTable("_changes", {
   revision: integer().primaryKey({ autoIncrement: true }),
   tableName: text("table_name").notNull(),
 });
+
+export const profileSettings = sqliteTable(
+  "profile_settings",
+  {
+    key: text().primaryKey().notNull(),
+    value: text().notNull(),
+  },
+  (t) => [
+    check(
+      "profile_settings_key",
+      sql`${t.key} IN ('setupComplete','checkForUpdates','agyPluginOfferAnswered','hooks','agentHooks','restoreSessions','showNewChildren','closeFinishedAgents','wakeOrchestrator','wakeIntervalMinutes','concurrentChildren','defaultAgent','recentRepositoryDays','unreadChildMinutes','autoRemoveMergedWorktrees','showPullRequests','showNestedRepositoryNames','middleClickPaste','copyOnSelect','terminalClipboardWrites','forges','forgeHosts','agents','agentArguments','worktreeLocation','panelColor','interfaceTheme','interfaceScale','terminalFontSize','terminalFont','terminalTheme','sound','codeFolder')`,
+    ),
+    check("profile_settings_json", sql`json_valid(${t.value})`),
+    check(
+      "profile_settings_boolean",
+      sql`${t.key} NOT IN ('setupComplete','checkForUpdates','agyPluginOfferAnswered','hooks','restoreSessions','showNewChildren','closeFinishedAgents','wakeOrchestrator','autoRemoveMergedWorktrees','showPullRequests','showNestedRepositoryNames','middleClickPaste','copyOnSelect','terminalClipboardWrites') OR json_type(${t.value}) IN ('true','false')`,
+    ),
+    check(
+      "profile_settings_location",
+      sql`${t.key} != 'worktreeLocation' OR json_extract(${t.value}, '$') IN ('root','adjacent')`,
+    ),
+    check(
+      "profile_settings_panel",
+      sql`${t.key} != 'panelColor' OR json_extract(${t.value}, '$') IN ('vivid','subtle','plain')`,
+    ),
+  ],
+);
+export const agentConsents = sqliteTable(
+  "agent_consents",
+  {
+    agent: text().primaryKey().notNull(),
+    acknowledged: integer().notNull(),
+    identity: text(),
+  },
+  (t) => [
+    check("agent_consents_boolean", sql`${t.acknowledged} IN (0,1)`),
+    check(
+      "agent_consents_identity",
+      sql`${t.identity} IS NULL OR (length(${t.identity})=64 AND ${t.identity} NOT GLOB '*[^a-f0-9]*')`,
+    ),
+  ],
+);
+export const profileMetadata = sqliteTable(
+  "profile_metadata",
+  {
+    key: text().primaryKey().notNull(),
+    value: text().notNull(),
+  },
+  (t) => [
+    check(
+      "profile_metadata_key",
+      sql`${t.key} IN ('remoteProfile','configVersion','configDigest','configText','themeDigests')`,
+    ),
+    check("profile_metadata_json", sql`json_valid(${t.value})`),
+  ],
+);

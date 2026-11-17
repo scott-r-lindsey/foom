@@ -93,7 +93,7 @@ test("startup enforces FK readback and deploys STRICT tables with all three chan
       .prepare("PRAGMA table_list")
       .all()
       .filter((row) => row["schema"] === "main" && !String(row["name"]).startsWith("sqlite_"));
-    expect(list).toHaveLength(11);
+    expect(list).toHaveLength(Object.keys(tables).length + 1);
     for (const row of list) {
       expect(row["strict"]).toBe(1);
       if (String(row["name"]).startsWith("_")) continue;
@@ -665,4 +665,155 @@ test("process death mid-import leaves no accepted rows or completion and recover
   const resumed = await ProfileDatabase.open(profile);
   connections.push(resumed);
   expect((await importLegacy(resumed, profile)).value.alreadyImported).toBe(false);
+});
+
+test("settings and consent domain writes publish only committed validated profile data", async () => {
+  const { saveProfileSettings, saveAgentConsent } = await import(
+    "../../../../../src/main/data/sqlite/settings"
+  );
+  const { db, file, publications } = await fixture();
+  await db.retryPublication();
+  const listener = vi.fn();
+  const off = publications.subscribe(listener);
+  try {
+    await saveProfileSettings(db, {
+      terminalClipboardWrites: true,
+      wakeIntervalMinutes: 7,
+      panelColor: "subtle",
+    });
+    await saveProfileSettings(db, { terminalClipboardWrites: false });
+    await saveAgentConsent(db, "codex", true, "a".repeat(64));
+    await saveAgentConsent(db, "codex", false, null);
+    expect(listener).toHaveBeenCalledTimes(4);
+    inspect(file, (raw) => {
+      expect(
+        raw
+          .prepare("SELECT value FROM profile_settings WHERE key='terminalClipboardWrites'")
+          .get()?.["value"],
+      ).toBe("false");
+      expect(raw.prepare("SELECT acknowledged,identity FROM agent_consents").get()).toEqual({
+        acknowledged: 0,
+        identity: null,
+      });
+      expect(() => {
+        raw.exec("INSERT INTO profile_settings VALUES ('unknown','true')");
+      }).toThrow();
+      expect(() => {
+        raw.exec("UPDATE profile_settings SET value='2' WHERE key='terminalClipboardWrites'");
+      }).toThrow();
+      expect(() => {
+        raw.exec("INSERT INTO agent_consents VALUES ('bad',2,NULL)");
+      }).toThrow();
+    });
+    for (const input of [
+      { terminalClipboardWrites: "yes" },
+      { registeredHosts: [] },
+      { agentBypassAcknowledged: {} },
+      { agentBypassIdentities: {} },
+      { unknown: true },
+    ])
+      await expect(saveProfileSettings(db, input)).rejects.toThrow();
+    await expect(saveAgentConsent(db, "bad!", true, null)).rejects.toThrow();
+    await expect(saveAgentConsent(db, "codex", true, "not-a-digest")).rejects.toThrow();
+  } finally {
+    off();
+  }
+});
+
+test("settings import preserves accepted config baseline and historical consent without reading external config", async () => {
+  const { createHash } = await import("node:crypto");
+  const { importProfileSettings } = await import("../../../../../src/main/data/sqlite/settings");
+  const { db, file, profile } = await fixture();
+  const configText = JSON.stringify({ kind: "settings", hooks: false });
+  await put(profile, {
+    ...sources(),
+    "settings.json": JSON.stringify({
+      version: 2,
+      remoteProfile: "a".repeat(32),
+      configText,
+      configDigest: createHash("sha256").update(configText).digest("hex"),
+      themeDigests: { "themes/test.json": "b".repeat(64) },
+      settings: {
+        terminalClipboardWrites: true,
+        agentArguments: { codex: [] },
+        agentBypassAcknowledged: { codex: true, "custom-agent": true, claude: false },
+        agentBypassIdentities: { claude: "c".repeat(64) },
+      },
+    }),
+  });
+  expect((await importProfileSettings(db, profile)).value.alreadyImported).toBe(false);
+  expect((await importProfileSettings(db, profile)).value.alreadyImported).toBe(true);
+  inspect(file, (raw) => {
+    expect(raw.prepare("SELECT * FROM profile_metadata").all()).toHaveLength(5);
+    expect(
+      raw.prepare("SELECT identity FROM agent_consents WHERE agent='custom-agent'").get()?.[
+        "identity"
+      ],
+    ).toBeNull();
+    expect(
+      raw.prepare("SELECT identity FROM agent_consents WHERE agent='codex'").get()?.["identity"],
+    ).toMatch(/^[a-f0-9]{64}$/);
+    expect(raw.prepare("SELECT * FROM quarantine").all()).toEqual([]);
+  });
+});
+
+test("settings importer quarantines invalid consent, retired secrets and unapproved v2 config projections", async () => {
+  const { importSettingsRows } = await import("../../../../../src/main/data/sqlite/settings");
+  for (const input of [
+    {
+      version: 1,
+      settings: {
+        hooks: true,
+        colorMode: "dark",
+        agentBypassIdentities: { codex: "bad" },
+        inference: { secret: "never-persist-me" },
+      },
+    },
+    {
+      version: 2,
+      settings: { hooks: false },
+      remoteProfile: "bad",
+      configText: "{}",
+      configDigest: "bad",
+      themeDigests: { outside: "bad" },
+    },
+    { version: 2, settings: null },
+  ]) {
+    const { db, file } = await fixture();
+    const result = await db.write((orm) => importSettingsRows(orm, JSON.stringify(input)));
+    expect(result.value.quarantined).toBeGreaterThan(0);
+    inspect(file, (raw) => {
+      expect(JSON.stringify(raw.prepare("SELECT * FROM profile_settings").all())).not.toContain(
+        "never-persist-me",
+      );
+    });
+  }
+  const { db } = await fixture();
+  expect((await db.write((orm) => importSettingsRows(orm, null))).value.accepted).toBe(0);
+  expect((await db.write((orm) => importSettingsRows(orm, "{"))).value.quarantined).toBe(1);
+  await expect(db.write((orm) => importSettingsRows(orm, '{"version":99}'))).rejects.toThrow(
+    "version",
+  );
+});
+
+test("settings migration upgrades an existing first-group database without losing rows", async () => {
+  const { db, file, profile } = await fixture();
+  await executeDataCommand(db, {
+    type: "register-host",
+    host: { host: "example", codeFolder: "~/code" },
+  });
+  await db.close();
+  connections.pop();
+  inspect(file, (raw) => {
+    raw.exec(
+      "DROP TABLE profile_settings; DROP TABLE agent_consents; DROP TABLE profile_metadata; DELETE FROM _schema WHERE version > 1; PRAGMA user_version=1",
+    );
+  });
+  const upgraded = await ProfileDatabase.open(profile);
+  connections.push(upgraded);
+  inspect(file, (raw) => {
+    expect(raw.prepare("SELECT * FROM hosts").all()).toHaveLength(1);
+    expect(raw.prepare("SELECT * FROM profile_settings").all()).toEqual([]);
+    expect(raw.prepare("PRAGMA user_version").get()?.["user_version"]).toBe(2);
+  });
 });
