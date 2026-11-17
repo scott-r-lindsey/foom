@@ -118,6 +118,12 @@ downloader/executor shared by human-clicked installers (#1071); it imports only
 Node built-ins and grants no control authority. Other Node-common imports remain
 refused from terminal-host; the console cannot import main, Electron or terminal-host policy. Renderer and shared modules cannot import Node, Electron, node-pty or headless xterm. The sandboxed preload may import Electron at runtime and shared declarations as types. Its sole shared runtime dependency, `shared/board-commands.ts`, is pure browser-safe data and validation bundled inline by esbuild; the sandbox loader still requires only Electron. The boundary lint rule permits only this specific shared module.
 
+Within main and renderer, `foom/area-boundaries` also freezes cross-area edges and
+finite public-module lists. See the [incremental area import freeze](../map.md#area-import-freeze-1127)
+for the policy files, historical reciprocal-pair baseline and amendment process.
+This first freeze keeps current leaf-module imports; single-entry APIs and
+reciprocal-pair removal remain follow-ups.
+
 Import implementations and their types directly from their owning modules; do not
 add migration-only `export *` forwarding files. Provider launch preparation lives
 in `main/agents/providers/v2.ts`, including

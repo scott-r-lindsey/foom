@@ -5,6 +5,48 @@ area you will change. Read additional contract sections only when changing that
 surface. These are decided rules; changing a decision needs its own PR and docs.
 [Documentation authority](README.md#authority-and-maintenance) explains precedence.
 
+## Area import freeze (#1127)
+
+[`scripts/area-boundaries.json`](../scripts/area-boundaries.json) declares each
+main and renderer area's finite public-module list and allowed imports (`type`
+or `value`). `foom/area-boundaries` enforces it in `pnpm run lint`, including
+re-exports, literal dynamic imports, `require`, import-equals and import types,
+across `.ts`, `.tsx`, `.cts`, `.mts`, `.js`, `.cjs` and `.mjs` source files.
+String literals and template literals without substitutions are resolved alike.
+Dynamic expressions (including interpolated templates) fail closed; there are no
+current dynamic-specifier exceptions. Package-local `#` aliases resolve through
+the nearest `package.json` imports map, including wildcard and conditional local
+targets; every conditional target must satisfy the policy. Missing, invalid or
+unsupported alias targets fail closed.
+A permitted edge does not permit importing other modules inside the target area.
+Types count as dependencies; type-only edges cannot become runtime imports.
+
+This is the **first, incremental freeze** of existing dependencies. It adds no
+barrels or import rewrites: orchestration's leaf modules remain leaves. The
+historical [baseline](../scripts/area-boundaries-baseline.json) records the original
+public modules, edges and all nine main and six renderer reciprocal pairs.
+The active policy may remove modules/edges or narrow value edges to types; lint
+rejects additions or widening beyond that ceiling. The historical snapshot has a
+pinned digest in the rule so editing both JSON files cannot silently grow it.
+Do not regenerate it from new imports to make lint pass. An intentional amendment
+needs a separate, explicitly justified boundary-policy PR updating the snapshot
+and its digest as well as the active map. Ordinary refactors should shrink the
+active policy when the last consumer disappears.
+
+`main/wiring` is the composition root and already has edges to every main area.
+Only `main/main.ts` may import its declared public application entry. Root-level
+composition files obey area APIs; existing root-level process helpers remain
+process-wide and are also subject to the process-boundary rule. Asset folders
+are declared with empty APIs. Adding a code area requires an explicit policy
+amendment rather than silently creating a new unrestricted folder.
+
+Removing the recorded reciprocal pairs and converging on single-entry APIs are
+follow-ups to this freeze, after their runtime dependencies are disentangled.
+File-level `import/no-cycle` remains disabled here: the exploratory full-repo run
+found existing cycles in the legacy forge test helpers and macOS signing scripts.
+Those cycles and further cycle-rule rollout are separate follow-ups, without
+suppressions or unrelated runtime refactors in this change.
+
 ## Selection rules
 
 [Data ownership and synchronization](areas/data.md) is required for persistence,
