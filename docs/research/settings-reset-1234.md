@@ -12,10 +12,16 @@ only that map: the omitted `concurrentChildren` and `interfaceScale` then resolv
 to 4 and 100. A stale baseline could likewise erase newer preferences from
 another profile before the watcher scanned them.
 
-#1228 prevents the reproduced paths by scanning fresh bytes before merging a
-patch, adopting safe edits through the existing approval gate, and rejecting the
-save if the file is missing, invalid or unreadable. No additional production
-change is needed for these reproductions.
+#1228 protects ordered stale writes and read/parse failures, but review on
+head `5114d438` reproduced two remaining paths: another profile can commit
+between the scan and rename, and a rejected profile can leave an empty baseline
+while a held shared file still passes the writer gate. PR #1237 fixes both with
+an exclusive cross-profile settings lock covering read, patch merge and rename,
+and a refusal to save held settings without a trusted baseline. Saves merge only
+patched keys into the current file; unrelated held proposals remain held.
+Lock contention fails closed after a bounded wait and leaves the patch retryable.
+A crashed lock is never automatically stolen. These protections coordinate Foom
+writers; arbitrary external editors do not participate in the lock protocol.
 
 This confirms a destructive code path consistent with the report, **not the
 historical trigger on November 16**. No incident file, logs or real profile was
@@ -47,8 +53,10 @@ into a claim that the actual incident trigger was proved.
   runs two independent services against one temporary config directory. Both
   start empty, the first saves 16/150 and enabled agents, then the second saves
   another enabled agent before its watcher runs. Main preserves all preferences.
-  This models an ordered stale write, not simultaneous writers between the read
-  and rename: there is no cross-process transaction or lock added by #1228.
+  The additional review regression pauses one writer at rename while the other
+  attempts to save. The contender must refuse without writing; after release,
+  retry merges fresh bytes and retains 16/150. #1237 adds the cross-process lock
+  that #1228 lacked.
 - **Two instances of one profile:** `runApplication` selects the profile before
   acquiring Electron's single-instance lock; a losing launch exits before opening
   stores. Distinct profiles can still run together. Switching profiles can also
@@ -59,7 +67,10 @@ into a claim that the actual incident trigger was proved.
   That separate fallback remains in current code for invalid profile state;
   #1228 changes the shared-config writer, not this loader. For migrated version-2
   profiles, child limit and zoom belong to shared config, so a profile reset
-  alone is not evidence that the shared file was replaced. A valid but already
+  alone is not evidence that the shared file was replaced. Review additionally
+  reproduces that rejected version-2 profile followed by an agents save while
+  shared arguments hold; #1237 refuses the save and preserves every shared byte.
+  A valid but already
   stripped config file also cannot be repaired automatically by #1228.
 
 ## Regression and countercheck
@@ -67,11 +78,29 @@ into a claim that the actual incident trigger was proved.
 `tests/unit/main/config/settings-reset.test.ts` uses only temporary directories,
 fixture watchers, production config defaults and a settings-only mocked read
 failure. It covers two-profile stale writes, both cold-start failures, and both
-version-1 migration shapes. The three writer regressions fail when only the
-pre-save scan/rejection block from #1228 is removed, with the rest of current main
+version-1 migration shapes. On the initial research head `5114d438`, the three writer regressions fail when only the
+pre-save scan/rejection block from #1228 is removed, with the rest of that head
 and all assertions unchanged; the migration cases still pass. Restoring the block
 makes all five cases pass. No agents, network, shell startup files or real
 profiles are used by these tests.
+
+The two review cases in
+`tests/unit/main/config/review-interleaving.test.ts` derive from the review
+fixtures. Both fail on `5114d438`: the concurrent save unexpectedly succeeds,
+and the rejected-profile save unexpectedly replaces the held file. The fixed
+writer preserves the shared file and lets contention retry against fresh bytes.
+All reads remain confined to temporary fixtures.
+
+Local validation after the fix passed `pnpm run check` (8,023 unit tests and
+344 tooling tests), both focused settings/zoom Electron tests under Xvfb,
+`pnpm run test:coverage`, `pnpm run make`, and all three packaged smoke tests
+under Xvfb, followed by `pnpm run clean` and `git diff --check`. Coverage met
+all thresholds (98.56% lines, 94.69% branches overall). The first coverage run
+timed out in the unrelated argument-attachment probe fixture at its existing
+five-second deadline; both probe cases then passed alone, and a full coverage
+retry passed without changing deadlines or source. Local packaging omitted the
+unavailable remote-host catalog as documented; packaged smoke passed with that
+sealed omission. These are local results; CI is owned by the orchestrator.
 
 ## Recovery limits
 

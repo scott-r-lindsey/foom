@@ -572,14 +572,21 @@ export class ConfigService {
     return this.serial(() => this.writeSettings(patch));
   }
 
-  private async writeSettings(patch: ConfigSettings): Promise<void> {
-    // The shared file may have changed before our watcher runs. Adopt safe edits
-    // through the usual approval gate before merging this field-specific patch.
-    if ((await this.scanSettings()) === "rejected") {
+  private writeSettings(patch: ConfigSettings): Promise<void> {
+    return this.files.withSettingsLock(() => this.writeSettingsLocked(patch));
+  }
+
+  private async writeSettingsLocked(patch: ConfigSettings): Promise<void> {
+    // Read and merge while other profiles are excluded through the atomic rename.
+    const scanned = await this.scanSettings();
+    if (scanned === "rejected" || (scanned === "held" && this.applied === DEFAULTS)) {
       this.publish();
-      throw new Error("Unable to read valid Foom settings. Retry after the file is available.");
+      throw new Error(
+        "Unable to read valid Foom settings. Retry after the file is available and reviewed.",
+      );
     }
-    const text = `${JSON.stringify({ kind: "settings", ...this.applied.values, ...patch }, null, 2)}\n`;
+    const current = this.pending?.values ?? this.applied.values;
+    const text = `${JSON.stringify({ kind: "settings", ...current, ...patch }, null, 2)}\n`;
     let values: ConfigSettings;
     try {
       values = parseSettingsFile(text);
@@ -588,7 +595,15 @@ export class ConfigService {
       throw new Error("This setting cannot be stored in the Foom config folder");
     }
     await this.files.writeFile(SETTINGS_FILE, text);
-    await this.applyValues(text, values);
+    if (scanned === "held") {
+      // Preserve unrelated proposals on disk without granting them approval.
+      const approved = { ...this.applied.values, ...patch };
+      await this.applyValues(
+        `${JSON.stringify({ kind: "settings", ...approved }, null, 2)}\n`,
+        approved,
+      );
+      await this.scanSettings();
+    } else await this.applyValues(text, values);
     this.publish();
   }
 
@@ -650,8 +665,13 @@ export class ConfigService {
         }
         await this.applyValues(pending.text, pending.values);
       } else {
-        await this.files.writeFile(SETTINGS_FILE, this.applied.text);
-        this.pending = null;
+        await this.files.withSettingsLock(async () => {
+          const current = await this.files.read(SETTINGS_FILE);
+          if (!current || decode(current) !== pending.text)
+            throw new Error("The file changed. Review the new change.");
+          await this.files.writeFile(SETTINGS_FILE, this.applied.text);
+          this.pending = null;
+        });
       }
       this.publish();
       return this.status();

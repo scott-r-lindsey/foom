@@ -108,6 +108,33 @@ export class ConfigFiles {
     }
   }
 
+  /** All cooperating profiles hold this lock from the settings read through rename.
+   * A crashed owner leaves a lock requiring manual removal; never steal a live lock.
+   */
+  async withSettingsLock<T>(work: () => Promise<T>): Promise<T> {
+    const path = this.path(".foom-settings.lock");
+    for (let attempt = 0; ; attempt++) {
+      const lock = await open(path, "wx", 0o600).catch((error: unknown) => {
+        if (error instanceof Error && "code" in error && error.code === "EEXIST") return null;
+        throw error;
+      });
+      if (lock) {
+        try {
+          return await work();
+        } finally {
+          try {
+            await lock.close();
+          } finally {
+            await rm(path);
+          }
+        }
+      }
+      if (attempt === 20)
+        throw new Error("Foom settings are busy. Retry the change after the other save finishes.");
+      await sleep(25);
+    }
+  }
+
   /** Atomic replacement inside the folder; the temporary name is hidden from the catalogs. */
   async writeFile(relative: string, content: Uint8Array | string): Promise<void> {
     const target = this.path(relative);
