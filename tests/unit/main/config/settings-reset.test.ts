@@ -155,6 +155,32 @@ test.each(["write", "refresh"])(
   },
 );
 
+test("a disjoint full provider map keeps its approved entries through Settings save and Keep", async () => {
+  const f = await fixture({ defaults });
+  const approvedAgents = Object.fromEntries(
+    Array.from({ length: 100 }, (_, index) => [`approved-${String(index)}`, true]),
+  );
+  const proposedAgents = Object.fromEntries(
+    Array.from({ length: 100 }, (_, index) => [`proposed-${String(index)}`, true]),
+  );
+  await f.service.initialize({ agents: approvedAgents });
+  await f.settings({ agents: proposedAgents, hooks: false, interfaceScale: 110 });
+  expect((await f.service.refresh()).pending?.detail).toContain("agents.approved-0: on → off");
+
+  await f.service.write({ interfaceScale: 120 });
+  const approved = { kind: "settings", agents: approvedAgents, interfaceScale: 120 };
+  expect(JSON.parse(f.copy() ?? "")).toEqual(approved);
+  expect(JSON.parse(await f.read("settings.json"))).toEqual({
+    ...approved,
+    agents: proposedAgents,
+    hooks: false,
+  });
+  expect(f.applied.at(-1)).toEqual({ agents: approvedAgents, interfaceScale: 120 });
+  expect((await f.decide("keep")).pending).toBeNull();
+  expect(JSON.parse(await f.read("settings.json"))).toEqual(approved);
+  expect(f.copy()).toBe(await f.read("settings.json"));
+});
+
 test.each(["partial JSON", "read failure"])(
   "a cold profile cannot overwrite all preferences after startup %s",
   async (failure) => {

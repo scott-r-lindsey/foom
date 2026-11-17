@@ -115,6 +115,13 @@ approved values in the profile's baseline. Without a trusted baseline (including
 a held file refuses Settings saves until reviewed. Missing, unreadable or invalid
 files also refuse saves without replacing external bytes. Keep it on uses the
 same lock and rechecks the proposal before replacement.
+Both paths assess an external interface theme selection against the palette
+under the lock. They recheck after the settings rename because palette files
+can change independently. If the selection then requires approval, it stays in
+the working file for review and the profile retains its previous selection.
+An unreadable or invalid palette holds a new external selection even when the
+library has a last-good palette.
+Explicit theme choices in Appearance continue to apply directly.
 The [#1234 investigation](../research/settings-reset-1234.md) records both
 reproduced races and recovery limits; it does not establish the historical
 incident trigger. On Windows only, atomic
@@ -150,6 +157,11 @@ proposal after the banner was shown, the decision is refused and the new one sho
 **Allow** rechecks that the file still has the held content and applies it.
 **Keep it on** rechecks the same proposal under the shared lock and restores
 approved values for the held fields, preserving safe edits from the current file.
+If restoring individual provider switches would produce an invalid `agents` map,
+Keep it on and unrelated Settings saves retain the entire approved map in the
+profile baseline. A Settings save still leaves the proposed map in the working
+file for review. If the resulting settings fail validation, the operation refuses
+the write without replacing the file or the approved baseline.
 At startup the working file is trusted only if its digest matches `configDigest`; otherwise the profile's `configText` is trusted if its
 digest matches; otherwise the baseline is the defaults (`{ "kind": "settings" }`),
 so an off switch written while Foom was closed is held and Keep it on restores
