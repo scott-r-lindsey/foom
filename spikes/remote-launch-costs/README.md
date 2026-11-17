@@ -11,7 +11,15 @@ connection/authentication timings and real agent discovery. **Those remain
 unmeasured.** This task authorized fixtures only. These figures cannot establish
 SSH/EC2 latency, remote storage performance or real-agent startup costs.
 
-## Reproduce
+## Follow-up
+
+The current harness profiles deferred connector module initialization; see
+[the follow-up report](startup.md) for reproduction and current measurements.
+The results below preserve PR #1172's original unused-hash experiment. Its exact
+harness is available at that PR's revision; the current runner no longer restores
+the unused connector hash.
+
+## Original reproduction (PR #1172)
 
 From the repository root, with Node 24 and the pinned dependencies installed:
 

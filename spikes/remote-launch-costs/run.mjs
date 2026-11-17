@@ -11,7 +11,8 @@ import { build } from "esbuild";
 assert.equal(process.platform, "linux");
 assert.equal(process.versions.node.split(".")[0], "24");
 const root = resolve(".");
-const out = resolve("test-results/1098");
+const reverse = process.env.FOOM_COST_REVERSE === "1";
+const out = resolve(`test-results/1098-startup${reverse ? "-reverse" : ""}`);
 await mkdir(out, { recursive: true });
 const require = createRequire(import.meta.url);
 const now = () => performance.timeOrigin + performance.now();
@@ -32,9 +33,11 @@ for (const name of ["remote-host-artifacts", "remote-host-darwin"])
     JSON.stringify(pathToFileURL(resolve(`scripts/${name}.mjs`)).href),
   );
 builder = builder.replace('fileURLToPath(new URL("../", import.meta.url))', JSON.stringify(root));
+const bundleClock =
+  'process.stderr.write(JSON.stringify({cost1098: "bundle-entry", at: performance.timeOrigin + performance.now()}) + "\\n");';
 builder = builder.replace(
   "plugins: [",
-  'plugins: [instrumentation(process.env.FOOM_COST_BASELINE === "1"),',
+  `banner: { js: ${JSON.stringify(bundleClock)} }, plugins: [instrumentation(process.env.FOOM_COST_BASELINE === "1"),`,
 );
 builder = `import { instrumentation } from ${JSON.stringify(pathToFileURL(resolve("spikes/remote-launch-costs/instrument.mjs")).href)};\n${builder}`;
 const builderPath = join(out, "build-profile.mjs");
@@ -60,6 +63,23 @@ await build({
             "export async function hostArtifact(",
             "async function measuredArtifact(",
           );
+          for (const [from, to] of [
+            [
+              "  const stored = await boundedFile(path, 200 * 1024 * 1024);",
+              '  globalThis.cost1098("artifact-read-start"); const stored = await boundedFile(path, 200 * 1024 * 1024); globalThis.cost1098("artifact-read-end");',
+            ],
+            [
+              '  const key = createHash("sha256")',
+              '  globalThis.cost1098("artifact-key-start"); const key = createHash("sha256")',
+            ],
+            [
+              "  if (verifiedArtifact?.key === key)",
+              '  globalThis.cost1098("artifact-key-end"); if (verifiedArtifact?.key === key)',
+            ],
+          ]) {
+            assert.ok(source.includes(from), `Artifact anchor changed: ${from}`);
+            source = source.replace(from, to);
+          }
           source +=
             '\nasync function hostArtifact(...args: Parameters<typeof measuredArtifact>) { globalThis.cost1098("local-hash-start"); try { return await measuredArtifact(...args); } finally { globalThis.cost1098("local-hash-end"); } }';
           return { contents: source, loader: "ts" };
@@ -78,7 +98,7 @@ await build({
 const { selectHostArtifact, RemoteFrames, remoteFrame, remoteResponse, remoteRequest } = require(
   join(out, "client.cjs"),
 );
-for (const baseline of [true, false]) {
+for (const baseline of reverse ? [false, true] : [true, false]) {
   const mode = baseline ? "baseline" : "fixed";
   execFileSync(process.execPath, [builderPath], {
     env: {
