@@ -108,7 +108,7 @@ Across both runs, the local counting server saw **0 TCP connections**. The probe
 | Attempt | Outcome |
 |---|---|
 | `location = http://…`, `top.location = …`, meta refresh, link to `https:` | `will-frame-navigate` blocked (5 in all) |
-| same-origin `.html` in the main frame | blocked; only same-origin `.md` may navigate in place |
+| same-origin `.html` in the main frame | Originally blocked in the spike; #1208 allows contained Markdown and HTML documents with per-tile Back/Forward history (see [current rules](areas/previews.md#document-navigation-1208)) |
 | `window.open` (external and same-origin) | denied by `setWindowOpenHandler` (2) |
 | `<a download>` | `will-download` prevented (1) |
 | `location = file:///…`, `javascript:` URL, form POST | refused by Chromium or CSP (`form-action 'none'`) before the guard |

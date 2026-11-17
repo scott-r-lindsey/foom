@@ -313,6 +313,14 @@ export class PreviewHost {
       await shell.openExternal(url).catch(() => {});
     }
   }
+  navigation(id: string) {
+    if (this.closed() || !this.registry.records.has(id)) throw new Error("Unknown preview ID");
+    return this.lifecycle.navigation(id);
+  }
+  travel(id: string, direction: "back" | "forward"): Promise<void> {
+    this.navigation(id);
+    return this.lifecycle.travel(id, direction);
+  }
   reload(id: string): Promise<void> {
     if (this.closed() || !this.registry.records.has(id)) throw new Error("Unknown preview ID");
     return this.lifecycle.reload(id);

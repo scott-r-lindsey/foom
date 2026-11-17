@@ -27,7 +27,7 @@ test("preview host isolates hostile pages, blocks network and navigation, scales
   const external = `http://127.0.0.1:${server.address().port}/`;
   await writeFile(
     path.join(root, "hostile.html"),
-    `<input id="input"><a id="external" href="${external}">external</a><a id="html" href="other.html">html</a><script>
+    `<input id="input"><a id="external" href="${external}">external</a><a id="blocked" href="other.txt">unsupported document</a><script>
     window.probes={ bridge: typeof window.desktop, require: typeof require, process: typeof process, electron: typeof electron, ipc: typeof ipcRenderer, top: top===window };
     window.popup=window.open("${external}")===null;
     window.networkFinished=false; Promise.allSettled([fetch("${external}"), fetch("file:///etc/passwd"), fetch("app://bundle/index.html")]).then(()=>window.networkFinished=true);
@@ -77,7 +77,7 @@ test("preview host isolates hostile pages, blocks network and navigation, scales
   await expect.poll(() => previewContents(app, id, "window.geo")).toBe(1);
   assert.equal(connections, 0);
   // Observe actual navigation prevention, rather than waiting an arbitrary interval.
-  for (const link of ["external", "html"]) {
+  for (const link of ["external", "blocked"]) {
     const prevented = await app.evaluate(
       ({ webContents }, { id, link }) => {
         const wc = webContents

@@ -44,7 +44,10 @@ test("only a human mouse-down permits focus, and navigation/reload detach before
     url: `foom-preview://${id}/a.md`,
     isMainFrame: false,
   });
-  wc.emit("will-frame-navigate", { ...blocked, url: `foom-preview://${id}/a.md` });
+  wc.emit("will-frame-navigate", {
+    ...blocked,
+    url: `foom-preview://${id}/a.md`,
+  });
   expect(f.window.contentView.removeChildView).toHaveBeenCalledOnce();
   wc.emit("did-start-navigation", {}, "", true, true);
   wc.emit("did-start-navigation", {}, "", false, false);
@@ -90,6 +93,11 @@ test("reload and allowed main-frame navigation replace native contents but prese
   vi.useFakeTimers();
   const markdown = `foom-preview://${id}/b.md`;
   reloaded.webContents.emit("did-start-navigation", { ...navigation, url: markdown });
+  reloaded.webContents.emit("will-frame-navigate", {
+    url: markdown,
+    isMainFrame: true,
+    preventDefault: vi.fn(),
+  });
   expect(fake.views).toHaveLength(2);
   await vi.advanceTimersByTimeAsync(250);
   const linked = fake.views[2];
@@ -118,6 +126,12 @@ test("focus handoff waits for attachment and yields to a later user focus change
     isMainFrame: true,
     isSameDocument: false,
   });
+  view.webContents.emit("will-frame-navigate", {
+    url: `foom-preview://${id}/b.md`,
+    isMainFrame: true,
+    preventDefault: vi.fn(),
+  });
+  await Promise.resolve();
   const replacement = fake.views[1];
   if (!replacement) throw new Error("Missing replacement");
   expect(replacement.webContents.focus).not.toHaveBeenCalled();
@@ -139,6 +153,7 @@ test("hiding a loading replacement cancels its focus handoff", async () => {
     isMainFrame: true,
     isSameDocument: false,
   });
+  await Promise.resolve();
   const replacement = fake.views[1];
   if (!replacement) throw new Error("Missing replacement");
   f.host.bounds(id, { ...bounds, visible: false });
@@ -190,6 +205,7 @@ test("handoff blocks board keys before detach through throttle and load, and dis
   key();
   expect(event.preventDefault).not.toHaveBeenCalled();
   view.webContents.emit("will-frame-navigate", {
+    preventDefault: vi.fn(),
     url: `foom-preview://${id}/b.md`,
     isMainFrame: true,
   });
@@ -200,6 +216,7 @@ test("handoff blocks board keys before detach through throttle and load, and dis
   f.window.webContents.emit("focus");
   key();
   expect(event.preventDefault).toHaveBeenCalledTimes(2);
+  await Promise.resolve();
   const replacement = fake.views[1];
   if (!replacement) throw new Error("Missing replacement");
   replacement.webContents.emit("did-finish-load");
@@ -282,6 +299,7 @@ test("rapid reloads stop the old script, bound recreation and cancel pending wor
   const { id, view } = await f.open();
   const navigation = { url: view.webContents.getURL(), isMainFrame: true, isSameDocument: false };
   view.webContents.emit("did-start-navigation", navigation);
+  await Promise.resolve();
   const replacement = fake.views[1];
   if (!replacement) throw new Error("Missing replacement");
   replacement.webContents.emit("did-start-navigation", navigation);
@@ -374,6 +392,7 @@ test("a cancelled handoff cannot be revived by a delayed replacement or stale bl
   view.webContents.emit("before-mouse-event", {}, { type: "mouseDown" });
   const navigation = { url: view.webContents.getURL(), isMainFrame: true, isSameDocument: false };
   view.webContents.emit("did-start-navigation", navigation);
+  await Promise.resolve();
   const replacement = fake.views[1];
   if (!replacement) throw new Error("Missing replacement");
   replacement.webContents.emit("did-start-navigation", navigation);
