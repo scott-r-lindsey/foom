@@ -34,8 +34,10 @@ async function clickTerminal(app, page) {
       (window) => window.webContents.getURL() === "app://bundle/index.html",
     ).webContents;
     const mouse = {
-      x: Math.round(bounds.x + 10),
-      y: Math.round(bounds.y + bounds.height - 10),
+      x: Math.round(bounds.x + bounds.width / 2),
+      // xterm can retain its pre-refit height beyond the clipped terminal body.
+      // Its top stays inside the body; the old bottom-edge point can hit the tile.
+      y: Math.round(bounds.y + 10),
       button: "left",
       clickCount: 1,
     };
@@ -379,9 +381,28 @@ async function stuckPreviewHandoff(context, cancellation) {
       )
       .toBe(!collapsed);
     assert.deepEqual(await input(), Buffer.alloc(0));
+    // Reproduce run 43741299452's refit geometry: xterm's old screen extends
+    // beyond the clipped terminal body while the sidebar changes layout. The
+    // former bottom-edge click hits the focusable tile, not xterm.
+    const clippedScreen = cancellation === "Escape";
+    if (clippedScreen) {
+      const oldTarget = await page.locator(".xterm-screen").evaluate((screen) => {
+        const bounds = screen.getBoundingClientRect();
+        const point = { x: Math.round(bounds.x + 10), y: innerHeight - 1 };
+        // Match the failed trace's y=639 in a 640px viewport, with the
+        // still-unfitted screen extending a further nine pixels below it.
+        screen.style.setProperty("height", `${innerHeight + 9 - bounds.y}px`, "important");
+        return document.elementFromPoint(point.x, point.y)?.className;
+      });
+      assert.equal(oldTarget, "terminal-tile");
+    }
     // A deliberate native terminal click restores input after cancellation, and
     // the barrier proves that the recorder is live and prior input has drained.
     await clickTerminal(app, page);
+    if (clippedScreen)
+      await page
+        .locator(".xterm-screen")
+        .evaluate((screen) => screen.style.removeProperty("height"));
     await typeIntoFocusedContents(app, "resumedb");
     await expect(page.locator(".xterm-rows")).toContainText("INPUT_BARRIER");
     assert.deepEqual(await input(), Buffer.from("resumedb"));

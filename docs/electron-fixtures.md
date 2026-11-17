@@ -229,8 +229,28 @@ requested terminal click coordinates, native view bounds/zoom and DOM hit geomet
 Records contain no key values or terminal/model output. Final DOM hit testing uses
 the requested click point, including when DOM mouse delivery is absent. Observers and wrapped
 native methods are removed/restored before app teardown, including body failures.
-The existing native input, focus assertions and exact PTY-byte checks are unchanged;
-this instrumentation neither diagnoses the historical cause nor adds a focus gate.
+Run [43741299452](https://github.com/scott-r-lindsey/foom/actions/runs/43741299452),
+attempt 1, Linux artifact **14171849710**, captures the terminal-click failure in
+the Escape case. Both cancellation blur operations completed before the click;
+native board focus was already established. The requested point `(319, 639)` hit
+`section.terminal-tile`, not xterm. The still-unfitted screen extended to y=649
+in a 640px viewport during the sidebar transition. DOM input briefly focused the
+textarea, then the tile's default mouse action moved focus to the section.
+This establishes a fixture hit-target error, rather than lost native input or a
+late cancellation blur, for that occurrence. The original untraced navigation
+failure does not independently establish its hit target. Original run
+42551694817's logs show the same earlier native-focus-undefined/textarea-active
+observation in all three attempts: 12.750s failing (artifact **13645683548**),
+then 2.771s and 2.874s passing. That earlier observation alone cannot identify
+the failing click's cause; the original run's artifacts are no longer available.
+
+The helper now clicks near the screen's top, horizontally centered, rather than
+its potentially clipped bottom edge. The Escape regression holds the observed
+clipped screen geometry using a test-owned inline height, asserts that the former
+point hits the tile, and requires the corrected native click to restore terminal
+focus and exact PTY input. The height is released after the click. Native input,
+focus assertions, exact PTY-byte checks (including forbidden handoff input),
+deadlines and product behavior remain unchanged.
 
 ## Chromium session storage
 
