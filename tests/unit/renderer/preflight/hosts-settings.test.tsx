@@ -84,7 +84,10 @@ function expandHosts() {
 }
 async function mount(
   state: HostsState = initial,
-  extra: Pick<SetupSource, "hostTerminal" | "installs"> = {},
+  extra: Pick<
+    SetupSource,
+    "hostTerminal" | "installs" | "githubSignIn" | "githubSignInSessions"
+  > = {},
 ) {
   state = saved(state);
   const api = vi.fn<(action: HostsAction) => Promise<HostsState>>().mockResolvedValue(state);
@@ -1480,6 +1483,97 @@ test("returning to Hosts reattaches the window's install without starting anothe
   expect(close).not.toHaveBeenCalled();
 });
 
+test.each([false, true])(
+  "GitHub CLI labels stay stable through sign-in, failure, retry and success (install: %s)",
+  async (installing) => {
+    const result: HostPreflight["result"] = {
+      ok: true,
+      facts: {
+        ...facts,
+        tools: [{ id: "gh", state: installing ? "missing" : "ready", signIn: "signed-out" }],
+      },
+    };
+    const signedOut: HostsState = {
+      ...initial,
+      preflight: { ...preflight, result },
+      hosts: [{ ...host, result, recipes: [{ tool: "gh", install: true, signIn: true }] }],
+    };
+    const device = vi
+      .fn<NonNullable<SetupSource["githubSignIn"]>>()
+      .mockResolvedValue({ phase: "waiting", code: "ABCD-1234", copied: true, opened: true });
+    const { api } = await mount(signedOut, { githubSignIn: device });
+    const label = () => screen.getByText(/^GitHub CLI sign-in/u).textContent;
+    expect(screen.getByText("GitHub CLI", { exact: true })).toBeTruthy();
+    if (!installing) expect(label()).toBe("GitHub CLI sign-in PRs");
+    const name = installing ? "Install & sign in gh" : "Sign in gh";
+    api.mockResolvedValue({ ...signedOut, recipeSession: "gh-1" });
+    fireEvent.click(screen.getByRole("button", { name }));
+    await screen.findByText("ABCD-1234");
+    expect(label()).toBe("GitHub CLI sign-in PRs");
+    expect(api).toHaveBeenCalledWith({
+      action: "recipe",
+      host: "worker",
+      tool: "gh",
+      operation: installing ? "install-sign-in" : "sign-in",
+    });
+    expect(screen.queryByText("Signed out", { exact: true })).toBeNull();
+    expect(
+      screen.getByText("Without a keyring, gh may store your token in plain text on this host."),
+    ).toBeTruthy();
+    api.mockResolvedValue(signedOut);
+    device.mockResolvedValue({ phase: "failed", copied: false, opened: false, exitCode: 5 });
+    await screen.findByText("Failed · Exit 5");
+    expect(label()).toBe("GitHub CLI sign-in PRs");
+    device.mockResolvedValue({ phase: "done", copied: true, opened: true, exitCode: 0 });
+    api.mockImplementation((action) =>
+      Promise.resolve(
+        action.action === "recipe" ? { ...signedOut, recipeSession: "gh-2" } : initial,
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("region", { name: "GitHub sign-in" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Sign in gh" })).toBeNull();
+    });
+    expect(label()).toBe("GitHub CLI sign-in PRs");
+  },
+);
+
+test.each([false, true])(
+  "reopening Hosts restores window-owned gh metadata (installing: %s)",
+  async (installing) => {
+    const device = vi
+      .fn<NonNullable<SetupSource["githubSignIn"]>>()
+      .mockResolvedValue({ phase: "waiting", code: "ABCD-1234", copied: true, opened: true });
+    const restored: HostsState = {
+      ...initial,
+      preflight: {
+        ...preflight,
+        result: {
+          ok: true,
+          facts: { ...facts, tools: [{ id: "gh", state: "ready", signIn: "signed-out" }] },
+        },
+      },
+    };
+    await mount(restored, {
+      githubSignIn: device,
+      githubSignInSessions: () => new Map([["gh-restored", installing]]),
+      installs: {
+        sessions: () => new Map([["worker", "gh-restored"]]),
+        hasSessions: () => true,
+        running: () => Promise.resolve(true),
+        close: () => Promise.resolve(),
+        dispose: () => {},
+      },
+    });
+    await screen.findByText("ABCD-1234");
+    expect(device).toHaveBeenCalledWith("gh-restored", "read");
+    expect(screen.getByRole("button", { name: "▸ Terminal" }).getAttribute("aria-expanded")).toBe(
+      "false",
+    );
+  },
+);
+
 test.each([
   [{}, "0 of 0 ready"],
   [{ opencode: true, claude: false }, "0 of 1 ready"],
@@ -1648,7 +1742,7 @@ test("untrusted hosts hide dependent checks and stale failures until acceptance 
     "Remote daemon",
     "Code folder",
     "git",
-    "gh",
+    "GitHub CLI",
     "Agents",
     "Git access to origin",
     "Checked out repositories",
@@ -1666,7 +1760,7 @@ test("untrusted hosts hide dependent checks and stale failures until acceptance 
     "Remote daemon",
     "Code folder",
     "git",
-    "gh",
+    "GitHub CLI",
     "Agents",
     "Checked out repositories",
     "Host facts",

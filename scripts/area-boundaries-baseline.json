@@ -1,0 +1,384 @@
+{
+  "areas": {
+    "main": {
+      "(root)": {
+        "publicModules": [],
+        "imports": {
+          "wiring": "value"
+        }
+      },
+      "agents": {
+        "publicModules": [
+          "agent-list.ts",
+          "agents.ts",
+          "agy-plugin.ts",
+          "conversation.ts",
+          "default-arguments.ts",
+          "execution.ts",
+          "hook-receiver.ts",
+          "plugin-setup.ts",
+          "plugin-staging.ts",
+          "probe-http.ts",
+          "probe-notices.ts",
+          "probes.ts",
+          "providers/bundled.ts",
+          "providers/hook-launch.ts",
+          "providers/installed-observers.ts",
+          "providers/registry.ts",
+          "providers/v2-health.ts",
+          "providers/v2.ts",
+          "setup-offers.ts"
+        ],
+        "imports": {
+          "control": "value",
+          "evaluator": "value",
+          "setup": "value",
+          "terminals": "value",
+          "workspace": "type"
+        }
+      },
+      "config": {
+        "publicModules": ["approval.ts", "ipc.ts", "plugins.d.ts", "service.ts"],
+        "imports": {
+          "agents": "value",
+          "control": "value",
+          "window": "type"
+        }
+      },
+      "confirmations": {
+        "publicModules": ["approvals.ts", "arming.ts", "removal-review.ts", "trusted-dialog.ts"],
+        "imports": {}
+      },
+      "control": {
+        "publicModules": [
+          "forge-manifests.ts",
+          "forge-mapping.ts",
+          "forge-process.ts",
+          "forge-runtime.ts",
+          "forge-tracking.ts",
+          "forge.d.ts",
+          "forge.ts",
+          "manual-mcp.ts",
+          "message-board.ts",
+          "metadata.ts",
+          "orchestration-limits.ts",
+          "orchestration.d.ts",
+          "orchestration.ts",
+          "orchestrator-wake.ts",
+          "previews.ts",
+          "review-loops.d.ts",
+          "runtime.ts",
+          "store.ts",
+          "types.d.ts"
+        ],
+        "imports": {
+          "agents": "value",
+          "config": "type",
+          "evaluator": "value",
+          "previews": "value",
+          "setup": "value",
+          "workspace": "value"
+        }
+      },
+      "data": {
+        "publicModules": [
+          "host-observations.ts",
+          "settings-changes.ts",
+          "sqlite/database.ts",
+          "sqlite/schema.ts",
+          "view-changes.ts",
+          "view-ipc.ts",
+          "view-readers.ts"
+        ],
+        "imports": {
+          "window": "type"
+        }
+      },
+      "data-import": {
+        "publicModules": ["importer.ts"],
+        "imports": {
+          "agents": "value",
+          "control": "value",
+          "data": "value",
+          "evaluator": "value",
+          "previews": "value",
+          "setup": "value",
+          "window": "value",
+          "workspace": "value"
+        }
+      },
+      "evaluator": {
+        "publicModules": ["agent-rules.ts", "evaluator.ts", "terminal-tail.ts", "verdict-log.ts"],
+        "imports": {
+          "agents": "value"
+        }
+      },
+      "fonts": {
+        "publicModules": ["terminal-fonts.ts"],
+        "imports": {
+          "data": "value"
+        }
+      },
+      "previews": {
+        "publicModules": [
+          "contained-files.ts",
+          "control-backend.ts",
+          "host.ts",
+          "ipc.ts",
+          "pick.ts",
+          "placement.ts",
+          "registry.ts"
+        ],
+        "imports": {
+          "control": "type",
+          "window": "type"
+        }
+      },
+      "setup": {
+        "publicModules": [
+          "environment-ipc.ts",
+          "environment.ts",
+          "github-sign-in.ts",
+          "hosts.ts",
+          "local-host.ts",
+          "readiness.ts",
+          "repository-setup-service.ts",
+          "repository-setup.ts",
+          "settings.ts",
+          "setup-ipc.ts",
+          "setup.ts"
+        ],
+        "imports": {
+          "agents": "value",
+          "control": "value",
+          "data": "value",
+          "fonts": "value",
+          "terminals": "value",
+          "window": "value",
+          "workspace": "value"
+        }
+      },
+      "sounds": {
+        "publicModules": ["ipc.ts", "library.ts"],
+        "imports": {
+          "data": "value",
+          "window": "type"
+        }
+      },
+      "terminals": {
+        "publicModules": ["remote-bootstrap.ts", "remote-transport.ts", "terminal-ipc.ts"],
+        "imports": {}
+      },
+      "themes": {
+        "publicModules": ["ipc.ts", "library.ts"],
+        "imports": {
+          "window": "type"
+        }
+      },
+      "window": {
+        "publicModules": [
+          "app-icon.ts",
+          "app-menu.ts",
+          "appearance.ts",
+          "attention-badge.ts",
+          "commands.ts",
+          "terminal-views.ts",
+          "window-audio.ts",
+          "window-ipc.ts",
+          "window-moves.ts",
+          "window-placement.ts",
+          "window-scale.ts",
+          "window-state.ts",
+          "window-views-ipc.ts"
+        ],
+        "imports": {}
+      },
+      "wiring": {
+        "publicModules": ["application.ts"],
+        "imports": {
+          "agents": "value",
+          "config": "value",
+          "confirmations": "value",
+          "control": "value",
+          "data": "value",
+          "data-import": "value",
+          "evaluator": "value",
+          "fonts": "value",
+          "previews": "value",
+          "setup": "value",
+          "sounds": "value",
+          "terminals": "value",
+          "themes": "value",
+          "window": "value",
+          "workspace": "value"
+        }
+      },
+      "workspace": {
+        "publicModules": [
+          "inventory-watch.ts",
+          "review-worktrees.ts",
+          "session-restore.d.ts",
+          "session-store.ts",
+          "workspace-ipc.ts",
+          "workspace.ts",
+          "worktree-outcome.ts",
+          "worktrees.ts"
+        ],
+        "imports": {
+          "agents": "value",
+          "confirmations": "value",
+          "control": "value",
+          "data": "value",
+          "evaluator": "value",
+          "setup": "value",
+          "terminals": "value",
+          "window": "type"
+        }
+      }
+    },
+    "renderer": {
+      "(root)": {
+        "publicModules": [],
+        "imports": {
+          "about": "value",
+          "board": "value",
+          "preflight": "value",
+          "terminal": "value",
+          "ui": "value"
+        }
+      },
+      "about": {
+        "publicModules": ["about-dialog.tsx", "legal-dialog.tsx"],
+        "imports": {
+          "board": "value",
+          "preflight": "value",
+          "ui": "value"
+        }
+      },
+      "art": {
+        "publicModules": [],
+        "imports": {}
+      },
+      "board": {
+        "publicModules": [
+          "agent-badge.tsx",
+          "board-source.d.ts",
+          "board-view.tsx",
+          "board.d.ts",
+          "direction-pad.tsx",
+          "error-presentation.tsx",
+          "focus-restore.ts",
+          "live-board-source.ts",
+          "panel-glyphs.tsx",
+          "preview-composition.ts",
+          "row-menu.tsx",
+          "sample-board-source.ts",
+          "sidebar-model.ts",
+          "sidebar-repository-section.tsx",
+          "sidebar-session-row.tsx",
+          "sidebar-worktree-section.tsx",
+          "terminal-tile.tsx",
+          "tiles.d.ts"
+        ],
+        "imports": {
+          "preflight": "value",
+          "sound": "value",
+          "terminal": "value",
+          "ui": "value"
+        }
+      },
+      "data": {
+        "publicModules": ["view-hooks.ts"],
+        "imports": {}
+      },
+      "fonts": {
+        "publicModules": [],
+        "imports": {}
+      },
+      "preflight": {
+        "publicModules": [
+          "config-controls.tsx",
+          "custom-theme-hint.tsx",
+          "launch-sequence.tsx",
+          "preflight-view.tsx",
+          "setup-source.d.ts",
+          "setup-source.ts",
+          "use-settings-exit.tsx"
+        ],
+        "imports": {
+          "board": "value",
+          "data": "value",
+          "sound": "value",
+          "terminal": "value",
+          "ui": "value"
+        }
+      },
+      "preview": {
+        "publicModules": [],
+        "imports": {}
+      },
+      "sound": {
+        "publicModules": [
+          "sound-controller.ts",
+          "sound-controls.tsx",
+          "volume-control.tsx",
+          "web-audio.ts"
+        ],
+        "imports": {
+          "board": "value",
+          "data": "value",
+          "preflight": "type"
+        }
+      },
+      "styles": {
+        "publicModules": [],
+        "imports": {}
+      },
+      "terminal": {
+        "publicModules": [
+          "middle-click.ts",
+          "shell-controller.ts",
+          "terminal-menu.tsx",
+          "terminal-view-source.d.ts",
+          "terminal-view-source.ts"
+        ],
+        "imports": {
+          "board": "value",
+          "preflight": "type"
+        }
+      },
+      "ui": {
+        "publicModules": [
+          "copy-value.tsx",
+          "flight-canvas.tsx",
+          "interface-theme.ts",
+          "wordmark.tsx"
+        ],
+        "imports": {
+          "preflight": "type"
+        }
+      }
+    }
+  },
+  "reciprocalPairs": {
+    "main": [
+      ["agents", "control"],
+      ["agents", "evaluator"],
+      ["agents", "setup"],
+      ["agents", "workspace"],
+      ["config", "control"],
+      ["control", "previews"],
+      ["control", "setup"],
+      ["control", "workspace"],
+      ["setup", "workspace"]
+    ],
+    "renderer": [
+      ["board", "preflight"],
+      ["board", "sound"],
+      ["board", "terminal"],
+      ["preflight", "sound"],
+      ["preflight", "terminal"],
+      ["preflight", "ui"]
+    ]
+  }
+}

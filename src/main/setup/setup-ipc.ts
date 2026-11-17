@@ -94,6 +94,13 @@ export function attachSetup(
       },
     ],
     [
+      "setup:github-sign-in",
+      (...args) => {
+        if (args.length !== 2) throw new Error("Invalid sign-in request");
+        return setup.githubSignIn(args[0], args[1]);
+      },
+    ],
+    [
       "setup:state",
       (...args) => {
         if (args.length) throw new Error("Invalid settings request");

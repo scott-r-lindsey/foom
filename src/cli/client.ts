@@ -152,6 +152,7 @@ function serverError(value: unknown): ControlError {
     "no_parent",
     "remote_review_unsupported",
     "pr_binding_unresolved",
+    "review_worktree_changed",
     "pr_not_open",
     "pr_from_fork",
     "invalid_branch",

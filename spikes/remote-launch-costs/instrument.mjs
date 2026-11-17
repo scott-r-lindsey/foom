@@ -15,16 +15,22 @@ export function instrumentation(baseline) {
         async ({ path }) => {
           let source = await readFile(path, "utf8");
           if (path.endsWith("/main.ts")) {
+            if (baseline)
+              source =
+                [
+                  "./daemon",
+                  "./agent-helper",
+                  "./host-recipe",
+                  "./agent-launch",
+                  "./agent-discovery",
+                  "../../node-common/repository-setup-run",
+                ]
+                  .map((path) => `import ${JSON.stringify(path)};`)
+                  .join("\n") +
+                "\n" +
+                source;
             const hash =
               'const build = createHash("sha256").update(readFileSync(process.execPath)).digest("hex");';
-            if (baseline) {
-              source = replace(source, hash, "");
-              source = replace(
-                source,
-                "  if (argv.length !== 3",
-                `  ${hash}\n  if (argv.length !== 3`,
-              );
-            }
             source = replace(
               source,
               hash,
@@ -32,8 +38,8 @@ export function instrumentation(baseline) {
             );
             source = replace(
               source,
-              "export function runHost(argv: readonly string[] = process.argv): void {",
-              'export function runHost(argv: readonly string[] = process.argv): void { cost1098("entry");',
+              "export async function runHost(argv: readonly string[] = process.argv): Promise<void> {",
+              'export async function runHost(argv: readonly string[] = process.argv): Promise<void> { cost1098("entry");',
             );
             source = replace(
               source,

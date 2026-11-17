@@ -78,6 +78,17 @@ export function attachPreviews(
     if (!record || record.bundled || !copyText) throw new Error("Copy unavailable");
     return copyText(join(record.worktree, record.relativePath));
   });
+  ipc.handle("preview:navigation", (_event, ...args) => {
+    const [id] = args;
+    if (args.length !== 1 || !previewId(id)) throw new Error("Invalid preview ID");
+    return host.navigation(id);
+  });
+  ipc.handle("preview:travel", (_event, ...args) => {
+    const [id, direction] = args;
+    if (args.length !== 2 || !previewId(id) || (direction !== "back" && direction !== "forward"))
+      throw new Error("Invalid preview navigation");
+    return host.travel(id, direction);
+  });
   ipc.handle("preview:reload", (_event, ...args) => {
     const [id] = args;
     if (args.length !== 1 || !previewId(id)) throw new Error("Invalid preview ID");
@@ -137,6 +148,8 @@ export function attachPreviews(
       "preview:popout",
       "preview:close",
       "preview:reload",
+      "preview:navigation",
+      "preview:travel",
       "preview:bounds",
       "preview:cover",
       "preview:painted",

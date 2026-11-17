@@ -4,6 +4,8 @@ import type { HostPressure } from "./host-pressure.d";
 export interface RemoteReviewSnapshot {
   head: string;
   digest: string;
+  /** Missing on older hosts: never assume a checkout is clean without evidence. */
+  clean?: boolean;
 }
 import type { HookSignal } from "./hooks";
 /** Main-only mapping; paths authorize nothing without the selected local checkout. */

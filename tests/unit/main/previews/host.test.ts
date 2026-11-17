@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { MARKDOWN_CSP } from "../../../../src/main/previews/policy";
-import { writeFile } from "node:fs/promises";
+import { symlink, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { DialogContent } from "../../../../src/shared/confirmation";
 import { expect, test, vi } from "vitest";
@@ -23,7 +23,10 @@ test("requests and navigation admit only own origin, with data/blob only for ass
     expect(navigationAllowed(url, origin)).toBe(false);
   }
   expect(navigationAllowed(origin + "/a.MD#x", origin)).toBe(true);
-  expect(navigationAllowed(origin + "/a.html", origin)).toBe(false);
+  expect(navigationAllowed(origin + "/a.html", origin)).toBe(true);
+  expect(navigationAllowed(origin + "/a.WEBP?x=1#y", origin)).toBe(true);
+  expect(navigationAllowed(origin + "/a.png", origin, false)).toBe(false);
+  expect(navigationAllowed(origin + "/a.svg", origin)).toBe(false);
 });
 test("loads detached, denies capabilities, and attaches only loaded visible views", async () => {
   const f = await fixture();
@@ -119,7 +122,7 @@ test("protocol requests retain the root identity captured when the preview opene
   const read = vi.spyOn(fs, "readSync");
   const response = await serve({ url: `foom-preview://${id}/a.html` });
   expect(response.status).toBe(403);
-  expect(await response.text()).toBe("Preview file unavailable");
+  expect(await response.text()).toContain("File unavailable");
   expect(read).not.toHaveBeenCalled();
   await f.host.dispose(false);
 });
@@ -424,8 +427,49 @@ test("image entry protocol stays inert even with network enabled and refuses cha
   expect(response.headers.get("content-security-policy")).toContain("default-src 'none'");
   expect(await response.text()).toContain("data:image/png;base64,");
   await writeFile(join(f.root, "image.png"), "<svg onload='evil()'/>");
-  const corrupt = await serve({ url: `foom-preview://${id}/image.png` });
+  const corrupt = await serve({ url: `foom-preview://${id}/image.png?reload=1` });
   expect(corrupt.status).toBe(400);
   expect(await corrupt.text()).toContain("Invalid or oversized image");
   await expect(f.host.open(f.root, "image.png")).rejects.toThrow("preview-image-invalid");
+  await f.host.dispose(false);
 });
+
+test("unavailable pages keep escaped relative paths inert and use the restricted policy", async () => {
+  const { unavailablePage } = await import("../../../../src/main/previews/partition");
+  const origin = `foom-preview://${"a".repeat(32)}`;
+  const html = unavailablePage(`${origin}/docs/%3Cscript%3E%26%22%27.md`, origin, true);
+  expect(html).toContain("docs/&#60;script&#62;&#38;&#34;&#39;.md");
+  expect(html).not.toContain("<script>");
+  expect(unavailablePage(`${origin}/%zz.md`, origin, false)).toContain("%zz.md");
+  expect(unavailablePage("bad-url", origin, false)).toContain("File unavailable");
+  const f = await fixture();
+  const { id } = await f.open();
+  const serve = partition.protocol.handle.mock.calls[0]?.[1];
+  const response = await serve?.({ url: `foom-preview://${id}/missing.html` });
+  expect(response?.status).toBe(404);
+  expect(response?.headers.get("content-type")).toBe("text/html; charset=utf-8");
+  expect(response?.headers.get("content-security-policy")).not.toContain(
+    "script-src 'self' 'unsafe-inline'",
+  );
+  await f.host.dispose(false);
+});
+
+test.skipIf(process.platform === "win32")(
+  "an active document cannot become an SVG asset through an alias",
+  async () => {
+    const f = await fixture();
+    const { id } = await f.open();
+    const serve = partition.protocol.handle.mock.calls[0]?.[1];
+    if (!serve) throw new Error("Missing protocol");
+    await writeFile(join(f.root, "picture.svg"), "<svg/>");
+    await unlink(join(f.root, "a.html"));
+    await symlink(join(f.root, "picture.svg"), join(f.root, "a.html"));
+    const response = await serve({ url: `foom-preview://${id}/a.html` });
+    expect(response.status).toBe(403);
+    expect(await response.text()).toContain("File unavailable");
+    expect(
+      (await serve({ url: `foom-preview://${id}/picture.svg` })).headers.get("content-type"),
+    ).toBe("image/svg+xml");
+    await f.host.dispose(false);
+  },
+);

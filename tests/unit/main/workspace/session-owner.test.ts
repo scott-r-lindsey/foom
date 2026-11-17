@@ -706,3 +706,25 @@ it("aborts Forget and repairs its saved record when the dormant row becomes live
     expect.objectContaining({ id: remote.id, running: true }),
   ]);
 });
+
+it("restores private review leases before rows and persists them without exposing the baseline", async () => {
+  const baseline = {
+    authorId: "author",
+    identity: "id",
+    head: "a".repeat(40),
+    digest: "b".repeat(64),
+  };
+  const h = fixture([row("reviewer", { sharedReview: baseline })]);
+  const restore = vi.fn();
+  h.deps.restoreSharedReview = restore;
+  h.deps.sharedReview = (id) => (id === "reviewer" ? baseline : undefined);
+  await h.owner.restore();
+  expect(restore).toHaveBeenCalledWith(expect.objectContaining({ sharedReview: baseline }));
+  expect(h.rows.get("reviewer")).not.toHaveProperty("sharedReview");
+  await h.owner.save();
+  expect(h.store.save).toHaveBeenLastCalledWith([
+    expect.objectContaining({ sharedReview: baseline }),
+  ]);
+  await h.owner.restartSaved();
+  expect(h.deps.launch).not.toHaveBeenCalled();
+});

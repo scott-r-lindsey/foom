@@ -237,7 +237,9 @@ the pre-commit check and CI all deny warnings. Unused disable directives retain
 the former implicit warning through an explicit root option, so stale
 suppressions also fail the gate. Biome remains the formatter.
 The React and Hook rule packages run unchanged through Oxlint's JavaScript
-plugin API, alongside `foom/process-boundaries`. No ESLint engine, parser,
+plugin API, alongside `foom/process-boundaries` and the
+[incremental area freeze](map.md#area-import-freeze-1127) rule
+`foom/area-boundaries`. No ESLint engine, parser,
 configuration or fallback pass is installed. Peer auto-installation is disabled
 so those plugins' unused engine peer cannot reinstall it; required peers remain
 explicit project dependencies. Only that unused peer is ignored.

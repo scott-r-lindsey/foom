@@ -177,6 +177,8 @@ function orchestration(name: string | undefined, words: string[]): Command {
       break;
     }
     case "review": {
+      const author = take("--author");
+      if (author !== undefined) params["authorId"] = identifier(author);
       const agent = take("--agent");
       if (agent !== undefined) {
         if (!validAgentId(agent)) throw new ControlError("invalid_request");

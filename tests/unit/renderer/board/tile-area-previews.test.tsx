@@ -41,6 +41,10 @@ test.each(["markdown", "html", "image"] as const)(
     saveLayout(localStorage, { ...layout, focused: terminal.focused });
     const close = vi.fn(() => Promise.resolve());
     const reload = vi.fn(async () => {});
+    const travel = vi.fn(async (_id: string, _direction: "back" | "forward") => {});
+    let receiveNavigation:
+      | ((state: { id: string; back: boolean; forward: boolean }) => void)
+      | undefined;
     const network = vi.fn(async () => {});
     const copyPath = vi.fn(async () => {});
     const sidebarCommand = vi.fn(async () => {});
@@ -55,6 +59,14 @@ test.each(["markdown", "html", "image"] as const)(
         close,
         network,
         reload,
+        travel,
+        navigation: (id) => Promise.resolve({ id, back: false, forward: false }),
+        onNavigation: (callback) => {
+          receiveNavigation = callback;
+          return () => {
+            receiveNavigation = undefined;
+          };
+        },
         copyPath,
       },
       subscribeCommands: (listener) => {
@@ -80,6 +92,36 @@ test.each(["markdown", "html", "image"] as const)(
     await act(async () => {});
     expect(tile.getAttribute("data-focused")).toBe("true");
     expect(document.activeElement).toBe(tile);
+    expect(within(tile).queryByRole("button", { name: "Back" })).toBeNull();
+    await act(async () => {});
+    act(() => {
+      receiveNavigation?.({ id: "other", back: true, forward: true });
+    });
+    expect(within(tile).queryByRole("button", { name: "Back" })).toBeNull();
+    act(() => {
+      receiveNavigation?.({ id: "preview", back: true, forward: false });
+    });
+    expect(within(tile).getByRole("button", { name: "Forward" }).hasAttribute("disabled")).toBe(
+      true,
+    );
+    fireEvent.click(within(tile).getByRole("button", { name: "Back" }));
+    expect(travel).toHaveBeenLastCalledWith("preview", "back");
+    fireEvent.keyDown(tile, { key: "ArrowRight", altKey: true });
+    expect(travel).toHaveBeenLastCalledWith("preview", "forward");
+    fireEvent.keyDown(tile, { key: "[", metaKey: true });
+    expect(travel).toHaveBeenLastCalledWith("preview", "back");
+    fireEvent.keyDown(tile, { key: "]", metaKey: true });
+    expect(travel).toHaveBeenLastCalledWith("preview", "forward");
+    act(() => {
+      receiveNavigation?.({ id: "preview", back: true, forward: true });
+    });
+    fireEvent.click(within(tile).getByRole("button", { name: "Forward" }));
+    expect(travel).toHaveBeenLastCalledWith("preview", "forward");
+    travel.mockRejectedValueOnce(new Error("Navigation refused"));
+    fireEvent.click(within(tile).getByRole("button", { name: "Back" }));
+    await act(async () => {});
+    expect(screen.getByRole("alert").textContent).toBe("Navigation failed");
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
     fireEvent.click(within(tile).getByRole("button", { name: "Reload" }));
     expect(reload).toHaveBeenCalledExactlyOnceWith("preview");
     fireEvent.click(within(tile).getByRole("button", { name: "Tile 2 menu" }));

@@ -225,3 +225,216 @@ activity and DOM lights retain their existing transports. This is an explicit
 phase-B deferral, not authorization to enable the phase-D preload-read lint guard.
 The `sessions` and `worktrees` query hooks/channel are available for the later
 consumer migration.
+
+## Phase C preparation: first related group (#1162)
+
+`main/data/sqlite/` owns the prepared database, schema and migrations independently
+of production startup. Temporary `main/data-import/` holds the legacy JSON importer,
+its recovery/batch helpers and the prepared settings, environment, board, control,
+window and command adapters that reuse feature parsers. The #1247 boundary-policy
+amendment moves these modules mechanically: no production ownership or runtime
+behavior changes. Only the temporary area gains the required feature imports;
+`main/data` retains its sole `window: type` edge and never imports the temporary
+area back. Wiring may compose the importer through its declared entry.
+`shared/secret-cipher.d.ts` declares the encryption capability without a feature
+or runtime dependency. Delete the temporary area and its policy entries at the
+phase-D cutover (#1163); future domain placement requires its own reviewed policy.
+`ProfileDatabase.open` must be explicitly supplied an app-owned profile; the
+application does **not** call it. JSON readers and writers remain authoritative.
+No phase-D guard is enabled. The pinned native `node:sqlite` Drizzle rc.5 adapter
+is exercised again by unit and real Electron tests. ORM Apache-2.0 attribution
+is included in bundled notices; Kit remains development tooling.
+
+This first migration covers registered hosts, local repository registrations,
+managed worktree claims, sessions and their saved placements/parent relationships,
+owned-worktree provenance, pending removals and parent-directory history.
+Remote repository inventories remain owned by `foom-host`; remote sessions refer
+to the hub's registered host and retain validated remote checkout claims, without
+inventing local repository/worktree parents. Home/config sessions and unmanaged
+Git checkouts likewise do not fabricate owned worktree records. Saved metadata
+remains a claim requiring all existing live Git/identity/authority checks.
+
+Schema source is `schema.ts`. Generate with `pnpm exec drizzle-kit generate
+--config drizzle.config.ts`; review the SQL, adding STRICT, explicit NOT NULL
+text primary keys and all three change triggers before accepting a migration.
+Generated snapshots describe Drizzle's model, not those reviewed SQL additions.
+Build copies the reviewed SQL into main's private ASAR files. On Linux, macOS and
+Windows, opening records the file's `lstat` device/inode before private-file
+verification, then repeats private-file verification and compares device/inode
+after `DatabaseSync` opens the pathname, before any PRAGMA or migration. Symlinks,
+reparse redirection detected by the private-file checks and replaced identities
+are refused and the connection is closed. POSIX ownership/mode/link checks and
+Windows owner/ACL checks remain required. Because `node:sqlite` accepts only a
+pathname, this is a post-open replacement check, not an atomic descriptor-bound
+open; it cannot defend against a same-user adversary swapping a path away and
+back between checks. The app-owned private directory remains the trust boundary.
+Opening verifies migration version/checksum, STRICT table inventory, trigger
+inventory and database integrity. It refuses incompatible or damaged state rather than starting empty.
+
+Only main infrastructure uses `ProfileDatabase.write`; closed domain functions
+use it for one synchronous transaction each. The boundary serializes writes,
+asserts foreign keys before each transaction and drains triggers only after
+commit through the phase-B publication clock. Failed publication returns a
+committed result with `publicationPending`; retry publication rather than replaying
+the command. The cursor advances only after success. Schema creation invalidates
+all views. No log pruning is enabled in this preparation, so revisions cannot be
+reused and unacknowledged entries cannot be lost. Forget-host removes its saved
+sessions before the registration and performs no remote stop/kill effects.
+
+The explicit first-group importer reads bounded, private legacy `settings.json`,
+`worktrees.json` and `sessions.json` as untrusted input. Before its SQL transaction,
+it atomically freezes their original text and source manifest in a private read-only
+safeStorage-encrypted recovery envelope. Every group encrypts before creating a
+file, including rejected rows and unknown fields that might contain credentials.
+Unsupported/unavailable keychains (including Linux `basic_text`) and encryption
+failures abort without plaintext fallback or completion. Old plaintext recovery
+snapshots are refused; restore original sources rather than silently accepting them.
+Production source files retain their current permissions and writers. Restart
+reuses the frozen input; accepted rows, fixed quarantine positions/reasons and
+completion marker commit together. Row savepoints isolate constraint failures;
+missing/rejected parents never manufacture authority. Unsupported file versions
+refuse the import. Reports contain counts and fixed source names, never rejected
+payloads. Other settings and per-feature stores have separate explicit group importers
+described below; all remain in production JSON through phase C.
+The eventual cutover and retirement of JSON writers belong to phase D.
+
+The phase-A report supplies observational timings, **not** agreed cold-start or
+write-to-view budgets. This group records real Electron import/publication timing;
+a CI budget needs an explicit workload and approved limits before it can become
+a performance gate. It does not claim that spike write-to-changes is IPC latency.
+
+### Settings and consents preparation
+
+The next reviewed migration adds `profile_settings`, `agent_consents` and
+`profile_metadata`. The migration runner verifies every already-applied digest,
+then applies pending scripts and version records atomically. Existing first-group
+databases upgrade in place. All new domain tables are STRICT with change triggers;
+settings keys, boolean preferences, closed choices and consent identities have
+SQL checks as well as the existing runtime validators.
+
+`importProfileSettings` has its own frozen recovery source and completion marker.
+It reads only profile `settings.json`, never the external config folder. Version-2
+config keys cannot become an accepted projection merely because they occur on
+disk; only a validated `configText` with its matching recorded SHA-256 baseline is
+retained. SQLite stores `configText` as a re-serialized closed projection from
+`parseSettingsFile`, so retired/discarded fields and duplicate-key source text
+cannot retain unknown content in plaintext. After verifying the source digest,
+every re-serialized settings projection must round-trip through `parseSettingsFile`
+to the same accepted values before storage, including its 64 KiB limit. If
+normalization expands a valid source past that limit or otherwise fails the round
+trip, the baseline pair is omitted and `settings.json#configBaseline` is quarantined
+with fixed reason `invalid`; the group report records the rejection and the source
+remains recoverable in the encrypted snapshot. For usable baselines, the importer
+recomputes `configDigest` over the stored projection bytes. The matching pair
+preserves the accepted values as the restart baseline when the external file is
+a held proposal; normalization grants no approval to that proposal.
+The original text remains only in encrypted recovery. Pending per-agent arguments keep their documented profile migration
+status. Unknown or retired settings are quarantined, not written into SQLite.
+Consent acknowledgements and disclosure identities are separate columns. ID-only
+historical built-ins retain their historical identity; custom IDs do not gain a
+current identity. Existing launch-time identity checks remain required. These
+preparations add no production writer, approval, consent or read capability.
+
+### Encrypted environment preparation
+
+`environment_scopes` and `environment_entries` retain provider lists and variables.
+The scope FK is RESTRICT and the composite primary index begins with its child
+column. SQL enforces an exclusive choice: a nonsecret has a text value and no
+ciphertext; a secret has a ciphertext BLOB and a NULL text value. The prepared
+commands reuse the existing `safeStorageCipher` capability (including refusal of
+Linux `basic_text`), force credential-bearing URLs to secrets and return only
+masked snapshots. Ordinary reads use only the support flag, never the keychain.
+Unrelated variable edits and unchanged retained secrets reuse existing ciphertext.
+Environment row loading checks availability once, separately from recovery
+envelope encryption/decryption, validates successful decryption in main and retains the original ciphertext bytes. A locked
+keychain or any decrypt exception refuses the atomic import for retry, even after
+a successful availability check. Backend exceptions cannot reliably identify
+corrupt ciphertext versus transient keychain failure. Structurally invalid
+ciphertext and successfully decrypted content that fails value validation are
+quarantined; neither causes a recoverable backend failure to be marked complete.
+No secret plaintext, cipher bytes or values enter change logs or reports. Domain
+scope removal deletes intended variables before the scope. JSON remains the
+production owner and all launch-time environment validation remains required.
+
+### Board, forge, offers and history preparation
+
+The control/history migration adds normalized threads, append-only posts,
+recipients, idempotency receipts and explicit current-repository bindings. Receipt
+post/thread identity is a composite RESTRICT FK. Historical repository, actor and
+session IDs remain immutable snapshots rather than fabricated live parents;
+current bindings reference only known saved registrations. The shared existing
+Board parser validates imports and domain writes. Trusted author selection and
+live role checks remain in the existing service. Child-history expiry deletes
+intended receipts/posts/bindings before threads; it never deletes Git worktrees.
+
+Forge observations retain validated checkout/provider claims with host, repository
+and managed-worktree FKs. Forget-host removes its dependent observations and setup
+rows without remote effects. Generic offers, probe disclosures and fingerprinted
+hook-health observations retain their existing meanings, never installation or
+launch authority. Repository setup approvals bind the registration incarnation
+with a composite FK; plans, catalog/source hashes and observations retain their
+existing validators and must be revalidated by their owner before use.
+
+Control intent is reserved and audited in one transaction, with hashed
+idempotency keys and fingerprints. Duplicate reservations return `created: false`;
+conflicting/recovered records cannot authorize effects. Imported interrupted
+operations become indeterminate reconciliation history. No credentials, grants,
+prompts, key values, screens or replay handlers are restored. The existing audit
+whitelist/redactor is reused. Clearing audit removes links/history while retaining
+operation state; retiring an operation removes its links first. Audit retention
+keeps the existing 30-day/50-MiB bound. Verdict feedback has a RESTRICT verdict FK
+and a unique next-action row. Historical verdicts never populate a live owner's
+pending-feedback slot. Host diagnostic projections keep only fixed causes,
+commands and numeric health fields, omitting raw stderr and terminal content.
+
+The importer discovers only bounded, named profile files, excluding discovery
+credentials and external agent/config directories. All import groups persist only
+explicit field projections or values from closed validators/parsers that reject or drop unknown keys, including nested objects.
+Pending removals project only path, repository, root and directory identity;
+unrecognized token fields never enter SQLite or its journal. Hosts and managed
+worktrees reject extra keys; sessions, board, settings, forge, setup, operation,
+audit, verdict, health, diagnostic and window rows use their existing closed
+validators or explicit projections.
+
+Dynamic operation/health file manifests are frozen with their original text in
+encrypted recovery envelopes before the atomic group import; crash retries load that frozen manifest before any mutable source discovery,
+even if production files changed or discovery now fails. Completed
+imports return without rescanning mutable sources. Restarted subscriptions begin
+from current snapshots and the existing durable high-water cursor, so old change
+rows are not replayed as new writes. All these paths remain explicit preparation:
+JSON, existing service authorization and existing production readers/writers stay
+in place. Current phase-B view dependencies are invalidated after commit; history
+without a current phase-B view remains in the internal change log for its owner.
+
+### Window and update preparation
+
+The final store group keeps validated window geometry, the legacy size fallback,
+anonymous update high-water dates and per-window preview metadata. Preview rows
+have RESTRICT window and optional managed-worktree FKs; unmanaged checkout paths
+remain snapshots. Removing a saved window set deletes its intended preview rows
+first. Network permission is constrained to Off in SQLite and runtime validation;
+restored metadata grants no file capability. The existing PreviewHost still
+revalidates Git and contained file identity. Update reservations advance only to
+newer UTC day/week/month dates in one transaction before the existing owner's
+request; the prepared domain path sends no network request. Sources remain intact
+and production window/update/preview owners continue to use their JSON files.
+
+### Reporting-only view measurements
+
+The named `data SQLite: report cold process to first renderer view and write
+to renderer view measurements` Electron case runs in CI on each desktop platform.
+Repeat locally with `pnpm run test:electron --suite=data-sqlite.test.js
+--test-name-pattern='^data SQLite: report'` (under `xvfb-run -a` on Linux).
+It reports ten independent fixture samples with 1,000 saved repositories, a
+100-row subscribed page and one repository registration per sample. Seed work
+and fixture file creation are outside the timers. The first timer covers spawning a fresh fixture Electron process, loading its
+modules, opening the existing database, creating a sandboxed renderer
+and receiving its first view; the second covers command start through committed
+ViewRegistry publication, renderer DOM update and receipt acknowledgement.
+
+Each sample starts a new fixture process with OS page caches retained. It
+measures the prepared SQLite/view path; production Foom startup remains JSON-backed.
+Nearest-rank p50/p95, individual samples, workload, platform and runtime versions
+appear in CI logs and `test-results/data-sqlite-measurements-<platform>.json`.
+There are no latency assertions. Approved workload-specific budgets remain a
+separate product decision; the harness reports observations for that decision.

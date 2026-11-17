@@ -601,6 +601,15 @@ test("local install delegation has no fallback when the capability is absent", a
   expect(install).toHaveBeenCalledExactlyOnceWith(undefined);
 });
 
+test("GitHub device actions use only the window-owned injected service", async () => {
+  const setup = new Setup(deps);
+  expect(() => setup.githubSignIn("gh", "open")).toThrow("Sign-in unavailable");
+  const state = { phase: "waiting", code: "ABCD-1234", copied: true, opened: true } as const;
+  deps.githubSignIn = vi.fn(() => Promise.resolve(state));
+  await expect(new Setup(deps).githubSignIn("gh", "read")).resolves.toEqual(state);
+  expect(deps.githubSignIn).toHaveBeenCalledExactlyOnceWith("gh", "read");
+});
+
 test("host removal lists dormant sessions, cancels safely and sends no remote request", async () => {
   const { Hosts } = await import("../../../../src/main/setup/hosts");
   settings.registeredHosts = [{ host: "worker", codeFolder: "/code" }];

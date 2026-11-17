@@ -13,3 +13,6 @@ Codicons under CC BY 4.0. See those notices for authors, sources, and terms.
 
 Solarized and Dracula terminal palettes are MIT licensed. Complete licenses
 and source attributions are included in build/THIRD_PARTY_NOTICES.txt.
+
+Drizzle ORM 1.0.0-rc.5 is Apache-2.0 licensed. Its complete upstream license
+and source attribution are included in build/THIRD_PARTY_NOTICES.txt.

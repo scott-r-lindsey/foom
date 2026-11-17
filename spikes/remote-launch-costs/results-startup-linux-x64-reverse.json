@@ -1,0 +1,543 @@
+{
+  "source": "efe541cdfee293af2335283cdac202b63eab4dd5",
+  "measuredAt": "2026-11-17T08:11:18.480Z",
+  "node": "v24.22.1",
+  "platform": "linux",
+  "arch": "x64",
+  "outputDirectory": "test-results/1098-startup-reverse",
+  "executableBytes": 127929536,
+  "gzipBytes": {
+    "baseline": 48734779,
+    "fixed": 48735200
+  },
+  "daemonStartup": {
+    "baseline": {
+      "ms": 176.7373046875,
+      "events": [
+        {
+          "cost1098": "bundle-entry",
+          "at": 1794903085218.958
+        },
+        {
+          "cost1098": "entry",
+          "at": 1794903085244.9875
+        },
+        {
+          "cost1098": "self-hash-start",
+          "at": 1794903085245.0862
+        },
+        {
+          "cost1098": "self-hash-end",
+          "at": 1794903085348.3784
+        }
+      ]
+    },
+    "fixed": {
+      "ms": 204.290283203125,
+      "events": [
+        {
+          "cost1098": "bundle-entry",
+          "at": 1794903077642.9282
+        },
+        {
+          "cost1098": "entry",
+          "at": 1794903077654.0713
+        },
+        {
+          "cost1098": "self-hash-start",
+          "at": 1794903077669.5364
+        },
+        {
+          "cost1098": "self-hash-end",
+          "at": 1794903077793.387
+        }
+      ]
+    }
+  },
+  "rows": [
+    {
+      "mode": "fixed",
+      "index": 0,
+      "openMs": 1273,
+      "outputMs": 1278.1,
+      "preflightMs": 35.9,
+      "artifactReadMs": 25.4,
+      "artifactKeyMs": 18.6,
+      "localVerificationMs": 44.5,
+      "firstMarkerMs": 33.2,
+      "uploadMs": 1059.6,
+      "remoteHashMs": 73,
+      "handshakeMs": 42.3,
+      "moduleInitializationMs": 10,
+      "connectorStartupMs": 37.7,
+      "connectorSelfHashMs": null,
+      "socketConnectMs": 0.5,
+      "socketToHelloMs": 3.8,
+      "discoveryMs": 6.1,
+      "preparationAndPtyMs": 37.1
+    },
+    {
+      "mode": "fixed",
+      "index": 1,
+      "openMs": 236.3,
+      "outputMs": 239.9,
+      "preflightMs": 30.1,
+      "artifactReadMs": 25.9,
+      "artifactKeyMs": 20,
+      "localVerificationMs": 46.5,
+      "firstMarkerMs": 96.3,
+      "uploadMs": null,
+      "remoteHashMs": 72.1,
+      "handshakeMs": 35.4,
+      "moduleInitializationMs": 6.7,
+      "connectorStartupMs": 33.6,
+      "connectorSelfHashMs": null,
+      "socketConnectMs": 0.4,
+      "socketToHelloMs": 1,
+      "discoveryMs": 4.6,
+      "preparationAndPtyMs": 16.2
+    },
+    {
+      "mode": "fixed",
+      "index": 2,
+      "openMs": 241.5,
+      "outputMs": 242.4,
+      "preflightMs": 28.6,
+      "artifactReadMs": 32.1,
+      "artifactKeyMs": 18.7,
+      "localVerificationMs": 51.3,
+      "firstMarkerMs": 102,
+      "uploadMs": null,
+      "remoteHashMs": 73.6,
+      "handshakeMs": 36.7,
+      "moduleInitializationMs": 6.9,
+      "connectorStartupMs": 34.8,
+      "connectorSelfHashMs": null,
+      "socketConnectMs": 0.4,
+      "socketToHelloMs": 1.1,
+      "discoveryMs": 4.6,
+      "preparationAndPtyMs": 13.2
+    },
+    {
+      "mode": "fixed",
+      "index": 3,
+      "openMs": 240.5,
+      "outputMs": 242.5,
+      "preflightMs": 28.5,
+      "artifactReadMs": 19.1,
+      "artifactKeyMs": 19.2,
+      "localVerificationMs": 38.5,
+      "firstMarkerMs": 103.2,
+      "uploadMs": null,
+      "remoteHashMs": 73.2,
+      "handshakeMs": 42.7,
+      "moduleInitializationMs": 6.4,
+      "connectorStartupMs": 40.9,
+      "connectorSelfHashMs": null,
+      "socketConnectMs": 0.4,
+      "socketToHelloMs": 1,
+      "discoveryMs": 4.9,
+      "preparationAndPtyMs": 16.6
+    },
+    {
+      "mode": "fixed",
+      "index": 4,
+      "openMs": 234.2,
+      "outputMs": 235.1,
+      "preflightMs": 31.2,
+      "artifactReadMs": 30.5,
+      "artifactKeyMs": 19.1,
+      "localVerificationMs": 49.9,
+      "firstMarkerMs": 95.6,
+      "uploadMs": null,
+      "remoteHashMs": 73.6,
+      "handshakeMs": 34.2,
+      "moduleInitializationMs": 6.6,
+      "connectorStartupMs": 32.5,
+      "connectorSelfHashMs": null,
+      "socketConnectMs": 0.4,
+      "socketToHelloMs": 1,
+      "discoveryMs": 4.6,
+      "preparationAndPtyMs": 12.4
+    },
+    {
+      "mode": "fixed",
+      "index": 5,
+      "openMs": 242.6,
+      "outputMs": 243.5,
+      "preflightMs": 37.2,
+      "artifactReadMs": 19.1,
+      "artifactKeyMs": 18.5,
+      "localVerificationMs": 38,
+      "firstMarkerMs": 99,
+      "uploadMs": null,
+      "remoteHashMs": 74.7,
+      "handshakeMs": 43.4,
+      "moduleInitializationMs": 14.1,
+      "connectorStartupMs": 40.7,
+      "connectorSelfHashMs": null,
+      "socketConnectMs": 0.7,
+      "socketToHelloMs": 1.5,
+      "discoveryMs": 4.6,
+      "preparationAndPtyMs": 13.6
+    },
+    {
+      "mode": "fixed",
+      "index": 6,
+      "openMs": 230.8,
+      "outputMs": 233,
+      "preflightMs": 30.8,
+      "artifactReadMs": 29.5,
+      "artifactKeyMs": 19.6,
+      "localVerificationMs": 49.5,
+      "firstMarkerMs": 93,
+      "uploadMs": null,
+      "remoteHashMs": 69.8,
+      "handshakeMs": 36.6,
+      "moduleInitializationMs": 6.7,
+      "connectorStartupMs": 34.8,
+      "connectorSelfHashMs": null,
+      "socketConnectMs": 0.4,
+      "socketToHelloMs": 1.1,
+      "discoveryMs": 5.4,
+      "preparationAndPtyMs": 13.5
+    },
+    {
+      "mode": "baseline",
+      "index": 0,
+      "openMs": 1312.5,
+      "outputMs": 1318.9,
+      "preflightMs": 32.1,
+      "artifactReadMs": 18,
+      "artifactKeyMs": 19.6,
+      "localVerificationMs": 37.9,
+      "firstMarkerMs": 22.7,
+      "uploadMs": 1126.8,
+      "remoteHashMs": 73.8,
+      "handshakeMs": 51.7,
+      "moduleInitializationMs": 20.1,
+      "connectorStartupMs": 47,
+      "connectorSelfHashMs": null,
+      "socketConnectMs": 0.7,
+      "socketToHelloMs": 3.7,
+      "discoveryMs": 5.8,
+      "preparationAndPtyMs": 28.2
+    },
+    {
+      "mode": "baseline",
+      "index": 1,
+      "openMs": 249.8,
+      "outputMs": 253,
+      "preflightMs": 28.9,
+      "artifactReadMs": 18.8,
+      "artifactKeyMs": 18.9,
+      "localVerificationMs": 38.5,
+      "firstMarkerMs": 95.9,
+      "uploadMs": null,
+      "remoteHashMs": 68.6,
+      "handshakeMs": 57.5,
+      "moduleInitializationMs": 27.7,
+      "connectorStartupMs": 55.6,
+      "connectorSelfHashMs": null,
+      "socketConnectMs": 0.6,
+      "socketToHelloMs": 1,
+      "discoveryMs": 4.9,
+      "preparationAndPtyMs": 15
+    },
+    {
+      "mode": "baseline",
+      "index": 2,
+      "openMs": 251.9,
+      "outputMs": 253,
+      "preflightMs": 37.9,
+      "artifactReadMs": 22.1,
+      "artifactKeyMs": 19.3,
+      "localVerificationMs": 41.6,
+      "firstMarkerMs": 94.7,
+      "uploadMs": null,
+      "remoteHashMs": 71.1,
+      "handshakeMs": 52,
+      "moduleInitializationMs": 24.1,
+      "connectorStartupMs": 49.5,
+      "connectorSelfHashMs": null,
+      "socketConnectMs": 0.7,
+      "socketToHelloMs": 1.5,
+      "discoveryMs": 4.4,
+      "preparationAndPtyMs": 14
+    },
+    {
+      "mode": "baseline",
+      "index": 3,
+      "openMs": 263.6,
+      "outputMs": 265.8,
+      "preflightMs": 31.1,
+      "artifactReadMs": 30.8,
+      "artifactKeyMs": 19.2,
+      "localVerificationMs": 50.6,
+      "firstMarkerMs": 94.5,
+      "uploadMs": null,
+      "remoteHashMs": 69.3,
+      "handshakeMs": 64.3,
+      "moduleInitializationMs": 27.9,
+      "connectorStartupMs": 61.8,
+      "connectorSelfHashMs": null,
+      "socketConnectMs": 0.7,
+      "socketToHelloMs": 1.4,
+      "discoveryMs": 4.8,
+      "preparationAndPtyMs": 15
+    },
+    {
+      "mode": "baseline",
+      "index": 4,
+      "openMs": 253.4,
+      "outputMs": 254.3,
+      "preflightMs": 33.8,
+      "artifactReadMs": 18.9,
+      "artifactKeyMs": 19.6,
+      "localVerificationMs": 38.9,
+      "firstMarkerMs": 99,
+      "uploadMs": null,
+      "remoteHashMs": 67.9,
+      "handshakeMs": 56.8,
+      "moduleInitializationMs": 22,
+      "connectorStartupMs": 55.3,
+      "connectorSelfHashMs": null,
+      "socketConnectMs": 0.4,
+      "socketToHelloMs": 0.9,
+      "discoveryMs": 4.8,
+      "preparationAndPtyMs": 14.4
+    },
+    {
+      "mode": "baseline",
+      "index": 5,
+      "openMs": 249.6,
+      "outputMs": 256.8,
+      "preflightMs": 27.5,
+      "artifactReadMs": 19.1,
+      "artifactKeyMs": 19.2,
+      "localVerificationMs": 38.6,
+      "firstMarkerMs": 99.7,
+      "uploadMs": null,
+      "remoteHashMs": 70,
+      "handshakeMs": 58.2,
+      "moduleInitializationMs": 26.8,
+      "connectorStartupMs": 55.7,
+      "connectorSelfHashMs": null,
+      "socketConnectMs": 0.7,
+      "socketToHelloMs": 1.5,
+      "discoveryMs": 4.3,
+      "preparationAndPtyMs": 13.6
+    },
+    {
+      "mode": "baseline",
+      "index": 6,
+      "openMs": 248.7,
+      "outputMs": 249.4,
+      "preflightMs": 35.2,
+      "artifactReadMs": 20,
+      "artifactKeyMs": 19.7,
+      "localVerificationMs": 40,
+      "firstMarkerMs": 104.5,
+      "uploadMs": null,
+      "remoteHashMs": 74.1,
+      "handshakeMs": 47.9,
+      "moduleInitializationMs": 20.2,
+      "connectorStartupMs": 46.1,
+      "connectorSelfHashMs": null,
+      "socketConnectMs": 0.4,
+      "socketToHelloMs": 1.2,
+      "discoveryMs": 4.8,
+      "preparationAndPtyMs": 12.2
+    }
+  ],
+  "cached": {
+    "baseline": {
+      "openMs": {
+        "median": 250.9,
+        "min": 248.7,
+        "max": 263.6,
+        "n": 6
+      },
+      "outputMs": {
+        "median": 253.7,
+        "min": 249.4,
+        "max": 265.8,
+        "n": 6
+      },
+      "preflightMs": {
+        "median": 32.5,
+        "min": 27.5,
+        "max": 37.9,
+        "n": 6
+      },
+      "artifactReadMs": {
+        "median": 19.6,
+        "min": 18.8,
+        "max": 30.8,
+        "n": 6
+      },
+      "artifactKeyMs": {
+        "median": 19.3,
+        "min": 18.9,
+        "max": 19.7,
+        "n": 6
+      },
+      "localVerificationMs": {
+        "median": 39.5,
+        "min": 38.5,
+        "max": 50.6,
+        "n": 6
+      },
+      "firstMarkerMs": {
+        "median": 97.5,
+        "min": 94.5,
+        "max": 104.5,
+        "n": 6
+      },
+      "uploadMs": null,
+      "remoteHashMs": {
+        "median": 69.7,
+        "min": 67.9,
+        "max": 74.1,
+        "n": 6
+      },
+      "handshakeMs": {
+        "median": 57.2,
+        "min": 47.9,
+        "max": 64.3,
+        "n": 6
+      },
+      "moduleInitializationMs": {
+        "median": 25.5,
+        "min": 20.2,
+        "max": 27.9,
+        "n": 6
+      },
+      "connectorStartupMs": {
+        "median": 55.5,
+        "min": 46.1,
+        "max": 61.8,
+        "n": 6
+      },
+      "connectorSelfHashMs": null,
+      "socketConnectMs": {
+        "median": 0.6,
+        "min": 0.4,
+        "max": 0.7,
+        "n": 6
+      },
+      "socketToHelloMs": {
+        "median": 1.3,
+        "min": 0.9,
+        "max": 1.5,
+        "n": 6
+      },
+      "discoveryMs": {
+        "median": 4.8,
+        "min": 4.3,
+        "max": 4.9,
+        "n": 6
+      },
+      "preparationAndPtyMs": {
+        "median": 14.2,
+        "min": 12.2,
+        "max": 15,
+        "n": 6
+      }
+    },
+    "fixed": {
+      "openMs": {
+        "median": 238.4,
+        "min": 230.8,
+        "max": 242.6,
+        "n": 6
+      },
+      "outputMs": {
+        "median": 241.2,
+        "min": 233,
+        "max": 243.5,
+        "n": 6
+      },
+      "preflightMs": {
+        "median": 30.5,
+        "min": 28.5,
+        "max": 37.2,
+        "n": 6
+      },
+      "artifactReadMs": {
+        "median": 27.7,
+        "min": 19.1,
+        "max": 32.1,
+        "n": 6
+      },
+      "artifactKeyMs": {
+        "median": 19.2,
+        "min": 18.5,
+        "max": 20,
+        "n": 6
+      },
+      "localVerificationMs": {
+        "median": 48,
+        "min": 38,
+        "max": 51.3,
+        "n": 6
+      },
+      "firstMarkerMs": {
+        "median": 97.7,
+        "min": 93,
+        "max": 103.2,
+        "n": 6
+      },
+      "uploadMs": null,
+      "remoteHashMs": {
+        "median": 73.4,
+        "min": 69.8,
+        "max": 74.7,
+        "n": 6
+      },
+      "handshakeMs": {
+        "median": 36.7,
+        "min": 34.2,
+        "max": 43.4,
+        "n": 6
+      },
+      "moduleInitializationMs": {
+        "median": 6.7,
+        "min": 6.4,
+        "max": 14.1,
+        "n": 6
+      },
+      "connectorStartupMs": {
+        "median": 34.8,
+        "min": 32.5,
+        "max": 40.9,
+        "n": 6
+      },
+      "connectorSelfHashMs": null,
+      "socketConnectMs": {
+        "median": 0.4,
+        "min": 0.4,
+        "max": 0.7,
+        "n": 6
+      },
+      "socketToHelloMs": {
+        "median": 1.1,
+        "min": 1,
+        "max": 1.5,
+        "n": 6
+      },
+      "discoveryMs": {
+        "median": 4.6,
+        "min": 4.6,
+        "max": 5.4,
+        "n": 6
+      },
+      "preparationAndPtyMs": {
+        "median": 13.6,
+        "min": 12.4,
+        "max": 16.6,
+        "n": 6
+      }
+    }
+  }
+}

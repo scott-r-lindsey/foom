@@ -1,3 +1,4 @@
+import type { ReviewSnapshot } from "../../../../src/main/control/review-loops.d";
 import { ControlError } from "../../../../src/shared/control-validation";
 import { describe, expect, it, vi } from "vitest";
 import { AUTHOR_REVIEW_BRIEF } from "../../../../src/main/control/review-loops";
@@ -85,7 +86,9 @@ it("refuses a one-shot reviewer when HEAD changes after snapshot but before the 
 });
 
 function fixture() {
-  const snapshot = vi.fn(() => Promise.resolve({ head: "head", digest: "initial" }));
+  const snapshot = vi.fn<() => Promise<ReviewSnapshot>>(() =>
+    Promise.resolve({ head: "head", digest: "initial" }),
+  );
   const h = harness({ reviewSnapshot: snapshot });
   h.host.forge.read.mockReturnValue({
     number: 7,
@@ -947,3 +950,160 @@ it.each(["claude", "codex", "agy", "copilot", "opencode", "pi"])(
     }
   },
 );
+
+it.each(["idle", "exited"])(
+  "reviews an owned %s author in place without creating a checkout or changing its loop",
+  async (phase) => {
+    const h = fixture();
+    const authorId = await h.launch();
+    const author = h.rows.get(authorId);
+    if (!author) throw new Error("Missing author");
+    if (phase === "exited") h.exit(authorId);
+    else
+      author.state = {
+        id: authorId,
+        verdictId: null,
+        state: "done",
+        reason: "Idle",
+        signal: "test",
+        confidence: 1,
+        timestamp: 0,
+      };
+    h.snapshot.mockResolvedValue({ head: "head", digest: "initial", clean: true });
+    await h.sync();
+    const before = h.orchestration.reviews.view(authorId);
+    const params = { pullRequest: 7, authorId, agent: "codex", idempotencyKey: "in-place" };
+    const result = await h.call("review", params);
+    expect(result).toMatchObject({ status: "succeeded", resultId: "child-2" });
+    expect(await h.call("review", params)).toEqual(result);
+    expect(h.host.adoptWorktree).not.toHaveBeenCalled();
+    expect(h.host.launch.mock.calls.at(-1)).toMatchObject({
+      2: author.worktree,
+      4: "codex",
+      6: { authorId, snapshot: { clean: true } },
+    });
+    expect(h.orchestration.reviews.view(authorId)).toEqual(before);
+    h.orchestration.disposeUnreadChildren();
+  },
+);
+
+it.each([
+  "working",
+  "unknown",
+  "taken-over",
+  "other-session",
+  "dirty",
+  "stale-head",
+  "missing-snapshot",
+  "pending-launch",
+  "working-execution",
+  "blocked-execution",
+  "stale-input",
+  "stale-output",
+])("refuses in-place review with %s without a separate-checkout fallback", async (fault) => {
+  const h = fixture();
+  const authorId = await h.launch();
+  const row = h.rows.get(authorId);
+  if (!row) throw new Error("Missing author");
+  row.state = {
+    id: authorId,
+    verdictId: null,
+    state: fault === "working" ? "working" : "quiet_ok",
+    reason: "State",
+    signal: "test",
+    confidence: 1,
+    timestamp: 0,
+  };
+  h.snapshot.mockResolvedValue({
+    head: fault === "stale-head" ? "stale" : "head",
+    digest: "initial",
+    clean: fault !== "dirty",
+  });
+  if (fault === "stale-input") row.inputRevision = 1;
+  if (fault === "stale-output") row.outputRevision = 1;
+  if (fault === "working-execution" || fault === "blocked-execution")
+    row.execution = {
+      terminalId: authorId,
+      launch: 1,
+      revision: 1,
+      turn: 1,
+      phase: fault === "working-execution" ? "working" : "blocked",
+    };
+  if (fault === "taken-over") h.orchestration.takeOver(authorId);
+  if (fault === "other-session")
+    h.rows.set("shell", { ...row, id: "shell", kind: "shell", agent: "shell" });
+  if (fault === "missing-snapshot") h.snapshot.mockRejectedValue(new Error("Unavailable"));
+  if (fault === "pending-launch") row.closeState = "closing";
+  await expect(
+    h.mutate("review", { pullRequest: 7, authorId: fault === "unknown" ? "missing" : authorId }),
+  ).rejects.toThrow();
+  expect(h.host.adoptWorktree).not.toHaveBeenCalled();
+  expect(h.host.launch).toHaveBeenCalledTimes(1);
+  h.orchestration.disposeUnreadChildren();
+});
+
+it("rechecks author state and blocks parent input across shared-review preparation", async () => {
+  const h = fixture();
+  const authorId = await h.launch();
+  const row = h.rows.get(authorId);
+  if (!row) throw new Error("Missing author");
+  row.state = {
+    id: authorId,
+    verdictId: null,
+    state: "done",
+    reason: "Idle",
+    signal: "test",
+    confidence: 1,
+    timestamp: 0,
+  };
+  h.snapshot.mockResolvedValue({ head: "head", digest: "initial", clean: true });
+  h.snapshot.mockImplementationOnce(async () => {
+    await expect(h.mutate("prompt", { id: authorId, text: "resume" })).rejects.toThrow("conflict");
+    await expect(h.mutate("send_keys", { id: authorId, keys: ["y"] })).rejects.toThrow("conflict");
+    if (row.state) row.state = { ...row.state, state: "working" };
+    return { head: "head", digest: "initial", clean: true };
+  });
+  await expect(h.mutate("review", { pullRequest: 7, authorId })).rejects.toThrow("conflict");
+  expect(h.host.reply).not.toHaveBeenCalled();
+  h.orchestration.disposeUnreadChildren();
+});
+
+it.each(["head", "digest", "missing"])(
+  "reports shared-review %s drift and refuses close without cleaning files",
+  async (fault) => {
+    const h = fixture();
+    const authorId = await h.launch();
+    h.exit(authorId);
+    h.snapshot.mockResolvedValue({ head: "head", digest: "initial", clean: true });
+    await h.mutate("review", { pullRequest: 7, authorId });
+    if (fault === "missing") h.snapshot.mockRejectedValue(new Error("Unavailable"));
+    else
+      h.snapshot.mockResolvedValue({
+        head: fault === "head" ? "changed" : "head",
+        digest: fault === "digest" ? "changed" : "initial",
+      });
+    await expect(
+      h.orchestration.checkSharedReview("child-2", repo, "/tree", {
+        identity: "id",
+        head: "head",
+        digest: "initial",
+      }),
+    ).rejects.toThrow("review_worktree_changed");
+    expect(h.host.remove).not.toHaveBeenCalled();
+    expect(h.host.close).not.toHaveBeenCalled();
+    h.orchestration.disposeUnreadChildren();
+  },
+);
+
+it("does not change an author's existing PR binding for shared review", async () => {
+  const h = fixture();
+  const tree = await h.mutate("create_worktree", { branch: "feature" });
+  const author = await h.mutate("launch", { worktreeId: tree.resultId, pullRequest: 7 });
+  h.exit(author.resultId ?? "");
+  h.snapshot.mockResolvedValue({ head: "head", digest: "initial", clean: true });
+  await expect(h.mutate("review", { authorId: author.resultId, pullRequest: 8 })).rejects.toThrow(
+    "pr_binding_unresolved",
+  );
+  expect(h.host.forge.bindPullRequest).toHaveBeenCalledTimes(1);
+  h.orchestration.disposeUnreadChildren();
+});

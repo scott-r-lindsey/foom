@@ -77,6 +77,8 @@ describe("bounded worktree review snapshot", () => {
         "--no-optional-locks",
         "-c",
         "core.fsmonitor=false",
+        "-c",
+        "core.excludesFile=",
         "ls-files",
         "--cached",
         "--others",
@@ -335,4 +337,34 @@ it("pins branch and origin as well as HEAD, and refuses a context change during 
   expect(await snapshot()).not.toEqual(initial);
   racing = true;
   await expect(snapshot()).rejects.toThrow("Snapshot changed");
+});
+
+it("reports clean evidence only for clean visible indexes, permitting ignored build output", {
+  timeout: nativeDeadline(10000),
+}, async () => {
+  const { git, checkouts } = await realWorktrees();
+  for (const checkout of checkouts) {
+    tree = checkout;
+    await writeFile(join(tree, ".gitignore"), "output/\n");
+    await git("add", ".gitignore");
+    await git(
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "-m",
+      "Ignore output",
+    );
+    const before = await snapshot();
+    expect(before.clean).toBe(true);
+    await mkdir(join(tree, "output"));
+    await writeFile(join(tree, "output", "build.log"), "ignored");
+    expect(await snapshot()).toEqual(before);
+    await writeFile(join(tree, "notes"), "untracked");
+    expect((await snapshot()).clean).toBe(false);
+    await rm(join(tree, "notes"));
+    await git("update-index", "--skip-worktree", "tracked");
+    expect((await snapshot()).clean).toBe(false);
+  }
 });

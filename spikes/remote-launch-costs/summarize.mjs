@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile, writeFile } from "node:fs/promises";
-const input = process.argv[2] ?? "test-results/1098/measurements.json";
+const input = process.argv[2] ?? "test-results/1098-startup/measurements.json";
 const data = JSON.parse(await readFile(input, "utf8"));
 const delta = (events, from, to) => {
   const start = events.find((row) => row.stage === from)?.at;
@@ -18,11 +18,14 @@ const rows = data.runs.map((run) => {
     openMs: delta(events, "launch-start", "open-reply"),
     outputMs: delta(events, "launch-start", "pty-output-ready"),
     preflightMs: delta(events, "launch-start", "local-hash-start"),
+    artifactReadMs: delta(events, "artifact-read-start", "artifact-read-end"),
+    artifactKeyMs: delta(events, "artifact-key-start", "artifact-key-end"),
     localVerificationMs: delta(events, "local-hash-start", "local-hash-end"),
     firstMarkerMs: delta(events, "ssh-spawn", run.index === 0 ? "FOOM-UPLOAD" : "FOOM-READY"),
     uploadMs: delta(events, "FOOM-UPLOAD", "FOOM-READY"),
     remoteHashMs: delta(events, "remote-hash-start", "remote-hash-end"),
     handshakeMs: delta(events, "FOOM-READY", "hello-reply"),
+    moduleInitializationMs: delta(events, "bundle-entry", "entry"),
     connectorStartupMs: delta(events, "FOOM-READY", "entry"),
     connectorSelfHashMs: delta(events, "self-hash-start", "self-hash-end"),
     socketConnectMs: delta(events, "socket-start", "socket-connected"),
@@ -36,7 +39,7 @@ for (const row of rows) {
   for (const [key, value] of Object.entries(row)) {
     if (!key.endsWith("Ms")) continue;
     if (key === "uploadMs" && row.index > 0) assert.equal(value, null);
-    else if (key === "connectorSelfHashMs" && row.mode === "fixed") assert.equal(value, null);
+    else if (key === "connectorSelfHashMs") assert.equal(value, null);
     else
       assert.ok(
         Number.isFinite(value) && value >= 0,
@@ -56,9 +59,10 @@ const summary = {
   node: data.node,
   platform: data.platform,
   arch: data.arch,
+  outputDirectory: input.slice(0, input.lastIndexOf("/")),
   executableBytes: data.runs[0].bytes,
   gzipBytes: {
-    baseline: data.runs[0].gzipBytes,
+    baseline: data.runs.find((row) => row.mode === "baseline").gzipBytes,
     fixed: data.runs.find((row) => row.mode === "fixed").gzipBytes,
   },
   daemonStartup: { baseline: data.baselineDaemonStartup, fixed: data.fixedDaemonStartup },
@@ -80,5 +84,5 @@ for (const mode of ["baseline", "fixed"]) {
       : null;
   }
 }
-await writeFile("test-results/1098/summary.json", `${JSON.stringify(summary, null, 2)}\n`);
+await writeFile(`${summary.outputDirectory}/summary.json`, `${JSON.stringify(summary, null, 2)}\n`);
 console.log(JSON.stringify(summary, null, 2));

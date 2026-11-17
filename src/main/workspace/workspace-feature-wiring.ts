@@ -592,6 +592,9 @@ export function workspaceFeatureWiring(owner: WorkspaceContext): {
       },
     } satisfies OrchestrationCommandsContext,
     executionEvents: {
+      get checkoutHolds() {
+        return owner.checkoutHolds;
+      },
       get closed() {
         return owner.closed;
       },

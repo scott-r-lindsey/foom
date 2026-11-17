@@ -1,3 +1,4 @@
+import type { GithubSignInState } from "../../shared/registered-hosts.d";
 import { randomUUID } from "node:crypto";
 import type { RepositorySetup } from "./repository-setup";
 import type {
@@ -31,6 +32,7 @@ import type {
 import type { WorktreeService } from "../workspace/worktrees";
 
 export interface SetupDependencies {
+  githubSignIn?: (id: unknown, action: unknown) => Promise<GithubSignInState>;
   repositorySetup?: RepositorySetup;
   launchRepositorySetup?: (
     host: string | null,
@@ -134,6 +136,10 @@ export class Setup {
   async copyHost(input: unknown): Promise<void> {
     if (!this.deps.hosts || !this.deps.copyText) throw new Error("Copy unavailable");
     await this.deps.copyText(this.deps.hosts.copyValue(input));
+  }
+  githubSignIn(id: unknown, action: unknown) {
+    if (!this.deps.githubSignIn) throw new Error("Sign-in unavailable");
+    return this.deps.githubSignIn(id, action);
   }
   private hostTrust = new AbortController();
   cancelHostTrust(): void {

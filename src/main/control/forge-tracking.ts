@@ -110,7 +110,7 @@ export class ForgeTracking {
           branch,
           ...(row["remoteCheckout"] === undefined ? {} : { remoteCheckout: row["remoteCheckout"] }),
         };
-        if (!validTree(tree)) continue;
+        if (!validForgeTree(tree)) continue;
         if (remote !== undefined && (typeof remote !== "string" || remote.length > 4096)) continue;
         if (
           number !== undefined &&
@@ -148,7 +148,7 @@ export class ForgeTracking {
   track(tree: ForgeWorktree, number?: number, orchestrator = true): void {
     if (
       this.closed ||
-      !validTree(tree) ||
+      !validForgeTree(tree) ||
       (number !== undefined && (!Number.isSafeInteger(number) || number <= 0))
     )
       return;
@@ -713,7 +713,7 @@ export class ForgeTracking {
   }
 }
 
-function validTree(tree: {
+export function validForgeTree(tree: {
   repository: unknown;
   path: unknown;
   identity: unknown;

@@ -603,6 +603,25 @@ export class OrchestrationAuthority {
     for (const entry of this.parents.values()) entry.children.delete(id);
   }
 
+  /** Shared-review close validates evidence and reports drift without repairing files. */
+  async checkSharedReview(
+    id: string,
+    repository: string,
+    worktree: string,
+    baseline: { identity: string; head: string; digest: string },
+  ): Promise<void> {
+    const current = await this.host
+      .reviewSnapshot?.(repository, worktree, baseline.identity)
+      .catch(() => undefined);
+    if (!current || current.head !== baseline.head || current.digest !== baseline.digest) {
+      await this.recordChild(id, "review worktree changed", {
+        reason: "HEAD or tracked/untracked state changed; files retained",
+      });
+      this.changed();
+      throw new ControlError("review_worktree_changed");
+    }
+  }
+
   /** Local human relaunch drops ownership; phase-2 remote resume retains a main-validated parent. */
   relaunched(id: string, remoteParentId?: string, resumeParent = false): void {
     this.early.delete(id);

@@ -22,7 +22,7 @@ test("served and missing files reload with isolated scroll, release watchers and
   if (!handler) throw new Error("Missing protocol");
   await handler({ url: `foom-preview://${id}/a.html` });
   expect(f.host.watcherCount).toBe(1);
-  expect(await (await handler({ url: `foom-preview://${id}/missing.html` })).text()).toBe(
+  expect(await (await handler({ url: `foom-preview://${id}/missing.html` })).text()).toContain(
     "File not found. Waiting for it to appear.",
   );
   notify?.();
@@ -112,7 +112,8 @@ test("navigation beyond 64 historical directories watches only the current chapt
     await mkdir(directory);
     await writeFile(path.join(directory, "chapter.md"), "# Chapter");
     const previous = fake.views.at(-1);
-    previous?.webContents.emit("did-start-navigation", {
+    previous?.webContents.emit("will-frame-navigate", {
+      preventDefault: vi.fn(),
       url: `foom-preview://${id}/${String(i)}/chapter.md`,
       isMainFrame: true,
       isSameDocument: false,

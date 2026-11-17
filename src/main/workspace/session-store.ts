@@ -81,6 +81,7 @@ export function readSessions(value: unknown): StoredSession[] {
       closeState,
       handoffs,
       review,
+      sharedReview,
     } = data;
     if (
       (closeState !== undefined && closeState !== "closing" && closeState !== "failed") ||
@@ -123,6 +124,31 @@ export function readSessions(value: unknown): StoredSession[] {
       throw new Error("Invalid session");
     if (!storedAgent(agent, providerOrigin) && agent !== "shell") throw new Error("Invalid agent");
     if (review !== undefined && !isReviewState(review)) throw new Error("Invalid review");
+    let baseline: StoredSession["sharedReview"];
+    const borrowed = sharedReview === undefined ? undefined : object(sharedReview);
+    if (borrowed) {
+      exact(borrowed, ["authorId", "identity", "head", "digest", "intent"]);
+      if (
+        !conversationId(borrowed["authorId"]) ||
+        (borrowed["intent"] === true ? borrowed["authorId"] !== id : borrowed["authorId"] === id) ||
+        (borrowed["intent"] !== undefined && borrowed["intent"] !== true) ||
+        typeof borrowed["identity"] !== "string" ||
+        !borrowed["identity"] ||
+        borrowed["identity"].length > 4096 ||
+        typeof borrowed["head"] !== "string" ||
+        !/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/u.test(borrowed["head"]) ||
+        typeof borrowed["digest"] !== "string" ||
+        !/^[a-f0-9]{64}$/u.test(borrowed["digest"])
+      )
+        throw new Error("Invalid shared review");
+      baseline = {
+        ...(borrowed["intent"] === true ? { intent: true } : {}),
+        authorId: borrowed["authorId"],
+        identity: borrowed["identity"],
+        head: borrowed["head"],
+        digest: borrowed["digest"],
+      };
+    }
     const selection = data["selection"] === undefined ? undefined : object(data["selection"]);
     if (selection) exact(selection, ["model", "effort"]);
     const role = readOrchestrator(orchestrator);
@@ -131,6 +157,7 @@ export function readSessions(value: unknown): StoredSession[] {
     ids.add(id);
     return {
       id,
+      ...(baseline ? { sharedReview: baseline } : {}),
       ...(closeState ? { closeState: "failed" as const } : {}),
       ...(selection ? { selection: selectionInput(selection) } : {}),
       ...(isReviewState(review)
@@ -202,6 +229,7 @@ export class SessionStore {
           handoffs,
           selection,
           review,
+          sharedReview,
           running,
           orchestrator,
           parentId,
@@ -209,6 +237,7 @@ export class SessionStore {
           handoffs,
           selection,
           review,
+          sharedReview,
           running,
           orchestrator,
           parentId,

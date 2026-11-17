@@ -618,7 +618,7 @@ test("dependency jobs enable pinned pnpm before caching and freeze every reposit
   const workflow = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
   const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
   assert.match(manifest.packageManager, /^pnpm@\d+\.\d+\.\d+$/);
-  assert.equal(manifest.scripts.audit, "pnpm audit --audit-level=low");
+  assert.equal(manifest.scripts.audit, "node scripts/audit.mjs");
   assert.doesNotMatch(workflow, /\bnpm (?:ci|install|run)|\bnpx\b|cache: npm/);
   for (const name of ["checks", "unit", "desktop", "remote-host", "platform", "mcp-probe"]) {
     const job = workflow.split(`\n  ${name}:\n`)[1].split(/\n {2}[a-z-]+:\n/)[0];

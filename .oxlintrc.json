@@ -485,9 +485,10 @@
       }
     },
     {
-      "files": ["src/**/*.{ts,tsx}"],
+      "files": ["src/**/*.{ts,tsx,cts,mts,js,cjs,mjs}"],
       "rules": {
-        "foom/process-boundaries": "error"
+        "foom/process-boundaries": "error",
+        "foom/area-boundaries": "error"
       }
     },
     {

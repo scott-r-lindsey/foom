@@ -2039,6 +2039,25 @@ test("local installer bridge validates availability and terminal IDs", async () 
   }
 });
 
+test("GitHub sign-in bridge projects ephemeral fields and rejects malformed replies", async () => {
+  const api = await bridge();
+  const state = { phase: "waiting", code: "ABCD-1234", copied: true, opened: false };
+  mock.invoke.mockResolvedValue({ ...state, url: "https://evil.test/", token: "private" });
+  await expect(api.githubSignIn("gh", "copy")).resolves.toEqual(state);
+  expect(mock.invoke).toHaveBeenLastCalledWith("setup:github-sign-in", "gh", "copy");
+  for (const invalid of [
+    {},
+    { ...state, phase: "other" },
+    { ...state, code: "abc" },
+    { ...state, copied: "yes" },
+    { ...state, opened: 1 },
+    { ...state, exitCode: Infinity },
+  ]) {
+    mock.invoke.mockResolvedValue(invalid);
+    await expect(api.githubSignIn("gh", "read")).rejects.toThrow();
+  }
+});
+
 test("data subscriptions project snapshots, acknowledge delivery and reject stale generations/revisions", async () => {
   const api = await bridge();
   const receive = vi.fn<(snapshot: ViewSnapshot<"settings">) => void>();
@@ -2214,4 +2233,31 @@ test("readiness view snapshots cross the projected bridge with bounded fixed fac
   );
   expect(receive).toHaveBeenCalledOnce();
   off();
+});
+
+test("preview history bridge validates navigation facts and forwards ID-scoped travel", async () => {
+  const api = (await bridge()).previews;
+  if (!api) throw new Error("Missing preview bridge");
+  const state = { id: "a".repeat(32), back: true, forward: false };
+  mock.invoke.mockResolvedValue(state);
+  await expect(api.navigation?.(state.id)).resolves.toEqual(state);
+  await api.travel?.(state.id, "back");
+  expect(mock.invoke).toHaveBeenCalledWith("preview:travel", state.id, "back");
+  const receive = vi.fn();
+  const off = api.onNavigation?.(receive);
+  const listener = mock.on.mock.calls.find(([channel]) => channel === "preview:navigation")?.[1];
+  if (!listener) throw new Error("Missing navigation listener");
+  for (const value of [
+    null,
+    {},
+    { ...state, id: "wrong" },
+    { ...state, back: 1 },
+    { ...state, forward: null },
+  ])
+    listener({}, value);
+  expect(receive).not.toHaveBeenCalled();
+  listener({}, state);
+  expect(receive).toHaveBeenCalledExactlyOnceWith(state);
+  off?.();
+  expect(mock.removeListener).toHaveBeenCalledWith("preview:navigation", listener);
 });

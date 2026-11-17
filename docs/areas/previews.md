@@ -71,14 +71,14 @@ builds. Window opens and redirects are prevented. Eligible external URLs (`https
 `http:` and `mailto:`) go through the trusted confirmation window with the full
 URL before main calls `shell.openExternal`. Navigation requests use this same
 path even without a user gesture. A per-preview pending guard drops overlapping
-requests; close aborts pending review and revokes any later answer. Only same-origin `.md` or
-`.markdown` page navigation is allowed; HTML navigation is blocked.
+requests; close aborts pending review and revokes any later answer. Page navigation
+allows same-origin Markdown and HTML, plus supported raster images in the main frame.
 
 Markdown responses embed the source as inert JSON with every `<` escaped, then run
 one synchronous browser bundle inside the preview origin. markdown-it 15 disables
 raw HTML and accepts only relative, HTTP(S) and mailto links; highlight.js 11 uses
 its common subset. A small core rule generates disabled task checkboxes. Mermaid
-remains escaped code. Relative Markdown links navigate within the same tile;
+remains escaped code. Relative document and raster image links navigate within the same tile;
 external links have a visible arrow and go through the same confirmation.
 The exact `/__foom__/markdown.js` and `/__foom__/markdown.css` assets are served only
 by preview sessions; the reserved `__foom__` segment cannot name worktree files or
@@ -314,6 +314,21 @@ copy. Search stays inside the offline page with no bridge or host changes.
 Guide prose cites its source docs in HTML comments; update it with behavior
 changes. The guide is never written into a repository or user profile.
 
+## Document navigation (#1208)
+
+Main keeps up to 64 document history entries per live preview tile, including
+raster image entries and isolated-world page scroll coordinates. Back and Forward
+appear in the title bar only after document navigation; unavailable directions are disabled. Alt+Left/Right,
+and Command+[/] on macOS, navigate while the native preview has human focus.
+Each move uses the existing detached replacement and focus handoff. Reload and
+file changes stay on the current entry and preserve its scroll. Following a new
+link after Back discards the forward entries. Missing or unreadable targets show
+an inert, theme-aware in-tile page naming the worktree-relative path, with Back
+available in the title bar; the usual missing-file watches permit recovery.
+History is ephemeral: restarting or moving to another window opens the originally
+registered document. The registry, copy-path action and agent canonical-path reuse
+continue to identify that original document.
+
 ## Raster image entries (#1207)
 
 The picker, CLI and MCP accept PNG (`.png`), JPEG (`.jpg`, `.jpeg`) and WebP
@@ -331,8 +346,10 @@ unsupported, including aliases onto SVG targets. Cross-worktree access is outsid
 this issue's scope.
 
 The isolated partition wraps image entries in a script-free page with an inert
-base64 `<img>`. Its fixed CSP permits only data images, inline fixed styles and
-same-origin bundled fonts; network permission cannot widen this response policy.
+base64 `<img>` when an image is opened or loaded as a history entry. Images embedded
+in Markdown and HTML still load as ordinary assets. The image page's fixed CSP
+permits only data images, inline fixed styles and same-origin bundled fonts.
+Network permission cannot widen this response policy.
 No file bytes become markup, selectors or CSS. The board CSP and asset allowlist
 are unchanged. Fit is the default; Actual size enables scrolling at natural image
 size. Light and dark native themes change only the surrounding frame. Tile and

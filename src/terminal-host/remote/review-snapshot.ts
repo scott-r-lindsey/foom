@@ -45,7 +45,7 @@ export async function remoteReviewSnapshot(
   const inspect = (args: string[], stdoutBudget: "probe" | "review-snapshot" = "probe") =>
     hostProbe(
       "git",
-      ["--no-optional-locks", "-c", "core.fsmonitor=false", ...args],
+      ["--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "core.excludesFile=", ...args],
       worktree,
       env,
       false,
@@ -62,6 +62,9 @@ export async function remoteReviewSnapshot(
       (await inspect(["config", "--get", "remote.origin.url"])).trim(),
     ]);
   const binding = await context();
+  const status = () =>
+    inspect(["status", "--porcelain=v1", "--untracked-files=all"], "review-snapshot");
+  const initialStatus = await status();
   const hash = createHash("sha256").update(
     JSON.stringify([repository, worktree, identity, head, binding]),
   );
@@ -69,7 +72,7 @@ export async function remoteReviewSnapshot(
     indexState(await inspect(["ls-files", "--stage", "-v", "--debug", "-z"], "review-snapshot")),
   );
   // Read tracked bytes as well as untracked files; diff alone misses skip-worktree
-  // entries and changes within an already-dirty file. No filters or diff helpers run.
+  // entries and changes within an already-dirty file. Hash raw bytes directly.
   const files = [
     ...new Set(
       (
@@ -155,5 +158,14 @@ export async function remoteReviewSnapshot(
   await validate();
   if ((await inspect(["rev-parse", "HEAD"])).trim() !== head) throw new Error("Snapshot changed");
   if ((await context()) !== binding) throw new Error("Snapshot changed");
-  return { head, digest: hash.digest("hex") };
+  const finalStatus = await status();
+  const visibleIndex = (await inspect(["ls-files", "-v", "-z"], "review-snapshot"))
+    .split("\0")
+    .filter(Boolean)
+    .every((entry) => entry.startsWith("H "));
+  return {
+    head,
+    digest: hash.digest("hex"),
+    clean: initialStatus === "" && finalStatus === "" && visibleIndex,
+  };
 }

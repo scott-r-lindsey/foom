@@ -24,11 +24,24 @@ test("source connects independently of views, reconciles events, preserves order
   await expect(source.previews?.popout?.("unknown")).rejects.toThrow("Preview host unavailable");
   await expect(source.previews?.reload?.("unknown")).rejects.toThrow("Preview host unavailable");
   await expect(source.previews?.copyPath?.("unknown")).rejects.toThrow("Copy unavailable");
+  await expect(source.previews?.navigation?.("id")).resolves.toEqual({
+    id: "id",
+    back: false,
+    forward: false,
+  });
+  await expect(source.previews?.travel?.("id", "back")).resolves.toBeUndefined();
+  source.previews?.onNavigation?.(vi.fn())();
+  const navigation = vi.fn((id: string) => Promise.resolve({ id, back: true, forward: false }));
+  const travel = vi.fn(() => Promise.resolve());
+  const onNavigation = vi.fn(() => vi.fn());
   const copyPath = vi.fn(async () => {});
   const popout = vi.fn(() => Promise.resolve());
   const reload = vi.fn(() => Promise.resolve());
   const network = vi.fn(() => Promise.resolve());
   window.desktop.previews = {
+    navigation,
+    travel,
+    onNavigation,
     copyPath,
     reload,
     network,
@@ -40,6 +53,16 @@ test("source connects independently of views, reconciles events, preserves order
     cover: vi.fn(),
     onSnapshots: vi.fn(),
   };
+  await expect(source.previews?.navigation?.("id")).resolves.toEqual({
+    id: "id",
+    back: true,
+    forward: false,
+  });
+  await source.previews?.travel?.("id", "forward");
+  expect(travel).toHaveBeenCalledWith("id", "forward");
+  const receiveNavigation = vi.fn();
+  source.previews?.onNavigation?.(receiveNavigation);
+  expect(onNavigation).toHaveBeenCalledWith(receiveNavigation);
   await source.previews?.copyPath?.("id");
   expect(copyPath).toHaveBeenCalledWith("id");
   await source.previews?.reload?.("id");

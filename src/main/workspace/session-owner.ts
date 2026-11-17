@@ -28,6 +28,8 @@ export interface SessionOwnerDependencies {
     | "restoreHistory"
     | "restoreWorktrees"
   >;
+  sharedReview?: (id: string) => StoredSession["sharedReview"];
+  restoreSharedReview?: (entry: StoredSession) => void;
   terminals: () => readonly WorkspaceTerminal[];
   terminal: (id: string) => WorkspaceTerminal | undefined;
   restoreRow: (row: WorkspaceTerminal) => void;
@@ -229,12 +231,14 @@ export class SessionOwner {
         continue;
       this.deps.orchestration.handoffs.restore(entry.id, entry.handoffs ?? []);
       this.saved.set(entry.id, entry);
+      this.deps.restoreSharedReview?.(entry);
       if (entry.remoteCheckout) {
         this.remotePlacements.set(entry.id, entry.remoteCheckout);
         this.deps.rememberRemote?.(entry);
       }
       const row = { ...entry };
       if (row.closeState) row.closeState = "failed";
+      delete row.sharedReview;
       delete row.running;
       delete row.recovered;
       delete row.remoteCheckout;
@@ -257,11 +261,13 @@ export class SessionOwner {
         .filter((entry) => !entry.probe && !this.forgettingSessions.has(entry.id))
         .map((entry) => {
           const remoteCheckout = entry.remote ? this.remotePlacements.get(entry.id) : undefined;
+          const sharedReview = this.deps.sharedReview?.(entry.id);
           const role = this.deps.orchestration.view(entry.id);
           const identity = this.deps.orchestration.identity(entry.id);
           const saved = this.restoring.has(entry.id) ? this.saved.get(entry.id) : undefined;
           return {
             ...entry,
+            ...(sharedReview ? { sharedReview } : {}),
             ...(remoteCheckout ? { remoteCheckout } : {}),
             handoffs: this.deps.orchestration.handoffs.entries(entry.id),
             ...(saved?.orchestrator ? { orchestrator: saved.orchestrator } : {}),

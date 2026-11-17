@@ -229,8 +229,28 @@ requested terminal click coordinates, native view bounds/zoom and DOM hit geomet
 Records contain no key values or terminal/model output. Final DOM hit testing uses
 the requested click point, including when DOM mouse delivery is absent. Observers and wrapped
 native methods are removed/restored before app teardown, including body failures.
-The existing native input, focus assertions and exact PTY-byte checks are unchanged;
-this instrumentation neither diagnoses the historical cause nor adds a focus gate.
+Run [43741299452](https://github.com/scott-r-lindsey/foom/actions/runs/43741299452),
+attempt 1, Linux artifact **14171849710**, captures the terminal-click failure in
+the Escape case. Both cancellation blur operations completed before the click;
+native board focus was already established. The requested point `(319, 639)` hit
+`section.terminal-tile`, not xterm. The still-unfitted screen extended to y=649
+in a 640px viewport during the sidebar transition. DOM input briefly focused the
+textarea, then the tile's default mouse action moved focus to the section.
+This establishes a fixture hit-target error, rather than lost native input or a
+late cancellation blur, for that occurrence. The original untraced navigation
+failure does not independently establish its hit target. Original run
+42551694817's logs show the same earlier native-focus-undefined/textarea-active
+observation in all three attempts: 12.750s failing (artifact **13645683548**),
+then 2.771s and 2.874s passing. That earlier observation alone cannot identify
+the failing click's cause; the original run's artifacts are no longer available.
+
+The helper now clicks near the screen's top, horizontally centered, rather than
+its potentially clipped bottom edge. The Escape regression holds the observed
+clipped screen geometry using a test-owned inline height, asserts that the former
+point hits the tile, and requires the corrected native click to restore terminal
+focus and exact PTY input. The height is released after the click. Native input,
+focus assertions, exact PTY-byte checks (including forbidden handoff input),
+deadlines and product behavior remain unchanged.
 
 ## Chromium session storage
 
@@ -903,9 +923,11 @@ Events are:
 - `native:installed`, `native:render`, `native:focus`, `native:blur`, `native:show`,
   `native:hide`, `native:move`, `native:resize`, `native:minimize`, `native:restore`,
   `native:closed`, `native:mouseDown`, `native:mouseUp`, `native:answer`,
-  `native:before-quit` and `native:will-quit`.
+  `native:before-quit`, `native:will-quit`, `native:unresponsive`,
+  `native:responsive` and `native:render-process-gone`.
 - `renderer:installed`, `renderer:render`, `renderer:pointerdown`,
-  `renderer:pointerup` and `renderer:click`.
+  `renderer:pointerup`, `renderer:click`, `renderer:focus`, `renderer:blur`
+  and `renderer:visibilitychange`.
 - Playwright actionability phrases: `waiting for locator`, `locator resolved`,
   `element is outside of the viewport`, `waiting for element to be visible, enabled
   and stable`, `element is not visible`, `element is not enabled`, `element is not
@@ -921,8 +943,15 @@ main-owned `presented` flag before forwarding the unchanged render message.
 request equality, top-frame identity and boolean acceptance. Presentation and
 request equality are null until the recorder observes a render publication, so
 a dialog already open at installation is not mislabeled as unpresented. It grants nothing.
-Renderer input records include native trust, an accept/other/none button category,
-disabled state and document focus. The recorder never calls the answer bridge.
+Renderer records include document focus/visibility, viewport dimensions and device
+pixel ratio. Input records include native trust, an accept/other/none button
+category, disabled state, button bounds and viewport-relative input coordinates;
+native mouse records also retain their content-relative coordinates. Compare
+coordinates within their source before inferring a missed target. Native
+responsiveness and renderer-exit events retain window state plus Electron's fixed
+exit reason and numeric exit code, even when the renderer cannot emit console
+records. These are passive observations, with no heartbeat, extra inspector round
+trip or retry. The recorder never calls the answer bridge.
 
 Main and renderer have independent sequence numbers and monotonic clocks; Node
 adds its observation clock. Pipe/console delivery can reorder across processes:
@@ -935,6 +964,31 @@ above are retained during teardown, and its debug sink/settings are restored on
 completion or failure. `record:oversized` and `record:malformed` identify rejected
 records. The real Electron harness regression verifies presentation, trusted
 renderer input, answer identity, actionability logging and quit lifecycle together.
+
+### Artifact follow-up (2026-11-17)
+
+Downloaded each available macOS Electron artifact once from main runs
+43954033358 (attempt 2, seven reports), 43840785089, 43822818958, 43810483925
+and 43735490367 (attempt 1, six reports each). All five WebGL context-budget cases
+passed: their traces record native presentation, trusted renderer click, matching
+top-frame accepted answer and normal quit. None of the 31 reports records a
+teardown click starting without completing. The original stuck-accept signature
+has **not recurred in this sample**; it does not establish a root cause or a
+product fix. Runs 42994735476 and 42823546100 have no retained artifacts.
+
+| Run | WebGL artifact ID | Setup / body / teardown (seconds) |
+| --- | --- | --- |
+| [43954033358](https://github.com/scott-r-lindsey/foom/actions/runs/43954033358) | 14271448187 | 4.749 / 12.525 / 4.027 |
+| [43840785089](https://github.com/scott-r-lindsey/foom/actions/runs/43840785089) | 14216796304 | 2.456 / 6.402 / 2.487 |
+| [43822818958](https://github.com/scott-r-lindsey/foom/actions/runs/43822818958) | 14206441906 | 5.332 / 7.212 / 2.831 |
+| [43810483925](https://github.com/scott-r-lindsey/foom/actions/runs/43810483925) | 14200989385 | 5.740 / 12.263 / 3.135 |
+| [43735490367](https://github.com/scott-r-lindsey/foom/actions/runs/43735490367) | 14170529053 | 8.174 / 12.513 / 4.215 |
+
+The first attempt of 43954033358 cancelled all seven macOS Electron jobs; retained
+reports are from its successful second attempt. The four failed runs above are
+diagnostic evidence, not green validation runs. Additional passive focus,
+visibility, coordinate and renderer-failure observations narrow a future missing
+input trace without changing consent, quit behavior or deadlines.
 
 
 Fixture-owned dialogs may already have been disposed when app teardown starts.
@@ -994,3 +1048,14 @@ probe by its workspace terminal ID. A controlled local run with that ordering
 and the old text selector reproduces the same two-row error. The dedicated
 probe row's visibility, credit note, driver label and attention/cleanup checks
 remain independent. No reminder duration or native input behavior changes.
+
+## Manifest fixture capture publication (#1138)
+
+The manifest-only v2 agent fixture publishes argv only after writing its MCP and
+environment captures. Its argv poll is the readiness acknowledgement for all three
+files. Previously argv was written first, allowing the reader to reach `.env`
+before the fixture created it. A controlled Xvfb run held the later writes after
+argv publication and reproduced the macOS `argv.json.env` ENOENT from run
+43909947998, artifact **14248137208**. Publishing argv last retains the actual
+argument, environment, MCP, hook, reload and revocation assertions without retries
+or changed deadlines. The controlled hold is not part of ordinary validation.

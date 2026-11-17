@@ -630,6 +630,9 @@ export async function sidebarCommand(
         this.deps.worktrees.listRepositories().some((repo) => repo.path === entry.repository))
         ? this.deps.worktrees.reviewIdentity(entry.repository, entry.worktree)
         : undefined;
+    const sharedReview =
+      command.kind === "close" ? this.checkoutHolds.review(command.id) : undefined;
+    if (sharedReview) heldCheckout = sharedReview.hold;
     if (command.kind === "close" && entry) {
       if (!entry.home && !entry.config && this.checkoutHolds.busy(entry.worktree, heldCheckout))
         throw new ApplicationError("session-busy");
@@ -656,7 +659,16 @@ export async function sidebarCommand(
         (this.closed || (entry && this.launched.get(command.id) !== entry))
       )
         throw new Error("Session changed");
-      if (entry && identity !== undefined) {
+      if (entry && sharedReview) {
+        await this.orchestration.checkSharedReview(
+          entry.id,
+          entry.repository,
+          entry.worktree,
+          sharedReview.baseline,
+        );
+        validateClose?.();
+      }
+      if (entry && identity !== undefined && !sharedReview) {
         await this.cleanup.removeOwnedTree(
           entry.repository,
           entry.worktree,

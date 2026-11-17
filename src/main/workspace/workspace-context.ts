@@ -320,6 +320,13 @@ export class WorkspaceContext {
       ...(deps.sessions ? { store: deps.sessions } : {}),
       ...(deps.config ? { configRoot: deps.config.root } : {}),
       orchestration: this.orchestration,
+      sharedReview: (id) => this.checkoutHolds.review(id)?.baseline,
+      restoreSharedReview: (entry) => {
+        if (!entry.sharedReview || this.checkoutHolds.review(entry.id)) return;
+        const hold = this.checkoutHolds.acquire(entry.worktree);
+        if (!hold) throw new Error("Shared review checkout is busy");
+        this.checkoutHolds.retainReview(entry.id, hold, entry.sharedReview);
+      },
       terminals: () => this.snapshot().terminals,
       terminal: (id) => this.launched.get(id),
       removeRow: (id) => {

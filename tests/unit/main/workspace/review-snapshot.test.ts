@@ -74,6 +74,8 @@ describe("bounded worktree review snapshot", () => {
         "--no-optional-locks",
         "-c",
         "core.fsmonitor=false",
+        "-c",
+        "core.excludesFile=",
         "ls-files",
         "--cached",
         "--others",
@@ -257,5 +259,47 @@ it("keeps flags distinct from newline-containing filenames and ignores nonsemant
   index = indexEntry("H mode object 0\tname\n  size: 0\tflags: 20000000", "200000");
   expect(await snapshot()).toEqual(before);
   index = indexEntry("H mode object 0\tname\n  size: 0\tflags: 20000000", "20000000");
+  expect(await snapshot()).not.toEqual(before);
+});
+
+it("admits only clean checkouts and ignores build output without concealing tracked or untracked edits", {
+  timeout: nativeDeadline(10000),
+}, async () => {
+  const { git, checkouts } = await realWorktrees();
+  for (const checkout of checkouts) {
+    tree = checkout;
+    await writeFile(join(tree, ".gitignore"), "output/\n");
+    await git("add", ".gitignore");
+    await git(
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "-m",
+      "Ignore outputs",
+    );
+    const before = await snapshot();
+    expect(before.clean).toBe(true);
+    await mkdir(join(tree, "output"));
+    await writeFile(join(tree, "output", "build.log"), "ignored");
+    expect(await snapshot()).toEqual(before);
+    await writeFile(join(tree, "notes"), "untracked");
+    expect((await snapshot()).clean).toBe(false);
+    await rm(join(tree, "notes"));
+    await writeFile(join(tree, "tracked"), "edit");
+    expect((await snapshot()).clean).toBe(false);
+    await git("update-index", "--assume-unchanged", "tracked");
+    expect(await git("status", "--porcelain")).toBe("");
+    expect((await snapshot()).clean).toBe(false);
+  }
+});
+
+it("detects switching branches at the same commit", {
+  timeout: nativeDeadline(10000),
+}, async () => {
+  const { git } = await realWorktrees();
+  const before = await snapshot();
+  await git("checkout", "-b", "another-branch");
   expect(await snapshot()).not.toEqual(before);
 });

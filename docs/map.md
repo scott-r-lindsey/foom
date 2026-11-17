@@ -5,6 +5,57 @@ area you will change. Read additional contract sections only when changing that
 surface. These are decided rules; changing a decision needs its own PR and docs.
 [Documentation authority](README.md#authority-and-maintenance) explains precedence.
 
+## Area import freeze (#1127)
+
+[`scripts/area-boundaries.json`](../scripts/area-boundaries.json) declares each
+main and renderer area's finite public-module list and allowed imports (`type`
+or `value`). `foom/area-boundaries` enforces it in `pnpm run lint`, including
+re-exports, literal dynamic imports, `require`, import-equals and import types,
+across `.ts`, `.tsx`, `.cts`, `.mts`, `.js`, `.cjs` and `.mjs` source files.
+String literals and template literals without substitutions are resolved alike.
+Dynamic expressions (including interpolated templates) fail closed; there are no
+current dynamic-specifier exceptions. Package-local `#` aliases resolve through
+the nearest `package.json` imports map, including wildcard and conditional local
+targets; every conditional target must satisfy the policy. Missing, invalid or
+unsupported alias targets fail closed.
+A permitted edge does not permit importing other modules inside the target area.
+Types count as dependencies; type-only edges cannot become runtime imports.
+
+This is the **first, incremental freeze** of existing dependencies. It adds no
+barrels or import rewrites: orchestration's leaf modules remain leaves. The
+historical [baseline](../scripts/area-boundaries-baseline.json) records the original
+public modules, edges and all nine main and six renderer reciprocal pairs.
+The active policy may remove modules/edges or narrow value edges to types; lint
+rejects additions or widening beyond that ceiling. The historical snapshot has a
+pinned digest in the rule so editing both JSON files cannot silently grow it.
+Do not regenerate it from new imports to make lint pass. An intentional amendment
+needs a separate, explicitly justified boundary-policy PR updating the snapshot
+and its digest as well as the active map. Ordinary refactors should shrink the
+active policy when the last consumer disappears.
+
+`main/wiring` is the composition root and already has edges to every main area.
+Only `main/main.ts` may import its declared public application entry. Root-level
+composition files obey area APIs; existing root-level process helpers remain
+process-wide and are also subject to the process-boundary rule. Asset folders
+are declared with empty APIs. Adding a code area requires an explicit policy
+amendment rather than silently creating a new unrestricted folder.
+
+The explicit #1247 amendment isolates the phase-C legacy JSON importer and its
+prepared adapters in temporary `main/data-import`. It permits only the required
+feature-parser edges and public modules, plus data's database/schema API and
+setup's `github-sign-in.ts` entry for wiring (#1178). Wiring may compose the
+importer; data cannot import it back and retains only its `window: type` edge.
+The historical snapshot and pinned digest include this justified amendment;
+no reciprocal pairs were added. Delete `main/data-import` and its policy entries
+at the phase-D cutover, shrinking the active map as consumers disappear.
+
+Removing the recorded reciprocal pairs and converging on single-entry APIs are
+follow-ups to this freeze, after their runtime dependencies are disentangled.
+File-level `import/no-cycle` remains disabled here: the exploratory full-repo run
+found existing cycles in the legacy forge test helpers and macOS signing scripts.
+Those cycles and further cycle-rule rollout are separate follow-ups, without
+suppressions or unrelated runtime refactors in this change.
+
 ## Selection rules
 
 [Data ownership and synchronization](areas/data.md) is required for persistence,
@@ -30,6 +81,10 @@ a generic process route alone does not identify feature policy.
 
 | Area / source owner | Responsibility and entry points | Required area rules / behavior |
 | --- | --- | --- |
+| `src/main/data-import/windows.ts` | Prepared window/update conveniences and inert preview metadata; no production cutover | [Data ownership](areas/data.md), [windows](areas/windows.md), [previews](areas/previews.md), [application](areas/application.md), [privacy](areas/privacy.md) |
+| `src/main/data-import/control.ts`, `src/main/data-import/board.ts` | Prepared control/history schemas and import/domain paths; no production cutover | [Data ownership](areas/data.md), [control](areas/control.md), [message board](areas/message-board.md), [forge](areas/forge.md), [repository setup](areas/repository-setup.md), [privacy](areas/privacy.md) |
+| `src/main/data-import/` | Temporary phase-C legacy JSON importer and prepared adapters; deleted at phase-D cutover | [Data ownership](areas/data.md), [boundaries](areas/boundaries.md) |
+| `src/shared/secret-cipher.d.ts` | Main-only encryption capability declaration shared by JSON owners and SQLite preparation | [Data ownership](areas/data.md), [settings](areas/settings.md) |
 | `src/main/data/`, `src/renderer/data/`, `src/shared/data-views.d.ts` | Bounded JSON-backed view subscriptions, commit/live invalidation and TanStack Query caches | [Data ownership](areas/data.md), [IPC](areas/ipc.md), [settings](areas/settings.md) |
 | `src/main/setup/settings.ts`, `src/main/setup/environment.ts`, `src/main/workspace/session-store.ts`, `src/main/workspace/worktree-store.ts`, `src/main/control/store.ts`, `src/main/config/service.ts`, `src/renderer/board/live-board-source.ts` | Existing persistence and main-owned data projections; phased SQLite/Drizzle and subscribed-query transition | [Data ownership](areas/data.md) |
 | `src/renderer/board/error-presentation.tsx`, `src/shared/application-error.d.ts`, `src/shared/application-errors.ts` | Fixed coded failures, action dialogs, focus restoration and operation-scoped background marks | [Errors](areas/errors.md), [behavior](behavior/errors.md) |
@@ -99,7 +154,7 @@ their feature rules here. These rows participate in the same union as those abov
 | `src/shared/conversation.ts`, `src/shared/hooks.d.ts`, `src/shared/foreground-name.ts`, `src/shared/workspace.d.ts` | Agent/session projections, hook signals and foreground facts | [Launch](areas/agent-launch.md), [hooks](areas/agent-hooks.md), [sessions](areas/sessions.md) |
 | `src/main/terminals/remote-bootstrap.ts`, `src/main/terminals/remote-transport.ts`, `src/terminal-host/remote/`, `src/shared/remote-host.d.ts`, `src/shared/remote-host-protocol.ts`, `src/shared/remote-agent*` | Developer opt-in SSH bootstrap, bounded stdio protocol and SEA daemon with persistent PTYs and replay | [Remote shell contract](areas/terminals.md#remote-shell-spike-754), [boundaries](areas/boundaries.md#remote-shell-spike-754), [privacy](areas/privacy.md#secrets) |
 | `src/shared/host-system.ts`, `src/shared/repository-setup*`, `src/node-common/repository-setup*`, `src/node-common/repository-probe-path.ts`, `src/node-common/repository-toolchain.ts`, `src/main/setup/repository-setup*`, `src/renderer/preflight/repository-setup.tsx` | Profile-only repository prerequisites, bounded evidence, approved fixed host plans and launch admission | [Repository setup](areas/repository-setup.md), [hosts](areas/hosts.md), [data](areas/data.md), [privacy](areas/privacy.md) |
-| `src/shared/registered-hosts*`, `src/shared/registered-host-recipes.ts`, `src/main/setup/hosts.ts`, `src/main/setup/ssh-host-key.ts`, `src/node-common/ssh-askpass.ts`, `src/main/setup/local-host.ts`, `src/terminal-host/remote/management.ts`, `src/terminal-host/remote/plugin-status.ts`, `src/terminal-host/remote/network-git.ts`, `src/terminal-host/remote/git-failure.ts`, `src/terminal-host/remote/worktree-provenance.ts`, `src/renderer/preflight/hosts-settings.tsx` | Profile-only SSH host enrollment, bounded management requests, host facts and approved repository clones | [Hosts](areas/hosts.md), [settings](areas/settings.md), [launch](areas/agent-launch.md), [privacy](areas/privacy.md) |
+| `src/shared/registered-hosts*`, `src/shared/registered-host-recipes.ts`, `src/main/setup/hosts.ts`, `src/main/setup/ssh-host-key.ts`, `src/node-common/ssh-askpass.ts`, `src/main/setup/local-host.ts`, `src/terminal-host/remote/management.ts`, `src/terminal-host/remote/plugin-status.ts`, `src/terminal-host/remote/network-git.ts`, `src/terminal-host/remote/git-failure.ts`, `src/terminal-host/remote/worktree-provenance.ts`, `src/renderer/preflight/hosts-settings.tsx`, `src/renderer/preflight/github-sign-in.tsx`, `src/main/setup/github-sign-in.ts` | Profile-only SSH host enrollment, bounded management requests, host facts and approved repository clones | [Hosts](areas/hosts.md), [settings](areas/settings.md), [launch](areas/agent-launch.md), [privacy](areas/privacy.md) |
 | `src/shared/image-paste*` | Bounded image references, normalized PNG and session upload validators | [Terminals](areas/terminals.md#image-paste-937), [privacy](areas/privacy.md#image-paste-937), [providers](areas/providers.md) |
 | `src/shared/terminal-link.ts`, `src/shared/terminal-clipboard.ts` | Bounded HTTP(S) terminal links, pinned OSC metadata reads and OSC 52 clipboard decoding | [Terminals](areas/terminals.md), [IPC](areas/ipc.md) |
 | `src/shared/terminal-selection.ts` | Bounded terminal selection validation | [Terminals](areas/terminals.md), [settings](areas/settings.md) |

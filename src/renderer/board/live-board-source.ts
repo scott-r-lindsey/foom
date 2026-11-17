@@ -577,6 +577,12 @@ export function createAppSource(): BoardSource {
     ...(window.desktop.windows ? { windows: window.desktop.windows } : {}),
     isDevelopment: window.desktop.isDevelopment,
     previews: {
+      navigation: (id) =>
+        window.desktop.previews?.navigation?.(id) ??
+        Promise.resolve({ id, back: false, forward: false }),
+      travel: (id, direction) =>
+        window.desktop.previews?.travel?.(id, direction) ?? Promise.resolve(),
+      onNavigation: (callback) => window.desktop.previews?.onNavigation?.(callback) ?? (() => {}),
       isReady: () => inventoryLoaded,
       getSnapshot: () => previews,
       getHistory: () => previewActions,

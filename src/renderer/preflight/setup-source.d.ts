@@ -28,7 +28,7 @@ export interface SetupSource {
   draftSetupAgent?: (repository: string) => Promise<void>;
   repositorySetup?: (action: RepositorySetupAction) => Promise<RepositorySetupState>;
   views?: DataViewApi;
-  /** Installs started in this Settings window; sign-in tiles are separate. */
+  /** Embedded recipes started in this Settings window; other agent sign-in tiles are separate. */
   installs?: {
     sessions(): ReadonlyMap<string, string>;
     hasSessions(): boolean;
@@ -42,6 +42,8 @@ export interface SetupSource {
     createView(): TerminalViewSource;
     observe(id: string, listener: (exit: { exited: boolean; code?: number }) => void): () => void;
   };
+  githubSignInSessions?: () => ReadonlyMap<string, boolean>;
+  githubSignIn?: HostsApi["githubSignIn"];
   copyHost?: HostsApi["copyHost"];
   hosts?: HostsApi["hosts"];
   localAgentInstall?: (

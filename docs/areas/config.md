@@ -78,12 +78,45 @@ settings file includes the profile arguments directly; empty profile defaults
 leave the key absent.
 Settings saves split
 the patch: config keys are written to the file atomically and applied; profile
-keys go to the profile. Before merging a Settings patch, the serialized writer
-checks the current file through the ordinary validation and approval path. Safe
-edits made before the watcher runs are retained; held edits still follow the
-existing Settings-save replacement rule. A read or parse failure refuses the save
-without replacing the external bytes; the same patch can be retried after the
-file is available and valid. On Windows only, atomic
+keys go to the profile. Settings saves acquire an exclusive
+`.foom-settings.lock` file shared by all profiles before reading, validating and
+merging only the patched keys into the current settings file, and hold it through
+atomic replacement. Contention waits at most 20 intervals of 25 ms, then refuses
+the save; the caller can retry the unchanged patch. No stale-baseline fallback is
+allowed. The lock is published exclusively by hard-linking a complete, fsynced private
+temporary file in the same directory, on Windows as well as POSIX. A filesystem
+that refuses hard links refuses the save; it never falls back to publishing an
+empty lock. Before entering the critical section, the owner rechecks its token
+at the lock path. The lock records its owner's PID, Linux boot/start identity when available,
+hostname, random token and timestamp. Same-host owners are recovered only after
+ESRCH or a mismatching start identity proves death or PID reuse. Recovery uses an
+exclusive recovery lock and rechecks the stale record before removing it; crashed
+recovery locks use the same protocol (up to four nested recovery locks, then fail
+closed). Release removes only a matching token. Live owners and foreign-host
+records never expire. Unreadable, linked and nonregular locks fail closed.
+Readable corrupt records also fail closed at any age: atomic publication means
+a crash while writing the record leaves only an unpublished temporary file.
+There is no longer a need for the 24-hour corrupt-record recovery rule, which
+could steal a live, paused writer's lock after a clock jump. Legacy corrupt locks
+require manual removal while all sharing apps are stopped. Settings failures use
+fixed typed codes: `settings-busy` asks to try again, `settings-lock-corrupt` asks
+to quit other Foom windows and remove `.foom-settings.lock` and its recovery locks,
+and `settings-lock-unsupported` explains that the config filesystem does not
+support hard links. No filesystem path or exception text crosses IPC.
+Lock publication cleanup retries EPERM/EBUSY five times with 25, 50, 100 and
+200 ms backoff, then logs and leaves the temporary file without discarding
+ownership. Later acquisitions sweep complete `.foom-*.tmp` lock records only
+when the same-host process is proven dead by the lock recovery rules; other
+config temporaries and live, foreign or unverified owners remain untouched.
+Safe external edits are adopted through the approval gate. With a verified
+baseline, unrelated held keys remain on disk and held while only the Settings
+patch is applied. Without a trusted baseline (including rejected profile loads),
+a held file refuses Settings saves until reviewed. Missing, unreadable or invalid
+files also refuse saves without replacing external bytes. Keep it on uses the
+same lock and rechecks the proposal before replacement.
+The [#1234 investigation](../research/settings-reset-1234.md) records both
+reproduced races and recovery limits; it does not establish the historical
+incident trigger. On Windows only, atomic
 replacement retries EPERM/EBUSY up to five attempts with 25, 50, 100 and 200 ms
 backoff for transient external sharing locks. It never unlinks the destination;
 exhaustion removes the temporary file, reports a fixed error naming the config
@@ -118,7 +151,7 @@ last applied text. At startup the working file is trusted only if its digest
 matches `configDigest`; otherwise the profile's `configText` is trusted if its
 digest matches; otherwise the baseline is the defaults (`{ "kind": "settings" }`),
 so an off switch written while Foom was closed is held and Keep it on restores a
-valid default file. A Settings save replaces a held change. Every file argument change holds,
+valid default file. A Settings save preserves unrelated held keys; an unverified baseline refuses the save. Every file argument change holds,
 regardless of known bypass detection. Allow opens the existing main-owned trusted
 dialog containing literal before/after lists and known bypass flags, then rechecks
 the proposal bytes before applying. Accepted bypass changes persist per-agent

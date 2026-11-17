@@ -283,3 +283,12 @@ it.each(["claude", "codex", "agy", "copilot", "opencode", "pi"])(
     ).not.toHaveProperty("agent");
   },
 );
+
+it("parses an explicit owned author for shared review and rejects malformed IDs", () => {
+  expect(
+    command(["review", "--pull-request", "7", "--author", "child-1", ...key]).params,
+  ).toMatchObject({ pullRequest: 7, authorId: "child-1" });
+  expect(() =>
+    command(["review", "--pull-request", "7", "--author", "../foreign", ...key]),
+  ).toThrow("invalid_request");
+});

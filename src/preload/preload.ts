@@ -1839,6 +1839,26 @@ const desktop: DesktopApi = {
     network: (id, enabled) => invokeVoid("preview:network", id, enabled),
     copyPath: (id) => invokeVoid("preview:copy-path", id),
     pick: (worktree) => reply("preview:pick", either(nil, text), worktree),
+    navigation: (id) =>
+      reply("preview:navigation", shape({ id: text, back: boolean, forward: boolean }), id),
+    travel: (id, direction) => invokeVoid("preview:travel", id, direction),
+    onNavigation(callback) {
+      const listener = (_event: IpcRendererEvent, value: unknown) => {
+        if (
+          !object(value) ||
+          typeof value["id"] !== "string" ||
+          !/^[a-f0-9]{32}$/.test(value["id"]) ||
+          typeof value["back"] !== "boolean" ||
+          typeof value["forward"] !== "boolean"
+        )
+          return;
+        callback({ id: value["id"], back: value["back"], forward: value["forward"] });
+      };
+      ipcRenderer.on("preview:navigation", listener);
+      return () => {
+        ipcRenderer.removeListener("preview:navigation", listener);
+      };
+    },
     reload: (id) => invokeVoid("preview:reload", id),
     close: (id) => invokeVoid("preview:close", id),
     bounds: (id, bounds) => invokeVoid("preview:bounds", id, bounds),
@@ -2335,6 +2355,34 @@ const desktop: DesktopApi = {
       "setup:local-agent-install",
       shape({ available: array(text), recipeSession: either(absent, text) }),
       id,
+    ),
+  githubSignIn: (id, action) =>
+    reply(
+      "setup:github-sign-in",
+      shape({
+        phase: literal(
+          "starting",
+          "waiting",
+          "finishing",
+          "done",
+          "failed",
+          "expired",
+          "cancelled",
+        ),
+        code: either(
+          absent,
+          (value): value is string =>
+            typeof value === "string" && /^[A-Z0-9]{4}-[A-Z0-9]{4}$/u.test(value),
+        ),
+        copied: boolean,
+        opened: boolean,
+        exitCode: either(
+          absent,
+          (value): value is number => typeof value === "number" && Number.isSafeInteger(value),
+        ),
+      }),
+      id,
+      action,
     ),
   hosts: (action) => reply("setup:hosts", validHostsState, action),
   repositorySetup: (action) => reply("setup:repository-setup", validRepositorySetupState, action),

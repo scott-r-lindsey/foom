@@ -1,3 +1,4 @@
+import { GithubSignIn } from "../setup/github-sign-in";
 import { repositorySetupFor, repositoryToolchainPrefix } from "../setup/repository-setup-service";
 import type { SetupRun } from "../../shared/repository-setup.d";
 import { setupRunDigest } from "../../node-common/repository-setup-run";
@@ -9,7 +10,16 @@ import type { RemoteTarget } from "../../shared/remote-host";
 import { bundledAgentData } from "../../shared/bundled-agent-data";
 import { hostsForStore } from "../setup/hosts";
 import { checkReadiness } from "../setup/readiness";
-import { clipboard, app, BrowserWindow, dialog, nativeTheme, screen, session } from "electron";
+import {
+  clipboard,
+  shell,
+  app,
+  BrowserWindow,
+  dialog,
+  nativeTheme,
+  screen,
+  session,
+} from "electron";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 import { resolveInterfaceTheme } from "../../shared/interface-themes";
@@ -314,6 +324,25 @@ export async function buildWindow(
     confirmations.refresh();
     wiring.refreshApprovals();
   };
+  const githubSignIn = new GithubSignIn({
+    observe: (id, listener) =>
+      wiring.terminals.onOutput((changed) => {
+        if (changed === id) listener();
+      }),
+    screen: (id) => wiring.terminals.screen(id),
+    copy: (code) => clipboard.writeText(code),
+    clipboard: () => clipboard.readText(),
+    clear: () => {
+      clipboard.clear();
+    },
+    open: () => shell.openExternal("https://github.com/login/device"),
+    stop: async (id) => {
+      if (!(await wiring.terminals.stop(id))) throw new Error("Unable to stop sign-in");
+    },
+  });
+  window.once("closed", () => {
+    githubSignIn.dispose();
+  });
   const launchRecipe = async (
     target:
       | RemoteTarget
@@ -334,6 +363,7 @@ export async function buildWindow(
             }
           } else if (exitedId === id) {
             off?.();
+            void githubSignIn.finish(exitedId, code);
             finished();
           }
         })
@@ -349,6 +379,11 @@ export async function buildWindow(
           : "localAgent" in target
             ? await wiring.workspace.startLocalAgentInstall(target.localAgent)
             : await wiring.workspace.startHostRecipe(target);
+      const gh =
+        "recipe" in target &&
+        target.recipe.tool === "gh" &&
+        ["sign-in", "install-sign-in"].includes(target.recipe.action);
+      if (gh) githubSignIn.start(id);
       const code = earlyExits.get(id);
       earlyExits.clear();
       if (finished && code !== undefined) {
@@ -358,18 +393,24 @@ export async function buildWindow(
         } catch {
           console.warn("Unable to settle recipe exit");
         }
+        await githubSignIn.finish(id, code);
         finished();
       } else if (
         finished &&
         wiring.workspace.snapshot().terminals.find((row) => row.id === id)?.exited
       ) {
         off?.();
+        await githubSignIn.finish(
+          id,
+          wiring.workspace.snapshot().terminals.find((row) => row.id === id)?.exitCode ?? -1,
+        );
         finished();
       }
       if (
         "localSetup" in target ||
         "localAgent" in target ||
         target.repositorySetup ||
+        gh ||
         target.recipe?.action === "install"
       )
         return id;
@@ -477,6 +518,7 @@ export async function buildWindow(
         throw error;
       }
     },
+    githubSignIn: (id, action) => githubSignIn.action(id, action),
     launchHostRecipe: launchRecipe,
     copyText: (text) => clipboard.writeText(text),
     confirmHostKey: (content, signal) =>
