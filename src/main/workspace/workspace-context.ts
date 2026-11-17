@@ -1,3 +1,4 @@
+import { viewChanges } from "../data/view-changes";
 import { remoteAgentTarget, remoteSpikeTarget } from "../terminals/remote-bootstrap";
 import { CheckoutHolds, worktreeReservation } from "./worktree-reservations";
 import type { CheckoutHold } from "./worktree-reservations";
@@ -210,6 +211,7 @@ export class WorkspaceContext {
       },
     });
     this.executionOwner = new ExecutionOwner({
+      wakeEligibilityChanged: () => deps.terminals.recheckWake?.(),
       terminal: (id) => this.launched.get(id),
       tail: (id, lines) => deps.terminals.tail(id, lines),
       verdicts: deps.verdicts,
@@ -416,7 +418,10 @@ export class WorkspaceContext {
           prepareControl,
           this.agyPlugin,
           async (content) => {
-            const approved = await deps.dialog?.(content, this.launchAbort.signal);
+            const approved = await deps.dialog?.(
+              { ...content, userAction: true },
+              this.launchAbort.signal,
+            );
             return approved === true && !this.closed;
           },
           {
@@ -447,6 +452,8 @@ export class WorkspaceContext {
           | "restoreSessions"
           | "defaultAgent"
           | "concurrentChildren"
+          | "wakeOrchestrator"
+          | "wakeIntervalMinutes"
           | "unreadChildMinutes"
           | "autoRemoveMergedWorktrees"
           | "showPullRequests"
@@ -459,6 +466,10 @@ export class WorkspaceContext {
     this.concurrentChildren = settings.concurrentChildren ?? 4;
     this.showNewChildren = settings.showNewChildren ?? true;
     this.defaultAgent = settings.defaultAgent ?? null;
+    this.orchestration.configureWake(
+      settings.wakeOrchestrator ?? false,
+      settings.wakeIntervalMinutes ?? 3,
+    );
     this.orchestration.configureCloseFinished(settings.closeFinishedAgents ?? true);
     const reminderChanged = this.orchestration.unreadChildren.configure(
       settings.unreadChildMinutes ?? 5,
@@ -554,11 +565,13 @@ export class WorkspaceContext {
   }
 
   refresh(): void {
+    this.deps.terminals.recheckWake?.();
     if (this.closed) return;
     this.sidebarRead = undefined;
     this.orchestration.syncUnreadChildEvents();
     this.orchestration.childEvents.publish();
     this.deps.watcher?.sync(this.deps.worktrees.listRepositories());
+    viewChanges.publish("sessions", "worktrees");
     this.deps.onChange?.(this.localOnlyChange || undefined);
   }
 
@@ -712,6 +725,7 @@ export class WorkspaceContext {
         (branch, changes) =>
           this.deps.dialog?.(
             {
+              userAction: true,
               title: "Remove remote worktree?",
               accept: changes ? "Discard changes and remove" : "Remove worktree",
               glyph: "trash",
@@ -791,6 +805,7 @@ export class WorkspaceContext {
     if (
       !(await this.deps.dialog?.(
         {
+          userAction: true,
           title: "Forget session?",
           accept: "Forget",
           subject: id,

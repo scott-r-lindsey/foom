@@ -1,3 +1,4 @@
+import { settingsChanged } from "../data/settings-changes";
 import { registeredHosts } from "../../shared/registered-hosts";
 import { parseForgeEnablement, parseForgeHosts } from "./forge-settings";
 import { legacyBypassIdentities } from "../agents/providers/bundled";
@@ -32,6 +33,8 @@ export const DEFAULT_SETTINGS: Settings = Object.freeze({
   restoreSessions: true,
   showNewChildren: true,
   closeFinishedAgents: true,
+  wakeOrchestrator: false,
+  wakeIntervalMinutes: 3,
   showNestedRepositoryNames: false,
   middleClickPaste: false,
   copyOnSelect: false,
@@ -72,6 +75,7 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
     if (
       (key === "setupComplete" ||
         key === "checkForUpdates" ||
+        key === "wakeOrchestrator" ||
         key === "agyPluginOfferAnswered" ||
         key === "autoRemoveMergedWorktrees" ||
         key === "showPullRequests" ||
@@ -126,6 +130,14 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
       entry <= 1440
     )
       patch.unreadChildMinutes = entry;
+    else if (
+      key === "wakeIntervalMinutes" &&
+      typeof entry === "number" &&
+      Number.isInteger(entry) &&
+      entry >= 1 &&
+      entry <= 1440
+    )
+      patch.wakeIntervalMinutes = entry;
     else if (key === "registeredHosts" && registeredHosts(entry))
       patch.registeredHosts = entry.map((host) => ({ ...host }));
     else if (key === "forges") patch.forges = parseForgeEnablement(entry);
@@ -164,6 +176,7 @@ function profileOnly(settings: Settings): Partial<Settings> {
  */
 export class SettingsStore {
   private settings: Settings = DEFAULT_SETTINGS;
+  private committedSettings: Settings = DEFAULT_SETTINGS;
   private remoteProfile = randomUUID().replaceAll("-", "");
   profileTag(): string {
     return this.remoteProfile;
@@ -328,11 +341,12 @@ export class SettingsStore {
       }
     }
     if (migrated || !hasRemoteProfile) await store.write(() => {});
+    store.committedSettings = store.settings;
     return store;
   }
 
   get(): Settings {
-    return this.settings;
+    return this.committedSettings;
   }
 
   /** Agent-editable values a version 1 profile still holds; undefined once migrated. */
@@ -370,7 +384,10 @@ export class SettingsStore {
 
   /** Values from a validated config file; the file, not the profile, stores them. */
   setConfig(values: ConfigSettings): void {
+    const before = this.committedSettings;
     this.settings = { ...this.settings, ...CONFIG_DEFAULTS, ...values };
+    this.committedSettings = { ...before, ...CONFIG_DEFAULTS, ...values };
+    settingsChanged(before, this.committedSettings);
   }
 
   /** Digest of the theme file this profile last applied: that theme's approval baseline. */
@@ -416,7 +433,7 @@ export class SettingsStore {
     for (const [key, value] of Object.entries(patch))
       Object.assign(this.writer && isConfigSetting(key) ? config : profile, { [key]: value });
     if (this.writer && Object.keys(config).length) await this.writer(config);
-    if (Object.keys(config).length && !Object.keys(profile).length) return this.settings;
+    if (Object.keys(config).length && !Object.keys(profile).length) return this.committedSettings;
     await this.write(() => {
       this.settings = { ...this.settings, ...profile };
       if (profile.agentArguments)
@@ -424,7 +441,7 @@ export class SettingsStore {
           ? profile.agentArguments
           : undefined;
     });
-    return this.settings;
+    return this.committedSettings;
   }
 
   private async write(change: () => void): Promise<void> {
@@ -472,7 +489,10 @@ export class SettingsStore {
             await rm(temporary, { force: true });
           }
         } catch (error) {
-          this.settings = snapshot.settings;
+          this.settings = {
+            ...snapshot.settings,
+            ...Object.fromEntries(CONFIG_SETTINGS.map((key) => [key, this.committedSettings[key]])),
+          };
           this.migrated = snapshot.migrated;
           this.digest = snapshot.digest;
           this.text = snapshot.text;
@@ -482,6 +502,8 @@ export class SettingsStore {
           this.argumentsToMove = snapshot.argumentsToMove;
           throw error;
         }
+        this.committedSettings = this.settings;
+        settingsChanged(snapshot.settings, this.settings);
       });
     this.pending = write;
     await write;

@@ -97,7 +97,12 @@ async function detect(id: AgentId, path: string, probeEnabled = true): Promise<A
     await provider.validate?.();
     if (agentProvider(id) !== provider) throw new Error("Agent plugins changed. Scan again.");
     try {
-      return (await readLoginShell(executable, [flag], options)).stdout;
+      const output = await readLoginShell(executable, [flag], {
+        ...options,
+        allowNonzeroExit: flag === "--help",
+        fatalUtf8: flag === "--help",
+      });
+      return flag === "--help" ? `${output.stdout}\n${output.stderr}` : output.stdout;
     } catch {
       return "";
     }
@@ -302,6 +307,7 @@ export class AgentService {
             await provider.validate?.();
             if (agentProvider(request.agent) !== provider)
               throw new Error("Worktree or provider changed");
+            await request.prepareSpawn?.();
             if (request.remoteCheckout) await request.remoteCheckout.validate();
             else if (
               (await this.worktrees.launchIdentity(request.repository, request.worktree)) !==
@@ -412,7 +418,9 @@ export class AgentService {
         layers: [...(request.environment ?? []), prepared.environment ?? []],
         base: baseEnvironment,
         path: scan.path,
-        pathFirst: config ?? control?.env["FOOM_CLI_DIRECTORY"],
+        pathFirst: [config ?? control?.env["FOOM_CLI_DIRECTORY"], ...(request.repositoryPath ?? [])]
+          .filter((value): value is string => typeof value === "string" && value.length > 0)
+          .join(process.platform === "win32" ? ";" : ":"),
         foom: {
           ...control?.env,
           ...manualEnvironment,

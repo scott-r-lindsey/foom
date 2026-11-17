@@ -26,7 +26,15 @@ Normal agent `--version` and `--help` discovery uses this same bounded reader
 per output stream. Deadline, overflow and executable exit kill the Unix process
 group with SIGKILL, including descendants that ignore SIGTERM or hold pipes open.
 Failed reads retain the existing discovery fallback and do not strand the scan
-of other providers.
+of other providers. Help-token discovery reads stdout followed by stderr (separated
+by a newline), including ordinary nonzero help exits (#1187). Local discovery,
+config-owned verification probes and remote host discovery use this rule within
+their existing per-stream limits; timeout, cancellation, signal termination,
+spawn, malformed UTF-8 in either help stream and output-limit failures still
+discard the read. Version discovery retains
+stdout-only parsing and requires a successful exit. This enables Antigravity's
+`--prompt-interactive` gate when agy writes help to stderr, including initial child
+prompts and the fixed new-config-session greeting.
 
 ### Launch environment (#215)
 
@@ -296,3 +304,13 @@ desktop, rather than accepting a different protocol-compatible build. A mismatch
 refuses with `remote_artifact_mismatch` before recipe dispatch. This binds the
 daemon's bundled plugin assets (staged by its own executable) to the reviewed
 desktop build; the fixed recipe-step digest alone does not bind asset contents.
+
+## Repository prerequisites (#1080)
+
+New repository agent processes pass the main-owned active setup list and actual
+checkout/source check before spawning. Existing PTY reattachment, machine shells
+and manual repair terminals retain their existing policy. Missing, stale,
+unavailable and manual setup have separate fixed launch reasons. No refusal runs
+setup or retries a launch. Remote starts bind the exact catalog, list revision and
+source fingerprint and independently check them on the execution host. See
+[repository setup](repository-setup.md).

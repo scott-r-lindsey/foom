@@ -686,6 +686,20 @@ test("Settings shares setup controls, saves immediately and exposes planned sect
   await waitFor(() => {
     expect(source.save).toHaveBeenCalledWith({ closeFinishedAgents: true });
   });
+  const wake = screen.getByRole("checkbox", { name: "Wake idle orchestrators on child events" });
+  expect(wake).toHaveProperty("checked", false);
+  fireEvent.click(wake);
+  await waitFor(() => {
+    expect(source.save).toHaveBeenCalledWith({ wakeOrchestrator: true });
+  });
+  const wakeInterval = screen.getByRole("spinbutton", { name: "Minimum minutes between wakes" });
+  expect(wakeInterval).toHaveProperty("value", "3");
+  fireEvent.change(wakeInterval, { target: { value: "2" } });
+  await waitFor(() => {
+    expect(source.save).toHaveBeenCalledWith({ wakeIntervalMinutes: 2 });
+  });
+  fireEvent.change(wakeInterval, { target: { value: "0" } });
+  expect(source.save).not.toHaveBeenCalledWith({ wakeIntervalMinutes: 0 });
   const restore = screen.getByRole("checkbox", { name: "Restore sessions on launch" });
   expect(restore).toHaveProperty("checked", true);
   const limit = screen.getByRole("spinbutton", { name: "Concurrent children per orchestrator" });

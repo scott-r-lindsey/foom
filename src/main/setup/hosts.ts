@@ -1,3 +1,7 @@
+import type { RepositorySetupList } from "../../shared/repository-setup.d";
+import { setupCatalogDigest, setupDigest } from "../../node-common/repository-setup-digest";
+import { HostObservations } from "../data/host-observations";
+import { viewChanges } from "../data/view-changes";
 import { askpassSupported, trustHostKey } from "./ssh-host-key";
 import type { HostKeyTrustFailure } from "./ssh-host-key";
 import type { HostOutput } from "../../shared/registered-hosts.d";
@@ -208,7 +212,7 @@ export class Hosts {
       identity: value.identity,
     });
   }
-  private readonly worktreeInventories = new Map<
+  private readonly worktreeInventories = new HostObservations<
     string,
     { codeFolder: string; own: readonly RemoteWorktree[]; other: number; at: number }
   >();
@@ -314,7 +318,7 @@ export class Hosts {
     );
     return entries.flat();
   }
-  private readonly sessionInventories = new Map<string, RemoteInventoryResult>();
+  private readonly sessionInventories = new HostObservations<string, RemoteInventoryResult>();
   async sessions(): Promise<readonly { host: string; session: RemoteSessionInfo }[]> {
     const rows: { host: string; session: RemoteSessionInfo }[] = [];
     for (const registration of this.store.get().registeredHosts ?? []) {
@@ -458,6 +462,7 @@ export class Hosts {
 
       this.registered(host, registration.codeFolder);
     }
+    viewChanges.publish("hosts", "agents");
     return this.results.get(host) ?? { ok: false, reason: "unreachable" };
   }
   registered(host: string, folder?: string) {
@@ -648,9 +653,9 @@ export class Hosts {
     if (input.kind === "copy-host-code-folder") return registered.codeFolder;
     throw new Error("Invalid host copy");
   }
-  private readonly results = new Map<string, HostResult>();
+  private readonly results = new HostObservations<string, HostResult>();
   /** Display-only resource replies never seed the launch inventory. */
-  private readonly resourceResults = new Map<string, HostResult>();
+  private readonly resourceResults = new HostObservations<string, HostResult>();
   private readonly progress = new Map<string, HostCheckProgress>();
   private readonly hostPending = new Map<string, Promise<unknown>>();
   private checksRunning = 0;
@@ -773,6 +778,41 @@ export class Hosts {
       },
     };
   }
+  async repositorySetup(
+    host: string,
+    repository: string,
+    list: RepositorySetupList,
+    evidence: readonly string[],
+    path?: string,
+  ) {
+    const registration = this.registered(host);
+    const origin = await this.origin(repository);
+    const directory = `repository-${createHash("sha256").update(origin).digest("hex").slice(0, 24)}`;
+    const result = await this.run(host, {
+      type: "manage",
+      operation: "repository-setup",
+      codeFolder: registration.codeFolder,
+      directory,
+      origin,
+      list,
+      evidence,
+      catalog: setupCatalogDigest,
+      ...(path ? { path } : {}),
+    });
+    this.registered(host, registration.codeFolder);
+    if (
+      !result.ok ||
+      !result.setup ||
+      (result.setup.sources &&
+        result.setup.sources.fingerprint !== setupDigest(result.setup.sources.files))
+    )
+      throw new LaunchFailure("repository_setup_unavailable");
+    return {
+      ...result.setup,
+      root: result.facts.codeFolder,
+      sourcePath: result.setup.checkout ?? `${result.facts.codeFolder}/${directory}`,
+    };
+  }
   shellTarget(host: string): RemoteTarget {
     this.registered(host);
     if (!this.profile) throw new ControlError("not_found");
@@ -793,7 +833,16 @@ export class Hosts {
       .find((model) => model.id === tool);
     return selectHostRecipe({ tool, action, distro: system.distro }, system, model?.hostSetup);
   }
-  state(result?: HostResult, savedOnly = false): HostsState {
+  /** Prime local display capabilities without retrying rows or connecting to a host. */
+  async prepareView(): Promise<void> {
+    const support = this.remoteHostsAvailable;
+    const trust = this.hostKeyTrust;
+    if (trust === undefined) await this.trustState(this.state());
+    else if (this.buildSupport) this.remoteHostsAvailable = await this.buildSupport();
+    if (support !== this.remoteHostsAvailable || trust !== this.hostKeyTrust)
+      viewChanges.publish("hosts", "agents");
+  }
+  state(result?: HostResult, savedOnly = false, liveInventories = !savedOnly): HostsState {
     return {
       ...(this.remoteHostsAvailable === undefined
         ? {}
@@ -805,9 +854,15 @@ export class Hosts {
         // Saved facts provide presentation only; actions select from a fresh inspection below.
         const displayResult =
           (!savedOnly && this.results.get(host.host)) || host.observation?.preflight.result;
-        const runtimeResult = savedOnly
-          ? undefined
-          : (this.resourceResults.get(host.host) ?? this.results.get(host.host));
+        // Explicit Refresh facts belongs to Settings. Otherwise retain the
+        // saved check rather than a background board connection failure.
+        const runtimeResult =
+          this.resourceResults.get(host.host) ??
+          (savedOnly
+            ? liveInventories
+              ? host.observation?.preflight.result
+              : undefined
+            : this.results.get(host.host));
         return {
           ...host,
           ...(this.hostKeyTrust ? { hostKeyTrust: this.hostKeyTrust } : {}),
@@ -836,10 +891,10 @@ export class Hosts {
               ? { installReason: "recipe-unavailable" as const }
               : {}),
           })),
-          ...(!savedOnly && this.worktreeInventories.has(host.host)
+          ...(liveInventories && this.worktreeInventories.has(host.host)
             ? { foreignWorktrees: this.worktreeInventories.get(host.host)?.other ?? 0 }
             : {}),
-          ...(!savedOnly && this.sessionInventories.has(host.host)
+          ...(liveInventories && this.sessionInventories.has(host.host)
             ? {
                 foreignSessions:
                   this.sessionInventories
@@ -861,7 +916,7 @@ export class Hosts {
     };
   }
   private hostKeyTrust: "askpass" | "manual" | undefined;
-  private readonly pendingRows = new Map<string, PendingHostRow[]>();
+  private readonly pendingRows = new HostObservations<string, PendingHostRow[]>();
   private pendingRecipeRefreshes = 0;
   private queueRows(host: string, targets: readonly HostCheckTarget[]) {
     const rows = new Map(
@@ -1133,6 +1188,20 @@ export class Hosts {
     return work;
   }
   action(
+    input: unknown,
+    confirm?: (content: DialogContent, signal?: AbortSignal) => Promise<boolean>,
+    launchRecipe?: (target: RemoteTarget, finished?: () => void) => Promise<unknown>,
+    trustSignal?: AbortSignal,
+    confirmHostKey?: (content: PlainDialogContent, signal: AbortSignal) => Promise<DialogOutcome>,
+  ): Promise<HostsState> {
+    return this.performAction(input, confirm, launchRecipe, trustSignal, confirmHostKey).finally(
+      () => {
+        if (hostsAction(input) && !["progress", "cancel-trust"].includes(input.action))
+          viewChanges.publish("hosts", "agents");
+      },
+    );
+  }
+  private performAction(
     input: unknown,
     confirm?: (content: DialogContent, signal?: AbortSignal) => Promise<boolean>,
     launchRecipe?: (target: RemoteTarget, finished?: () => void) => Promise<unknown>,
@@ -1812,10 +1881,12 @@ export class Hosts {
       const revision = providerRevision();
       const enabled = JSON.stringify(this.store.get().agents);
       const changed = () =>
-        providerRevision() !== revision || JSON.stringify(this.store.get().agents) !== enabled;
-      const providers = agentProviders().filter(
-        (provider) => this.store.get().agents[provider.id] === true,
-      );
+        request.operation !== "repository-setup" &&
+        (providerRevision() !== revision || JSON.stringify(this.store.get().agents) !== enabled);
+      const providers =
+        request.operation === "repository-setup"
+          ? []
+          : agentProviders().filter((provider) => this.store.get().agents[provider.id] === true);
       try {
         for (const provider of providers) await provider.validate?.();
       } catch {

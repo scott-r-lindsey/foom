@@ -15,6 +15,9 @@ Every channel checks the sender (a registered app window, its main frame, `app:/
 |---|---|---|
 | `app-menu:legal` | renderer → main (invoke) / main → renderer | fixed `licenses` or `notices` ID → bundled text (1–1,048,576 UTF-16 code units); trusted board frame, preload validates IDs and text |
 | `app-menu:version` | renderer → main (invoke) | no payload → `{ app, electron }`; trusted board frame, preload validates bounded version strings |
+| `approval:count` | board → main (invoke) / main → board | no arguments → nonnegative safe-integer app-wide pending count; registered board frame only |
+| `approval:open` | board → main (invoke) | no arguments; explicitly open/focus the shared trusted queue; grants no decision capability |
+| `confirmation:hide-approvals` | trusted page → main | no arguments; exact queue window/main frame/origin only; hides without answering |
 | `board:command` | main → renderer | registry board actions (including Tidy tiles and new worktree); preload rejects unknown commands, covered boards ignore them |
 | `terminal:create` | renderer → main (invoke) | `cols`, `rows` → `{ id, title }` |
 | `terminal:attach` / `terminal:detach` | renderer → main | `id` → snapshot via `terminal:data` on attach; attach optionally accepts the fixed `refresh` mode, which only replays the caller’s existing, non-closing attachment and quietly does nothing after detach or revocation; malformed modes/IDs and untrusted senders still reject |
@@ -228,6 +231,15 @@ exclusive attachment, bounds and decodes the body independently of the renderer,
 and checks the current profile-only `terminalClipboardWrites` preference before
 writing text through Electron's main-owned clipboard API. The bridge returns void;
 it exposes no reads or query replies. See [terminal policy](terminals.md#osc-52-clipboard-writes-1073).
+
+## Subscribed data views (#1161)
+
+Settings uses `data:subscribe`, `data:snapshot`, `data:ack` and
+`data:unsubscribe` with the closed [phase-B view schemas and limits](data.md#phase-b-channel-over-json-1161).
+All write commands keep their existing domain validation and trusted confirmations.
+`setup:state` takes no arguments and `setup:save` exactly one validated patch.
+The sandboxed preload reuses its inline response validators; no new runtime
+imports or sandbox-loader exceptions are introduced.
 
 ## Local session forgetting (#1114)
 

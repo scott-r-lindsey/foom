@@ -1,3 +1,4 @@
+import { runRepositorySetup, remoteToolchainPrefix } from "../../node-common/repository-setup-run";
 import { runHostRecipe, runOriginTrust } from "./host-recipe";
 import { record } from "../../shared/remote-agent-protocol";
 import { stageRemotePlugin } from "./agent-launch";
@@ -8,10 +9,22 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { createConnection } from "node:net";
 import { homedir } from "node:os";
-import { serveHost } from "./daemon";
+import { serveHost, remoteShell } from "./daemon";
+import { hostLoginEnvironment } from "./agent-discovery";
 import { checkSocket, hostSocket } from "./private-path";
 
 export function runHost(argv: readonly string[] = process.argv): void {
+  if (argv[2] === "--repository-setup" && argv.length === 4) {
+    void hostLoginEnvironment(remoteShell(), homedir(), undefined, true)
+      .then((env) => runRepositorySetup(argv[3] ?? "", remoteToolchainPrefix(homedir()), env))
+      .then((code) => {
+        process.exitCode = code;
+      })
+      .catch(() => {
+        process.exitCode = 2;
+      });
+    return;
+  }
   if (argv[2] === "--recipe" || argv[2] === "--trust-origin") {
     void (
       argv[2] === "--recipe" ? runHostRecipe(argv.slice(3)) : runOriginTrust(argv.slice(3))

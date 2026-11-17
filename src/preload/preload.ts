@@ -1,3 +1,5 @@
+import type { RepositorySetupState, SetupRefusal } from "../shared/repository-setup.d";
+import type { DataView, DataViews, ViewParams, ViewSnapshot } from "../shared/data-views";
 import type {
   BoardRead,
   BoardThreads,
@@ -23,7 +25,12 @@ import type {
 } from "../shared/setup";
 import type { UpdateState } from "../shared/updates";
 import type { ThemeCatalog, ThemeKind, ThemeReason } from "../shared/theme-file";
-import type { InterfaceTheme, InterfaceThemeChoice } from "../shared/interface-theme";
+import type {
+  InterfaceTheme,
+  InterfaceThemeChoice,
+  InterfaceAreaTheme,
+  InterfaceGradient,
+} from "../shared/interface-theme";
 import type { TerminalTheme, TerminalThemeChoice } from "../shared/terminal-theme";
 import type {
   SoundChoice,
@@ -229,6 +236,50 @@ const interfaceColorFields = {
   highlight: either(absent, color),
   "highlight-deep": either(absent, color),
 };
+// Theme extensions remain data: copy only validated scalar fields and stop tuples.
+const validGradient: Validator<InterfaceGradient> = copying(
+  (value): value is InterfaceGradient => {
+    if (
+      !object(value) ||
+      !range(0, 359)(value["angle"]) ||
+      !Array.isArray(value["stops"]) ||
+      value["stops"].length < 2 ||
+      value["stops"].length > 4
+    )
+      return false;
+    let previous = -1;
+    for (const stop of value["stops"]) {
+      if (
+        !Array.isArray(stop) ||
+        stop.length !== 2 ||
+        !color(stop[0]) ||
+        !range(0, 100)(stop[1]) ||
+        stop[1] <= previous
+      )
+        return false;
+      previous = stop[1];
+    }
+    return true;
+  },
+  (value) =>
+    validGradient(value)
+      ? {
+          angle: value.angle,
+          stops: value.stops.map(([hex, percent]) => [hex, percent]),
+        }
+      : undefined,
+);
+function themeArea(allowGradient = false): Validator<InterfaceAreaTheme> {
+  const fields = { ...interfaceColorFields, scrollbar: color, gradient: validGradient };
+  const check = partial(fields);
+  return copying(
+    (value): value is InterfaceAreaTheme =>
+      object(value) &&
+      check(value) &&
+      (value["gradient"] === undefined || (allowGradient && color(value["bg"]))),
+    (value) => project(check, value),
+  );
+}
 const validInterfaceTheme: Validator<InterfaceTheme> = shape({
   version: literal(1, 2),
   name: text,
@@ -237,11 +288,26 @@ const validInterfaceTheme: Validator<InterfaceTheme> = shape({
   areas: either(
     absent,
     shape({
-      sidebar: either(absent, partial(interfaceColorFields)),
-      tiles: either(absent, partial(interfaceColorFields)),
-      panels: either(absent, partial(interfaceColorFields)),
-      dialogs: either(absent, partial(interfaceColorFields)),
-      menus: either(absent, partial(interfaceColorFields)),
+      sidebar: either(absent, themeArea(true)),
+      tiles: either(absent, themeArea()),
+      panels: either(absent, themeArea()),
+      dialogs: either(absent, themeArea()),
+      menus: either(absent, themeArea()),
+      titlebar: either(absent, themeArea(true)),
+      "tile-headers": either(absent, themeArea()),
+      board: either(absent, themeArea(true)),
+      badges: either(absent, themeArea()),
+      wordmark: either(absent, themeArea()),
+      "dialog-headers": either(absent, themeArea(true)),
+    }),
+  ),
+  type: either(
+    absent,
+    partial({
+      family: literal("geist", "geist-mono", "system", "system-mono"),
+      scale: range(0.85, 1.25),
+      weight: range(400, 600),
+      "strong-weight": range(500, 800),
     }),
   ),
   states: either(
@@ -292,6 +358,7 @@ const validThemeReason: Validator<ThemeReason> = literal(
   "base-luminance",
   "hole-color",
   "contrast",
+  "gradient-not-allowed",
   "reserved-color",
   "too-large",
   "unsafe-file",
@@ -544,6 +611,121 @@ const validHostCheckTarget: Validator<HostCheckTarget> = either(
   shape({ kind: literal("tool", "sign-in"), tool: hostAgentId }),
   shape({ kind: literal("origin", "checkout"), repository: text }),
 );
+function setupArray<T>(check: Validator<T>, limit: number): Validator<T[]> {
+  const inner = array(check);
+  return copying(
+    (value): value is T[] => Array.isArray(value) && value.length <= limit && inner(value),
+    (value) => project(inner, value),
+  );
+}
+const setupText: Validator<string> = (value): value is string =>
+  typeof value === "string" && value.length <= 4096 && !/[\p{Cc}]/u.test(value);
+const setupHash: Validator<string> = (value): value is string =>
+  typeof value === "string" && /^[a-f0-9]{64}$/u.test(value);
+const setupPaths = setupArray(setupText, 64);
+const setupMapping = either(literal("unsupported"), setupArray(setupText, 128));
+const setupRequirementBase = { id: setupText, purpose: setupText, sources: setupPaths };
+const setupList = shape({
+  evidence: setupPaths,
+  requirements: setupArray(
+    either(
+      shape({
+        ...setupRequirementBase,
+        kind: literal("package"),
+        packages: shape({
+          debian: setupMapping,
+          rhel: setupMapping,
+          arch: setupMapping,
+          darwin: setupMapping,
+        }),
+      }),
+      shape({
+        ...setupRequirementBase,
+        kind: literal("toolchain"),
+        tool: literal("node", "pnpm"),
+        version: setupText,
+      }),
+    ),
+    128,
+  ),
+});
+const setupSourcesReply = shape({
+  fingerprint: setupHash,
+  files: setupArray(shape({ path: setupText, digest: setupHash }), 64),
+});
+const setupRefusalReply: Validator<SetupRefusal> = shape({
+  repository: setupText,
+  host: either(nil, setupText),
+  missing: setupArray(shape({ id: setupText, version: either(absent, setupText) }), 128),
+});
+const validRepositorySetupState: Validator<RepositorySetupState> = shape({
+  rows: setupArray(
+    shape({
+      repository: setupText,
+      host: either(nil, setupText),
+      state: literal(
+        "no-list",
+        "not-checked",
+        "met",
+        "needs-setup",
+        "review-needed",
+        "unable",
+        "manual",
+      ),
+      revision: count,
+      checkedAt: either(absent, count),
+      noRequirements: either(absent, boolean),
+      missing: setupArray(setupText, 128),
+      changed: setupPaths,
+      sourcesAtLaunch: boolean,
+      token: either(absent, setupText),
+      running: either(absent, setupText),
+      failure: either(absent, literal("save-failed", "check-failed", "superseded")),
+      plan: either(
+        absent,
+        shape({
+          platform: shape({
+            distro: literal("debian", "rhel", "arch", "darwin", "unsupported"),
+            os: literal("linux", "darwin", "win32"),
+            arch: literal("x64", "arm64", "unsupported"),
+            nodeAbi: boolean,
+          }),
+          packages: setupArray(setupText, 16384),
+          toolchains: setupArray(shape({ tool: literal("node", "pnpm"), version: setupText }), 2),
+          steps: setupArray(setupArray(setupText, 16390), 132),
+        }),
+      ),
+    }),
+    4096,
+  ),
+  review: either(
+    absent,
+    shape({
+      token: setupText,
+      repository: setupText,
+      revision: count,
+      list: setupList,
+      previous: either(absent, setupList),
+      catalog: setupHash,
+      sources: setupSourcesReply,
+      changed: setupPaths,
+      unresolved: either(
+        absent,
+        setupArray(
+          shape({
+            ...setupRequirementBase,
+            kind: literal("toolchain"),
+            tool: setupText,
+            version: setupText,
+          }),
+          128,
+        ),
+      ),
+      removed: either(absent, setupArray(setupText, 128)),
+    }),
+  ),
+  recipeSession: either(absent, setupText),
+});
 const validHostsState: Validator<HostsState> = shape({
   progress: either(
     absent,
@@ -623,6 +805,8 @@ const validSettings: Validator<Settings> = shape({
   restoreSessions: boolean,
   showNewChildren: boolean,
   closeFinishedAgents: boolean,
+  wakeOrchestrator: boolean,
+  wakeIntervalMinutes: range(1, 1440, true),
   concurrentChildren: range(1, 16, true),
   defaultAgent: either(nil, text),
   recentRepositoryDays: range(1, 365, true),
@@ -759,6 +943,7 @@ const validOrchestrationEntry: Validator<OrchestrationEntry> = shape({
     "close",
     "remove_worktree",
     "prompt",
+    "wake",
     "send_keys",
     "board_post",
     "board_resolve",
@@ -1499,7 +1684,145 @@ const createdWorktree = both(
   validWorktree,
   shape({ outcome: literal("new", "existing", "origin", "open") }),
 );
+const validReadinessView: Validator<ReadinessReport> = copying(readinessReport, (value) =>
+  readinessReport(value)
+    ? {
+        git: value.git,
+        platform: value.platform,
+        forges: value.forges.map(({ host, status }) => ({ host, status })),
+      }
+    : undefined,
+);
+const viewValidators: { [K in DataView]: Validator<DataViews[K]> } = {
+  settings: validSetupState,
+  hosts: validHostsState,
+  agents: both(validAgentReport, shape({ machine: either(absent, validHostsState) })),
+  repositories: array(validRepository),
+  worktrees: array(validWorktree),
+  sessions: array(validWorkspaceTerminal),
+  environment: validEnvironmentState,
+  config: validConfigStatus,
+  fonts: array(text),
+  sounds: array(validSoundEntry),
+  readiness: validReadinessView,
+};
+function validViewParams(view: DataView, params: unknown): params is ViewParams {
+  if (!object(params)) return false;
+  return (
+    Object.entries(params).every(([key, value]) => {
+      if (key === "machine" && view === "agents")
+        return (
+          value === "local" ||
+          (typeof value === "string" && value.startsWith("host:") && hostAlias(value.slice(5)))
+        );
+      if (key === "repository" && view === "worktrees")
+        return (
+          typeof value === "string" &&
+          value.length > 0 &&
+          value.length <= 4096 &&
+          !value.includes("\0")
+        );
+      if (
+        (key === "offset" || key === "limit") &&
+        ["repositories", "worktrees", "sessions"].includes(view)
+      )
+        return (
+          typeof value === "number" &&
+          Number.isSafeInteger(value) &&
+          value >= (key === "limit" ? 1 : 0) &&
+          value <= (key === "limit" ? 100 : 1000000)
+        );
+      return false;
+    }) &&
+    (view !== "worktrees" || Object.hasOwn(params, "repository"))
+  );
+}
+function boundedView(value: unknown): boolean {
+  try {
+    return JSON.stringify(value).length <= 2 * 1024 * 1024;
+  } catch {
+    return false;
+  }
+}
+let viewSequence = 0;
+function validViewSnapshot<K extends DataView>(value: unknown, view: K): value is ViewSnapshot<K> {
+  if (
+    !object(value) ||
+    value["view"] !== view ||
+    !text(value["id"]) ||
+    !validViewParams(view, value["params"]) ||
+    !count(value["generation"]) ||
+    !count(value["revision"])
+  )
+    return false;
+  if (!boundedView(value)) return false;
+  if (value["viewRevision"] !== undefined && !count(value["viewRevision"])) return false;
+  if (
+    value["nextOffset"] !== undefined &&
+    (!["repositories", "worktrees", "sessions"].includes(view) ||
+      !count(value["nextOffset"]) ||
+      value["nextOffset"] <= (value["params"].offset ?? 0) ||
+      value["nextOffset"] > 1000000)
+  )
+    return false;
+  if (Object.hasOwn(value, "error"))
+    return (
+      (value["error"] === "unavailable" || value["error"] === "too-large") &&
+      !Object.hasOwn(value, "data")
+    );
+  return viewValidators[view](value["data"]);
+}
+
 const desktop: DesktopApi = {
+  subscribeView<K extends DataView>(
+    view: K,
+    params: ViewParams,
+    receive: (snapshot: ViewSnapshot<K>) => void,
+  ) {
+    if (!Object.hasOwn(viewValidators, view) || !validViewParams(view, params))
+      throw new Error("Invalid view");
+    const id = `view-${String(++viewSequence)}`;
+    let active = true;
+    let generation: number | undefined;
+    let revision = -1;
+    const listener = (_event: IpcRendererEvent, value: unknown) => {
+      if (
+        !active ||
+        !validViewSnapshot(value, view) ||
+        value.id !== id ||
+        JSON.stringify(value.params) !== JSON.stringify(params)
+      )
+        return;
+      if (generation !== undefined && value.generation !== generation) return;
+      if (value.revision <= revision) return;
+      generation = value.generation;
+      revision = value.revision;
+      void ipcRenderer
+        .invoke("data:ack", id, value.generation, value.revision)
+        .catch(() => undefined);
+      const base = { id, view, params, generation: value.generation, revision: value.revision };
+      if (value.error) receive({ ...base, error: value.error });
+      else {
+        const data: unknown = project(viewValidators[view], value.data);
+        const clean = {
+          ...base,
+          data,
+          ...(value.viewRevision === undefined ? {} : { viewRevision: value.viewRevision }),
+          ...(value.nextOffset === undefined ? {} : { nextOffset: value.nextOffset }),
+        };
+        if (validViewSnapshot(clean, view)) receive(clean);
+      }
+    };
+    ipcRenderer.on("data:snapshot", listener);
+    void ipcRenderer.invoke("data:subscribe", { id, view, params }).catch(() => {
+      if (active) receive({ id, view, params, generation: 0, revision: 0, error: "unavailable" });
+    });
+    return () => {
+      active = false;
+      ipcRenderer.removeListener("data:snapshot", listener);
+      void ipcRenderer.invoke("data:unsubscribe", id).catch(() => undefined);
+    };
+  },
   previews: {
     describe: (id) => reply("preview:describe", validPreviewSummary, id),
     onPlace(callback) {
@@ -1679,6 +2002,28 @@ const desktop: DesktopApi = {
     notices: () => reply("sound:notices", text),
   },
   confirmations: {
+    onApprovals(callback) {
+      let received = false;
+      const listener = (_event: IpcRendererEvent, value: unknown) => {
+        if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) {
+          received = true;
+          callback(value);
+        }
+      };
+      ipcRenderer.on("approval:count", listener);
+      void ipcRenderer
+        .invoke("approval:count")
+        .then((value: unknown) => {
+          if (!received && typeof value === "number" && Number.isSafeInteger(value) && value >= 0)
+            callback(value);
+        })
+        .catch(() => {});
+      return () => {
+        received = true;
+        ipcRenderer.removeListener("approval:count", listener);
+      };
+    },
+    openApprovals: () => invokeVoid("approval:open"),
     onScrim(callback) {
       const listener = (_event: IpcRendererEvent, value: unknown) => {
         if (typeof value === "boolean") callback(value);
@@ -2020,6 +2365,23 @@ const desktop: DesktopApi = {
       action,
     ),
   hosts: (action) => reply("setup:hosts", validHostsState, action),
+  repositorySetup: (action) => reply("setup:repository-setup", validRepositorySetupState, action),
+  onRepositorySetupRefused(callback) {
+    const listener = (_event: IpcRendererEvent, value: unknown) => {
+      if (value === undefined) {
+        callback(undefined);
+        return;
+      }
+      if (setupRefusalReply(value)) {
+        const projected = project(setupRefusalReply, value);
+        if (setupRefusalReply(projected)) callback(projected);
+      }
+    };
+    ipcRenderer.on("setup:launch-refused", listener);
+    return () => {
+      ipcRenderer.removeListener("setup:launch-refused", listener);
+    };
+  },
   listTerminalFonts: (refresh = false) => reply("setup:terminal-fonts", array(text), refresh),
   listThemes: () => reply("theme:list", validThemeCatalog),
   openThemesFolder: (kind) => invokeVoid("theme:open-folder", kind),

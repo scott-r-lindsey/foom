@@ -63,7 +63,7 @@ for (const outcome of ["success", "failure", "violation"]) {
                 parent: 1,
                 start: "new",
                 name: "node",
-                command: `${process.cwd()}/agy`,
+                command: `"${process.cwd()}/agy"`,
               },
             ]
           : [],
@@ -575,7 +575,7 @@ for (const outcomes of [
 test("a recovered snapshot never retries away an outside-agent audit violation", async (context) => {
   const transport = await snapshotTransport(
     ["timeout", "success"],
-    [{ ...snapshotRows[0], CommandLine: `${process.cwd()}/agy` }],
+    [{ ...snapshotRows[0], CommandLine: `"${process.cwd()}/agy"` }],
   );
   let snapshots = 0;
   const scope = await audit.auditProcesses(context, undefined, async () => {
@@ -587,4 +587,36 @@ test("a recovered snapshot never retries away an outside-agent audit violation",
   await scope.capture();
   await assert.rejects(scope.finish(), /Test started an agent outside its fixtures/);
   assert.equal(transport.timeouts.length, 2);
+});
+
+test("process audit violation fixtures pass from a working directory containing spaces", async (context) => {
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const { spawnSync } = await import("node:child_process");
+  const root = await mkdtemp(join(tmpdir(), "foom-audit space-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  // Select only the two synthetic violation cases, never this subprocess test.
+  const result = spawnSync(
+    process.execPath,
+    [
+      "--require",
+      fileURLToPath(new URL("../tests/helpers/setup.js", import.meta.url)),
+      "--test",
+      "--test-reporter=spec",
+      "--test-name-pattern=^(audit finish awaits an in-flight capture: violation|a recovered snapshot never retries away an outside-agent audit violation)$",
+      fileURLToPath(import.meta.url),
+    ],
+    {
+      cwd: root,
+      encoding: "utf8",
+      env: Object.fromEntries(
+        Object.entries(process.env).filter(([key]) => key !== "NODE_TEST_CONTEXT"),
+      ),
+    },
+  );
+  assert.ifError(result.error);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.match(result.stdout, /tests 2\b/);
 });

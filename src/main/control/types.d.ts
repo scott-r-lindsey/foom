@@ -1,3 +1,4 @@
+import type { SetupRefusal } from "../../shared/repository-setup.d";
 import type { HostPressure } from "../../shared/host-pressure.d";
 import type { LaunchReason } from "../../shared/launch-failure";
 import type { WorkspaceTerminal } from "../../shared/workspace";
@@ -28,6 +29,7 @@ export interface ControlLaunch extends McpAttachment {
   bind: (terminalId: string, mcp?: boolean) => void;
 }
 export type Action =
+  | "wake"
   | "create_worktree"
   | "launch"
   | "stop"
@@ -65,6 +67,7 @@ export interface Operation {
   readonly updatedAt: string;
   readonly reason: Reason;
   readonly pressure?: HostPressure;
+  readonly setupMissing?: SetupRefusal["missing"];
   readonly placement?: WorkspaceTerminal["placement"];
   readonly detail?: string;
   readonly proposal?: string;

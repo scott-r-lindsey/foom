@@ -53,3 +53,12 @@ A failed late-terminal cleanup after cancelling startup selects
 `launch-cancel-incomplete`. The existing action dialog says **Terminal may still be
 running.**, including when the startup tile has already closed. Host diagnostics
 remain private, and an ordinary cancellation before spawn raises no cleanup error.
+
+Repository setup launch refusals additionally map missing, changed, manual and
+unavailable prerequisites to their four fixed `repository-setup-*` codes. Their
+messages grant no approval; Open setup navigates to Hosts and never retries launch
+or executes a recipe.
+
+A refusal without item context explicitly clears older navigation details on the
+requesting board. The preload copies validated details and accepts that clear
+signal without forwarding arbitrary event payloads.

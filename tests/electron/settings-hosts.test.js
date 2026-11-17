@@ -77,7 +77,12 @@ async function assertHostColumns(card) {
   assert.ok(Math.max(...starts) - Math.min(...starts) < 1, JSON.stringify(starts));
 }
 
-async function hostsFixture(context, captureEnrollment = false, initialScenario = {}) {
+async function hostsFixture(
+  context,
+  captureEnrollment = false,
+  initialScenario = {},
+  { trackSidebar = false } = {},
+) {
   const root = await mkdtemp(path.join(tmpdir(), "hosts-settings-"));
   removeAfterApps(context, root);
   const bin = path.join(root, "bin");
@@ -255,6 +260,8 @@ process.stdin.on('data', bytes => {
    result={ok:true,facts:{folder:{state:'pass'},codeFolder:folder,version:${JSON.stringify(manifest.version)},sessions:2,cores:8,load:[0.42,0.31,0.25],memoryTotal:17179869184,memoryAvailable:11811160064,requirements:{distro:'debian',libc:'supported',packageManager:'apt'},tools:[{id:'git',state:'missing',signIn:'unknown'},{id:'gh',state:'ready',signIn:'signed-out'}],agents:[{id:'claude',state:'ready'},{id:'codex',state:'missing'},{id:'agy',state:'unable'}]}};
    if(message.operation==='repository' || message.operation==='clone') result.checkout={path:folder+'/'+message.directory,state:message.operation==='clone'?'clean':'absent'};
   }
+  // Successful empty discovery must populate the same cache as a real daemon reply.
+  if(result.ok && message.operation==='list-worktrees') result.inventory={own:[],other:0};
   if(result.ok) { if(settings.facts) Object.assign(result.facts,settings.facts); if(message.operation==='origin' && settings.origin) result={ok:false,reason:settings.origin}; if(message.operation==='repository' && settings.checkout && result.ok) { result.checkout.state=settings.checkout; } }
   if(message.operation==='inspect' && message.target?.kind==='facts' && settings.factsFailure) result={ok:false,reason:settings.factsFailure};
   if(message.operation==='inspect' && !message.target && settings.inspectFailure) result={ok:false,reason:settings.inspectFailure};
@@ -270,6 +277,40 @@ process.stdin.on('data', bytes => {
     { mode: 0o700 },
   );
   const app = await launchApp(context, { fixture: "repository", env: { PATH: bin } });
+  if (trackSidebar) {
+    // Observe real work, including reads superseded by a later invalidation.
+    await app.evaluate(({ app }) => {
+      const load = process
+        .getBuiltinModule("node:module")
+        .createRequire(app.getAppPath() + "/package.json");
+      const workspace = load("./build/main/workspace/workspace.js");
+      const original = workspace.Workspace.prototype.sidebarInventory;
+      const pending = new Set();
+      workspace.Workspace.prototype.sidebarInventory = function (...args) {
+        const read = original.apply(this, args);
+        pending.add(read);
+        void read.then(
+          () => pending.delete(read),
+          () => pending.delete(read),
+        );
+        return read;
+      };
+      workspace.settleFixtureSidebar = async () => {
+        while (pending.size) await Promise.allSettled([...pending]);
+      };
+    });
+  }
+  const settleSidebar = async () => {
+    await page.evaluate(() => window.desktop.sidebarInventory());
+    if (trackSidebar)
+      await app.evaluate(async ({ app }) => {
+        const load = process
+          .getBuiltinModule("node:module")
+          .createRequire(app.getAppPath() + "/package.json");
+        await load("./build/main/workspace/workspace.js").settleFixtureSidebar();
+      });
+  };
+
   fixtureCleanup(context).apps.push(async () => {
     for (const name of ["foom-host.gz", "manifest.json"]) {
       const backup = backups.get(name);
@@ -339,7 +380,9 @@ process.stdin.on('data', bytes => {
   await expect(card.getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
   await expect(card.getByText("Not found", { exact: true })).toHaveCount(1);
   await expect(card.getByRole("button", { name: "Install codex", exact: true })).toHaveCount(0);
-  await expect(card.getByText("Not checked", { exact: true })).toHaveCount(1);
+  await expect(
+    card.locator(".host-check-row").getByText("Not checked", { exact: true }),
+  ).toHaveCount(1);
   if (captureEnrollment) await capture("partial-facts");
   return {
     app,
@@ -357,6 +400,7 @@ process.stdin.on('data', bytes => {
     compressed,
     calls,
     cloneReason,
+    settleSidebar,
     recipeCalls,
   };
 }
@@ -1485,6 +1529,21 @@ test("Hosts merges recipe rows with two Hosts windows already open", {
     .poll(() => page.evaluate(async () => (await window.desktop.workspace()).terminals.length))
     .toBe(1);
   await expect(card.getByRole("region", { name: "GitHub sign-in" })).toBeVisible();
+  const ghId = await page.evaluate(async () => (await window.desktop.workspace()).terminals[0].id);
+  const foreignActions = await other.evaluate(async (id) => {
+    const rejected = [];
+    for (const action of ["read", "copy", "open", "cancel"]) {
+      try {
+        await window.desktop.githubSignIn(id, action);
+        rejected.push(false);
+      } catch {
+        rejected.push(true);
+      }
+    }
+    return rejected;
+  }, ghId);
+  assert.deepEqual(foreignActions, [true, true, true, true]);
+  assert.deepEqual(await app.evaluate(() => globalThis.githubDeviceUrls), []);
   const remainingCard = otherCard;
   await expect(
     remainingCard.getByRole("button", { name: "Install git", exact: true }),
@@ -2199,9 +2258,11 @@ test("Agents Global list and machine picker scale to twelve agents and twelve sa
       const scrollTrace = await list.evaluateHandle((element) => {
         const events = [];
         const started = performance.now();
+        let completedScrolls = 0;
         const record = (event) => {
           if (event.type.startsWith("key") && !["Home", "End"].includes(event.key)) return;
-          if (event.type === "scroll" && event.target !== element) return;
+          if (["scroll", "scrollend"].includes(event.type) && event.target !== element) return;
+          if (event.type === "scrollend") completedScrolls++;
           const active = document.activeElement;
           if (events.length === 80) events.shift();
           events.push({
@@ -2216,10 +2277,11 @@ test("Agents Global list and machine picker scale to twelve agents and twelve sa
             activeLabel: active?.getAttribute("aria-label"),
           });
         };
-        const types = ["keydown", "keyup", "focusin", "focusout", "scroll"];
+        const types = ["keydown", "keyup", "focusin", "focusout", "scroll", "scrollend"];
         for (const type of types) document.addEventListener(type, record, true);
         record({ type: "start" });
         return {
+          completedScrolls: () => completedScrolls,
           stop() {
             record({ type: "stop" });
             for (const type of types) document.removeEventListener(type, record, true);
@@ -2231,8 +2293,9 @@ test("Agents Global list and machine picker scale to twelve agents and twelve sa
         await list.focus();
         await expect(list).toBeFocused();
         await page.keyboard.press("End");
-        // Native keyboard scrolling animates. Any movement is not End's completion:
-        // Home can otherwise arrive while the list is still scrolling down (#1183).
+        // The rounded endpoint can precede native animation completion. On macOS,
+        // Home in that window can be lost while End is finishing (#1183).
+        // Observe scrollend as well as the position before reversing direction.
         await expect
           .poll(() =>
             list.evaluate(
@@ -2242,9 +2305,11 @@ test("Agents Global list and machine picker scale to twelve agents and twelve sa
             ),
           )
           .toBe(true);
+        await expect.poll(() => scrollTrace.evaluate((trace) => trace.completedScrolls())).toBe(1);
         await expect(list).toBeFocused();
         await page.keyboard.press("Home");
         await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBe(0);
+        await expect.poll(() => scrollTrace.evaluate((trace) => trace.completedScrolls())).toBe(2);
         await expect(list).toBeFocused();
       } finally {
         const events = await scrollTrace.evaluate((trace) => trace.stop());
@@ -2581,6 +2646,11 @@ test("Hosts gh device sign-in copies a strict code, opens only GitHub and refres
 }, async (context) => {
   const { app, page, card, calls, capture, updateScenario } = await hostsFixture(context);
   await updateScenario({ githubDevice: true });
+  await expect(card.getByText("Signed out", { exact: true })).toBeVisible();
+  await capture("1067/signed-out");
+  await card.locator(".github-token-note").screenshot({
+    path: evidencePath("1067/plain-text-note.png"),
+  });
   const checkedAt = await page.evaluate(
     async () =>
       (await window.desktop.setupState()).settings.registeredHosts[0].observation.checkedAt,
@@ -2653,6 +2723,19 @@ test("Hosts gh device sign-in copies a strict code, opens only GitHub and refres
     after.map(({ message }) => message.target),
     [{ kind: "sign-in", tool: "gh" }],
   );
+  await updateScenario({
+    facts: {
+      tools: [
+        { id: "git", state: "missing", signIn: "unknown" },
+        { id: "gh", state: "missing", signIn: "unknown" },
+      ],
+    },
+  });
+  await card.getByRole("button", { name: "Reload gh", exact: true }).click();
+  await expect(
+    card.getByRole("button", { name: "Install & sign in gh", exact: true }),
+  ).toBeVisible();
+  await capture("1067/missing-gh");
 });
 
 test("Hosts gh device sign-in offers blocked fallbacks and preserves a changed clipboard on cancel", {
@@ -2795,14 +2878,104 @@ test("Hosts reports dialog-unavailable when native trust presentation fails", {
   assert.equal(await readFile(knownHosts, "utf8"), "");
 });
 
+test("data views: host enrollment and removal update another open Agents machine picker", {
+  timeout: deadline(60_000),
+}, async (context) => {
+  const app = await launchApp(context, { fixture: "repository" });
+  // This cross-platform view regression exercises the real commands and stores
+  // with an in-process fixture transport, rather than a POSIX-only SSH script.
+  await app.evaluate(({ app }) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const services = load("./build/main/setup/hosts.js");
+    const original = services.hostsForStore;
+    services.hostsForStore = (...args) => {
+      const owner = original(...args);
+      owner.profile = undefined;
+      owner.execute = async (_host, request) => ({
+        ok: true,
+        facts: {
+          codeFolder: request.codeFolder,
+          version: app.getVersion(),
+          sessions: 0,
+          cores: 1,
+          load: [0, 0, 0],
+          memoryTotal: 8000,
+          memoryAvailable: 4000,
+          agents: [],
+        },
+      });
+      return owner;
+    };
+  });
+  const page = await boardPage(app);
+  await openSettingsScreen(page);
+  const navigation = page.getByRole("navigation", { name: "Settings sections" });
+  await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
+  await page.evaluate(() =>
+    window.desktop.hosts({
+      action: "add",
+      host: "fixture-cloud",
+      codeFolder: "/home/fixture/code",
+    }),
+  );
+  await page.evaluate(() => window.desktop.appMenu.execute("new-window"));
+  let observer;
+  await expect
+    .poll(() => {
+      observer = app
+        .windows()
+        .find((candidate) => candidate !== page && candidate.url() === "app://bundle/index.html");
+      return Boolean(observer);
+    })
+    .toBe(true);
+  await expect(
+    observer.getByRole("button", { name: "Actions for Main checkout", exact: true }),
+  ).toBeVisible();
+  await openSettingsScreen(observer);
+  const settings = observer.getByRole("region", { name: "Settings" });
+  await settings.getByRole("button", { name: "Agents", exact: true }).click();
+  await observer.getByRole("tab", { name: "Machines", exact: true }).click();
+  const picker = observer.getByRole("combobox", { name: "Machine" });
+  await expect(picker.getByRole("option", { name: "fixture-cloud", exact: true })).toHaveCount(1);
+  await page.evaluate(() => window.desktop.hosts({ action: "remove", host: "fixture-cloud" }));
+  await expect(picker.getByRole("option", { name: "fixture-cloud", exact: true })).toHaveCount(0);
+  await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
+  await page.getByRole("button", { name: "Add host", exact: true }).click();
+  await page.getByRole("textbox", { name: "SSH host", exact: true }).fill("fixture-cloud");
+  await page.getByRole("textbox", { name: "Code folder", exact: true }).fill("/home/fixture/code");
+  await page.getByRole("button", { name: "Add host", exact: true }).click();
+  await expect(picker.getByRole("option", { name: "fixture-cloud", exact: true })).toHaveCount(1);
+  await picker.selectOption("host:fixture-cloud");
+  await page.evaluate(() => window.desktop.hosts({ action: "remove", host: "fixture-cloud" }));
+  await expect(picker).toHaveValue("local");
+  await expect(picker.getByRole("option", { name: "fixture-cloud", exact: true })).toHaveCount(0);
+});
+
 test("Hosts status classification stays consistent with sealed catalog omission", {
   skip: process.platform === "win32",
   timeout: deadline(60000),
 }, async (context) => {
-  const { page, card, navigation, capture, calls } = await hostsFixture(context);
-  // Enrollment publishes an independent sidebar refresh. Join its shared
-  // inventory reads before sealing the catalog and measuring Hosts navigation.
+  const { page, card, navigation, capture, calls, settleSidebar } = await hostsFixture(
+    context,
+    false,
+    {},
+    { trackSidebar: true },
+  );
+  // Refresh/configure can replace the shared promise while older reads still run.
+  // Drain all enrollment reads before sealing the catalog and measuring navigation.
+  await expect(card.locator("time")).toBeVisible();
+  await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
+  await page.evaluate(() => window.desktop.hosts({ action: "locations" }));
+  await settleSidebar();
+  const settled = await readFile(calls, "utf8");
   await page.evaluate(() => window.desktop.sidebarInventory());
+  assert.equal(
+    await readFile(calls, "utf8"),
+    settled,
+    "Successful empty worktree inventory is cached before navigation",
+  );
   const metadata = path.resolve("build/build-metadata.json");
   const previous = await readFile(metadata);
   fixtureCleanup(context).apps.push(() => writeFile(metadata, previous));

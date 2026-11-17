@@ -985,3 +985,10 @@ automatic full check; Check capabilities remains explicit for established hosts.
 Declining preserves the failed observation. Changed keys require manual repair.
 The human reviews light/dark row and dialog screenshots and merges; a real new
 host must be verified manually before merge because automated tests use fixtures.
+
+## Repository setup (#1080)
+
+Optional repository prerequisites are separate from host Ready and checkout
+presence. See [repository setup](repository-setup.md) for the profile owner,
+source policy, catalog and execution/admission boundaries. Settings reads saved
+observations; opening a panel never runs setup or a repository probe.

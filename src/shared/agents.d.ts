@@ -1,3 +1,4 @@
+import type { SetupAdmission } from "./repository-setup.d";
 import type { HostPressure } from "./host-pressure.d";
 import type { RemoteReviewSnapshot } from "./remote-agent";
 import type { ReviewOptions, ReviewState } from "./review";
@@ -57,6 +58,8 @@ export interface LaunchSelection {
 }
 
 export interface AgentLaunch {
+  readonly repositorySetup?: SetupAdmission;
+  readonly repositoryPath?: readonly string[];
   /** Main-only child admission; human launches omit this capability. */
   readonly pressure?: (value: HostPressure) => void;
   /** Main-only human home launch; grants no repository or orchestration authority. */

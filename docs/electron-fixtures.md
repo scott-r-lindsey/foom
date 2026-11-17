@@ -34,16 +34,73 @@ animation-frame assertion and startup diagnostics. The sandbox, controlled login
 shell/PATH, agent guard, process audit and quit-before-directory-removal ordering
 are unchanged.
 
+## Repository setup linked-checkout identity (#1080)
+
+The linked-checkout setup-admission case creates its Git worktree through a
+symlinked parent on every supported POSIX platform. This reproduces macOS
+`/var` versus `/private/var` temporary paths on Linux too. Git registers the
+canonical checkout path; the test asserts that main's worktree inventory returns
+that path, then sends it through public launch IPC as the renderer does. Sending
+the original alias would correctly fail checkout identity before setup admission.
+The setup refusal and no-repository-tool/no-agent-execution assertions remain
+unchanged. Probe PATH pinning happens after checkout identity and cannot affect
+this membership lookup.
+
+The setup-terminal retry waits for the replacement pane's Installing status
+before checking its prompt/readiness or typing. The previous failed pane has the
+same prompt and ready attribute until the asynchronous setup reply replaces it;
+those conditions alone do not acknowledge the new terminal.
+
+## Merged cleanup completion (#1221)
+
+The external-worktree cleanup case waits for the real checked-ref transaction
+before measuring dialog dismissal. Its test-only wrapper runs the original branch
+cleanup, then holds its return. With that gate closed, both worktrees must show
+Removed and the confirmation must remain visible. Releasing the gate exercises the
+final progress publication and automatic dismissal under the unchanged visibility
+assertion deadline. The existing whole-test deadline bounds fetch, removal and
+branch work. Teardown always releases the gate and restores the original method.
+Diagnostics include the branch operation's result and elapsed time.
+
+The macOS failure in run 43828707590 reported both rows Removed while still in the
+remove phase, then timed out waiting for native window visibility to become false.
+That phase includes branch cleanup; the observation does not establish a lost
+final update. The `not-created-by-foom` message is also emitted during ordinary
+removal when an external checkout cannot acquire retry provenance. It does not
+mean that ordinary Git removal failed or a retry ran. No provenance or deletion
+guard changes are needed for this test synchronization. Unit fixtures cover a
+symlinked temporary parent and retain refusal of user-created directories.
+
 ## Hosts navigation request window (#1199)
 
-Host enrollment publishes a sidebar refresh independently of the completed Hosts
-checklist. Before measuring requests caused by reopening Hosts, await
-`window.desktop.sidebarInventory()` to join that refresh's shared inventory reads.
-The sealed-catalog case does this before changing build metadata; otherwise a
-repository request from enrollment can land in the navigation capture window.
-Opening Hosts must leave the entire fixture request log unchanged. Explicit
-checks still retain the separate assertion against daemon and repository requests
-when the catalog is omitted.
+Host enrollment publishes sidebar refreshes independently of the completed Hosts
+checklist. Wait for the saved full-check timestamp and enabled Check capabilities
+control, and complete enrollment-owned locations reconciliation. Refresh/configure
+can invalidate the shared sidebar promise while an older read is still running.
+Awaiting `window.desktop.sidebarInventory()` alone
+joins only the current read, leaving older repository/SSH discovery able to enter
+the navigation capture window. For this case, a test-only observer installed before
+enrollment tracks every sidebar read without replacing its work or result. Setup
+joins the current read and then drains all observed reads before sealing the catalog.
+
+The SSH fixture also returns a successful empty `inventory: {own: [], other: 0}`
+for `list-worktrees`, matching the daemon protocol. A successful facts-only reply
+leaves the worktree cache empty, so later sidebar refreshes start SSH discovery
+again. A valid empty inventory lets those readers reuse the normal cache. A second
+sidebar read asserts that setup now reuses the cache before measuring navigation.
+Opening Hosts must leave the entire fixture request log unchanged. Explicit checks
+retain the separate assertion against daemon and repository requests when the
+catalog is omitted.
+
+## Forget session request window (#1217)
+
+The unavailable-host Forget case also drains all observed sidebar reads before
+capturing the exact SSH request log. Its test-only barrier holds one inventory
+read before SSH dispatch, invalidates the shared sidebar promise with a refresh,
+and lets a newer read finish. The drain must remain pending until the held read
+is released and its real offline request completes. Only then does the request
+window open. Forget must leave the entire log unchanged; local session removal,
+persistence and recovery of the same live daemon session remain asserted.
 
 ## Agents scope review captures (#1070)
 
@@ -54,13 +111,33 @@ run the full width/theme review matrix and save Global, Machines, remote-plugin
 and offline images under `test-results/1070-step2/`. Ordinary CI retains every
 functional assertion without repeating the full review matrix or writing images.
 
-The keyboard scroll check waits for End to reach the bottom before sending Home,
-then requires the top and retained list focus (#1183). Native scrolling can still
-be animating when the first nonzero position is observed. A bounded, test-only
-trace records Home/End delivery, list scroll positions, connection state and DOM
-focus around both keys in JUnit diagnostics, including assertion failures. Its
-listeners are removed before continuing or tearing down the fixture. No scroll
-position is assigned by the test and native animation remains enabled.
+The keyboard scroll check waits for End to reach the bottom **and emit
+`scrollend`** before sending Home, then requires exactly zero, Home's `scrollend`
+and retained list focus (#1183). Reaching even the final rounded pixel does not
+establish native animation completion. The macOS failure trace from run
+43785033101 shows End reaching 1385 at 176 ms, Home delivered to the same focused,
+connected list at 182 ms, and no subsequent movement for nine seconds. The passing
+desktop trace sends Home 241 ms after reaching the bottom. Waiting only for the
+bottom (#1193) therefore still allowed a reversal during animation completion.
+
+The renderer uses ordinary overflow scrolling, with no virtualizer or Home/End
+handler. The inferred browser mechanism is a compositor completion race:
+Chromium 152's `ScrollAnimator::WillAnimateToOffset` marks an in-flight animation
+as `kRunningOnCompositorButNeedsUpdate` when another key retargets it;
+[`CompositorAnimationFinished`](https://chromium.googlesource.com/chromium/src/+/refs/tags/152.0.7977.167/third_party/blink/renderer/core/scroll/scroll_animator_compositor_coordinator.cc)
+can move that state to post-animation cleanup before the pending retarget is
+serviced. The animation finish callback supplies the scrollend notification.
+The test must observe that completion before issuing its next independent scroll
+command, rather than infer it from a rounded offset. Linux attempts with twelve
+rapid reversals per width did not reproduce the lost Home; macOS CI validates
+that platform's completion ordering.
+
+A bounded, test-only trace records Home/End delivery, list scroll/scrollend events,
+connection state and DOM focus around both keys in JUnit diagnostics, including
+assertion failures. The scrollend counter is installed before input, filters by
+the exact list target, and remains observable even when the event precedes the
+poll. Its listeners are removed before continuing or tearing down the fixture.
+No scroll position is assigned by the test and native animation remains enabled.
 
 ## Remote host SEA fixture (#905)
 
@@ -104,6 +181,38 @@ composition and focus scenarios; `movePreviewTile` is shared by move and agent
 scenarios. Their native attachment, focus, identity and cleanup assertions remain
 in the shared implementations. Scenario-specific frame helpers, stuck handoffs,
 agent setup and moved-pixel inspection stay in their owning suites.
+
+## Trusted approval decisions (#1105)
+
+`approvalPage` explicitly opens the background queue through its waiting indicator.
+`clickApproval` (in `approval-actions.js`, re-exported by the harness) waits for
+withdrawal placeholders to settle, reveals the specific decision, waits for scroll/layout delivery and
+its enabled state, then uses native Playwright input. A click's implicit scroll can
+move a guarded control immediately before dispatch; tests must reveal it first,
+just as a person scrolls to read it. After the one click, the helper waits for the
+consumed control to detach. Without this render acknowledgement, the next call
+can observe zero placeholders before the previous withdrawal commits, scroll too
+early and leave its target clipped after the retained footprint collapses.
+The click's implicit scroll then correctly triggers the movement guard. The helper never forces or retries a decision,
+changes deadlines, or submits answers through the bridge. Immediate human actions,
+including launch-bypass consent, continue to use `confirmationPage`. The queue
+fixture scales its parent to fit the full 720 CSS-pixel cap on short desktops,
+preserving the assertion that two rows are fully visible. Native screen-point
+checks convert CSS coordinates using the actual zoom factor. Tooling rejects direct
+clicks on queue-prefixed decisions outside the dedicated security suite, whose raw
+mouse/keyboard/synthetic input intentionally exercises the guard. Ordinary CLI,
+cleanup, remote, preview, and review-loop callers use the shared helper; legacy
+human-action dialogs keep their native presentation checks.
+
+The packaged orchestrator cleanup case uses long temporary paths and a
+900×612 content viewport to exercise wrapped disclosures at the macOS CI size
+on Linux too. Both cleanup transports keep one unrelated review pending while a
+clean merged checkout auto-completes, asserting its branch survives and the
+pending caller remains independent. Dirty checkouts still require their own
+trusted decision. The manual batch records bounded native/renderer ordering
+before its clicks, including opaque row IDs, readiness, geometry revisions,
+button rectangles and native focus/bounds. These observations grant no consent,
+add no input retries or waits, and retain no disclosure or terminal content.
 
 ## Preview navigation focus ordering (#1133)
 

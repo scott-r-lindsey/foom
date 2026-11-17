@@ -1,3 +1,4 @@
+import { parse as parseToml } from "smol-toml";
 import { expect, it } from "vitest";
 import { agentProvider } from "../../../../src/main/agents/providers/registry";
 import type { AgentLaunch } from "../../../../src/shared/agents";
@@ -34,6 +35,10 @@ it("prepares bundled MCP only with a supported discovery result and a control at
               "-c",
               expect.stringMatching(
                 /^mcp_servers\.foom_[a-f0-9]+=\{url="http:\/\/127\.0\.0\.1:1234\/mcp",bearer_token_env_var="FOOM_CONTROL_TOKEN"\}$/u,
+              ),
+              "-c",
+              expect.stringMatching(
+                /^mcp_servers\.foom_[a-f0-9]+\.default_tools_approval_mode="approve"$/u,
               ),
             ]
           : [],
@@ -134,5 +139,51 @@ it.each(["", "--mcp-config-extra -config", "x--mcp-config x-c", "--config"])(
   (help) => {
     expect(discoveredMcp("claude", "2.1.296", help)).toBe(false);
     expect(discoveredMcp("codex", "codex-cli 0.162.1", help)).toBe(false);
+  },
+);
+
+it.each([
+  { defaults: [] },
+  {
+    defaults: [
+      "--model",
+      "settings-model",
+      "-c",
+      'mcp_servers.user={command="fixture",default_tools_approval_mode="prompt"}',
+    ],
+  },
+  { defaults: ["--ask-for-approval", "on-request", "--sandbox", "workspace-write"] },
+])(
+  "scopes Codex pre-approval to its launch server with defaults $defaults",
+  async ({ defaults }) => {
+    const provider = agentProvider("codex");
+    const install = provider.discover("/fixture/codex", "codex-cli 0.161.0", "-c");
+    for (const toolNames of [undefined, ["manual"]]) {
+      const prepared = await provider.prepareLaunch(
+        install,
+        request,
+        defaults,
+        {
+          env: { FOOM_CONTROL_URL: "http://127.0.0.1:1234/control/v1" },
+          ...(toolNames ? { toolNames } : {}),
+          dispose: () => undefined,
+        },
+        false,
+        false,
+      );
+      try {
+        expect(prepared.args.slice(0, defaults.length)).toEqual(defaults);
+        const [flag, server, approvalFlag, approval] = prepared.mcpArguments ?? [];
+        expect([flag, approvalFlag]).toEqual(["-c", "-c"]);
+        const name = server?.match(/^mcp_servers\.(foom_[a-f0-9]+)=/u)?.[1];
+        if (!name || !approval) throw new Error("Missing scoped approval");
+        expect(parseToml(approval)).toEqual({
+          mcp_servers: { [name]: { default_tools_approval_mode: "approve" } },
+        });
+        expect(prepared.args.slice(defaults.length)).toEqual(prepared.mcpArguments);
+      } finally {
+        prepared.dispose();
+      }
+    }
   },
 );

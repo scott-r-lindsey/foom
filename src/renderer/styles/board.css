@@ -11,12 +11,12 @@
   gap: 20px;
 }
 .board-home h1 {
-  font: 36px var(--font-display);
+  font: var(--type-weight, 400) calc(36px * var(--type-scale, 1)) var(--font-display);
   margin: 0;
   letter-spacing: -1px;
 }
 .board-home h2 {
-  font-size: 13px;
+  font-size: calc(13px * var(--type-scale, 1));
   color: var(--muted);
   margin: 24px 0 12px;
 }
@@ -24,7 +24,7 @@
 .board-help,
 .board-summary {
   color: var(--muted);
-  font-size: 12px;
+  font-size: calc(12px * var(--type-scale, 1));
 }
 .board-help {
   padding: 12px 24px;
@@ -41,7 +41,7 @@
   padding: 14px 18px;
   margin-bottom: 6px;
   background: var(--surface);
-  font: 12px var(--font-mono);
+  font: var(--type-weight, 400) calc(12px * var(--type-scale, 1)) var(--font-mono);
 }
 .board-row[aria-current="true"] {
   background: var(--state-selected, var(--surface));
@@ -93,14 +93,14 @@
 .board-home pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font: 13px / 1.7 var(--font-mono);
+  font: var(--type-weight, 400) calc(13px * var(--type-scale, 1)) / 1.7 var(--font-mono);
 }
 .board-terminal:focus {
   outline: 2px solid var(--state-focus, var(--highlight));
 }
 .board-terminal p {
   color: var(--muted);
-  font-size: 12px;
+  font-size: calc(12px * var(--type-scale, 1));
 }
 @media (prefers-reduced-motion: reduce) {
   .board-light {
@@ -151,11 +151,11 @@
   background: var(--bg);
 }
 .board-top .board-summary {
-  font: 16px var(--font-voice);
+  font: var(--type-weight, 400) calc(16px * var(--type-scale, 1)) var(--font-voice);
   flex: 1;
 }
 .sample-label {
-  font-size: 11px;
+  font-size: calc(11px * var(--type-scale, 1));
   color: var(--muted);
 }
 .wordmark {
@@ -164,7 +164,7 @@
 .board-empty {
   margin: 20vh auto;
   text-align: center;
-  font: 20px / 1.8 var(--font-voice);
+  font: var(--type-weight, 400) calc(20px * var(--type-scale, 1)) / 1.8 var(--font-voice);
   color: var(--muted);
 }
 .board-terminal {
@@ -193,7 +193,7 @@
   flex: 1;
 }
 .terminal-toolbar {
-  font-size: 12px;
+  font-size: calc(12px * var(--type-scale, 1));
   flex-wrap: wrap;
 }
 .shell-slot,
@@ -209,7 +209,7 @@
 }
 .sample-terminal p {
   color: var(--muted);
-  font-size: 12px;
+  font-size: calc(12px * var(--type-scale, 1));
 }
 .board-workspace .board-list {
   flex: 0 0 300px;
@@ -255,7 +255,7 @@
     padding: 12px 8px;
   }
   .board-list h2 {
-    font-size: 10px;
+    font-size: calc(10px * var(--type-scale, 1));
     overflow: hidden;
     text-overflow: ellipsis;
   }
@@ -288,7 +288,7 @@
   }
   .board-list > button::before {
     content: "+";
-    font-size: 20px;
+    font-size: calc(20px * var(--type-scale, 1));
   }
   .board-top {
     padding: 12px;
@@ -296,7 +296,7 @@
     flex-wrap: wrap;
   }
   .board-top .board-summary {
-    font-size: 13px;
+    font-size: calc(13px * var(--type-scale, 1));
   }
   .board-home {
     padding: 0;
@@ -337,15 +337,15 @@
   background: transparent;
 }
 .sidebar-shell .wordmark {
-  font-size: 22px;
+  font-size: calc(22px * var(--type-scale, 1));
 }
 .dev-profile {
   margin-left: 6px;
   color: var(--muted);
-  font: 11px var(--font-mono);
+  font: var(--type-weight, 400) calc(11px * var(--type-scale, 1)) var(--font-mono);
 }
 .sidebar-shell .board-summary {
-  font: 11px var(--font-mono);
+  font: var(--type-weight, 400) calc(11px * var(--type-scale, 1)) var(--font-mono);
   margin: 0;
   text-align: right;
 }
@@ -373,7 +373,7 @@
   background: transparent;
   color: var(--muted);
   text-align: left;
-  font: 12px var(--font-mono);
+  font: var(--type-weight, 400) calc(12px * var(--type-scale, 1)) var(--font-mono);
 }
 .sidebar-shell .sidebar-add-repository::before {
   content: none;
@@ -397,7 +397,7 @@
   border-top: var(--shape-border, 1px) solid var(--line);
 }
 .sidebar-footer button {
-  font-size: 11px;
+  font-size: calc(11px * var(--type-scale, 1));
 }
 .tree-row {
   display: flex;
@@ -420,7 +420,7 @@
   text-align: left;
   flex: 1;
   min-width: 0;
-  font: 12px var(--font-mono);
+  font: var(--type-weight, 400) calc(12px * var(--type-scale, 1)) var(--font-mono);
 }
 .tree-label {
   overflow: hidden;
@@ -434,14 +434,14 @@
 }
 .tree-checkout-branch {
   color: var(--muted);
-  font-size: 11px;
+  font-size: calc(11px * var(--type-scale, 1));
 }
 .tree-name > svg {
   flex-shrink: 0;
   color: var(--muted);
 }
 .repository-row .tree-name {
-  font: 600 13px var(--font-interface);
+  font: var(--type-strong-weight, 600) calc(13px * var(--type-scale, 1)) var(--font-interface);
 }
 .worktree-row {
   padding-left: 14px;
@@ -450,13 +450,13 @@
 .tree-chevron {
   flex: 0 0 18px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: calc(11px * var(--type-scale, 1));
 }
 .tree-empty {
   margin: 0;
   padding: 5px 4px 7px 36px;
   color: var(--muted);
-  font: 12px / 1.4 var(--font-voice);
+  font: var(--type-weight, 400) calc(12px * var(--type-scale, 1)) / 1.4 var(--font-voice);
 }
 .tree-separator {
   border: 0;
@@ -465,7 +465,7 @@
 }
 .worktree-count {
   color: var(--muted);
-  font: 10px var(--font-mono);
+  font: var(--type-weight, 400) calc(10px * var(--type-scale, 1)) var(--font-mono);
 }
 .sidebar-shell .board-entry {
   display: flex;
@@ -522,7 +522,7 @@
   min-width: 24px;
   height: 20px;
   padding: 2px 4px;
-  font: 600 11px / 16px var(--font-mono);
+  font: var(--type-strong-weight, 600) calc(11px * var(--type-scale, 1)) / 16px var(--font-mono);
   color: var(--badge-ink);
   background: var(--badge-fill);
   border-radius: var(--shape-radius, 3px);
@@ -533,11 +533,11 @@
   text-align: center;
 }
 .board-wait {
-  font: 10px var(--font-mono);
+  font: var(--type-weight, 400) calc(10px * var(--type-scale, 1)) var(--font-mono);
 }
 .sidebar-shell .board-reason {
   display: block;
-  font: 12px / 1.4 var(--font-interface);
+  font: var(--type-weight, 400) calc(12px * var(--type-scale, 1)) / 1.4 var(--font-interface);
   margin-top: 2px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -615,7 +615,7 @@
   color: var(--attention-ink);
   border-color: var(--attention);
   margin: 0 12px 8px;
-  font-size: 11px;
+  font-size: calc(11px * var(--type-scale, 1));
 }
 .sidebar-shell mark {
   color: var(--ink);
@@ -677,7 +677,7 @@
   text-align: left;
   background: transparent;
   border: 0;
-  font-size: 12px;
+  font-size: calc(12px * var(--type-scale, 1));
   animation: menu-item 160ms both;
   animation-delay: calc(var(--item) * 18ms);
 }
@@ -806,7 +806,7 @@
   margin: 0 6px 8px;
   padding: 4px 2px;
   text-align: center;
-  font: 11px var(--font-mono);
+  font: var(--type-weight, 400) calc(11px * var(--type-scale, 1)) var(--font-mono);
   color: var(--attention-ink);
   border-radius: 6px;
   background: color-mix(in srgb, var(--attention) 14%, transparent);
@@ -874,7 +874,7 @@
   border-radius: var(--shape-radius, 5px);
   color: var(--ink);
   background: var(--bg);
-  font: 12px var(--font-mono);
+  font: var(--type-weight, 400) calc(12px * var(--type-scale, 1)) var(--font-mono);
   padding: 6px 8px;
 }
 .sidebar-filter input::placeholder {
@@ -902,7 +902,7 @@
   position: relative;
   background: var(--ink);
   color: var(--bg);
-  font-weight: 600;
+  font-weight: var(--type-strong-weight, 600);
 }
 .row-menu button[data-armed]::before {
   display: none;
@@ -945,7 +945,7 @@
 
 .worktree-removed {
   color: var(--muted);
-  font-size: 11px;
+  font-size: calc(11px * var(--type-scale, 1));
 }
 
 .wordmark-menu {
@@ -1007,7 +1007,7 @@
   gap: 9px;
   min-height: 34px;
   padding: 4px 6px 4px 10px;
-  font-size: 12px;
+  font-size: calc(12px * var(--type-scale, 1));
   animation: menu-item 160ms both;
   animation-delay: calc(var(--item) * 18ms);
 }
@@ -1022,7 +1022,7 @@
   padding: 0;
   border: var(--shape-border, 1px) solid var(--line);
   border-radius: var(--shape-radius, 4px);
-  font: 13px var(--font-mono);
+  font: var(--type-weight, 400) calc(13px * var(--type-scale, 1)) var(--font-mono);
   animation: none;
 }
 .row-menu .menu-stepper button:hover,
@@ -1035,7 +1035,7 @@
 .menu-step-value {
   min-width: 42px;
   text-align: center;
-  font: 11px var(--font-mono);
+  font: var(--type-weight, 400) calc(11px * var(--type-scale, 1)) var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
 .shortcut-sheet {
@@ -1056,8 +1056,8 @@
 }
 .shortcut-sheet h2 {
   margin: 0 0 12px;
-  font-size: 15px;
-  font-weight: 600;
+  font-size: calc(15px * var(--type-scale, 1));
+  font-weight: var(--type-strong-weight, 600);
 }
 .shortcut-columns {
   display: grid;
@@ -1066,15 +1066,15 @@
 }
 .shortcut-columns h3 {
   margin: 0 0 6px;
-  font-size: 11px;
-  font-weight: 600;
+  font-size: calc(11px * var(--type-scale, 1));
+  font-weight: var(--type-strong-weight, 600);
   color: var(--muted);
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 .shortcut-lead {
   margin-left: 6px;
-  font: 10px var(--font-mono);
+  font: var(--type-weight, 400) calc(10px * var(--type-scale, 1)) var(--font-mono);
   letter-spacing: 0;
   text-transform: none;
 }
@@ -1082,7 +1082,7 @@
   display: grid;
   gap: 5px;
   margin: 0;
-  font-size: 12px;
+  font-size: calc(12px * var(--type-scale, 1));
 }
 .shortcut-columns dl > div {
   display: flex;
@@ -1094,7 +1094,7 @@
   text-align: right;
 }
 .shortcut-columns kbd {
-  font: 11px var(--font-mono);
+  font: var(--type-weight, 400) calc(11px * var(--type-scale, 1)) var(--font-mono);
   color: var(--muted);
   white-space: nowrap;
 }
@@ -1229,7 +1229,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: 600;
+  font-weight: var(--type-strong-weight, 600);
 }
 .panel-kind {
   flex-shrink: 0;
@@ -1237,7 +1237,7 @@
   border-radius: 999px;
   background: color-mix(in srgb, var(--highlight) calc(12% * var(--panel-tint)), transparent);
   color: var(--muted);
-  font: 11px var(--font-mono);
+  font: var(--type-weight, 400) calc(11px * var(--type-scale, 1)) var(--font-mono);
 }
 .panel-body {
   min-height: 0;
@@ -1265,7 +1265,7 @@
   min-height: 34px;
   padding: 6px 12px;
   border-radius: var(--shape-radius, 6px);
-  font-size: 13px;
+  font-size: calc(13px * var(--type-scale, 1));
 }
 .sidebar-panel .row-menu-items button::before {
   inset: 8px auto 8px 0;
@@ -1276,7 +1276,7 @@
 }
 .sidebar-panel .menu-hint {
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: calc(11px * var(--type-scale, 1));
 }
 .sidebar-panel .row-menu-items hr {
   width: calc(100% - 12px);
@@ -1316,14 +1316,14 @@
 }
 .panel-facts dt {
   padding-top: 2px;
-  font-size: 12px;
+  font-size: calc(12px * var(--type-scale, 1));
   color: var(--muted);
 }
 .panel-facts dd {
   margin: 0;
   min-width: 0;
   overflow-wrap: anywhere;
-  font: 12.5px / 1.5 var(--font-mono);
+  font: var(--type-weight, 400) calc(12.5px * var(--type-scale, 1)) / 1.5 var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
 .panel-sub {
@@ -1360,7 +1360,7 @@
   border-radius: 999px;
   vertical-align: 1px;
   white-space: nowrap;
-  font: 11.5px var(--font-mono);
+  font: var(--type-weight, 400) calc(11.5px * var(--type-scale, 1)) var(--font-mono);
   color: var(--chip-ink);
   border: var(--shape-border, 1px) solid
     color-mix(in srgb, var(--chip) var(--panel-chip-line), transparent);
@@ -1372,7 +1372,7 @@
 }
 .panel-chip[data-tone="changes"] {
   --chip: var(--highlight);
-  font-weight: 600;
+  font-weight: var(--type-strong-weight, 600);
   border-color: color-mix(in srgb, var(--chip) max(70%, var(--panel-chip-line)), transparent);
   background: color-mix(in srgb, var(--chip) calc(26% * var(--panel-tint)), transparent);
 }
@@ -1415,7 +1415,7 @@
   border-radius: var(--shape-radius, 4px);
   background: var(--ink);
   color: var(--bg);
-  font: 600 10.5px var(--font-mono);
+  font: var(--type-strong-weight, 600) calc(10.5px * var(--type-scale, 1)) var(--font-mono);
   letter-spacing: 0.06em;
 }
 @media (max-width: 600px) {
@@ -1425,7 +1425,7 @@
 }
 
 .cleanup-tag {
-  font-size: 11px;
+  font-size: calc(11px * var(--type-scale, 1));
   color: var(--muted);
   white-space: nowrap;
 }
@@ -1571,7 +1571,7 @@
     padding: 2px 3px;
     white-space: normal;
     overflow-wrap: anywhere;
-    font-size: 9px;
+    font-size: calc(9px * var(--type-scale, 1));
   }
   .sidebar-shell[data-compact="true"] .config-dock .board-entry {
     flex-wrap: wrap;
@@ -1665,7 +1665,7 @@
 .session-orchestration {
   display: block;
   color: var(--ink);
-  font-size: 11px;
+  font-size: calc(11px * var(--type-scale, 1));
 }
 .action-log {
   padding: 24px;
@@ -1686,7 +1686,7 @@
   justify-content: space-between;
 }
 .action-log h1 {
-  font-size: 20px;
+  font-size: calc(20px * var(--type-scale, 1));
 }
 .action-log p {
   color: var(--muted);
@@ -1714,7 +1714,7 @@
   border-collapse: collapse;
   width: 100%;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: calc(12px * var(--type-scale, 1));
 }
 .action-log th,
 .action-log td {
@@ -1804,7 +1804,7 @@
   border-left: 1px solid var(--line);
   border-right: 1px solid var(--line);
   color: var(--muted);
-  font: 11px var(--font-mono);
+  font: var(--type-weight, 400) calc(11px * var(--type-scale, 1)) var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
 .footer-zoom-value:hover,
@@ -1842,7 +1842,7 @@
 }
 .session-handoff {
   color: var(--muted);
-  font-size: 10px;
+  font-size: calc(10px * var(--type-scale, 1));
   white-space: nowrap;
 }
 .session-handoff[data-status="failed"] {
@@ -1908,7 +1908,7 @@
   border-radius: 8px;
   padding: 20px;
   max-width: min(440px, calc(100vw - 40px));
-  font: 14px / 1.5 var(--font-interface);
+  font: var(--type-weight, 400) calc(14px * var(--type-scale, 1)) / 1.5 var(--font-interface);
 }
 .action-error::backdrop {
   background: #06050b99;
@@ -1995,7 +1995,7 @@ button.failure-mark {
   color: var(--muted);
 }
 .machine-status {
-  font: 11px var(--font-mono);
+  font: var(--type-weight, 400) calc(11px * var(--type-scale, 1)) var(--font-mono);
 }
 .machine-sessions .board-row {
   margin-left: 18px;
@@ -2016,7 +2016,7 @@ button.failure-mark {
   border-radius: 3px;
   padding: 1px 4px;
   white-space: nowrap;
-  font-size: 10px;
+  font-size: calc(10px * var(--type-scale, 1));
 }
 
 .host-chip svg {
@@ -2057,4 +2057,17 @@ button.failure-mark {
 .terminal-link:focus-visible > span {
   outline: 1px solid var(--highlight);
   outline-offset: -1px;
+}
+
+.approvals-waiting {
+  color: var(--attention-ink);
+  border: 1px solid var(--attention);
+  border-radius: 6px;
+  padding: 6px;
+  background: var(--surface);
+  overflow-wrap: anywhere;
+}
+.approvals-waiting span {
+  color: var(--attention);
+  text-shadow: 0 0 5px var(--attention);
 }

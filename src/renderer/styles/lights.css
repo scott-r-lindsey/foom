@@ -39,7 +39,7 @@
 }
 .session-program {
   color: color-mix(in srgb, var(--muted) 85%, var(--ink));
-  font: 12px var(--font-mono);
+  font: var(--type-weight, 400) calc(12px * var(--type-scale, 1)) var(--font-mono);
   flex-shrink: 0;
 }
 .activity-trace {

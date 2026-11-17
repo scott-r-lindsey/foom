@@ -17,6 +17,7 @@ const {
 const path = require("node:path");
 const { tmpdir } = require("node:os");
 const { FAKE_GH } = require("../helpers/forge-cli.js");
+const { publishJson } = require("../helpers/publish-json.js");
 const { gitSync } = require("../helpers/git.js");
 const { launchTrustedParent } = require("./agent-fixture.js");
 const { deadline, expect } = require("./test-policy.js");
@@ -26,6 +27,8 @@ const {
   launchApp,
   quitAndWait,
   confirmationPage,
+  approvalPage,
+  clickApproval,
   openSettingsScreen,
   fixtureCleanup,
   createMemoryFixture,
@@ -225,6 +228,7 @@ if (args[0]==='--help') {console.log('-c --no-alt-screen --plugin-dir --addition
 if (args[0]==='plugin') {console.log('[]'); process.exit(0);}
 if (agent==='codex' && args[0]==='login' && args[1]==='status') process.exit(0);
 const env=process.env;
+const publishJson=${publishJson.toString()};
 const attentionCase=${JSON.stringify(attentionCase)};
 function hook(event) {
  const definition=args.find(arg=>arg.startsWith('hooks.'+event+'='));
@@ -266,7 +270,7 @@ if(agent==='pi') {
   yield {id:'end',type:'session.execution.succeeded',data:{sessionID:conversation}};
  }}});
 }
-fs.writeFileSync(${JSON.stringify(path.join(root, `${agent}-launch.json`))},JSON.stringify({args,reviewer,resumed,cwd:process.cwd(),env:Object.fromEntries(Object.entries(env).filter(([key])=>key.startsWith('FOOM_'))),pid:process.pid,attachment,hookFile:env.OPENCODE_CONFIG}));
+publishJson(${JSON.stringify(path.join(root, `${agent}-launch.json`))},{args,reviewer,resumed,cwd:process.cwd(),env:Object.fromEntries(Object.entries(env).filter(([key])=>key.startsWith('FOOM_'))),pid:process.pid,attachment,hookFile:env.OPENCODE_CONFIG});
 process.stdout.write('REMOTE_'+agent.toUpperCase()+'_READY\\r\\n'); process.stdin.setRawMode(true);
 if(attentionCase) process.stdout.write(${JSON.stringify(hookReview)}+'\\r\\n');
 process.stdin.on('data', bytes=>{
@@ -287,7 +291,7 @@ process.stdin.on('data', bytes=>{
 
  const verdict=reviewer ? (reviewLoop==='clean' ? {verdict:'clean'} : {verdict:'findings',findings:[{file:'a.ts',line:1,summary:'Fixture defect',scenario:'Zero input'}]}) : undefined;
  const handoff=cli(['handoff','--status',resumed && reviewLoop==='findings' ? 'blocked' : 'done','--summary-file','-','--idempotency-key','fixture-'+agent,...(verdict ? ['--review',JSON.stringify(verdict)] : [])],agent+' fixture complete');
- fs.writeFileSync(${JSON.stringify(path.join(root, `${agent}-report.json`))},JSON.stringify({identity,forbidden,handoff,mcp}));
+ publishJson(${JSON.stringify(path.join(root, `${agent}-report.json`))},{identity,forbidden,handoff,mcp});
 });
 process.on('exit',()=>cleanup?.());
 })().catch(error=>{console.error(error);process.exit(1);});
@@ -451,7 +455,11 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
     (id) => window.desktop.sidebarCommand({ kind: "make-orchestrator", id }),
     parentId,
   );
-  await (await confirmationPage(app)).getByRole("button", { name: "Make orchestrator" }).click();
+  const grantPage = await approvalPage(app);
+  await clickApproval(
+    grantPage,
+    grantPage.getByRole("button", { name: "Approve · Make orchestrator", exact: true }),
+  );
   await elevate;
   // Draft origin preflight runs before enrollment below; exercise it once rather than
   // repeating its SSH/bootstrap work in every provider and review scenario.
@@ -742,9 +750,12 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
         (id) => window.desktop.sidebarCommand({ kind: "make-orchestrator", id }),
         parentId,
       );
-      const recovery = await confirmationPage(app);
+      const recovery = await approvalPage(app);
       await expect(recovery.getByText(/Re-granting this tile before Foom restarts/)).toBeVisible();
-      await recovery.getByRole("button", { name: "Make orchestrator" }).click();
+      await clickApproval(
+        recovery,
+        recovery.getByRole("button", { name: "Approve · Make orchestrator", exact: true }),
+      );
       await regrant;
       assert.ok((await call("tail", { id: launched.resultId })).lines.length > 0);
       assert.equal(
@@ -977,9 +988,12 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
         worktreeId: checkout.resultId,
         idempotencyKey: "remove-agy",
       });
-      const dialog = await confirmationPage(app);
+      const dialog = await approvalPage(app);
       await expect(dialog.getByText(`fleet-worker:${record.cwd}`, { exact: true })).toBeVisible();
-      await dialog.getByRole("button", { name: "Remove worktree", exact: true }).click();
+      await clickApproval(
+        dialog,
+        dialog.getByRole("button", { name: "Approve · Remove worktree", exact: true }),
+      );
       await expect
         .poll(
           async () => (await call("operation_status", { operationId: removal.operationId })).status,
@@ -1189,6 +1203,9 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
     review.getByRole("heading", { name: "Remove worktree?", exact: true }),
   ).toBeVisible();
   await expect(review.getByText(`fleet-worker:${expectedCheckout}`, { exact: true })).toBeVisible();
+  await expect(
+    review.getByRole("alertdialog", { name: "Remove worktree?", exact: true }),
+  ).toBeVisible();
   await review.getByRole("button", { name: "Remove worktree", exact: true }).click();
   await deleting;
   assert.ok(

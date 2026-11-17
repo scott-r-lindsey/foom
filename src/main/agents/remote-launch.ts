@@ -94,6 +94,7 @@ export async function launchRemoteChild(
           ...(request.pressure ? { pressure: request.pressure } : {}),
           spec: {
             ...(request.pressure ? { childPressure: true } : {}),
+            ...(request.repositorySetup ? { repositorySetup: request.repositorySetup } : {}),
             agent: request.agent,
             repository: mapping.repository,
             worktree: mapping.worktree,

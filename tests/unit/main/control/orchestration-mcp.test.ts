@@ -1,3 +1,5 @@
+import { CHILD_GUIDANCE, roleGuidance } from "../../../../src/shared/control-guidance";
+import { CHILD_PROMPT } from "../../../../src/main/agents/providers/cli-launch";
 import { readFileSync } from "node:fs";
 import { command } from "../../../../src/cli/commands";
 import { object } from "../../../../src/shared/control-validation";
@@ -176,9 +178,12 @@ it("lists orchestration tools to agents but runs them only for the orchestrator"
   expect(JSON.stringify(await agent.init())).toMatch(
     /may make you this repository's Foom orchestrator/u,
   );
-  expect(JSON.stringify(await agent.send("tools/list"))).not.toContain('"name":"read_handoff"');
+  expect(JSON.stringify((await agent.send("tools/list"))?.result)).toContain(
+    '"name":"read_handoff"',
+  );
   expect(listed).toContain('"name":"read_handoff"');
   for (const [method, params] of [
+    ["read_handoff", { id: "child" }],
     ["review", { pullRequest: 7, agent: "codex", idempotencyKey: "no-review" }],
     ["launch", { worktreeId: "tree", agent: "codex", idempotencyKey: "no-launch" }],
     ["prompt", { id: "child", text: "Proceed", idempotencyKey: "no-prompt" }],
@@ -211,6 +216,7 @@ it("a human transfer takes effect on the next call over each client's existing M
   expect(await agent.tool("whoami", {})).toMatchObject({
     structuredContent: {
       role: "agent",
+      guidance: roleGuidance({ role: "agent", parentId: null }),
       capabilities: [
         "whoami",
         "sessions",
@@ -222,6 +228,12 @@ it("a human transfer takes effect on the next call over each client's existing M
       ],
     },
   });
+  const before = JSON.stringify((await agent.send("tools/list"))?.result);
+  expect(before).toContain('"name":"read_handoff"');
+  expect(await agent.tool("read_handoff", { id: "child" })).toMatchObject({
+    isError: true,
+    content: [{ text: expect.stringContaining("call whoami") as unknown }],
+  });
   service.setRole("parent", "agent");
   orchestration.revoke("parent");
   const slot = orchestration.reserve(repo);
@@ -231,6 +243,7 @@ it("a human transfer takes effect on the next call over each client's existing M
   expect(await agent.tool("whoami", {})).toMatchObject({
     structuredContent: {
       role: "orchestrator",
+      guidance: roleGuidance({ role: "orchestrator", parentId: null }),
       parentId: null,
       grantedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/u) as unknown,
       tools: expect.arrayContaining([
@@ -244,6 +257,28 @@ it("a human transfer takes effect on the next call over each client's existing M
     (await agent.tool("create_worktree", { idempotencyKey: "a", branch: "next" }))
       .structuredContent,
   ).toMatchObject({ status: "succeeded" });
+  expect(JSON.stringify((await agent.send("tools/list"))?.result)).toBe(before);
+  const tree = await agent.tool("create_worktree", {
+    idempotencyKey: "report-tree",
+    branch: "report",
+  });
+  await agent.tool("launch", {
+    worktreeId: tree.structuredContent?.["resultId"],
+    agent: "claude",
+    idempotencyKey: "report-child",
+  });
+  const childGrant = service.prepare(repo, join(repo, "report"), "agent", "agent");
+  childGrant.bind("child");
+  const child = client(childGrant.env["FOOM_CONTROL_TOKEN"] ?? "");
+  await child.init();
+  await child.tool("handoff", { status: "done", summary: "After grant", idempotencyKey: "report" });
+  expect(await agent.tool("read_handoff", { id: "child" })).toMatchObject({
+    isError: false,
+    structuredContent: { summary: "After grant", untrusted: true },
+  });
+  expect((await parent.tool("whoami", {})).structuredContent?.["guidance"]).toBe(
+    roleGuidance({ role: "agent", parentId: null }),
+  );
   const revoked = await parent.tool("create_worktree", { idempotencyKey: "b", branch: "other" });
   expect(revoked.isError).toBe(true);
   expect(revoked.content[0]?.text).toMatch(/call whoami/u);
@@ -306,13 +341,30 @@ it("lists handoff only for owned children and refuses hidden direct calls", asyn
   const grant = service.prepare(repo, join(repo, "report"), "agent", "parent");
   grant.bind("child");
   const child = client(grant.env["FOOM_CONTROL_TOKEN"] ?? "");
-  await child.init();
+  const initialized = object((await child.init())?.result);
+  const childBlock = readFileSync("docs/orchestration.md", "utf8").match(
+    /\*\*Server instructions: child\*\*\n\n((?:> [^\n]+\n)+)/u,
+  )?.[1];
+  expect(initialized["instructions"]).toBe(
+    childBlock
+      ?.trimEnd()
+      .split("\n")
+      .map((line) => line.slice(2))
+      .join("\n"),
+  );
+  expect(initialized["instructions"]).toContain(CHILD_GUIDANCE);
+  expect(initialized["instructions"]).not.toContain("As orchestrator");
+  expect(initialized["instructions"]).not.toContain("The human may make you");
+  expect((await child.tool("whoami", {})).structuredContent?.["guidance"]).toBe(CHILD_GUIDANCE);
+  expect(CHILD_PROMPT).toBe(
+    `Task from your Foom orchestrator (another agent, not the user):\n${CHILD_GUIDANCE}`,
+  );
   expect(JSON.stringify(await child.send("tools/list"))).toContain('"name":"handoff"');
   expect((await child.tool("whoami", {})).structuredContent?.["tools"]).toContainEqual({
     name: "handoff",
     cli: "foom handoff",
   });
-  expect(JSON.stringify(await child.send("tools/list"))).not.toContain('"name":"read_handoff"');
+  expect(JSON.stringify(await child.send("tools/list"))).toContain('"name":"read_handoff"');
   expect(
     await child.tool("handoff", { status: "done", summary: "Completed", idempotencyKey: "report" }),
   ).toMatchObject({ isError: false, structuredContent: { seq: 1 } });
@@ -343,7 +395,9 @@ it("pins bounded server and discovery wording to the orchestration contract", as
   const initialized = object((await parent.init())?.result);
   const instructions = initialized["instructions"];
   expect(typeof instructions).toBe("string");
-  const instructionBlock = doc.match(/\*\*Server instructions\*\*\n\n((?:> [^\n]+\n)+)/u)?.[1];
+  const instructionBlock = doc.match(
+    /\*\*Server instructions: orchestrator\*\*\n\n((?:> [^\n]+\n)+)/u,
+  )?.[1];
   expect(instructions).toBe(
     instructionBlock
       ?.trimEnd()
@@ -378,6 +432,11 @@ it("pins bounded server and discovery wording to the orchestration contract", as
     expect(String(tool?.["description"]).length).toBeLessThanOrEqual(650);
   }
   expect(descriptions.get("whoami")).toMatch(/^Call first:/u);
+  expect(descriptions.get("whoami")).toContain("manual section orchestrator-playbook");
+  expect(instructions).toContain("manual section orchestrator-playbook");
+  expect(instructions).not.toContain("in a background command");
+  expect(descriptions.get("wait_for")).toContain("otherwise repeat bounded wait_for calls");
+  expect(descriptions.get("wait_for")).toContain("re-arm after each wake");
   expect(descriptions.get("launch")).toContain("one task, acceptance criteria and limits");
   expect(descriptions.get("wait_for")).toContain("quiet is not proof of completion");
   expect(descriptions.get("read_handoff")).toContain(
@@ -387,6 +446,25 @@ it("pins bounded server and discovery wording to the orchestration contract", as
     "including answering permission, credential and provider prompts",
   );
   expect(descriptions.get("operation_status")).toContain("never retry with a new key");
+});
+
+it("initializes ordinary agents with bounded guidance without the orchestrator workflow", async () => {
+  const agent = client(tokens.agent);
+  const initialized = object((await agent.init())?.result);
+  const instructions = initialized["instructions"];
+  const doc = readFileSync("docs/orchestration.md", "utf8");
+  const block = doc.match(/\*\*Server instructions: agent\*\*\n\n((?:> [^\n]+\n)+)/u)?.[1];
+  expect(instructions).toBe(
+    block
+      ?.trimEnd()
+      .split("\n")
+      .map((line) => line.slice(2))
+      .join("\n"),
+  );
+  expect(String(instructions).length).toBeLessThanOrEqual(800);
+  expect(instructions).toContain("context compaction");
+  expect(instructions).not.toContain("As orchestrator");
+  expect(instructions).not.toContain("Before stopping");
 });
 
 it("advertises only current capabilities with CLI fallbacks accepted by the real parser", async () => {

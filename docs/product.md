@@ -150,3 +150,11 @@ read. The chain shares one cancellation signal, size budget and total deadline;
 all requests close before preparation returns, including after success or opt-out.
 Foom bounds and can abort its ZIP transfer; only local
 native work already handed off is outside that cancellation boundary.
+
+## Idle orchestrator wake (#548)
+
+General offers an off-by-default wake preference and a minimum interval (three
+minutes by default). Foom queues child events, checks current hook idle and an
+unfocused live composer, sends Escape, checks again and submits one fixed notice.
+It never includes child report/output text. This is best-effort with an accepted
+screen/input race; read the [disclosure and limitations](orchestration.md#opt-in-idle-orchestrator-wake-548).

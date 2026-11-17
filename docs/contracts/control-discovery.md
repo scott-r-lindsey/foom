@@ -17,6 +17,17 @@ After elevation, this includes `read_handoff` even if the client cached its old
 MCP tool list. Use the inherited session credentials for CLI fallbacks.
 Listing a tool never grants authority; every call still checks the current role.
 
+Initialize-time server instructions are selected from the authenticated principal:
+ordinary agent, child (a principal with a parent), or orchestrator. Children receive
+the same handoff and CI guidance as the launch prefix, without orchestrator workflow
+or elevation guidance. All roles point to `manual` for Foom details.
+
+`whoami.guidance` returns short orientation for the current role, including the
+handoff rule for children. Call it after a grant, revoke, resume or context
+compaction: initialize-time instructions may be stale. Guidance grants no authority;
+live service checks remain decisive. Restricted remote children receive the same
+child guidance in initialization and public identity results; no hub identity is added.
+
 Some clients defer tools behind search and omit server instructions from model
 context. The essential workflow therefore lives in tool descriptions too. The
 following text is pinned against live MCP initialization and listing in unit tests.
@@ -26,3 +37,14 @@ Hook-based notification of a mid-session role change (item 4) is excluded pendin
 the user's decision. No hooks or notification behavior change here.
 
 The [exact server/tool wording](../orchestration.md#pinned-server-and-tool-wording) is retained at its tested source path.
+
+### Agent-neutral orchestrator playbook (#1201)
+
+Orchestrator discovery points to `manual({section: "orchestrator-playbook"})`;
+follow `nextPage` through the complete section. The bundled guide owns detailed
+launch/wait/CI/cleanup advice. Short server/tool/CLI pointers must not assume
+background-command completion wakes every client. Use one all-child watcher,
+re-armed after each wake. Without client exit notifications, repeat bounded MCP
+`wait_for` calls; when MCP is unavailable, use foreground bounded CLI waits. `wait_for` observes required-check revisions;
+children hand off PR/head and validation rather than polling CI in parallel.
+See [waiting evidence and gaps](../agents.md#orchestrator-waiting-1201).

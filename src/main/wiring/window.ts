@@ -1,4 +1,10 @@
 import { GithubSignIn } from "../setup/github-sign-in";
+import { repositorySetupFor, repositoryToolchainPrefix } from "../setup/repository-setup-service";
+import type { SetupRun } from "../../shared/repository-setup.d";
+import { setupRunDigest } from "../../node-common/repository-setup-run";
+import { createViewReader } from "../data/view-readers";
+import { listTerminalFonts } from "../fonts/terminal-fonts";
+import { attachViews } from "../data/view-ipc";
 import { parseAgentManifest } from "../../shared/agent-plugin-parser";
 import type { RemoteTarget } from "../../shared/remote-host";
 import { bundledAgentData } from "../../shared/bundled-agent-data";
@@ -46,6 +52,8 @@ import type { ApplicationWiring } from "./application-wiring";
 import { initializeWorkspace } from "./workspace";
 
 const manualOpenings = new WeakMap<ApplicationWiring, Promise<void>>();
+
+const localHostMutations = new WeakSet<object>();
 
 export async function buildWindow(
   wiring: ApplicationWiring,
@@ -126,6 +134,7 @@ export async function buildWindow(
 
   const updateBackground = () => {
     wiring.windows.get(window.id)?.confirmations.refresh();
+    wiring.refreshApprovals();
     window.setBackgroundColor(
       resolveInterfaceTheme(
         wiring.settings.get().interfaceTheme,
@@ -136,9 +145,13 @@ export async function buildWindow(
   };
   nativeTheme.on("updated", updateBackground);
   const themeIpc = attachThemes(window, wiring.themes, ipc);
+  const soundLibrary = new SoundLibrary(
+    path.join(__dirname, "../../sounds"),
+    path.join(wiring.configRoot, "sounds"),
+  );
   const soundIpc = attachSounds(
     window,
-    new SoundLibrary(path.join(__dirname, "../../sounds"), path.join(wiring.configRoot, "sounds")),
+    soundLibrary,
     path.join(__dirname, "../../sounds/NOTICES.txt"),
     ipc,
   );
@@ -219,6 +232,23 @@ export async function buildWindow(
     process.platform,
     wiring.removalPresentations,
   );
+  const unsubscribeApprovals = wiring.approvals.feed.subscribe(() => {
+    if (!window.webContents.isDestroyed())
+      window.webContents.send("approval:count", wiring.approvals.feed.current().length);
+  });
+  ipc.handle("approval:count", (_event, ...args) => {
+    if (args.length) throw new Error("Invalid approval count request");
+    return wiring.approvals.feed.current().length;
+  });
+  ipc.handle("approval:open", (_event, ...args) => {
+    if (args.length) throw new Error("Invalid approval open request");
+    wiring.openApprovals();
+  });
+  window.once("closed", () => {
+    unsubscribeApprovals();
+    ipc.removeHandler("approval:count");
+    ipc.removeHandler("approval:open");
+  });
   wiring.terminals.setLinkConfirmation(window.webContents, (content, signal) =>
     confirmations.request(content, signal),
   );
@@ -264,7 +294,10 @@ export async function buildWindow(
     window,
     wiring.workspace,
     (id) => wiring.terminals.owns(id),
-    (content) => confirmations.request(content),
+    (content) =>
+      content.approval
+        ? wiring.requestTrusted(content, new AbortController().signal)
+        : confirmations.request(content),
     ipc,
     () => [...previewHost.registry.records.values()],
     () => wiring.agentPreviews?.history ?? [],
@@ -278,13 +311,18 @@ export async function buildWindow(
     (bounds) => screen.getDisplayMatching(bounds).workArea,
     scale,
   );
+  let appliedScale: number | undefined;
   const applySettings = (next: Settings) => {
     updateBackground();
     // Each window remembers its own 100% size and only the origin has an anchor.
-    windowScale.apply(next.interfaceScale);
-    window.webContents.setZoomFactor(next.interfaceScale / 100);
+    if (next.interfaceScale !== appliedScale) {
+      windowScale.apply(next.interfaceScale);
+      window.webContents.setZoomFactor(next.interfaceScale / 100);
+      appliedScale = next.interfaceScale;
+    }
     previewHost.refresh();
     confirmations.refresh();
+    wiring.refreshApprovals();
   };
   const githubSignIn = new GithubSignIn({
     observe: (id, listener) =>
@@ -306,7 +344,10 @@ export async function buildWindow(
     githubSignIn.dispose();
   });
   const launchRecipe = async (
-    target: RemoteTarget | { localAgent: string },
+    target:
+      | RemoteTarget
+      | { localAgent: string }
+      | { localSetup: SetupRun; prefix: string; validate: () => Promise<void> },
     finished?: () => void,
   ) => {
     let id: string | undefined;
@@ -329,9 +370,15 @@ export async function buildWindow(
       : undefined;
     try {
       id =
-        "localAgent" in target
-          ? await wiring.workspace.startLocalAgentInstall(target.localAgent)
-          : await wiring.workspace.startHostRecipe(target);
+        "localSetup" in target
+          ? await wiring.workspace.startRepositorySetup(
+              target.localSetup,
+              target.prefix,
+              target.validate,
+            )
+          : "localAgent" in target
+            ? await wiring.workspace.startLocalAgentInstall(target.localAgent)
+            : await wiring.workspace.startHostRecipe(target);
       const gh =
         "recipe" in target &&
         target.recipe.tool === "gh" &&
@@ -359,7 +406,14 @@ export async function buildWindow(
         );
         finished();
       }
-      if ("localAgent" in target || target.recipe?.action === "install" || gh) return id;
+      if (
+        "localSetup" in target ||
+        "localAgent" in target ||
+        target.repositorySetup ||
+        gh ||
+        target.recipe?.action === "install"
+      )
+        return id;
       wiring.revealSession(id);
       return id;
     } catch (error) {
@@ -367,8 +421,71 @@ export async function buildWindow(
       throw error;
     }
   };
-  let localInstallPending = false;
   const setup = new Setup({
+    repositorySetup: repositorySetupFor(wiring.settings),
+    launchRepositorySetup: async (host, approval, row, finished, signal, validate) => {
+      if (!row.plan || !row.location) throw new Error("Setup plan unavailable");
+      const binding = {
+        location: row.location,
+        list: approval.list,
+        catalog: approval.catalog,
+        revision: approval.revision,
+        repository: approval.repository,
+        registration: JSON.stringify([
+          approval.identity,
+          host === null
+            ? "local"
+            : wiring.settings.get().registeredHosts?.find((entry) => entry.host === host)
+                ?.codeFolder,
+        ]),
+        host: host ?? "local",
+        sources: approval.sources.fingerprint,
+        check: {
+          platform: row.plan.platform,
+          items: approval.list.requirements.map((item) => ({
+            id: item.id,
+            state: row.missing.includes(item.id) ? ("missing" as const) : ("met" as const),
+          })),
+        },
+      };
+      const run = { ...binding, digest: setupRunDigest(binding) };
+      signal.throwIfAborted();
+      if (host === null) {
+        if (localHostMutations.has(wiring.settings))
+          throw new Error("Host mutation already running");
+        localHostMutations.add(wiring.settings);
+      }
+      let id: string | undefined;
+      const stop = () => {
+        if (id) void wiring.terminals.kill(id).catch(() => undefined);
+      };
+      try {
+        id = await launchRecipe(
+          host === null
+            ? { localSetup: run, prefix: repositoryToolchainPrefix(wiring.settings), validate }
+            : {
+                ...hostsForStore(
+                  wiring.settings,
+                  wiring.worktrees.listRepositories.bind(wiring.worktrees),
+                  app.getVersion(),
+                ).shellTarget(host),
+                repositorySetup: run,
+                beforeOpen: validate,
+              },
+          () => {
+            if (host === null) localHostMutations.delete(wiring.settings);
+            signal.removeEventListener("abort", stop);
+            finished();
+          },
+        );
+      } catch (error) {
+        if (host === null) localHostMutations.delete(wiring.settings);
+        throw error;
+      }
+      signal.addEventListener("abort", stop, { once: true });
+      if (signal.aborted) stop();
+      return id;
+    },
     hostSessions: () => wiring.workspace.snapshot().terminals,
     hostsChanged: () => {
       wiring.workspace.refresh();
@@ -386,18 +503,18 @@ export async function buildWindow(
       if (id === undefined) return { available };
       if (typeof id !== "string" || !available.includes(id))
         throw new Error("Installer unavailable");
-      if (localInstallPending) throw new Error("Installer already running");
-      localInstallPending = true;
+      if (localHostMutations.has(wiring.settings)) throw new Error("Installer already running");
+      localHostMutations.add(wiring.settings);
       try {
         const recipeSession = await launchRecipe({ localAgent: id }, () => {
-          localInstallPending = false;
+          localHostMutations.delete(wiring.settings);
           void wiring.workspace.scanAgents(true, id).catch(() => {
             console.warn("Installer row refresh failed");
           });
         });
         return { available, recipeSession };
       } catch (error) {
-        localInstallPending = false;
+        localHostMutations.delete(wiring.settings);
         throw error;
       }
     },
@@ -485,6 +602,36 @@ export async function buildWindow(
     },
     ipc,
   );
+  const disposeDataViews = attachViews(
+    window,
+    ipc,
+    createViewReader({
+      settings: () => setup.state(),
+      prepareHosts: () =>
+        hostsForStore(
+          wiring.settings,
+          wiring.worktrees.listRepositories.bind(wiring.worktrees),
+          app.getVersion(),
+        ).prepareView(),
+      hosts: () =>
+        // Settings follows current inventory counts; legacy saved-only lists do not.
+        hostsForStore(
+          wiring.settings,
+          wiring.worktrees.listRepositories.bind(wiring.worktrees),
+          app.getVersion(),
+        ).state(undefined, true, true),
+      agents: () => wiring.workspace.scanAgents(false),
+      repositories: () => wiring.worktrees.listRepositories(),
+      worktrees: (repository) => wiring.workspace.worktrees(repository),
+      sessions: () => wiring.workspace.snapshot().terminals,
+      environment: () => wiring.environment.state(),
+      config: () => wiring.config.status(),
+      fonts: () => listTerminalFonts(),
+      sounds: () => soundLibrary.list(),
+      readiness: () => setup.readinessView(),
+    }),
+  );
+  window.once("closed", disposeDataViews);
   const environmentIpc = attachEnvironment(
     window,
     wiring.environment,

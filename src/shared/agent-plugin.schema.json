@@ -124,6 +124,9 @@
         },
         "hostSetup": {
           "$ref": "#/$defs/hostSetup"
+        },
+        "wake": {
+          "$ref": "#/$defs/wake"
         }
       }
     },
@@ -1765,6 +1768,45 @@
       },
       "maxItems": 32,
       "minItems": 1
+    },
+    "wake": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cancelKeys", "composer", "contains", "reject"],
+      "properties": {
+        "cancelKeys": {
+          "type": "array",
+          "items": {
+            "const": "esc"
+          },
+          "maxItems": 2,
+          "minItems": 1
+        },
+        "composer": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/shortText"
+          },
+          "maxItems": 8,
+          "minItems": 1
+        },
+        "contains": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/shortText"
+          },
+          "maxItems": 8,
+          "minItems": 0
+        },
+        "reject": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/shortText"
+          },
+          "maxItems": 32,
+          "minItems": 1
+        }
+      }
     }
   }
 }

@@ -71,7 +71,16 @@ is null, false or otherwise harmless in isolation.
 
 `src/main/setup/setup.ts` applies the settings to the running app at startup and on each save, and coordinates repository scanning. Legacy inference fields are discarded only when loading a profile; IPC patches still reject them.
 
-Appearance lives in Settings and the preflight rail through the same `AppearanceControls` component and applies at once. Default (`interfaceTheme: "follow"`) sets `nativeTheme.themeSource` to system and follows OS appearance live; fixed themes supply their own base. Main applies the source before the window is created at startup, so the CSS (`prefers-color-scheme`), the window background and terminals using Default all follow it; changing the resolved terminal palette resets colors a program set in the terminal; fixed terminal themes ignore interface changes. `interfaceScale` (80–150% in steps of 10, then 175, 200, 250 and 300%, matching Chromium's zoom steps; `SCALES` in `src/shared/config-settings.ts` is the one list) is Chromium zoom: the window starts with it as `zoomFactor` and later changes use `setZoomFactor`. The window resizes with it in both directions (`src/main/window/window-scale.ts`): main remembers the window's size at 100% and sets the window to that size times the scale, capped to the display's usable area and moved back on screen if needed, so zooming in and back out restores the same size. A resize by the user sets a new size at 100%. On first launch, the window uses 60% of the primary display’s usable width and height. After a successful quit, main saves every window's normal bounds, display and maximized state in `windows.json` in user data and restores them on connected displays, clamped to the current work area and minimum. The legacy `window-size.json` remains a fallback for the first window. Missing or invalid saved geometry uses the first-launch size. The minimum size (900 × 640 at 100%) scales too. The scaled minimum is capped to the work area, so a large size on a small or OS-scaled display can leave less CSS space than the 100% minimum; the layout compacts instead of refusing the zoom: the page never scrolls sideways, the compact sidebar wraps its tile layouts, Settings scrolls as a whole on a short window, and dialogs (the shortcut sheet, which is portaled so the compact sidebar cannot hide it, and the trusted confirmation, which measures its natural size in fractional pixels so a capped window settles) scroll within themselves. Maximized and full-screen windows keep their size. Tiling window managers may ignore the resize; zoom still applies. Main handles the zoom keys before the terminal sees them: ⌘ =, − and 0 on macOS, and Ctrl+Shift+= / Ctrl+Shift+− and Ctrl+Shift+0 elsewhere, because plain Ctrl+− is readline's undo. All zoom controls save the shared scale and broadcast `setup:changed` to every window, so sidebar, Settings and preflight controls follow. Trusted dialogs and previews refresh immediately in every window. `terminalFontSize` is a separate validated integer setting (10–32 CSS pixels, default 14). Each mounted terminal controller reads it before its initial attachment, subscribes to `setup:changed`, and updates xterm options. Visible attachments refit and send an ID-scoped resize; hidden views use the new size on their next attachment. Disposal removes the subscription.
+Appearance lives in Settings and the preflight rail through the same `AppearanceControls` component and applies at once. Default (`interfaceTheme: "follow"`) sets `nativeTheme.themeSource` to system and follows OS appearance live; fixed themes supply their own base. Main applies the source before the window is created at startup, so the CSS (`prefers-color-scheme`), the window background and terminals using Default all follow it; changing the resolved terminal palette resets colors a program set in the terminal; fixed terminal themes ignore interface changes. `interfaceScale` (80–150% in steps of 10, then 175, 200, 250 and 300%, matching Chromium's zoom steps; `SCALES` in `src/shared/config-settings.ts` is the one list) is Chromium zoom: the window starts with it as `zoomFactor` and later changes use `setZoomFactor`. The window resizes with it in both directions (`src/main/window/window-scale.ts`): main remembers the window's size at 100% and sets the window to that size times the scale, capped to the display's usable area and moved back on screen if needed, so zooming in and back out restores the same size. A resize by the user sets a new size at 100%. On first launch, the window uses 60% of the primary display’s usable width and height. After a successful quit, main saves every window's normal bounds, display and maximized state in `windows.json` in user data and restores them on connected displays, clamped to the current work area and minimum. The legacy `window-size.json` remains a fallback for the first window. Missing or invalid saved geometry uses the first-launch size. The minimum size (900 × 640 at 100%) scales too. The scaled minimum is capped to the work area, so a large size on a small or OS-scaled display can leave less CSS space than the 100% minimum; the layout compacts instead of refusing the zoom: the page never scrolls sideways, the compact sidebar wraps its tile layouts, Settings scrolls as a whole on a short window, and dialogs (the shortcut sheet, which is portaled so the compact sidebar cannot hide it, and the trusted confirmation, which measures its natural size in fractional pixels so a capped window settles) scroll within themselves. Maximized and full-screen windows keep their size. Tiling window managers may ignore the resize; zoom still applies. Main handles the zoom keys before the terminal sees them: ⌘ =, − and 0 on macOS, and Ctrl+Shift+= / Ctrl+Shift+− and Ctrl+Shift+0 elsewhere, because plain Ctrl+− is readline's undo. All zoom controls save the shared scale and broadcast `setup:changed` to every window, so sidebar, Settings and preflight controls follow. Trusted dialogs and previews refresh immediately in every window. Native user zoom requests (`zoom-changed`) use the same main-owned zoom command
+as shortcuts, starting from the current native factor and saving the nearest
+supported step. Zoom commands and explicit Settings scale controls are ordered
+per window. Loading, ordinary resizing and programmatic factor changes never
+save or normalize the scale. Unrelated Settings changes do not reapply an
+unchanged interface scale; explicit scale controls still apply even when the
+saved percentage is unchanged. This keeps a visible native zoom intact while
+enabling agents without mistaking layout or display changes for user zoom.
+
+`terminalFontSize` is a separate validated integer setting (10–32 CSS pixels, default 14). Each mounted terminal controller reads it before its initial attachment, subscribes to `setup:changed`, and updates xterm options. Visible attachments refit and send an ID-scoped resize; hidden views use the new size on their next attachment. Disposal removes the subscription.
 
 Interface colors are independently stored as `interfaceTheme`: `follow` (default),
 a built-in ID, a `user:<filename>` ID, or a version 1 portable object with `name`, `base` and `colors`.
@@ -93,7 +102,7 @@ brand hue and color-distance rules, contrast and the declared base. Built-in pal
 pass the same gate used for user data. The object requires the original 19 color
 tokens and optionally accepts the paired
 `highlight` / `highlight-deep` decoration colors, falling back to accent / accent-deep.
-Fonts stay fixed and bundled. There are no CSS filenames,
+Built-in fonts stay fixed; version 2 user themes can select bounded typography from bundled or fixed system stacks. There are no CSS filenames,
 imports, URLs or arbitrary CSS values in theme data. See [brand](../brand.md#interface-themes)
 for the numerical invariants. [Custom theme files](themes.md) use the same gate.
 
@@ -228,3 +237,32 @@ writes (OSC 52)** on every platform with a disclosure that any local or remote
 terminal program can replace the clipboard without a click and the user could
 paste that content elsewhere. Clipboard reads are always refused. Only the
 preference persists; terminal output cannot enable it.
+
+### Idle orchestrator wake (#548)
+
+`wakeOrchestrator` defaults to false; `wakeIntervalMinutes` is an integer 1–1440,
+default three. Both are profile-only preferences, excluded from agent-editable
+config. General discloses Escape cancellation, fixed notices and the best-effort
+[residual race](../orchestration.md#opt-in-idle-orchestrator-wake-548).
+
+The wake disclosure also states the cross-process revocation bound: a focus, authority or
+wake-setting change during the host's final synchronous check and write can still
+allow that one write; nothing later is written after withdrawal.
+
+### Live data views (#1161)
+
+All Settings sections consume [subscribed query views](data.md#phase-b-channel-over-json-1161).
+Changes from another open board appear without reopening Settings. Hosts and
+Agents share the registered-host query, including observations; removing the
+selected host immediately falls back to This computer. Query subscriptions own
+loading, fixed errors and disposal. Pending sound edits and Environment drafts
+remain local to their editor. Legacy `setup:changed` remains for terminal options,
+interface theme and other consumers awaiting the later migration.
+
+## Repository setup (#1080)
+
+Hosts adds Repository setup, including This computer. Repositories exposes the
+same profile-only editor on each registered repository. Review, approval and
+execution are separate actions; approval tokens belong to their requesting board
+and expected active revision. The editor remains available when launch is blocked.
+See [the owning policy](repository-setup.md).

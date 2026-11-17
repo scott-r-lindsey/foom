@@ -1,4 +1,5 @@
 import type { SetupSource } from "../../../../src/renderer/preflight/setup-source.d";
+import { viewStream } from "../../../fixtures/view-stream";
 import type { TerminalViewSource } from "../../../../src/renderer/terminal/terminal-view-source.d";
 import { chmod } from "node:fs/promises";
 // @vitest-environment jsdom
@@ -97,6 +98,35 @@ async function mount(
   return { api, ...view };
 }
 afterEach(cleanup);
+test.each([false, true])(
+  "live saved host controls wait for owner-held row retries (failed=%s)",
+  async (failed) => {
+    const stream = viewStream();
+    stream.data.hosts = saved(initial);
+    const resumed = Promise.withResolvers<HostsState>();
+    const api = vi
+      .fn<(action: HostsAction) => Promise<HostsState>>()
+      .mockReturnValue(resumed.promise);
+    const source = { hosts: api, views: stream.api };
+    const view = render(<HostsSettings source={source} headingRef={createRef()} />);
+    await screen.findByRole("region", { name: "worker" });
+    expandHosts();
+    expect(screen.getByRole("button", { name: "Check capabilities" }).matches(":disabled")).toBe(
+      true,
+    );
+    expect(api).toHaveBeenCalledExactlyOnceWith({ action: "list" });
+    await act(async () => {
+      if (failed) resumed.reject(new Error("Cannot resume"));
+      else resumed.resolve(saved(initial));
+      await resumed.promise.catch(() => undefined);
+    });
+    expect(screen.getByRole("button", { name: "Check capabilities" }).matches(":disabled")).toBe(
+      false,
+    );
+    if (failed) expect(screen.getByText("Unable to refresh hosts")).toBeTruthy();
+    view.unmount();
+  },
+);
 test("Add host enrolls then runs full preflight, without separate connection/folder tests", async () => {
   let state: HostsState = { hosts: [], locations: [] };
   const api = vi.fn((action: HostsAction) => {

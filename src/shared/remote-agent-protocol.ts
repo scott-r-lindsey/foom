@@ -1,3 +1,5 @@
+import { setupAdmission } from "./repository-setup";
+import { CHILD_GUIDANCE } from "./control-guidance";
 import { ControlError, object as controlObject, exact as controlExact } from "./control-validation";
 import { handoffRequest } from "./handoff-validation";
 import type {
@@ -53,7 +55,9 @@ export function remoteAgentSpec(value: unknown): value is RemoteAgentSpec {
       "checkoutIdentity",
       "reviewSnapshot",
       "childPressure",
+      "repositorySetup",
     ]) &&
+    (value["repositorySetup"] === undefined || setupAdmission(value["repositorySetup"])) &&
     (value["childPressure"] === undefined || value["childPressure"] === true) &&
     (value["checkoutIdentity"] === undefined ||
       (typeof value["checkoutIdentity"] === "string" &&
@@ -73,7 +77,8 @@ export function remoteAgentSpec(value: unknown): value is RemoteAgentSpec {
         !value["prompt"].trimStart().startsWith("-"))) &&
     (value["conversationId"] === undefined || conversationId(value["conversationId"])) &&
     typeof value["hooks"] === "boolean" &&
-    new TextEncoder().encode(JSON.stringify(value)).length <= REMOTE_AGENT_BYTES
+    new TextEncoder().encode(JSON.stringify({ ...value, repositorySetup: undefined })).length <=
+      REMOTE_AGENT_BYTES
   );
 }
 export function remoteAgentReady(value: unknown): value is RemoteAgentReady {
@@ -203,7 +208,12 @@ export function remoteControlResult(value: unknown): value is RemoteControlResul
 export function remotePublicResult(result: RemoteControlResult): unknown {
   if (result.type === "manual") return result.value;
   if (result.type === "identity")
-    return { alias: result.alias, role: result.role, capabilities: result.capabilities };
+    return {
+      alias: result.alias,
+      role: result.role,
+      capabilities: result.capabilities,
+      guidance: CHILD_GUIDANCE,
+    };
   if (result.type === "handoff")
     return { seq: result.seq, status: result.status, timestamp: result.timestamp };
   return {

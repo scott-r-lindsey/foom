@@ -1,3 +1,4 @@
+import { CHILD_GUIDANCE } from "../../../src/shared/control-guidance";
 import { expect, test } from "vitest";
 import {
   remoteAgentSpec,
@@ -200,6 +201,7 @@ test("remote result schema is exact, bounded and finite, including manual pages 
     alias: identity.alias,
     role: "child",
     capabilities: identity.capabilities,
+    guidance: CHILD_GUIDANCE,
   });
   expect(remotePublicResult(handoff)).toEqual({
     seq: 1,
@@ -309,4 +311,46 @@ test("remote review evidence is bounded, closed and requires a checkout identity
   ]) {
     expect(remoteAgentSpec({ ...bound, reviewSnapshot: evidence })).toBe(false);
   }
+});
+
+test("setup evidence has a separate bounded budget without increasing agent prompt or argument limits", () => {
+  const list = {
+    requirements: Array.from({ length: 128 }, (_, index) => ({
+      kind: "package",
+      id: `item-${String(index)}`,
+      purpose: "a".repeat(350),
+      sources: [],
+      packages: { debian: [], rhel: [], arch: [], darwin: [] },
+    })),
+    evidence: [],
+  };
+  const repositorySetup = {
+    codeRoot: "/code",
+    list,
+    revision: 1,
+    catalog: "a".repeat(64),
+    sources: "b".repeat(64),
+  };
+  const request = { ...spec, repositorySetup, prompt: "p".repeat(16384) };
+  expect(new TextEncoder().encode(JSON.stringify(request)).length).toBeGreaterThan(65536);
+  expect(remoteAgentSpec(request)).toBe(true);
+  expect(
+    remoteAgentSpec({ ...request, repositorySetup: { ...repositorySetup, codeRoot: undefined } }),
+  ).toBe(false);
+  expect(
+    remoteAgentSpec({
+      ...request,
+      repositorySetup: { ...repositorySetup, codeRoot: "/code/../checkout" },
+    }),
+  ).toBe(false);
+  expect(remoteAgentSpec({ ...request, prompt: "p".repeat(16385) })).toBe(false);
+  expect(
+    remoteAgentSpec({
+      ...request,
+      repositorySetup: {
+        ...repositorySetup,
+        list: { ...list, requirements: [...list.requirements, list.requirements[0]] },
+      },
+    }),
+  ).toBe(false);
 });

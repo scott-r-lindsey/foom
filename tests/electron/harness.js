@@ -1,3 +1,4 @@
+const { clickApproval } = require("./approval-actions.js");
 const { fixtureEnvironment } = require("../helpers/environment.js");
 const { evidencePath } = require("../helpers/evidence.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
@@ -357,6 +358,44 @@ async function confirmationPage(app) {
     })
     .toBe(true);
   await prepareConfirmationActions(app, page);
+  return page;
+}
+
+/** Open background approvals deliberately; assertions must never click a hidden native page. */
+async function approvalPage(app) {
+  let page;
+  await expect
+    .poll(async () => {
+      for (const candidate of app.windows()) {
+        if (
+          candidate.url() === "app://confirmation/confirmation.html" &&
+          (await candidate.locator(".approval-queue").count())
+        ) {
+          page = candidate;
+          return true;
+        }
+      }
+      return false;
+    })
+    .toBe(true);
+  await page.addLocatorHandler(
+    page.locator(".approval-queue"),
+    async () => {
+      const native = await app.browserWindow(page);
+      try {
+        if (!(await native.evaluate((window) => window.isVisible() && window.isFocused()))) {
+          const board = await boardPage(app);
+          await board.getByRole("button", { name: /^[0-9]+ approvals? waiting$/ }).click();
+          await expect
+            .poll(() => native.evaluate((window) => window.isVisible() && window.isFocused()))
+            .toBe(true);
+        }
+      } finally {
+        await native.dispose();
+      }
+    },
+    { noWaitAfter: true },
+  );
   return page;
 }
 
@@ -1152,6 +1191,8 @@ module.exports = {
   installSoundSink,
   stopSession,
   confirmationPage,
+  approvalPage,
+  clickApproval,
   boardCommand,
   assertAccessible,
   quitAndWait,

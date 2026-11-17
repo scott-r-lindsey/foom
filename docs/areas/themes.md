@@ -37,7 +37,10 @@ evict their last-good versions; remaining names are sorted. Folder failures prod
 The read descriptor closes before parsing or waiting for the config approval queue,
 so a queued restore never waits behind a reader holding its rename target open.
 The folder watcher debounces changes for 250 ms, reloads serially and closes on
-shutdown. Parsed palettes and bounded diagnostics contain no absolute paths or
+shutdown. Reloads reconnect watchers before reading the catalog. They never close
+them after a read: an intervening edit may still have a pending notification on
+the old watcher, and a replacement watcher need not replay it (#1215).
+Parsed palettes and bounded diagnostics contain no absolute paths or
 raw file contents; diagnostics have a filename, JSON path and fixed reason code.
 They never echo parser exception messages or arbitrary unknown property names.
 
@@ -47,13 +50,14 @@ restart use Default without overwriting the saved ID, and recover when a valid f
 returns. Built-ins precede custom themes; colliding names gain “(custom)”.
 `theme:list` and `theme:open-folder` validate the owning top frame and exact argument
 counts. Open accepts only the enumerated theme kind and chooses the folder in main.
-Updates travel through `setup:changed`; native backgrounds, interface tokens,
+Catalog changes publish the `settings` view and retain legacy `setup:changed`
+broadcasts; native backgrounds, interface tokens,
 terminal views and the headless terminal host receive the resolved colors. The
 sandboxed preload adds no runtime imports and CSP remains unchanged.
 
 ## User interface themes version 2 (#246)
 
-User theme files accept `{ version: 2, name, base, colors, areas?, states?, shape? }`
+User theme files accept `{ version: 2, name, base, colors, areas?, states?, shape?, type? }`
 with optional `kind: "theme"`. Legacy kind-based files and version 1 remain valid;
 built-ins retain their strict version 1 validation. Terminal themes are unchanged.
 The global colors and optional paired highlight colors remain required as before.
@@ -64,7 +68,7 @@ Areas override a subset of colors: sidebar on `.sidebar-shell`, tiles on
 `.tile-area` and `.terminal-tile` chrome (terminal content retains its independent
 palette), panels on `.row-menu.sidebar-panel` (including tile panels), dialogs on
 Settings, preflight and confirmation/dialog roots, menus on row menus/submenus and
-the wordmark menu and the shared Theme/Colors menus. Portal roots get their own area variables. Raised colors derive
+the wordmark popup and the shared Theme/Colors menus. The transparent wordmark trigger inherits its surrounding palette. Portal roots get their own area variables. Raised colors derive
 at each root from its effective palette. State colors override selected, hover,
 focus and scrollbar colors; omitted values retain existing derivations. Shape
 supports radius 0–12 px, panel-radius 0–16 px, border 0–2 px and shadow 0–1.
@@ -96,6 +100,65 @@ digest and current bytes and records the new digest. Keep it on restores the
 approved version applied in this session; when there is none it switches
 `interfaceTheme` back to the default and leaves the file in place.
 
+## Additional areas, typography and gradients (#1188)
+
+Version 2 adds these fixed area keys; file data never supplies selectors:
+
+| Key | Fixed renderer roots |
+| --- | --- |
+| `titlebar` | `.board-top` (the sidebar title bar; there is no separate native tab bar) |
+| `tile-headers` | `.tile-title`, separately from tile bodies |
+| `board` | `.board-terminal` and `.tile-area`, including the empty board |
+| `badges` | `.panel-chip`, `.host-chip`, `.pull-request` |
+| `wordmark` | `.wordmark` |
+| `dialog-headers` | `.panel-header`, dialog headers and trusted confirmation `.dlg-head` |
+
+Each area's colors merge with the global palette and receive the existing contrast,
+derivation and attention checks. Omitted new areas inherit their enclosing area.
+Area roots reset derived raised/hover tokens, including portaled panel and menu
+roots. Every area can specify `scrollbar`, an opaque hex color overriding the global
+scrollbar state at that root; terminal scrollbars and terminal output stay independent.
+Scrollbar colors and gradient stops participate in attention-distance warnings and
+the existing approval comparison. Palette roots explicitly bind text to their local
+ink, including trusted confirmation headings; inheriting the body's computed text
+color would bypass those tokens.
+
+Transparent `wordmark` and `badges` roots do not paint their own bg/surface. Their
+rendered inks are therefore also checked against their fixed parent contexts:
+wordmarks on global, sidebar/titlebar and dialog paints; badge text on sidebar,
+panel, dialog and dialog-header paints. These checks include every parent gradient
+stop and 256 points per segment, even when the child itself has no gradient. A
+white wordmark over a white titlebar rejects despite a readable dark global
+background. Launch wordmark space ink is checked against the actual global hole.
+Opaque area roots retain their own effective-palette checks.
+
+Optional `type` has only `family` (`geist`, `geist-mono`, `system`, `system-mono`),
+`scale` (0.85–1.25), `weight` (400–600), and `strong-weight` (500–800). These select
+fixed bundled/system stacks and bounded interface text sizes/weights. Display and
+voice faces stay bundled. Terminal font family/size and Chromium interface zoom are
+independent. Omitted fields preserve existing typography.
+
+Optional `gradient` belongs inside an area beside its colors and requires an
+explicit opaque solid `bg` fallback. It has exactly `angle` (finite number 0–359)
+and `stops` (2–4 `[opaqueHexColor, percent]` tuples, strictly increasing finite
+percentages in 0–100). Only `sidebar`, `board`, `titlebar` and `dialog-headers`
+accept it. Other areas, including terminal tile content, reject it with the fixed
+`gradient-not-allowed` reason. Foom constructs a linear CSS gradient with explicit
+`in srgb`; no CSS, URLs, file names or fonts from files are accepted. The solid
+palette still derives raised, selected and hover colors.
+
+Every stop must contrast at least 4.5:1 with each effective ink (ink, muted, accent,
+highlight and the three status inks). In addition, every adjacent segment is checked
+at 256 evenly spaced points, including its endpoints, with unrounded sRGB channel
+interpolation and WCAG luminance. Stop checks and same-side luminance alone are
+insufficient: red `#ff0000` to green `#009400` both exceed 5.2:1 on black but the
+interior falls below 3:1. Such gradients, and straddling gradients, reject the whole
+edit and preserve the last good theme. This corrects the original issue's guarantee.
+
+The existing preload projections validate and copy these bounded data fields on
+existing channels. No capabilities, channels, runtime imports, CSP or asset
+permissions are added. Built-ins keep strict version 1 validation.
+
 ## Theme menus (#878)
 
 Appearance owns the interface Theme menu and its folder/status/errors; Terminal
@@ -111,6 +174,9 @@ the closed picker and menu row: `Default · Eclipse Light` / `Default · Eclipse
 `Default`: Chromium media follows the fixed base, and Electron 44 has no independent
 OS appearance API on every platform. Terminal Colors always shows
 `Default · Foom Light` / `Default · Foom Dark`, resolved from the current interface base.
+Both pickers read native appearance through a React external-store subscription
+that rechecks after installing its listener, so an update between render and
+subscription cannot leave the Default label or preview stale (#1219).
 Terminal font and font size use the same labeled keyboard menu as Theme and Colors.
 All four menus support arrow keys, Home/End, Escape and returning focus to the picker.
 Printable keys open the menu and focus a case-insensitive prefix match, including

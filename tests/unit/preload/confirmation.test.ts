@@ -17,7 +17,7 @@ test("buffers main's request before React subscribes and exposes only rendering,
   await import("../../../src/preload/confirmation");
   const api = mock.exposeInMainWorld.mock.calls[0]?.[1];
   if (!api) throw Error("Missing API");
-  expect(Object.keys(api)).toEqual(["render", "copyPath", "size", "answer"]);
+  expect(Object.keys(api)).toEqual(["render", "hideApprovals", "copyPath", "size", "answer"]);
   const listener = mock.on.mock.calls[0]?.[1];
   const request = { id: "one", presented: false, theme, title: "Confirm", accept: "Continue" };
   listener?.({}, request);
@@ -30,6 +30,8 @@ test("buffers main's request before React subscribes and exposes only rendering,
   expect(mock.send).toHaveBeenCalledWith("confirmation:size", { width: 440, height: 240 });
   api.answer("one", false);
   expect(mock.send).toHaveBeenCalledWith("confirmation:answer", "one", false);
+  api.hideApprovals();
+  expect(mock.send).toHaveBeenCalledWith("confirmation:hide-approvals");
   dispose();
   listener?.({}, request);
   expect(render).toHaveBeenCalledTimes(2);
@@ -389,5 +391,71 @@ test("validates plugin progress and strips output and main-only capabilities", a
   ]) {
     listener({}, { ...request, pluginSetup: invalid });
     expect(render).toHaveBeenLastCalledWith(null);
+  }
+});
+
+test("approval rows are recursively validated and projected without main capabilities", async () => {
+  await import("../../../src/preload/confirmation");
+  const api = mock.exposeInMainWorld.mock.calls[0]?.[1];
+  const listener = mock.on.mock.calls[0]?.[1];
+  if (!api || !listener) throw Error("Missing bridge");
+  const receive = vi.fn<(request: DialogRequest | null) => void>();
+  api.render(receive);
+  const request = {
+    id: "queue",
+    presented: true,
+    theme,
+    title: "Approvals",
+    accept: "Approve",
+    approvals: [
+      {
+        origin: "Claude · Tile 1 · repo",
+        kind: "Authority",
+        repeats: 2,
+        request: {
+          id: "row",
+          presented: false,
+          theme,
+          title: "Grant?",
+          accept: "Grant",
+          approval: { secret: "must strip" },
+        },
+      },
+    ],
+  };
+  listener({}, request);
+  expect(receive.mock.lastCall?.[0]?.approvals?.[0]?.request).not.toHaveProperty("approval");
+  for (const row of [
+    { ...request.approvals[0], kind: "unexpected" },
+    { ...request.approvals[0], repeats: 0 },
+    { ...request.approvals[0], origin: "bad\norigin" },
+    { ...request.approvals[0], request: { ...request.approvals[0]?.request, presented: "yes" } },
+  ]) {
+    listener({}, { ...request, approvals: [row] });
+    expect(receive).toHaveBeenLastCalledWith(null);
+  }
+});
+
+test("buffers and projects only nonnegative safe-integer native geometry revisions", async () => {
+  await import("../../../src/preload/confirmation");
+  const api = mock.exposeInMainWorld.mock.calls[0]?.[1];
+  const listener = mock.on.mock.calls[0]?.[1];
+  if (!api || !listener) throw Error("Missing confirmation bridge");
+  const receive = vi.fn();
+  listener({}, { ...dialog, geometryRevision: 42 });
+  api.render(receive);
+  expect(receive).toHaveBeenLastCalledWith(expect.objectContaining({ geometryRevision: 42 }));
+  for (const geometryRevision of [
+    -1,
+    1.5,
+    NaN,
+    Infinity,
+    Number.MAX_SAFE_INTEGER + 1,
+    "42",
+    null,
+    {},
+  ]) {
+    listener({}, { ...dialog, geometryRevision });
+    expect(receive).toHaveBeenLastCalledWith(null);
   }
 });

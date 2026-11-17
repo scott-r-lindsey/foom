@@ -1,11 +1,11 @@
 # Electron test layout and shard balance
 
-CI runs four named-test shards on Linux, five on Windows and six on macOS. `tests/electron/shard-plan.json`
+CI runs four named-test shards on Linux, five on Windows and seven on macOS. `tests/electron/shard-plan.json`
 stores assignments keyed by shard count and the CI count for each platform; `test-shard.js` hashes new or renamed tests,
 and all tests at unplanned shard counts. With no shard setting the full suite runs.
 Native checks, packaging and packaged smoke run sequentially in one independent
 companion job per platform, alongside the Electron shards and static checks.
-The Quality gate requires all fifteen Electron jobs and all three companion jobs.
+The Quality gate requires all sixteen Electron jobs and all three companion jobs.
 Failed, cancelled or skipped required jobs fail the gate; documentation-only runs
 permit skipping both desktop matrices together. Native hook probes stay serial.
 Electron steps allow fourteen minutes on Linux, Windows and macOS. Per-test
@@ -614,8 +614,8 @@ pnpm run format
 | Windows | 5 | 640.7 / 637.9 / 633.8 / 637.4 / 640.4 |
 | macOS | 6 | 521.8 / 520.1 / 522.7 / 523.8 / 505.5 / 523.4 |
 
-The final matrix requires fifteen Electron jobs and three native/packaging jobs.
-It requests eight macOS jobs including the companion and combined Darwin host
+That six-shard matrix required fifteen Electron jobs and three native/packaging jobs.
+It requested eight macOS jobs including the companion and combined Darwin host
 builder, one more than the measured five-way matrix. Step limits, individual
 deadlines, the watchdog, process auditing and Quality gate semantics remain
 unchanged. These case-sum projections require actual CI timing validation;
@@ -746,3 +746,124 @@ need its own artifact/fixture-isolation design and queue-time comparison. The
 existing phase totals do not prove an avoidable operation inside the heavy
 fixtures, so this refresh removes none. Actual PR CI step wall times must still
 validate the new assignment; a passing run alone is not proof of 25% headroom.
+
+## macOS refresh for repeated step exhaustion (#1214)
+
+Download the original reports without replacing interrupted XML with synthesized
+cases:
+
+```sh
+for run in 43800091934 43822818958 43812020241; do
+  gh run download "$run" --pattern 'electron-results-*' \
+    --dir "test-results/rebalance/sources/$run"
+done
+```
+
+The macOS assignment uses per-case maxima from all six passing macOS reports in
+green main [43800091934](https://github.com/scott-r-lindsey/foom/actions/runs/43800091934)
+and the five passing macOS reports in main
+[43822818958](https://github.com/scott-r-lindsey/foom/actions/runs/43822818958).
+Exclude the latter's failed shard-3 report in its entirety; the green source
+measures those cases. Together the eleven reports measure all 399 current cases.
+Apply `balance` from `scripts/rebalance-electron-shards.mjs` to the macOS-only
+vectors, rounded to milliseconds, with six shards. This focused refresh changes
+only the six-way assignment: four/five-way assignments and their measurements
+retain the earlier sources. `sourceRuns` lists the union of those sources; the
+new six-way entries retain earlier Linux/Windows measurements where available,
+and use the new main reports for newly planned cases on those platforms.
+The ordinary all-platform CLI remains appropriate for a complete future refresh;
+it intentionally rejects these partially passing source runs.
+
+| macOS projected named-case seconds | Shards 1 / 2 / 3 / 4 / 5 / 6 |
+| --- | --- |
+| Before, including hash fallback | 638.2 / 649.3 / 651.3 / 727.7 / 572.1 / 588.0 |
+| After | 637.5 / 637.5 / 637.8 / 637.5 / 637.5 / 638.7 |
+
+Green main's observed step seconds were 645 / 728 / 732 / 790 / 663 / 636;
+its largest wall-minus-named-case residual was 113.9 seconds. Adding that
+residual to the new conservative maximum models 752.6 seconds, leaving 87.4
+seconds under the unchanged 840-second limit. This is a projection, not observed
+new-assignment performance or a guarantee against slower runners.
+
+### Pending approval-queue tests in #1191
+
+Compare [43812020241](https://github.com/scott-r-lindsey/foom/actions/runs/43812020241)
+with green main. The interrupted macOS shard-3 JUnit is only a 52-byte opening
+envelope, with no testcase durations. Its 49 completed fixture records total
+715.5 seconds; the same cases cost 467.7 seconds of JUnit time on green main.
+Fixture phases and JUnit are different measurements, but these observations
+show substantial slowdown in shared cases. The interrupted report is diagnostic
+evidence only, never a passing rebalance input.
+
+At #1191 head `4ab321841c95cad9d91f39fb97380976eaa4132b`, seven additional
+registrations hash to shards 1 / 2 / 3 / 5 / 5 / 5 / 6. Six have passing JUnit
+measurements in that run: 9.8 / 6.4 / 8.9 / 10.7 / 10.9 / 27.1 seconds.
+The missing shard-3 background-removal variant is budgeted at 10.9 seconds, the
+largest measured sibling; this is an estimate, not a fabricated observation.
+Exclude the five main-only repository-setup registrations absent from that head
+when modeling its workload. The resulting before/after projections are:
+
+| #1191 projected named-case seconds | Shards 1 / 2 / 3 / 4 / 5 / 6 |
+| --- | --- |
+| Before | 647.9 / 655.6 / 662.2 / 713.6 / 599.6 / 589.7 |
+| After | 630.3 / 641.0 / 642.5 / 629.1 / 667.9 / 657.9 |
+
+Adding the green source's largest residual gives a modeled peak of 781.8
+seconds, with 58.2 seconds of headroom. These pending names retain hash fallback
+until merged; adding them to the checked-in plan now would violate the stale-name
+registration guard. Limits, deadlines, shard counts and test bodies are unchanged.
+Actual CI step timings must validate the refresh, particularly given the slower
+shared fixtures on the interrupted run.
+
+## Seventh macOS shard (#1214)
+
+After #1220, the issue reports repeated six-way timeouts in runs
+[43839284342](https://github.com/scott-r-lindsey/foom/actions/runs/43839284342),
+[43909947998](https://github.com/scott-r-lindsey/foom/actions/runs/43909947998) and
+[43928221344](https://github.com/scott-r-lindsey/foom/actions/runs/43928221344).
+The user approved a seventh macOS shard. Linux stays at four and Windows at five.
+The matrix now requires sixteen Electron jobs through the existing Quality gate's
+aggregate desktop result, plus three native/packaging jobs. Each desktop run
+requests nine macOS jobs: seven Electron shards, the native/packaging companion
+and the combined Darwin host builder.
+
+Reuse #1220's recorded maxima for its 399 measured cases, whose passing macOS
+reports and exclusions are documented above. Apply the same deterministic
+`balance` function to macOS-only vectors with seven buckets. Retain the complete
+measurement vectors and source-run provenance; preserve the four/five-way plans
+byte-for-byte. New registrations continue to use the existing hash fallback.
+No interrupted reports, estimated durations or new measurements enter this plan.
+
+Reproduce the focused assignment from #1220's merged plan:
+
+```sh
+node --input-type=module <<'JS'
+import { execFileSync } from 'node:child_process';
+import { balance, writePlan } from './scripts/rebalance-electron-shards.mjs';
+const plan = JSON.parse(execFileSync('git', [
+  'show', '7428241f3a4a42e3a72a89e3580c7b7a762dbd19:tests/electron/shard-plan.json',
+], { encoding: 'utf8' }));
+const measured = new Map(plan.shards[6].flatMap(Object.entries));
+const macOS = plan.platforms.indexOf('macos-15');
+const durations = new Map([...measured].map(([name, values]) => [name, [values[macOS]]]));
+plan.shards[7] = balance(durations, 7).map(shard =>
+  Object.fromEntries(Object.keys(shard).map(name => [name, measured.get(name)])));
+delete plan.shards[6];
+plan.shardCounts['macos-15'] = 7;
+writePlan('tests/electron/shard-plan.json', plan);
+JS
+pnpm run format
+```
+
+| macOS projected named-case seconds | Shards in order |
+| --- | --- |
+| Six-way measured plan | 637.5 / 637.5 / 637.8 / 637.5 / 637.5 / 638.7 |
+| Seven-way measured plan | 546.4 / 547.7 / 546.4 / 546.7 / 546.4 / 546.5 / 546.4 |
+
+The projected peak falls 91.0 seconds (14.2%). Adding the same observed 113.9s
+residual from the green source models a 661.6s peak, leaving 178.4s below 840s.
+These totals cover the measured corpus; newer hashed cases and runner variation
+can add time. Actual macOS CI step timings must validate the added headroom.
+The fourteen-minute step limits, individual deadlines, watchdog, process audit
+and fixture isolation remain unchanged. The registration integration test audits
+all configured counts, including seven, for exactly-once execution.

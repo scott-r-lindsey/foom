@@ -12,6 +12,8 @@ const {
   assertConfirmationFocus,
   boardPage,
   confirmationPage,
+  approvalPage,
+  clickApproval,
   fixtureCleanup,
   launchApp,
   removeAfterApps,
@@ -36,8 +38,43 @@ test("merged cleanup deletes external worktrees and branches while preserving a 
   git("clone", "--bare", repo, remote);
   git("remote", "add", "origin", remote);
   const app = await launchApp(context, { fixture: "empty-board", home });
+  fixtureCleanup(context).apps.unshift(async () => {
+    await app.evaluate(() => globalThis.mergedCleanupRestore?.()).catch(() => {});
+  });
   const page = await boardPage(app);
-  await app.evaluate(({ dialog }, repo) => {
+  await app.evaluate(({ app, dialog }, repo) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { WorktreeService } = load("./build/main/workspace/worktrees.js");
+    const original = WorktreeService.prototype.deleteMergedBranches;
+    const ready = Promise.withResolvers();
+    const release = Promise.withResolvers();
+    globalThis.mergedCleanupBranchesReady = ready.promise;
+    globalThis.mergedCleanupRelease = () => release.resolve();
+    globalThis.mergedCleanupBranchTiming = { state: "waiting" };
+    WorktreeService.prototype.deleteMergedBranches = async function (...args) {
+      const started = performance.now();
+      globalThis.mergedCleanupBranchTiming = { state: "running" };
+      try {
+        const result = await original.apply(this, args);
+        globalThis.mergedCleanupBranchTiming.state = "succeeded";
+        return result;
+      } catch (error) {
+        globalThis.mergedCleanupBranchTiming.state = "failed";
+        throw error;
+      } finally {
+        globalThis.mergedCleanupBranchTiming.elapsedMs = performance.now() - started;
+        // Run the real transaction first, then hold its return so 2/2 removals
+        // cannot accidentally stand in for the final cleanup progress update.
+        ready.resolve();
+        await release.promise;
+      }
+    };
+    globalThis.mergedCleanupRestore = () => {
+      release.resolve();
+      WorktreeService.prototype.deleteMergedBranches = original;
+    };
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
   }, repo);
   await page.getByRole("button", { name: "Add repository", exact: true }).click();
@@ -87,6 +124,23 @@ test("merged cleanup deletes external worktrees and branches while preserving a 
   const cleanupStarted = performance.now();
   await confirmation.getByRole("button", { name: "Delete 2", exact: true }).click();
   try {
+    // The owning test deadline bounds real fetch/removal/ref work. The existing
+    // visibility assertion measures dismissal after that work, not all phases.
+    await app.evaluate(() => globalThis.mergedCleanupBranchesReady);
+    await expect(
+      confirmation
+        .getByRole("list", { name: "Cleanup checklist" })
+        .getByText("removed", { exact: true }),
+    ).toHaveCount(2);
+    assert.equal(
+      await app.evaluate(({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows()
+          .find((window) => window.webContents.getURL() === "app://confirmation/confirmation.html")
+          .isVisible(),
+      ),
+      true,
+    );
+    await app.evaluate(() => globalThis.mergedCleanupRelease());
     await expect
       .poll(() =>
         app.evaluate(({ BrowserWindow }) =>
@@ -104,9 +158,11 @@ test("merged cleanup deletes external worktrees and branches while preserving a 
       2,
     );
   } finally {
+    await app.evaluate(() => globalThis.mergedCleanupRelease()).catch(() => {});
     context.diagnostic(
       `Merged cleanup: ${JSON.stringify({
         elapsedMs: performance.now() - cleanupStarted,
+        branches: await app.evaluate(() => globalThis.mergedCleanupBranchTiming),
         checklist: await confirmation.locator("body").innerText(),
       })}`,
     );
@@ -497,22 +553,30 @@ test("group cleanup reviews untracked files and removes detached checkouts insid
   await confirmation.getByRole("button", { name: "Done", exact: true }).click();
 });
 
-// All three sources use the real cleanup/removal owners and fixture Git repositories.
-// The grouped callbacks below match the main-only remove_worktree and reviewer-close
-// routes without launching an agent or exposing consent through the board bridge.
-for (const { front, queued, sameBoard, checking } of [
-  ["cleanup", "orchestrator"],
-  ["orchestrator", "cleanup"],
-  ["cleanup", "review"],
-  ["review", "cleanup"],
-  ["orchestrator", "review"],
-  ["review", "orchestrator"],
-].flatMap(([front, queued]) => [
-  { front, queued, sameBoard: true, checking: false },
-  { front, queued, sameBoard: false, checking: false },
-  ...(front === "cleanup" ? [{ front, queued, sameBoard: false, checking: true }] : []),
-])) {
-  test(`removal reviews serialize ${front} before ${queued} ${sameBoard ? "on one board" : "across boards"}${checking ? " while checking" : ""}`, {
+// Human actions retain their shared serial presentation slot. Background owners
+// instead expose independent rows in one queue. Both use real cleanup/removal
+// owners and fixture Git; every target still needs its own trusted decision.
+for (const { front, queued, sameBoard, checking, background } of [
+  ...[
+    ["cleanup", "orchestrator"],
+    ["orchestrator", "cleanup"],
+    ["cleanup", "review"],
+    ["review", "cleanup"],
+    ["orchestrator", "review"],
+    ["review", "orchestrator"],
+  ]
+    .flatMap(([front, queued]) => [
+      { front, queued, sameBoard: true, checking: false },
+      { front, queued, sameBoard: false, checking: false },
+      ...(front === "cleanup" ? [{ front, queued, sameBoard: false, checking: true }] : []),
+    ])
+    .map((scenario) => ({ ...scenario, background: false })),
+  ...[true, false].flatMap((sameBoard) => [
+    { front: "orchestrator", queued: "review", sameBoard, checking: false, background: true },
+    { front: "review", queued: "orchestrator", sameBoard, checking: false, background: true },
+  ]),
+]) {
+  test(`${background ? "background removal rows stay independent" : "removal reviews serialize"} ${front} before ${queued} ${sameBoard ? "on one board" : "across boards"}${checking ? " while checking" : ""}`, {
     timeout: deadline(60_000),
   }, async (context) => {
     const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-removal-overlap-")));
@@ -545,6 +609,7 @@ for (const { front, queued, sameBoard, checking } of [
         .evaluate(() => {
           globalThis.overlapFetchRelease?.();
           for (const abort of Object.values(globalThis.overlapAborts ?? {})) abort.abort();
+          for (const off of globalThis.overlapOff ?? []) off();
           for (const dialog of globalThis.overlapDialogs ?? []) dialog.dispose();
         })
         .catch(() => {});
@@ -574,12 +639,23 @@ for (const { front, queued, sameBoard, checking } of [
           return snapshot.apply(this, args);
         };
         globalThis.overlapDialogs = new Set();
+        globalThis.overlapOff = new Set();
         globalThis.overlapRequests = new Set();
         globalThis.overlapAnswers = {};
         globalThis.overlapAborts = {};
         const request = TrustedDialog.prototype.request;
         TrustedDialog.prototype.request = function (content, ...args) {
           globalThis.overlapDialogs.add(this);
+          if (this.window) globalThis.overlapTrackVisible?.(this.window);
+          if (content.approvalFeed) {
+            const record = () => {
+              for (const row of content.approvalFeed.current())
+                if (["orchestrator", "review"].includes(row.request.subject))
+                  globalThis.overlapRequests.add(row.request.subject);
+            };
+            globalThis.overlapOff.add(content.approvalFeed.subscribe(record));
+            record();
+          }
           if (content.feed) globalThis.overlapRequests.add("cleanup");
           if (content.removal)
             globalThis.overlapRequests.add(
@@ -616,9 +692,16 @@ for (const { front, queued, sameBoard, checking } of [
         ).length;
         globalThis.overlapVisibleMax = Math.max(globalThis.overlapVisibleMax, visible);
       };
+      const tracked = new Set();
+      globalThis.overlapTrackVisible = (window) => {
+        if (!tracked.has(window)) {
+          tracked.add(window);
+          window.on("show", record);
+        }
+      };
       for (const window of BrowserWindow.getAllWindows())
         if (window.webContents.getURL() === "app://confirmation/confirmation.html")
-          window.on("show", record);
+          globalThis.overlapTrackVisible(window);
     });
     const pending = [];
     const start = async (source, board) => {
@@ -638,7 +721,7 @@ for (const { front, queued, sameBoard, checking } of [
         pending.push(result);
       } else {
         await app.evaluate(
-          (_, { worktree, repo, source }) => {
+          (_, { worktree, repo, source, background }) => {
             const owner = globalThis.overlapOwner;
             const path = worktree;
             const abort = new AbortController();
@@ -654,6 +737,7 @@ for (const { front, queued, sameBoard, checking } of [
                     {
                       title: "Remove worktrees?",
                       accept: "Approve all",
+                      ...(!background ? { userAction: true } : {}),
                       removal: {
                         group: source === "review" ? "review-close-session" : "overlap-actor",
                         item: {
@@ -677,7 +761,7 @@ for (const { front, queued, sameBoard, checking } of [
               },
             );
           },
-          { worktree: path.join(root, source), repo, source },
+          { worktree: path.join(root, source), repo, source, background },
         );
       }
       await expect
@@ -685,6 +769,15 @@ for (const { front, queued, sameBoard, checking } of [
         .toBe(true);
     };
     const dialogFor = async (source) => {
+      if (background) {
+        const page = await approvalPage(app);
+        await expect(
+          page
+            .locator(".approval-row")
+            .filter({ has: page.locator(".subject b", { hasText: new RegExp(`^${source}$`) }) }),
+        ).toHaveCount(1);
+        return page;
+      }
       let page;
       await expect
         .poll(async () => {
@@ -709,10 +802,19 @@ for (const { front, queued, sameBoard, checking } of [
     };
     await start(front, first);
     const frontPage = await dialogFor(front);
-    const frontButton = frontPage.getByRole("button", {
-      name: front === "cleanup" ? (checking ? "Delete" : "Delete 1") : "Remove worktree",
-      exact: true,
-    });
+    const rowFor = (page, source) =>
+      page
+        .locator(".approval-row")
+        .filter({ has: page.locator(".subject b", { hasText: new RegExp(`^${source}$`) }) });
+    const frontButton = background
+      ? rowFor(frontPage, front).getByRole("button", {
+          name: "Approve · Remove worktree",
+          exact: true,
+        })
+      : frontPage.getByRole("button", {
+          name: front === "cleanup" ? (checking ? "Delete" : "Delete 1") : "Remove worktree",
+          exact: true,
+        });
     if (checking) {
       await expect(frontButton).toBeDisabled();
       await expect(frontPage.getByRole("list", { name: "Checking worktrees" })).toBeVisible();
@@ -724,7 +826,14 @@ for (const { front, queued, sameBoard, checking } of [
       await new Promise(setImmediate);
       return [...globalThis.overlapDialogs].filter((dialog) => dialog.pending).length;
     });
-    assert.equal(active, 1, "cross-type removal reviews must share one presentation slot");
+    assert.equal(
+      active,
+      1,
+      background
+        ? "background removals must share one queue"
+        : "human removal reviews must share one presentation slot",
+    );
+    if (background) await expect(frontPage.locator(".approval-row")).toHaveCount(2);
     for (const branch of ["merged", "orchestrator", "review"])
       assert.ok(await realpath(path.join(root, branch)), "pending review must not remove anything");
     // Selecting a source's visible approval removes exactly its displayed target.
@@ -736,7 +845,7 @@ for (const { front, queued, sameBoard, checking } of [
     await assertConfirmationFocus(
       app,
       frontPage,
-      frontPage.getByRole("button", { name: "Cancel", exact: true }),
+      frontPage.getByRole("button", { name: background ? "Hide" : "Cancel", exact: true }),
     );
     if (checking) {
       await frontPage.getByRole("button", { name: "Cancel", exact: true }).click();
@@ -760,7 +869,8 @@ for (const { front, queued, sameBoard, checking } of [
       assert.equal(await app.evaluate(() => globalThis.overlapVisibleMax), 1);
       return;
     }
-    await frontButton.click();
+    if (background) await clickApproval(frontPage, frontButton);
+    else await frontButton.click();
     await expect
       .poll(async () => {
         try {
@@ -772,14 +882,27 @@ for (const { front, queued, sameBoard, checking } of [
       })
       .toBe(true);
     const queuedPage = await dialogFor(queued);
-    await expect(
-      queuedPage.getByRole("button", {
-        name: queued === "cleanup" ? "Delete 1" : "Remove worktree",
-        exact: true,
-      }),
-    ).toBeEnabled();
-    // Declining the next source must preserve its checkout and every unlisted tree.
-    await queuedPage.getByRole("button", { name: "Cancel", exact: true }).click();
+    if (background) {
+      await expect(queuedPage.locator(".approval-row")).toHaveCount(1);
+      await expect(queuedPage.locator(".approval-placeholder")).toHaveCount(0);
+      const remaining = rowFor(queuedPage, queued);
+      await expect(
+        remaining.getByRole("button", { name: "Approve · Remove worktree", exact: true }),
+      ).toBeEnabled();
+      await clickApproval(
+        queuedPage,
+        remaining.getByRole("button", { name: "Decline", exact: true }),
+      );
+    } else {
+      await expect(
+        queuedPage.getByRole("button", {
+          name: queued === "cleanup" ? "Delete 1" : "Remove worktree",
+          exact: true,
+        }),
+      ).toBeEnabled();
+      // Declining the next human review preserves its checkout and unlisted trees.
+      await queuedPage.getByRole("button", { name: "Cancel", exact: true }).click();
+    }
     if (queued !== "cleanup")
       await expect
         .poll(() => app.evaluate((_, source) => globalThis.overlapAnswers[source], queued))
@@ -1140,7 +1263,7 @@ test("detached removals share one review per checkout and approve independently"
     };
   }, repo);
   await app.evaluate((_, tree) => globalThis.startDetachedRemoval(tree, "one"), paths[0]);
-  const dialog = await confirmationPage(app);
+  const dialog = await approvalPage(app);
   await expect(
     dialog.getByRole("heading", { name: "Remove worktree?", exact: true }),
   ).toBeVisible();
@@ -1148,24 +1271,36 @@ test("detached removals share one review per checkout and approve independently"
     globalThis.startDetachedRemoval(paths[0], "duplicate");
     globalThis.startDetachedRemoval(paths[1], "two");
   }, paths);
-  await expect(
-    dialog.getByRole("heading", { name: "Remove worktrees?", exact: true }),
-  ).toBeVisible();
-  await expect(dialog.getByRole("checkbox")).toHaveCount(2);
+  await expect(dialog.locator(".approval-row")).toHaveCount(2);
+  const rowFor = (path) =>
+    dialog.locator(".approval-row").filter({ has: dialog.getByText(path, { exact: true }) });
+  for (const path of paths) await expect(rowFor(path)).toHaveCount(1);
   await expect.poll(() => app.evaluate(() => globalThis.detachedReviews)).toEqual(["one", "two"]);
-  // A subset approval deletes the first checkout once and preserves the other.
-  await dialog.getByRole("checkbox").nth(0).check();
-  await dialog.getByRole("button", { name: "Approve selected", exact: true }).click();
+  await clickApproval(
+    dialog,
+    rowFor(paths[0]).getByRole("button", { name: "Approve · Remove worktree", exact: true }),
+  );
+  await expect
+    .poll(() => app.evaluate(() => globalThis.detachedAnswers))
+    .toEqual({ one: true, duplicate: true });
+  assert.equal(require("node:fs").existsSync(paths[0]), false);
+  assert.equal(require("node:fs").existsSync(paths[1]), true);
+  // Approval of one checkout must leave the other caller pending until its own decision.
+  await clickApproval(
+    dialog,
+    rowFor(paths[1]).getByRole("button", { name: "Decline", exact: true }),
+  );
   await expect
     .poll(() => app.evaluate(() => globalThis.detachedAnswers))
     .toEqual({ one: true, duplicate: true, two: false });
-  assert.equal(require("node:fs").existsSync(paths[0]), false);
-  assert.equal(require("node:fs").existsSync(paths[1]), true);
   // The declined checkout has released its reservation and can be reviewed again.
   await app.evaluate((_, tree) => globalThis.startDetachedRemoval(tree, "retry"), paths[1]);
-  const retry = await confirmationPage(app);
+  const retry = await approvalPage(app);
   await expect(retry.getByRole("heading", { name: "Remove worktree?", exact: true })).toBeVisible();
-  await retry.getByRole("button", { name: "Remove worktree", exact: true }).click();
+  await clickApproval(
+    retry,
+    retry.getByRole("button", { name: "Approve · Remove worktree", exact: true }),
+  );
   await expect.poll(() => app.evaluate(() => globalThis.detachedAnswers.retry)).toBe(true);
   assert.equal(require("node:fs").existsSync(paths[1]), false);
 });

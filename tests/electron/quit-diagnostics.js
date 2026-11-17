@@ -85,11 +85,15 @@ function installNativeOrdering({ app, BrowserWindow, ipcMain, screen }, { prefix
     if (child.webContents.getURL() !== "app://confirmation/confirmation.html") continue;
     let presented = null;
     let requestId;
+    let geometryRevision;
+    let decisions = [];
     const state = () => {
       if (child.isDestroyed()) return { destroyed: true };
       const parent = child.getParentWindow();
       return {
         presented,
+        geometryRevision,
+        decisions,
         focused: child.isFocused(),
         visible: child.isVisible(),
         minimized: child.isMinimized(),
@@ -104,6 +108,11 @@ function installNativeOrdering({ app, BrowserWindow, ipcMain, screen }, { prefix
       if (channel === "confirmation:render") {
         presented = args[0]?.presented === true;
         requestId = args[0]?.id;
+        geometryRevision = args[0]?.geometryRevision;
+        decisions = (args[0]?.approvals ?? []).map((row) => ({
+          id: row.request.id,
+          presented: row.request.presented,
+        }));
         emit("native:render", state());
       }
       return send.call(this, channel, ...args);
@@ -128,7 +137,11 @@ function installNativeOrdering({ app, BrowserWindow, ipcMain, screen }, { prefix
       emit("native:answer", {
         ...state(),
         topFrame: event.senderFrame === child.webContents.mainFrame,
-        matchingRequest: requestId === undefined ? null : id === requestId,
+        matchingRequest:
+          requestId === undefined
+            ? null
+            : id === requestId || decisions.some((row) => row.id === id),
+        decisionId: decisions.some((row) => row.id === id) ? id : undefined,
         accepted: accepted === true,
       });
     });
@@ -168,6 +181,8 @@ function installRendererOrdering({ prefix, limit }) {
           button:
             button?.textContent === "Stop all and quit" ? "accept" : button ? "other" : "none",
           disabled: button?.disabled === true,
+          decisionId: button?.getAttribute("data-approval-decision"),
+          rect: button?.getBoundingClientRect().toJSON(),
           focused: document.hasFocus(),
         });
       },

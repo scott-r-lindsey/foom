@@ -62,6 +62,7 @@ export interface WorktreeLaunchContext {
   readonly withRepository: <T>(repository: string, work: () => Promise<T>) => Promise<T>;
   readonly worktrees: WorkspaceMethods["worktrees"];
   readonly deps: {
+    readonly repositorySetup?: WorkspaceDependencies["repositorySetup"];
     readonly hosts: WorkspaceDependencies["hosts"];
     readonly worktrees: Pick<
       WorkspaceDependencies["worktrees"],
@@ -294,6 +295,7 @@ export interface ExecutionEventsContext {
 }
 
 export interface OrchestrationHostContext {
+  readonly wakeIdle: (id: string) => boolean;
   readonly defaultAgent: string | null;
   readonly launchAgent: WorkspaceMethods["launchAgent"];
   readonly busyWorktrees: Set<string>;
@@ -318,6 +320,7 @@ export interface OrchestrationHostContext {
   readonly withRepository: <T>(repository: string, work: () => Promise<T>) => Promise<T>;
   readonly deps: {
     readonly hosts: WorkspaceDependencies["hosts"];
+    readonly focused: WorkspaceDependencies["focused"];
     readonly forge: OrchestrationHost["forge"];
     readonly worktrees: Pick<
       WorkspaceDependencies["worktrees"],
@@ -325,6 +328,8 @@ export interface OrchestrationHostContext {
     >;
     readonly terminals: Pick<WorkspaceDependencies["terminals"], "stop" | "tail"> & {
       readonly childInput: WorkspaceDependencies["terminals"]["childInput"];
+      readonly recheckWake: WorkspaceDependencies["terminals"]["recheckWake"];
+      readonly wakeInput: WorkspaceDependencies["terminals"]["wakeInput"];
     };
     readonly placeChild: WorkspaceDependencies["placeChild"];
     readonly reveal: WorkspaceDependencies["reveal"];

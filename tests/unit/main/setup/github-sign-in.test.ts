@@ -268,3 +268,22 @@ test.each(["exit", "dispose"])(
     service.dispose();
   },
 );
+
+test("failed exit with an unavailable screen reports failure and retires the device code", async () => {
+  const { service, effects } = fixture();
+  service.start("gh");
+  await tick();
+  effects.screen.mockRejectedValueOnce(new Error("screen unavailable"));
+  await service.finish("gh", 1);
+  expect(await service.action("gh", "read")).toEqual({
+    phase: "failed",
+    code: undefined,
+    copied: true,
+    opened: true,
+    exitCode: 1,
+  });
+  expect(effects.clear).toHaveBeenCalledOnce();
+  await service.action("gh", "open");
+  expect(effects.open).toHaveBeenCalledOnce();
+  service.dispose();
+});

@@ -9,6 +9,8 @@ const {
   assertAccessible,
   boardPage,
   confirmationPage,
+  approvalPage,
+  clickApproval,
   launchApp,
   openSettingsScreen,
   removeAfterApps,
@@ -406,8 +408,13 @@ for (const firstRun of [false, true]) {
       ).toBeVisible();
       await capture("installed-reinstall");
       const metadataFile = path.join(home, ".gemini/config/plugins/foom/plugin.json");
-      const scan = async () =>
-        page.getByRole("button", { name: "Re-check This computer", exact: true }).click();
+      const scan = async () => {
+        const recheck = page.getByRole("button", { name: "Re-check This computer", exact: true });
+        await recheck.click();
+        // A subscribed status can arrive before its command finishes. Keep the
+        // fixture unchanged until the scan has released the action controls.
+        await expect(recheck).toBeEnabled();
+      };
       await writeFile(metadataFile, JSON.stringify({ name: "foom", foomObserverVersion: 1 }));
       await scan();
       await expect(agyRow.getByText("Plugin · outdated", { exact: true })).toBeVisible();
@@ -654,8 +661,11 @@ test("Antigravity plugin MCP inherits an owned child's read-only role", {
     .getByRole("button", { name: /^Actions for/ })
     .click();
   await page.getByRole("menuitem", { name: "Make orchestrator…" }).click();
-  const elevate = await confirmationPage(app);
-  await elevate.getByRole("button", { name: "Make orchestrator" }).click();
+  const elevate = await approvalPage(app);
+  await clickApproval(
+    elevate,
+    elevate.getByRole("button", { name: "Approve · Make orchestrator", exact: true }),
+  );
   await expect.poll(async () => (await call("whoami")).role).toBe("orchestrator");
   const tree = await call("create_worktree", { branch: "child-agy", idempotencyKey: "agy-tree" });
   expect(tree.status).toBe("succeeded");

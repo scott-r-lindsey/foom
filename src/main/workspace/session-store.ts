@@ -1,3 +1,4 @@
+import { viewChanges } from "../data/view-changes";
 import { record, keys, remotePath } from "../../shared/remote-agent-protocol";
 import { hostBranch } from "../../shared/registered-hosts";
 import { remoteHost } from "../../shared/remote-host-protocol";
@@ -237,6 +238,7 @@ export class SessionStore {
         const temporary = join(this.directory, "sessions.json.tmp");
         await writeFile(temporary, data, { mode: 0o600 });
         await rename(temporary, join(this.directory, "sessions.json"));
+        viewChanges.publish("sessions");
       });
     this.pending = next;
     return next;
@@ -280,6 +282,7 @@ function readOrchestrator(value: unknown): StoredSession["orchestrator"] {
         action !== "remove_worktree" &&
         action !== "reply" &&
         action !== "prompt" &&
+        action !== "wake" &&
         action !== "send_keys" &&
         action !== "take_over") ||
       (status !== "pending_confirmation" &&

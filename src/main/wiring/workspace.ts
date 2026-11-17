@@ -1,3 +1,4 @@
+import { openRepositorySetup } from "../setup/repository-setup-service";
 import { locationId, metadataName } from "../control/metadata";
 import { hostsForStore } from "../setup/hosts";
 import type { BrowserWindow } from "electron";
@@ -67,6 +68,9 @@ export async function initializeWorkspace(
     );
   else wiring.terminals.addWindow(window);
   if (!wiring.initialized) {
+    wiring.audio.setWakeChanged(() => {
+      wiring.terminals.recheckWake(true);
+    });
     // Reattach starts from the saved palette, before any retained session opens.
     wiring.applyTerminalThemeSettings();
     await setupOffers.load(app.getPath("userData"));
@@ -167,7 +171,18 @@ export async function initializeWorkspace(
       };
     }
     const probeNotices = new ProbeNotices(app.getPath("userData"));
+    const repositorySetup = await openRepositorySetup(
+      wiring.settings,
+      app.getPath("userData"),
+      wiring.worktrees,
+      hostsForStore(
+        wiring.settings,
+        wiring.worktrees.listRepositories.bind(wiring.worktrees),
+        app.getVersion(),
+      ),
+    );
     wiring.workspace = new Workspace({
+      repositorySetup,
       openExternal: (url) => shell.openExternal(url),
       pluginStagingRoot: app.getPath("userData"),
       ...(forge === undefined ? {} : { forge }),
@@ -187,6 +202,7 @@ export async function initializeWorkspace(
         },
       ),
       terminals: wiring.terminals,
+      focused: (id) => wiring.audio.isFocused(id),
       agentPluginDirectory: app.getPath("userData"),
       sessions: new SessionStore(app.getPath("userData")),
       copyText: (text) => clipboard.writeText(text),

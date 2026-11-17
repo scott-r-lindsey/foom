@@ -989,6 +989,16 @@ test("tile removal chooses Hide for live sessions and exited resumable agents on
   }
 });
 
+test("config tiles close after exit even with a saved conversation for every agent", () => {
+  const row = boardRows(100)[0];
+  if (!row) throw new Error("Missing fixture row");
+  for (const agent of ["claude", "codex", "agy", "copilot", "opencode", "pi"]) {
+    const config = { ...row, kind: "agent" as const, agent, config: true, conversationId: "saved" };
+    expect(tileRemovalAction({ ...config, exited: false })).toBe("hide");
+    expect(tileRemovalAction({ ...config, exited: true })).toBe("close");
+  }
+});
+
 test("window expansion restores only boolean entries with bounded identities", () => {
   const layout = initialLayout();
   const raw = (sidebarExpanded: unknown) =>

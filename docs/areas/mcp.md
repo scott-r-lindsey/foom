@@ -18,7 +18,8 @@ validates the session before returning 405 (no SSE stream). Revocation is rechec
 at dispatch. Ordinary agents can call `whoami`, `sessions`, `session_state`, `manual` and the three preview view actions.
 Because clients fetch tools once (#303), MCP lists the orchestration tools to every
 agent; calls without the role are refused with a message naming `whoami`, here and
-by direct invocation.
+by direct invocation. This includes `read_handoff` (#1202): its catalog entry
+survives a later human role grant; every call still checks current authority.
 
 The service reads a main-owned workspace snapshot, never a terminal tail. Sessions
 are repository-scoped, paginated by the preceding terminal ID and limited to 100
@@ -48,6 +49,12 @@ Foom (apart from the existing opt-in merged-clean removal policy). No other MCP
 server or non-Foom tool is granted; no global config is edited. Launches
 without MCP retain their default arguments unchanged. See the
 [per-launch disclosure](../contracts/mcp-attachment.md#claude-code).
+Codex also receives a separate invocation-only `-c` override setting
+`mcp_servers.<random-launch-name>.default_tools_approval_mode="approve"` (#1202).
+It applies only to Foom's server, including a manual-only launch, and survives
+remote stdio conversion. Other servers, global configuration and sandbox settings
+are untouched. See [per-agent approval evidence](../contracts/mcp-attachment.md#tool-approval-by-bundled-agent-1202)
+for client policy limits and the documented absence of scoped Antigravity/Pi grants.
 Tokens never enter argv or files. Exit, early exit,
 spawn/attachment failure and shutdown dispose attachments and revoke credentials.
 Managed policy may refuse attachment in the client; no settings are weakened. The control
@@ -86,6 +93,22 @@ Failures without an HTTP response use `no_http_response` and a fixed local code.
 Raw bodies, arbitrary keys/methods, URLs, tokens and exception messages never enter
 these diagnostics. Authentication, grant/session binding and transport bounds are
 unchanged.
+
+## Orchestrator guidance (#1201)
+
+`whoami` and the short startup/CLI guidance point orchestrators to the bundled
+`orchestrator-playbook` manual section. Keep the playbook there rather than
+copying its workflow into role instruction text. Arm one wait covering all
+children in the launch turn and re-arm after each wake; concurrent long-polls
+consume control capacity. Background waiting is conditional on client exit
+notifications; otherwise repeat bounded MCP `wait_for` calls, or use a bounded
+foreground CLI wait if MCP is unavailable, collecting yielded shell results
+explicitly. MCP remains capped at 30 seconds. Client limits and
+qualification gaps are recorded in [agent evidence](../agents.md#orchestrator-waiting-1201).
+The orchestrator owns shared CI observation, handoff verification and cleanup.
+Children report the PR/head and validation, avoid CI polling loops, rerun a
+documented flake's failed jobs once, then hand off; they never change host/system
+settings. Repository validation concurrency belongs in repository instructions.
 
 ## Bundled manual (#699)
 

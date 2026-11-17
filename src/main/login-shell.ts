@@ -7,6 +7,10 @@ interface LoginShellOptions {
   cwd: string;
   env?: NodeJS.ProcessEnv;
   signal?: AbortSignal;
+  /** Help commands may report usage with a nonzero exit status. */
+  allowNonzeroExit?: boolean;
+  /** Discovery help must fail closed if either stream contains malformed UTF-8. */
+  fatalUtf8?: boolean;
 }
 
 /** Bounded login-shell reads must never acquire the application's controlling terminal. */
@@ -73,12 +77,21 @@ export function readLoginShell(
       clearTimeout(timer);
       options.signal?.removeEventListener("abort", abort);
       if (failure) reject(failure);
-      else if (code !== 0) reject(new Error("Login shell failed"));
-      else
-        resolve({
-          stdout: Buffer.concat(stdout).toString("utf8"),
-          stderr: Buffer.concat(stderr).toString("utf8"),
-        });
+      else if (code !== 0 && !(options.allowNonzeroExit && code !== null))
+        reject(new Error("Login shell failed"));
+      else {
+        try {
+          const decode = (chunks: Buffer[]) => {
+            const bytes = Buffer.concat(chunks);
+            return options.fatalUtf8
+              ? new TextDecoder("utf-8", { fatal: true }).decode(bytes)
+              : bytes.toString("utf8");
+          };
+          resolve({ stdout: decode(stdout), stderr: decode(stderr) });
+        } catch {
+          reject(new Error("Invalid login shell output"));
+        }
+      }
     });
   });
 }

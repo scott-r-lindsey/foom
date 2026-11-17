@@ -75,6 +75,16 @@ selected profile; they do not use the everyday `~/.foom` state.
 
 ## Tests and coverage
 
+- When more than three children are running on one host, coordinate heavy validation
+  across worktrees with shared host-local `flock` slots: `pnpm run check`,
+  `pnpm run test:coverage`, Electron tests, `pnpm run make`, packaged tests and
+  `git commit` (which runs validation through Husky). The orchestrator supplies
+  the same bounded slot pool or wrapper to every child; never use per-worktree
+  locks. Each slot holds one command, including its commit hook; each child runs
+  at most one heavy command at a time. Where `flock` is unavailable, the
+  orchestrator must schedule equivalent bounded concurrency explicitly.
+  Wait for a slot; never relax test deadlines to compensate for host load.
+
 - Tests spawning Git must use `tests/helpers/git.js` (`git` or `gitSync`), which removes inherited Git variables and disables global/system Git configuration. Never launch Git directly from a test.
 
 - `pnpm test` runs fast unit tests without a display. Test behavior, failure paths, and security boundaries. Keep logic separable from platform APIs as the app grows.
@@ -83,7 +93,7 @@ selected profile; they do not use the everyday `~/.foom` state.
 - The full suite runs in CI, on every required shard and all platforms, and CI is the authority: it must be green before review. Run the full suite locally only to reproduce a failure you cannot isolate, or when asked.
 - On Linux, run Electron tests under Xvfb (`xvfb-run -a pnpm run test:electron`) so test windows do not appear on the user’s desktop or steal focus. Use the same virtual-display wrapper for packaged smoke tests and automated Electron previews; use the visible desktop only when the user explicitly requests it. Keep sandboxing enabled.
 - Tests must never run the developer's real agent CLIs (`claude`, `codex`, or `agy`), including discovery and plugin probes. Electron launches use a fixture login shell and controlled PATH; agent tests provide fake CLIs in fixture directories. Never append the inherited PATH; add only the directory of a specifically required system tool. The agent guard must remain enabled.
-- CI partitions named Electron tests across four Linux jobs (`FOOM_ELECTRON_SHARD=1/4` through `4/4`), five Windows jobs (`1/5` through `5/5`), and six macOS jobs (`1/6` through `6/6`) using the checked-in duration-weighted `tests/electron/shard-plan.json`, with name hashing for new tests and unplanned shard counts on Linux, Windows and macOS. All fifteen Electron jobs and three independent native-check/packaging jobs are required by the Quality gate; failed, cancelled or skipped required jobs fail it. Without that variable the full suite runs locally. The shard integration test verifies every case is registered exactly once and invalid shard settings fail. Electron steps allow 14 minutes on Linux, Windows and macOS; per-test deadlines and the worker watchdog remain unchanged. Each desktop run requests eight macOS jobs: six Electron shards, one native-check/packaging job, and one combined Darwin host build (arm64, then x64 under Rosetta). Both host architectures retain signing/PTY probes and SEA startup checks. Native hook tests run serially, followed by packaging and packaged smoke in one companion job per platform. These jobs start alongside Electron shards and static checks after change detection; native checks and packaging each run once per platform.
+- CI partitions named Electron tests across four Linux jobs (`FOOM_ELECTRON_SHARD=1/4` through `4/4`), five Windows jobs (`1/5` through `5/5`), and seven macOS jobs (`1/7` through `7/7`) using the checked-in duration-weighted `tests/electron/shard-plan.json`, with name hashing for new tests and unplanned shard counts on Linux, Windows and macOS. All sixteen Electron jobs and three independent native-check/packaging jobs are required by the Quality gate; failed, cancelled or skipped required jobs fail it. Without that variable the full suite runs locally. The shard integration test verifies every case is registered exactly once and invalid shard settings fail. Electron steps allow 14 minutes on Linux, Windows and macOS; per-test deadlines and the worker watchdog remain unchanged. Each desktop run requests nine macOS jobs: seven Electron shards, one native-check/packaging job, and one combined Darwin host build (arm64, then x64 under Rosetta). Both host architectures retain signing/PTY probes and SEA startup checks. Native hook tests run serially, followed by packaging and packaged smoke in one companion job per platform. These jobs start alongside Electron shards and static checks after change detection; native checks and packaging each run once per platform.
 - CI caches Electron ZIP downloads outside the workspace by OS, architecture and exact
 lockfile-resolved Electron version in every Electron and native-check/packaging job.
 Preparation retries only network and HTTP 5xx failures up to three attempts with

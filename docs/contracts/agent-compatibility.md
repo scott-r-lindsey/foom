@@ -101,8 +101,9 @@ Codex compatibility details (#435):
 
 - The same data engine emits resume → defaults → inline display → MCP → six
   lifecycle definitions → optional notify → prompt. MCP uses the same random
-  server name and environment bearer reference; this conversion adds no preview
-  tool pre-approval. The complete reservation and bypass matchers include quoted,
+  server name and environment bearer reference. #1202 adds a separate per-server
+  approval override for Foom tools; see [approval evidence](mcp-attachment.md#tool-approval-by-bundled-agent-1202).
+  The complete reservation and bypass matchers include quoted,
   attached-short and nested sandbox overrides.
 - Bundled stable observers are build-generated installed assets, outside ASAR;
   config stable observers use private profile paths. This is main-owned build

@@ -67,7 +67,9 @@
     "mcp": {
       "arguments": [
         "-c",
-        "mcp_servers.{mcpName}={url={mcpUrl:toml},bearer_token_env_var=\"FOOM_CONTROL_TOKEN\"}"
+        "mcp_servers.{mcpName}={url={mcpUrl:toml},bearer_token_env_var=\"FOOM_CONTROL_TOKEN\"}",
+        "-c",
+        "mcp_servers.{mcpName}.default_tools_approval_mode=\"approve\""
       ],
       "when": {
         "all": [
@@ -565,5 +567,33 @@
       "arguments": [],
       "environment": [{ "name": "CODEX_NON_INTERACTIVE", "value": "1" }]
     }
+  },
+  "wake": {
+    "cancelKeys": ["esc"],
+    "composer": ["›", "› Describe a task", "› Explain this codebase", "› Ask Codex to do anything"],
+    "contains": [],
+    "reject": [
+      "enter to",
+      "enter select",
+      "enter confirm",
+      "enter submit",
+      "enter accept",
+      "esc to cancel",
+      "esc back",
+      "esc cancel",
+      "password:",
+      "api key",
+      "credential",
+      "sign in",
+      "working",
+      "interrupt",
+      "model name:",
+      "yes, allow",
+      "allow access to",
+      "approve once",
+      "(y/n)",
+      "permission request",
+      "only showing models"
+    ]
   }
 }

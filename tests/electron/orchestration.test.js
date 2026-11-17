@@ -1,7 +1,7 @@
 const { test } = require("./test-shard.js");
 const path = require("node:path");
 const { deadline } = require("./test-policy.js");
-const { boardPage, confirmationPage, launchApp } = require("./harness.js");
+const { boardPage, approvalPage, launchApp } = require("./harness.js");
 const { runOrchestratorScenario } = require("./orchestrator-scenario.js");
 
 test("console pairing requires trusted approval and gives only read-only repository scope", {
@@ -14,13 +14,12 @@ test("console pairing requires trusted approval and gives only read-only reposit
   const repository = await page.evaluate(
     async () => (await window.desktop.workspace()).repositories[0].path,
   );
-  const confirmation = await confirmationPage(app);
   await assertCliPairing(
     context,
     path.join(__dirname, "../../build/console", process.platform === "win32" ? "foom.exe" : "foom"),
     profile,
     repository,
-    confirmation,
+    () => approvalPage(app),
   );
 });
 
@@ -118,4 +117,18 @@ test("child host pressure refuses with retry facts while human launches still st
   skip: process.platform === "win32" && "The fake agent is a POSIX script",
 }, async (context) => {
   await runOrchestratorScenario(context, false, "pressure");
+});
+
+test("opt-in orchestrator wake cancels a raced menu, rejects visible menus and lost working, and submits once", {
+  timeout: deadline(90000),
+  skip: process.platform === "win32" && "The fake agent is a POSIX script",
+}, async (context) => {
+  await runOrchestratorScenario(context, false, "wake");
+});
+
+test("an orchestrator launches an agy child with stderr help and a nonzero help exit", {
+  timeout: deadline(90_000),
+  skip: process.platform === "win32" && "The fake agent is a POSIX script",
+}, async (context) => {
+  await runOrchestratorScenario(context, true, "agy-prompt");
 });

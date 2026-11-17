@@ -2,7 +2,7 @@ import { listTerminalFonts } from "../fonts/terminal-fonts";
 import type { WindowIpc } from "../window/window-ipc";
 import { ipcMain } from "electron";
 import type { BrowserWindow, IpcMainInvokeEvent } from "electron";
-import { nextScale } from "../window/appearance";
+import { nextScale, scaleFromZoomFactor } from "../window/appearance";
 import type { ZoomDirection } from "../window/appearance";
 import type { Setup } from "./setup";
 
@@ -42,6 +42,34 @@ export function attachSetup(
     if (!contents.isDestroyed() && contents.mainFrame.url === APP_URL)
       contents.send(channel, ...args);
   };
+  // Native zoom requests, shortcuts and explicit controls share write order.
+  let pending: Promise<unknown> = Promise.resolve();
+  const serial = <T>(work: () => Promise<T>): Promise<T> => {
+    const next = pending.catch(() => undefined).then(work);
+    pending = next;
+    return next;
+  };
+  const ensureZoom = (scale: number) => {
+    const factor = scale / 100;
+    if (contents.getZoomFactor() !== factor) contents.setZoomFactor(factor);
+  };
+  const zoom = (direction: ZoomDirection) =>
+    serial(async () => {
+      const { settings } = await setup.state();
+      // Adopt a native factor only in response to an explicit user zoom command.
+      const current = scaleFromZoomFactor(contents.getZoomFactor());
+      const scale = nextScale(current, direction);
+      if (scale === settings.interfaceScale && contents.getZoomFactor() === scale / 100) return;
+      const state = await setup.save({ interfaceScale: scale });
+      ensureZoom(state.settings.interfaceScale);
+      send("setup:changed", state);
+    });
+  const nativeZoom = (_event: Electron.Event, direction: "in" | "out") => {
+    void zoom(direction).catch(() => {
+      console.warn("Unable to change interface size");
+    });
+  };
+  contents.on("zoom-changed", nativeZoom);
   const handlers = new Map<string, (...args: unknown[]) => unknown>([
     [
       "setup:terminal-fonts",
@@ -72,7 +100,20 @@ export function attachSetup(
         return setup.githubSignIn(args[0], args[1]);
       },
     ],
-    ["setup:state", () => setup.state()],
+    [
+      "setup:state",
+      (...args) => {
+        if (args.length) throw new Error("Invalid settings request");
+        return setup.state();
+      },
+    ],
+    [
+      "setup:repository-setup",
+      (...args) => {
+        if (args.length !== 1) throw new Error("Invalid repository setup request");
+        return setup.repositorySetup(args[0]);
+      },
+    ],
     [
       "setup:local-agent-install",
       (...args) => {
@@ -96,16 +137,21 @@ export function attachSetup(
     ],
     [
       "setup:save",
-      async (patch) => {
+      (...args) => {
+        if (args.length !== 1) throw new Error("Invalid settings command");
+        const patch = args[0];
         const zooming = typeof patch === "object" && patch !== null && "interfaceScale" in patch;
-        if (zooming) pointerZoom(true);
-        try {
-          const state = await setup.save(patch);
-          send("setup:changed", state);
-          return state;
-        } finally {
-          if (zooming) pointerZoom(false);
-        }
+        return serial(async () => {
+          if (zooming) pointerZoom(true);
+          try {
+            const state = await setup.save(patch);
+            if (zooming) ensureZoom(state.settings.interfaceScale);
+            send("setup:changed", state);
+            return state;
+          } finally {
+            if (zooming) pointerZoom(false);
+          }
+        });
       },
     ],
     ["setup:code-suggestions", () => setup.codeSuggestions()],
@@ -136,17 +182,13 @@ export function attachSetup(
   return {
     dispose() {
       cancelTrust();
+      contents.removeListener("zoom-changed", nativeZoom);
       contents.removeListener("destroyed", cancelTrust);
       contents.removeListener("render-process-gone", cancelTrust);
       contents.removeListener("did-start-navigation", navigating);
       for (const channel of handlers.keys()) ipc.removeHandler(channel);
     },
     /** A zoom shortcut: save the next scale and tell the renderer what changed. */
-    async zoom(direction) {
-      const { settings } = await setup.state();
-      const scale = nextScale(settings.interfaceScale, direction);
-      if (scale === settings.interfaceScale) return;
-      send("setup:changed", await setup.save({ interfaceScale: scale }));
-    },
+    zoom,
   };
 }

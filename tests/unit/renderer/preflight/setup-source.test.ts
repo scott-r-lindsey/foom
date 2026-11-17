@@ -387,3 +387,36 @@ test("gh embedded recipes retain sign-in metadata across section changes and sha
   expect(source.githubSignInSessions?.()).toEqual(new Map([["gh-device", false]]));
   await source.installs?.close();
 });
+
+test("repository setup forwards only explicit actions and opens an ordinary default agent", async () => {
+  const desktop = {
+    setupState: vi.fn<() => Promise<{ settings: { defaultAgent: string | null } }>>(() =>
+      Promise.resolve({ settings: { defaultAgent: "claude" } }),
+    ),
+    sidebarCommand: vi.fn(() => Promise.resolve()),
+    repositorySetup: vi.fn(() => Promise.resolve({ rows: [] })),
+    onRepositorySetupRefused: vi.fn(() => () => {}),
+    onExit: vi.fn(() => () => {}),
+    workspace: vi.fn(() => Promise.resolve({ terminals: [] })),
+    kill: vi.fn(() => Promise.resolve()),
+  };
+  Object.defineProperty(window, "desktop", { configurable: true, value: desktop });
+  const source = createSetupSource();
+  await source.repositorySetup?.({ action: "list" });
+  await source.repositorySetup?.({ action: "run", token: "a".repeat(32) });
+  expect(desktop.repositorySetup).toHaveBeenCalledTimes(2);
+  await source.draftSetupAgent?.("/repo");
+  expect(desktop.sidebarCommand).toHaveBeenCalledExactlyOnceWith({
+    kind: "repository-launch",
+    repository: "/repo",
+    host: null,
+    run: "claude",
+  });
+  desktop.setupState.mockResolvedValueOnce({ settings: { defaultAgent: null } });
+  await expect(source.draftSetupAgent?.("/repo")).rejects.toThrow("Choose a default agent");
+  const off = source.onRepositorySetupRefused?.(vi.fn());
+  off?.();
+  await source.hostTerminal?.stop?.("human-setup");
+  expect(desktop.kill).toHaveBeenCalledWith("human-setup");
+  source.installs?.dispose();
+});

@@ -2,6 +2,7 @@ import { agent, mock, settle, verdict } from "./app-board-fixture";
 // @vitest-environment jsdom
 import { act, fireEvent, render, within } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
+import { Board } from "../../../../src/renderer/board/board-view";
 import { App } from "../../../../src/renderer/app";
 import { createAppSource } from "../../../../src/renderer/board/live-board-source";
 import { setupState } from "../../../fixtures/setup";
@@ -363,4 +364,48 @@ test("Settings queues terminal input focus after reattaching its original xterm"
   fireEvent.keyDown(screen.getByRole("region", { name: "Settings" }), { key: "Escape" });
   await settle();
   expect(document.activeElement).toBe(input);
+});
+
+test("the amber approval count opens the trusted queue without moving focus on arrival", async () => {
+  let receive: (count: number) => void = () => {};
+  const open = vi.fn<() => Promise<void>>().mockResolvedValue();
+  const off = vi.fn();
+  const source = createAppSource();
+  source.confirmations = {
+    subscribe: () => () => {},
+    confirm: () => Promise.resolve(),
+    cancel: () => Promise.resolve(),
+    onApprovals: (callback) => {
+      receive = callback;
+      return off;
+    },
+    openApprovals: open,
+  };
+  const screen = render(<Board source={source} />);
+  await settle();
+  const input = document.createElement("input");
+  document.body.append(input);
+  input.focus();
+  act(() => {
+    receive(2);
+  });
+  expect(document.activeElement).toBe(input);
+  const waiting = screen.getByRole("button", { name: "2 approvals waiting" });
+  expect(waiting.className).toBe("approvals-waiting");
+  fireEvent.click(waiting);
+  expect(open).toHaveBeenCalledOnce();
+  open.mockRejectedValueOnce(Error("closed"));
+  fireEvent.click(waiting);
+  await settle();
+  act(() => {
+    receive(1);
+  });
+  expect(screen.getByRole("button", { name: "1 approval waiting" })).toBeTruthy();
+  act(() => {
+    receive(0);
+  });
+  expect(screen.queryByRole("button", { name: /approvals? waiting/ })).toBeNull();
+  screen.unmount();
+  expect(off).toHaveBeenCalled();
+  input.remove();
 });

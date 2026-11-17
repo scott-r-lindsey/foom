@@ -1,3 +1,9 @@
+import type {
+  RepositorySetupAction,
+  RepositorySetupState,
+  SetupRefusal,
+} from "../../shared/repository-setup.d";
+import type { DataViewApi } from "../../shared/data-views";
 import type { TerminalViewSource } from "../terminal/terminal-view-source.d";
 import type { HostsApi } from "../../shared/registered-hosts.d";
 import type { ReadinessReport } from "../../shared/readiness";
@@ -18,6 +24,10 @@ import type { ConfigStatus } from "../../shared/foom-config";
 
 /** What preflight needs from main. Components use this, never the bridge directly. */
 export interface SetupSource {
+  onRepositorySetupRefused?: (callback: (refusal: SetupRefusal | undefined) => void) => () => void;
+  draftSetupAgent?: (repository: string) => Promise<void>;
+  repositorySetup?: (action: RepositorySetupAction) => Promise<RepositorySetupState>;
+  views?: DataViewApi;
   /** Embedded recipes started in this Settings window; other agent sign-in tiles are separate. */
   installs?: {
     sessions(): ReadonlyMap<string, string>;
@@ -28,6 +38,7 @@ export interface SetupSource {
     dispose(): void;
   };
   hostTerminal?: {
+    stop?(id: string): Promise<void>;
     createView(): TerminalViewSource;
     observe(id: string, listener: (exit: { exited: boolean; code?: number }) => void): () => void;
   };
@@ -59,6 +70,7 @@ export interface SetupSource {
   /** Settings → Environment; absent where main offers none, such as sample boards. */
   environment?: EnvironmentApi;
   config?: {
+    views?: DataViewApi;
     status(): Promise<ConfigStatus>;
     decide: (decision: "allow" | "keep", id: string) => Promise<ConfigStatus>;
     openFolder(): Promise<void>;

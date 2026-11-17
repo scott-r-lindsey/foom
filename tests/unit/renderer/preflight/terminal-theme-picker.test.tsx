@@ -95,3 +95,34 @@ test("custom terminal palettes select by file ID and preview parsed colors", () 
     "rgb(40, 42, 54)",
   );
 });
+
+test.each([false, true])(
+  "Default catches an appearance change before subscription (initial dark=%s)",
+  (initialDark) => {
+    const media = {
+      matches: initialDark,
+      addEventListener: vi.fn((_name: string, _listener: () => void) => {
+        // The native update happened after render read matches, before the listener existed.
+        media.matches = !initialDark;
+      }),
+      removeEventListener: vi.fn(),
+    };
+    vi.stubGlobal("matchMedia", () => media);
+    const view = render(
+      <TerminalThemePicker settings={setupState().settings} onChange={vi.fn()} />,
+    );
+    expect(
+      screen.getByRole("button", {
+        name: `Colors Default · Foom ${media.matches ? "Dark" : "Light"}`,
+      }),
+    ).toBeTruthy();
+    expect(screen.getByLabelText("Terminal theme preview").style.backgroundColor).toBe(
+      media.matches ? "rgb(5, 4, 10)" : "rgb(243, 240, 250)",
+    );
+    view.unmount();
+    expect(media.removeEventListener).toHaveBeenCalledWith(
+      "change",
+      media.addEventListener.mock.calls[0]?.[1],
+    );
+  },
+);

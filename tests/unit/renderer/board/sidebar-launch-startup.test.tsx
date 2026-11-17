@@ -357,3 +357,27 @@ test("a preparation error before main starts a sharing-capable launch keeps a fa
   expect(view.getByText("Unable to launch session.")).toBeTruthy();
   expect(view.queryByRole("menu")).toBeNull();
 });
+
+test("repository setup launch refusal shows missing versions and opens Hosts settings", async () => {
+  const { ApplicationError } = await import("../../../../src/shared/application-errors");
+  const view = await slowLaunch(false, true);
+  const settings = vi.fn();
+  view.rerender(
+    <Board
+      source={view.source}
+      onSettings={settings}
+      setupRefusal={{ repository: "/foom", host: null, missing: [{ id: "node", version: "24.x" }] }}
+    />,
+  );
+  act(() => {
+    view.fail(new ApplicationError("repository-setup-missing"));
+  });
+  await act(async () => {
+    await Promise.resolve();
+  });
+  const dialog = view.getByRole("dialog", { name: "Action failed" });
+  expect(dialog.textContent).toContain("node · 24.x");
+  fireEvent.click(view.getByRole("button", { name: "Open setup" }));
+  expect(settings).toHaveBeenCalledWith("hosts");
+  expect(view.queryByRole("dialog", { name: "Action failed" })).toBeNull();
+});

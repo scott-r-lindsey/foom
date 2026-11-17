@@ -72,6 +72,19 @@ describe("persistent ownership", () => {
     await mkdir(dirname(statePath()), { recursive: true });
     await writeFile(statePath(), JSON.stringify(value));
   }
+  it("makes legacy registration identities durable and re-registration receives a new incarnation", async () => {
+    await store({ version: 1, repositories: [repo], managed: [] });
+    const first = await restart();
+    const identity = first.registrationIdentity(repo);
+    await first.persistRegistrationIdentities();
+    const second = await restart();
+    expect(second.registrationIdentity(repo)).toBe(identity);
+    await second.removeRepository(repo);
+    await second.addRepository(repo);
+    const replacement = second.registrationIdentity(repo);
+    expect(replacement).not.toBe(identity);
+    expect((await restart()).registrationIdentity(repo)).toBe(replacement);
+  });
   it.each(["root", "adjacent"] as const)(
     "restores repositories and %s ownership, then persists removal",
     async (location) => {

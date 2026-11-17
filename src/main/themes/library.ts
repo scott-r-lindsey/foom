@@ -44,7 +44,6 @@ export class ThemeLibrary {
         /* Reload reports unavailable folders. */
       }
     }
-    this.startWatching();
     await this.reload();
   }
   private startWatching(): void {
@@ -80,6 +79,9 @@ export class ThemeLibrary {
   reload(): Promise<void> {
     this.queue = this.queue.then(async () => {
       if (this.isDisposed()) return;
+      // Reconnect before reading: closing a watcher after the read can discard
+      // an edit's queued notification and leave the published palette stale.
+      this.startWatching();
       const next: {
         interface: ThemeCatalog["interface"][number][];
         terminal: ThemeCatalog["terminal"][number][];
@@ -174,7 +176,6 @@ export class ThemeLibrary {
       const changed = JSON.stringify(next) !== JSON.stringify(this.catalog);
       this.catalog = next;
       this.good = retained;
-      this.startWatching();
       if (changed) this.changed();
     });
     return this.queue;

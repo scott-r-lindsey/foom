@@ -11,6 +11,7 @@ function failureDetail(reason: Reason): { detail?: string } {
 }
 
 const actions: readonly string[] = [
+  "wake",
   "create_worktree",
   "launch",
   "stop",
@@ -117,6 +118,7 @@ export class Operations {
     resultId: string | null = null,
     placement?: Operation["placement"],
     pressure?: Operation["pressure"],
+    setupMissing?: Operation["setupMissing"],
   ): Promise<Operation> {
     this.check(actor);
     if (resultId !== null) identifier(resultId);
@@ -151,6 +153,7 @@ export class Operations {
         ...failureDetail(reason),
         ...(placement ? { placement } : {}),
         ...(pressure ? { pressure } : {}),
+        ...(setupMissing ? { setupMissing } : {}),
         resultId,
         updatedAt: new Date().toISOString(),
       },

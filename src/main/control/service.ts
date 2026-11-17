@@ -1,3 +1,4 @@
+import { roleGuidance } from "../../shared/control-guidance";
 import { boardPost, boardResolve } from "../../shared/message-board-validation";
 import type { MessageBoard } from "./message-board";
 import { launchReasons } from "../../shared/launch-failure";
@@ -259,6 +260,7 @@ export class ControlService {
         exact(params, []);
         return {
           ...actor,
+          guidance: roleGuidance(actor),
           repository: locationId(actor.repository),
           worktree: locationId(actor.worktree),
           name: metadataName(basename(actor.worktree)),
@@ -366,9 +368,7 @@ export class ControlService {
     return actor.role === "cli"
       ? this.capabilities(actor)
       : [
-          ...this.capabilities({ ...actor, role: "orchestrator" }).filter(
-            (name) => name !== "read_handoff" || actor.role === "orchestrator",
-          ),
+          ...this.capabilities({ ...actor, role: "orchestrator" }),
           ...(this.orchestration?.canHandoff?.(actor) ? ["handoff"] : []),
         ];
   }

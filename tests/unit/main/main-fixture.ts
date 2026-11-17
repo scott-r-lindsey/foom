@@ -1,3 +1,8 @@
+vi.mock("../../../src/main/setup/repository-setup-service", () => ({
+  openRepositorySetup: vi.fn(() => Promise.resolve({})),
+  repositorySetupFor: vi.fn(() => ({})),
+  repositoryToolchainPrefix: vi.fn(() => "/test/user-data/repository-setup/toolchains"),
+}));
 // Vitest isolates this module per test file. Keep hoisted mocks and registration
 // together, before start() dynamically imports the application; never cache it globally.
 import type * as UpdatePackageModule from "../../../src/main/update-package";
@@ -244,9 +249,30 @@ import type { WorkspaceDependencies } from "../../../src/main/workspace/workspac
 
 import type { DialogContent, DialogOutcome } from "../../../src/shared/confirmation";
 
+// Wiring tests replace presentation/queue policy; the real queue and native
+// boundary have dedicated behavioral suites with their actual 900 ms guard.
+vi.mock("../../../src/main/confirmations/approvals", () => ({
+  Approvals: class {
+    readonly feed = {
+      current: () => [],
+      subscribe: (listener: () => void) => {
+        listener();
+        return () => {};
+      },
+    };
+    constructor(
+      private readonly present: (content: DialogContent, signal?: AbortSignal) => Promise<boolean>,
+    ) {}
+    async requestOutcome(content: DialogContent, signal?: AbortSignal): Promise<DialogOutcome> {
+      return (await this.present(content, signal)) ? "accepted" : "declined";
+    }
+  },
+}));
+
 vi.mock("../../../src/main/confirmations/trusted-dialog", () => ({
   TrustedDialog: class {
     refresh = vi.fn();
+    openApprovals = vi.fn();
     request: (content: unknown, signal?: AbortSignal) => Promise<boolean>;
     requestOutcome = async (content: unknown, signal?: AbortSignal): Promise<DialogOutcome> =>
       (await this.request(content, signal)) ? "accepted" : "declined";
@@ -325,6 +351,7 @@ vi.mock("../../../src/main/workspace/workspace", () => ({
       ],
     });
     startHostRecipe = mock.workspace.startHostRecipe;
+    startRepositorySetup = mock.workspace.startRepositorySetup;
     startLocalAgentInstall = mock.workspace.startLocalAgentInstall;
     output = mock.workspace.output;
     evidence = mock.workspace.evidence;
@@ -343,6 +370,7 @@ vi.mock("../../../src/main/workspace/workspace", () => ({
     dispose = mock.workspace.dispose;
     configure = mock.workspace.configure;
     scanAgents = mock.workspace.scanAgents;
+    worktrees = () => Promise.resolve([]);
     addRepository = mock.workspace.addRepository;
     removeRepository = mock.workspace.removeRepository;
     constructor(deps: WorkspaceDependencies) {
@@ -374,6 +402,8 @@ vi.mock("../../../src/main/window/window-state", () => ({
 vi.mock("../../../src/main/setup/setup", () => ({
   Setup: class {
     state = mock.setupState;
+    readiness = () => Promise.resolve({ git: "ready", platform: "linux", forges: [] });
+    readinessView = this.readiness;
     refresh = mock.setupRefresh;
     constructor(deps: ConstructorParameters<typeof Setup>[0]) {
       mock.setup.deps = deps;
@@ -504,6 +534,7 @@ const mock = vi.hoisted(() => {
   const workspace = {
     restore: vi.fn<() => Promise<void>>(() => Promise.resolve()),
     deps: undefined as WorkspaceDependencies | undefined,
+    startRepositorySetup: vi.fn<() => Promise<string>>(() => Promise.resolve("repository-setup")),
     startLocalAgentInstall: vi.fn<(_id: string) => Promise<string>>(() =>
       Promise.resolve("local-install"),
     ),
@@ -553,6 +584,8 @@ const mock = vi.hoisted(() => {
       ),
       stop: vi.fn<(id: string) => Promise<boolean>>(() => Promise.resolve(true)),
       onOutput: vi.fn<(listener: (id: string) => void) => () => void>(() => () => {}),
+      kill: vi.fn(() => Promise.resolve()),
+      recheckWake: vi.fn(),
       onExit: vi.fn<(listener: (id: string, code: number) => void) => () => void>(() => () => {}),
       dispose: vi.fn(() => Promise.resolve()),
       addWindow: vi.fn(),
@@ -634,7 +667,11 @@ const mock = vi.hoisted(() => {
         Partial<
           Pick<
             Settings,
-            "agentBypassAcknowledged" | "showPullRequests" | "setupComplete" | "checkForUpdates"
+            | "agentBypassAcknowledged"
+            | "showPullRequests"
+            | "setupComplete"
+            | "checkForUpdates"
+            | "registeredHosts"
           >
         > => ({
         agents: { claude: true, codex: true, agy: true },

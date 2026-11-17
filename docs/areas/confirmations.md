@@ -2,6 +2,76 @@
 
 Decided implementation and security rules for this area. Read the [file map](../map.md) to locate related owners. User-visible rules: [behavior](../behavior/confirmations.md).
 
+## App-wide approval queue (#1105)
+
+`main/confirmations/approvals.ts` owns one app-wide queue of agent/background
+requests; application wiring routes removals, pairing, plugin requests, orchestrator
+grants and host trust into it. The user approved `mockups/approvals.html` on #1105.
+Explicit user-action launch-bypass consent, terminal links, tile-close/dirty removal, quit and merged
+cleanup retain the board-local TrustedDialog path below.
+
+The queue uses one additional isolated TrustedDialog window with the same private
+session, exact confirmation origin, sandbox, CSP, navigation and frame checks.
+Its renderer receives validated/projection-only `approvals` rows, never callbacks,
+keys or authority. A main-only `userAction` provenance flag retains immediate human confirmations on
+the local path and is stripped before rendering. Renderer arguments cannot set it.
+The board gets only a nonnegative count and an open capability;
+it cannot answer. All boards share the same queue even across repositories.
+Main captures attribution from live metadata, including tile/session identity;
+background requests explicitly have no tile. Main-owned semantic keys include the
+operation generation, target and disclosed snapshot; grant keys include the captured
+repository/worktree identity, replacing principal and Resume capability. Duplicates join a stable row
+while each caller retains its own abort lifetime. Expiry uses the original absolute
+pairing deadline. Cancellation or external completion withdraws only that caller;
+the last caller withdraws the row. Its former footprint becomes an inert, labelled
+placeholder for 900 ms before space is reclaimed. Every decision control whose
+position or size changes (including after withdrawal, expiry, disclosure expansion
+or scrolling) receives a fresh monotonic 900 ms renderer guard. Geometry is
+rechecked synchronously at decision input as well as after layout changes. Native
+queue bounds changes also revoke all decisions for 900 ms in main, before any
+`setBounds` write. Main observes native move/resize notifications and reads back
+bounds at answer time, closing notification/delivery races. A main-owned
+`geometryRevision` in the ordinary validated render payload re-arms the renderer
+even when CSS rectangles are unchanged; preload accepts only nonnegative safe
+integers. Repeated notifications for identical native bounds do not extend the
+guard. The bulk button uses `aria-disabled` with the same disabled styling and
+answer-time guard, retaining keyboard focus and its captured IDs through a native
+resize while a gesture is held. Deliberate focus changes or window blur cancel it. If a
+removed control held keyboard focus, Hide receives it. Explicit opening also
+restores Hide if native WebContents focus arrives late and resets DOM focus to
+the body; it leaves a surviving control and unfocused terminal input alone. Renderer loss or presentation failure declines
+remaining callers without granting anything.
+
+Unlike action dialogs, queue presentation does not install a scrim, board input
+guards, focus recovery or native parent disabling. It begins hidden. Only the
+explicit open command presents/focuses it; new rows never show, raise or focus it.
+Hide, native close/minimize and Escape preserve requests. The amber labelled
+sidebar count remains available. Bounds retain a fixed top edge while height grows,
+so append-only keyed rows do not move existing decisions. Content caps at 720 CSS
+pixels and scrolls within native work-area/parent clamps. Theme/scale refreshes
+use the same measurement and native geometry checks as other trusted windows.
+
+Every row answer requires its current ID, exact trusted main frame, native focus,
+visibility and complete reachable bounds. Main also enforces a monotonic 900 ms
+per-row delay after presentation; both buttons are disabled until ready. Bulk
+answers contain an explicit ID snapshot of fully visible, ready rows measured in
+the trusted page at a trusted primary pointer-down or initial Enter/Space key-down.
+Release can only narrow this snapshot to IDs still visible and ready; it cannot
+add arrivals or substitute other IDs. Cancellation or focus loss clears the
+gesture, and keyboard repeats cannot replace it. Main refuses empty, duplicate, unknown, unready or
+mixed-kind IDs atomically. Only worktree removals are bulk eligible. Later rows
+cannot enter the captured set. Caller identity/status revalidation still runs
+before execution. Per-row plugin progress keeps the existing fixed-command and
+receipt lifecycle and cannot accept a second mutation while running. All
+renderer decision handlers, including legacy dialogs, decline/cancel, selected
+removals and keyboard activation, require `event.isTrusted`; synthetic DOM clicks
+and dispatched key/pointer events never answer. This authenticates the browser
+event, in addition to the existing IPC sender/native reachability checks; it does
+not treat renderer-supplied IPC as proof of a human gesture.
+
+The following modal presentation rules apply to user-action dialogs, except where
+the queue behavior above explicitly supersedes them.
+
 ## Confirmations
 
 On macOS, both the board and its trusted-dialog child set `acceptFirstMouse: true`.
@@ -144,31 +214,16 @@ resize, maximize, unmaximize and restore events recenter it. Dismissal removes
 listeners, clears the scrim, and restores input and focus. Positioning remains
 subject to window-manager restrictions (for example native Wayland). Quit approval
 does not need the board to render.
-Main serializes requests within each board. An app-owned removal presentation
-queue also serializes orchestrator removal batches, merged-worktree cleanup
-reviews and review-worktree removal across boards. A queued review starts only
-after the preceding presentation is dismissed, cancelled or completed; it reads
-its latest feed when its turn arrives. Each review stays on its selected board,
-and batching, per-item cancellation, snapshot revalidation and exact-ID approval
-checks remain in force. Repository reservations prevent forgetting a repository,
-not overlapping removal reviews; they do not replace this presentation queue.
-Each orchestrator removal owns its presentation signal until execution ends.
-Success (including automatic completion), failure and cancellation abort that
-signal in main, withdrawing its item from a visible or queued batch. Remaining
-items retain their consent requirements; an empty batch closes and releases the
-shared slot. Callbacks arriving after completion decline without creating a review.
-Cancellation is registered when main receives the request, before either queue.
-Closing/destroying its board, confirmed-shutdown disposal, or an actor/caller abort
-declines the queued caller immediately; it does not wait for another board's
-answer. Abandoned entries are skipped when their turn arrives. Board-local
-waiting does not reserve the shared removal slot, and cancellation while the
-hidden page loads releases admission without allowing a later activation.
-Board renderer loss or a full main-frame navigation cancels queued requests;
-same-document and subframe navigation do not. An already presented trusted window
-remains independent of the board renderer as above. Trusted renderer/window loss
-cancels both active and queued requests for that renderer. Late events from an old
-renderer cannot cancel its replacement. Cancellation only declines; it never
-replays approval or cancels a different board's active decision.
+Main serializes user-action requests within each board. The removal presentation
+slot continues to serialize user-started merged cleanup reviews. Agent/background
+removals bypass that slot and the old batch renderer: each independently revalidated
+request is a row in the app-wide queue above. Cancellation is registered on receipt,
+before hidden page loading. Signal abort, owner close, shutdown disposal or renderer
+loss cancels the relevant queued caller; no cancellation grants another request.
+Each orchestrator operation retains its abort signal through execution, so completion
+or revocation withdraws its row. Late replies from an older native generation cannot
+answer or cancel a replacement.
+
 Main supplies the current
 resolved theme and content, and gives each request a new ID. Content carries a glyph,
 subject, labeled disclosure sections (with optional main-authored collapsed summary
@@ -201,7 +256,7 @@ exposes request rendering, sizing, answering and request-scoped removal-path cop
 it buffers the request until the page
 subscribes. `confirmation:answer` validates the exact window, top frame, URL,
 request ID and boolean, or a nonempty, unique subset of displayed operation IDs
-for a batch removal. Main groups pending removals by orchestrator generation and
+for a batch removal. Legacy direct removal-feed presentations group removals by generation and
 rotates the request ID on list changes. A single removal keeps the ordinary
 boolean confirmation. The board cannot submit either answer. Board frames, stale IDs
 and malformed answers are ignored.

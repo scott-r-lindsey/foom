@@ -104,3 +104,10 @@ and hidden PTYs keep running.
 [Review automation](orchestration.md#optional-child-buildreview-loop-690) uses
 ordinary child grants and the same parent's capacity. It grants neither authors
 nor reviewers authority to launch or prompt other agents.
+
+Automatic parent wake (#548) is a distinct, profile-only human opt-in, not an
+extension of the orchestrator's explicit child-input authority. It uses guarded
+host writes, manifest-declared Escape cancellation and composer re-verification.
+The earlier atomic/question-specific input requirement does not apply to this
+accepted best-effort flow; it provides no absolute routing guarantee. See
+[wake policy and residual race](../orchestration.md#opt-in-idle-orchestrator-wake-548).

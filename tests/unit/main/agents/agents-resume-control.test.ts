@@ -1,3 +1,4 @@
+import { CHILD_PROMPT } from "../../../../src/main/agents/providers/cli-launch";
 import { ENABLED_AGENTS } from "../../../helpers/enabled-agents";
 import {
   enabledAgentService,
@@ -273,15 +274,18 @@ it.each([
         expect.arrayContaining(
           agent === "claude"
             ? ["--mcp-config"]
-            : ["-c", expect.stringMatching(/^mcp_servers\.foom_[a-f0-9]+=/u)],
+            : [
+                "-c",
+                expect.stringMatching(/^mcp_servers\.foom_[a-f0-9]+=/u),
+                "-c",
+                expect.stringMatching(
+                  /^mcp_servers\.foom_[a-f0-9]+\.default_tools_approval_mode="approve"$/u,
+                ),
+              ],
         ),
       );
       if (prompt === undefined) expect(args).not.toContain("--");
-      else
-        expect(args?.slice(-2)).toEqual([
-          "--",
-          `Task from your Foom orchestrator (another agent, not the user):\nBefore stopping when finished, blocked, or CI fails, report to your parent with handoff({ status: done|blocked|failed, summary, links?, idempotencyKey }), or foom handoff --status done|blocked|failed --summary-file FILE|- [--link HTTPS_URL] --idempotency-key KEY. Handoffs are pull-only; they never type into a terminal.\n\n${prompt}`,
-        ]);
+      else expect(args?.slice(-2)).toEqual(["--", `${CHILD_PROMPT}\n\n${prompt}`]);
       expect(prepare).toHaveBeenCalledTimes(hooks ? (prompt === undefined ? 1 : 2) : 0);
       agentFixture.service.release("terminal-id");
     }

@@ -27,7 +27,7 @@ const tools = [
   {
     name: "whoami",
     description:
-      "Call first: tells you whether you are this repository's Foom orchestrator, when your current role was granted (grantedAt), and your tools with CLI fallbacks. Only the human grants the role. If a tool is missing from your client, use its listed foom command with the same session credentials. As orchestrator, create a worktree, launch one child with a task, acceptance criteria and limits, then wait_for and read_handoff. Verify evidence before calling work done; you own integration and reporting to the human.",
+      "Call first: tells you whether you are this repository's Foom orchestrator, when your current role was granted (grantedAt), and your tools with CLI fallbacks. Only the human grants the role. If a tool is missing from your client, use its listed foom command with the same session credentials. As orchestrator, read manual section orchestrator-playbook for launch, waiting, CI and cleanup guidance. Verify handoffs against the diff or checks; you own integration and reporting to the human.",
     properties: {},
   },
   {
@@ -314,7 +314,7 @@ const orchestration = (childLimit: number, agents: readonly string[]) =>
     {
       name: "wait_for",
       description:
-        "Wait up to 30 seconds for a new post addressed to your repository (boardAfter cursor) or until a child's state, handoff or PR required-check revision differs from the one given in after. The ID count follows the concurrent child limit in Settings → General. Metadata only. For an unbounded background CLI wait, use foom wait-for --until-event [--timeout SECONDS]; exit 5 means timeout. Read read_handoff when a report arrives; quiet is not proof of completion.",
+        "Wait up to 30 seconds for a new post addressed to your repository (boardAfter cursor) or until a child's state, handoff or PR required-check revision differs from the one given in after. The ID count follows the configured concurrent child limit. Metadata only. Use one CLI watcher, foom wait-for --until-event [--timeout SECONDS], if your client wakes on background exit; otherwise repeat bounded wait_for calls. Cover all children and re-arm after each wake; CLI exit 5 means timeout. Read read_handoff when a report arrives; quiet is not proof of completion.",
       properties: {
         ids: { type: "array", items: id, minItems: 0, maxItems: childLimit },
         boardAfter: id,

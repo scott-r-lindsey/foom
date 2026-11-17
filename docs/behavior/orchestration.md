@@ -131,10 +131,16 @@ store forge tokens, change CLI login/configuration, or write to the forge.”
 Session metadata shows the validated PR/MR head, state and check conclusion, with
 its meaning (for example, GitHub required checks or a GitLab head pipeline).
 `wait_for` wakes on conclusion changes. Orchestrators can also run
-`foom wait-for --until-event` as a background command: it blocks until an owned
+`foom wait-for --until-event --timeout N`: it blocks until an owned
 child's state, handoff, PR state or checks change, then returns metadata without
 terminal content. An optional `--timeout SECONDS` exits 5 on timeout; role
-revocation returns an error. Tracking survives restart without transferring
+revocation returns an error. Arm one watcher covering all children in the launch
+turn and re-arm after each wake. Use background execution only if the client
+notifies on exit; otherwise repeat bounded MCP `wait_for` calls. When MCP is
+unavailable, block in the foreground with a timeout below the client's shell
+deadline and collect any yielded result. The bundled manual's
+`orchestrator-playbook` section covers client-aware waiting, shared CI observation,
+handoff verification and cleanup. Tracking survives restart without transferring
 authority over old children, pauses during sleep and screen lock, and stops on
 shutdown. See [the data, persistence and polling contract](../contracts/forge-tracking.md#child-pr-and-required-checks-340).
 
@@ -338,3 +344,27 @@ to override it. If unset, omission refuses with `agent_required` (or
 `review_agent_required` for a loop). An invalid, disabled or unavailable provider
 refuses; Foom never picks another provider. One-shot `review --agent codex` uses
 the same detached checkout and safe close cleanup as every other reviewer.
+
+## Approval queue (#1105)
+
+Agent/background worktree removals and orchestrator grants appear in one app-wide
+trusted approval queue, with attributed independent rows and an amber labelled
+waiting count in every board. New requests append without focusing the dialog or
+interrupting terminal input. Duplicate requests merge; revocation, withdrawal,
+expiry and external completion remove their own pending rows. Only fully visible
+ready worktree removals can share one bulk decision; authority, plugin trust, host
+trust and credential grants remain individual. Hide/minimize keeps rows pending.
+Main still rechecks the live actor/generation, checkout identity and exact disclosed
+changes after consent and before mutation. Nothing approves, types terminal input
+or grants authority merely by opening, showing or recovering the window.
+
+## Optional parent wake (#548)
+
+General's **Wake idle orchestrators on child events** starts off. Enabling it
+permits fixed metadata notices in an unfocused orchestrator after current hook idle,
+a matching live composer, Escape and another screen check. Pending child events
+share a notice and a configurable minimum interval, default three minutes. The
+Action Log records attempts and outcomes. Menus, working screens and uncertain
+readiness queue the notice. Escape may cancel a prompt or interrupt work; the
+screen-to-input race after the final check remains accepted, not eliminated.
+See the [full disclosure](../orchestration.md#opt-in-idle-orchestrator-wake-548).

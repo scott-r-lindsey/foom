@@ -1,3 +1,4 @@
+import { viewChanges } from "../data/view-changes";
 import { forgeBranch } from "../control/forge";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
@@ -8,6 +9,7 @@ import type { WorktreeStoredState } from "./worktree-state.d";
 /** Persisted records are claims only; the service validates them against live Git. */
 export class WorktreeStore {
   private pendingSave: Promise<void> = Promise.resolve();
+  private repositoriesSignature: string | undefined;
   constructor(private readonly stateFile: string) {}
   async read(): Promise<WorktreeStoredState | undefined> {
     let state: unknown;
@@ -25,9 +27,18 @@ export class WorktreeStore {
     )
       return undefined;
 
-    return {
+    const restored: WorktreeStoredState = {
       version: 1,
       repositories: state["repositories"].filter(absolutePath),
+      registrations: Array.isArray(state["registrations"])
+        ? state["registrations"].filter(
+            (entry): entry is { path: string; id: string } =>
+              record(entry) &&
+              absolutePath(entry["path"]) &&
+              typeof entry["id"] === "string" &&
+              /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/u.test(entry["id"]),
+          )
+        : [],
       pendingRemovals: Array.isArray(state["pendingRemovals"])
         ? state["pendingRemovals"].filter(
             (entry): entry is NonNullable<WorktreeStoredState["pendingRemovals"]>[number] =>
@@ -84,6 +95,8 @@ export class WorktreeStore {
           };
         }),
     };
+    this.repositoriesSignature = JSON.stringify([...restored.repositories].sort());
+    return restored;
   }
   /** Commit live state before the next queued snapshot can observe it. */
   async save(snapshot: () => WorktreeStoredState, commit?: () => void): Promise<void> {
@@ -91,7 +104,10 @@ export class WorktreeStore {
     const save = this.pendingSave
       .catch(() => undefined)
       .then(async () => {
-        const contents = JSON.stringify(snapshot());
+        const state = snapshot();
+        const contents = JSON.stringify(state);
+        const repositoriesSignature = JSON.stringify([...state.repositories].sort());
+        const repositoriesChanged = this.repositoriesSignature !== repositoriesSignature;
         await mkdir(dirname(stateFile), { recursive: true });
         const temporary = `${stateFile}.${randomUUID()}.tmp`;
         try {
@@ -101,6 +117,9 @@ export class WorktreeStore {
           await rm(temporary, { force: true });
         }
         commit?.();
+        this.repositoriesSignature = repositoriesSignature;
+        if (repositoriesChanged) viewChanges.publish("repositories", "worktrees");
+        else viewChanges.publish("worktrees");
       });
     this.pendingSave = save;
     await save;

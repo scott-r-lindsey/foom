@@ -318,16 +318,6 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
       process.platform === "win32" ? "foom.exe" : "foom",
     );
     const configFiles = assertConfigValidation(cliExecutable, profile);
-    let confirmation;
-    await expect
-      .poll(() => {
-        confirmation = browser
-          .contexts()
-          .flatMap((context) => context.pages())
-          .find((candidate) => candidate.url() === "app://confirmation/confirmation.html");
-        return Boolean(confirmation);
-      })
-      .toBe(true);
     await assertCliPairing(
       context,
       path.join(
@@ -337,7 +327,26 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
       ),
       profile,
       repository,
-      confirmation,
+      async () => {
+        await page.getByRole("button", { name: /^[0-9]+ approvals? waiting$/ }).click();
+        let approval;
+        await expect
+          .poll(async () => {
+            for (const candidate of browser.contexts().flatMap((context) => context.pages())) {
+              if (
+                candidate.url() === "app://confirmation/confirmation.html" &&
+                (await candidate.locator(".approval-queue").count())
+              ) {
+                approval = candidate;
+                return true;
+              }
+            }
+            return false;
+          })
+          .toBe(true);
+        await expect.poll(() => approval.evaluate(() => document.hasFocus())).toBe(true);
+        return approval;
+      },
     );
     const sounds = await page.evaluate(async () => {
       const context = new AudioContext();

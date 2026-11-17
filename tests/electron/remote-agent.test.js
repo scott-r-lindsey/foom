@@ -25,6 +25,8 @@ const {
   boardPage,
   quitAndWait,
   confirmationPage,
+  approvalPage,
+  clickApproval,
   fixtureCleanup,
   removeAfterApps,
 } = require("./harness.js");
@@ -270,8 +272,11 @@ if (existsSync(${JSON.stringify(slowClose)})) setTimeout(connect, 1500); else co
     (id) => window.desktop.sidebarCommand({ kind: "make-orchestrator", id }),
     parentId,
   );
-  const confirmation = await confirmationPage(app);
-  await confirmation.getByRole("button", { name: "Make orchestrator" }).click();
+  const confirmation = await approvalPage(app);
+  await clickApproval(
+    confirmation,
+    confirmation.getByRole("button", { name: "Approve · Make orchestrator", exact: true }),
+  );
   await elevate;
   const tree = await settle("create_worktree", {
     branch: "child-remote",
@@ -365,6 +370,11 @@ if (existsSync(${JSON.stringify(slowClose)})) setTimeout(connect, 1500); else co
   for (const secret of [id, parentId, parent.controlToken])
     assert.ok(!JSON.stringify(first).includes(secret));
   assert.equal(JSON.parse(first.whoami).role, "child");
+  assert.match(
+    JSON.parse(first.whoami).guidance,
+    /Before stopping when finished, blocked, or CI fails/,
+  );
+  assert.doesNotMatch(JSON.parse(first.whoami).guidance, /As orchestrator|The human may make you/);
   assert.ok(!JSON.parse(first.whoami).terminalId);
   await settle("send_keys", { id, keys: ["2"], idempotencyKey: "remote-permission" });
   await expect.poll(async () => (await row())?.execution?.phase).toBe("blocked");
@@ -385,6 +395,12 @@ if (existsSync(${JSON.stringify(slowClose)})) setTimeout(connect, 1500); else co
     .trim()
     .split("\n")
     .map((line) => JSON.parse(line));
+  const childGuidance = JSON.parse(first.whoami).guidance;
+  assert.ok(results.find((value) => value.id === 1).result.instructions.includes(childGuidance));
+  assert.equal(
+    results.find((value) => value.id === 3).result.structuredContent.guidance,
+    childGuidance,
+  );
   assert.deepEqual(
     results
       .find((value) => value.id === 2)

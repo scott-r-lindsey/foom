@@ -1,4 +1,4 @@
-import { capabilityError } from "../../shared/application-errors";
+import { capabilityError, RepositorySetupError } from "../../shared/application-errors";
 import { ipcMain } from "electron";
 import type { IpcMainInvokeEvent, WebContents } from "electron";
 
@@ -21,7 +21,18 @@ export class WindowIpcRouter {
           this.channels.set(channel, handlers);
           ipcMain.handle(channel, (event, ...args: unknown[]) => {
             const reject = (error: unknown): never => {
-              throw capabilityError(error);
+              const failure = capabilityError(error);
+              if (
+                failure.code.startsWith("repository-setup-") &&
+                !event.sender.isDestroyed() &&
+                event.senderFrame === event.sender.mainFrame &&
+                event.senderFrame.url === "app://bundle/index.html"
+              )
+                event.sender.send(
+                  "setup:launch-refused",
+                  failure instanceof RepositorySetupError ? failure.setup : undefined,
+                );
+              throw failure;
             };
             try {
               const target = this.channels.get(channel)?.get(event.sender);

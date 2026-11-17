@@ -167,3 +167,30 @@ test("typed host Git failures retain their closed reason through IPC error prese
   const error = new ApplicationError("worktree-missing");
   expect(capabilityError(error)).toBe(error);
 });
+
+test("repository setup failures expose only closed diagnostics and validated navigation data", async () => {
+  const { capabilityError, RepositorySetupError } = await import(
+    "../../../src/shared/application-errors"
+  );
+  const { LaunchFailure } = await import("../../../src/shared/launch-failure");
+  const setup = { repository: "/repo", host: null, missing: [{ id: "node", version: "24.x" }] };
+  for (const reason of [
+    "repository_setup_missing",
+    "repository_setup_changed",
+    "repository_setup_manual",
+    "repository_setup_unavailable",
+  ] as const) {
+    const code = reason.replaceAll("_", "-");
+    expect(capabilityError(new LaunchFailure(reason)).code).toBe(code);
+    const failure = capabilityError(new LaunchFailure(reason, undefined, setup));
+    expect(failure).toBeInstanceOf(RepositorySetupError);
+    expect(errorMessage(failure)).not.toBe("Unable to complete this action.");
+    expect(applicationErrorCode(failure)).toBe(code);
+  }
+  expect(() => new RepositorySetupError("operation-failed", setup)).toThrow(
+    "Invalid setup refusal",
+  );
+  expect(
+    () => new RepositorySetupError("repository-setup-missing", { ...setup, repository: "" }),
+  ).toThrow("Invalid setup refusal");
+});

@@ -2,7 +2,7 @@ import { CustomThemeHint } from "./custom-theme-hint";
 import { ThemeMenu } from "./theme-menu";
 import type { ThemeCatalog } from "../../shared/theme-file";
 import { ThemeFilesStatus } from "./theme-files-status";
-import { useEffect, useState } from "react";
+import { useDarkAppearance } from "./use-dark-appearance";
 import type { CSSProperties } from "react";
 import {
   interfaceThemes,
@@ -46,17 +46,7 @@ export function InterfaceThemePicker({
   settings: Settings;
   onChange: (patch: SettingsPatch) => void;
 }) {
-  const [media] = useState(() => matchMedia("(prefers-color-scheme: dark)"));
-  const [systemDark, setSystemDark] = useState(media.matches);
-  useEffect(() => {
-    const changed = () => {
-      setSystemDark(media.matches);
-    };
-    media.addEventListener("change", changed);
-    return () => {
-      media.removeEventListener("change", changed);
-    };
-  }, [media]);
+  const systemDark = useDarkAppearance();
   const selected = settings.interfaceTheme;
   const theme = resolveInterfaceTheme(settings.interfaceTheme, systemDark, catalog);
   const previewColors = {

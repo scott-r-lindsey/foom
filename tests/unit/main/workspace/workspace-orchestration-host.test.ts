@@ -19,6 +19,7 @@ vi.mock("../../../../src/main/setup/local-host", () => ({
 /** Only host capabilities: no agent launcher, cleanup service or coordinator construction. */
 function hostFixture() {
   const capabilities: OrchestrationHostContext = {
+    wakeIdle: vi.fn(() => true),
     busyWorktrees: new Set(),
     checkoutHolds: new CheckoutHolds(),
     cleanup: { removeOwnedTree: vi.fn() },
@@ -40,6 +41,7 @@ function hostFixture() {
     snapshot: () => ({ repositories: [], terminals: [] }),
     withRepository: (_repository, work) => work(),
     deps: {
+      focused: vi.fn(() => false),
       hosts: undefined,
       forge: undefined,
       worktrees: {
@@ -49,7 +51,13 @@ function hostFixture() {
         listWorktrees: vi.fn(),
         launchIdentity: vi.fn(),
       },
-      terminals: { stop: vi.fn(), tail: vi.fn(), childInput: undefined },
+      terminals: {
+        stop: vi.fn(),
+        tail: vi.fn(),
+        childInput: undefined,
+        wakeInput: undefined,
+        recheckWake: vi.fn(),
+      },
       placeChild: undefined,
       reveal: undefined,
       dialog: undefined,
@@ -700,3 +708,38 @@ it.each(["shell", "agent"])(
     }
   },
 );
+
+it("wake adapter requires known provider policy, hook idle, unfocused live session, and guarded host input", async () => {
+  vi.useFakeTimers();
+  try {
+    const caps = hostFixture();
+    const row = harness().host.terminals()[0];
+    if (!row) throw new Error("Missing fixture row");
+    Reflect.set(caps, "snapshot", () => ({
+      repositories: [],
+      terminals: [{ ...row, id: "parent", agent: "claude" }],
+    }));
+    Reflect.set(
+      caps.deps.terminals,
+      "wakeInput",
+      vi.fn(() => Promise.resolve(true)),
+    );
+    const host = workspaceOrchestrationHost(caps);
+    const intent = vi.fn(() => Promise.resolve());
+    const pending = host.wake?.("parent", "line", () => true, intent);
+    await vi.advanceTimersByTimeAsync(150);
+    expect(await pending).toBe("sent");
+    expect(caps.input).toHaveBeenCalledWith("parent");
+    vi.mocked(caps.wakeIdle).mockReturnValue(false);
+    expect(await host.wake?.("parent", "line", () => true, intent)).toBe("queued");
+    vi.mocked(caps.wakeIdle).mockReturnValue(true);
+    vi.mocked(caps.deps.focused)?.mockReturnValue(true);
+    expect(await host.wake?.("parent", "line", () => true, intent)).toBe("queued");
+    vi.mocked(caps.deps.focused)?.mockReturnValue(false);
+    vi.mocked(caps.sessions.isRestoring).mockReturnValue(true);
+    expect(await host.wake?.("parent", "line", () => true, intent)).toBe("queued");
+    expect(await host.wake?.("unknown", "line", () => true, intent)).toBe("queued");
+  } finally {
+    vi.useRealTimers();
+  }
+});

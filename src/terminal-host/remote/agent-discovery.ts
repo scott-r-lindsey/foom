@@ -28,7 +28,8 @@ export async function hostProbe(
   hostGitConfig = false,
   timeoutMs = 5000,
   signal?: AbortSignal,
-  stdoutBudget: "probe" | "review-snapshot" | "status" = "probe",
+  // Help alone retains both bounded streams and ordinary nonzero exits.
+  outputMode: "probe" | "review-snapshot" | "status" | "help" = "probe",
   networkGit = false,
 ): Promise<string> {
   signal?.throwIfAborted();
@@ -71,17 +72,17 @@ export async function hostProbe(
       stdout += data.length;
       // Snapshot inventories use the same bounded output budget as local Git.
       // Discovery and every stderr stream retain their small probe limit.
-      if (stdout > (stdoutBudget === "review-snapshot" ? 16 * 1024 * 1024 : 256 * 1024)) {
+      if (stdout > (outputMode === "review-snapshot" ? 16 * 1024 * 1024 : 256 * 1024)) {
         failure = new Error("Remote probe output exceeded");
         kill();
-      } else if (stdoutBudget !== "status") chunks.push(data);
+      } else if (outputMode !== "status") chunks.push(data);
     });
     child.stderr.on("data", (data: Buffer) => {
       stderr += data.length;
       if (stderr > 256 * 1024) {
         failure = new Error("Remote probe output exceeded");
         kill();
-      } else if (networkGit) diagnostics.push(data);
+      } else if (networkGit || outputMode === "help") diagnostics.push(data);
     });
     child.once("error", (error) => {
       failure = error;
@@ -96,7 +97,7 @@ export async function hostProbe(
             ? new HostGitFailure("origin-unreachable")
             : failure,
         );
-      else if (code !== 0)
+      else if (code !== 0 && !(outputMode === "help" && code !== null))
         reject(
           networkGit
             ? new HostGitFailure(gitFailureReason(Buffer.concat(diagnostics).toString("utf8")))
@@ -104,7 +105,11 @@ export async function hostProbe(
         );
       else {
         try {
-          resolve(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks)));
+          const decode = (buffers: Buffer[]) =>
+            new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(buffers));
+          resolve(
+            outputMode === "help" ? `${decode(chunks)}\n${decode(diagnostics)}` : decode(chunks),
+          );
         } catch {
           reject(new Error("Invalid remote probe output"));
         }
@@ -165,15 +170,26 @@ export async function hostDiscovery(
     if (command) break;
   }
   if (!command) throw new LaunchFailure("remote_agent_unavailable");
-  const fixed = async (args: string[]) => {
+  const fixed = async (flag: "--version" | "--help") => {
     try {
-      return (await hostProbe(command, args, home, launchEnv, false, 5000, signal)).trim();
+      return (
+        await hostProbe(
+          command,
+          [flag],
+          home,
+          launchEnv,
+          false,
+          5000,
+          signal,
+          flag === "--help" ? "help" : "probe",
+        )
+      ).trim();
     } catch {
       return "";
     }
   };
-  const version = await fixed(["--version"]);
-  const help = await fixed(["--help"]);
+  const version = await fixed("--version");
+  const help = await fixed("--help");
   signal?.throwIfAborted();
   return { command, env: launchEnv, version, help };
 }
