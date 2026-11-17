@@ -2,6 +2,7 @@
 // Keep this allowlist explicit: new FOOM_* session variables are isolated by default.
 const runnerControls = new Set([
   "FOOM_ELECTRON_SHARD",
+  "FOOM_CI_ELECTRON_SUITES",
   "FOOM_PACKAGED_ROOT",
   "FOOM_REQUIRE_REMOTE_HOSTS",
   "FOOM_REMOTE_HOST_ARTIFACTS",

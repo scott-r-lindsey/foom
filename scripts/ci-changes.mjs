@@ -1,6 +1,8 @@
 import { execFileSync } from "node:child_process";
 import { appendFileSync, readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
+import { selectAffected } from "./electron-affected.mjs";
+import { suiteFiles } from "../tests/electron/test-suites.js";
 
 const documentationFiles = new Set(["README.md", "AGENTS.md", "LICENSE", "NOTICE"]);
 
@@ -35,6 +37,30 @@ export function desktopMatrix(platforms = allPlatforms) {
   });
 }
 
+// Only an explicit draft PR can reduce Electron coverage. All other events
+// retain the full matrix, including ready_for_review without another push.
+export function electronSelection(
+  eventName,
+  event,
+  diff = (range) =>
+    execFileSync("git", ["diff", "--name-only", "--no-renames", "-z", range, "--"], {
+      encoding: "utf8",
+    }),
+  inventory = suiteFiles().map((file) => file.split(/[\\/]/).at(-1)),
+) {
+  if (eventName !== "pull_request" || event.pull_request?.draft !== true) return [];
+  const { base, head } = event.pull_request;
+  if (![base?.sha, head?.sha].every((sha) => typeof sha === "string" && /^[a-f0-9]{40}$/.test(sha)))
+    throw new Error("Missing or invalid comparison commit");
+  try {
+    const selection = selectAffected(diff(`${base.sha}...${head.sha}`).split("\0").filter(Boolean));
+    return selection.suites.every((suite) => inventory.includes(suite)) ? selection.suites : [];
+  } catch {
+    // Unavailable comparison history must never narrow coverage.
+    return [];
+  }
+}
+
 export function detectDesktop(
   eventName,
   event,
@@ -66,9 +92,12 @@ export function detectDesktop(
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, "utf8"));
   const required = detectDesktop(process.env.GITHUB_EVENT_NAME, event);
+  const suites = electronSelection(process.env.GITHUB_EVENT_NAME, event);
+  const matrix =
+    suites.length > 0 ? allPlatforms.map((os) => ({ os, shard: "1/1" })) : desktopMatrix();
   appendFileSync(
     process.env.GITHUB_OUTPUT,
-    `desktop_required=${required}\ndesktop_matrix=${JSON.stringify(desktopMatrix())}\n`,
+    `desktop_required=${required}\ndesktop_matrix=${JSON.stringify(matrix)}\nelectron_suites=${JSON.stringify(suites)}\n`,
   );
   console.log(
     required

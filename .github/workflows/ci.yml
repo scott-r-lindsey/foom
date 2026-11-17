@@ -1,11 +1,12 @@
 name: CI
 
-# Every pull request push, drafts included, validates Linux, Windows and macOS so
-# platform failures surface while the work is in progress. A newer push cancels
+# Every PR run validates Linux, Windows and macOS. Drafts select affected Electron
+# suites; ready PRs run the full suite. The required check exists only for full runs.
+# Platform failures surface while the work is in progress. A newer push cancels
 # the branch's previous run. Nightly runs validate main only when it changed.
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
   push:
     branches: [main]
   schedule:
@@ -54,6 +55,7 @@ jobs:
     outputs:
       desktop_required: ${{ steps.changes.outputs.desktop_required }}
       desktop_matrix: ${{ steps.changes.outputs.desktop_matrix }}
+      electron_suites: ${{ steps.changes.outputs.electron_suites }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -179,6 +181,7 @@ jobs:
         include: ${{ fromJSON(needs.changes.outputs.desktop_matrix) }}
     env:
       FOOM_ELECTRON_SHARD: ${{ matrix.shard }}
+      FOOM_CI_ELECTRON_SUITES: ${{ needs.changes.outputs.electron_suites }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -228,16 +231,17 @@ jobs:
           # Permit Chromium's user-namespace sandbox on this ephemeral CI runner.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       # The full suite uses four Linux, five Windows and seven macOS named-test shards.
+      # Affected draft suites use one 1/1 shard per platform instead.
       # See docs/electron-shards.md for measurements and the checked-in plan.
       # Per-test deadlines and the Electron worker watchdog still bound hangs.
       - name: Test Electron on Linux
         timeout-minutes: 14
         if: runner.os == 'Linux'
-        run: xvfb-run -a pnpm run test:electron
+        run: xvfb-run -a pnpm run test:electron:affected --ci
       - name: Test Electron on macOS and Windows
         timeout-minutes: 14
         if: runner.os != 'Linux'
-        run: pnpm run test:electron
+        run: pnpm run test:electron:affected --ci
       - name: Upload Electron timing and process diagnostics
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
@@ -514,7 +518,10 @@ jobs:
           retention-days: 3
 
   quality:
-    name: Quality gate
+    # Never create the required check on a draft, even as a skipped job.
+    # Readiness does not change the SHA: only a full run may publish this name.
+    # Credential-only manual runs also keep their skipped aggregate nonrequired.
+    name: ${{ github.event_name == 'workflow_dispatch' && inputs.check_macos_credentials && 'Credential-only gate' || github.event_name == 'pull_request' && github.event.pull_request.draft == true && 'Draft quality gate' || 'Quality gate' }}
     if: always() && !(github.event_name == 'workflow_dispatch' && inputs.check_macos_credentials)
     needs: [changes, checks, unit, desktop, platform]
     runs-on: ubuntu-24.04

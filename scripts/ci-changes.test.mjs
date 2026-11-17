@@ -1,7 +1,7 @@
 import { gitSync, gitEnvironment } from "../tests/helpers/git.js";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { desktopMatrix, detectDesktop, requiresDesktop } from "./ci-changes.mjs";
+import { desktopMatrix, detectDesktop, requiresDesktop, electronSelection } from "./ci-changes.mjs";
 import { packagingConfig, retryDownload } from "../.github/scripts/prepare-electron.mjs";
 
 test("Electron preparation retries only transient downloads, at most three times", async () => {
@@ -301,8 +301,11 @@ test("desktop jobs use four Linux, five Windows and seven macOS shards", () => {
 test("draft pull requests run CI and desktop jobs start without waiting for static checks", async () => {
   const { readFileSync } = await import("node:fs");
   const workflow = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
-  assert.match(workflow, /pull_request:\n {4}types: \[opened, synchronize, reopened\]\n/);
-  assert.doesNotMatch(workflow, /\.draft|ready_for_review|labeled|full-ci/);
+  assert.match(
+    workflow,
+    /pull_request:\n {4}types: \[opened, synchronize, reopened, ready_for_review, converted_to_draft\]\n/,
+  );
+  assert.doesNotMatch(workflow, /labeled|full-ci/);
   const desktop = workflow.split("\n  desktop:\n")[1].split("\n  platform:\n")[0];
   assert.match(desktop, /\n {4}needs: \[changes\]\n/);
   const quality = workflow.split("\n  quality:\n")[1];
@@ -346,7 +349,7 @@ test("invalid payloads and unavailable history fail instead of granting a skip",
 
 test("CLI uses real Git history, includes renamed source paths, and emits no skip on failure", async () => {
   const { spawnSync } = await import("node:child_process");
-  const { mkdtempSync, writeFileSync, readFileSync, rmSync } = await import("node:fs");
+  const { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
   const { fileURLToPath } = await import("node:url");
@@ -367,8 +370,15 @@ test("CLI uses real Git history, includes renamed source paths, and emits no ski
     const docs = git("rev-parse", "HEAD");
     const eventPath = join(directory, "event.json");
     const outputPath = join(directory, "output");
-    const run = (before, after) => {
-      writeFileSync(eventPath, JSON.stringify({ before, after }));
+    const run = (before, after, draft) => {
+      writeFileSync(
+        eventPath,
+        JSON.stringify({
+          before,
+          after,
+          pull_request: { draft, base: { sha: before }, head: { sha: after } },
+        }),
+      );
       writeFileSync(outputPath, "");
       return spawnSync(
         process.execPath,
@@ -377,7 +387,7 @@ test("CLI uses real Git history, includes renamed source paths, and emits no ski
           cwd: directory,
           env: {
             ...isolatedEnv,
-            GITHUB_EVENT_NAME: "push",
+            GITHUB_EVENT_NAME: draft === undefined ? "push" : "pull_request",
             GITHUB_EVENT_PATH: eventPath,
             GITHUB_OUTPUT: outputPath,
           },
@@ -388,14 +398,33 @@ test("CLI uses real Git history, includes renamed source paths, and emits no ski
     assert.equal(run(initial, docs).status, 0);
     assert.equal(
       readFileSync(outputPath, "utf8"),
-      `desktop_required=false\ndesktop_matrix=${JSON.stringify(desktopMatrix())}\n`,
+      `desktop_required=false\ndesktop_matrix=${JSON.stringify(desktopMatrix())}\nelectron_suites=[]\n`,
+    );
+    mkdirSync(join(directory, "src/renderer/preview"), { recursive: true });
+    writeFileSync(join(directory, "src/renderer/preview/markdown.ts"), "fixture");
+    git("add", "src");
+    git("-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "mapped");
+    const mapped = git("rev-parse", "HEAD");
+    assert.equal(run(docs, mapped, true).status, 0);
+    const draftOutput = readFileSync(outputPath, "utf8");
+    assert.match(draftOutput, /^desktop_required=true\n/);
+    const matrix = JSON.parse(draftOutput.match(/desktop_matrix=(.*)/)[1]);
+    assert.deepEqual(
+      matrix,
+      ["ubuntu-24.04", "windows-2025", "macos-15"].map((os) => ({ os, shard: "1/1" })),
+    );
+    assert.equal(JSON.parse(draftOutput.match(/electron_suites=(.*)/)[1]).length, 7);
+    assert.equal(run(docs, mapped, false).status, 0);
+    assert.equal(
+      readFileSync(outputPath, "utf8"),
+      `desktop_required=true\ndesktop_matrix=${JSON.stringify(desktopMatrix())}\nelectron_suites=[]\n`,
     );
     git("mv", "source.ts", "NOTICE");
     git("-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "rename");
     assert.equal(run(docs, git("rev-parse", "HEAD")).status, 0);
     assert.equal(
       readFileSync(outputPath, "utf8"),
-      `desktop_required=true\ndesktop_matrix=${JSON.stringify(desktopMatrix())}\n`,
+      `desktop_required=true\ndesktop_matrix=${JSON.stringify(desktopMatrix())}\nelectron_suites=[]\n`,
     );
     assert.notEqual(run("f".repeat(40), docs).status, 0);
     assert.equal(readFileSync(outputPath, "utf8"), "");
@@ -729,4 +758,112 @@ test("combined Darwin job runs every x64 probe and rejects build or startup fail
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test("only explicit draft PRs select affected suites; every other run keeps full coverage", () => {
+  const draft = { pull_request: { draft: true, base: { sha: base }, head: { sha: head } } };
+  const diff = (range) => {
+    assert.equal(range, `${base}...${head}`);
+    return "src/renderer/preview/markdown.ts\0";
+  };
+  assert.equal(electronSelection("pull_request", draft, diff).length, 7);
+  for (const eventName of ["push", "schedule", "workflow_dispatch", "unknown"]) {
+    assert.deepEqual(
+      electronSelection(eventName, draft, () => assert.fail("unexpected diff")),
+      [],
+    );
+  }
+  for (const action of ["ready_for_review", "synchronize", "opened", "reopened"]) {
+    for (const state of [false, undefined, "true"]) {
+      assert.deepEqual(
+        electronSelection(
+          "pull_request",
+          {
+            action,
+            pull_request: { ...draft.pull_request, draft: state },
+          },
+          () => assert.fail("unexpected diff"),
+        ),
+        [],
+      );
+    }
+  }
+  for (const paths of [
+    "",
+    "unknown\0",
+    "src/renderer/preview/a.ts\0docs/validation.md\0",
+    "src/renderer/preview/a.ts\0src/deleted.ts\0",
+  ]) {
+    assert.deepEqual(
+      electronSelection("pull_request", draft, () => paths),
+      [],
+    );
+  }
+  assert.deepEqual(
+    electronSelection("pull_request", draft, () => {
+      throw Error("history unavailable");
+    }),
+    [],
+  );
+  assert.deepEqual(electronSelection("pull_request", draft, diff, []), []);
+  assert.throws(
+    () => electronSelection("pull_request", { pull_request: { draft: true } }),
+    /comparison commit/,
+  );
+});
+
+test("a partial draft check can never satisfy Quality gate, even before the ready run starts", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { runInNewContext } = await import("node:vm");
+  const workflow = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
+  const quality = workflow.split("\n  quality:\n")[1].split("\n  mcp-probe:\n")[0];
+  const expression = quality.match(/name: \$\{\{ (.*) \}\}/)[1];
+  const checkName = (event_name, event, inputs = {}) =>
+    runInNewContext(expression, { github: { event_name, event }, inputs });
+  // Evaluate the actual workflow expression: job-level skips are successful on
+  // GitHub, so even a skipped draft job must have a different check name.
+  const statuses = new Map();
+  const draft = { pull_request: { draft: true, base: { sha: base }, head: { sha: head } } };
+  for (const conclusion of ["success", "skipped", "neutral", "failure", "cancelled"]) {
+    const name = checkName("pull_request", draft);
+    assert.equal(name, "Draft quality gate");
+    statuses.set(name, conclusion);
+    assert.equal(statuses.has("Quality gate"), false);
+  }
+  const ready = {
+    ...draft,
+    action: "ready_for_review",
+    pull_request: { ...draft.pull_request, draft: false },
+  };
+  assert.equal(ready.pull_request.head.sha, draft.pull_request.head.sha);
+  // No new check has started yet: changing readiness cannot manufacture the
+  // missing required context from the already-completed draft result.
+  assert.equal(statuses.has("Quality gate"), false);
+  assert.equal(checkName("pull_request", ready), "Quality gate");
+  assert.deepEqual(
+    electronSelection("pull_request", ready, () => assert.fail("must run full")),
+    [],
+  );
+  for (const eventName of ["push", "schedule", "workflow_dispatch"]) {
+    assert.equal(checkName(eventName, {}), "Quality gate");
+    assert.deepEqual(electronSelection(eventName, {}), []);
+  }
+  assert.equal(
+    checkName("workflow_dispatch", {}, { check_macos_credentials: true }),
+    "Credential-only gate",
+  );
+  assert.match(
+    workflow,
+    /types: \[opened, synchronize, reopened, ready_for_review, converted_to_draft\]/,
+  );
+  assert.match(workflow, /electron_suites: \$\{\{ steps.changes.outputs.electron_suites \}\}/);
+  const desktop = workflow.split("\n  desktop:\n")[1].split("\n  remote-host:\n")[0];
+  assert.match(
+    desktop,
+    /FOOM_CI_ELECTRON_SUITES: \$\{\{ needs.changes.outputs.electron_suites \}\}/,
+  );
+  assert.match(desktop, /FOOM_ELECTRON_SHARD: \$\{\{ matrix.shard \}\}/);
+  assert.match(desktop, /run: xvfb-run -a pnpm run test:electron:affected --ci/);
+  assert.match(desktop, /run: pnpm run test:electron:affected --ci/);
+  assert.doesNotMatch(quality, /continue-on-error/);
 });
