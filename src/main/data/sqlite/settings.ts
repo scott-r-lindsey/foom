@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { parseSettingsPatch } from "../../setup/settings";
 import { legacyBypassIdentities } from "../../agents/providers/bundled";
 import { isConfigSetting, migrateAppearanceSettings } from "../../../shared/config-settings";
@@ -138,7 +139,12 @@ export function importSettingsRows(db: DataTransaction, text: string | null | un
         throw new Error("Invalid baseline");
       // Keep the accepted values as a closed baseline copy, with a matching
       // digest so restart can use it when the external file is a held proposal.
-      const baseline = JSON.stringify({ kind: "settings", ...parseSettingsFile(text) });
+      const projection = parseSettingsFile(text);
+      const baseline = JSON.stringify({ kind: "settings", ...projection });
+      // Every normalized projection must survive the restart parser, including
+      // its byte limit; source validity alone does not guarantee this.
+      if (!isDeepStrictEqual(parseSettingsFile(baseline), projection))
+        throw new Error("Invalid baseline round trip");
       metadata["configText"] = baseline;
       metadata["configDigest"] = createHash("sha256").update(baseline).digest("hex");
     } catch {

@@ -846,6 +846,60 @@ test.each([
   },
 );
 
+test("settings import quarantines a 65,530-byte baseline expanded beyond the restart limit", async () => {
+  const { importProfileSettings } = await import("../../../../../src/main/data/sqlite/settings");
+  const { parseSettingsFile } = await import("../../../../../src/shared/config-files");
+  const { db, file, profile } = await fixture();
+  const args = [...Array.from({ length: 15 }, () => "x".repeat(4096)), "x"];
+  const source = () =>
+    JSON.stringify({
+      kind: "settings",
+      agents: { "custom-agent": true },
+      agentArguments: { "custom-agent": args },
+      sound: {
+        soundscape: "default",
+        working: true,
+        alerts: true,
+        workingVolume: 0.5,
+        alertVolume: 0.5,
+      },
+    });
+  args[15] = "x".repeat(65530 - Buffer.byteLength(source()) + 1);
+  const configText = source();
+  expect(Buffer.byteLength(configText)).toBe(65530);
+  const projection = parseSettingsFile(configText);
+  expect(projection.agents).toEqual({ "custom-agent": true });
+  expect(projection.agentArguments).toEqual({ "custom-agent": args });
+  const normalized = JSON.stringify({ kind: "settings", ...projection });
+  expect(Buffer.byteLength(normalized)).toBeGreaterThan(65536);
+  expect(() => parseSettingsFile(normalized)).toThrow();
+  const original = JSON.stringify({
+    version: 2,
+    settings: {},
+    configText,
+    configDigest: createHash("sha256").update(configText).digest("hex"),
+  });
+  await writeFile(join(profile, "settings.json"), original, { mode: 0o600 });
+  const result = await importProfileSettings(db, profile);
+  expect(JSON.parse(result.value.report)).toEqual({ accepted: 1, quarantined: 1 });
+  inspect(file, (raw) => {
+    expect(raw.prepare("SELECT * FROM profile_metadata").all()).toEqual([
+      expect.objectContaining({ key: "configVersion", value: "2" }),
+    ]);
+    expect(raw.prepare("SELECT source,position,reason FROM quarantine").all()).toEqual([
+      { source: "settings.json#configBaseline", position: -1, reason: "invalid" },
+    ]);
+  });
+  expect(await readFile(join(profile, "settings.json"), "utf8")).toBe(original);
+  const { safeStorage } = await import("electron");
+  const envelope = object(
+    JSON.parse(await readFile(join(profile, "data/recovery/settings-consents-v1.json"), "utf8")),
+  );
+  expect(
+    JSON.parse(safeStorage.decryptString(Buffer.from(String(envelope["cipher"]), "base64"))),
+  ).toEqual({ "settings.json": original });
+});
+
 test("settings importer quarantines invalid consent, retired secrets and unapproved v2 config projections", async () => {
   const { importSettingsRows } = await import("../../../../../src/main/data/sqlite/settings");
   for (const input of [

@@ -309,7 +309,13 @@ disk; only a validated `configText` with its matching recorded SHA-256 baseline 
 retained. SQLite stores `configText` as a re-serialized closed projection from
 `parseSettingsFile`, so retired/discarded fields and duplicate-key source text
 cannot retain unknown content in plaintext. After verifying the source digest,
-it recomputes `configDigest` over the stored projection bytes. The matching pair
+every re-serialized settings projection must round-trip through `parseSettingsFile`
+to the same accepted values before storage, including its 64 KiB limit. If
+normalization expands a valid source past that limit or otherwise fails the round
+trip, the baseline pair is omitted and `settings.json#configBaseline` is quarantined
+with fixed reason `invalid`; the group report records the rejection and the source
+remains recoverable in the encrypted snapshot. For usable baselines, the importer
+recomputes `configDigest` over the stored projection bytes. The matching pair
 preserves the accepted values as the restart baseline when the external file is
 a held proposal; normalization grants no approval to that proposal.
 The original text remains only in encrypted recovery. Pending per-agent arguments keep their documented profile migration
