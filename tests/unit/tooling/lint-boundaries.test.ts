@@ -1,6 +1,7 @@
+import { rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { RuleTester } from "oxlint/plugins-dev";
-import { describe, expect, test } from "vitest";
+import { afterAll, describe, expect, test } from "vitest";
 import {
   areaBoundaries,
   areaPolicy,
@@ -63,9 +64,32 @@ new RuleTester().run("process-boundaries", processBoundaries, {
   })),
 });
 
+const aliasDirectory = resolve("src/main");
+writeFileSync(
+  resolve(aliasDirectory, "package.json"),
+  JSON.stringify({
+    imports: {
+      "#workspace": "./workspace/worktrees.ts",
+      "#internal": "./workspace/worktree-store.ts",
+      "#missing-file": "./agents/does-not-exist.ts",
+      "#blocked": null,
+      "#allowed": "./agents/agents.ts",
+      "#patterns/*": "./workspace/*.ts",
+      "#conditional": { import: "./agents/agents.ts", require: "./workspace/worktrees.ts" },
+    },
+  }),
+  { flag: "wx" },
+);
+afterAll(() => {
+  rmSync(resolve(aliasDirectory, "package.json"));
+});
+const aliasFile = resolve(aliasDirectory, "agents/example.ts");
+
 const areaValid: [string, string][] = [
   ["main/workspace/example.ts", 'import { AgentService } from "../agents/agents";'],
   ["main/workspace/example.ts", 'import { helper } from "./internal";'],
+  ["main/workspace/example.ts", "import(`./internal`);"],
+  ["main/workspace/example.ts", "require(`./internal`);"],
   ["main/workspace/example.ts", 'import type { Shell } from "../../shared/workspace";'],
   ["main/agents/example.ts", 'import type { WorktreeService } from "../workspace/worktrees";'],
   ["main/agents/example.ts", 'import { type WorktreeService } from "../workspace/worktrees.js";'],
@@ -91,6 +115,15 @@ const areaValid: [string, string][] = [
   ["main/workspace/example.ts", 'import { profile } from "../profile";'],
 ];
 const areaInvalid: [string, string, string][] = [
+  ["main/agents/example.ts", "import(`../workspace/worktrees`);", "types"],
+  ["main/agents/example.ts", "require(`../workspace/worktrees`);", "types"],
+  ["main/agents/example.ts", "import(`../workspace/${name}`);", "unresolved"],
+  ["main/agents/example.ts", "require(`../workspace/${name}`);", "unresolved"],
+  ["main/agents/example.ts", "import(path);", "unresolved"],
+  ...["cts", "mts", "js", "cjs", "mjs"].flatMap<[string, string, string]>((extension) => [
+    [`main/agents/new-file.${extension}`, 'import("../workspace/worktrees");', "types"],
+    [`renderer/new-area/new-file.${extension}`, "const local = 1; void local;", "unknown"],
+  ]),
   ["main/terminals/example.ts", 'import type { Workspace } from "../workspace/workspace";', "edge"],
   ["main/agents/example.ts", 'import { WorktreeService } from "../workspace/worktrees";', "types"],
   [
@@ -123,13 +156,36 @@ const areaInvalid: [string, string, string][] = [
   ["renderer/app.tsx", 'import "./board/private";', "entry"],
 ];
 
+const aliasInvalid: [string, string][] = [
+  ['import("#workspace");', "types"],
+  ['import type { WorktreeService } from "#internal";', "entry"],
+  ['export * from "#missing";', "unresolved"],
+  ['import "#missing-file";', "unresolved"],
+  ['import "#blocked";', "unresolved"],
+  ['require("#patterns/worktrees");', "types"],
+  ['import("#conditional");', "types"],
+];
+
 new RuleTester().run("area-boundaries", areaBoundaries, {
-  valid: areaValid.map(([file, code]) => ({ filename: resolve("src", file), code })),
-  invalid: areaInvalid.map(([file, code, messageId]) => ({
-    filename: resolve("src", file),
-    code,
-    errors: [{ messageId }],
-  })),
+  valid: areaValid
+    .map(([file, code]) => ({ filename: resolve("src", file), code }))
+    .concat([
+      { filename: aliasFile, code: 'import "#allowed";' },
+      { filename: aliasFile, code: 'import type { WorktreeService } from "#workspace";' },
+    ]),
+  invalid: areaInvalid
+    .map(([file, code, messageId]) => ({
+      filename: resolve("src", file),
+      code,
+      errors: [{ messageId }],
+    }))
+    .concat(
+      aliasInvalid.map(([code, messageId]) => ({
+        filename: aliasFile,
+        code,
+        errors: [{ messageId }],
+      })),
+    ),
 });
 
 test("area policy accepts removals and narrowing without changing the historical ceiling", () => {

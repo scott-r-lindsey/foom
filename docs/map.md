@@ -10,7 +10,14 @@ surface. These are decided rules; changing a decision needs its own PR and docs.
 [`scripts/area-boundaries.json`](../scripts/area-boundaries.json) declares each
 main and renderer area's finite public-module list and allowed imports (`type`
 or `value`). `foom/area-boundaries` enforces it in `pnpm run lint`, including
-re-exports, literal dynamic imports, `require`, import-equals and import types.
+re-exports, literal dynamic imports, `require`, import-equals and import types,
+across `.ts`, `.tsx`, `.cts`, `.mts`, `.js`, `.cjs` and `.mjs` source files.
+String literals and template literals without substitutions are resolved alike.
+Dynamic expressions (including interpolated templates) fail closed; there are no
+current dynamic-specifier exceptions. Package-local `#` aliases resolve through
+the nearest `package.json` imports map, including wildcard and conditional local
+targets; every conditional target must satisfy the policy. Missing, invalid or
+unsupported alias targets fail closed.
 A permitted edge does not permit importing other modules inside the target area.
 Types count as dependencies; type-only edges cannot become runtime imports.
 

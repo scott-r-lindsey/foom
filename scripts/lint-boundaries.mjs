@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import areaSnapshot from "./area-boundaries-baseline.json" with { type: "json" };
 import configuredAreas from "./area-boundaries.json" with { type: "json" };
 import { builtinModules } from "node:module";
@@ -188,16 +188,72 @@ function moduleFile(target) {
   // Mirror TS's local .js substitution and declaration lookup without merging a
   // sibling runtime module with its distinct foo.d.ts contract.
   const stem = target.replace(/\.[cm]?jsx?$/, "");
+  const variant = target.endsWith(".mjs") ? "mts" : target.endsWith(".cjs") ? "cts" : "ts";
   return (
     [
-      `${stem}.ts`,
+      `${stem}.${variant}`,
       `${stem}.tsx`,
-      `${stem}.d.ts`,
+      `${stem}.d.${variant}`,
+      `${stem}.mts`,
+      `${stem}.cts`,
       target,
       resolve(target, "index.ts"),
       resolve(target, "index.tsx"),
+      resolve(target, "index.mts"),
+      resolve(target, "index.cts"),
+      resolve(target, "index.js"),
+      resolve(target, "index.mjs"),
+      resolve(target, "index.cjs"),
     ].find((file) => existsSync(file) && statSync(file).isFile()) ?? target
   );
+}
+
+// Inspect every conditional target: an alias must preserve the policy in every
+// supported environment, rather than depending on the linter's Node conditions.
+function packageTargets(filename, name) {
+  let directory = dirname(filename);
+  while (!existsSync(resolve(directory, "package.json"))) {
+    const parent = dirname(directory);
+    if (parent === directory) return undefined;
+    directory = parent;
+  }
+  try {
+    const imports = JSON.parse(readFileSync(resolve(directory, "package.json"), "utf8")).imports;
+    if (!imports || typeof imports !== "object") return undefined;
+    let target = Object.hasOwn(imports, name) ? imports[name] : undefined;
+    let capture;
+    if (target === undefined) {
+      const pattern = Object.keys(imports)
+        .filter((key) => {
+          const [prefix, suffix] = key.split("*");
+          return suffix !== undefined && name.startsWith(prefix) && name.endsWith(suffix);
+        })
+        .sort((a, b) => b.indexOf("*") - a.indexOf("*") || b.length - a.length)[0];
+      if (pattern) {
+        const [prefix, suffix] = pattern.split("*");
+        capture = name.slice(prefix.length, name.length - suffix.length);
+        target = imports[pattern];
+      }
+    }
+    function collect(value) {
+      if (typeof value === "string") {
+        const mapped = capture === undefined ? value : value.replaceAll("*", capture);
+        if (!mapped.startsWith("./")) return undefined;
+        const path = resolve(directory, mapped);
+        if (relative(directory, path).startsWith("..")) return undefined;
+        const file = moduleFile(path);
+        if (!existsSync(file) || !statSync(file).isFile()) return undefined;
+        return [file];
+      }
+      if (!value || typeof value !== "object") return undefined;
+      const branches = Object.values(value).map(collect);
+      if (!branches.length || branches.some((branch) => !branch)) return undefined;
+      return branches.flat();
+    }
+    return collect(target);
+  } catch {
+    return undefined;
+  }
 }
 
 /** @type {Parameters<import("oxlint/plugins-dev").RuleTester["run"]>[1]} */
@@ -213,6 +269,8 @@ export const areaBoundaries = {
       wiring: "{{from}} cannot import composition root {{to}} in {{file}}.",
       unknown: "{{from}} uses undeclared area {{to}} in {{file}}.",
       policy: "Invalid area policy: {{reason}}.",
+      unresolved:
+        "Area imports must use resolvable literal specifiers; cannot resolve {{specifier}}.",
     },
   },
   create(context) {
@@ -241,10 +299,33 @@ export const areaBoundaries = {
         },
       };
     function check(node, source, typeOnly = false) {
-      if (typeof source?.value !== "string") return;
-      const name = source.value;
-      if (!name.startsWith(".") && !isAbsolute(name)) return;
-      const target = moduleFile(resolve(dirname(filename), name));
+      // A missing source on a local export is not a module dependency.
+      if (!source) return;
+      const name =
+        source.type === "TemplateLiteral" && source.expressions.length === 0
+          ? source.quasis[0].value.cooked
+          : source.value;
+      if (typeof name !== "string") {
+        context.report({
+          node,
+          messageId: "unresolved",
+          data: { specifier: "dynamic expression" },
+        });
+        return;
+      }
+      let targets;
+      if (name.startsWith("#")) {
+        targets = packageTargets(filename, name);
+        if (!targets) {
+          context.report({ node, messageId: "unresolved", data: { specifier: name } });
+          return;
+        }
+      } else if (name.startsWith(".") || isAbsolute(name)) {
+        targets = [resolve(dirname(filename), name)];
+      } else return;
+      for (const target of new Set(targets.map(moduleFile))) checkTarget(node, target, typeOnly);
+    }
+    function checkTarget(node, target, typeOnly) {
       const to = areaOwner(target);
       if (!to || to.process !== from.process || to.area === "(root)" || from.area === to.area)
         return;

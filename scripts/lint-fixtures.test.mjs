@@ -60,6 +60,64 @@ test("production lint enables the process and area boundaries for main and rende
   }
 });
 
+test("production config rejects area bypasses and new source extensions", () => {
+  const directory = mkdtempSync(resolve("src/main/agents/.boundary-production-"));
+  const newArea = mkdtempSync(resolve("src/renderer/boundary-production-"));
+  const manifest = resolve("src/main/package.json");
+  const fixtures = [];
+  let ownsManifest = false;
+  try {
+    writeFileSync(
+      manifest,
+      JSON.stringify({ imports: { "#workspace": "./workspace/worktrees.ts" } }),
+      { flag: "wx" },
+    );
+    ownsManifest = true;
+    for (const extension of ["ts", "tsx", "cts", "mts", "js", "cjs", "mjs"]) {
+      for (const [label, code] of [
+        ["template", "void import(`../../workspace/worktrees`);"],
+        ["require", "require(`../../workspace/worktrees`);"],
+        ["dynamic", 'const name = "worktrees"; void import(`../../workspace/${name}`);'],
+        ["alias", 'void import("#workspace");'],
+        ["unresolved", 'void import("#missing");'],
+      ]) {
+        const file = join(directory, `${label}.${extension}`);
+        writeFileSync(file, code);
+        fixtures.push(file);
+      }
+      const file = join(newArea, `new.${extension}`);
+      writeFileSync(file, "const local = 1; void local;");
+      fixtures.push(file);
+    }
+    const result = spawnSync(
+      process.execPath,
+      [
+        resolve("node_modules/oxlint/bin/oxlint"),
+        "--config",
+        resolve(".oxlintrc.json"),
+        "--format=json",
+        ...fixtures,
+      ],
+      { encoding: "utf8" },
+    );
+    assert.equal(result.error, undefined);
+    assert.equal(result.status, 1, result.stderr || result.stdout);
+    const { diagnostics } = JSON.parse(result.stdout);
+    for (const file of fixtures) {
+      assert.ok(
+        diagnostics.some(
+          (item) => resolve(item.filename) === file && item.code === "foom(area-boundaries)",
+        ),
+        file,
+      );
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+    rmSync(newArea, { recursive: true, force: true });
+    if (ownsManifest) rmSync(manifest);
+  }
+});
+
 test("CommonJS packaging modules retain core safety rules through the production config", () => {
   const root = mkdtempSync(join(tmpdir(), "foom-lint-commonjs-"));
   try {
