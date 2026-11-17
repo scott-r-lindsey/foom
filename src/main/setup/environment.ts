@@ -1,3 +1,4 @@
+import type { SecretCipher } from "../../shared/secret-cipher";
 import { viewChanges } from "../data/view-changes";
 import { validAgentId } from "../../shared/providers/catalog";
 import { readLoginShell } from "../login-shell";
@@ -26,15 +27,6 @@ import {
   maskCredentials,
   urlCredentials,
 } from "../../shared/environment-rules";
-
-/** OS-backed encryption for secret values (Electron `safeStorage` in the app). */
-export interface SecretCipher {
-  /** Reports platform support without accessing the keychain. */
-  supported(): boolean;
-  available(): boolean;
-  encrypt(text: string): Buffer;
-  decrypt(data: Buffer): string;
-}
 
 /** Linux without a keyring falls back to a fixed key; that is not a secret store. */
 export function safeStorageCipher(

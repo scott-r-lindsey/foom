@@ -58,6 +58,7 @@
         "forge.d.ts",
         "forge.ts",
         "manual-mcp.ts",
+        "message-board.ts",
         "metadata.ts",
         "orchestration-limits.ts",
         "orchestration.d.ts",
@@ -66,6 +67,7 @@
         "previews.ts",
         "review-loops.d.ts",
         "runtime.ts",
+        "store.ts",
         "types.d.ts"
       ],
       "imports": {
@@ -81,12 +83,27 @@
       "publicModules": [
         "host-observations.ts",
         "settings-changes.ts",
+        "sqlite/database.ts",
+        "sqlite/schema.ts",
         "view-changes.ts",
         "view-ipc.ts",
         "view-readers.ts"
       ],
       "imports": {
         "window": "type"
+      }
+    },
+    "data-import": {
+      "publicModules": ["importer.ts"],
+      "imports": {
+        "agents": "value",
+        "control": "value",
+        "data": "value",
+        "evaluator": "value",
+        "previews": "value",
+        "setup": "value",
+        "window": "value",
+        "workspace": "value"
       }
     },
     "evaluator": {
@@ -120,6 +137,7 @@
       "publicModules": [
         "environment-ipc.ts",
         "environment.ts",
+        "github-sign-in.ts",
         "hosts.ts",
         "local-host.ts",
         "readiness.ts",
@@ -182,6 +200,7 @@
         "confirmations": "value",
         "control": "value",
         "data": "value",
+        "data-import": "value",
         "evaluator": "value",
         "fonts": "value",
         "previews": "value",
@@ -196,6 +215,7 @@
     "workspace": {
       "publicModules": [
         "inventory-watch.ts",
+        "review-worktrees.ts",
         "session-restore.d.ts",
         "session-store.ts",
         "workspace-ipc.ts",

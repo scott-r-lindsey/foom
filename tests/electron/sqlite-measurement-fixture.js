@@ -15,7 +15,7 @@ async function measure() {
   const { ProfileDatabase } = load(modulePath);
   const { ViewChanges } = load("../view-changes.js");
   const { ViewRegistry } = load("../view-registry.js");
-  const { executeDataCommand } = load("./commands.js");
+  const { executeDataCommand } = load("../../data-import/commands.js");
   const tables = load("./schema.js");
   await app.whenReady();
   const channel = `sqlite-measurement-${randomUUID()}`;

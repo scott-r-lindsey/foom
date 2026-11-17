@@ -1,14 +1,14 @@
 import { eq, inArray, lte } from "drizzle-orm";
-import { parseMessageBoard } from "../../control/message-board";
-import { locationId } from "../../control/metadata";
-import { identifier, object } from "../../../shared/control-validation";
-import { record } from "../../../shared/remote-agent-protocol";
-import type { MessageThread } from "../../../shared/message-board";
+import { parseMessageBoard } from "../control/message-board";
+import { locationId } from "../control/metadata";
+import { identifier, object } from "../../shared/control-validation";
+import { record } from "../../shared/remote-agent-protocol";
+import type { MessageThread } from "../../shared/message-board";
 import type { DataTransaction } from "./commands";
 import { RelationshipError } from "./commands";
-import type { ProfileDatabase } from "./database";
+import type { ProfileDatabase } from "../data/sqlite/database";
 import { LegacyBatch } from "./legacy-batch";
-import * as tables from "./schema";
+import * as tables from "../data/sqlite/schema";
 
 function thread(input: unknown): MessageThread {
   const parsed = parseMessageBoard({ version: 1, threads: [input], posts: [], receipts: [] })

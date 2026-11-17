@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import type { DataTransaction } from "./commands";
 import { RelationshipError } from "./commands";
-import { quarantine } from "./schema";
+import { quarantine } from "../data/sqlite/schema";
 
 /** Input validation is separated from SQL failures: I/O and interruption abort the
  * entire group, while rejected rows retain only a fixed source and position. */

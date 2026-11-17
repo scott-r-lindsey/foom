@@ -13,10 +13,16 @@ test("data SQLite: Drizzle, importer and commit publications run in Electron mai
     const { ProfileDatabase } = load(modulePath);
     const recoveryCipher = load(process.cwd() + "/tests/electron/sqlite-recovery-cipher.js")();
     const { executeDataCommand } = load(
-      load("node:path").join(load("node:path").dirname(modulePath), "commands.js"),
+      load("node:path").join(
+        load("node:path").dirname(modulePath),
+        "../../data-import/commands.js",
+      ),
     );
     const { importLegacy } = load(
-      load("node:path").join(load("node:path").dirname(modulePath), "importer.js"),
+      load("node:path").join(
+        load("node:path").dirname(modulePath),
+        "../../data-import/importer.js",
+      ),
     );
     const { ViewChanges } = load(
       load("node:path").join(load("node:path").dirname(modulePath), "../view-changes.js"),
@@ -112,7 +118,9 @@ test("data SQLite: profile settings and consent import preserve JSON and publish
     const load = process.getBuiltinModule("node:module").createRequire(modulePath);
     const { ProfileDatabase } = load(modulePath);
     const recoveryCipher = load(process.cwd() + "/tests/electron/sqlite-recovery-cipher.js")();
-    const { importProfileSettings, saveProfileSettings, saveAgentConsent } = load("./settings.js");
+    const { importProfileSettings, saveProfileSettings, saveAgentConsent } = load(
+      "../../data-import/settings.js",
+    );
     const fs = load("node:fs/promises");
     const path = load("node:path");
     const { DatabaseSync } = load("node:sqlite");
@@ -180,7 +188,7 @@ test("data SQLite: Environment uses native safeStorage or refuses secrets withou
     const load = process.getBuiltinModule("node:module").createRequire(modulePath);
     const { ProfileDatabase } = load(modulePath);
     const recoveryCipher = load(process.cwd() + "/tests/electron/sqlite-recovery-cipher.js")();
-    const api = load("./environment.js");
+    const api = load("../../data-import/environment.js");
     const { safeStorageCipher } = load("../../setup/environment.js");
     const fs = load("node:fs/promises");
     const path = load("node:path");
@@ -247,7 +255,7 @@ test("data SQLite: board and control recovery preserve history without replay or
     const load = process.getBuiltinModule("node:module").createRequire(modulePath);
     const { ProfileDatabase } = load(modulePath);
     const recoveryCipher = load(process.cwd() + "/tests/electron/sqlite-recovery-cipher.js")();
-    const api = load("./control.js");
+    const api = load("../../data-import/control.js");
     const { privateDirectory, atomicPrivate } = load("../../../node-common/private-files.js");
     const fs = load("node:fs/promises");
     const path = load("node:path");
@@ -359,7 +367,7 @@ test("data SQLite: window and update metadata import without changing production
     const load = process.getBuiltinModule("node:module").createRequire(modulePath);
     const { ProfileDatabase } = load(modulePath);
     const recoveryCipher = load(process.cwd() + "/tests/electron/sqlite-recovery-cipher.js")();
-    const api = load("./windows.js");
+    const api = load("../../data-import/windows.js");
     const fs = load("node:fs/promises");
     const path = load("node:path");
     const { DatabaseSync } = load("node:sqlite");

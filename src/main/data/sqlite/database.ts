@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
 import { lstat } from "node:fs/promises";
-import type { SecretCipher } from "../../setup/environment";
+import type { SecretCipher } from "../../../shared/secret-cipher";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { drizzle } from "drizzle-orm/node-sqlite";

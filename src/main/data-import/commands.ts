@@ -1,14 +1,14 @@
 import { and, eq, inArray } from "drizzle-orm";
-import { forgeBranch } from "../../control/forge";
-import type { ReviewCheckout } from "../../workspace/review-worktrees";
+import { forgeBranch } from "../control/forge";
+import type { ReviewCheckout } from "../workspace/review-worktrees";
 import { isAbsolute } from "node:path";
-import { registeredHosts, hostAlias } from "../../../shared/registered-hosts";
-import { readSessions } from "../../workspace/session-store";
-import { record } from "../../../shared/remote-agent-protocol";
-import type { RegisteredHost } from "../../../shared/registered-hosts.d";
-import type { StoredSession } from "../../workspace/session-restore.d";
-import type { ProfileDatabase } from "./database";
-import * as tables from "./schema";
+import { registeredHosts, hostAlias } from "../../shared/registered-hosts";
+import { readSessions } from "../workspace/session-store";
+import { record } from "../../shared/remote-agent-protocol";
+import type { RegisteredHost } from "../../shared/registered-hosts.d";
+import type { StoredSession } from "../workspace/session-restore.d";
+import type { ProfileDatabase } from "../data/sqlite/database";
+import * as tables from "../data/sqlite/schema";
 
 export type DataTransaction = Parameters<Parameters<ProfileDatabase["write"]>[0]>[0];
 export type DataCommand =

@@ -1,15 +1,15 @@
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
-import { parseSettingsPatch } from "../../setup/settings";
-import { legacyBypassIdentities } from "../../agents/providers/bundled";
-import { isConfigSetting, migrateAppearanceSettings } from "../../../shared/config-settings";
-import { parseSettingsFile } from "../../../shared/config-files";
-import { record } from "../../../shared/remote-agent-protocol";
-import { validAgentId } from "../../../shared/providers/catalog";
+import { parseSettingsPatch } from "../setup/settings";
+import { legacyBypassIdentities } from "../agents/providers/bundled";
+import { isConfigSetting, migrateAppearanceSettings } from "../../shared/config-settings";
+import { parseSettingsFile } from "../../shared/config-files";
+import { record } from "../../shared/remote-agent-protocol";
+import { validAgentId } from "../../shared/providers/catalog";
 import { importLegacyGroup } from "./importer";
-import type { ProfileDatabase } from "./database";
+import type { ProfileDatabase } from "../data/sqlite/database";
 import type { DataTransaction } from "./commands";
-import * as tables from "./schema";
+import * as tables from "../data/sqlite/schema";
 
 /** Main-owned patches only. Host registration and consent have distinct commands. */
 export function writeSettings(db: DataTransaction, input: unknown): void {

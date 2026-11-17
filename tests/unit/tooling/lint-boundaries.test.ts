@@ -88,6 +88,14 @@ afterAll(() => {
 const aliasFile = resolve(aliasDirectory, "agents/example.ts");
 
 const areaValid: [string, string][] = [
+  ["main/data-import/example.ts", 'import { ProfileDatabase } from "../data/sqlite/database";'],
+  ["main/data-import/example.ts", 'import { parseMessageBoard } from "../control/message-board";'],
+  [
+    "main/data-import/example.ts",
+    'import type { ReviewCheckout } from "../workspace/review-worktrees";',
+  ],
+  ["main/wiring/example.ts", 'import { importLegacy } from "../data-import/importer";'],
+  ["main/wiring/example.ts", 'import "../setup/github-sign-in";'],
   ["main/workspace/example.ts", 'import { AgentService } from "../agents/agents";'],
   ["main/workspace/example.ts", 'import { helper } from "./internal";'],
   ["main/workspace/example.ts", "import(`./internal`);"],
@@ -117,6 +125,14 @@ const areaValid: [string, string][] = [
   ["main/workspace/example.ts", 'import { profile } from "../profile";'],
 ];
 const areaInvalid: [string, string, string][] = [
+  ["main/data/example.ts", 'import "../data-import/importer";', "edge"],
+  ["main/data/example.ts", 'import type { SecretCipher } from "../setup/environment";', "edge"],
+  ["main/data/example.ts", 'import "../window/window-placement";', "types"],
+  ["main/setup/example.ts", 'import "../data-import/importer";', "edge"],
+  ["main/data-import/example.ts", 'import "../control/service";', "entry"],
+  ["main/data-import/example.ts", 'import "../data/view-registry";', "entry"],
+  ["main/data-import/example.ts", 'import "../terminals/terminal-ipc";', "edge"],
+  ["main/wiring/example.ts", 'import "../data-import/legacy-batch";', "entry"],
   ["main/agents/example.ts", "import(`../workspace/worktrees`);", "types"],
   ["main/agents/example.ts", "require(`../workspace/worktrees`);", "types"],
   ["main/agents/example.ts", "import(`../workspace/${name}`);", "unresolved"],
