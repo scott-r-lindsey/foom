@@ -36,9 +36,10 @@ test("a manifest-only v2 fixture agent loads from the config folder, reloads edi
   await chmod(executable, 0o755);
   await writeFile(
     script,
-    `require("node:fs").writeFileSync(process.env.TEST_ARGV, JSON.stringify(process.argv.slice(2)));
-require("node:fs").writeFileSync(process.env.TEST_ARGV + ".mcp", require("node:fs").readFileSync(process.env.AGENT_CONFIG));
+    // argv.json is the readiness marker for all three captures, so publish it last.
+    `require("node:fs").writeFileSync(process.env.TEST_ARGV + ".mcp", require("node:fs").readFileSync(process.env.AGENT_CONFIG));
 require("node:fs").writeFileSync(process.env.TEST_ARGV + ".env", process.env.AGENT_CONFIG);
+require("node:fs").writeFileSync(process.env.TEST_ARGV, JSON.stringify(process.argv.slice(2)));
 process.stdin.on('data', async () => {
   if (!process.env.FOOM_TOKEN) return;
   const payload = { session_id: 'fixture-hook-conversation', hook_event_name: 'PermissionRequest' };
