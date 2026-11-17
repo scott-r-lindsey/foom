@@ -83,7 +83,9 @@ checks the current file through the ordinary validation and approval path. Safe
 edits made before the watcher runs are retained; held edits still follow the
 existing Settings-save replacement rule. A read or parse failure refuses the save
 without replacing the external bytes; the same patch can be retried after the
-file is available and valid. On Windows only, atomic
+file is available and valid. The [#1234 investigation](../research/settings-reset-1234.md)
+records the reproduced pre-#1228 replacement paths and recovery limits; it does not
+establish the historical incident trigger. On Windows only, atomic
 replacement retries EPERM/EBUSY up to five attempts with 25, 50, 100 and 200 ms
 backoff for transient external sharing locks. It never unlinks the destination;
 exhaustion removes the temporary file, reports a fixed error naming the config
