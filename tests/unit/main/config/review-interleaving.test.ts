@@ -72,7 +72,7 @@ test("a stale lock refuses saves and removal permits retry without losing curren
   await f.service.initialize();
   const original = await f.read("settings.json");
   await f.write(".foom-settings.lock", "");
-  await expect(f.service.write(preferences)).rejects.toThrow("settings are busy");
+  await expect(f.service.write(preferences)).rejects.toThrow("foom-error:settings-lock-corrupt");
   expect(await f.read("settings.json")).toBe(original);
   await rm(join(f.folder, ".foom-settings.lock"));
   await f.service.write(preferences);

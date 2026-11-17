@@ -118,3 +118,24 @@ test("a typed setup refusal without item details clears previous board navigatio
   await expect(dispatch?.(event(board))).rejects.toThrow("foom-error:repository-setup-changed");
   expect(board.send).toHaveBeenCalledExactlyOnceWith("setup:launch-refused", undefined);
 });
+
+test.each(["settings-busy", "settings-lock-corrupt", "settings-lock-unsupported"] as const)(
+  "settings IPC preserves only the typed %s code",
+  async (code) => {
+    const { ApplicationError } = await import("../../../../src/shared/application-errors");
+    const router = new WindowIpcRouter();
+    const board = contents();
+    const handler = vi.fn<() => unknown>(() => {
+      throw new ApplicationError(code);
+    });
+    router.forWindow(board).handle("setup:save", handler);
+    const dispatch = mock.handle.mock.calls[0]?.[1];
+    expect(() => dispatch?.(event(board))).toThrow(`foom-error:${code}`);
+    handler.mockRejectedValueOnce(new ApplicationError(code));
+    await expect(dispatch?.(event(board))).rejects.toThrow(`foom-error:${code}`);
+    handler.mockImplementationOnce(() => {
+      throw new Error(`foom-error:${code}`);
+    });
+    expect(() => dispatch?.(event(board))).toThrow("foom-error:operation-failed");
+  },
+);

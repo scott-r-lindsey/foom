@@ -16,6 +16,10 @@ const messages = {
   "launch-cancel-incomplete": "Terminal may still be running.",
   "remote-host-unavailable": "Remote host artifact unavailable in this local build.",
   "session-has-children": "Close its children first.",
+  "settings-busy": "Settings are busy; try again.",
+  "settings-lock-corrupt":
+    "Quit other Foom windows, then remove .foom-settings.lock and its recovery locks.",
+  "settings-lock-unsupported": "The config filesystem does not support hard links.",
   "session-busy": "This session is busy. Try again when its current action finishes.",
   "session-running": "Stop this session before closing it.",
   "session-remote-unreachable": "Remote host unreachable. Reconnect before closing this session.",

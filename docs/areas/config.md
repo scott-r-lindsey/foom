@@ -98,7 +98,16 @@ Readable corrupt records also fail closed at any age: atomic publication means
 a crash while writing the record leaves only an unpublished temporary file.
 There is no longer a need for the 24-hour corrupt-record recovery rule, which
 could steal a live, paused writer's lock after a clock jump. Legacy corrupt locks
-require manual removal while all sharing apps are stopped.
+require manual removal while all sharing apps are stopped. Settings failures use
+fixed typed codes: `settings-busy` asks to try again, `settings-lock-corrupt` asks
+to quit other Foom windows and remove `.foom-settings.lock` and its recovery locks,
+and `settings-lock-unsupported` explains that the config filesystem does not
+support hard links. No filesystem path or exception text crosses IPC.
+Lock publication cleanup retries EPERM/EBUSY five times with 25, 50, 100 and
+200 ms backoff, then logs and leaves the temporary file without discarding
+ownership. Later acquisitions sweep complete `.foom-*.tmp` lock records only
+when the same-host process is proven dead by the lock recovery rules; other
+config temporaries and live, foreign or unverified owners remain untouched.
 Safe external edits are adopted through the approval gate. With a verified
 baseline, unrelated held keys remain on disk and held while only the Settings
 patch is applied. Without a trusted baseline (including rejected profile loads),

@@ -6,6 +6,7 @@ import {
   mkdir,
   open,
   readFile,
+  readdir,
   realpath,
   rename,
   rm,
@@ -14,6 +15,7 @@ import {
 import { hostname } from "node:os";
 import { dirname, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
+import { ApplicationError } from "../../shared/application-errors";
 import { ThemeValidationError } from "../../shared/theme-validation";
 import type { ConfigServiceDependencies } from "./service";
 
@@ -159,8 +161,7 @@ export class ConfigFiles {
   }
 }
 
-const settingsBusy = () =>
-  new Error("Foom settings are busy. Retry the change after the other save finishes.");
+const settingsBusy = () => new ApplicationError("settings-busy");
 
 async function processIdentity(pid: number): Promise<string | null> {
   if (process.platform !== "linux") return null;
@@ -186,48 +187,79 @@ function parseLockRecord(text: string): unknown {
 }
 
 async function staleLock(path: string): Promise<string | null> {
-  try {
-    const bytes = await readConfigFile(path);
-    if (!bytes) return null;
-    const text = bytes.toString("utf8");
-    const record = parseLockRecord(text);
-    if (
-      typeof record === "object" &&
-      record !== null &&
-      "hostname" in record &&
-      typeof record.hostname === "string" &&
-      record.hostname !== hostname()
-    )
-      return null;
-    if (
-      typeof record !== "object" ||
-      record === null ||
-      !("pid" in record) ||
-      typeof record.pid !== "number" ||
-      !Number.isSafeInteger(record.pid) ||
-      record.pid <= 0 ||
-      !("hostname" in record) ||
-      typeof record.hostname !== "string" ||
-      !("token" in record) ||
-      typeof record.token !== "string" ||
-      !record.token ||
-      !("timestamp" in record) ||
-      typeof record.timestamp !== "number" ||
-      !Number.isFinite(record.timestamp) ||
-      !("start" in record) ||
-      (record.start !== null && typeof record.start !== "string")
-    )
-      return null;
-    try {
-      process.kill(record.pid, 0);
-    } catch (error) {
-      return error instanceof Error && "code" in error && error.code === "ESRCH" ? text : null;
-    }
-    const identity = await processIdentity(record.pid);
-    return record.start !== null && identity !== null && record.start !== identity ? text : null;
-  } catch {
-    // Invalid, unreadable, linked and nonregular locks fail closed at any age.
+  const bytes = await readConfigFile(path).catch(() => {
+    throw new ApplicationError("settings-lock-corrupt");
+  });
+  if (!bytes) return null;
+  const text = bytes.toString("utf8");
+  const record = parseLockRecord(text);
+  if (
+    typeof record === "object" &&
+    record !== null &&
+    "hostname" in record &&
+    typeof record.hostname === "string" &&
+    record.hostname !== hostname()
+  )
     return null;
+  if (
+    typeof record !== "object" ||
+    record === null ||
+    !("pid" in record) ||
+    typeof record.pid !== "number" ||
+    !Number.isSafeInteger(record.pid) ||
+    record.pid <= 0 ||
+    !("hostname" in record) ||
+    typeof record.hostname !== "string" ||
+    !("token" in record) ||
+    typeof record.token !== "string" ||
+    !record.token ||
+    !("timestamp" in record) ||
+    typeof record.timestamp !== "number" ||
+    !Number.isFinite(record.timestamp) ||
+    !("start" in record) ||
+    (record.start !== null && typeof record.start !== "string")
+  )
+    throw new ApplicationError("settings-lock-corrupt");
+  try {
+    process.kill(record.pid, 0);
+  } catch (error) {
+    return error instanceof Error && "code" in error && error.code === "ESRCH" ? text : null;
+  }
+  const identity = await processIdentity(record.pid);
+  return record.start !== null && identity !== null && record.start !== identity ? text : null;
+}
+
+/** Cleanup must never discard ownership after a successful publication. */
+async function cleanupLockTemporary(path: string): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await rm(path, { force: true });
+      return;
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        "code" in error &&
+        (error.code === "EPERM" || error.code === "EBUSY") &&
+        attempt < 4
+      ) {
+        await sleep(25 * 2 ** attempt);
+        continue;
+      }
+      console.warn(
+        "Unable to remove a settings lock temporary file; cleanup will retry on a later acquisition.",
+      );
+      return;
+    }
+  }
+}
+
+async function sweepLockTemporaries(folder: string): Promise<void> {
+  const names = await readdir(folder).catch(() => []);
+  for (const name of names) {
+    if (!/^\.foom-[0-9a-f-]{36}\.tmp$/u.test(name)) continue;
+    const path = join(folder, name);
+    // Other config temporaries, partial records and live/foreign owners stay untouched.
+    if ((await staleLock(path).catch(() => null)) !== null) await cleanupLockTemporary(path);
   }
 }
 
@@ -249,10 +281,16 @@ async function publishLock(path: string, record: string): Promise<boolean> {
       return true;
     } catch (error) {
       if (error instanceof Error && "code" in error && error.code === "EEXIST") return false;
+      if (
+        error instanceof Error &&
+        "code" in error &&
+        (error.code === "ENOTSUP" || error.code === "EOPNOTSUPP" || error.code === "ENOSYS")
+      )
+        throw new ApplicationError("settings-lock-unsupported");
       throw error;
     }
   } finally {
-    await rm(temporary, { force: true });
+    await cleanupLockTemporary(temporary);
   }
 }
 
@@ -265,6 +303,7 @@ async function ownsLock(path: string, token: string): Promise<boolean> {
 }
 
 async function withSettingsLock<T>(path: string, work: () => Promise<T>, depth = 0): Promise<T> {
+  await sweepLockTemporaries(dirname(path));
   const token = randomUUID();
   const record = JSON.stringify({
     pid: process.pid,

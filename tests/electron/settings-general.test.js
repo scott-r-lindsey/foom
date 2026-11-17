@@ -4,7 +4,7 @@ const { gitSync: isolatedGit } = require("../helpers/git.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const path = require("node:path");
-const { mkdir, mkdtemp, readFile, realpath, writeFile } = require("node:fs/promises");
+const { mkdir, mkdtemp, readFile, realpath, rm, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const { deadline, expect } = require("./test-policy.js");
 const {
@@ -393,6 +393,27 @@ test("General close finished agents defaults on and saves immediately", {
   await openSettingsScreen(page);
   const control = page.getByRole("checkbox", { name: "Close finished agents", exact: true });
   await expect(control).toBeChecked();
+  const folder = (await page.evaluate(() => window.desktop.configStatus())).folder;
+  const lock = path.join(folder, ".foom-settings.lock");
+  await writeFile(
+    lock,
+    JSON.stringify({
+      pid: process.pid,
+      hostname: require("node:os").hostname(),
+      start: null,
+      token: "busy-settings-fixture",
+      timestamp: Date.now(),
+    }),
+  );
+  await control.uncheck();
+  await expect(page.getByRole("alert")).toHaveText("Settings are busy; try again.");
+  await expect(control).toBeChecked();
+  assert.equal(
+    (await page.evaluate(() => window.desktop.setupState())).settings.closeFinishedAgents,
+    true,
+  );
+  await page.getByRole("button", { name: "Dismiss", exact: true }).click();
+  await rm(lock);
   await control.uncheck();
   await expect
     .poll(

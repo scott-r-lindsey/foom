@@ -36,7 +36,9 @@ test("live and foreign-host owners never expire; permission failures fail closed
   ]) {
     await writeFile(f.lock, record);
     await utimes(f.lock, 0, 0);
-    await expect(f.service.write({ concurrentChildren: 8 })).rejects.toThrow("settings are busy");
+    await expect(f.service.write({ concurrentChildren: 8 })).rejects.toThrow(
+      "foom-error:settings-busy",
+    );
     expect(await readFile(f.lock, "utf8")).toBe(record);
   }
   await writeFile(f.lock, owner());
@@ -44,7 +46,9 @@ test("live and foreign-host owners never expire; permission failures fail closed
     throw Object.assign(new Error("denied"), { code: "EPERM" });
   });
   try {
-    await expect(f.files.withSettingsLock(async () => {})).rejects.toThrow("settings are busy");
+    await expect(f.files.withSettingsLock(async () => {})).rejects.toThrow(
+      "foom-error:settings-busy",
+    );
   } finally {
     kill.mockRestore();
   }
@@ -66,9 +70,13 @@ test.each(["", "{broken", "{}", owner({ pid: -1 }), owner({ start: 42 })])(
   async (record) => {
     const f = await setup();
     await writeFile(f.lock, record);
-    await expect(f.files.withSettingsLock(async () => {})).rejects.toThrow("settings are busy");
+    await expect(f.files.withSettingsLock(async () => {})).rejects.toThrow(
+      "foom-error:settings-lock-corrupt",
+    );
     await utimes(f.lock, 0, 0);
-    await expect(f.files.withSettingsLock(async () => {})).rejects.toThrow("settings are busy");
+    await expect(f.files.withSettingsLock(async () => {})).rejects.toThrow(
+      "foom-error:settings-lock-corrupt",
+    );
     expect(await readFile(f.lock, "utf8")).toBe(record);
   },
 );
@@ -77,7 +85,9 @@ test("an old nonregular lock fails closed", async () => {
   const f = await setup();
   await mkdir(f.lock);
   await utimes(f.lock, 0, 0);
-  await expect(f.files.withSettingsLock(async () => {})).rejects.toThrow("settings are busy");
+  await expect(f.files.withSettingsLock(async () => {})).rejects.toThrow(
+    "foom-error:settings-lock-corrupt",
+  );
 });
 
 test("a writer paused before its record write cannot enter beside an owner after a 24-hour clock jump", async () => {
@@ -113,7 +123,7 @@ test("a writer paused before its record write cannot enter beside an owner after
   try {
     await acquired.promise;
     resume.resolve(undefined);
-    await expect(first).rejects.toThrow("settings are busy");
+    await expect(first).rejects.toThrow("foom-error:settings-busy");
     expect(firstWork).not.toHaveBeenCalled();
     expect(maximum).toBe(1);
   } finally {
@@ -133,7 +143,7 @@ test("ownership is checked after publication before entering the callback", asyn
     await writeFile(f.lock, replacement);
   });
   const work = vi.fn(async () => {});
-  await expect(f.files.withSettingsLock(work)).rejects.toThrow("settings are busy");
+  await expect(f.files.withSettingsLock(work)).rejects.toThrow("foom-error:settings-busy");
   expect(work).not.toHaveBeenCalled();
   expect(await readFile(f.lock, "utf8")).toBe(replacement);
 });
@@ -276,3 +286,87 @@ process.send('ready');
     await rm(bundle, { force: true });
   }
 }, 15000);
+
+for (const recovery of [false, true]) {
+  test(`temporary EPERM after ${recovery ? "recovery" : "settings"} publication still releases ownership`, async () => {
+    const f = await setup();
+    if (recovery) {
+      await writeFile(f.lock, owner({ pid: 2147483647 }));
+    }
+    const originalRm = fs.rm;
+    const originalLink = fs.link;
+    let published = false;
+    let denied = false;
+    vi.spyOn(fs, "link").mockImplementation(async (...args) => {
+      await originalLink(...args);
+      if (args[1] === (recovery ? `${f.lock}.recovery` : f.lock)) published = true;
+    });
+    vi.spyOn(fs, "rm").mockImplementation(async (...args) => {
+      if (published && !denied && String(args[0]).endsWith(".tmp")) {
+        denied = true;
+        throw Object.assign(new Error("scanner"), { code: "EPERM" });
+      }
+      return originalRm(...args);
+    });
+    const work = vi.fn(() => Promise.resolve("saved"));
+    await expect(f.files.withSettingsLock(work)).resolves.toBe("saved");
+    expect(denied).toBe(true);
+    expect(work).toHaveBeenCalledTimes(1);
+    expect((await readdir(f.folder)).filter((name) => name.startsWith(".foom-"))).toEqual([]);
+    await expect(f.files.withSettingsLock(() => Promise.resolve("again"))).resolves.toBe("again");
+  });
+}
+
+test.each(["EPERM", "EBUSY", "EACCES"])(
+  "persistent %s temporary cleanup is best effort",
+  async (code) => {
+    const f = await setup();
+    const originalRm = fs.rm;
+    const cleanup = vi.spyOn(fs, "rm").mockImplementation(async (...args) => {
+      if (String(args[0]).endsWith(".tmp")) throw Object.assign(new Error("scanner"), { code });
+      return originalRm(...args);
+    });
+    const log = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await expect(f.files.withSettingsLock(() => Promise.resolve("saved"))).resolves.toBe("saved");
+    expect(log).toHaveBeenCalledTimes(1);
+    expect(cleanup.mock.calls.filter(([path]) => String(path).endsWith(".tmp"))).toHaveLength(
+      code === "EACCES" ? 1 : 5,
+    );
+    const names = await readdir(f.folder);
+    expect(names).not.toContain(lockName);
+    expect(names.filter((name) => name.endsWith(".tmp"))).toHaveLength(1);
+  },
+);
+
+test("later acquisitions sweep only complete temporary records owned by dead same-host processes", async () => {
+  const f = await setup();
+  const records = [
+    owner({ pid: 2147483647 }),
+    owner(),
+    owner({ hostname: "other-host" }),
+    "{partial",
+    "{}",
+  ];
+  const names = records.map(
+    (_, index) => `.foom-00000000-0000-0000-0000-${String(index).padStart(12, "0")}.tmp`,
+  );
+  await Promise.all(
+    records.map((record, index) => writeFile(join(f.folder, names[index] ?? ""), record)),
+  );
+  await f.files.withSettingsLock(async () => {});
+  const remaining = await readdir(f.folder);
+  expect(remaining).not.toContain(names[0]);
+  for (const name of names.slice(1)) expect(remaining).toContain(name);
+});
+
+test.each(["ENOTSUP", "EOPNOTSUPP", "ENOSYS"])(
+  "unsupported hard links (%s) select a fixed code",
+  async (code) => {
+    const f = await setup();
+    vi.spyOn(fs, "link").mockRejectedValueOnce(Object.assign(new Error("private path"), { code }));
+    await expect(f.files.withSettingsLock(async () => {})).rejects.toThrow(
+      "foom-error:settings-lock-unsupported",
+    );
+    expect((await readdir(f.folder)).filter((name) => name.startsWith(".foom-"))).toEqual([]);
+  },
+);
