@@ -1,3 +1,4 @@
+import type { StoredSession } from "../../../../src/main/workspace/session-restore.d";
 import * as reviewSnapshots from "../../../../src/main/workspace/review-snapshot";
 import type { HostManagement } from "../../../../src/shared/registered-hosts.d";
 import { ForgeTracking } from "../../../../src/main/control/forge-tracking";
@@ -488,55 +489,198 @@ it("holds an author's checkout until shared-review close, reports drift and neve
   );
 });
 
-it("restores shared-review leases without resuming either participant and releases them only after verified Close", async () => {
-  const baseline = {
-    authorId: "author",
-    identity: "identity",
-    head: "a".repeat(40),
-    digest: "b".repeat(64),
-  };
-  vi.spyOn(reviewSnapshots, "reviewSnapshot").mockResolvedValue({ ...baseline });
-  const row = {
-    kind: "agent" as const,
-    agent: "claude",
-    repository: repo.path,
-    worktree: child.path,
-    branch: child.branch,
-    attention: "evaluator" as const,
-    state: null,
-    exited: true,
-    dormant: true,
-    running: true,
-    conversationId: "conversation",
-  };
-  const sessions = {
-    load: vi.fn(() =>
-      Promise.resolve([
-        { ...row, id: "author" },
-        { ...row, id: "reviewer", sharedReview: baseline },
-      ]),
-    ),
-    save: vi.fn(async () => {}),
-    flush: vi.fn(async () => {}),
-  };
-  const workspace = createWorkspace({ ...deps, sessions });
-  await workspace.restore();
-  await workspace.restartSaved();
-  expect(launch).not.toHaveBeenCalled();
-  expect(workspace.snapshot().terminals.find((row) => row.id === "reviewer")).not.toHaveProperty(
-    "sharedReview",
-  );
-  await expect(
-    workspace.sidebarCommand(
+it.each([false, true])(
+  "restores shared-review leases or intents without resuming participants (intent=%s)",
+  async (intent) => {
+    const baseline = {
+      authorId: "author",
+      identity: "identity",
+      head: "a".repeat(40),
+      digest: "b".repeat(64),
+    };
+    vi.spyOn(reviewSnapshots, "reviewSnapshot").mockResolvedValue({ ...baseline });
+    const row = {
+      kind: "agent" as const,
+      agent: "claude",
+      repository: repo.path,
+      worktree: child.path,
+      branch: child.branch,
+      attention: "evaluator" as const,
+      state: null,
+      exited: true,
+      dormant: true,
+      running: true,
+      conversationId: "conversation",
+    };
+    const sessions = {
+      load: vi.fn(() =>
+        Promise.resolve([
+          ...(intent
+            ? [{ ...row, id: "author", sharedReview: { ...baseline, intent: true as const } }]
+            : [
+                { ...row, id: "author" },
+                { ...row, id: "reviewer", sharedReview: baseline },
+              ]),
+        ]),
+      ),
+      save: vi.fn(async () => {}),
+      flush: vi.fn(async () => {}),
+    };
+    const workspace = createWorkspace({ ...deps, sessions });
+    await workspace.restore();
+    await workspace.restartSaved();
+    expect(launch).not.toHaveBeenCalled();
+    expect(
+      workspace.snapshot().terminals.find((row) => row.id === (intent ? "author" : "reviewer")),
+    ).not.toHaveProperty("sharedReview");
+    await expect(
+      workspace.sidebarCommand(
+        { kind: "launch", repository: repo.path, worktree: child.path, run: "claude" },
+        () => Promise.resolve(true),
+      ),
+    ).rejects.toThrow("busy");
+    if (intent) {
+      await workspace.sidebarCommand({ kind: "close", id: "author" }, () => Promise.resolve(true));
+      await workspace.sidebarCommand(
+        { kind: "launch", repository: repo.path, worktree: child.path, run: "claude" },
+        () => Promise.resolve(true),
+      );
+      expect(launch).toHaveBeenCalledTimes(1);
+      return;
+    }
+    await workspace.sidebarCommand({ kind: "close", id: "reviewer" }, () => Promise.resolve(true));
+    expect(workspace.snapshot().terminals.some((row) => row.id === "author")).toBe(true);
+    await workspace.sidebarCommand(
       { kind: "launch", repository: repo.path, worktree: child.path, run: "claude" },
       () => Promise.resolve(true),
-    ),
-  ).rejects.toThrow("busy");
-  await workspace.sidebarCommand({ kind: "close", id: "reviewer" }, () => Promise.resolve(true));
-  expect(workspace.snapshot().terminals.some((row) => row.id === "author")).toBe(true);
-  await workspace.sidebarCommand(
-    { kind: "launch", repository: repo.path, worktree: child.path, run: "claude" },
-    () => Promise.resolve(true),
-  );
-  expect(launch).toHaveBeenCalledTimes(1);
-});
+    );
+    expect(launch).toHaveBeenCalledTimes(1);
+  },
+);
+
+it.each(["intent", "lease", "none"])(
+  "durably holds shared review across %s save failures",
+  async (failure) => {
+    const original = { head: "a".repeat(40), digest: "b".repeat(64), clean: true };
+    vi.spyOn(reviewSnapshots, "reviewSnapshot").mockResolvedValue(original);
+    const forge = new ForgeTracking(
+      "/unused",
+      () => Promise.resolve(undefined),
+      () => {},
+    );
+    vi.spyOn(forge, "track").mockImplementation(() => {});
+    vi.spyOn(forge, "bindPullRequest").mockResolvedValue();
+    vi.spyOn(forge, "read").mockReturnValue({
+      number: 7,
+      headSha: original.head,
+      state: "OPEN",
+      requiredChecks: "success",
+    });
+    let next = 0;
+    launch.mockImplementation(async (request) => {
+      await request.prepareSpawn?.();
+      request.beforeSpawn?.();
+      return {
+        id: next++ === 0 ? "parent" : `participant-${String(next)}`,
+        attention: "evaluator",
+        conversationId: "fixture-conversation",
+      };
+    });
+    const childInput = vi.fn(async () => {});
+    let persisted: readonly StoredSession[] = [];
+    const sessions = {
+      load: vi.fn(() => Promise.resolve([...persisted])),
+      save: vi.fn((entries: readonly StoredSession[]) => {
+        if (
+          entries.some(
+            (entry) =>
+              entry.sharedReview &&
+              (failure === "intent" || (failure === "lease" && !entry.sharedReview.intent)),
+          )
+        )
+          return Promise.reject(new Error("fixture disk failure"));
+        persisted = structuredClone(entries);
+        return Promise.resolve();
+      }),
+      flush: vi.fn(async () => {}),
+    };
+    const workspace = createWorkspace({
+      sessions,
+      ...deps,
+      forge,
+      terminals: { ...deps.terminals, childInput },
+    });
+    await orchestrate(workspace);
+    const operations = new Operations(
+      () => Promise.resolve(),
+      () => {},
+    );
+    let key = 0;
+    const call = (method: string, params: Record<string, unknown>) =>
+      workspace.orchestration.call(
+        principal(),
+        method,
+        { ...params, idempotencyKey: `shared-${String(++key)}` },
+        operations,
+      );
+    const tree = object(await call("create_worktree", { branch: "feature" }));
+    const author = object(await call("launch", { worktreeId: tree["resultId"], agent: "claude" }));
+    const authorId = author["resultId"];
+    if (typeof authorId !== "string") throw new Error("Missing author");
+    vi.spyOn(deps.verdicts, "classify").mockResolvedValue({
+      id: "idle-author",
+      terminalId: authorId,
+      timestamp: new Date(0).toISOString(),
+      verdict: { state: "done", reason: "Idle", signal: "test", confidence: 1 },
+    });
+    await workspace.quiet(authorId);
+    expect(workspace.snapshot().terminals.find((row) => row.id === authorId)?.state?.state).toBe(
+      "done",
+    );
+    const before = launch.mock.calls.length;
+    const intentSnapshots: (readonly StoredSession[])[] = [];
+    const launchImplementation = launch.getMockImplementation();
+    if (!launchImplementation) throw new Error("Missing launcher");
+    launch.mockImplementation(async (request) => {
+      intentSnapshots.push(structuredClone(persisted));
+      return launchImplementation(request);
+    });
+    const review = call("review", { pullRequest: 7, authorId, agent: "claude" });
+    if (failure === "none") {
+      expect(await review).toMatchObject({ status: "succeeded" });
+      expect(persisted.some((entry) => entry.sharedReview && !entry.sharedReview.intent)).toBe(
+        true,
+      );
+    } else {
+      await expect(review).rejects.toThrow();
+    }
+    expect(launch).toHaveBeenCalledTimes(before + (failure === "intent" ? 0 : 1));
+    if (failure === "intent") {
+      expect(persisted.some((entry) => entry.sharedReview)).toBe(false);
+    } else {
+      expect(
+        intentSnapshots[0]?.find((entry) => entry.id === authorId)?.sharedReview,
+      ).toMatchObject({ intent: true });
+      const restored = createWorkspace({ ...deps, forge, sessions });
+      await restored.restore();
+      const prior = launch.mock.calls.length;
+      await restored.restartSaved();
+      expect(
+        launch.mock.calls.slice(prior).every(([request]) => request.worktree !== child.path),
+      ).toBe(true);
+      await expect(
+        restored.sidebarCommand(
+          { kind: "launch", repository: repo.path, worktree: child.path, run: "claude" },
+          () => Promise.resolve(true),
+        ),
+      ).rejects.toThrow("busy");
+    }
+    await expect(call("prompt", { id: authorId, text: "resume" })).rejects.toThrow("conflict");
+    workspace.orchestration.takeOver(authorId);
+    await expect(
+      workspace.sidebarCommand({ kind: "make-orchestrator", id: authorId }, () =>
+        Promise.resolve(true),
+      ),
+    ).rejects.toThrow("busy");
+  },
+);

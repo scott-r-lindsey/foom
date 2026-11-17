@@ -164,7 +164,12 @@ the exited reviewer for inspection; no cleanup or reset runs. Successful Close
 removes only the reviewer session, releases the lease and preserves the author's
 checkout. Ignored build output may remain.
 
-The baseline persists as private session metadata. Restart restores the lease
+The baseline persists as private session metadata. Before spawning, Foom durably
+saves a review intent. A failed save refuses review and retains the checkout hold.
+Restart treats an intent without a reviewer lease as held; neither participant
+resumes automatically. The hold also blocks automatic wakes and making the author
+an orchestrator. An interrupted intent remains held until the author exits and
+verified Close succeeds. Restart restores the lease
 before session launches and automatically resumes neither participant in that
 checkout. Review does not restart automatically. Close still verifies the saved
 baseline. Worktree identities and snapshots are evidence to recheck, never restored

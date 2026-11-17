@@ -85,6 +85,7 @@ export async function makeOrchestrator(
       this.executionOwner.view(id).exitCode !== undefined
     )
       throw new Error("Only a running agent session can orchestrate");
+    if (this.checkoutHolds.busy(entry.worktree)) throw new Error("Shared review checkout is busy");
     const view = this.orchestration.view(id);
     if (view?.role === "child" && !view.takenOver) throw new Error("Take over this session first");
     return { entry, agent: entry.agent, active: view?.role === "orchestrator" && view.active };

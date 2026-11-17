@@ -323,7 +323,7 @@ refuses conflicts without falling back. It blocks author input and other checkou
 operations until reviewer Close; Close verifies no drift and preserves the checkout.
 Drift returns `review_worktree_changed` and retains the reviewer and files. Without
 `--author`, review uses a separate detached PR-head checkout for concurrent work.
-It leaves the author's loop alone. The parent reads its structured handoff and
+It leaves the author's loop alone. Before spawning, Foom durably saves a review intent. A failed save refuses review and retains the checkout hold. Restart treats an intent without a reviewer lease as held; neither participant resumes automatically. The hold also blocks automatic wakes and making the author an orchestrator. An interrupted intent remains held until the author exits and verified Close succeeds. The parent reads its structured handoff and
 stops/closes it. `--since` takes a full commit SHA; the reviewer checks ancestry.
 No forge writes occur unless `--post-findings true` is explicit.
 

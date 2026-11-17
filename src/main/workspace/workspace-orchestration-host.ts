@@ -122,6 +122,10 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
       const write = caps.deps.terminals.recheckWake ? caps.deps.terminals.wakeInput : undefined;
       const allowed = () =>
         valid() &&
+        !caps.checkoutHolds.blocksInput(id) &&
+        !caps.checkoutHolds.busy(
+          caps.snapshot().terminals.find((row) => row.id === id)?.worktree ?? "",
+        ) &&
         caps.wakeIdle(id) &&
         caps.deps.focused?.(id) === false &&
         !caps.sessions.isRestoring(id);
@@ -281,6 +285,19 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
       return (async () => {
         let retained = false;
         try {
+          if (step?.authorId && step.snapshot) {
+            caps.checkoutHolds.retainReview(step.authorId, hold, {
+              authorId: step.authorId,
+              identity,
+              head: step.snapshot.head,
+              digest: step.snapshot.digest,
+              intent: true,
+            });
+            retained = true;
+            // A crash after spawning must restore a held checkout even if the
+            // reviewer row or its final lease never reaches disk.
+            await caps.sessions.save();
+          }
           const id = !tree
             ? await caps.launchChild(
                 parentId,
@@ -347,14 +364,14 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
                 ),
               );
           if (step?.authorId && step.snapshot) {
-            caps.checkoutHolds.retainReview(id, hold, {
+            caps.checkoutHolds.moveReview(step.authorId, id, hold, {
               authorId: step.authorId,
               identity,
               head: step.snapshot.head,
               digest: step.snapshot.digest,
             });
             retained = true;
-            caps.persist();
+            await caps.sessions.save();
           }
           return id;
         } finally {

@@ -1,3 +1,4 @@
+import type { WakeInput } from "../../../../src/shared/agent-wake";
 import { CheckoutHolds } from "../../../../src/main/workspace/worktree-reservations";
 import type { Hosts } from "../../../../src/main/setup/hosts";
 import { localResources } from "../../../../src/main/setup/local-host";
@@ -743,3 +744,48 @@ it("wake adapter requires known provider policy, hook idle, unfocused live sessi
     vi.useRealTimers();
   }
 });
+
+it.each(["before", "check", "cancel", "submit"])(
+  "refuses wakes when a checkout lease arrives at %s",
+  async (stage) => {
+    vi.useFakeTimers();
+    try {
+      const caps = hostFixture();
+      const row = harness().host.terminals()[0];
+      if (!row) throw new Error("Missing fixture row");
+      Reflect.set(caps, "snapshot", () => ({
+        repositories: [],
+        terminals: [{ ...row, id: "author", agent: "claude", worktree: "/trees/shared" }],
+      }));
+      const retain = () => {
+        const hold = caps.checkoutHolds.acquire("/trees/shared");
+        if (!hold) throw new Error("Missing hold");
+        caps.checkoutHolds.retainReview("reviewer", hold, {
+          authorId: "author",
+          identity: "identity",
+          head: "a".repeat(40),
+          digest: "b".repeat(64),
+        });
+      };
+      if (stage === "before") retain();
+      const writes = vi.fn((_id: string, input: WakeInput, valid: () => boolean) => {
+        if (input.step === stage) retain();
+        return Promise.resolve(valid());
+      });
+      Reflect.set(caps.deps.terminals, "wakeInput", writes);
+      const host = workspaceOrchestrationHost(caps);
+      const pending = host.wake?.(
+        "author",
+        "Foom: child events for child-one",
+        () => true,
+        async () => {},
+      );
+      await vi.advanceTimersByTimeAsync(150);
+      expect(await pending).toBe("queued");
+      expect(caps.input).not.toHaveBeenCalled();
+      expect(caps.checkoutHolds.busy("/trees/shared")).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);

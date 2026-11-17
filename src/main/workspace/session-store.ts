@@ -127,10 +127,11 @@ export function readSessions(value: unknown): StoredSession[] {
     let baseline: StoredSession["sharedReview"];
     const borrowed = sharedReview === undefined ? undefined : object(sharedReview);
     if (borrowed) {
-      exact(borrowed, ["authorId", "identity", "head", "digest"]);
+      exact(borrowed, ["authorId", "identity", "head", "digest", "intent"]);
       if (
         !conversationId(borrowed["authorId"]) ||
-        borrowed["authorId"] === id ||
+        (borrowed["intent"] === true ? borrowed["authorId"] !== id : borrowed["authorId"] === id) ||
+        (borrowed["intent"] !== undefined && borrowed["intent"] !== true) ||
         typeof borrowed["identity"] !== "string" ||
         !borrowed["identity"] ||
         borrowed["identity"].length > 4096 ||
@@ -141,6 +142,7 @@ export function readSessions(value: unknown): StoredSession[] {
       )
         throw new Error("Invalid shared review");
       baseline = {
+        ...(borrowed["intent"] === true ? { intent: true } : {}),
         authorId: borrowed["authorId"],
         identity: borrowed["identity"],
         head: borrowed["head"],

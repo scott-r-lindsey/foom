@@ -451,8 +451,13 @@ test("persists and validates shared-review baselines without restoring process a
     exited: true,
     dormant: true,
   });
+  const intent = { ...baseline, authorId: record.id, intent: true };
+  await store.save(readSessions([{ ...record, sharedReview: intent }]));
+  expect((await store.load())[0]?.sharedReview).toEqual(intent);
   for (const bad of [
     null,
+    { ...baseline, intent: false },
+    { ...baseline, intent: true },
     { ...baseline, extra: true },
     { ...baseline, authorId: record.id },
     { ...baseline, identity: "" },

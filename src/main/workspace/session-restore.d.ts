@@ -14,6 +14,8 @@ export interface OwnedWorktree {
 
 /** Main-owned baseline for a reviewer borrowing an author's checkout. */
 export interface SharedReview {
+  /** Stored on the author before reviewer spawn; restores as a checkout hold. */
+  intent?: true;
   authorId: string;
   identity: string;
   head: string;

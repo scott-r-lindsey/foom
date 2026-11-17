@@ -48,6 +48,12 @@ export class CheckoutHolds {
     this.reviews.set(id, { hold, baseline });
   }
 
+  /** Transfer a durable launch intent without releasing its checkout. */
+  moveReview(from: string, id: string, hold: CheckoutHold, baseline: SharedReview): void {
+    this.reviews.delete(from);
+    this.retainReview(id, hold, baseline);
+  }
+
   releaseReview(id: string): void {
     const review = this.reviews.get(id);
     this.reviews.delete(id);
