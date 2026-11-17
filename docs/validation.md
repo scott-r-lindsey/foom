@@ -4,6 +4,27 @@
 coverage thresholds, test isolation and delivery policy. This guide explains the
 current tooling and CI graph. See the [documentation map](README.md) for other entry points.
 
+## Dependency audit
+
+`pnpm run audit` runs [`scripts/audit.mjs`](../scripts/audit.mjs) around full and
+production-only `pnpm audit --json --audit-level=low` reports. It includes development
+tools and remains required in the Quality gate. Exceptions require explicit user
+approval, no patched release, production audit evidence that the advisory is
+absent, and a fixed expiry. Each entry in
+[`scripts/audit-exceptions.json`](../scripts/audit-exceptions.json) records the exact
+GHSA, CVE, upstream fix PR, package, vulnerable range, expiry (inclusive UTC date),
+issue and justification.
+The wrapper fails with fixed diagnostics for other advisories, production exposure,
+expired, stale or malformed entries, changed package/range, an available patched
+release, and invalid reports or command failures. Remove stale exceptions when a
+fix ships. No other suppression is allowed.
+
+#1249 approves only GHSA-fc5q-39xc-vjpf for development-only picomatch `<=4.0.7`
+through 2026-12-01. The advisory is CVE-2026-112366; the
+[upstream fix PR #194](https://github.com/micromatch/picomatch/pull/194) is open and
+unmerged as of 2026-11-17. Recorded full/production audit fixtures exercise the policy
+without network requests in `scripts/audit.test.mjs`.
+
 ## Tests and coverage
 
 `tests/unit/` mirrors source ownership and contains TypeScript unit tests for the main process, preload, renderer, and coverage-reporting tools. Tests exercise IPC trust boundaries, asset restrictions, permissions, startup failures, UI pending/error states, and bridge response validation. Electron is mocked in unit tests; jsdom provides the UI environment.
