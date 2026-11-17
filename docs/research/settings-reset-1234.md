@@ -20,8 +20,12 @@ an exclusive cross-profile settings lock covering read, patch merge and rename,
 and a refusal to save held settings without a trusted baseline. Saves merge only
 patched keys into the current file; unrelated held proposals remain held.
 Lock contention fails closed after a bounded wait and leaves the patch retryable.
-A crashed lock is never automatically stolen. These protections coordinate Foom
-writers; arbitrary external editors do not participate in the lock protocol.
+A same-host crashed owner is recovered only after process liveness or start
+identity proves it is gone. Corrupt records fail closed regardless of age.
+Owner records are fully written and fsynced before exclusive hard-link publication;
+a paused writer cannot expose an empty lock for another writer to age-recover.
+The owner rechecks its token before entering the callback. These protections
+coordinate Foom writers; arbitrary external editors do not participate in the lock protocol.
 
 This confirms a destructive code path consistent with the report, **not the
 historical trigger on November 16**. No incident file, logs or real profile was
@@ -90,6 +94,15 @@ fixtures. Both fail on `5114d438`: the concurrent save unexpectedly succeeds,
 and the rejected-profile save unexpectedly replaces the held file. The fixed
 writer preserves the shared file and lets contention retry against fresh bytes.
 All reads remain confined to temporary fixtures.
+
+The lock-publication regression in `tests/unit/main/config/settings-lock.test.ts`
+pauses writer A after opening its exclusive file but before writing its owner
+record, advances the fixture clock by 25 hours, lets B acquire and hold the lock,
+then resumes A. On `3dc477d0`, A enters while B still holds the lock; the regression
+fails because A unexpectedly succeeds. With atomic publication, A's unpublished
+temporary file cannot block B, and A refuses entry while B owns the lock. The
+fixture also checks token replacement before entry and failed record writes,
+fsyncs and links without entering the critical section or leaking temporary files.
 
 Local validation after the fix passed `pnpm run check` (8,023 unit tests and
 344 tooling tests), both focused settings/zoom Electron tests under Xvfb,

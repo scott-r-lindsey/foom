@@ -83,15 +83,22 @@ keys go to the profile. Settings saves acquire an exclusive
 merging only the patched keys into the current settings file, and hold it through
 atomic replacement. Contention waits at most 20 intervals of 25 ms, then refuses
 the save; the caller can retry the unchanged patch. No stale-baseline fallback is
-allowed. The lock records its owner's PID, Linux boot/start identity when available,
+allowed. The lock is published exclusively by hard-linking a complete, fsynced private
+temporary file in the same directory, on Windows as well as POSIX. A filesystem
+that refuses hard links refuses the save; it never falls back to publishing an
+empty lock. Before entering the critical section, the owner rechecks its token
+at the lock path. The lock records its owner's PID, Linux boot/start identity when available,
 hostname, random token and timestamp. Same-host owners are recovered only after
 ESRCH or a mismatching start identity proves death or PID reuse. Recovery uses an
 exclusive recovery lock and rechecks the stale record before removing it; crashed
 recovery locks use the same protocol (up to four nested recovery locks, then fail
 closed). Release removes only a matching token. Live owners and foreign-host
-records never expire. Unreadable, linked and nonregular locks fail closed. A
-readable corrupt record fails closed until its file modification time is at least
-24 hours old, allowing recovery after a crash during owner-record creation.
+records never expire. Unreadable, linked and nonregular locks fail closed.
+Readable corrupt records also fail closed at any age: atomic publication means
+a crash while writing the record leaves only an unpublished temporary file.
+There is no longer a need for the 24-hour corrupt-record recovery rule, which
+could steal a live, paused writer's lock after a clock jump. Legacy corrupt locks
+require manual removal while all sharing apps are stopped.
 Safe external edits are adopted through the approval gate. With a verified
 baseline, unrelated held keys remain on disk and held while only the Settings
 patch is applied. Without a trusted baseline (including rejected profile loads),

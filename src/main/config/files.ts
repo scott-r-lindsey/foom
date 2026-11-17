@@ -159,7 +159,6 @@ export class ConfigFiles {
   }
 }
 
-const CORRUPT_LOCK_AGE = 24 * 60 * 60 * 1000;
 const settingsBusy = () =>
   new Error("Foom settings are busy. Retry the change after the other save finishes.");
 
@@ -188,7 +187,6 @@ function parseLockRecord(text: string): unknown {
 
 async function staleLock(path: string): Promise<string | null> {
   try {
-    const info = await lstat(path);
     const bytes = await readConfigFile(path);
     if (!bytes) return null;
     const text = bytes.toString("utf8");
@@ -219,7 +217,7 @@ async function staleLock(path: string): Promise<string | null> {
       !("start" in record) ||
       (record.start !== null && typeof record.start !== "string")
     )
-      return Date.now() - info.mtimeMs >= CORRUPT_LOCK_AGE ? text : null;
+      return null;
     try {
       process.kill(record.pid, 0);
     } catch (error) {
@@ -228,46 +226,60 @@ async function staleLock(path: string): Promise<string | null> {
     const identity = await processIdentity(record.pid);
     return record.start !== null && identity !== null && record.start !== identity ? text : null;
   } catch {
-    // Unreadable, linked and nonregular locks never become age-recoverable.
+    // Invalid, unreadable, linked and nonregular locks fail closed at any age.
     return null;
   }
 }
 
+/** Publish only complete records. Hard links are exclusive on Windows as well as POSIX.
+ * Filesystems that refuse hard links fail closed; never fall back to an empty lock.
+ */
+async function publishLock(path: string, record: string): Promise<boolean> {
+  const temporary = join(dirname(path), `.foom-${randomUUID()}.tmp`);
+  try {
+    const file = await open(temporary, "wx", 0o600);
+    try {
+      await file.writeFile(record);
+      await file.sync();
+    } finally {
+      await file.close();
+    }
+    try {
+      await link(temporary, path);
+      return true;
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "EEXIST") return false;
+      throw error;
+    }
+  } finally {
+    await rm(temporary, { force: true });
+  }
+}
+
+async function ownsLock(path: string, token: string): Promise<boolean> {
+  const bytes = await readConfigFile(path).catch(() => null);
+  const record: unknown = bytes ? parseLockRecord(bytes.toString("utf8")) : null;
+  return (
+    typeof record === "object" && record !== null && "token" in record && record.token === token
+  );
+}
+
 async function withSettingsLock<T>(path: string, work: () => Promise<T>, depth = 0): Promise<T> {
   const token = randomUUID();
+  const record = JSON.stringify({
+    pid: process.pid,
+    start: await processIdentity(process.pid),
+    hostname: hostname(),
+    token,
+    timestamp: Date.now(),
+  });
   for (let attempt = 0; ; attempt++) {
-    const lock = await open(path, "wx", 0o600).catch((error: unknown) => {
-      if (error instanceof Error && "code" in error && error.code === "EEXIST") return null;
-      throw error;
-    });
-    if (lock) {
+    if (await publishLock(path, record)) {
       try {
-        await lock.writeFile(
-          JSON.stringify({
-            pid: process.pid,
-            start: await processIdentity(process.pid),
-            hostname: hostname(),
-            token,
-            timestamp: Date.now(),
-          }),
-        );
+        if (!(await ownsLock(path, token))) throw settingsBusy();
         return await work();
       } finally {
-        try {
-          await lock.close();
-        } finally {
-          const bytes = await readConfigFile(path).catch(() => null);
-          if (bytes) {
-            const record: unknown = parseLockRecord(bytes.toString("utf8"));
-            if (
-              typeof record === "object" &&
-              record !== null &&
-              "token" in record &&
-              record.token === token
-            )
-              await rm(path);
-          }
-        }
+        if (await ownsLock(path, token)) await rm(path);
       }
     }
     const stale = await staleLock(path);

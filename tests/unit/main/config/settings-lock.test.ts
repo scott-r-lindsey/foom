@@ -1,3 +1,4 @@
+import * as fs from "node:fs/promises";
 import { fork } from "node:child_process";
 import { once } from "node:events";
 import { mkdir, readFile, readdir, rm, utimes, writeFile } from "node:fs/promises";
@@ -7,6 +8,8 @@ import { build } from "esbuild";
 import { expect, test, vi } from "vitest";
 import { ConfigFiles } from "../../../../src/main/config/files";
 import { fixture } from "./service-fixture";
+
+vi.mock("node:fs/promises", async (original) => ({ ...(await original<typeof fs>()) }));
 
 const lockName = ".foom-settings.lock";
 const owner = (patch: object = {}) =>
@@ -58,18 +61,102 @@ test.skipIf(process.platform !== "linux")(
   },
 );
 
-test("recent corrupt records fail closed; readable corrupt records recover after 24 hours", async () => {
-  const f = await setup();
-  for (const record of ["", "{broken", "{}", owner({ pid: -1 }), owner({ start: 42 })]) {
+test.each(["", "{broken", "{}", owner({ pid: -1 }), owner({ start: 42 })])(
+  "corrupt record %j fails closed regardless of age",
+  async (record) => {
+    const f = await setup();
     await writeFile(f.lock, record);
     await expect(f.files.withSettingsLock(async () => {})).rejects.toThrow("settings are busy");
     await utimes(f.lock, 0, 0);
-    await f.files.withSettingsLock(async () => {});
-  }
+    await expect(f.files.withSettingsLock(async () => {})).rejects.toThrow("settings are busy");
+    expect(await readFile(f.lock, "utf8")).toBe(record);
+  },
+);
+
+test("an old nonregular lock fails closed", async () => {
+  const f = await setup();
   await mkdir(f.lock);
   await utimes(f.lock, 0, 0);
   await expect(f.files.withSettingsLock(async () => {})).rejects.toThrow("settings are busy");
 });
+
+test("a writer paused before its record write cannot enter beside an owner after a 24-hour clock jump", async () => {
+  const f = await setup();
+  const opened = Promise.withResolvers<undefined>();
+  const resume = Promise.withResolvers<undefined>();
+  const release = Promise.withResolvers<undefined>();
+  const acquired = Promise.withResolvers<undefined>();
+  const originalOpen = fs.open;
+  vi.spyOn(fs, "open").mockImplementationOnce(async (...args) => {
+    const file = await originalOpen(...args);
+    opened.resolve(undefined);
+    await resume.promise;
+    return file;
+  });
+  let active = 0;
+  let maximum = 0;
+  const firstWork = vi.fn(() => {
+    maximum = Math.max(maximum, ++active);
+    active--;
+    return Promise.resolve();
+  });
+  const first = f.files.withSettingsLock(firstWork);
+  await opened.promise;
+  const now = Date.now();
+  vi.spyOn(Date, "now").mockReturnValue(now + 25 * 60 * 60 * 1000);
+  const second = f.files.withSettingsLock(async () => {
+    maximum = Math.max(maximum, ++active);
+    acquired.resolve(undefined);
+    await release.promise;
+    active--;
+  });
+  try {
+    await acquired.promise;
+    resume.resolve(undefined);
+    await expect(first).rejects.toThrow("settings are busy");
+    expect(firstWork).not.toHaveBeenCalled();
+    expect(maximum).toBe(1);
+  } finally {
+    resume.resolve(undefined);
+    release.resolve(undefined);
+    await Promise.allSettled([first, second]);
+  }
+  expect((await readdir(f.folder)).filter((name) => name.startsWith(".foom-"))).toEqual([]);
+});
+
+test("ownership is checked after publication before entering the callback", async () => {
+  const f = await setup();
+  const originalLink = fs.link;
+  const replacement = owner({ token: "replacement" });
+  vi.spyOn(fs, "link").mockImplementationOnce(async (...args) => {
+    await originalLink(...args);
+    await writeFile(f.lock, replacement);
+  });
+  const work = vi.fn(async () => {});
+  await expect(f.files.withSettingsLock(work)).rejects.toThrow("settings are busy");
+  expect(work).not.toHaveBeenCalled();
+  expect(await readFile(f.lock, "utf8")).toBe(replacement);
+});
+
+for (const stage of ["writeFile", "sync", "link"] as const) {
+  test(`failed lock ${stage} never enters work or leaves a published lock`, async () => {
+    const f = await setup();
+    const failure = new Error("fixture publication failure");
+    if (stage === "link") vi.spyOn(fs, "link").mockRejectedValueOnce(failure);
+    else {
+      const originalOpen = fs.open;
+      vi.spyOn(fs, "open").mockImplementationOnce(async (...args) => {
+        const file = await originalOpen(...args);
+        vi.spyOn(file, stage).mockRejectedValueOnce(failure);
+        return file;
+      });
+    }
+    const work = vi.fn(async () => {});
+    await expect(f.files.withSettingsLock(work)).rejects.toThrow(failure);
+    expect(work).not.toHaveBeenCalled();
+    expect((await readdir(f.folder)).filter((name) => name.startsWith(".foom-"))).toEqual([]);
+  });
+}
 
 test("release preserves a replacement owner's token, including after work fails", async () => {
   const f = await setup();
@@ -85,8 +172,11 @@ test("release preserves a replacement owner's token, including after work fails"
 
 test("a crashed recovery owner is recovered before the settings lock", async () => {
   const f = await setup();
-  await writeFile(f.lock, "");
-  await writeFile(`${f.lock}.recovery`, "");
+  vi.spyOn(process, "kill").mockImplementation(() => {
+    throw Object.assign(new Error("dead fixture owner"), { code: "ESRCH" });
+  });
+  await writeFile(f.lock, owner());
+  await writeFile(`${f.lock}.recovery`, owner());
   await utimes(f.lock, 0, 0);
   await utimes(`${f.lock}.recovery`, 0, 0);
   await f.service.write({ concurrentChildren: 8 });
