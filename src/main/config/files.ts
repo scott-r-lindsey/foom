@@ -1,6 +1,17 @@
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { link, lstat, mkdir, open, realpath, rename, rm, writeFile } from "node:fs/promises";
+import {
+  link,
+  lstat,
+  mkdir,
+  open,
+  readFile,
+  realpath,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
+import { hostname } from "node:os";
 import { dirname, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { ThemeValidationError } from "../../shared/theme-validation";
@@ -108,31 +119,9 @@ export class ConfigFiles {
     }
   }
 
-  /** All cooperating profiles hold this lock from the settings read through rename.
-   * A crashed owner leaves a lock requiring manual removal; never steal a live lock.
-   */
+  /** All cooperating profiles hold this lock from the settings read through rename. */
   async withSettingsLock<T>(work: () => Promise<T>): Promise<T> {
-    const path = this.path(".foom-settings.lock");
-    for (let attempt = 0; ; attempt++) {
-      const lock = await open(path, "wx", 0o600).catch((error: unknown) => {
-        if (error instanceof Error && "code" in error && error.code === "EEXIST") return null;
-        throw error;
-      });
-      if (lock) {
-        try {
-          return await work();
-        } finally {
-          try {
-            await lock.close();
-          } finally {
-            await rm(path);
-          }
-        }
-      }
-      if (attempt === 20)
-        throw new Error("Foom settings are busy. Retry the change after the other save finishes.");
-      await sleep(25);
-    }
+    return withSettingsLock(this.path(".foom-settings.lock"), work);
   }
 
   /** Atomic replacement inside the folder; the temporary name is hidden from the catalogs. */
@@ -167,5 +156,133 @@ export class ConfigFiles {
     } finally {
       await rm(temporary, { force: true });
     }
+  }
+}
+
+const CORRUPT_LOCK_AGE = 24 * 60 * 60 * 1000;
+const settingsBusy = () =>
+  new Error("Foom settings are busy. Retry the change after the other save finishes.");
+
+async function processIdentity(pid: number): Promise<string | null> {
+  if (process.platform !== "linux") return null;
+  try {
+    const [stat, boot] = await Promise.all([
+      readFile(`/proc/${String(pid)}/stat`, "utf8"),
+      readFile("/proc/sys/kernel/random/boot_id", "utf8"),
+    ]);
+    // comm may contain spaces and parentheses. Field 22 is the start tick.
+    const start = stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19];
+    return start ? `${boot.trim()}:${start}` : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseLockRecord(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+async function staleLock(path: string): Promise<string | null> {
+  try {
+    const info = await lstat(path);
+    const bytes = await readConfigFile(path);
+    if (!bytes) return null;
+    const text = bytes.toString("utf8");
+    const record = parseLockRecord(text);
+    if (
+      typeof record === "object" &&
+      record !== null &&
+      "hostname" in record &&
+      typeof record.hostname === "string" &&
+      record.hostname !== hostname()
+    )
+      return null;
+    if (
+      typeof record !== "object" ||
+      record === null ||
+      !("pid" in record) ||
+      typeof record.pid !== "number" ||
+      !Number.isSafeInteger(record.pid) ||
+      record.pid <= 0 ||
+      !("hostname" in record) ||
+      typeof record.hostname !== "string" ||
+      !("token" in record) ||
+      typeof record.token !== "string" ||
+      !record.token ||
+      !("timestamp" in record) ||
+      typeof record.timestamp !== "number" ||
+      !Number.isFinite(record.timestamp) ||
+      !("start" in record) ||
+      (record.start !== null && typeof record.start !== "string")
+    )
+      return Date.now() - info.mtimeMs >= CORRUPT_LOCK_AGE ? text : null;
+    try {
+      process.kill(record.pid, 0);
+    } catch (error) {
+      return error instanceof Error && "code" in error && error.code === "ESRCH" ? text : null;
+    }
+    const identity = await processIdentity(record.pid);
+    return record.start !== null && identity !== null && record.start !== identity ? text : null;
+  } catch {
+    // Unreadable, linked and nonregular locks never become age-recoverable.
+    return null;
+  }
+}
+
+async function withSettingsLock<T>(path: string, work: () => Promise<T>, depth = 0): Promise<T> {
+  const token = randomUUID();
+  for (let attempt = 0; ; attempt++) {
+    const lock = await open(path, "wx", 0o600).catch((error: unknown) => {
+      if (error instanceof Error && "code" in error && error.code === "EEXIST") return null;
+      throw error;
+    });
+    if (lock) {
+      try {
+        await lock.writeFile(
+          JSON.stringify({
+            pid: process.pid,
+            start: await processIdentity(process.pid),
+            hostname: hostname(),
+            token,
+            timestamp: Date.now(),
+          }),
+        );
+        return await work();
+      } finally {
+        try {
+          await lock.close();
+        } finally {
+          const bytes = await readConfigFile(path).catch(() => null);
+          if (bytes) {
+            const record: unknown = parseLockRecord(bytes.toString("utf8"));
+            if (
+              typeof record === "object" &&
+              record !== null &&
+              "token" in record &&
+              record.token === token
+            )
+              await rm(path);
+          }
+        }
+      }
+    }
+    const stale = await staleLock(path);
+    if (stale !== null && depth < 4) {
+      // Serialize the compare/remove, not just the later exclusive create. A
+      // crashed recovery owner is recovered by the same protocol one level down.
+      await withSettingsLock(
+        `${path}.recovery`,
+        async () => {
+          if ((await staleLock(path)) === stale) await rm(path, { force: true });
+        },
+        depth + 1,
+      );
+    }
+    if (attempt === 20) throw settingsBusy();
+    await sleep(25);
   }
 }

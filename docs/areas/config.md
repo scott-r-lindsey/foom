@@ -83,8 +83,15 @@ keys go to the profile. Settings saves acquire an exclusive
 merging only the patched keys into the current settings file, and hold it through
 atomic replacement. Contention waits at most 20 intervals of 25 ms, then refuses
 the save; the caller can retry the unchanged patch. No stale-baseline fallback is
-allowed. A crashed owner can leave the lock behind; after stopping all sharing
-apps, remove that lock manually before retrying. Foom never steals a lock.
+allowed. The lock records its owner's PID, Linux boot/start identity when available,
+hostname, random token and timestamp. Same-host owners are recovered only after
+ESRCH or a mismatching start identity proves death or PID reuse. Recovery uses an
+exclusive recovery lock and rechecks the stale record before removing it; crashed
+recovery locks use the same protocol (up to four nested recovery locks, then fail
+closed). Release removes only a matching token. Live owners and foreign-host
+records never expire. Unreadable, linked and nonregular locks fail closed. A
+readable corrupt record fails closed until its file modification time is at least
+24 hours old, allowing recovery after a crash during owner-record creation.
 Safe external edits are adopted through the approval gate. With a verified
 baseline, unrelated held keys remain on disk and held while only the Settings
 patch is applied. Without a trusted baseline (including rejected profile loads),
