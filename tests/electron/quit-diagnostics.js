@@ -127,11 +127,21 @@ function installNativeOrdering({ app, BrowserWindow, ipcMain, screen }, { prefix
       "minimize",
       "restore",
       "closed",
+      "unresponsive",
+      "responsive",
     ])
       child.on(name, () => emit(`native:${name}`, state()));
     child.webContents.on("before-mouse-event", (_event, input) => {
-      if (["mouseDown", "mouseUp"].includes(input.type)) emit(`native:${input.type}`, state());
+      if (["mouseDown", "mouseUp"].includes(input.type))
+        emit(`native:${input.type}`, { ...state(), x: input.x, y: input.y });
     });
+    child.webContents.on("render-process-gone", (_event, details) =>
+      emit("native:render-process-gone", {
+        ...state(),
+        reason: details.reason,
+        exitCode: details.exitCode,
+      }),
+    );
     ipcMain.prependListener("confirmation:answer", (event, id, accepted) => {
       if (event.sender !== child.webContents) return;
       emit("native:answer", {
@@ -153,6 +163,12 @@ function installNativeOrdering({ app, BrowserWindow, ipcMain, screen }, { prefix
 
 function installRendererOrdering({ prefix, limit }) {
   let sequence = 0;
+  const state = () => ({
+    focused: document.hasFocus(),
+    visibility: document.visibilityState,
+    viewport: { width: window.innerWidth, height: window.innerHeight },
+    devicePixelRatio: window.devicePixelRatio,
+  });
   const emit = (event, facts = {}) => {
     if (sequence >= limit) return;
     console.info(
@@ -167,28 +183,34 @@ function installRendererOrdering({ prefix, limit }) {
   };
   window.confirmation.render((request) =>
     emit("renderer:render", {
+      ...state(),
       pending: request !== null,
       presented: request?.presented === true,
     }),
   );
+  for (const name of ["focus", "blur"])
+    window.addEventListener(name, () => emit(`renderer:${name}`, state()));
+  document.addEventListener("visibilitychange", () => emit("renderer:visibilitychange", state()));
   for (const name of ["pointerdown", "pointerup", "click"])
     document.addEventListener(
       name,
       (event) => {
         const button = event.target instanceof Element ? event.target.closest("button") : null;
         emit(`renderer:${name}`, {
+          ...state(),
+          x: event.clientX,
+          y: event.clientY,
           trusted: event.isTrusted,
           button:
             button?.textContent === "Stop all and quit" ? "accept" : button ? "other" : "none",
           disabled: button?.disabled === true,
           decisionId: button?.getAttribute("data-approval-decision"),
           rect: button?.getBoundingClientRect().toJSON(),
-          focused: document.hasFocus(),
         });
       },
       true,
     );
-  emit("renderer:installed");
+  emit("renderer:installed", state());
 }
 
 function startQuitOrdering(app) {

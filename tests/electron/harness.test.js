@@ -518,10 +518,91 @@ test("quit ordering diagnostics observe native presentation, input and answer be
         (item) => item.event === "renderer:click" && item.trusted && item.button === "accept",
       ),
     );
+    const click = events.find((item) => item.event === "renderer:click");
+    assert.equal(click.visibility, "visible");
+    assert.equal(click.focused, true);
+    assert.ok(click.devicePixelRatio > 0);
+    assert.ok(click.viewport.width > 0 && click.viewport.height > 0);
+    assert.ok(click.x >= click.rect.left && click.x <= click.rect.right);
+    assert.ok(click.y >= click.rect.top && click.y <= click.rect.bottom);
+    for (const name of ["native:mouseDown", "native:mouseUp"]) {
+      const input = events.find((item) => item.event === name);
+      assert.ok(input);
+      assert.ok(Number.isFinite(input.x) && Number.isFinite(input.y));
+    }
+    // Chromium can already report document focus while the native child is
+    // hidden; a focus transition is not guaranteed during presentation.
+    const installed = events.find((item) => item.event === "renderer:installed");
+    assert.equal(typeof installed.focused, "boolean");
+    assert.ok(["visible", "hidden"].includes(installed.visibility));
     assert.equal(child.exitCode, 0);
   } finally {
     ordering.stop();
     context.diagnostic(`Quit ordering: ${JSON.stringify(ordering.snapshot())}`);
+  }
+});
+
+test("quit ordering diagnostics retain renderer failure without renderer cooperation", async () => {
+  const { EventEmitter } = require("node:events");
+  const { PassThrough } = require("node:stream");
+  const { runInNewContext } = require("node:vm");
+  const { startQuitOrdering } = require("./quit-diagnostics.js");
+  const stderr = new PassThrough();
+  const contents = Object.assign(new EventEmitter(), {
+    getURL: () => "app://confirmation/confirmation.html",
+    isFocused: () => false,
+    send: () => {},
+  });
+  const child = Object.assign(new EventEmitter(), {
+    webContents: contents,
+    isDestroyed: () => false,
+    getParentWindow: () => null,
+    isFocused: () => true,
+    isVisible: () => true,
+    isMinimized: () => false,
+    getBounds: () => ({ x: 0, y: 0, width: 440, height: 240 }),
+  });
+  const app = {
+    process: () => ({ stderr }),
+    windows: () => [], // An unavailable renderer cannot provide console records.
+    evaluate: async (install, options) =>
+      runInNewContext(`(${install.toString()})(electron, options)`, {
+        electron: {
+          app: new EventEmitter(),
+          BrowserWindow: { getAllWindows: () => [child] },
+          ipcMain: new EventEmitter(),
+          screen: { getDisplayMatching: () => ({ workArea: child.getBounds() }) },
+        },
+        options,
+        performance,
+        process: { stderr },
+      }),
+  };
+  const ordering = startQuitOrdering(app);
+  try {
+    await ordering.install();
+    child.emit("unresponsive");
+    child.emit("responsive");
+    contents.emit("render-process-gone", {}, { reason: "crashed", exitCode: 17, private: "omit" });
+    const events = ordering.snapshot().events;
+    assert.deepEqual(
+      events.map((item) => item.event),
+      [
+        "native:installed",
+        "native:unresponsive",
+        "native:responsive",
+        "native:render-process-gone",
+      ],
+    );
+    const gone = events.at(-1);
+    assert.equal(gone.reason, "crashed");
+    assert.equal(gone.exitCode, 17);
+    assert.equal(gone.focused, true);
+    assert.equal(gone.contentsFocused, false);
+    assert.equal(JSON.stringify(events).includes("omit"), false);
+  } finally {
+    ordering.stop();
+    stderr.destroy();
   }
 });
 
