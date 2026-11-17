@@ -903,9 +903,11 @@ Events are:
 - `native:installed`, `native:render`, `native:focus`, `native:blur`, `native:show`,
   `native:hide`, `native:move`, `native:resize`, `native:minimize`, `native:restore`,
   `native:closed`, `native:mouseDown`, `native:mouseUp`, `native:answer`,
-  `native:before-quit` and `native:will-quit`.
+  `native:before-quit`, `native:will-quit`, `native:unresponsive`,
+  `native:responsive` and `native:render-process-gone`.
 - `renderer:installed`, `renderer:render`, `renderer:pointerdown`,
-  `renderer:pointerup` and `renderer:click`.
+  `renderer:pointerup`, `renderer:click`, `renderer:focus`, `renderer:blur`
+  and `renderer:visibilitychange`.
 - Playwright actionability phrases: `waiting for locator`, `locator resolved`,
   `element is outside of the viewport`, `waiting for element to be visible, enabled
   and stable`, `element is not visible`, `element is not enabled`, `element is not
@@ -921,8 +923,15 @@ main-owned `presented` flag before forwarding the unchanged render message.
 request equality, top-frame identity and boolean acceptance. Presentation and
 request equality are null until the recorder observes a render publication, so
 a dialog already open at installation is not mislabeled as unpresented. It grants nothing.
-Renderer input records include native trust, an accept/other/none button category,
-disabled state and document focus. The recorder never calls the answer bridge.
+Renderer records include document focus/visibility, viewport dimensions and device
+pixel ratio. Input records include native trust, an accept/other/none button
+category, disabled state, button bounds and viewport-relative input coordinates;
+native mouse records also retain their content-relative coordinates. Compare
+coordinates within their source before inferring a missed target. Native
+responsiveness and renderer-exit events retain window state plus Electron's fixed
+exit reason and numeric exit code, even when the renderer cannot emit console
+records. These are passive observations, with no heartbeat, extra inspector round
+trip or retry. The recorder never calls the answer bridge.
 
 Main and renderer have independent sequence numbers and monotonic clocks; Node
 adds its observation clock. Pipe/console delivery can reorder across processes:
@@ -935,6 +944,31 @@ above are retained during teardown, and its debug sink/settings are restored on
 completion or failure. `record:oversized` and `record:malformed` identify rejected
 records. The real Electron harness regression verifies presentation, trusted
 renderer input, answer identity, actionability logging and quit lifecycle together.
+
+### Artifact follow-up (2026-11-17)
+
+Downloaded each available macOS Electron artifact once from main runs
+43954033358 (attempt 2, seven reports), 43840785089, 43822818958, 43810483925
+and 43735490367 (attempt 1, six reports each). All five WebGL context-budget cases
+passed: their traces record native presentation, trusted renderer click, matching
+top-frame accepted answer and normal quit. None of the 31 reports records a
+teardown click starting without completing. The original stuck-accept signature
+has **not recurred in this sample**; it does not establish a root cause or a
+product fix. Runs 42994735476 and 42823546100 have no retained artifacts.
+
+| Run | WebGL artifact ID | Setup / body / teardown (seconds) |
+| --- | --- | --- |
+| [43954033358](https://github.com/scott-r-lindsey/foom/actions/runs/43954033358) | 14271448187 | 4.749 / 12.525 / 4.027 |
+| [43840785089](https://github.com/scott-r-lindsey/foom/actions/runs/43840785089) | 14216796304 | 2.456 / 6.402 / 2.487 |
+| [43822818958](https://github.com/scott-r-lindsey/foom/actions/runs/43822818958) | 14206441906 | 5.332 / 7.212 / 2.831 |
+| [43810483925](https://github.com/scott-r-lindsey/foom/actions/runs/43810483925) | 14200989385 | 5.740 / 12.263 / 3.135 |
+| [43735490367](https://github.com/scott-r-lindsey/foom/actions/runs/43735490367) | 14170529053 | 8.174 / 12.513 / 4.215 |
+
+The first attempt of 43954033358 cancelled all seven macOS Electron jobs; retained
+reports are from its successful second attempt. The four failed runs above are
+diagnostic evidence, not green validation runs. Additional passive focus,
+visibility, coordinate and renderer-failure observations narrow a future missing
+input trace without changing consent, quit behavior or deadlines.
 
 
 Fixture-owned dialogs may already have been disposed when app teardown starts.
