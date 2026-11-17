@@ -299,3 +299,20 @@ Consent acknowledgements and disclosure identities are separate columns. ID-only
 historical built-ins retain their historical identity; custom IDs do not gain a
 current identity. Existing launch-time identity checks remain required. These
 preparations add no production writer, approval, consent or read capability.
+
+### Encrypted environment preparation
+
+`environment_scopes` and `environment_entries` retain provider lists and variables.
+The scope FK is RESTRICT and the composite primary index begins with its child
+column. SQL enforces an exclusive choice: a nonsecret has a text value and no
+ciphertext; a secret has a ciphertext BLOB and a NULL text value. The prepared
+commands reuse the existing `safeStorageCipher` capability (including refusal of
+Linux `basic_text`), force credential-bearing URLs to secrets and return only
+masked snapshots. Ordinary reads use only the support flag, never the keychain.
+Unrelated variable edits and unchanged retained secrets reuse existing ciphertext.
+The explicit importer checks availability once when loading secrets, validates
+successful decryption in main and retains the original ciphertext bytes. A locked
+keychain refuses the atomic import for retry; malformed rows are quarantined.
+No secret plaintext, cipher bytes or values enter change logs or reports. Domain
+scope removal deletes intended variables before the scope. JSON remains the
+production owner and all launch-time environment validation remains required.

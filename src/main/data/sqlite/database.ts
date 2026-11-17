@@ -29,6 +29,8 @@ const views: Readonly<Record<string, readonly DataView[]>> = {
   profile_settings: ["settings", "hosts", "agents", "readiness"],
   agent_consents: ["settings", "agents"],
   profile_metadata: ["config", "settings"],
+  environment_scopes: ["environment"],
+  environment_entries: ["environment"],
 };
 const allViews: DataView[] = [
   "settings",
@@ -194,6 +196,10 @@ export class ProfileDatabase {
         return { value, publicationPending: true };
       }
     });
+  }
+  /** Main-only snapshot boundary, serialized with commits and publications. */
+  read<T>(reader: (db: typeof this.orm) => T): Promise<T> {
+    return this.serialize(() => reader(this.orm));
   }
   retryPublication(): Promise<void> {
     return this.serialize(() => {

@@ -165,3 +165,69 @@ test("data SQLite: profile settings and consent import preserve JSON and publish
   );
   assert.ok(result.pushed.every((row) => row.views.includes("settings")));
 });
+
+test("data SQLite: Environment uses native safeStorage or refuses secrets without storing plaintext", {
+  timeout: deadline(45_000),
+}, async (context) => {
+  const app = await launchApp(context, { fixture: "empty-board" });
+  const result = await app.evaluate(async ({ app, safeStorage }, modulePath) => {
+    const load = process.getBuiltinModule("node:module").createRequire(modulePath);
+    const { ProfileDatabase } = load(modulePath);
+    const api = load("./environment.js");
+    const { safeStorageCipher } = load("../../setup/environment.js");
+    const fs = load("node:fs/promises");
+    const path = load("node:path");
+    const { DatabaseSync } = load("node:sqlite");
+    const profile = await fs.mkdtemp(path.join(app.getPath("userData"), "sqlite-environment-"));
+    const original = JSON.stringify({
+      version: 1,
+      lists: { all: [{ name: "VISIBLE", value: "plain" }] },
+    });
+    await fs.writeFile(path.join(profile, "environment.json"), original, { mode: 0o600 });
+    const db = await ProfileDatabase.open(profile);
+    const cipher = safeStorageCipher(safeStorage);
+    try {
+      await api.importDatabaseEnvironment(db, profile, cipher);
+      let refusal;
+      try {
+        await api.saveDatabaseEnvironment(db, cipher, {
+          scope: "all",
+          previous: null,
+          name: "SECRET",
+          value: "private-sqlite-fixture-secret",
+          secret: true,
+        });
+      } catch (error) {
+        refusal = error.message;
+      }
+      const state = await api.readDatabaseEnvironment(db, cipher);
+      const connection = new DatabaseSync(path.join(profile, "data/profile.sqlite"));
+      try {
+        const row = connection
+          .prepare("SELECT value,cipher FROM environment_entries WHERE name='SECRET'")
+          .get();
+        return {
+          refusal,
+          masked: !JSON.stringify(state).includes("private-sqlite-fixture-secret"),
+          value: row?.value,
+          cipherPresent: Boolean(row?.cipher),
+          unchanged:
+            (await fs.readFile(path.join(profile, "environment.json"), "utf8")) === original,
+        };
+      } finally {
+        connection.close();
+      }
+    } finally {
+      await db.close();
+    }
+  }, path.resolve("build/main/data/sqlite/database.js"));
+  assert.equal(result.masked, true);
+  assert.equal(result.unchanged, true);
+  if (result.refusal) {
+    assert.match(result.refusal, /keychain/);
+    assert.equal(result.cipherPresent, false);
+  } else {
+    assert.equal(result.value, null);
+    assert.equal(result.cipherPresent, true);
+  }
+});

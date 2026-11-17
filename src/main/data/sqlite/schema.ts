@@ -1,5 +1,13 @@
 import { sql } from "drizzle-orm";
-import { check, index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import {
+  check,
+  index,
+  integer,
+  sqliteTable,
+  text,
+  blob,
+  primaryKey,
+} from "drizzle-orm/sqlite-core";
 import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 
 // Reviewed generated SQL adds STRICT (not supported by Drizzle rc.5).
@@ -130,11 +138,11 @@ export const profileSettings = sqliteTable(
     ),
     check(
       "profile_settings_location",
-      sql`${t.key} != 'worktreeLocation' OR json_extract(${t.value}, '$') IN ('root','adjacent')`,
+      sql`${t.key} != 'worktreeLocation' OR COALESCE(json_extract(${t.value}, '$') IN ('root','adjacent'), 0)`,
     ),
     check(
       "profile_settings_panel",
-      sql`${t.key} != 'panelColor' OR json_extract(${t.value}, '$') IN ('vivid','subtle','plain')`,
+      sql`${t.key} != 'panelColor' OR COALESCE(json_extract(${t.value}, '$') IN ('vivid','subtle','plain'), 0)`,
     ),
   ],
 );
@@ -165,5 +173,30 @@ export const profileMetadata = sqliteTable(
       sql`${t.key} IN ('remoteProfile','configVersion','configDigest','configText','themeDigests')`,
     ),
     check("profile_metadata_json", sql`json_valid(${t.value})`),
+  ],
+);
+export const environmentScopes = sqliteTable("environment_scopes", {
+  scope: text().primaryKey().notNull(),
+});
+export const environmentEntries = sqliteTable(
+  "environment_entries",
+  {
+    scope: text()
+      .notNull()
+      .references(() => environmentScopes.scope, { onDelete: "restrict" }),
+    fold: text().notNull(),
+    name: text().notNull(),
+    secret: integer().notNull(),
+    value: text(),
+    cipher: blob({ mode: "buffer" }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.scope, t.fold] }),
+    check("environment_secret", sql`${t.secret} IN (0,1)`),
+    check(
+      "environment_storage",
+      sql`(${t.secret}=1 AND ${t.value} IS NULL AND ${t.cipher} IS NOT NULL AND length(${t.cipher}) BETWEEN 1 AND 16384) OR (${t.secret}=0 AND ${t.value} IS NOT NULL AND ${t.cipher} IS NULL AND length(${t.value})<=4096)`,
+    ),
+    check("environment_name", sql`length(${t.name}) BETWEEN 1 AND 256`),
   ],
 );

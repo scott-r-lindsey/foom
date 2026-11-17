@@ -1,3 +1,4 @@
+import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { mkdtemp, rm, writeFile, chmod, readFile, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -702,6 +703,9 @@ test("settings and consent domain writes publish only committed validated profil
         raw.exec("UPDATE profile_settings SET value='2' WHERE key='terminalClipboardWrites'");
       }).toThrow();
       expect(() => {
+        raw.exec("UPDATE profile_settings SET value='null' WHERE key='panelColor'");
+      }).toThrow();
+      expect(() => {
         raw.exec("INSERT INTO agent_consents VALUES ('bad',2,NULL)");
       }).toThrow();
     });
@@ -804,16 +808,251 @@ test("settings migration upgrades an existing first-group database without losin
   });
   await db.close();
   connections.pop();
+  const { getTableConfig } = await import("drizzle-orm/sqlite-core");
   inspect(file, (raw) => {
-    raw.exec(
-      "DROP TABLE profile_settings; DROP TABLE agent_consents; DROP TABLE profile_metadata; DELETE FROM _schema WHERE version > 1; PRAGMA user_version=1",
-    );
+    const original = new Set([
+      "hosts",
+      "repositories",
+      "worktrees",
+      "sessions",
+      "owned_worktrees",
+      "pending_removals",
+      "worktree_parents",
+      "quarantine",
+      "_changes",
+      "_imports",
+    ]);
+    for (const table of Object.values(tables)) {
+      const name = getTableConfig(table).name;
+      if (!original.has(name)) raw.exec(`DROP TABLE "${name}"`);
+    }
+    raw.exec("DELETE FROM _schema WHERE version > 1; PRAGMA user_version=1");
   });
   const upgraded = await ProfileDatabase.open(profile);
   connections.push(upgraded);
   inspect(file, (raw) => {
     expect(raw.prepare("SELECT * FROM hosts").all()).toHaveLength(1);
     expect(raw.prepare("SELECT * FROM profile_settings").all()).toEqual([]);
-    expect(raw.prepare("PRAGMA user_version").get()?.["user_version"]).toBe(2);
+    expect(raw.prepare("PRAGMA user_version").get()?.["user_version"]).toBeGreaterThanOrEqual(2);
   });
+});
+
+function encryptedFixture() {
+  const key = randomBytes(32);
+  return {
+    supported: vi.fn(() => true),
+    available: vi.fn(() => true),
+    encrypt: vi.fn((value: string) => {
+      const iv = randomBytes(12);
+      const encoder = createCipheriv("aes-256-gcm", key, iv);
+      const bytes = Buffer.concat([encoder.update(value, "utf8"), encoder.final()]);
+      return Buffer.concat([iv, encoder.getAuthTag(), bytes]);
+    }),
+    decrypt: vi.fn((value: Buffer) => {
+      const decoder = createDecipheriv("aes-256-gcm", key, value.subarray(0, 12));
+      decoder.setAuthTag(value.subarray(12, 28));
+      return Buffer.concat([decoder.update(value.subarray(28)), decoder.final()]).toString("utf8");
+    }),
+  };
+}
+test("environment uses ciphertext BLOBs, masked snapshots and FK-restricted scopes", async () => {
+  const api = await import("../../../../../src/main/data/sqlite/environment");
+  const { db, file } = await fixture();
+  const cipher = encryptedFixture();
+  await api.saveDatabaseEnvironment(db, cipher, {
+    scope: "all",
+    previous: null,
+    name: "SECRET",
+    value: "private-value-never-in-sqlite",
+    secret: true,
+  });
+  await api.saveDatabaseEnvironment(db, cipher, {
+    scope: "codex",
+    previous: null,
+    name: "PLAIN",
+    value: "visible",
+    secret: false,
+  });
+  await api.saveDatabaseEnvironment(db, cipher, {
+    scope: "all",
+    previous: "SECRET",
+    name: "SECRET",
+    value: null,
+    secret: true,
+  });
+  expect(cipher.encrypt).toHaveBeenCalledTimes(1);
+  cipher.available.mockImplementation(() => false);
+  const state = await api.readDatabaseEnvironment(db, cipher);
+  expect(state.lists["all"]).toEqual([{ name: "SECRET", value: null, secret: true }]);
+  expect(cipher.available).toHaveBeenCalledTimes(1);
+  inspect(file, (raw) => {
+    const secret = raw
+      .prepare(
+        "SELECT value,cipher,typeof(cipher) AS type FROM environment_entries WHERE name='SECRET'",
+      )
+      .get();
+    expect(secret?.["value"]).toBeNull();
+    expect(secret?.["type"]).toBe("blob");
+    expect(
+      Buffer.from(secret?.["cipher"] instanceof Uint8Array ? secret["cipher"] : []).includes(
+        Buffer.from("private-value-never-in-sqlite"),
+      ),
+    ).toBe(false);
+    expect(() => {
+      raw.exec("DELETE FROM environment_scopes WHERE scope='all'");
+    }).toThrow(/FOREIGN KEY/);
+    expect(() => {
+      raw.exec("UPDATE environment_entries SET value='leak' WHERE secret=1");
+    }).toThrow();
+  });
+  await api.removeDatabaseEnvironment(db, "codex", "PLAIN");
+  await expect(api.removeDatabaseEnvironment(db, "all", "NODE_OPTIONS")).rejects.toThrow();
+  await api.removeDatabaseEnvironmentScope(db, "all");
+  expect((await api.readDatabaseEnvironment(db, cipher)).lists["all"]).toEqual([]);
+});
+test("environment importer keeps verified ciphertext and fails atomically when keychain is locked", async () => {
+  const api = await import("../../../../../src/main/data/sqlite/environment");
+  const { db, profile, file } = await fixture();
+  const cipher = encryptedFixture();
+  const encoded = cipher.encrypt("kept-secret").toString("base64");
+  await writeFile(
+    join(profile, "environment.json"),
+    JSON.stringify({
+      version: 1,
+      lists: {
+        all: [
+          { name: "SECRET", secret: true, cipher: encoded },
+          {
+            name: "OTHER",
+            secret: true,
+            cipher: cipher.encrypt("other-secret").toString("base64"),
+          },
+        ],
+        codex: [{ name: "PLAIN", value: "plain" }],
+      },
+    }),
+    { mode: 0o600 },
+  );
+  cipher.available.mockImplementation(() => false);
+  await expect(api.importDatabaseEnvironment(db, profile, cipher)).rejects.toThrow("keychain");
+  inspect(file, (raw) => {
+    expect(raw.prepare("SELECT * FROM environment_entries").all()).toEqual([]);
+  });
+  cipher.available.mockImplementation(() => true);
+  cipher.available.mockClear();
+  const result = await api.importDatabaseEnvironment(db, profile, cipher);
+  expect(JSON.parse(result.value.report)).toEqual({ accepted: 3, quarantined: 0 });
+  expect(cipher.available).toHaveBeenCalledTimes(1);
+  expect((await api.importDatabaseEnvironment(db, profile, cipher)).value.alreadyImported).toBe(
+    true,
+  );
+  inspect(file, (raw) => {
+    const row = raw.prepare("SELECT cipher FROM environment_entries WHERE name='SECRET'").get();
+    expect(
+      Buffer.from(row?.["cipher"] instanceof Uint8Array ? row["cipher"] : []).toString("base64"),
+    ).toBe(encoded);
+    expect(JSON.stringify(raw.prepare("SELECT * FROM _changes").all())).not.toContain(
+      "kept-secret",
+    );
+  });
+});
+test("environment commands validate scope, capacity, retained secrets and automatic URL credential encryption", async () => {
+  const api = await import("../../../../../src/main/data/sqlite/environment");
+  const { db } = await fixture();
+  const cipher = encryptedFixture();
+  const change = {
+    scope: "all",
+    previous: null,
+    name: "HTTP_PROXY",
+    value: "https://user:pass@proxy.test",
+    secret: false,
+  };
+  await api.saveDatabaseEnvironment(db, cipher, change);
+  expect((await api.readDatabaseEnvironment(db, cipher)).lists["all"][0]?.secret).toBe(true);
+  await api.saveDatabaseEnvironment(db, cipher, {
+    ...change,
+    previous: "HTTP_PROXY",
+    name: "RENAMED",
+    value: null,
+    secret: true,
+  });
+  for (const input of [
+    { ...change, scope: "invalid!" },
+    { ...change, name: "NODE_OPTIONS", value: "unsafe" },
+    { ...change, previous: "missing" },
+    { ...change, name: "RENAMED" },
+    { ...change, value: null, secret: true },
+    { ...change, previous: "RENAMED", value: null, secret: false },
+  ])
+    await expect(api.saveDatabaseEnvironment(db, cipher, input)).rejects.toThrow();
+  cipher.available.mockImplementation(() => false);
+  await expect(api.saveDatabaseEnvironment(db, cipher, { ...change, name: "NEW" })).rejects.toThrow(
+    "keychain",
+  );
+  cipher.available.mockImplementation(() => true);
+  await db.write((orm) => {
+    orm.insert(tables.environmentScopes).values({ scope: "full" }).run();
+    for (let index = 0; index < 64; index++)
+      orm
+        .insert(tables.environmentEntries)
+        .values({
+          scope: "full",
+          name: `VAR_${String(index)}`,
+          fold: `VAR_${String(index)}`,
+          secret: 0,
+          value: "v",
+          cipher: null,
+        })
+        .run();
+  });
+  await expect(
+    api.saveDatabaseEnvironment(db, cipher, {
+      ...change,
+      scope: "full",
+      name: "NEW",
+      value: "v",
+      secret: false,
+    }),
+  ).rejects.toThrow("capacity");
+  await expect(api.removeDatabaseEnvironmentScope(db, "bad!")).rejects.toThrow();
+});
+test("environment import quarantines malformed plaintext, bad ciphertext and case-fold collisions", async () => {
+  const { importEnvironmentRows } = await import("../../../../../src/main/data/sqlite/environment");
+  const { db } = await fixture();
+  const cipher = encryptedFixture();
+  const input = JSON.stringify({
+    version: 1,
+    lists: {
+      all: [
+        { name: "Name", value: "one" },
+        { name: "NAME", value: "two" },
+        { name: "NODE_OPTIONS", value: "bad" },
+        { name: "HTTP_PROXY", value: "https://user:pass@proxy.test" },
+        { name: "SECRET", secret: true, cipher: "not base64" },
+        { name: "SECRET", secret: true, cipher: "AA==" },
+        { name: "NO_VALUE" },
+        null,
+      ],
+      "bad!": [],
+      codex: {},
+    },
+  });
+  const result = await db.write((orm) => importEnvironmentRows(orm, input, cipher, true));
+  expect(result.value).toEqual({ accepted: 1, quarantined: 9 });
+  expect(
+    (await db.write((orm) => importEnvironmentRows(orm, null, cipher, false))).value.accepted,
+  ).toBe(0);
+  expect(
+    (await db.write((orm) => importEnvironmentRows(orm, "{", cipher, false))).value.quarantined,
+  ).toBe(1);
+  expect(
+    (
+      await db.write((orm) =>
+        importEnvironmentRows(orm, '{"version":1,"lists":null}', cipher, false),
+      )
+    ).value.quarantined,
+  ).toBe(1);
+  await expect(
+    db.write((orm) => importEnvironmentRows(orm, '{"version":2}', cipher, false)),
+  ).rejects.toThrow("version");
 });
