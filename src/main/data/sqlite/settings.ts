@@ -136,9 +136,11 @@ export function importSettingsRows(db: DataTransaction, text: string | null | un
         createHash("sha256").update(text).digest("hex") !== digest
       )
         throw new Error("Invalid baseline");
-      parseSettingsFile(text);
-      metadata["configText"] = text;
-      metadata["configDigest"] = digest;
+      // Keep the accepted values as a closed baseline copy, with a matching
+      // digest so restart can use it when the external file is a held proposal.
+      const baseline = JSON.stringify({ kind: "settings", ...parseSettingsFile(text) });
+      metadata["configText"] = baseline;
+      metadata["configDigest"] = createHash("sha256").update(baseline).digest("hex");
     } catch {
       reject("settings.json#configBaseline");
     }

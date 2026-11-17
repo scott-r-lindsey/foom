@@ -792,6 +792,60 @@ test("settings import preserves accepted config baseline and historical consent 
   });
 });
 
+test.each([
+  JSON.stringify({
+    kind: "settings",
+    sound: {
+      soundscape: { token: "baseline-secret-marker" },
+      working: true,
+      alerts: true,
+      workingVolume: 0.5,
+      alertVolume: 0.5,
+    },
+  }),
+  '{"kind":"settings","hooks":{"token":"baseline-secret-marker"},"hooks":false}',
+])(
+  "settings baseline import stores only the validated projection with a matching restart digest (%s)",
+  async (configText) => {
+    const { importSettingsRows } = await import("../../../../../src/main/data/sqlite/settings");
+    const { parseSettingsFile } = await import("../../../../../src/shared/config-files");
+    const { db, file } = await fixture();
+    const configDigest = createHash("sha256").update(configText).digest("hex");
+    const result = await db.write((orm) =>
+      importSettingsRows(
+        orm,
+        JSON.stringify({
+          version: 2,
+          settings: {},
+          configText,
+          configDigest,
+        }),
+      ),
+    );
+    expect(result.value).toEqual({ accepted: 3, quarantined: 0 });
+    inspect(file, (raw) => {
+      const metadata = Object.fromEntries<unknown>(
+        raw
+          .prepare("SELECT key,value FROM profile_metadata")
+          .all()
+          .map((row) => [String(row["key"]), row["value"]]),
+      );
+      expect(metadata["configText"]).toBe(
+        JSON.stringify(JSON.stringify({ kind: "settings", ...parseSettingsFile(configText) })),
+      );
+      const baseline = JSON.stringify({ kind: "settings", ...parseSettingsFile(configText) });
+      expect(metadata["configDigest"]).toBe(
+        JSON.stringify(createHash("sha256").update(baseline).digest("hex")),
+      );
+      expect(metadata["configDigest"]).not.toBe(JSON.stringify(configDigest));
+      expect(JSON.stringify(metadata)).not.toContain("baseline-secret-marker");
+    });
+    // Unknown content must not reach the database or its write-ahead journal.
+    for (const name of [file, `${file}-wal`])
+      expect((await readFile(name)).includes(Buffer.from("baseline-secret-marker"))).toBe(false);
+  },
+);
+
 test("settings importer quarantines invalid consent, retired secrets and unapproved v2 config projections", async () => {
   const { importSettingsRows } = await import("../../../../../src/main/data/sqlite/settings");
   for (const input of [

@@ -306,7 +306,13 @@ SQL checks as well as the existing runtime validators.
 It reads only profile `settings.json`, never the external config folder. Version-2
 config keys cannot become an accepted projection merely because they occur on
 disk; only a validated `configText` with its matching recorded SHA-256 baseline is
-retained. Pending per-agent arguments keep their documented profile migration
+retained. SQLite stores `configText` as a re-serialized closed projection from
+`parseSettingsFile`, so retired/discarded fields and duplicate-key source text
+cannot retain unknown content in plaintext. After verifying the source digest,
+it recomputes `configDigest` over the stored projection bytes. The matching pair
+preserves the accepted values as the restart baseline when the external file is
+a held proposal; normalization grants no approval to that proposal.
+The original text remains only in encrypted recovery. Pending per-agent arguments keep their documented profile migration
 status. Unknown or retired settings are quarantined, not written into SQLite.
 Consent acknowledgements and disclosure identities are separate columns. ID-only
 historical built-ins retain their historical identity; custom IDs do not gain a
