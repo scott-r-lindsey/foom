@@ -13,7 +13,6 @@ const EMPTY_BOUNDS: PreviewBounds = { x: 0, y: 0, width: 0, height: 0, visible: 
 interface LifecycleState {
   cleanup: () => void;
   navigated: boolean;
-  previouslyLoaded: boolean;
   replacementTimer?: ReturnType<typeof setTimeout>;
   nextReplacementAt: number;
   scroll: [number, number] | undefined;
@@ -175,7 +174,6 @@ export class PreviewViewLifecycle {
         for (const remove of listeners.splice(0)) remove();
       },
       navigated: false,
-      previouslyLoaded: false,
       nextReplacementAt,
       scroll,
       history,
@@ -239,8 +237,6 @@ export class PreviewViewLifecycle {
       if (!navigationAllowed(event.url, origin, event.isMainFrame)) {
         event.preventDefault();
         void this.external(record, event.url);
-        entry.loaded ||= this.state(entry).previouslyLoaded;
-        this.apply(entry);
       } else if (event.isMainFrame) {
         event.preventDefault();
         void this.visit(entry, event.url);
@@ -262,6 +258,8 @@ export class PreviewViewLifecycle {
       if (!this.current(entry) || this.state(entry).replacementTimer || contents.isDestroyed())
         return;
       if (!event.isMainFrame) return;
+      // In-page links emit did-start-loading without a corresponding
+      // did-finish-load. Only detach for a main-frame document replacement.
       if (event.isSameDocument) {
         const page = history.pages[history.index];
         if (page && navigationAllowed(event.url, origin)) page.url = event.url;
@@ -327,16 +325,6 @@ export class PreviewViewLifecycle {
     contents.on("did-start-navigation", navigate);
     listeners.push(() => {
       contents.removeListener("did-start-navigation", navigate);
-    });
-    const loading = () => {
-      if (!this.current(entry) || this.closed() || contents.isDestroyed()) return;
-      this.state(entry).previouslyLoaded = entry.loaded;
-      entry.loaded = false;
-      this.detach(entry);
-    };
-    contents.on("did-start-loading", loading);
-    listeners.push(() => {
-      contents.removeListener("did-start-loading", loading);
     });
     const loaded = () => {
       if (!this.current(entry) || this.closed() || contents.isDestroyed()) return;

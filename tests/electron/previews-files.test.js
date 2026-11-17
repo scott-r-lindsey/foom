@@ -288,14 +288,11 @@ test("raster image previews validate content, fit, show actual size and preserve
       ),
       true,
     );
-    await read('document.querySelector("#actual").click()');
-    assert.equal(await read('document.querySelector("img").getBoundingClientRect().width'), 1600);
-    assert.equal(
-      await read(
-        'document.querySelector("main").scrollWidth > document.querySelector("main").clientWidth',
-      ),
-      true,
-    );
+    await read('document.querySelector("#foom-actual-size").click()');
+    await expect
+      .poll(() => read('document.querySelector("img").getBoundingClientRect().width'))
+      .toBe(1600);
+    assert.equal(await read("document.documentElement.scrollWidth > innerWidth"), true);
     await read('document.querySelector("#fit").click()');
   }
   const id = ids[0];

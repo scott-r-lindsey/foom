@@ -163,19 +163,21 @@ for (const kind of ["md", "html"]) {
   });
 }
 
-test("preview history traverses raster image entries and preserves embedded images", async (context) => {
+test("preview history restores raster image mode and pan, and revalidates image bytes", async (context) => {
   const { app, page, id, tile } = await composedPreview(
     context,
     1,
-    '<h1>Image gallery</h1><img src="sample%20image.png" alt="Sample"><a href="sample%20image.png?full=1#image">Open image</a>',
+    '<h1>Image gallery</h1><img src="thumbnail.png" alt="Sample"><a href="sample%20image.png?full=1#image">Open image</a>',
     "gallery.html",
   );
   const root = (await page.evaluate(() => window.desktop.workspace())).terminals[0].worktree;
   const image = path.join(root, "sample image.png");
   const sharp = require("sharp");
-  const pixels = await sharp({ create: { width: 23, height: 11, channels: 3, background: "blue" } })
-    .png()
-    .toBuffer();
+  const png = (width, height) =>
+    sharp({ create: { width, height, channels: 3, background: "blue" } })
+      .png()
+      .toBuffer();
+  const pixels = await png(1600, 1200);
   const read = (code) => previewContents(app, id, code, { requireAttached: true });
   const expectGallery = async () => {
     await expect
@@ -183,15 +185,17 @@ test("preview history traverses raster image entries and preserves embedded imag
       .toBe(23);
   };
   const expectImage = async () => {
-    await expect.poll(() => read('document.querySelector("main img")?.naturalWidth')).toBe(23);
+    await expect.poll(() => read('document.querySelector("main img")?.naturalWidth')).toBe(1600);
     assert.equal(await read("document.scripts.length"), 0);
     assert.equal(
       await read('document.querySelector("img").src.startsWith("data:image/png;")'),
       true,
     );
-    assert.equal(await read('document.querySelector("#fit").checked'), true);
   };
+  const mode = () => read('document.querySelector("header a:target")?.textContent ?? "Fit"');
+  const scroll = () => read("[window.scrollX, window.scrollY]");
   await writeFile(image, pixels);
+  await writeFile(path.join(root, "thumbnail.png"), await png(23, 11));
   await expectGallery();
   await read('document.querySelector("a").click()');
   await expectImage();
@@ -199,20 +203,33 @@ test("preview history traverses raster image entries and preserves embedded imag
   const forward = tile.getByRole("button", { name: "Forward", exact: true });
   await expect(back).toBeEnabled();
   await expect(forward).toBeDisabled();
+  assert.equal(await mode(), "Fit");
+  await read('document.querySelector("#foom-actual-size").click()');
+  await expect.poll(mode).toBe("Actual size");
+  await read("window.scrollTo(150, 200)");
+  await expect.poll(scroll).toEqual([150, 200]);
   await back.click();
   await expectGallery();
   await expect(back).toBeDisabled();
   await forward.click();
   await expectImage();
+  assert.equal(await mode(), "Actual size");
+  assert.deepEqual(await scroll(), [150, 200]);
 
-  await writeFile(image, "<script>document.body.textContent = 'Untrusted script ran'</script>");
-  await expect
-    .poll(() => read("document.body.textContent"))
-    .toContain("Invalid or oversized image");
-  await expect(back).toBeEnabled();
-  await writeFile(image, pixels);
-  await expectImage();
-  await back.click();
-  await expectGallery();
-  await expect(forward).toBeEnabled();
+  await read('document.querySelector("#fit").click()');
+  await expect.poll(mode).toBe("Fit");
+  for (const replacement of [pixels.subarray(0, 16), await png(4001, 4000)]) {
+    await back.click();
+    await expectGallery();
+    await expect(forward).toBeEnabled();
+    await writeFile(image, replacement);
+    await forward.click();
+    await expect
+      .poll(() => read("document.body.textContent"))
+      .toBe("Invalid or oversized image. PNG, JPEG and WebP only (16 MiB, 16 million pixels).");
+    await expect(back).toBeEnabled();
+    await writeFile(image, pixels);
+    await expectImage();
+    assert.equal(await mode(), "Fit");
+  }
 });

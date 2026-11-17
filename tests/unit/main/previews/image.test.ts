@@ -71,7 +71,7 @@ test("image frame embeds only inert base64 data and uses a script-free isolated 
   const page = imagePage(Buffer.from("</style><script>evil()</script>"), "image/png");
   expect(page).not.toContain("evil()");
   expect(page).toContain("Actual size");
-  expect(page).toContain('name="size"');
+  expect(page).toContain('href="#foom-actual-size"');
   expect(IMAGE_CSP).toContain("default-src 'none'");
   expect(IMAGE_CSP).toContain("img-src data:");
   expect(IMAGE_CSP).not.toContain("script-src");

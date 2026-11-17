@@ -320,8 +320,9 @@ Main keeps up to 64 document history entries per live preview tile, including
 raster image entries and isolated-world page scroll coordinates. Back and Forward
 appear in the title bar only after document navigation; unavailable directions are disabled. Alt+Left/Right,
 and Command+[/] on macOS, navigate while the native preview has human focus.
-Each move uses the existing detached replacement and focus handoff. Reload and
-file changes stay on the current entry and preserve its scroll. Following a new
+Each move uses the existing detached replacement and focus handoff. Same-document
+fragment changes keep the current preview attached. Reload and file changes stay
+on the current entry and preserve its scroll. Following a new
 link after Back discards the forward entries. Missing or unreadable targets show
 an inert, theme-aware in-tile page naming the worktree-relative path, with Back
 available in the title bar; the usual missing-file watches permit recovery.
@@ -351,6 +352,10 @@ in Markdown and HTML still load as ordinary assets. The image page's fixed CSP
 permits only data images, inline fixed styles and same-origin bundled fonts.
 Network permission cannot widen this response policy.
 No file bytes become markup, selectors or CSS. The board CSP and asset allowlist
-are unchanged. Fit is the default; Actual size enables scrolling at natural image
-size. Light and dark native themes change only the surrounding frame. Tile and
-sidebar metadata report kind `image` and the neutral IMG badge.
+are unchanged. Fit is the default. Actual size uses a same-document fragment and
+CSS to display the image at its natural dimensions with document-level scrolling.
+Back and Forward restore the fragment and both scroll offsets through the existing
+per-document history. Every history load revalidates the file and the current
+entry recovers through its file watch when valid bytes return. Light and dark
+native themes change only the surrounding frame. Tile and sidebar metadata report
+kind `image` and the neutral IMG badge.

@@ -49,7 +49,23 @@ export async function validImage(body: Buffer, type: string): Promise<boolean> {
 
 /** All file bytes stay in a base64 image URL; none become HTML, CSS or selectors. */
 export function imagePage(body: Buffer, type: string): string {
+  // The fragment records the size mode in document history. Actual size pans
+  // the document so the preview lifecycle can restore its usual scroll offsets.
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Image preview</title><style>
-@font-face{font-family:Geist;src:url('/__foom__/geist.ttf')} :root{color-scheme:light;--bg:#f3f0fa;--surface:#e9e4f5;--line:#ddd6ee;--ink:#14101f;--accent:#5b2bd9}@media(prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#05040a;--surface:#0d0a17;--line:#251d3f;--ink:#f4efff;--accent:#9b6bff}}*{box-sizing:border-box}html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:13px Geist,system-ui,sans-serif}body{display:flex;flex-wrap:wrap;align-content:flex-start;gap:8px;padding:12px}label{padding:5px 10px;border:1px solid var(--line);border-radius:5px;cursor:pointer;background:var(--surface)}input{position:absolute;opacity:0}input:focus-visible+label{outline:2px solid var(--accent);outline-offset:2px}input:checked+label{border-color:var(--accent)}main{width:100%;height:calc(100% - 42px);overflow:auto;display:grid;place-items:center}img{display:block;max-width:100%;max-height:100%;object-fit:contain}#actual:checked~main{display:block}#actual:checked~main img{max-width:none;max-height:none}
-</style></head><body><input type="radio" name="size" id="fit" checked><label for="fit">Fit</label><input type="radio" name="size" id="actual"><label for="actual">Actual size</label><main><img alt="Preview image" src="data:${type};base64,${body.toString("base64")}"></main></body></html>`;
+@font-face{font-family:Geist;src:url('/__foom__/geist.ttf')}
+:root{color-scheme:light;--bg:#f3f0fa;--surface:#e9e4f5;--line:#ddd6ee;--ink:#14101f;--accent:#5b2bd9}
+@media(prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#05040a;--surface:#0d0a17;--line:#251d3f;--ink:#f4efff;--accent:#9b6bff}}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:13px Geist,system-ui,sans-serif}
+header{position:sticky;top:0;left:0;display:flex;gap:8px;padding:12px;background:var(--bg)}
+header a{padding:5px 10px;border:1px solid var(--line);border-radius:5px;background:var(--surface);color:inherit;text-decoration:none}
+header a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+body:not(:has(#foom-actual-size:target)) #fit,#foom-actual-size:target{border-color:var(--accent);font-weight:600}
+main{height:calc(100% - 66px);margin:0 12px 12px;display:grid;grid-template:minmax(0,1fr) / minmax(0,1fr);place-items:center}
+img{display:block;max-width:100%;max-height:100%;object-fit:contain}
+body:has(#foom-actual-size:target){width:max-content;min-width:100%;height:auto;min-height:100%}
+body:has(#foom-actual-size:target) header{width:max-content}
+body:has(#foom-actual-size:target) main{display:block;height:auto;padding-bottom:12px;margin-bottom:0}
+body:has(#foom-actual-size:target) img{max-width:none;max-height:none}
+</style></head><body><header><a id="fit" href="#">Fit</a><a id="foom-actual-size" href="#foom-actual-size">Actual size</a></header><main><img alt="Preview image" src="data:${type};base64,${body.toString("base64")}"></main></body></html>`;
 }
