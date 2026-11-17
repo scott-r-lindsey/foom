@@ -319,7 +319,7 @@ function Checklist({
         <Fragment key={agent.id}>
           <Row
             target={{ kind: "tool", tool: agent.id }}
-            name={agentNames.get(agent.id) ?? agent.id}
+            name={agent.id === "gh" ? "GitHub CLI" : (agentNames.get(agent.id) ?? agent.id)}
             tone={
               needsCLT || (agent.id === "git" && agent.state === "missing")
                 ? "need"
@@ -348,8 +348,8 @@ function Checklist({
               target={{ kind: "sign-in", tool: agent.id }}
               name={
                 <>
-                  {agentNames.get(agent.id) ?? agent.id} sign-in{" "}
-                  {agent.id === "gh" && <span className="host-tag">PRs</span>}
+                  {agent.id === "gh" ? "GitHub CLI" : (agentNames.get(agent.id) ?? agent.id)}{" "}
+                  sign-in {agent.id === "gh" && <span className="host-tag">PRs</span>}
                 </>
               }
               tone={agent.signIn === "signed-in" ? "pass" : "neutral"}

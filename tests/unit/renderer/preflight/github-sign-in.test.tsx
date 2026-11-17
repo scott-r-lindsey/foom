@@ -15,6 +15,9 @@ afterEach(() => {
   cleanup();
   vi.useRealTimers();
 });
+const expectLabel = () => {
+  expect(screen.getByText(/^GitHub CLI sign-in/u).textContent).toBe("GitHub CLI sign-in PRs");
+};
 const waiting: GithubSignInState = {
   phase: "waiting",
   code: "ABCD-1234",
@@ -44,8 +47,10 @@ function fixture(installing = false) {
 test("waiting shows the code, independent success markers, fallback actions and collapsed terminal", async () => {
   const { api, result } = fixture();
   expect(screen.getByRole("status").textContent).toBe("Starting…");
+  expectLabel();
   await flush();
   expect(screen.getByRole("status").textContent).toContain("Needs you");
+  expectLabel();
   expect(screen.getByText("ABCD-1234")).toBeTruthy();
   expect(screen.getByText("✓ Copied")).toBeTruthy();
   expect(screen.getByText("✓ Browser opened")).toBeTruthy();
@@ -70,12 +75,14 @@ test("waiting shows the code, independent success markers, fallback actions and 
 test("install starts open, then finishing and success close the panel and refresh once", async () => {
   const { api, finished } = fixture(true);
   expect(screen.getByRole("status").textContent).toBe("Installing…");
+  expectLabel();
   await flush();
   api.mockResolvedValue({ phase: "finishing", copied: true, opened: true });
   await act(async () => {
     await vi.advanceTimersByTimeAsync(250);
   });
   expect(screen.getByRole("status").textContent).toBe("Finishing…");
+  expectLabel();
   api.mockResolvedValue({ phase: "done", copied: true, opened: true, exitCode: 0 });
   await act(async () => {
     await vi.advanceTimersByTimeAsync(250);
@@ -96,6 +103,7 @@ test.each(["failed", "expired"] as const)(
     expect(screen.getByRole("status").textContent).toBe(
       phase === "expired" ? "Failed · Code expired" : "Failed · Exit 7",
     );
+    expectLabel();
     expect(screen.getByRole("region", { name: "Sign-in terminal" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
     expect(finished).toHaveBeenCalledOnce();
@@ -109,10 +117,12 @@ test("blocked markers stay visible and action or polling failures retain the ter
   await flush();
   expect(screen.getByText("Not copied")).toBeTruthy();
   expect(screen.getByText("Browser not opened")).toBeTruthy();
+  expectLabel();
   api.mockRejectedValue(new Error("unavailable"));
   fireEvent.click(screen.getByRole("button", { name: "Open GitHub" }));
   await flush();
   expect(screen.getByRole("status").textContent).toBe("Unable to check sign-in");
+  expectLabel();
   await act(async () => {
     await vi.advanceTimersByTimeAsync(250);
   });

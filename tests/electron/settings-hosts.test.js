@@ -2640,6 +2640,13 @@ test("Hosts removal prunes saved session rows and startup repairs already forgot
   await expect.poll(async () => JSON.parse(await readFile(sessionsFile, "utf8"))).toEqual([]);
 });
 
+async function assertGithubSignInLabel(card) {
+  const label = card.locator(".host-check-name").filter({ hasText: "GitHub CLI sign-in" });
+  await expect(label).toHaveCount(1);
+  await expect(label).toHaveText("GitHub CLI sign-in PRs");
+  await expect(card.locator(".host-check-name").filter({ hasText: /^gh sign-in/u })).toHaveCount(0);
+}
+
 test("Hosts gh device sign-in copies a strict code, opens only GitHub and refreshes one row", {
   skip: process.platform === "win32",
   timeout: deadline(30000),
@@ -2647,6 +2654,7 @@ test("Hosts gh device sign-in copies a strict code, opens only GitHub and refres
   const { app, page, card, calls, capture, updateScenario } = await hostsFixture(context);
   await updateScenario({ githubDevice: true });
   await expect(card.getByText("Signed out", { exact: true })).toBeVisible();
+  await assertGithubSignInLabel(card);
   await capture("1067/signed-out");
   await card.locator(".github-token-note").screenshot({
     path: evidencePath("1067/plain-text-note.png"),
@@ -2678,6 +2686,7 @@ test("Hosts gh device sign-in copies a strict code, opens only GitHub and refres
     "26px",
   );
   await assertHostColumns(card);
+  await assertGithubSignInLabel(card);
   await capture("1067/waiting");
   await assertAccessible(page);
   const before = (await readFile(calls, "utf8"))
@@ -2705,6 +2714,8 @@ test("Hosts gh device sign-in copies a strict code, opens only GitHub and refres
   });
   await expect(panel).toHaveCount(0);
   await expect(card.getByText("Pass · Signed in", { exact: true })).toBeVisible();
+  await assertGithubSignInLabel(card);
+  await capture("1067/signed-in");
   assert.equal(await app.evaluate(({ clipboard }) => clipboard.readText()), "");
   assert.equal(
     await page.evaluate(
@@ -2757,6 +2768,7 @@ test("Hosts gh device sign-in offers blocked fallbacks and preserves a changed c
   const panel = card.getByRole("region", { name: "GitHub sign-in", exact: true });
   await expect(panel.getByText("Not copied", { exact: true })).toBeVisible();
   await expect(panel.getByText("Browser not opened", { exact: true })).toBeVisible();
+  await assertGithubSignInLabel(card);
   await capture("1067/blocked");
   await app.evaluate(({ shell, clipboard }) => {
     clipboard.writeText = globalThis.githubOriginalCopy;
@@ -2776,6 +2788,56 @@ test("Hosts gh device sign-in offers blocked fallbacks and preserves a changed c
     await app.evaluate(({ clipboard }) => clipboard.readText()),
     "human changed clipboard",
   );
+});
+
+test("Hosts gh device sign-in keeps the approved label through Install & sign in", {
+  skip: process.platform === "win32",
+  timeout: deadline(30000),
+}, async (context) => {
+  const missing = {
+    tools: [
+      { id: "git", state: "missing", signIn: "unknown" },
+      { id: "gh", state: "missing", signIn: "unknown" },
+    ],
+  };
+  const { card, recipeCalls, capture, updateScenario } = await hostsFixture(context);
+  await updateScenario({ facts: missing });
+  await card.getByRole("button", { name: "Reload gh", exact: true }).click();
+  await expect(
+    card.getByRole("button", { name: "Install & sign in gh", exact: true }),
+  ).toBeVisible();
+  await expect(card.locator(".host-check-name").filter({ hasText: /^GitHub CLI$/u })).toHaveCount(
+    1,
+  );
+  await updateScenario({ facts: missing, githubDevice: true });
+  await card.getByRole("button", { name: "Install & sign in gh", exact: true }).click();
+  const panel = card.getByRole("region", { name: "GitHub sign-in", exact: true });
+  await expect(panel.getByText("ABCD-1234", { exact: true })).toBeVisible();
+  await assertGithubSignInLabel(card);
+  await expect(panel.getByRole("button", { name: "▸ Terminal" })).toHaveAttribute(
+    "aria-expanded",
+    "false",
+  );
+  await capture("1067/install-waiting");
+  const commands = (await readFile(recipeCalls, "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  assert.deepEqual(commands[0], ["/usr/bin/sudo", "/usr/bin/apt-get", "update"]);
+  assert.deepEqual(commands.at(-2).slice(0, 3), ["gh", "auth", "login"]);
+  assert.deepEqual(commands.at(-1), ["gh", "auth", "setup-git", "--hostname", "github.com"]);
+  await updateScenario({
+    githubDevice: true,
+    recipeExit: 0,
+    facts: { tools: [missing.tools[0], { id: "gh", state: "ready", signIn: "signed-in" }] },
+  });
+  await expect(panel).toHaveCount(0);
+  await expect(card.getByText("Pass · Signed in", { exact: true })).toBeVisible();
+  await assertGithubSignInLabel(card);
+  await expect(card.locator(".host-check-name").filter({ hasText: /^GitHub CLI$/u })).toHaveCount(
+    1,
+  );
+  await capture("1067/install-signed-in");
 });
 
 test("Hosts real OpenSSH client shows a visible trust dialog for a disposable loopback sshd", {
