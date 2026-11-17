@@ -225,8 +225,10 @@ function packageTargets(filename, name) {
     if (target === undefined) {
       const pattern = Object.keys(imports)
         .filter((key) => {
-          const [prefix, suffix] = key.split("*");
-          return suffix !== undefined && name.startsWith(prefix) && name.endsWith(suffix);
+          const parts = key.split("*");
+          if (parts.length !== 2) return false;
+          const [prefix, suffix] = parts;
+          return name.length >= key.length && name.startsWith(prefix) && name.endsWith(suffix);
         })
         .sort((a, b) => b.indexOf("*") - a.indexOf("*") || b.length - a.length)[0];
       if (pattern) {

@@ -75,6 +75,8 @@ writeFileSync(
       "#blocked": null,
       "#allowed": "./agents/agents.ts",
       "#patterns/*": "./workspace/*.ts",
+      "#agents*agents": "./agents/agents.ts",
+      "#two*stars*": "./agents/agents.ts",
       "#conditional": { import: "./agents/agents.ts", require: "./workspace/worktrees.ts" },
     },
   }),
@@ -162,6 +164,8 @@ const aliasInvalid: [string, string][] = [
   ['export * from "#missing";', "unresolved"],
   ['import "#missing-file";', "unresolved"],
   ['import "#blocked";', "unresolved"],
+  ['import "#agents";', "unresolved"],
+  ['import "#twostars";', "unresolved"],
   ['require("#patterns/worktrees");', "types"],
   ['import("#conditional");', "types"],
 ];
