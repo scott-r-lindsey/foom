@@ -1,3 +1,5 @@
+import { crc32 } from "node:zlib";
+
 export const IMAGE_CSP =
   "default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 export const MAX_IMAGE_PIXELS = 16_000_000;
@@ -11,9 +13,29 @@ export function imageType(body: Buffer): string | undefined {
   return undefined;
 }
 
+/** Walk at most 16 MiB, advancing by at least 12 bytes per chunk. */
+function staticPng(body: Buffer): boolean {
+  if (body.length > 16 * 1024 * 1024) return false;
+  let offset = 8;
+  while (offset + 12 <= body.length) {
+    const length = body.readUInt32BE(offset);
+    const end = offset + 12 + length;
+    if (end > body.length) return false;
+    const type = body.toString("latin1", offset + 4, offset + 8);
+    if (!/^[A-Za-z]{4}$/.test(type)) return false;
+    if (type === "acTL" || type === "fcTL" || type === "fdAT") return false;
+    if (offset === 8 && (type !== "IHDR" || length !== 13)) return false;
+    if (crc32(body.subarray(offset + 4, end - 4)) !== body.readUInt32BE(end - 4)) return false;
+    if (type === "IEND") return length === 0 && end === body.length;
+    offset = end;
+  }
+  return false;
+}
+
 /** Verify the whole decode, with a pixel budget, before exposing an image preview. */
 export async function validImage(body: Buffer, type: string): Promise<boolean> {
   if (imageType(body) !== type) return false;
+  if (type === "image/png" && !staticPng(body)) return false;
   try {
     const sharp = (await import("sharp")).default;
     await sharp(body, { limitInputPixels: MAX_IMAGE_PIXELS, failOn: "warning", animated: true })

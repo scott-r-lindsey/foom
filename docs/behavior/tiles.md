@@ -304,4 +304,4 @@ appears as a failed row after restart for inspection and another explicit attemp
 
 Image previews open PNG, JPEG and WebP in Fit mode. Choose Actual size to scroll
 the image at its natural dimensions. The light or dark frame never recolors the
-image. Corrupt or oversized images and SVG entries are refused.
+image. Animated PNG (APNG), corrupt or oversized images and SVG entries are refused.

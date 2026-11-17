@@ -320,7 +320,11 @@ The picker, CLI and MCP accept PNG (`.png`), JPEG (`.jpg`, `.jpeg`) and WebP
 (`.webp`) alongside Markdown and HTML. Images retain the same worktree confinement,
 symlink checks and 16 MiB descriptor-read bound. Signatures must match the named
 format and Sharp must fully decode successfully with a 16 million pixel limit
-(including animation frames). Corrupt, mismatched or excessive images refuse with
+(including WebP animation frames). PNG chunks are scanned within the 16 MiB byte
+bound, with checked lengths and CRCs and a terminal IEND; malformed chunks and
+animation chunks (`acTL`, `fcTL`, `fdAT`) are refused before decoding. Animated PNG
+(APNG) is unsupported because Sharp only validates its default frame. Corrupt,
+animated PNG, mismatched or excessive images refuse with
 `invalid-image`; byte limits refuse with `too-large`. The picker maps these to
 the fixed `preview-image-invalid` application error, explaining formats and limits. SVG entries are explicitly
 unsupported, including aliases onto SVG targets. Cross-worktree access is outside
