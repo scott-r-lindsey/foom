@@ -114,6 +114,7 @@ export function attachTerminal(
     event.senderFrame !== null &&
     event.senderFrame === event.sender.mainFrame &&
     event.senderFrame.url === "app://bundle/index.html";
+  const outputListeners = new Set<(id: string) => void>();
   const exitListeners = new Set<(id: string, code: number) => void>();
   const manager = new TerminalHostClient(
     (id, code) => {
@@ -133,7 +134,10 @@ export function attachTerminal(
         if (owned.has(id)) events.onEvidence?.(id, evidence);
       },
       onOutput: (id) => {
-        if (owned.has(id)) events.onOutput?.(id);
+        if (owned.has(id)) {
+          events.onOutput?.(id);
+          for (const listener of outputListeners) listener(id);
+        }
       },
       onShellState: (id, state) => {
         if (owned.has(id)) events.onShellState?.(id, state);
@@ -499,10 +503,17 @@ export function attachTerminal(
     await manager.waitForExit();
     await Promise.allSettled([...pasteQueues.values()]);
     exitListeners.clear();
+    outputListeners.clear();
     await images.dispose();
     app.removeListener("will-quit", willQuit);
   };
   return {
+    onOutput: (listener: (id: string) => void) => {
+      outputListeners.add(listener);
+      return () => {
+        outputListeners.delete(listener);
+      };
+    },
     onExit: (listener: (id: string, code: number) => void) => {
       exitListeners.add(listener);
       return () => {

@@ -2336,6 +2336,34 @@ const desktop: DesktopApi = {
       shape({ available: array(text), recipeSession: either(absent, text) }),
       id,
     ),
+  githubSignIn: (id, action) =>
+    reply(
+      "setup:github-sign-in",
+      shape({
+        phase: literal(
+          "starting",
+          "waiting",
+          "finishing",
+          "done",
+          "failed",
+          "expired",
+          "cancelled",
+        ),
+        code: either(
+          absent,
+          (value): value is string =>
+            typeof value === "string" && /^[A-Z0-9]{4}-[A-Z0-9]{4}$/u.test(value),
+        ),
+        copied: boolean,
+        opened: boolean,
+        exitCode: either(
+          absent,
+          (value): value is number => typeof value === "number" && Number.isSafeInteger(value),
+        ),
+      }),
+      id,
+      action,
+    ),
   hosts: (action) => reply("setup:hosts", validHostsState, action),
   repositorySetup: (action) => reply("setup:repository-setup", validRepositorySetupState, action),
   onRepositorySetupRefused(callback) {

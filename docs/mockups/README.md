@@ -4,6 +4,7 @@ Clickable HTML mockups from the design phase. Open them in a browser; each is a 
 
 | File | Shows | Use it for |
 |---|---|---|
+| [github-sign-in.html](github-sign-in.html) | User-approved gh device sign-in states, fixed browser destination, code and fallback controls in light and dark (#1067) | Headless host gh sign-in |
 | [board.html](board.html) | The main board: rows grouped by repo, lights, reason lines, peek, open, the waiting queue, `N`, and New worktree | Layout, interaction, and how the board feels with many agents |
 | [first-run.html](first-run.html) | The preflight countdown: Agents (T-3), Repositories (T-2), Evaluator (T-1), Go / no-go (T-0), then an empty board | Flow, copy, and step structure for #17 |
 | [brand.html](brand.html) | The chosen brand direction, Event Horizon: Eclipse, in light and dark | The look: color, type, icon, wordmark, and how the app should feel |

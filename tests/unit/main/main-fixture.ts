@@ -579,6 +579,11 @@ const mock = vi.hoisted(() => {
   };
   return {
     terminals: {
+      screen: vi.fn<(id: string) => Promise<{ lines: string[]; title: string }>>(() =>
+        Promise.resolve({ lines: [], title: "Recipe" }),
+      ),
+      stop: vi.fn<(id: string) => Promise<boolean>>(() => Promise.resolve(true)),
+      onOutput: vi.fn<(listener: (id: string) => void) => () => void>(() => () => {}),
       kill: vi.fn(() => Promise.resolve()),
       recheckWake: vi.fn(),
       onExit: vi.fn<(listener: (id: string, code: number) => void) => () => void>(() => () => {}),
@@ -751,7 +756,7 @@ vi.mock("electron", () => ({
   Menu: { setApplicationMenu: vi.fn(), buildFromTemplate: vi.fn() },
   BrowserWindow: mock.BrowserWindow,
   nativeTheme: mock.theme,
-  clipboard: { writeText: vi.fn() },
+  clipboard: { writeText: vi.fn(), readText: vi.fn(() => Promise.resolve("")), clear: vi.fn() },
   dialog: {
     showMessageBox: mock.message,
     showErrorBox: mock.errorBox,

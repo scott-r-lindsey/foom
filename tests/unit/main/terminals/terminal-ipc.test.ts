@@ -2044,6 +2044,17 @@ test("closing sessions reject attachment and every input path until cleanup sett
   expect(pty().write).toHaveBeenCalledWith("allowed");
 });
 
+test("main recipe output observers receive owned output and unsubscribe independently", async () => {
+  const listener = vi.fn();
+  const off = terminalControl.onOutput(listener);
+  const id = await terminalControl.create(spec);
+  output("device sign-in fixture\r\n");
+  expect(listener).toHaveBeenCalledWith(id);
+  const count = listener.mock.calls.length;
+  off();
+  output("later output\r\n");
+  expect(listener).toHaveBeenCalledTimes(count);
+});
 test("wake host guard checks the live cursor composer, cancels separately and submits once", async () => {
   const { wakeLine } = await import("../../../../src/shared/agent-wake");
   const id = manager.create(spec);

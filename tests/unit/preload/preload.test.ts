@@ -2039,6 +2039,25 @@ test("local installer bridge validates availability and terminal IDs", async () 
   }
 });
 
+test("GitHub sign-in bridge projects ephemeral fields and rejects malformed replies", async () => {
+  const api = await bridge();
+  const state = { phase: "waiting", code: "ABCD-1234", copied: true, opened: false };
+  mock.invoke.mockResolvedValue({ ...state, url: "https://evil.test/", token: "private" });
+  await expect(api.githubSignIn("gh", "copy")).resolves.toEqual(state);
+  expect(mock.invoke).toHaveBeenLastCalledWith("setup:github-sign-in", "gh", "copy");
+  for (const invalid of [
+    {},
+    { ...state, phase: "other" },
+    { ...state, code: "abc" },
+    { ...state, copied: "yes" },
+    { ...state, opened: 1 },
+    { ...state, exitCode: Infinity },
+  ]) {
+    mock.invoke.mockResolvedValue(invalid);
+    await expect(api.githubSignIn("gh", "read")).rejects.toThrow();
+  }
+});
+
 test("data subscriptions project snapshots, acknowledge delivery and reject stale generations/revisions", async () => {
   const api = await bridge();
   const receive = vi.fn<(snapshot: ViewSnapshot<"settings">) => void>();
