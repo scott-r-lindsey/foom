@@ -270,9 +270,8 @@ reuses the frozen input; accepted rows, fixed quarantine positions/reasons and
 completion marker commit together. Row savepoints isolate constraint failures;
 missing/rejected parents never manufacture authority. Unsupported file versions
 refuse the import. Reports contain counts and fixed source names, never rejected
-payloads. Other settings and per-feature stores are not imported by this first
-group and remain in JSON. Later groups under #1162 still need
-environment ciphertext, board/forge/offers/control/audit and window/update state.
+payloads. Other settings and per-feature stores have separate explicit group importers
+described below; all remain in production JSON through phase C.
 The eventual cutover and retirement of JSON writers belong to phase D.
 
 The phase-A report supplies observational timings, **not** agreed cold-start or
@@ -358,3 +357,36 @@ rows are not replayed as new writes. All these paths remain explicit preparation
 JSON, existing service authorization and existing production readers/writers stay
 in place. Current phase-B view dependencies are invalidated after commit; history
 without a current phase-B view remains in the internal change log for its owner.
+
+### Window and update preparation
+
+The final store group keeps validated window geometry, the legacy size fallback,
+anonymous update high-water dates and per-window preview metadata. Preview rows
+have RESTRICT window and optional managed-worktree FKs; unmanaged checkout paths
+remain snapshots. Removing a saved window set deletes its intended preview rows
+first. Network permission is constrained to Off in SQLite and runtime validation;
+restored metadata grants no file capability. The existing PreviewHost still
+revalidates Git and contained file identity. Update reservations advance only to
+newer UTC day/week/month dates in one transaction before the existing owner's
+request; the prepared domain path sends no network request. Sources remain intact
+and production window/update/preview owners continue to use their JSON files.
+
+### Reporting-only view measurements
+
+The named `data SQLite: report cold process to first renderer view and write
+to renderer view measurements` Electron case runs in CI on each desktop platform.
+Repeat locally with `pnpm run test:electron --suite=data-sqlite.test.js
+--test-name-pattern='^data SQLite: report'` (under `xvfb-run -a` on Linux).
+It reports ten independent fixture samples with 1,000 saved repositories, a
+100-row subscribed page and one repository registration per sample. Seed work
+and fixture file creation are outside the timers. The first timer covers spawning a fresh fixture Electron process, loading its
+modules, opening the existing database, creating a sandboxed renderer
+and receiving its first view; the second covers command start through committed
+ViewRegistry publication, renderer DOM update and receipt acknowledgement.
+
+Each sample starts a new fixture process with OS page caches retained. It
+measures the prepared SQLite/view path; production Foom startup remains JSON-backed.
+Nearest-rank p50/p95, individual samples, workload, platform and runtime versions
+appear in CI logs and `test-results/data-sqlite-measurements-<platform>.json`.
+There are no latency assertions. Approved workload-specific budgets remain a
+separate product decision; the harness reports observations for that decision.

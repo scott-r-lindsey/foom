@@ -167,6 +167,17 @@ export function forgetDatabaseRepository(database: ProfileDatabase, path: string
     db.delete(tables.pendingRemovals)
       .where(eq(tables.pendingRemovals.repository, owner.path))
       .run();
+    db.delete(tables.previewRecords)
+      .where(
+        inArray(
+          tables.previewRecords.worktree,
+          db
+            .select({ path: tables.worktrees.path })
+            .from(tables.worktrees)
+            .where(eq(tables.worktrees.repository, owner.path)),
+        ),
+      )
+      .run();
     db.delete(tables.worktrees).where(eq(tables.worktrees.repository, owner.path)).run();
     db.delete(tables.repositories).where(eq(tables.repositories.path, owner.path)).run();
   });
@@ -324,10 +335,16 @@ export function finishDatabaseOperation(
       .where(eq(tables.controlOperations.id, identifier(id)))
       .get();
     if (!previous || previous.recovered) throw new Error("No live operation");
+    if (!["pending_confirmation", "running"].includes(previous.status))
+      throw new Error("Operation already finished");
     const before = object(parsed(previous.data));
-    const after = auditEntry({ ...before, status, reason, timestamp: new Date().toISOString() });
+    const updatedAt = new Date().toISOString();
+    const after = auditEntry({ ...before, status, reason, timestamp: updatedAt });
     db.update(tables.controlOperations)
-      .set({ status, data: JSON.stringify(after) })
+      .set({
+        status,
+        data: JSON.stringify({ ...after, createdAt: stamp(before["createdAt"]), updatedAt }),
+      })
       .where(eq(tables.controlOperations.id, id))
       .run();
     writeAudit(db, after);

@@ -338,3 +338,184 @@ test("data SQLite: board and control recovery preserve history without replay or
   assert.equal(result.posts, 1);
   assert.equal(result.audits, 0);
 });
+
+test("data SQLite: window and update metadata import without changing production files or granting preview network", {
+  timeout: deadline(45_000),
+}, async (context) => {
+  const app = await launchApp(context, { fixture: "empty-board" });
+  const result = await app.evaluate(async ({ app }, modulePath) => {
+    const load = process.getBuiltinModule("node:module").createRequire(modulePath);
+    const { ProfileDatabase } = load(modulePath);
+    const api = load("./windows.js");
+    const fs = load("node:fs/promises");
+    const path = load("node:path");
+    const { DatabaseSync } = load("node:sqlite");
+    const profile = await fs.mkdtemp(path.join(app.getPath("userData"), "sqlite-windows-"));
+    const original = JSON.stringify([
+      {
+        id: "saved",
+        display: 1,
+        bounds: { x: -100, y: 0, width: 1000, height: 700 },
+        maximized: false,
+      },
+    ]);
+    await fs.writeFile(path.join(profile, "windows.json"), original, { mode: 0o600 });
+    await fs.writeFile(
+      path.join(profile, "previews-saved.json"),
+      JSON.stringify([
+        { id: "a".repeat(32), worktree: "/saved-claim", relativePath: "readme.md", network: false },
+      ]),
+      { mode: 0o600 },
+    );
+    const db = await ProfileDatabase.open(profile);
+    try {
+      const imported = await api.importDatabaseWindows(db, profile);
+      const first = await api.reserveDatabaseUpdateActivity(db, new Date("2026-11-17T12:00:00Z"));
+      const second = await api.reserveDatabaseUpdateActivity(db, new Date("2026-11-17T12:00:00Z"));
+      const raw = new DatabaseSync(path.join(profile, "data/profile.sqlite"));
+      let preview;
+      let refused = false;
+      try {
+        raw.exec("PRAGMA foreign_keys=ON");
+        preview = raw.prepare("SELECT * FROM preview_records").get();
+        try {
+          raw.exec("DELETE FROM windows");
+        } catch {
+          refused = true;
+        }
+      } finally {
+        raw.close();
+      }
+      await api.saveDatabaseWindows(db, []);
+      return {
+        report: JSON.parse(imported.value.report),
+        first: first.value,
+        second: second.value,
+        preview,
+        refused,
+        original,
+        after: await fs.readFile(path.join(profile, "windows.json"), "utf8"),
+      };
+    } finally {
+      await db.close();
+    }
+  }, path.resolve("build/main/data/sqlite/database.js"));
+  assert.equal(result.report.quarantined, 0);
+  assert.equal(result.preview.network, 0);
+  assert.equal(result.preview.worktree, null);
+  assert.equal(result.refused, true);
+  assert.equal(result.first, "?d=1&w=1&m=1");
+  assert.equal(result.second, "");
+  assert.equal(result.after, result.original);
+});
+
+test("data SQLite: report cold process to first renderer view and write to renderer view measurements", {
+  timeout: deadline(90_000),
+}, async (context) => {
+  const app = await launchApp(context, { fixture: "empty-board" });
+  const result = await app.evaluate(
+    async ({ app }, { modulePath, fixturePath, childTimeoutMs }) => {
+      const load = process.getBuiltinModule("node:module").createRequire(modulePath);
+      const { ProfileDatabase } = load(modulePath);
+      const { ViewChanges } = load("../view-changes.js");
+      const tables = load("./schema.js");
+      const fs = load("node:fs/promises");
+      const path = load("node:path");
+      const { execFile } = load("node:child_process");
+      const { electronLaunch } = load(path.join(path.dirname(fixturePath), "display-isolation.js"));
+      const cold = [];
+      const writes = [];
+      for (let sample = 0; sample < 10; sample++) {
+        const root = await fs.mkdtemp(path.join(app.getPath("userData"), "sqlite-measurement-"));
+        const db = await ProfileDatabase.open(root, new ViewChanges());
+        try {
+          await db.write((tx) => {
+            for (let index = 0; index < 1000; index++)
+              tx.insert(tables.repositories)
+                .values({ path: path.join(root, `repository-${String(index).padStart(4, "0")}`) })
+                .run();
+          });
+        } finally {
+          await db.close();
+        }
+        await fs.writeFile(
+          path.join(root, "view.html"),
+          '<!doctype html><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src \'self\'"><body>Loading<script src="view.js"></script>',
+        );
+        await fs.writeFile(
+          path.join(root, "view.js"),
+          "window.measurement.receive(value => { document.body.textContent = JSON.stringify(value.data); });",
+        );
+        await fs.writeFile(
+          path.join(root, "preload.js"),
+          `const {contextBridge,ipcRenderer}=require("electron");
+        const channel=process.argv.find(arg=>arg.startsWith("--sqlite-measurement-channel=")).slice("--sqlite-measurement-channel=".length);
+        contextBridge.exposeInMainWorld("measurement",{receive(callback){
+          ipcRenderer.on(channel,(_event,value)=>{
+            if(!value || value.id!=="measurement" || value.view!=="repositories" || !Number.isSafeInteger(value.generation) || !Number.isSafeInteger(value.revision) || !Array.isArray(value.data) || value.data.length!==100 || !value.data.every(row=>row && typeof row.path==="string" && row.path.length<=4096 && typeof row.name==="string" && row.name.length<=4096))throw Error("Invalid fixture snapshot");
+            callback(value);ipcRenderer.send(channel, {generation:value.generation,revision:value.revision,first:value.data[0].name});
+          });ipcRenderer.send(channel,"ready");
+        }});`,
+        );
+        try {
+          const options = electronLaunch({
+            env: { ...process.env, HOME: root, USERPROFILE: root },
+            args: [fixturePath, modulePath, root],
+          });
+          const start = performance.timeOrigin + performance.now();
+          const stdout = await new Promise((resolve, reject) =>
+            execFile(
+              process.execPath,
+              options.args,
+              { env: options.env, cwd: root, maxBuffer: 1024 * 1024, timeout: childTimeoutMs },
+              (error, stdout) => (error ? reject(error) : resolve(stdout)),
+            ),
+          );
+          const line = stdout.split("\n").find((line) => line.startsWith("SQLITE_MEASUREMENT "));
+          if (!line) throw Error("Missing measurement result");
+          const measured = JSON.parse(line.slice("SQLITE_MEASUREMENT ".length));
+          cold.push(measured.firstViewAt - start);
+          writes.push(measured.writeToViewMs);
+        } finally {
+          await fs.rm(root, { recursive: true, force: true });
+        }
+      }
+      function summarize(values) {
+        const sorted = [...values].sort((a, b) => a - b);
+        return {
+          p50Ms: sorted[Math.ceil(sorted.length * 0.5) - 1],
+          p95Ms: sorted[Math.ceil(sorted.length * 0.95) - 1],
+          samplesMs: values,
+        };
+      }
+      return {
+        platform: process.platform,
+        arch: process.arch,
+        versions: {
+          electron: process.versions.electron,
+          node: process.versions.node,
+          sqlite: process.versions.sqlite,
+        },
+        workload: { samples: 10, repositories: 1000, pageSize: 100, writesPerSample: 1 },
+        scope:
+          "Cold fixture Electron process spawn through SQLite open and first sandboxed renderer view; OS caches retained. ViewRegistry delivery includes renderer DOM update and receipt acknowledgement. Seed and fixture file creation excluded. Nearest-rank percentiles; reporting only. Production Foom startup remains JSON-backed.",
+        coldStartToFirstView: summarize(cold),
+        writeToView: summarize(writes),
+      };
+    },
+    {
+      modulePath: path.resolve("build/main/data/sqlite/database.js"),
+      fixturePath: path.resolve("tests/electron/sqlite-measurement-fixture.js"),
+      childTimeoutMs: deadline(30_000),
+    },
+  );
+  context.diagnostic(`SQLite view measurements (no latency thresholds): ${JSON.stringify(result)}`);
+  const fs = require("node:fs/promises");
+  await fs.mkdir("test-results", { recursive: true });
+  await fs.writeFile(
+    `test-results/data-sqlite-measurements-${process.platform}.json`,
+    JSON.stringify(result, null, 2),
+  );
+  assert.equal(result.coldStartToFirstView.samplesMs.length, 10);
+  assert.equal(result.writeToView.samplesMs.length, 10);
+});

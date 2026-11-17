@@ -468,3 +468,75 @@ export const terminalDiagnostics = sqliteTable(
     check("terminal_diagnostic_json", sql`json_valid(${t.data})`),
   ],
 );
+
+export const windows = sqliteTable(
+  "windows",
+  {
+    id: text().primaryKey().notNull(),
+    display: integer().notNull(),
+    x: integer().notNull(),
+    y: integer().notNull(),
+    width: integer().notNull(),
+    height: integer().notNull(),
+    maximized: integer({ mode: "boolean" }).notNull(),
+  },
+  (t) => [
+    check(
+      "windows_id",
+      sql`length(${t.id}) BETWEEN 1 AND 64 AND ${t.id} NOT GLOB '*[^a-zA-Z0-9-]*'`,
+    ),
+    check(
+      "windows_geometry",
+      sql`abs(${t.x}) <= 100000 AND abs(${t.y}) <= 100000 AND ${t.width} BETWEEN 1 AND 20000 AND ${t.height} BETWEEN 1 AND 20000`,
+    ),
+    check("windows_maximized", sql`${t.maximized} IN (0,1)`),
+  ],
+);
+export const legacyWindowSize = sqliteTable(
+  "legacy_window_size",
+  {
+    id: integer().primaryKey(),
+    width: integer().notNull(),
+    height: integer().notNull(),
+  },
+  (t) => [
+    check("window_size_singleton", sql`${t.id}=1`),
+    check(
+      "window_size_positive",
+      sql`${t.width} BETWEEN 1 AND 9007199254740991 AND ${t.height} BETWEEN 1 AND 9007199254740991`,
+    ),
+  ],
+);
+export const updateActivity = sqliteTable(
+  "update_activity",
+  {
+    period: text().primaryKey().notNull(),
+    date: text().notNull(),
+  },
+  (t) => [
+    check("update_period", sql`${t.period} IN ('d','w','m')`),
+    check(
+      "update_date",
+      sql`COALESCE(length(${t.date})=10 AND ${t.date} GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' AND date(${t.date},'+0 days')=${t.date} AND (${t.period}!='w' OR strftime('%w',${t.date})='1') AND (${t.period}!='m' OR substr(${t.date},9,2)='01'),0)`,
+    ),
+  ],
+);
+export const previewRecords = sqliteTable(
+  "preview_records",
+  {
+    id: text().primaryKey().notNull(),
+    window: text()
+      .notNull()
+      .references(() => windows.id, { onDelete: "restrict" }),
+    worktree: text().references(() => worktrees.path, { onDelete: "restrict" }),
+    worktreeSnapshot: text().notNull(),
+    relativePath: text().notNull(),
+    network: integer({ mode: "boolean" }).notNull(),
+  },
+  (t) => [
+    index("previews_window").on(t.window),
+    index("previews_worktree").on(t.worktree),
+    check("previews_network", sql`${t.network}=0`),
+    check("previews_id", sql`length(${t.id})=32 AND ${t.id} NOT GLOB '*[^a-f0-9]*'`),
+  ],
+);

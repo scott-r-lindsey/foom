@@ -30,6 +30,7 @@ a generic process route alone does not identify feature policy.
 
 | Area / source owner | Responsibility and entry points | Required area rules / behavior |
 | --- | --- | --- |
+| `src/main/data/sqlite/windows.ts` | Prepared window/update conveniences and inert preview metadata; no production cutover | [Data ownership](areas/data.md), [windows](areas/windows.md), [previews](areas/previews.md), [application](areas/application.md), [privacy](areas/privacy.md) |
 | `src/main/data/sqlite/control.ts`, `src/main/data/sqlite/board.ts` | Prepared control/history schemas and import/domain paths; no production cutover | [Data ownership](areas/data.md), [control](areas/control.md), [message board](areas/message-board.md), [forge](areas/forge.md), [repository setup](areas/repository-setup.md), [privacy](areas/privacy.md) |
 | `src/main/data/`, `src/renderer/data/`, `src/shared/data-views.d.ts` | Bounded JSON-backed view subscriptions, commit/live invalidation and TanStack Query caches | [Data ownership](areas/data.md), [IPC](areas/ipc.md), [settings](areas/settings.md) |
 | `src/main/setup/settings.ts`, `src/main/setup/environment.ts`, `src/main/workspace/session-store.ts`, `src/main/workspace/worktree-store.ts`, `src/main/control/store.ts`, `src/main/config/service.ts`, `src/renderer/board/live-board-source.ts` | Existing persistence and main-owned data projections; phased SQLite/Drizzle and subscribed-query transition | [Data ownership](areas/data.md) |

@@ -1408,6 +1408,17 @@ test("operation intent is durable and deduplicated; audit clearing preserves ope
     }),
   ).rejects.toThrow("Intent");
   await api.finishDatabaseOperation(db, operationId, "succeeded", "completed");
+  await expect(api.finishDatabaseOperation(db, operationId, "running", "intent")).rejects.toThrow(
+    "already finished",
+  );
+  inspect(file, (raw) => {
+    const row = raw.prepare("SELECT data FROM control_operations").get();
+    if (typeof row?.["data"] !== "string") throw new Error("Missing operation");
+    expect(JSON.parse(row["data"])).toMatchObject({
+      createdAt: storedOperation.operation.createdAt,
+      status: "succeeded",
+    });
+  });
   await api.appendDatabaseAudit(db, {
     ...storedOperation.operation,
     actor,
@@ -1721,6 +1732,16 @@ test("repository forgetting keeps historical posts and requires saved sessions t
   const { db, file } = await populatedControl();
   await expect(forgetDatabaseRepository(db, repo)).rejects.toThrow("saved sessions");
   await executeDataCommand(db, { type: "remove-session", id: "parent" });
+  const windowApi = await import("../../../../../src/main/data/sqlite/windows");
+  await windowApi.saveDatabaseWindows(db, [
+    { id: "a", display: 1, bounds: { x: 0, y: 0, width: 900, height: 700 }, maximized: false },
+  ]);
+  await windowApi.saveDatabasePreview(db, "a", {
+    id: "c".repeat(32),
+    worktree: tree.path,
+    relativePath: "readme.md",
+    network: false,
+  });
   await forgetDatabaseRepository(db, repo);
   inspect(file, (raw) => {
     expect(raw.prepare("SELECT * FROM repositories").all()).toEqual([]);
@@ -1780,4 +1801,199 @@ test("health and host-diagnostic writers validate fixed metadata and independent
       raw.prepare("SELECT * FROM terminal_diagnostics WHERE kind='timeout'").all(),
     ).toHaveLength(1);
   });
+});
+
+test("window imports preserve geometry and update high-water dates without restoring preview capabilities", async () => {
+  const { db, profile, file } = await fixture();
+  await put(profile, sources([]));
+  await importLegacy(db, profile);
+  const { importDatabaseWindows, reserveDatabaseUpdateActivity } = await import(
+    "../../../../../src/main/data/sqlite/windows"
+  );
+  const placement = {
+    id: "board-1",
+    display: -4,
+    bounds: { x: -1000, y: 10, width: 900, height: 700 },
+    maximized: true,
+    scale: 100,
+  };
+  const preview = {
+    id: "a".repeat(32),
+    worktree: tree.path,
+    relativePath: "docs/readme.md",
+    network: false,
+  };
+  const input = {
+    "windows.json": JSON.stringify([placement]),
+    "window-size.json": JSON.stringify({ width: 1200, height: 800 }),
+    "update-activity.json": JSON.stringify({ d: "2026-11-17", w: "2026-11-16", m: "2026-11-01" }),
+    "previews-board-1.json": JSON.stringify([preview]),
+  };
+  for (const [name, value] of Object.entries(input))
+    await writeFile(join(profile, name), value, { mode: 0o600 });
+  const result = await importDatabaseWindows(db, profile);
+  expect(JSON.parse(result.value.report)).toMatchObject({ accepted: 6, quarantined: 0 });
+  inspect(file, (raw) => {
+    expect(raw.prepare("SELECT * FROM windows").get()).toMatchObject({
+      id: "board-1",
+      display: -4,
+      x: -1000,
+      maximized: 1,
+    });
+    expect(raw.prepare("SELECT * FROM preview_records").get()).toMatchObject({
+      window: "board-1",
+      worktree: tree.path,
+      network: 0,
+    });
+    expect(() => {
+      raw.exec("DELETE FROM windows");
+    }).toThrow();
+    expect(() => raw.prepare("DELETE FROM worktrees WHERE path=?").run(tree.path)).toThrow();
+    expect(() => {
+      raw.exec("UPDATE preview_records SET network=1");
+    }).toThrow();
+    expect(() => {
+      raw.exec("UPDATE update_activity SET date='2026-02-30'");
+    }).toThrow();
+    expect(() => {
+      raw.exec("UPDATE windows SET width=0");
+    }).toThrow();
+  });
+  expect((await reserveDatabaseUpdateActivity(db, new Date("2026-11-17T12:00:00Z"))).value).toBe(
+    "",
+  );
+  expect((await reserveDatabaseUpdateActivity(db, new Date("2026-11-18T12:00:00Z"))).value).toBe(
+    "?d=1",
+  );
+  expect((await reserveDatabaseUpdateActivity(db, new Date("2025-01-01T12:00:00Z"))).value).toBe(
+    "",
+  );
+  for (const [name, value] of Object.entries(input))
+    expect(await readFile(join(profile, name), "utf8")).toBe(value);
+  await rm(join(profile, "previews-board-1.json"));
+  expect((await importDatabaseWindows(db, profile)).value.alreadyImported).toBe(true);
+});
+test("window domain writes replace intended child metadata and reserve update dates atomically", async () => {
+  const { db, file } = await fixture();
+  const api = await import("../../../../../src/main/data/sqlite/windows");
+  const a = {
+    id: "a",
+    display: 1,
+    bounds: { x: 0, y: 0, width: 900, height: 700 },
+    maximized: false,
+  };
+  const b = { ...a, id: "b" };
+  const preview = {
+    id: "a".repeat(32),
+    worktree: "/unmanaged",
+    relativePath: "readme.md",
+    network: false,
+  };
+  await api.saveDatabaseWindows(db, [a, b]);
+  await api.saveDatabasePreview(db, "a", preview);
+  await api.saveDatabasePreview(db, "a", preview);
+  await expect(api.forgetDatabasePreview(db, "b", preview.id)).rejects.toThrow("owner");
+  await api.saveDatabasePreview(db, "b", preview);
+  await api.forgetDatabasePreview(db, "b", preview.id);
+  await api.forgetDatabasePreview(db, "b", preview.id);
+  await api.saveDatabasePreview(db, "a", preview);
+  await api.saveDatabaseWindows(db, [b]);
+  inspect(file, (raw) => {
+    expect(raw.prepare("SELECT count(*) AS n FROM preview_records").get()?.["n"]).toBe(0);
+    expect(raw.prepare("SELECT id FROM windows").get()?.["id"]).toBe("b");
+  });
+  await api.saveDatabaseWindowSize(db, { width: 1000, height: 600 });
+  await api.saveDatabaseWindowSize(db, { width: 1100, height: 650 });
+  expect(
+    (await api.reserveDatabaseUpdateActivity(db, new Date("2026-12-01T01:00:00Z"))).value,
+  ).toBe("?d=1&w=1&m=1");
+  expect(
+    (await api.reserveDatabaseUpdateActivity(db, new Date("2026-12-01T01:00:00Z"))).value,
+  ).toBe("");
+  await api.saveDatabaseWindows(db, []);
+  expect(() => api.saveDatabaseWindows(db, [a, a])).toThrow("Duplicate");
+  expect(() => api.saveDatabaseWindows(db, null)).toThrow();
+  expect(() => api.saveDatabaseWindows(db, [{}])).toThrow();
+  expect(() => api.saveDatabaseWindowSize(db, { width: 0, height: 2 })).toThrow();
+  await expect(api.saveDatabasePreview(db, "!", preview)).rejects.toThrow();
+  await expect(api.saveDatabasePreview(db, "missing", preview)).rejects.toThrow();
+  await expect(api.saveDatabasePreview(db, "a", { ...preview, network: true })).rejects.toThrow();
+});
+test("window importer quarantines invalid rows, orphans and duplicate identities", async () => {
+  const { db, file } = await fixture();
+  const { importWindowRows } = await import("../../../../../src/main/data/sqlite/windows");
+  const a = {
+    id: "a",
+    display: 1,
+    bounds: { x: 0, y: 0, width: 900, height: 700 },
+    maximized: false,
+  };
+  const p = {
+    id: "b".repeat(32),
+    worktree: "/unmanaged",
+    relativePath: "readme.md",
+    network: false,
+  };
+  const result = await db.write((tx) =>
+    importWindowRows(tx, {
+      "windows.json": JSON.stringify([a, a, {}]),
+      "window-size.json": "{}",
+      "update-activity.json": JSON.stringify({
+        d: "2026-02-30",
+        w: "2026-11-17",
+        m: "2026-11-17",
+        x: "2026-11-17",
+      }),
+      "previews-orphan.json": JSON.stringify([p]),
+      "previews-a.json": JSON.stringify([p, p, { ...p, network: true }]),
+      ignored: null,
+    }),
+  );
+  expect(result.value).toEqual({ accepted: 2, quarantined: 10 });
+  const broken = [
+    {
+      "windows.json": "{}",
+      "update-activity.json": "[]",
+      "window-size.json": "!",
+      "previews-a.json": "{}",
+    },
+    { "windows.json": null, "previews-a.json": "!" },
+    {
+      "windows.json": JSON.stringify(Array.from({ length: 33 }, () => a)),
+      "previews-a.json": JSON.stringify(Array.from({ length: 257 }, () => p)),
+    },
+  ];
+  for (const input of broken) await db.write((tx) => importWindowRows(tx, input));
+  inspect(file, (raw) => {
+    expect(raw.prepare("SELECT count(*) AS n FROM windows").get()?.["n"]).toBe(1);
+    expect(raw.prepare("SELECT worktree FROM preview_records").get()?.["worktree"]).toBe(null);
+  });
+});
+test("window metadata enforces per-window preview capacity while allowing updates", async () => {
+  const { db } = await fixture();
+  const api = await import("../../../../../src/main/data/sqlite/windows");
+  await api.saveDatabaseWindows(db, [
+    { id: "a", display: 1, bounds: { x: 0, y: 0, width: 900, height: 700 }, maximized: false },
+  ]);
+  for (let i = 0; i < 256; i++)
+    await api.saveDatabasePreview(db, "a", {
+      id: i.toString(16).padStart(32, "0"),
+      worktree: "/unmanaged",
+      relativePath: "readme.md",
+      network: false,
+    });
+  await api.saveDatabasePreview(db, "a", {
+    id: "0".repeat(32),
+    worktree: "/unmanaged",
+    relativePath: "changed.md",
+    network: false,
+  });
+  await expect(
+    api.saveDatabasePreview(db, "a", {
+      id: "f".repeat(32),
+      worktree: "/unmanaged",
+      relativePath: "readme.md",
+      network: false,
+    }),
+  ).rejects.toThrow("capacity");
 });
