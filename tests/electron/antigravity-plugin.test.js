@@ -354,9 +354,11 @@ for (const firstRun of [false, true]) {
     if (firstRun) {
       await page.getByRole("button", { name: "Start preflight" }).click();
       await page.getByRole("switch", { name: "Antigravity", exact: true }).check();
-      await page.waitForFunction(
-        async () => (await window.desktop.setupState()).settings.agents.agy === true,
-      );
+      await expect
+        .poll(() =>
+          page.evaluate(async () => (await window.desktop.setupState()).settings.agents.agy),
+        )
+        .toBe(true);
       await page.getByRole("button", { name: "Re-check This computer", exact: true }).click();
     } else {
       await openSettingsScreen(page);
