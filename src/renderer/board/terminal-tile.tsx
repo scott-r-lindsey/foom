@@ -295,6 +295,40 @@ export function Tile({
     clear,
     report,
   ]);
+  const [navigationState, setNavigationState] = useState({ id: "", back: false, forward: false });
+  const previewId = preview?.id;
+  const navigation =
+    navigationState.id === previewId ? navigationState : { back: false, forward: false };
+  useEffect(() => {
+    if (!previewId) return;
+    let active = true;
+    const receive = (state: { id: string; back: boolean; forward: boolean }) => {
+      if (active && state.id === previewId) setNavigationState(state);
+    };
+    let updated = false;
+    const off = source.previews?.onNavigation?.((state) => {
+      if (state.id === previewId) {
+        updated = true;
+        receive(state);
+      }
+    });
+    void source.previews
+      ?.navigation?.(previewId)
+      .then((state) => {
+        if (!updated) receive(state);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+      off?.();
+    };
+  }, [source, previewId]);
+  const travel = (direction: "back" | "forward") => {
+    if (!preview) return;
+    void source.previews?.travel?.(preview.id, direction).catch((error: unknown) => {
+      setError(errorMessage(error, "Navigation failed"));
+    });
+  };
   const canReload = Boolean(preview && typeof source.previews?.reload === "function");
   const reload = () => {
     if (!preview) return;
@@ -338,6 +372,18 @@ export function Tile({
       aria-hidden={!occupied || undefined}
       tabIndex={occupied ? (focused ? 0 : -1) : undefined}
       inert={behind || inactive}
+      onKeyDown={(event) => {
+        if (!preview || event.ctrlKey || event.shiftKey) return;
+        const back =
+          (event.altKey && event.key === "ArrowLeft") || (event.metaKey && event.key === "[");
+        const forward =
+          (event.altKey && event.key === "ArrowRight") || (event.metaKey && event.key === "]");
+        if (back || forward) {
+          event.preventDefault();
+          event.stopPropagation();
+          travel(back ? "back" : "forward");
+        }
+      }}
       onContextMenu={(event) => {
         if (occupied) return;
         event.preventDefault();
@@ -482,6 +528,32 @@ export function Tile({
             >
               □
             </button>
+            {preview && (navigation.back || navigation.forward) && (
+              <>
+                <button
+                  type="button"
+                  aria-label="Back"
+                  title="Back (Alt+Left)"
+                  disabled={!navigation.back}
+                  onClick={() => {
+                    travel("back");
+                  }}
+                >
+                  ←
+                </button>
+                <button
+                  type="button"
+                  aria-label="Forward"
+                  title="Forward (Alt+Right)"
+                  disabled={!navigation.forward}
+                  onClick={() => {
+                    travel("forward");
+                  }}
+                >
+                  →
+                </button>
+              </>
+            )}
             {canReload && (
               <button type="button" className="preview-reload" aria-label="Reload" onClick={reload}>
                 <svg aria-hidden="true" viewBox="0 0 16 16" width="14" height="14">

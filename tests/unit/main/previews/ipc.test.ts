@@ -42,6 +42,8 @@ test("board IPC accepts exact requests and routes only IDs to its window host", 
     },
     open: vi.fn(() => Promise.resolve("a".repeat(32))),
     reload: vi.fn(async () => {}),
+    navigation: vi.fn((id: string) => ({ id, back: true, forward: false })),
+    travel: vi.fn(async () => {}),
     close: vi.fn(async () => {}),
     bounds: vi.fn(),
     painted: vi.fn(),
@@ -94,6 +96,15 @@ test("board IPC accepts exact requests and routes only IDs to its window host", 
   expect(() => invoke("popout", id)).toThrow("in progress");
   await moving;
   expect(popout).toHaveBeenCalledWith(id);
+  expect(invoke("navigation", id)).toEqual({ id, back: true, forward: false });
+  await invoke("travel", id, "back");
+  await invoke("travel", id, "forward");
+  expect(host.travel).toHaveBeenCalledWith(id, "back");
+  expect(host.travel).toHaveBeenCalledWith(id, "forward");
+  for (const args of [[], [null], [id, "extra"]])
+    expect(() => invoke("navigation", ...args)).toThrow();
+  for (const args of [[], [id], [id, "up"], ["invalid", "back"], [id, "back", 1]])
+    expect(() => invoke("travel", ...args)).toThrow();
   await invoke("reload", id);
   expect(host.reload).toHaveBeenCalledWith(id);
   expect(() => invoke("reload", "b".repeat(32))).toThrow("Unknown preview ID");

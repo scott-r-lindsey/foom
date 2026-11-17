@@ -23,7 +23,15 @@ export interface PreviewSnapshot {
   image: string;
   version: number;
 }
+export interface PreviewNavigation {
+  id: string;
+  back: boolean;
+  forward: boolean;
+}
 export interface PreviewApi {
+  navigation?(id: string): Promise<PreviewNavigation>;
+  travel?(id: string, direction: "back" | "forward"): Promise<void>;
+  onNavigation?(callback: (state: PreviewNavigation) => void): () => void;
   describe?(id: string): Promise<PreviewSummary>;
   onPlace?(callback: (id: string, expiresAt: number) => Promise<PreviewPlacement>): () => void;
   copyPath?(id: string): Promise<void>;

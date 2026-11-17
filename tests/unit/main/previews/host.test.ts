@@ -23,7 +23,7 @@ test("requests and navigation admit only own origin, with data/blob only for ass
     expect(navigationAllowed(url, origin)).toBe(false);
   }
   expect(navigationAllowed(origin + "/a.MD#x", origin)).toBe(true);
-  expect(navigationAllowed(origin + "/a.html", origin)).toBe(false);
+  expect(navigationAllowed(origin + "/a.html", origin)).toBe(true);
 });
 test("loads detached, denies capabilities, and attaches only loaded visible views", async () => {
   const f = await fixture();
@@ -119,7 +119,7 @@ test("protocol requests retain the root identity captured when the preview opene
   const read = vi.spyOn(fs, "readSync");
   const response = await serve({ url: `foom-preview://${id}/a.html` });
   expect(response.status).toBe(403);
-  expect(await response.text()).toBe("Preview file unavailable");
+  expect(await response.text()).toContain("File unavailable");
   expect(read).not.toHaveBeenCalled();
   await f.host.dispose(false);
 });
@@ -403,4 +403,24 @@ test("concurrent manual opens reuse one record and disposal cancels pending open
   release();
   await refused;
   expect(pending.registry.records.size).toBe(0);
+});
+
+test("unavailable pages keep escaped relative paths inert and use the restricted policy", async () => {
+  const { unavailablePage } = await import("../../../../src/main/previews/partition");
+  const origin = `foom-preview://${"a".repeat(32)}`;
+  const html = unavailablePage(`${origin}/docs/%3Cscript%3E%26%22%27.md`, origin, true);
+  expect(html).toContain("docs/&#60;script&#62;&#38;&#34;&#39;.md");
+  expect(html).not.toContain("<script>");
+  expect(unavailablePage(`${origin}/%zz.md`, origin, false)).toContain("%zz.md");
+  expect(unavailablePage("bad-url", origin, false)).toContain("File unavailable");
+  const f = await fixture();
+  const { id } = await f.open();
+  const serve = partition.protocol.handle.mock.calls[0]?.[1];
+  const response = await serve?.({ url: `foom-preview://${id}/missing.html` });
+  expect(response?.status).toBe(404);
+  expect(response?.headers.get("content-type")).toBe("text/html; charset=utf-8");
+  expect(response?.headers.get("content-security-policy")).not.toContain(
+    "script-src 'self' 'unsafe-inline'",
+  );
+  await f.host.dispose(false);
 });

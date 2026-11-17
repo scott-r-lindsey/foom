@@ -64,6 +64,9 @@ export interface BoardSource {
     bounds(id: string, bounds: PreviewBounds): Promise<void>;
     close(id: string): Promise<void>;
     onPlace?: PreviewApi["onPlace"];
+    navigation?: PreviewApi["navigation"];
+    travel?: PreviewApi["travel"];
+    onNavigation?: PreviewApi["onNavigation"];
   };
   messageBoard?: MessageBoardApi;
   actionLog?: ActionLogApi;

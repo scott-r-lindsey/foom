@@ -2234,3 +2234,30 @@ test("readiness view snapshots cross the projected bridge with bounded fixed fac
   expect(receive).toHaveBeenCalledOnce();
   off();
 });
+
+test("preview history bridge validates navigation facts and forwards ID-scoped travel", async () => {
+  const api = (await bridge()).previews;
+  if (!api) throw new Error("Missing preview bridge");
+  const state = { id: "a".repeat(32), back: true, forward: false };
+  mock.invoke.mockResolvedValue(state);
+  await expect(api.navigation?.(state.id)).resolves.toEqual(state);
+  await api.travel?.(state.id, "back");
+  expect(mock.invoke).toHaveBeenCalledWith("preview:travel", state.id, "back");
+  const receive = vi.fn();
+  const off = api.onNavigation?.(receive);
+  const listener = mock.on.mock.calls.find(([channel]) => channel === "preview:navigation")?.[1];
+  if (!listener) throw new Error("Missing navigation listener");
+  for (const value of [
+    null,
+    {},
+    { ...state, id: "wrong" },
+    { ...state, back: 1 },
+    { ...state, forward: null },
+  ])
+    listener({}, value);
+  expect(receive).not.toHaveBeenCalled();
+  listener({}, state);
+  expect(receive).toHaveBeenCalledExactlyOnceWith(state);
+  off?.();
+  expect(mock.removeListener).toHaveBeenCalledWith("preview:navigation", listener);
+});

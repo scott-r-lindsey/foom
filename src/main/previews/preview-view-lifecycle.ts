@@ -18,6 +18,12 @@ interface LifecycleState {
   nextReplacementAt: number;
   scroll: [number, number] | undefined;
   readingScroll?: boolean;
+  capturedNavigation?: string | undefined;
+  history: {
+    pages: { url: string; scroll?: [number, number] | undefined }[];
+    index: number;
+    target?: number | undefined;
+  };
 }
 export class PreviewViewLifecycle {
   private readonly retired = new WeakSet<HostedPreview>();
@@ -92,6 +98,44 @@ export class PreviewViewLifecycle {
     }
     if (this.current(entry) && !this.closed() && !contents.isDestroyed()) contents.reload();
   }
+  navigation(id: string) {
+    const entry = this.hosted.get(id);
+    if (!entry) return { id, back: false, forward: false };
+    const { pages, index } = this.state(entry).history;
+    return { id, back: index > 0, forward: index < pages.length - 1 };
+  }
+  async travel(id: string, direction: "back" | "forward"): Promise<void> {
+    const entry = this.hosted.get(id);
+    if (!entry) return;
+    const history = this.state(entry).history;
+    const target = history.index + (direction === "back" ? -1 : 1);
+    const page = history.pages[target];
+    if (!page) return;
+    await this.visit(entry, page.url, target);
+  }
+  private async visit(entry: HostedPreview, url: string, target?: number): Promise<void> {
+    const state = this.state(entry);
+    if (state.readingScroll || !this.current(entry)) return;
+    state.readingScroll = true;
+    const contents = entry.view.webContents;
+    this.focus.beginHandoff(contents);
+    this.detach(entry);
+    try {
+      const value: unknown = await contents.executeJavaScriptInIsolatedWorld(999, [
+        { code: "[window.scrollX, window.scrollY]" },
+      ]);
+      const page = state.history.pages[state.history.index];
+      if (page) page.scroll = scrollPosition(value);
+    } catch {
+      // An unloading page may no longer have an execution context.
+    } finally {
+      state.readingScroll = false;
+    }
+    if (!this.current(entry) || this.closed() || contents.isDestroyed()) return;
+    state.history.target = target;
+    state.capturedNavigation = url;
+    void contents.loadURL(url).catch(() => {});
+  }
   create(record: PreviewRecord, root: CanonicalRoot): HostedPreview {
     const origin = `foom-preview://${record.id}`;
     const watcher = new PreviewWatcher(root.path, () => {
@@ -110,6 +154,7 @@ export class PreviewViewLifecycle {
     restoreFocus = false,
     nextReplacementAt = 0,
     scroll?: [number, number],
+    history: LifecycleState["history"] = { pages: [{ url }], index: 0 },
   ): HostedPreview {
     const origin = `foom-preview://${record.id}`;
     this.watchers.get(record.id)?.beginGeneration();
@@ -131,6 +176,7 @@ export class PreviewViewLifecycle {
       previouslyLoaded: false,
       nextReplacementAt,
       scroll,
+      history,
     });
     this.install(entry);
     const contents = view.webContents;
@@ -139,6 +185,23 @@ export class PreviewViewLifecycle {
     const beforeInput = (event: Electron.Event, input: Electron.Input) => {
       if (this.snapshots.covered) {
         event.preventDefault();
+        return;
+      }
+      const back =
+        (input.alt && input.key === "ArrowLeft") ||
+        (process.platform === "darwin" && input.meta && input.key === "[");
+      const forward =
+        (input.alt && input.key === "ArrowRight") ||
+        (process.platform === "darwin" && input.meta && input.key === "]");
+      if (
+        input.type === "keyDown" &&
+        !input.control &&
+        !input.shift &&
+        (back || forward) &&
+        this.focus.owns(contents)
+      ) {
+        event.preventDefault();
+        void this.travel(entry.id, back ? "back" : "forward");
         return;
       }
       this.snapshots.schedule(entry);
@@ -177,8 +240,8 @@ export class PreviewViewLifecycle {
         entry.loaded ||= this.state(entry).previouslyLoaded;
         this.apply(entry);
       } else if (event.isMainFrame) {
-        this.focus.beginHandoff(contents);
-        this.detach(entry);
+        event.preventDefault();
+        void this.visit(entry, event.url);
       }
     };
     contents.on("will-frame-navigate", frameNavigate);
@@ -196,12 +259,38 @@ export class PreviewViewLifecycle {
     const navigate = (event: Electron.Event<Electron.WebContentsDidStartNavigationEventParams>) => {
       if (!this.current(entry) || this.state(entry).replacementTimer || contents.isDestroyed())
         return;
-      if (!event.isMainFrame || event.isSameDocument) return;
+      if (!event.isMainFrame) return;
+      if (event.isSameDocument) {
+        const page = history.pages[history.index];
+        if (page) page.url = event.url;
+        return;
+      }
       if (!this.state(entry).navigated) {
         this.state(entry).navigated = true;
         return;
       }
       if (event.url !== contents.getURL() && !navigationAllowed(event.url, origin)) return;
+      // Chromium emits did-start-navigation before its cancellable policy event.
+      // Keep the old document alive until will-frame-navigate captures its scroll.
+      const captured = this.state(entry).capturedNavigation === event.url;
+      this.state(entry).capturedNavigation = undefined;
+      if (!captured && event.url !== history.pages[history.index]?.url) {
+        this.focus.beginHandoff(contents);
+        this.detach(entry);
+        return;
+      }
+      let restoreScroll = this.state(entry).scroll;
+      if (history.target !== undefined) {
+        history.index = history.target;
+        history.target = undefined;
+        restoreScroll = history.pages[history.index]?.scroll;
+      } else if (event.url !== history.pages[history.index]?.url) {
+        history.pages.splice(history.index + 1);
+        history.pages.push({ url: event.url });
+        if (history.pages.length > 64) history.pages.shift();
+        history.index = history.pages.length - 1;
+        restoreScroll = undefined;
+      }
       // A previously clicked RenderWidgetHost can regain native focus on reload
       // even while detached. A fresh contents has never held that focus grant.
       const heldFocus = this.focus.owns(contents);
@@ -223,7 +312,8 @@ export class PreviewViewLifecycle {
           entry.bounds,
           heldFocus && this.focus.owns(contents),
           Date.now() + RECREATION_INTERVAL_MS,
-          this.state(entry).scroll,
+          restoreScroll,
+          history,
         );
       };
       const delay = Math.max(0, this.state(entry).nextReplacementAt - Date.now());
@@ -270,6 +360,7 @@ export class PreviewViewLifecycle {
       contents.removeListener("did-finish-load", loaded);
     });
     this.focus.bind(entry, restoreFocus);
+    this.board.send("preview:navigation", this.navigation(entry.id));
     void contents.loadURL(url).catch(() => {
       if (this.current(entry)) this.focus.loadFailed(entry);
     });
