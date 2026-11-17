@@ -1,20 +1,20 @@
 import { and, eq } from "drizzle-orm";
-import { parseEnvironmentChange } from "../../setup/environment";
-import type { SecretCipher } from "../../setup/environment";
+import { parseEnvironmentChange } from "../setup/environment";
+import type { SecretCipher } from "../../shared/secret-cipher";
 import {
   environmentProblem,
   nameProblem,
   foldName,
   hasUrlCredentials,
   ENVIRONMENT_ROW_LIMIT,
-} from "../../../shared/environment-rules";
-import { validAgentId } from "../../../shared/providers/catalog";
-import { record } from "../../../shared/remote-agent-protocol";
-import type { EnvironmentState } from "../../../shared/environment";
+} from "../../shared/environment-rules";
+import { validAgentId } from "../../shared/providers/catalog";
+import { record } from "../../shared/remote-agent-protocol";
+import type { EnvironmentState } from "../../shared/environment";
 import { importLegacyGroup } from "./importer";
-import type { ProfileDatabase } from "./database";
+import type { ProfileDatabase } from "../data/sqlite/database";
 import type { DataTransaction } from "./commands";
-import * as tables from "./schema";
+import * as tables from "../data/sqlite/schema";
 
 class KeychainUnavailable extends Error {
   constructor() {

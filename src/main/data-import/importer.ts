@@ -1,5 +1,5 @@
-import { safeStorageCipher } from "../../setup/environment";
-import type { SecretCipher } from "../../setup/environment";
+import { safeStorageCipher } from "../setup/environment";
+import type { SecretCipher } from "../../shared/secret-cipher";
 import { constants } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { chmod, lstat, open, readFile, rename, rm } from "node:fs/promises";
@@ -10,15 +10,15 @@ import {
   privateDirectory,
   verifyLegacyProfileFile,
   verifyPrivate,
-} from "../../../node-common/private-files";
-import { registeredHosts } from "../../../shared/registered-hosts";
-import { record } from "../../../shared/remote-agent-protocol";
-import { readSessions } from "../../workspace/session-store";
+} from "../../node-common/private-files";
+import { registeredHosts } from "../../shared/registered-hosts";
+import { record } from "../../shared/remote-agent-protocol";
+import { readSessions } from "../workspace/session-store";
 import { insertSession, savedPath, worktreeClaim, RelationshipError } from "./commands";
-import type { RegisteredHost } from "../../../shared/registered-hosts.d";
+import type { RegisteredHost } from "../../shared/registered-hosts.d";
 import type { DataTransaction } from "./commands";
-import type { ProfileDatabase } from "./database";
-import * as tables from "./schema";
+import type { ProfileDatabase } from "../data/sqlite/database";
+import * as tables from "../data/sqlite/schema";
 
 const sources = ["settings.json", "worktrees.json", "sessions.json"] as const;
 type Source = (typeof sources)[number];

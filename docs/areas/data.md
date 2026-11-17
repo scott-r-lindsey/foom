@@ -228,7 +228,17 @@ consumer migration.
 
 ## Phase C preparation: first related group (#1162)
 
-`main/data/sqlite/` prepares the first group independently of production startup.
+`main/data/sqlite/` owns the prepared database, schema and migrations independently
+of production startup. Temporary `main/data-import/` holds the legacy JSON importer,
+its recovery/batch helpers and the prepared settings, environment, board, control,
+window and command adapters that reuse feature parsers. The #1247 boundary-policy
+amendment moves these modules mechanically: no production ownership or runtime
+behavior changes. Only the temporary area gains the required feature imports;
+`main/data` retains its sole `window: type` edge and never imports the temporary
+area back. Wiring may compose the importer through its declared entry.
+`shared/secret-cipher.d.ts` declares the encryption capability without a feature
+or runtime dependency. Delete the temporary area and its policy entries at the
+phase-D cutover (#1163); future domain placement requires its own reviewed policy.
 `ProfileDatabase.open` must be explicitly supplied an app-owned profile; the
 application does **not** call it. JSON readers and writers remain authoritative.
 No phase-D guard is enabled. The pinned native `node:sqlite` Drizzle rc.5 adapter

@@ -2,30 +2,30 @@ import { and, eq, lt, lte, or, inArray, notInArray, desc, sql } from "drizzle-or
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
-import { validForgeTree } from "../../control/forge-tracking";
-import { auditEntry } from "../../control/store";
-import { forgeBranch, pullRequest } from "../../control/forge";
-import { validAgentId } from "../../../shared/providers/catalog";
-import { record } from "../../../shared/remote-agent-protocol";
-import { identifier, object } from "../../../shared/control-validation";
-import { gitOrigin } from "../../../shared/registered-hosts";
-import { verifyPrivate } from "../../../node-common/private-files";
+import { validForgeTree } from "../control/forge-tracking";
+import { auditEntry } from "../control/store";
+import { forgeBranch, pullRequest } from "../control/forge";
+import { validAgentId } from "../../shared/providers/catalog";
+import { record } from "../../shared/remote-agent-protocol";
+import { identifier, object } from "../../shared/control-validation";
+import { gitOrigin } from "../../shared/registered-hosts";
+import { verifyPrivate } from "../../node-common/private-files";
 import {
   parseSetupList,
   parseSetupListV1,
   setupSources,
   setupSourcePath,
-} from "../../../shared/repository-setup";
-import { setupDigest, setupCatalogV1Digest } from "../../../node-common/repository-setup-digest";
-import { prepareTail } from "../../evaluator/terminal-tail";
+} from "../../shared/repository-setup";
+import { setupDigest, setupCatalogV1Digest } from "../../node-common/repository-setup-digest";
+import { prepareTail } from "../evaluator/terminal-tail";
 import { importBoardRows, pruneBoardRows } from "./board";
 import { importLegacyGroup } from "./importer";
 import type { LegacyOriginals } from "./importer";
 import { LegacyBatch } from "./legacy-batch";
 import type { DataTransaction } from "./commands";
 import { RelationshipError } from "./commands";
-import type { ProfileDatabase } from "./database";
-import * as tables from "./schema";
+import type { ProfileDatabase } from "../data/sqlite/database";
+import * as tables from "../data/sqlite/schema";
 
 const statuses = [
   "pending_confirmation",
