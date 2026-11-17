@@ -994,3 +994,14 @@ probe by its workspace terminal ID. A controlled local run with that ordering
 and the old text selector reproduces the same two-row error. The dedicated
 probe row's visibility, credit note, driver label and attention/cleanup checks
 remain independent. No reminder duration or native input behavior changes.
+
+## Manifest fixture capture publication (#1138)
+
+The manifest-only v2 agent fixture publishes argv only after writing its MCP and
+environment captures. Its argv poll is the readiness acknowledgement for all three
+files. Previously argv was written first, allowing the reader to reach `.env`
+before the fixture created it. A controlled Xvfb run held the later writes after
+argv publication and reproduced the macOS `argv.json.env` ENOENT from run
+43909947998, artifact **14248137208**. Publishing argv last retains the actual
+argument, environment, MCP, hook, reload and revocation assertions without retries
+or changed deadlines. The controlled hold is not part of ordinary validation.
