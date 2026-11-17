@@ -116,20 +116,38 @@ afterEach(() => {
   process.exitCode = exitCode;
   vi.useRealTimers();
 });
-test("invalid argv never starts a daemon or relay", () => {
+test("the relay does not initialize daemon modules", async () => {
+  vi.resetModules();
+  vi.doMock("../../../../src/terminal-host/remote/daemon", () => {
+    throw new Error("The relay must not initialize the daemon");
+  });
+  try {
+    const { runHost: relay } = await import("../../../../src/terminal-host/remote/main");
+    await relay(["node", "host", "--connect"]);
+    expect(mock.serve).not.toHaveBeenCalled();
+    expect(mock.socket).toHaveBeenCalledOnce();
+  } finally {
+    vi.doMock("../../../../src/terminal-host/remote/daemon", () => ({
+      serveHost: mock.serve,
+      remoteShell: () => "/fixture/shell",
+    }));
+    vi.resetModules();
+  }
+});
+test("invalid argv never starts a daemon or relay", async () => {
   for (const argv of [
     ["host"],
     ["host", "file", "--unknown"],
     ["host", "file", "--daemon", "extra"],
   ]) {
-    runHost(argv);
+    await runHost(argv);
     expect(process.exitCode).toBe(2);
   }
   expect(mock.serve).not.toHaveBeenCalled();
   expect(mock.read).not.toHaveBeenCalled();
 });
 test("daemon errors and signal cleanup have fixed exit status", async () => {
-  runHost(["node", "host", "--daemon"]);
+  await runHost(["node", "host", "--daemon"]);
   expect(mock.read).toHaveBeenCalledExactlyOnceWith(process.execPath);
   expect(mock.serve).toHaveBeenCalledWith(
     createHash("sha256").update("artifact").digest("hex"),
@@ -150,21 +168,19 @@ test("daemon errors and signal cleanup have fixed exit status", async () => {
   await Promise.resolve();
   expect(process.exitCode).toBe(1);
 });
-test("daemon refuses startup when its executable cannot be hashed", () => {
+test("daemon refuses startup when its executable cannot be hashed", async () => {
   mock.read.mockImplementationOnce(() => {
     throw new Error("unreadable executable");
   });
-  expect(() => {
-    runHost(["node", "host", "--daemon"]);
-  }).toThrow("unreadable executable");
+  await expect(runHost(["node", "host", "--daemon"])).rejects.toThrow("unreadable executable");
   expect(mock.serve).not.toHaveBeenCalled();
   expect(mock.socket).not.toHaveBeenCalled();
 });
-test("relay validates the socket twice and pipes only stdio", () => {
+test("relay validates the socket twice and pipes only stdio", async () => {
   mock.read.mockImplementationOnce(() => {
     throw new Error("Executable read must not be needed by the relay");
   });
-  runHost(["node", "host", "--connect"]);
+  await runHost(["node", "host", "--connect"]);
   socket.emit("connect");
   expect(mock.read).not.toHaveBeenCalled();
   expect(mock.check).toHaveBeenCalledTimes(2);
@@ -179,7 +195,7 @@ test("missing daemon starts detached once; startup retries are bounded and stale
   mock.check.mockImplementation(() => {
     throw Object.assign(new Error("missing"), { code: "ENOENT" });
   });
-  runHost(["node", "host", "--connect"]);
+  await runHost(["node", "host", "--connect"]);
   socket.emit("error", { code: "ENOENT" });
   expect(mock.spawn).toHaveBeenCalledWith(
     process.execPath,
@@ -193,18 +209,16 @@ test("missing daemon starts detached once; startup retries are bounded and stale
   }
   expect(mock.spawn).toHaveBeenCalledTimes(1);
   expect(process.exitCode).toBe(1);
-  runHost(["node", "host", "--connect"]);
+  await runHost(["node", "host", "--connect"]);
   socket.emit("error", { code: "ECONNREFUSED" });
   expect(mock.spawn).toHaveBeenCalledTimes(1);
 });
-test("unsafe sockets and failed detached starts fail closed", () => {
+test("unsafe sockets and failed detached starts fail closed", async () => {
   mock.check.mockImplementationOnce(() => {
     throw new Error("unsafe");
   });
-  expect(() => {
-    runHost(["node", "host", "--connect"]);
-  }).toThrow("unsafe");
-  runHost(["node", "host", "--connect"]);
+  await expect(runHost(["node", "host", "--connect"])).rejects.toThrow("unsafe");
+  await runHost(["node", "host", "--connect"]);
   mock.check.mockImplementationOnce(() => {
     throw new Error("replaced");
   });
@@ -212,7 +226,7 @@ test("unsafe sockets and failed detached starts fail closed", () => {
   expect(socket.destroy).toHaveBeenCalled();
   const child = new EventEmitter();
   mock.spawn.mockReturnValueOnce(Object.assign(child, { unref }));
-  runHost(["node", "host", "--connect"]);
+  await runHost(["node", "host", "--connect"]);
   socket.emit("error", { code: "ENOENT" });
   child.emit("error", new Error("spawn"));
   expect(process.exitCode).toBe(1);
@@ -221,10 +235,10 @@ test("unsafe sockets and failed detached starts fail closed", () => {
 test("remote helpers never connect to the terminal daemon and emit only fixed diagnostics on failure", async () => {
   const output = vi.spyOn(process.stdout, "write").mockReturnValue(true);
   const errors = vi.spyOn(process.stderr, "write").mockReturnValue(true);
-  runHost(["host", "entry", "--observe", "lifecycle", "stdin", "silent", "unordered"]);
-  runHost(["host", "entry", "--mcp"]);
-  runHost(["host", "entry", "--cli", "whoami", "--json"]);
-  runHost(["host", "entry", "--stage-plugin", "agy"]);
+  await runHost(["host", "entry", "--observe", "lifecycle", "stdin", "silent", "unordered"]);
+  await runHost(["host", "entry", "--mcp"]);
+  await runHost(["host", "entry", "--cli", "whoami", "--json"]);
+  await runHost(["host", "entry", "--stage-plugin", "agy"]);
   await vi.advanceTimersByTimeAsync(0);
   expect(mock.observe).toHaveBeenCalledWith(["lifecycle", "stdin", "silent", "unordered"]);
   expect(mock.mcp).toHaveBeenCalledOnce();
@@ -235,12 +249,12 @@ test("remote helpers never connect to the terminal daemon and emit only fixed di
   expect(output).toHaveBeenCalledWith('{"alias":"opaque"}\n');
   expect(output).toHaveBeenCalledWith("/fixture/plugin-assets\n");
   mock.mcp.mockRejectedValueOnce(new Error("never print this"));
-  runHost(["host", "entry", "--mcp"]);
+  await runHost(["host", "entry", "--mcp"]);
   await vi.advanceTimersByTimeAsync(0);
   expect(errors).toHaveBeenCalledWith("Remote launch request unavailable\n");
   expect(process.exitCode).toBe(1);
   mock.stage.mockRejectedValueOnce(new Error("private path"));
-  runHost(["host", "entry", "--stage-plugin", "agy"]);
+  await runHost(["host", "entry", "--stage-plugin", "agy"]);
   await vi.advanceTimersByTimeAsync(0);
   expect(errors).toHaveBeenCalledWith("Remote plugin staging unavailable\n");
   output.mockRestore();
@@ -248,13 +262,13 @@ test("remote helpers never connect to the terminal daemon and emit only fixed di
 
 test("recipe mode returns only the helper exit code or a fixed failure", async () => {
   mock.recipe.mockResolvedValueOnce(7);
-  runHost(["node", "host", "--recipe", "git", "install", "debian", "a".repeat(64)]);
+  await runHost(["node", "host", "--recipe", "git", "install", "debian", "a".repeat(64)]);
   await vi.waitFor(() => {
     expect(process.exitCode).toBe(7);
   });
   expect(mock.recipe).toHaveBeenLastCalledWith(["git", "install", "debian", "a".repeat(64)]);
   mock.recipe.mockRejectedValueOnce(new Error("PRIVATE"));
-  runHost(["node", "host", "--recipe"]);
+  await runHost(["node", "host", "--recipe"]);
   await vi.waitFor(() => {
     expect(process.exitCode).toBe(1);
   });
@@ -262,7 +276,7 @@ test("recipe mode returns only the helper exit code or a fixed failure", async (
 
 test("trust-origin selects the interactive helper without starting a daemon", async () => {
   mock.trust.mockResolvedValue(0);
-  runHost(["host", "host", "--trust-origin", "git@forge.test:repo"]);
+  await runHost(["host", "host", "--trust-origin", "git@forge.test:repo"]);
   await vi.waitFor(() => {
     expect(mock.trust).toHaveBeenCalledWith(["git@forge.test:repo"]);
   });
@@ -274,7 +288,7 @@ test("Settings repository setup uses the host login environment and closed helpe
   const { hostLoginEnvironment } = await import(
     "../../../../src/terminal-host/remote/agent-discovery"
   );
-  runHost(["node", "host", "--repository-setup", "{}"]);
+  await runHost(["node", "host", "--repository-setup", "{}"]);
   await Promise.resolve();
   await Promise.resolve();
   expect(runRepositorySetup).toHaveBeenCalledWith("{}", "/fixture/toolchains", {
@@ -283,10 +297,32 @@ test("Settings repository setup uses the host login environment and closed helpe
   await vi.advanceTimersByTimeAsync(0);
   expect(process.exitCode).toBe(0);
   vi.mocked(hostLoginEnvironment).mockRejectedValueOnce(new Error("unavailable"));
-  runHost(["node", "host", "--repository-setup", "{}"]);
+  await runHost(["node", "host", "--repository-setup", "{}"]);
   await Promise.resolve();
   await Promise.resolve();
   await Promise.resolve();
   await vi.advanceTimersByTimeAsync(0);
   expect(process.exitCode).toBe(2);
+});
+
+test("SEA entry refuses startup with a fixed diagnostic on initialization failure", async () => {
+  vi.resetModules();
+  vi.doMock("node:sea", () => ({ isSea: () => true }));
+  const errors = vi.spyOn(process.stderr, "write");
+  const argv = process.argv;
+  process.argv = ["node", "host", "--connect"];
+  mock.check.mockImplementationOnce(() => {
+    throw new Error("PRIVATE");
+  });
+  try {
+    await import("../../../../src/terminal-host/remote/main");
+    await vi.waitFor(() => {
+      expect(errors).toHaveBeenCalledWith("Host startup unavailable\n");
+      expect(process.exitCode).toBe(1);
+    });
+  } finally {
+    process.argv = argv;
+    vi.doMock("node:sea", () => ({ isSea: () => false }));
+    vi.resetModules();
+  }
 });

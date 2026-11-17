@@ -1,20 +1,17 @@
 import { runRepositorySetup, remoteToolchainPrefix } from "../../node-common/repository-setup-run";
-import { runHostRecipe, runOriginTrust } from "./host-recipe";
 import { record } from "../../shared/remote-agent-protocol";
-import { stageRemotePlugin } from "./agent-launch";
-import { observeRemote, remoteCli, remoteMcp } from "./agent-helper";
 import { isSea } from "node:sea";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { createConnection } from "node:net";
 import { homedir } from "node:os";
-import { serveHost, remoteShell } from "./daemon";
-import { hostLoginEnvironment } from "./agent-discovery";
 import { checkSocket, hostSocket } from "./private-path";
 
-export function runHost(argv: readonly string[] = process.argv): void {
+export async function runHost(argv: readonly string[] = process.argv): Promise<void> {
   if (argv[2] === "--repository-setup" && argv.length === 4) {
+    const { hostLoginEnvironment } = await import("./agent-discovery.js");
+    const { remoteShell } = await import("./daemon.js");
     void hostLoginEnvironment(remoteShell(), homedir(), undefined, true)
       .then((env) => runRepositorySetup(argv[3] ?? "", remoteToolchainPrefix(homedir()), env))
       .then((code) => {
@@ -26,6 +23,7 @@ export function runHost(argv: readonly string[] = process.argv): void {
     return;
   }
   if (argv[2] === "--recipe" || argv[2] === "--trust-origin") {
+    const { runHostRecipe, runOriginTrust } = await import("./host-recipe.js");
     void (
       argv[2] === "--recipe" ? runHostRecipe(argv.slice(3)) : runOriginTrust(argv.slice(3))
     ).then(
@@ -40,6 +38,7 @@ export function runHost(argv: readonly string[] = process.argv): void {
     return;
   }
   if (argv[2] === "--stage-plugin" && argv.length === 4 && argv[3]) {
+    const { stageRemotePlugin } = await import("./agent-launch.js");
     void stageRemotePlugin(argv[3], homedir())
       .then((directory) => {
         process.stdout.write(`${directory}\n`);
@@ -51,6 +50,7 @@ export function runHost(argv: readonly string[] = process.argv): void {
     return;
   }
   if (argv[2] === "--observe" || argv[2] === "--mcp" || argv[2] === "--cli") {
+    const { observeRemote, remoteCli, remoteMcp } = await import("./agent-helper.js");
     const mode = argv[2];
     const work =
       mode === "--observe"
@@ -72,6 +72,7 @@ export function runHost(argv: readonly string[] = process.argv): void {
     process.stderr.write("Usage: foom-host --daemon|--connect\n");
     process.exitCode = 2;
   } else if (argv[2] === "--daemon") {
+    const { serveHost } = await import("./daemon.js");
     // Only the daemon publishes build identity. The connector relays the hub hello
     // unchanged; its own executable digest never participates in negotiation.
     const build = createHash("sha256").update(readFileSync(process.execPath)).digest("hex");
@@ -144,4 +145,10 @@ export function runHost(argv: readonly string[] = process.argv): void {
     connect();
   }
 }
-if (isSea()) runHost();
+// The frequent relay needs only private-path checks and Node stdio/socket APIs.
+// Keep PTY, discovery and helper initialization behind their selected modes.
+if (isSea())
+  void runHost().catch(() => {
+    process.stderr.write("Host startup unavailable\n");
+    process.exitCode = 1;
+  });
