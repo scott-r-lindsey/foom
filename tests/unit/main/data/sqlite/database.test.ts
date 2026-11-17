@@ -8,13 +8,13 @@ import { DatabaseSync } from "node:sqlite";
 import { sql } from "drizzle-orm";
 import { afterEach, expect, test, vi } from "vitest";
 import { ProfileDatabase, assertForeignKeys } from "../../../../../src/main/data/sqlite/database";
-import type { DataCommand } from "../../../../../src/main/data/sqlite/commands";
-import { executeDataCommand } from "../../../../../src/main/data/sqlite/commands";
+import type { DataCommand } from "../../../../../src/main/data-import/commands";
+import { executeDataCommand } from "../../../../../src/main/data-import/commands";
 import {
   importLegacyGroup,
   importLegacy,
   importRows,
-} from "../../../../../src/main/data/sqlite/importer";
+} from "../../../../../src/main/data-import/importer";
 import { ViewChanges } from "../../../../../src/main/data/view-changes";
 import { ViewRegistry } from "../../../../../src/main/data/view-registry";
 import { object } from "../../../../../src/shared/control-validation";
@@ -554,7 +554,7 @@ test("session relationship validation rejects missing placement, wrong repositor
     { ...session, id: "invalid", agent: "unknown" },
   ];
   await db.write((orm) => importRows(orm, sources()));
-  const { insertSession } = await import("../../../../../src/main/data/sqlite/commands");
+  const { insertSession } = await import("../../../../../src/main/data-import/commands");
   for (const input of cases)
     await expect(
       db.write((orm) => {
@@ -701,7 +701,7 @@ test("process death mid-import leaves no accepted rows or completion and recover
 
 test("settings and consent domain writes publish only committed validated profile data", async () => {
   const { saveProfileSettings, saveAgentConsent } = await import(
-    "../../../../../src/main/data/sqlite/settings"
+    "../../../../../src/main/data-import/settings"
   );
   const { db, file, publications } = await fixture();
   await db.retryPublication();
@@ -757,7 +757,7 @@ test("settings and consent domain writes publish only committed validated profil
 
 test("settings import preserves accepted config baseline and historical consent without reading external config", async () => {
   const { createHash } = await import("node:crypto");
-  const { importProfileSettings } = await import("../../../../../src/main/data/sqlite/settings");
+  const { importProfileSettings } = await import("../../../../../src/main/data-import/settings");
   const { db, file, profile } = await fixture();
   const configText = JSON.stringify({ kind: "settings", hooks: false });
   await put(profile, {
@@ -807,7 +807,7 @@ test.each([
 ])(
   "settings baseline import stores only the validated projection with a matching restart digest (%s)",
   async (configText) => {
-    const { importSettingsRows } = await import("../../../../../src/main/data/sqlite/settings");
+    const { importSettingsRows } = await import("../../../../../src/main/data-import/settings");
     const { parseSettingsFile } = await import("../../../../../src/shared/config-files");
     const { db, file } = await fixture();
     const configDigest = createHash("sha256").update(configText).digest("hex");
@@ -847,7 +847,7 @@ test.each([
 );
 
 test("settings import quarantines a 65,530-byte baseline expanded beyond the restart limit", async () => {
-  const { importProfileSettings } = await import("../../../../../src/main/data/sqlite/settings");
+  const { importProfileSettings } = await import("../../../../../src/main/data-import/settings");
   const { parseSettingsFile } = await import("../../../../../src/shared/config-files");
   const { db, file, profile } = await fixture();
   const args = [...Array.from({ length: 15 }, () => "x".repeat(4096)), "x"];
@@ -901,7 +901,7 @@ test("settings import quarantines a 65,530-byte baseline expanded beyond the res
 });
 
 test("settings importer quarantines invalid consent, retired secrets and unapproved v2 config projections", async () => {
-  const { importSettingsRows } = await import("../../../../../src/main/data/sqlite/settings");
+  const { importSettingsRows } = await import("../../../../../src/main/data-import/settings");
   for (const input of [
     {
       version: 1,
@@ -997,7 +997,7 @@ function encryptedFixture() {
   };
 }
 test("environment uses ciphertext BLOBs, masked snapshots and FK-restricted scopes", async () => {
-  const api = await import("../../../../../src/main/data/sqlite/environment");
+  const api = await import("../../../../../src/main/data-import/environment");
   const { db, file } = await fixture();
   const cipher = encryptedFixture();
   await api.saveDatabaseEnvironment(db, cipher, {
@@ -1052,7 +1052,7 @@ test("environment uses ciphertext BLOBs, masked snapshots and FK-restricted scop
   expect((await api.readDatabaseEnvironment(db, cipher)).lists["all"]).toEqual([]);
 });
 test("environment importer keeps verified ciphertext and fails atomically when keychain is locked", async () => {
-  const api = await import("../../../../../src/main/data/sqlite/environment");
+  const api = await import("../../../../../src/main/data-import/environment");
   const { db, profile, file } = await fixture();
   const cipher = encryptedFixture();
   const encoded = cipher.encrypt("kept-secret").toString("base64");
@@ -1098,7 +1098,7 @@ test("environment importer keeps verified ciphertext and fails atomically when k
   });
 });
 test("environment commands validate scope, capacity, retained secrets and automatic URL credential encryption", async () => {
-  const api = await import("../../../../../src/main/data/sqlite/environment");
+  const api = await import("../../../../../src/main/data-import/environment");
   const { db } = await fixture();
   const cipher = encryptedFixture();
   const change = {
@@ -1158,7 +1158,7 @@ test("environment commands validate scope, capacity, retained secrets and automa
   await expect(api.removeDatabaseEnvironmentScope(db, "bad!")).rejects.toThrow();
 });
 test("environment import quarantines malformed plaintext, bad ciphertext and case-fold collisions", async () => {
-  const { importEnvironmentRows } = await import("../../../../../src/main/data/sqlite/environment");
+  const { importEnvironmentRows } = await import("../../../../../src/main/data-import/environment");
   const { db } = await fixture();
   const cipher = encryptedFixture();
   const input = JSON.stringify({
@@ -1408,7 +1408,7 @@ async function controlSources() {
 }
 async function populatedControl() {
   const fixtureState = await fixture();
-  const { importControlRows } = await import("../../../../../src/main/data/sqlite/control");
+  const { importControlRows } = await import("../../../../../src/main/data-import/control");
   const input = await controlSources();
   await fixtureState.db.write((orm) => importRows(orm, sources()));
   const result = await fixtureState.db.write((orm) => importControlRows(orm, input));
@@ -1493,7 +1493,7 @@ test("every new control/board/history FK rejects referenced deletes, including c
   });
 });
 test("board domain append/resolve/retention is atomic and keeps post text out of audit", async () => {
-  const api = await import("../../../../../src/main/data/sqlite/board");
+  const api = await import("../../../../../src/main/data-import/board");
   const { db, file } = await fixture();
   await db.write((orm) => importRows(orm, sources()));
   await api.saveDatabaseBoardThread(db, boardThread);
@@ -1528,7 +1528,7 @@ test("board domain append/resolve/retention is atomic and keeps post text out of
   });
 });
 test("operation intent is durable and deduplicated; audit clearing preserves operation state", async () => {
-  const api = await import("../../../../../src/main/data/sqlite/control");
+  const api = await import("../../../../../src/main/data-import/control");
   const { db, file } = await fixture();
   expect((await api.reserveDatabaseOperation(db, storedOperation)).value.created).toBe(true);
   expect((await api.reserveDatabaseOperation(db, storedOperation)).value.created).toBe(false);
@@ -1580,7 +1580,7 @@ test("operation intent is durable and deduplicated; audit clearing preserves ope
   ).rejects.toThrow("live operation");
 });
 test("forge, offer, setup and verdict domain functions preserve owner validations", async () => {
-  const api = await import("../../../../../src/main/data/sqlite/control");
+  const api = await import("../../../../../src/main/data-import/control");
   const { db, file } = await fixture();
   await db.write((orm) => importRows(orm, sources()));
   const input = await controlSources();
@@ -1624,7 +1624,7 @@ test("forge, offer, setup and verdict domain functions preserve owner validation
 });
 
 test("control importer is frozen, resumable and a no-op without rescanning changed production files", async () => {
-  const { importDatabaseControl } = await import("../../../../../src/main/data/sqlite/control");
+  const { importDatabaseControl } = await import("../../../../../src/main/data-import/control");
   const { db, profile, file } = await fixture();
   await db.write((orm) => importRows(orm, sources()));
   for (const [name, contents] of Object.entries(await controlSources())) {
@@ -1641,8 +1641,8 @@ test("control importer is frozen, resumable and a no-op without rescanning chang
   });
 });
 test("dynamic source recovery uses the frozen manifest after a crash, and SQL interruptions abort", async () => {
-  const { importLegacyGroup } = await import("../../../../../src/main/data/sqlite/importer");
-  const { LegacyBatch } = await import("../../../../../src/main/data/sqlite/legacy-batch");
+  const { importLegacyGroup } = await import("../../../../../src/main/data-import/importer");
+  const { LegacyBatch } = await import("../../../../../src/main/data-import/legacy-batch");
   const { db, profile, file } = await fixture();
   await writeFile(join(profile, "base.json"), "{}", { mode: 0o600 });
   await writeFile(join(profile, "extra.json"), "old", { mode: 0o600 });
@@ -1686,7 +1686,7 @@ test("dynamic source recovery uses the frozen manifest after a crash, and SQL in
   });
 });
 test("control quarantine isolates orphan references, duplicates, malformed metadata and unknown fields", async () => {
-  const { importControlRows } = await import("../../../../../src/main/data/sqlite/control");
+  const { importControlRows } = await import("../../../../../src/main/data-import/control");
   const { db, file } = await fixture();
   await db.write((orm) => importRows(orm, sources()));
   const input = await controlSources();
@@ -1740,7 +1740,7 @@ test("control quarantine isolates orphan references, duplicates, malformed metad
   });
 });
 test("legacy metadata parsers refuse incompatible versions and malformed file envelopes", async () => {
-  const { importControlRows } = await import("../../../../../src/main/data/sqlite/control");
+  const { importControlRows } = await import("../../../../../src/main/data-import/control");
   const { db } = await fixture();
   for (const input of [
     { "control/board.json": '{"version":1,"threads":{},"posts":{},"receipts":{}}' },
@@ -1771,7 +1771,7 @@ test("forgotten hosts lose only saved dependent facts while historical board/aud
 });
 
 test("board transitions preserve human waits, receipt atomicity and main-only retention", async () => {
-  const api = await import("../../../../../src/main/data/sqlite/board");
+  const api = await import("../../../../../src/main/data-import/board");
   const { db, file } = await fixture();
   await api.saveDatabaseBoardThread(db, boardThread);
   const actor = "orchestrator:repo";
@@ -1801,7 +1801,7 @@ test("board transitions preserve human waits, receipt atomicity and main-only re
   });
 });
 test("audit retention prunes old/budgeted history and its links without deleting operations", async () => {
-  const api = await import("../../../../../src/main/data/sqlite/control");
+  const api = await import("../../../../../src/main/data-import/control");
   const { db, file } = await fixture();
   await api.reserveDatabaseOperation(db, storedOperation);
   await api.appendDatabaseAudit(db, {
@@ -1862,11 +1862,11 @@ test("restart starts new subscriptions at the current durable revision", async (
 });
 
 test("repository forgetting keeps historical posts and requires saved sessions to close first", async () => {
-  const { forgetDatabaseRepository } = await import("../../../../../src/main/data/sqlite/control");
+  const { forgetDatabaseRepository } = await import("../../../../../src/main/data-import/control");
   const { db, file } = await populatedControl();
   await expect(forgetDatabaseRepository(db, repo)).rejects.toThrow("saved sessions");
   await executeDataCommand(db, { type: "remove-session", id: "parent" });
-  const windowApi = await import("../../../../../src/main/data/sqlite/windows");
+  const windowApi = await import("../../../../../src/main/data-import/windows");
   await windowApi.saveDatabaseWindows(db, [
     { id: "a", display: 1, bounds: { x: 0, y: 0, width: 900, height: 700 }, maximized: false },
   ]);
@@ -1884,7 +1884,7 @@ test("repository forgetting keeps historical posts and requires saved sessions t
   });
 });
 test("health and host-diagnostic writers validate fixed metadata and independent retention reserves", async () => {
-  const api = await import("../../../../../src/main/data/sqlite/control");
+  const api = await import("../../../../../src/main/data-import/control");
   const { db, file } = await fixture();
   await api.saveDatabaseAgentHealth(db, "legacy", "codex", "a".repeat(64), "trusted");
   await api.saveDatabaseAgentHealth(db, "legacy", "codex", "b".repeat(64), "outdated");
@@ -1942,7 +1942,7 @@ test("window imports preserve geometry and update high-water dates without resto
   await put(profile, sources([]));
   await importLegacy(db, profile);
   const { importDatabaseWindows, reserveDatabaseUpdateActivity } = await import(
-    "../../../../../src/main/data/sqlite/windows"
+    "../../../../../src/main/data-import/windows"
   );
   const placement = {
     id: "board-1",
@@ -2009,7 +2009,7 @@ test("window imports preserve geometry and update high-water dates without resto
 });
 test("window domain writes replace intended child metadata and reserve update dates atomically", async () => {
   const { db, file } = await fixture();
-  const api = await import("../../../../../src/main/data/sqlite/windows");
+  const api = await import("../../../../../src/main/data-import/windows");
   const a = {
     id: "a",
     display: 1,
@@ -2055,7 +2055,7 @@ test("window domain writes replace intended child metadata and reserve update da
 });
 test("window importer quarantines invalid rows, orphans and duplicate identities", async () => {
   const { db, file } = await fixture();
-  const { importWindowRows } = await import("../../../../../src/main/data/sqlite/windows");
+  const { importWindowRows } = await import("../../../../../src/main/data-import/windows");
   const a = {
     id: "a",
     display: 1,
@@ -2105,7 +2105,7 @@ test("window importer quarantines invalid rows, orphans and duplicate identities
 });
 test("window metadata enforces per-window preview capacity while allowing updates", async () => {
   const { db } = await fixture();
-  const api = await import("../../../../../src/main/data/sqlite/windows");
+  const api = await import("../../../../../src/main/data-import/windows");
   await api.saveDatabaseWindows(db, [
     { id: "a", display: 1, bounds: { x: 0, y: 0, width: 900, height: 700 }, maximized: false },
   ]);
@@ -2134,7 +2134,7 @@ test("window metadata enforces per-window preview capacity while allowing update
 
 test("recovery encrypts rejected raw input", async () => {
   const { importDatabaseEnvironment } = await import(
-    "../../../../../src/main/data/sqlite/environment"
+    "../../../../../src/main/data-import/environment"
   );
   const { db, profile, file } = await fixture();
   const marker = "fixture-secret-marker";
@@ -2246,7 +2246,7 @@ test("interrupted dynamic import resumes frozen manifest before failed discovery
 
 test("transient decrypt failure rolls back the whole environment import and retries", async () => {
   const { importDatabaseEnvironment } = await import(
-    "../../../../../src/main/data/sqlite/environment"
+    "../../../../../src/main/data-import/environment"
   );
   const { db, profile } = await fixture();
   const cipher = encryptedFixture();

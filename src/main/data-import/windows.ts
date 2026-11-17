@@ -1,14 +1,14 @@
 import { eq, notInArray, sql } from "drizzle-orm";
 import { readdir } from "node:fs/promises";
-import { parsePlacements } from "../../window/window-placement";
-import { parseRegistry } from "../../previews/registry";
-import { object } from "../../../shared/control-validation";
+import { parsePlacements } from "../window/window-placement";
+import { parseRegistry } from "../previews/registry";
+import { object } from "../../shared/control-validation";
 import { importLegacyGroup } from "./importer";
 import type { LegacyOriginals } from "./importer";
-import type { ProfileDatabase } from "./database";
+import type { ProfileDatabase } from "../data/sqlite/database";
 import type { DataTransaction } from "./commands";
 import { LegacyBatch } from "./legacy-batch";
-import * as tables from "./schema";
+import * as tables from "../data/sqlite/schema";
 
 function placement(input: unknown) {
   const result = parsePlacements([input])[0];

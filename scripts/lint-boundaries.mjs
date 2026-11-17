@@ -138,7 +138,7 @@ export const processBoundaries = {
 export const areaPolicy = configuredAreas;
 // Historical ceiling, not a regeneratable allowlist. Shrink area-boundaries.json
 // as dependencies disappear. Amending this snapshot requires an explicit policy PR.
-const snapshotDigest = "bba6c572c5adb82352bc5ff5a43d510877f8bd5cec057fa9f32a267868a49f16";
+const snapshotDigest = "943f2c742a4525a1ea9a0427444ddc52a2d3e7e49985a07ea1b5fe4230ade891";
 
 /** @param {AreaPolicy} policy */
 export function validateAreaPolicy(policy) {

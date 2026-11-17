@@ -40,6 +40,15 @@ process-wide and are also subject to the process-boundary rule. Asset folders
 are declared with empty APIs. Adding a code area requires an explicit policy
 amendment rather than silently creating a new unrestricted folder.
 
+The explicit #1247 amendment isolates the phase-C legacy JSON importer and its
+prepared adapters in temporary `main/data-import`. It permits only the required
+feature-parser edges and public modules, plus data's database/schema API and
+setup's `github-sign-in.ts` entry for wiring (#1178). Wiring may compose the
+importer; data cannot import it back and retains only its `window: type` edge.
+The historical snapshot and pinned digest include this justified amendment;
+no reciprocal pairs were added. Delete `main/data-import` and its policy entries
+at the phase-D cutover, shrinking the active map as consumers disappear.
+
 Removing the recorded reciprocal pairs and converging on single-entry APIs are
 follow-ups to this freeze, after their runtime dependencies are disentangled.
 File-level `import/no-cycle` remains disabled here: the exploratory full-repo run
@@ -72,8 +81,10 @@ a generic process route alone does not identify feature policy.
 
 | Area / source owner | Responsibility and entry points | Required area rules / behavior |
 | --- | --- | --- |
-| `src/main/data/sqlite/windows.ts` | Prepared window/update conveniences and inert preview metadata; no production cutover | [Data ownership](areas/data.md), [windows](areas/windows.md), [previews](areas/previews.md), [application](areas/application.md), [privacy](areas/privacy.md) |
-| `src/main/data/sqlite/control.ts`, `src/main/data/sqlite/board.ts` | Prepared control/history schemas and import/domain paths; no production cutover | [Data ownership](areas/data.md), [control](areas/control.md), [message board](areas/message-board.md), [forge](areas/forge.md), [repository setup](areas/repository-setup.md), [privacy](areas/privacy.md) |
+| `src/main/data-import/windows.ts` | Prepared window/update conveniences and inert preview metadata; no production cutover | [Data ownership](areas/data.md), [windows](areas/windows.md), [previews](areas/previews.md), [application](areas/application.md), [privacy](areas/privacy.md) |
+| `src/main/data-import/control.ts`, `src/main/data-import/board.ts` | Prepared control/history schemas and import/domain paths; no production cutover | [Data ownership](areas/data.md), [control](areas/control.md), [message board](areas/message-board.md), [forge](areas/forge.md), [repository setup](areas/repository-setup.md), [privacy](areas/privacy.md) |
+| `src/main/data-import/` | Temporary phase-C legacy JSON importer and prepared adapters; deleted at phase-D cutover | [Data ownership](areas/data.md), [boundaries](areas/boundaries.md) |
+| `src/shared/secret-cipher.d.ts` | Main-only encryption capability declaration shared by JSON owners and SQLite preparation | [Data ownership](areas/data.md), [settings](areas/settings.md) |
 | `src/main/data/`, `src/renderer/data/`, `src/shared/data-views.d.ts` | Bounded JSON-backed view subscriptions, commit/live invalidation and TanStack Query caches | [Data ownership](areas/data.md), [IPC](areas/ipc.md), [settings](areas/settings.md) |
 | `src/main/setup/settings.ts`, `src/main/setup/environment.ts`, `src/main/workspace/session-store.ts`, `src/main/workspace/worktree-store.ts`, `src/main/control/store.ts`, `src/main/config/service.ts`, `src/renderer/board/live-board-source.ts` | Existing persistence and main-owned data projections; phased SQLite/Drizzle and subscribed-query transition | [Data ownership](areas/data.md) |
 | `src/renderer/board/error-presentation.tsx`, `src/shared/application-error.d.ts`, `src/shared/application-errors.ts` | Fixed coded failures, action dialogs, focus restoration and operation-scoped background marks | [Errors](areas/errors.md), [behavior](behavior/errors.md) |

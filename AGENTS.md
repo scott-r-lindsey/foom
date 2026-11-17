@@ -69,7 +69,7 @@ selected profile; they do not use the everyday `~/.foom` state.
 
 - Preserve strict compiler flags. Use `unknown` and narrowing at untrusted boundaries; do not add `any`, unchecked assertions, or blanket lint suppressions to bypass checks.
 - Biome owns formatting; Oxlint owns linting, including type-aware TypeScript rules. Run `pnpm run format` and `pnpm run lint:fix` for safe fixes.
-- Run `pnpm run audit` for dependency changes; it includes development tools and is required in CI. Do not suppress advisories or remove the audit from the Quality gate. Document and validate transitive overrides.
+- Run `pnpm run audit` for dependency changes; it includes development tools and is required in CI. Keep the audit in the Quality gate. Advisory exceptions require explicit user approval, no patched release, development-only exposure verified by a production audit, and a fixed expiry. Record the exact GHSA, CVE, upstream fix PR, package, vulnerable range, expiry, issue and justification in `scripts/audit-exceptions.json`; the audit wrapper must reject other advisories, production exposure, expired, stale or malformed exceptions. No other advisory suppression is allowed. Document and validate transitive overrides.
 - Keep compiler and lint dependencies compatible; update the lockfile when dependencies change. Use Node 24, `corepack enable`, and the `packageManager`-pinned pnpm with `pnpm install --frozen-lockfile` for reproducible installs. Keep the hoisted layout in `.npmrc` for Forge/native compatibility and declare transitive overrides under `pnpm.overrides`.
 - Tests and Vitest configuration are type-checked. Production builds exclude test files and development tooling.
 
