@@ -487,7 +487,8 @@
     {
       "files": ["src/**/*.{ts,tsx}"],
       "rules": {
-        "foom/process-boundaries": "error"
+        "foom/process-boundaries": "error",
+        "foom/area-boundaries": "error"
       }
     },
     {

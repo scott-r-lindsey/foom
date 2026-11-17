@@ -1,7 +1,12 @@
 import { resolve } from "node:path";
 import { RuleTester } from "oxlint/plugins-dev";
-import { describe, test } from "vitest";
-import { processBoundaries } from "../../../scripts/lint-boundaries.mjs";
+import { describe, expect, test } from "vitest";
+import {
+  areaBoundaries,
+  areaPolicy,
+  processBoundaries,
+  validateAreaPolicy,
+} from "../../../scripts/lint-boundaries.mjs";
 
 RuleTester.describe = describe;
 RuleTester.it = test;
@@ -56,4 +61,120 @@ new RuleTester().run("process-boundaries", processBoundaries, {
     filename: resolve("src", file),
     code: code,
   })),
+});
+
+const areaValid: [string, string][] = [
+  ["main/workspace/example.ts", 'import { AgentService } from "../agents/agents";'],
+  ["main/workspace/example.ts", 'import { helper } from "./internal";'],
+  ["main/workspace/example.ts", 'import type { Shell } from "../../shared/workspace";'],
+  ["main/agents/example.ts", 'import type { WorktreeService } from "../workspace/worktrees";'],
+  ["main/agents/example.ts", 'import { type WorktreeService } from "../workspace/worktrees.js";'],
+  ["main/agents/example.ts", 'export type { WorktreeService } from "../workspace/worktrees";'],
+  ["main/agents/example.ts", 'export { type WorktreeService } from "../workspace/worktrees";'],
+  ["main/agents/example.ts", 'type Service = import("../workspace/worktrees").WorktreeService;'],
+  ["main/wiring/example.ts", 'import { Workspace } from "../workspace/workspace";'],
+  ["main/wiring/example.ts", 'import { ThemeLibrary } from "../themes/library";'],
+  ["main/main.ts", 'import { runApplication } from "./wiring/application";'],
+  ["renderer/board/example.tsx", 'import { TerminalMenu } from "../terminal/terminal-menu";'],
+  ["renderer/board/example.tsx", 'export * from "../terminal/terminal-menu";'],
+  ["renderer/board/example.tsx", 'import("../terminal/terminal-menu");'],
+  ["renderer/board/example.tsx", 'const menu = require("../terminal/terminal-menu");'],
+  ["renderer/board/example.tsx", 'import menu = require("../terminal/terminal-menu");'],
+  ["renderer/board/example.tsx", 'import { useState } from "react";'],
+  ["renderer/board/example.tsx", 'import type { SetupSource } from "../preflight/setup-source";'],
+  ["renderer/board/example.tsx", 'import type { SetupSource } from "../preflight/setup-source.d";'],
+  [
+    "renderer/board/example.tsx",
+    'import type { SetupSource } from "../preflight/setup-source.d.ts";',
+  ],
+  ["renderer/app.tsx", 'import { Board } from "./board/board-view";'],
+  ["main/workspace/example.ts", 'import { profile } from "../profile";'],
+];
+const areaInvalid: [string, string, string][] = [
+  ["main/terminals/example.ts", 'import type { Workspace } from "../workspace/workspace";', "edge"],
+  ["main/agents/example.ts", 'import { WorktreeService } from "../workspace/worktrees";', "types"],
+  [
+    "main/agents/example.ts",
+    'import { type WorktreeService, runtime } from "../workspace/worktrees";',
+    "types",
+  ],
+  ["main/agents/example.ts", 'import "../workspace/worktrees";', "types"],
+  ["main/agents/example.ts", 'export * from "../workspace/worktrees";', "types"],
+  ["main/agents/example.ts", 'import("../workspace/worktrees");', "types"],
+  ["main/agents/example.ts", 'require("../workspace/worktrees");', "types"],
+  ["main/agents/example.ts", 'import service = require("../workspace/worktrees");', "types"],
+  ["main/workspace/example.ts", 'import { helper } from "../agents/command-path";', "entry"],
+  ["main/wiring/example.ts", 'import { helper } from "../workspace/internal";', "entry"],
+  [
+    "main/workspace/example.ts",
+    'import type { Wiring } from "../wiring/application-wiring";',
+    "wiring",
+  ],
+  ["main/profile.ts", 'import "./wiring/application";', "wiring"],
+  ["main/main.ts", 'import "./wiring/workspace";', "entry"],
+  ["renderer/board/example.tsx", 'import { secret } from "../data/queries";', "edge"],
+  ["renderer/board/example.tsx", 'export * from "../terminal/internal";', "entry"],
+  ["renderer/board/example.tsx", 'import("../terminal/internal");', "entry"],
+  ["renderer/board/example.tsx", 'require("../terminal/internal");', "entry"],
+  ["renderer/board/example.tsx", 'import menu = require("../terminal/internal");', "entry"],
+  ["renderer/board/example.tsx", 'type Menu = import("../terminal/internal").Menu;', "entry"],
+  ["renderer/board/example.tsx", 'import "../new-area/internal";', "unknown"],
+  ["renderer/new-area/example.tsx", "export {};", "unknown"],
+  ["renderer/app.tsx", 'import "./board/private";', "entry"],
+];
+
+new RuleTester().run("area-boundaries", areaBoundaries, {
+  valid: areaValid.map(([file, code]) => ({ filename: resolve("src", file), code })),
+  invalid: areaInvalid.map(([file, code, messageId]) => ({
+    filename: resolve("src", file),
+    code,
+    errors: [{ messageId }],
+  })),
+});
+
+test("area policy accepts removals and narrowing without changing the historical ceiling", () => {
+  expect(
+    validateAreaPolicy({
+      main: {
+        agents: { publicModules: ["agents.ts"], imports: { control: "type" } },
+        control: { publicModules: [], imports: {} },
+      },
+    }),
+  ).toEqual([]);
+  expect(validateAreaPolicy(areaPolicy)).toEqual([]);
+});
+
+test("area policy rejects a new public module, area and process", () => {
+  expect(
+    validateAreaPolicy({ main: { agents: { publicModules: ["internal.ts"], imports: {} } } }),
+  ).toEqual(["new public module main/agents/internal.ts"]);
+  expect(validateAreaPolicy({ main: { feature: { publicModules: [], imports: {} } } })).toEqual([
+    "new area main/feature",
+  ]);
+  expect(validateAreaPolicy({ preload: {} })).toEqual(["undeclared process preload"]);
+});
+
+test("area policy rejects a new reciprocal edge and a runtime widening", () => {
+  expect(
+    validateAreaPolicy({
+      main: {
+        agents: { publicModules: [], imports: { terminals: "value", workspace: "value" } },
+        terminals: { publicModules: [], imports: { agents: "value" } },
+        workspace: { publicModules: [], imports: {} },
+      },
+    }),
+  ).toEqual([
+    "new or widened edge main/agents -> main/workspace",
+    "new or widened edge main/terminals -> main/agents",
+  ]);
+});
+
+test("area policy rejects dangling edges when removing an area", () => {
+  expect(
+    validateAreaPolicy({
+      main: {
+        agents: { publicModules: [], imports: { workspace: "type" } },
+      },
+    }),
+  ).toEqual(["edge targets undeclared area main/workspace"]);
 });

@@ -53,6 +53,13 @@ test("all 221 original rule severities/options survive except the two approved p
   }
 });
 
+test("production lint enables the process and area boundaries for main and renderer", () => {
+  for (const file of ["src/main/workspace/workspace.ts", "src/renderer/board/board-view.tsx"]) {
+    assert.equal(effective(file)["foom/process-boundaries"], "error");
+    assert.equal(effective(file)["foom/area-boundaries"], "error");
+  }
+});
+
 test("CommonJS packaging modules retain core safety rules through the production config", () => {
   const root = mkdtempSync(join(tmpdir(), "foom-lint-commonjs-"));
   try {
