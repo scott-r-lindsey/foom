@@ -298,7 +298,7 @@ export class ControlStore {
 }
 
 /** Whitelist every persisted/rendered field; old recovery entries have only outcome metadata. */
-function auditEntry(value: unknown): ActionLogEntry {
+export function auditEntry(value: unknown): ActionLogEntry {
   const data = object(value);
   const actor = data["actor"] === undefined ? data : object(data["actor"]);
   const text = (value: unknown, fallback = ""): string => {
