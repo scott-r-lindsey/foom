@@ -850,7 +850,9 @@ An explicit **Sign in** on a registered host’s gh row starts a window-owned
 Settings panel. No full check runs: launch inspects only platform requirements to select the
 recipe, preserves other checklist rows and Last checked, and completion rechecks
 only gh sign-in. **Install & sign in** uses one digest-bound recipe: install gh,
-then sign in only if every install step succeeds. Completion refreshes gh’s tool
+then sign in only if every install step succeeds. On the first device code, one bounded
+gh tool check refreshes Installed while sign-in waits; output text alone never
+establishes installation. Completion refreshes gh’s tool
 and sign-in rows. Sudo retains interactive terminal stdin during installation;
 gh auth login and setup-git have ignored stdin. Foom never types into the terminal.
 

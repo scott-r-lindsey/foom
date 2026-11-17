@@ -33,19 +33,22 @@ function fixture(installing = false) {
   vi.useFakeTimers();
   const api = vi.fn<NonNullable<SetupSource["githubSignIn"]>>().mockResolvedValue(waiting);
   const finished = vi.fn();
+  const refreshTool = vi.fn().mockResolvedValue(undefined);
   const source: SetupSource["hostTerminal"] = { createView: vi.fn(), observe: vi.fn() };
   const result = render(
     <GithubSignInPanel
       id="gh"
+      host="worker"
       source={{ githubSignIn: api, hostTerminal: source }}
       finished={finished}
+      refreshTool={refreshTool}
       installing={installing}
     />,
   );
-  return { api, finished, result };
+  return { api, finished, refreshTool, result };
 }
 test("waiting shows the code, independent success markers, fallback actions and collapsed terminal", async () => {
-  const { api, result } = fixture();
+  const { api, result, refreshTool } = fixture();
   expect(screen.getByRole("status").textContent).toBe("Starting…");
   expectLabel();
   await flush();
@@ -69,14 +72,20 @@ test("waiting shows the code, independent success markers, fallback actions and 
   fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
   await flush();
   expect(api).toHaveBeenCalledWith("gh", "cancel");
+  expect(refreshTool).not.toHaveBeenCalled();
   result.unmount();
   expect(vi.getTimerCount()).toBe(0);
 });
 test("install starts open, then finishing and success close the panel and refresh once", async () => {
-  const { api, finished } = fixture(true);
+  const { api, finished, refreshTool } = fixture(true);
   expect(screen.getByRole("status").textContent).toBe("Installing…");
   expectLabel();
   await flush();
+  expect(refreshTool).toHaveBeenCalledExactlyOnceWith("worker");
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(500);
+  });
+  expect(refreshTool).toHaveBeenCalledTimes(1);
   api.mockResolvedValue({ phase: "finishing", copied: true, opened: true });
   await act(async () => {
     await vi.advanceTimersByTimeAsync(250);

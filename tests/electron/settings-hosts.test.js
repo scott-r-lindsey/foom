@@ -2809,7 +2809,10 @@ test("Hosts gh device sign-in keeps the approved label through Install & sign in
   await expect(card.locator(".host-check-name").filter({ hasText: /^GitHub CLI$/u })).toHaveCount(
     1,
   );
-  await updateScenario({ facts: missing, githubDevice: true });
+  await updateScenario({
+    facts: { tools: [missing.tools[0], { id: "gh", state: "ready", signIn: "signed-out" }] },
+    githubDevice: true,
+  });
   await card.getByRole("button", { name: "Install & sign in gh", exact: true }).click();
   const panel = card.getByRole("region", { name: "GitHub sign-in", exact: true });
   await expect(panel.getByText("ABCD-1234", { exact: true })).toBeVisible();
@@ -2818,6 +2821,15 @@ test("Hosts gh device sign-in keeps the approved label through Install & sign in
     "aria-expanded",
     "false",
   );
+  const toolRow = card
+    .locator(".host-check-name")
+    .filter({ hasText: /^GitHub CLI$/u })
+    .locator("..");
+  await expect(toolRow.getByText("Pass · Installed", { exact: true })).toBeVisible();
+  await expect(toolRow.getByText("Not found", { exact: true })).toHaveCount(0);
+  await expect(
+    toolRow.getByRole("button", { name: "Install & sign in gh", exact: true }),
+  ).toHaveCount(0);
   await capture("1067/install-waiting");
   const commands = (await readFile(recipeCalls, "utf8"))
     .trim()
@@ -2837,7 +2849,37 @@ test("Hosts gh device sign-in keeps the approved label through Install & sign in
   await expect(card.locator(".host-check-name").filter({ hasText: /^GitHub CLI$/u })).toHaveCount(
     1,
   );
+  await expect(toolRow.getByText("Pass · Installed", { exact: true })).toBeVisible();
   await capture("1067/install-signed-in");
+});
+
+test("Hosts gh device sign-in leaves a failed install missing despite device output", {
+  skip: process.platform === "win32",
+  timeout: deadline(30000),
+}, async (context) => {
+  const { card, updateScenario } = await hostsFixture(context);
+  const facts = {
+    tools: [
+      { id: "git", state: "missing", signIn: "unknown" },
+      { id: "gh", state: "missing", signIn: "unknown" },
+    ],
+  };
+  await updateScenario({ facts });
+  await card.getByRole("button", { name: "Reload gh", exact: true }).click();
+  await updateScenario({ facts, githubDevice: true });
+  await card.getByRole("button", { name: "Install & sign in gh", exact: true }).click();
+  const panel = card.getByRole("region", { name: "GitHub sign-in", exact: true });
+  await expect(panel.getByText("ABCD-1234", { exact: true })).toBeVisible();
+  // Even a device code cannot establish installation when the scoped check says missing.
+  const toolRow = card
+    .locator(".host-check-name")
+    .filter({ hasText: /^GitHub CLI$/u })
+    .locator("..");
+  await expect(toolRow.getByText("Not found", { exact: true })).toBeVisible();
+  await updateScenario({ facts, githubDevice: true, recipeExit: 23 });
+  await expect(panel.getByText("Failed · Exit 23", { exact: true })).toBeVisible();
+  await expect(toolRow.getByText("Not found", { exact: true })).toBeVisible();
+  await expect(toolRow.getByText("Pass · Installed", { exact: true })).toHaveCount(0);
 });
 
 test("Hosts real OpenSSH client shows a visible trust dialog for a disposable loopback sshd", {

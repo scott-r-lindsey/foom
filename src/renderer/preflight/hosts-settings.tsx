@@ -803,6 +803,25 @@ export function HostsSettings({
     },
     [api, setState],
   );
+  const refreshGithubTool = useCallback(
+    async (host: string) => {
+      try {
+        const next = await api?.({ action: "reload", host, target: { kind: "tool", tool: "gh" } });
+        if (next) {
+          setState(next);
+          setChecks((previous) => {
+            const updated = new Map(previous);
+            if (next.preflight) updated.set(host, next.preflight);
+            else updated.delete(host);
+            return updated;
+          });
+        }
+      } catch {
+        setError("Unable to refresh tool");
+      }
+    },
+    [api, setState],
+  );
   const changedRef = useRef(false);
   const [expanded, setExpanded] = useState<ReadonlyMap<string, boolean>>(() =>
     setupRefusal?.host ? new Map([[setupRefusal.host, true]]) : new Map(),
@@ -1291,8 +1310,10 @@ export function HostsSettings({
                       <GithubSignInPanel
                         key={recipe.id}
                         id={recipe.id}
+                        host={entry.host}
                         source={source}
                         finished={recipeFinished}
+                        refreshTool={refreshGithubTool}
                         installing={recipe.gh === "install"}
                         retry={() => {
                           void act({

@@ -6,14 +6,18 @@ import { HostTerminal } from "./host-terminal";
 /** Presentation only. Main binds the code and all effects to this window's recipe. */
 export function GithubSignInPanel({
   id,
+  host,
   source,
   finished,
   installing,
+  refreshTool,
   retry,
 }: {
+  refreshTool: (host: string) => Promise<void>;
   retry?: () => void;
   installing: boolean;
   id: string;
+  host: string;
   source: Pick<SetupSource, "githubSignIn" | "hostTerminal">;
   finished: (id: string, succeeded?: boolean) => void | Promise<void>;
 }) {
@@ -36,7 +40,12 @@ export function GithubSignInPanel({
         if (!active || !next) return;
         if (next.code && !codeSeenRef.current) {
           codeSeenRef.current = true;
-          if (installing) setTerminal(false);
+          if (installing) {
+            setTerminal(false);
+            // Output only triggers one scoped presence check; it cannot prove installation.
+            await refreshTool(host);
+            if (!isActive()) return;
+          }
         }
         if (
           next.phase === "done" ||
@@ -65,7 +74,7 @@ export function GithubSignInPanel({
       active = false;
       clearTimeout(timer);
     };
-  }, [api, id, finished, installing]);
+  }, [api, id, host, finished, installing, refreshTool]);
   const action = async (command: "copy" | "open" | "cancel") => {
     try {
       const next = await api?.(id, command);
