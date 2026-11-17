@@ -215,8 +215,11 @@ Recreation is bounded to once per 250 ms per preview; the old contents closes im
 and only one replacement can be pending. Closing cancels pending recreation.
 A previously clicked native contents can reacquire keyboard focus during reload on
 macOS even when detached; replacing it prevents that remembered focus grant.
-`did-start-loading` also detaches any loading view. Refused navigation leaves the
-loaded view in place. A native mouse-down grants focus; navigation carries that intent to the replacement.
+`did-start-loading` clears the loaded state and detaches the view until
+`did-finish-load`. A pending same-document main-frame navigation, such as an
+image preview's Actual size link, keeps the view attached and loaded. Refused
+navigation restores the previously loaded view. A native mouse-down grants focus;
+navigation carries that intent to the replacement.
 Blur or detachment otherwise revokes the native click grant. Unsolicited
 focus on an attached view returns to the last human-focused contents. This guard
 supplements detached loading; returning focus after load alone loses keystrokes.

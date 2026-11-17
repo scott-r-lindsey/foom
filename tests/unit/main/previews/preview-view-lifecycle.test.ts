@@ -13,6 +13,7 @@ async function owner() {
   const entries = new Map<string, HostedPreview>();
   const board = f.window.webContents as unknown as WebContents;
   const apply = vi.fn();
+  const detach = vi.fn();
   const snapshots = new PreviewSnapshots(board, entries, () => false, apply);
   const focus = new PreviewFocus(
     f.window as unknown as BrowserWindow,
@@ -26,14 +27,107 @@ async function owner() {
     (entry) => entries.set(entry.id, entry),
     (entry) => entries.delete(entry.id),
     () => false,
-    vi.fn(),
+    detach,
     apply,
     vi.fn(async () => {}),
     focus,
     snapshots,
   );
-  return { f, entries, apply, snapshots, focus, lifecycle };
+  return { f, entries, apply, detach, snapshots, focus, lifecycle };
 }
+
+test.each([true, false])(
+  "same-document loading keeps the view attached (loading event first: %s)",
+  async (loadingFirst) => {
+    vi.useFakeTimers();
+    const { f, detach, snapshots, focus, lifecycle } = await owner();
+    const record = f.registry.add(f.root, "a.html");
+    const entry = lifecycle.create(record, canonicalRoot(f.root));
+    const contents = entry.view.webContents;
+    contents.emit("did-finish-load");
+
+    if (loadingFirst) contents.emit("did-start-loading");
+    contents.emit("did-start-navigation", {
+      url: `${contents.getURL()}#actual`,
+      isMainFrame: true,
+      isSameDocument: true,
+    });
+    if (!loadingFirst) contents.emit("did-start-loading");
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(detach).not.toHaveBeenCalled();
+    expect(entry.loaded).toBe(true);
+    lifecycle.cancel(record.id);
+    focus.dispose();
+    snapshots.dispose();
+    await f.host.dispose(false);
+  },
+);
+
+test.each([true, false])(
+  "other loads detach until the document finishes (navigation event: %s)",
+  async (subframeNavigation) => {
+    vi.useFakeTimers();
+    const f = await fixture();
+    const { id, view } = await f.open();
+    const contents = view.webContents;
+    const { addChildView, removeChildView } = f.window.contentView;
+    f.host.bounds(id, { x: 0, y: 0, width: 100, height: 100, visible: true });
+    contents.emit("did-finish-load");
+    expect(addChildView).toHaveBeenCalledExactlyOnceWith(view);
+
+    // A fragment navigation can commit while no new loading event is emitted.
+    const fragment = `${contents.getURL()}#actual`;
+    contents.emit("did-start-navigation", {
+      url: fragment,
+      isMainFrame: true,
+      isSameDocument: true,
+    });
+    contents.emit("did-navigate-in-page", {}, fragment, true);
+    contents.emit("did-start-loading");
+    if (subframeNavigation) {
+      contents.emit("did-start-navigation", {
+        url: `foom-preview://${id}/frame.html`,
+        isMainFrame: false,
+        isSameDocument: false,
+      });
+    } else {
+      await vi.advanceTimersByTimeAsync(0);
+    }
+    expect(removeChildView).toHaveBeenCalledExactlyOnceWith(view);
+    expect(addChildView).toHaveBeenCalledTimes(1);
+
+    contents.emit("did-finish-load");
+    expect(addChildView).toHaveBeenCalledTimes(2);
+    expect(addChildView).toHaveBeenLastCalledWith(view);
+    await f.host.dispose(false);
+  },
+);
+
+test("refused navigation restores the previously loaded view without a finish event", async () => {
+  const f = await fixture();
+  const { id, view } = await f.open();
+  const contents = view.webContents;
+  const { addChildView, removeChildView } = f.window.contentView;
+  f.host.bounds(id, { x: 0, y: 0, width: 100, height: 100, visible: true });
+  contents.emit("did-finish-load");
+  const event = {
+    url: "https://example.com",
+    isMainFrame: true,
+    isSameDocument: false,
+    preventDefault: vi.fn(),
+  };
+  contents.emit("did-start-loading");
+  contents.emit("did-start-navigation", event);
+  expect(removeChildView).toHaveBeenCalledExactlyOnceWith(view);
+  expect(addChildView).toHaveBeenCalledTimes(1);
+
+  contents.emit("will-frame-navigate", event);
+  expect(event.preventDefault).toHaveBeenCalledOnce();
+  expect(addChildView).toHaveBeenCalledTimes(2);
+  expect(addChildView).toHaveBeenLastCalledWith(view);
+  await f.host.dispose(false);
+});
 
 test("late scroll restoration cannot load a released generation and cancellation releases listeners", async () => {
   const { f, entries, apply, snapshots, focus, lifecycle } = await owner();

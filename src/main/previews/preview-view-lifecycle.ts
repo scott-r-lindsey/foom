@@ -13,6 +13,7 @@ const EMPTY_BOUNDS: PreviewBounds = { x: 0, y: 0, width: 0, height: 0, visible: 
 interface LifecycleState {
   cleanup: () => void;
   navigated: boolean;
+  previouslyLoaded: boolean;
   replacementTimer?: ReturnType<typeof setTimeout>;
   nextReplacementAt: number;
   scroll: [number, number] | undefined;
@@ -174,12 +175,26 @@ export class PreviewViewLifecycle {
         for (const remove of listeners.splice(0)) remove();
       },
       navigated: false,
+      previouslyLoaded: false,
       nextReplacementAt,
       scroll,
       history,
     });
     this.install(entry);
     const contents = view.webContents;
+    let sameDocumentPending = false;
+    let pendingLoading: ReturnType<typeof setImmediate> | undefined;
+    const clearPendingLoading = () => {
+      clearImmediate(pendingLoading);
+      pendingLoading = undefined;
+    };
+    const detachForLoad = () => {
+      clearPendingLoading();
+      if (!this.current(entry) || this.closed() || contents.isDestroyed()) return;
+      this.state(entry).previouslyLoaded = entry.loaded;
+      entry.loaded = false;
+      this.detach(entry);
+    };
     // The board's own guard (prepended in the constructor) runs first, so a pending
     // focus handoff blocks and Escape cancels it here too.
     const beforeInput = (event: Electron.Event, input: Electron.Input) => {
@@ -234,9 +249,12 @@ export class PreviewViewLifecycle {
     const frameNavigate = (
       event: Electron.Event<Electron.WebContentsWillFrameNavigateEventParams>,
     ) => {
+      if (pendingLoading) detachForLoad();
       if (!navigationAllowed(event.url, origin, event.isMainFrame)) {
         event.preventDefault();
         void this.external(record, event.url);
+        entry.loaded ||= this.state(entry).previouslyLoaded;
+        this.apply(entry);
       } else if (event.isMainFrame) {
         event.preventDefault();
         void this.visit(entry, event.url);
@@ -257,14 +275,18 @@ export class PreviewViewLifecycle {
     const navigate = (event: Electron.Event<Electron.WebContentsDidStartNavigationEventParams>) => {
       if (!this.current(entry) || this.state(entry).replacementTimer || contents.isDestroyed())
         return;
-      if (!event.isMainFrame) return;
       // In-page links emit did-start-loading without a corresponding
-      // did-finish-load. Only detach for a main-frame document replacement.
-      if (event.isSameDocument) {
+      // did-finish-load, so preserve the loaded view for that loading event.
+      if (event.isMainFrame && event.isSameDocument) {
+        sameDocumentPending = pendingLoading === undefined;
+        clearPendingLoading();
         const page = history.pages[history.index];
         if (page && navigationAllowed(event.url, origin)) page.url = event.url;
         return;
       }
+      if (pendingLoading) detachForLoad();
+      if (!event.isMainFrame) return;
+      sameDocumentPending = false;
       if (!this.state(entry).navigated) {
         this.state(entry).navigated = true;
         return;
@@ -326,8 +348,31 @@ export class PreviewViewLifecycle {
     listeners.push(() => {
       contents.removeListener("did-start-navigation", navigate);
     });
+    const inPage = (_event: Electron.Event, _url: string, isMainFrame: boolean) => {
+      if (isMainFrame) sameDocumentPending = false;
+    };
+    contents.on("did-navigate-in-page", inPage);
+    listeners.push(() => {
+      contents.removeListener("did-navigate-in-page", inPage);
+    });
+    const loading = () => {
+      if (!this.current(entry) || this.closed() || contents.isDestroyed()) return;
+      if (sameDocumentPending) {
+        sameDocumentPending = false;
+        return;
+      }
+      // Chromium can signal loading before it identifies the navigation. Give
+      // that event this turn to classify the load. If it is absent, still detach.
+      pendingLoading ??= setImmediate(detachForLoad);
+    };
+    contents.on("did-start-loading", loading);
+    listeners.push(() => {
+      clearPendingLoading();
+      contents.removeListener("did-start-loading", loading);
+    });
     const loaded = () => {
       if (!this.current(entry) || this.closed() || contents.isDestroyed()) return;
+      if (pendingLoading) detachForLoad();
       const attach = () => {
         if (!this.current(entry) || this.closed() || contents.isDestroyed()) return;
         entry.loaded = true;
