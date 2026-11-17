@@ -215,7 +215,7 @@ test("a copy that does not match the baseline digest is not trusted", async () =
   expect(f.service.status().pending?.detail).toBe("hooks: on → off");
 });
 
-test("Settings writes go through the file and replace a held change", async () => {
+test("Settings writes patch the file and retain unrelated held changes", async () => {
   const f = await fixture();
   await f.service.initialize();
   await f.settings({ hooks: false });
@@ -224,10 +224,11 @@ test("Settings writes go through the file and replace a held change", async () =
   expect(JSON.parse(await f.read("settings.json"))).toEqual({
     kind: "settings",
     terminalFontSize: 21,
+    hooks: false,
   });
-  expect(f.copy()).toBe(await f.read("settings.json"));
+  expect(JSON.parse(f.copy() ?? "")).toEqual({ kind: "settings", terminalFontSize: 21 });
   const status = await f.service.refresh();
-  expect(status.pending).toBeNull();
+  expect(status.pending?.detail).toBe("hooks: on → off");
   expect(f.applied.at(-1)).toEqual({ terminalFontSize: 21 });
   await expect(f.service.write({ interfaceTheme: palette })).rejects.toThrow("cannot be stored");
   expect(f.statuses.length).toBeGreaterThan(0);
@@ -401,6 +402,11 @@ test("Settings patches never adopt unapproved external bytes", async () => {
   await f.service.write({ agents: { claude: true } });
   expect(JSON.parse(await f.read("settings.json"))).toEqual({
     kind: "settings",
+    hooks: false,
+    agents: { claude: true },
+  });
+  expect(f.service.status().pending?.detail).toBe("hooks: on → off");
+  expect(f.applied.at(-1)).toEqual({
     interfaceScale: 120,
     terminalFontSize: 19,
     agents: { claude: true },
