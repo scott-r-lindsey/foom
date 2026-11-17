@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
+import { lstat } from "node:fs/promises";
+import type { SecretCipher } from "../../setup/environment";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { drizzle } from "drizzle-orm/node-sqlite";
@@ -85,12 +87,14 @@ export class ProfileDatabase {
   private constructor(
     private readonly connection: DatabaseSync,
     private readonly publications: Pick<ViewChanges, "publish">,
+    readonly recoveryCipher?: SecretCipher,
   ) {
     this.orm = drizzle({ client: connection });
   }
   static async open(
     profile: string,
     publications: Pick<ViewChanges, "publish"> = viewChanges,
+    recoveryCipher?: SecretCipher,
   ): Promise<ProfileDatabase> {
     const directory = await privateDirectory(profile, "data");
     const file = join(directory, "profile.sqlite");
@@ -100,15 +104,22 @@ export class ProfileDatabase {
     } catch (error) {
       if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
     }
+    const expected = await lstat(file);
     await verifyPrivate(file, false);
     const connection = new DatabaseSync(file);
     try {
+      // node:sqlite accepts a pathname, not a descriptor. On every platform,
+      // refuse redirection/replacement before issuing any PRAGMA or migration.
+      await verifyPrivate(file, false);
+      const current = await lstat(file);
+      if (current.dev !== expected.dev || current.ino !== expected.ino)
+        throw new Error("Profile database identity changed during open");
       connection.exec(
         "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;",
       );
       // Must precede even the schema-version query and migration.
       assertForeignKeys(connection);
-      const database = new ProfileDatabase(connection, publications);
+      const database = new ProfileDatabase(connection, publications, recoveryCipher);
       database.migrate();
       database.verify();
       // Restarted subscriptions begin with current snapshots, not historical pushes.

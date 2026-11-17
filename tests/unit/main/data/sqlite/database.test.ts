@@ -1,6 +1,7 @@
 import { createCipheriv, createDecipheriv, randomBytes, createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, rm, writeFile, chmod, readFile, symlink, mkdir } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, chmod, readFile, symlink, mkdir, rename } from "node:fs/promises";
+import * as privateFiles from "../../../../../src/node-common/private-files";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -9,7 +10,11 @@ import { afterEach, expect, test, vi } from "vitest";
 import { ProfileDatabase, assertForeignKeys } from "../../../../../src/main/data/sqlite/database";
 import type { DataCommand } from "../../../../../src/main/data/sqlite/commands";
 import { executeDataCommand } from "../../../../../src/main/data/sqlite/commands";
-import { importLegacy, importRows } from "../../../../../src/main/data/sqlite/importer";
+import {
+  importLegacyGroup,
+  importLegacy,
+  importRows,
+} from "../../../../../src/main/data/sqlite/importer";
 import { ViewChanges } from "../../../../../src/main/data/view-changes";
 import { ViewRegistry } from "../../../../../src/main/data/view-registry";
 import { object } from "../../../../../src/shared/control-validation";
@@ -17,6 +22,17 @@ import { registeredHosts } from "../../../../../src/shared/registered-hosts";
 import type { ViewSnapshot } from "../../../../../src/shared/data-views";
 import * as tables from "../../../../../src/main/data/sqlite/schema";
 
+vi.mock("electron", () => {
+  const cipher = encryptedFixture();
+  return {
+    safeStorage: {
+      getSelectedStorageBackend: () => "gnome_libsecret",
+      isEncryptionAvailable: cipher.available,
+      encryptString: cipher.encrypt,
+      decryptString: cipher.decrypt,
+    },
+  };
+});
 vi.mock("../../../../../src/node-common/private-file-permissions", () => ({ windowsAcl: vi.fn() }));
 const roots: string[] = [];
 const connections: ProfileDatabase[] = [];
@@ -243,8 +259,14 @@ test("clean importer keeps recovery originals, imports out-of-order children and
   inspect(file, (raw) => {
     expect(raw.prepare("SELECT id FROM sessions").all()).toHaveLength(3);
   });
+  const { safeStorage } = await import("electron");
+  const envelope = object(
+    JSON.parse(
+      await readFile(join(profile, "data/recovery/hosts-worktrees-sessions-v1.json"), "utf8"),
+    ),
+  );
   const recovery: unknown = JSON.parse(
-    await readFile(join(profile, "data/recovery/hosts-worktrees-sessions-v1.json"), "utf8"),
+    safeStorage.decryptString(Buffer.from(String(envelope["cipher"]), "base64")),
   );
   expect(recovery).toEqual(input);
 });
@@ -1040,7 +1062,11 @@ test("environment import quarantines malformed plaintext, bad ciphertext and cas
         { name: "NODE_OPTIONS", value: "bad" },
         { name: "HTTP_PROXY", value: "https://user:pass@proxy.test" },
         { name: "SECRET", secret: true, cipher: "not base64" },
-        { name: "SECRET", secret: true, cipher: "AA==" },
+        {
+          name: "SECRET",
+          secret: true,
+          cipher: cipher.encrypt("invalid\0value").toString("base64"),
+        },
         { name: "NO_VALUE" },
         null,
       ],
@@ -1546,7 +1572,7 @@ test("dynamic source recovery uses the frozen manifest after a crash, and SQL in
   );
   expect(JSON.parse(value.value.report)).toMatchObject({ "extra.json": "old" });
   await importLegacyGroup(db, profile, "dynamic-fixture", discover, () => ({}), ["base.json"]);
-  expect(discover).toHaveBeenCalledTimes(2);
+  expect(discover).toHaveBeenCalledTimes(1);
   inspect(file, (raw) => {
     expect(raw.prepare("SELECT * FROM hosts").all()).toEqual([]);
   });
@@ -1997,3 +2023,169 @@ test("window metadata enforces per-window preview capacity while allowing update
     }),
   ).rejects.toThrow("capacity");
 });
+
+test("recovery encrypts rejected raw input", async () => {
+  const { importDatabaseEnvironment } = await import(
+    "../../../../../src/main/data/sqlite/environment"
+  );
+  const { db, profile, file } = await fixture();
+  const marker = "fixture-secret-marker";
+  await writeFile(
+    join(profile, "environment.json"),
+    JSON.stringify({
+      version: 1,
+      lists: {
+        all: [{ name: "URL", value: `https://user:${marker}@example.test` }],
+      },
+    }),
+    { mode: 0o600 },
+  );
+  const result = await importDatabaseEnvironment(db, profile, encryptedFixture());
+  expect(JSON.parse(result.value.report)).toEqual({ accepted: 0, quarantined: 1 });
+  expect(
+    (await readFile(join(profile, "data/recovery/environment-v1.json"))).includes(
+      Buffer.from(marker),
+    ),
+  ).toBe(false);
+  expect((await readFile(file)).includes(Buffer.from(marker))).toBe(false);
+});
+
+test("pending removals persist only a validated projection", async () => {
+  const { db } = await fixture();
+  const input = sources([]);
+  input["worktrees.json"] = JSON.stringify({
+    version: 1,
+    repositories: [repo],
+    managed: [],
+    pendingRemovals: [
+      {
+        path: tree.path,
+        repository: repo,
+        root: repo,
+        directoryIdentity: "dir",
+        token: "fixture-secret-marker",
+      },
+    ],
+  });
+  await db.write((orm) => importRows(orm, input));
+  const rows = await db.read((orm) => orm.select().from(tables.pendingRemovals).all());
+  expect(rows).toHaveLength(1);
+  expect(JSON.parse(rows[0]?.data ?? "null")).toEqual({
+    path: tree.path,
+    repository: repo,
+    root: repo,
+    directoryIdentity: "dir",
+  });
+});
+
+test.each(process.platform === "win32" ? ["file"] : ["file", "symlink"])(
+  "database rejects %s replacement after private verification before any SQL",
+  async (replacement) => {
+    const { profile, db, file } = await fixture();
+    await db.close();
+    connections.splice(connections.indexOf(db), 1);
+    const external = join(profile, "external.sqlite");
+    await writeFile(external, "", { mode: 0o600 });
+    const verify = privateFiles.verifyPrivate;
+    let replaced = false;
+    const spy = vi
+      .spyOn(privateFiles, "verifyPrivate")
+      .mockImplementation(async (path, directory) => {
+        await verify(path, directory);
+        if (path === file && !replaced) {
+          replaced = true;
+          await rm(file);
+          if (replacement === "symlink") await symlink(external, file);
+          else await rename(external, file);
+        }
+      });
+    try {
+      await expect(ProfileDatabase.open(profile)).rejects.toThrow();
+      expect(await readFile(replacement === "symlink" ? external : file)).toHaveLength(0);
+    } finally {
+      spy.mockRestore();
+    }
+  },
+);
+
+test("interrupted dynamic import resumes frozen manifest before failed discovery", async () => {
+  const { db, profile } = await fixture();
+  await put(profile);
+  const discover = vi.fn(() => Promise.resolve(["settings.json"]));
+  await expect(
+    importLegacyGroup(
+      db,
+      profile,
+      "resume-regression",
+      discover,
+      () => {
+        throw new Error("interrupted");
+      },
+      [],
+    ),
+  ).rejects.toThrow("interrupted");
+  discover.mockImplementation(() => Promise.reject(new Error("discovery failed")));
+  await writeFile(join(profile, "settings.json"), "changed");
+  const ingest = vi.fn(
+    (_orm: Parameters<typeof importRows>[0], input: Parameters<typeof importRows>[1]) => ({
+      frozen: input["settings.json"] === sources()["settings.json"],
+    }),
+  );
+  const result = await importLegacyGroup(db, profile, "resume-regression", discover, ingest, []);
+  expect(JSON.parse(result.value.report)).toEqual({ frozen: true });
+  expect(discover).toHaveBeenCalledTimes(1);
+});
+
+test("transient decrypt failure rolls back the whole environment import and retries", async () => {
+  const { importDatabaseEnvironment } = await import(
+    "../../../../../src/main/data/sqlite/environment"
+  );
+  const { db, profile } = await fixture();
+  const cipher = encryptedFixture();
+  const encoded = cipher.encrypt("recoverable").toString("base64");
+  await writeFile(
+    join(profile, "environment.json"),
+    JSON.stringify({
+      version: 1,
+      lists: {
+        all: [
+          { name: "PLAIN", value: "first" },
+          { name: "SECRET", secret: true, cipher: encoded },
+        ],
+      },
+    }),
+    { mode: 0o600 },
+  );
+  cipher.decrypt.mockImplementationOnce(() => {
+    throw new Error("transient keychain failure");
+  });
+  await expect(importDatabaseEnvironment(db, profile, cipher)).rejects.toThrow("keychain");
+  expect(await db.read((orm) => orm.select().from(tables.imports).all())).toEqual([]);
+  expect(await db.read((orm) => orm.select().from(tables.environmentEntries).all())).toEqual([]);
+  expect(await db.read((orm) => orm.select().from(tables.quarantine).all())).toEqual([]);
+  expect((await importDatabaseEnvironment(db, profile, cipher)).value.alreadyImported).toBe(false);
+  expect(await db.read((orm) => orm.select().from(tables.environmentEntries).all())).toHaveLength(
+    2,
+  );
+});
+
+test.each(["unsupported", "unavailable", "encrypt"])(
+  "recovery fails closed when cipher is %s",
+  async (failure) => {
+    const { db, profile } = await fixture();
+    const cipher = encryptedFixture();
+    if (failure === "unsupported") cipher.supported.mockReturnValue(false);
+    if (failure === "unavailable") cipher.available.mockReturnValue(false);
+    if (failure === "encrypt")
+      cipher.encrypt.mockImplementation(() => {
+        throw new Error("keychain failed");
+      });
+    const isolated = await ProfileDatabase.open(profile, new ViewChanges(), cipher);
+    connections.push(isolated);
+    await expect(importLegacy(isolated, profile)).rejects.toThrow("keychain");
+    expect(await db.read((orm) => orm.select().from(tables.imports).all())).toEqual([]);
+    await expect(
+      readFile(join(profile, "data/recovery/hosts-worktrees-sessions-v1.json")),
+    ).rejects.toThrow();
+  },
+);

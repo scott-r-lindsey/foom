@@ -1,3 +1,5 @@
+import { safeStorageCipher } from "../../setup/environment";
+import type { SecretCipher } from "../../setup/environment";
 import { constants } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { chmod, lstat, open, readFile, rename, rm } from "node:fs/promises";
@@ -73,23 +75,24 @@ async function readSource(profile: string, source: string): Promise<string | nul
 async function originals(
   profile: string,
   name: string,
-  files: readonly string[],
-  required: readonly string[] = files,
-  dynamic = false,
+  files: readonly string[] | (() => Promise<readonly string[]>),
+  cipher: SecretCipher,
+  required?: readonly string[],
 ): Promise<Originals> {
-  if (
-    !/^[a-z0-9-]+$/u.test(name) ||
-    files.some(
-      (file) =>
-        !/^[a-zA-Z0-9_./-]+$/u.test(file) ||
-        file.split("/").some((part) => !part || part === "." || part === ".."),
-    )
-  )
-    throw new Error("Invalid legacy source");
+  if (!/^[a-z0-9-]+$/u.test(name)) throw new Error("Invalid legacy source");
+  const validSource = (file: string) =>
+    /^[a-zA-Z0-9_./-]+$/u.test(file) &&
+    !file.split("/").some((part) => !part || part === "." || part === "..");
+  const unlock = () => {
+    if (!cipher.supported() || !cipher.available())
+      throw new Error("Recovery snapshots require the system keychain");
+  };
   const directory = await privateDirectory(await privateDirectory(profile, "data"), "recovery");
   const file = join(directory, `${name}.json`);
+  let found = false;
   try {
     const info = await lstat(file);
+    found = true;
     if (
       !info.isFile() ||
       info.isSymbolicLink() ||
@@ -99,16 +102,29 @@ async function originals(
         (info.uid !== process.getuid?.() || (info.mode & 0o777) !== 0o400))
     )
       throw new Error("Invalid recovery snapshot permissions or size");
-    const value: unknown = JSON.parse(await readFile(file, "utf8"));
+    const envelope: unknown = JSON.parse(await readFile(file, "utf8"));
+    if (
+      !record(envelope) ||
+      envelope["version"] !== 1 ||
+      Object.keys(envelope).length !== 2 ||
+      typeof envelope["cipher"] !== "string"
+    )
+      throw new Error("Invalid recovery snapshot; restore the original files");
+    const encrypted = Buffer.from(envelope["cipher"], "base64");
+    if (!encrypted.length || encrypted.toString("base64") !== envelope["cipher"])
+      throw new Error("Invalid recovery snapshot ciphertext");
+    unlock();
+    const value: unknown = JSON.parse(cipher.decrypt(encrypted));
     if (
       !record(value) ||
-      (!dynamic && Object.keys(value).length !== files.length) ||
-      !required.every((file) => Object.hasOwn(value, file)) ||
+      (required === undefined &&
+        typeof files !== "function" &&
+        Object.keys(value).length !== files.length) ||
+      !(required ?? (typeof files === "function" ? [] : files)).every((file) =>
+        Object.hasOwn(value, file),
+      ) ||
       !Object.entries(value).every(
-        ([file, text]) =>
-          /^[a-zA-Z0-9_./-]+$/u.test(file) &&
-          !file.split("/").some((part) => !part || part === "." || part === "..") &&
-          (text === null || typeof text === "string"),
+        ([file, text]) => validSource(file) && (text === null || typeof text === "string"),
       )
     )
       throw new Error("Invalid recovery snapshot; restore the original files");
@@ -119,20 +135,27 @@ async function originals(
     }
     return result;
   } catch (error) {
-    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+    if (found || !(error instanceof Error && "code" in error && error.code === "ENOENT"))
+      throw error;
   }
+  unlock();
+  const paths = typeof files === "function" ? await files() : files;
+  if (paths.some((file) => !validSource(file))) throw new Error("Invalid legacy source");
   const contents: Record<string, string | null> = {};
   let total = 0;
-  for (const file of files) {
+  for (const file of paths) {
     const text = await readSource(profile, file);
     total += Buffer.byteLength(text ?? "");
     if (total > 256 * 1024 * 1024) throw new Error("Legacy group exceeds the import limit");
     contents[file] = text;
   }
+  // Encryption must succeed before creating any recovery file. Never fall back
+  // to plaintext, even for groups whose known fields contain no secrets.
+  const encrypted = cipher.encrypt(JSON.stringify(contents));
   const temporary = join(directory, `${randomUUID()}.tmp`);
   const handle = await createPrivateFile(temporary);
   try {
-    await handle.writeFile(JSON.stringify(contents));
+    await handle.writeFile(JSON.stringify({ version: 1, cipher: encrypted.toString("base64") }));
     await handle.sync();
     await chmod(temporary, 0o400);
     await handle.close();
@@ -312,7 +335,12 @@ export function importRows(db: DataTransaction, input: Originals): ImportReport 
               .values({
                 path,
                 repository,
-                data: JSON.stringify(row),
+                data: JSON.stringify({
+                  path,
+                  repository,
+                  root: row["root"],
+                  directoryIdentity: row["directoryIdentity"],
+                }),
               })
               .run(),
           );
@@ -400,14 +428,9 @@ export function importLegacyGroup(
         }
         return { value: { alreadyImported: true, report: previous.report }, publicationPending };
       }
-      const paths = typeof files === "function" ? await files() : files;
-      const snapshot = await originals(
-        profile,
-        name,
-        paths,
-        required ?? paths,
-        required !== undefined,
-      );
+      const cipher =
+        database.recoveryCipher ?? safeStorageCipher((await import("electron")).safeStorage);
+      const snapshot = await originals(profile, name, files, cipher, required);
       return database.write((db) => {
         const previous = db
           .select()

@@ -225,7 +225,15 @@ export function importEnvironmentRows(
             available = cipher.supported() && cipher.available();
           }
           if (!available) throw new KeychainUnavailable();
-          validate(raw["name"], cipher.decrypt(encrypted), windows);
+          let decrypted: string;
+          try {
+            decrypted = cipher.decrypt(encrypted);
+          } catch {
+            // Backend failures cannot reliably distinguish corrupt content from
+            // a keychain that became unavailable after the preflight.
+            throw new KeychainUnavailable();
+          }
+          validate(raw["name"], decrypted, windows);
         } else {
           if (
             Object.keys(raw).some((key) => !["name", "secret", "value"].includes(key)) ||

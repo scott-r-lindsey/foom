@@ -248,9 +248,18 @@ Schema source is `schema.ts`. Generate with `pnpm exec drizzle-kit generate
 --config drizzle.config.ts`; review the SQL, adding STRICT, explicit NOT NULL
 text primary keys and all three change triggers before accepting a migration.
 Generated snapshots describe Drizzle's model, not those reviewed SQL additions.
-Build copies the reviewed SQL into main's private ASAR files. Opening verifies
-migration version/checksum, STRICT table inventory, trigger inventory and database
-integrity. It refuses incompatible or damaged state rather than starting empty.
+Build copies the reviewed SQL into main's private ASAR files. On Linux, macOS and
+Windows, opening records the file's `lstat` device/inode before private-file
+verification, then repeats private-file verification and compares device/inode
+after `DatabaseSync` opens the pathname, before any PRAGMA or migration. Symlinks,
+reparse redirection detected by the private-file checks and replaced identities
+are refused and the connection is closed. POSIX ownership/mode/link checks and
+Windows owner/ACL checks remain required. Because `node:sqlite` accepts only a
+pathname, this is a post-open replacement check, not an atomic descriptor-bound
+open; it cannot defend against a same-user adversary swapping a path away and
+back between checks. The app-owned private directory remains the trust boundary.
+Opening verifies migration version/checksum, STRICT table inventory, trigger
+inventory and database integrity. It refuses incompatible or damaged state rather than starting empty.
 
 Only main infrastructure uses `ProfileDatabase.write`; closed domain functions
 use it for one synchronous transaction each. The boundary serializes writes,
@@ -264,7 +273,12 @@ sessions before the registration and performs no remote stop/kill effects.
 
 The explicit first-group importer reads bounded, private legacy `settings.json`,
 `worktrees.json` and `sessions.json` as untrusted input. Before its SQL transaction,
-it atomically freezes their original text in a private read-only recovery snapshot.
+it atomically freezes their original text and source manifest in a private read-only
+safeStorage-encrypted recovery envelope. Every group encrypts before creating a
+file, including rejected rows and unknown fields that might contain credentials.
+Unsupported/unavailable keychains (including Linux `basic_text`) and encryption
+failures abort without plaintext fallback or completion. Old plaintext recovery
+snapshots are refused; restore original sources rather than silently accepting them.
 Production source files retain their current permissions and writers. Restart
 reuses the frozen input; accepted rows, fixed quarantine positions/reasons and
 completion marker commit together. Row savepoints isolate constraint failures;
@@ -309,9 +323,13 @@ commands reuse the existing `safeStorageCipher` capability (including refusal of
 Linux `basic_text`), force credential-bearing URLs to secrets and return only
 masked snapshots. Ordinary reads use only the support flag, never the keychain.
 Unrelated variable edits and unchanged retained secrets reuse existing ciphertext.
-The explicit importer checks availability once when loading secrets, validates
-successful decryption in main and retains the original ciphertext bytes. A locked
-keychain refuses the atomic import for retry; malformed rows are quarantined.
+Environment row loading checks availability once, separately from recovery
+envelope encryption/decryption, validates successful decryption in main and retains the original ciphertext bytes. A locked
+keychain or any decrypt exception refuses the atomic import for retry, even after
+a successful availability check. Backend exceptions cannot reliably identify
+corrupt ciphertext versus transient keychain failure. Structurally invalid
+ciphertext and successfully decrypted content that fails value validation are
+quarantined; neither causes a recoverable backend failure to be marked complete.
 No secret plaintext, cipher bytes or values enter change logs or reports. Domain
 scope removal deletes intended variables before the scope. JSON remains the
 production owner and all launch-time environment validation remains required.
@@ -348,9 +366,17 @@ pending-feedback slot. Host diagnostic projections keep only fixed causes,
 commands and numeric health fields, omitting raw stderr and terminal content.
 
 The importer discovers only bounded, named profile files, excluding discovery
-credentials and external agent/config directories. Dynamic operation/health file
-manifests are frozen with their original text before the atomic group import;
-crash retries use that frozen manifest even if production files changed. Completed
+credentials and external agent/config directories. All import groups persist only
+explicit field projections or values from closed validators/parsers that reject or drop unknown keys, including nested objects.
+Pending removals project only path, repository, root and directory identity;
+unrecognized token fields never enter SQLite or its journal. Hosts and managed
+worktrees reject extra keys; sessions, board, settings, forge, setup, operation,
+audit, verdict, health, diagnostic and window rows use their existing closed
+validators or explicit projections.
+
+Dynamic operation/health file manifests are frozen with their original text in
+encrypted recovery envelopes before the atomic group import; crash retries load that frozen manifest before any mutable source discovery,
+even if production files changed or discovery now fails. Completed
 imports return without rescanning mutable sources. Restarted subscriptions begin
 from current snapshots and the existing durable high-water cursor, so old change
 rows are not replayed as new writes. All these paths remain explicit preparation:

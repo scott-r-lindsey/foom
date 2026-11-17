@@ -11,6 +11,7 @@ test("data SQLite: Drizzle, importer and commit publications run in Electron mai
   const result = await app.evaluate(async ({ app }, modulePath) => {
     const load = process.getBuiltinModule("node:module").createRequire(modulePath);
     const { ProfileDatabase } = load(modulePath);
+    const recoveryCipher = load(process.cwd() + "/tests/electron/sqlite-recovery-cipher.js")();
     const { executeDataCommand } = load(
       load("node:path").join(load("node:path").dirname(modulePath), "commands.js"),
     );
@@ -47,7 +48,7 @@ test("data SQLite: Drizzle, importer and commit publications run in Electron mai
     );
     const changes = new ViewChanges();
     const snapshots = [];
-    const db = await ProfileDatabase.open(profile, changes);
+    const db = await ProfileDatabase.open(profile, changes, recoveryCipher);
     const off = changes.subscribe((views) => {
       const raw = new DatabaseSync(path.join(profile, "data/profile.sqlite"));
       try {
@@ -110,6 +111,7 @@ test("data SQLite: profile settings and consent import preserve JSON and publish
   const result = await app.evaluate(async ({ app }, modulePath) => {
     const load = process.getBuiltinModule("node:module").createRequire(modulePath);
     const { ProfileDatabase } = load(modulePath);
+    const recoveryCipher = load(process.cwd() + "/tests/electron/sqlite-recovery-cipher.js")();
     const { importProfileSettings, saveProfileSettings, saveAgentConsent } = load("./settings.js");
     const fs = load("node:fs/promises");
     const path = load("node:path");
@@ -124,21 +126,25 @@ test("data SQLite: profile settings and consent import preserve JSON and publish
     });
     await fs.writeFile(path.join(profile, "settings.json"), original, { mode: 0o600 });
     const pushed = [];
-    const db = await ProfileDatabase.open(profile, {
-      publish(...views) {
-        const connection = new DatabaseSync(path.join(profile, "data/profile.sqlite"));
-        try {
-          pushed.push({
-            views,
-            value: connection
-              .prepare("SELECT value FROM profile_settings WHERE key='terminalClipboardWrites'")
-              .get()?.value,
-          });
-        } finally {
-          connection.close();
-        }
+    const db = await ProfileDatabase.open(
+      profile,
+      {
+        publish(...views) {
+          const connection = new DatabaseSync(path.join(profile, "data/profile.sqlite"));
+          try {
+            pushed.push({
+              views,
+              value: connection
+                .prepare("SELECT value FROM profile_settings WHERE key='terminalClipboardWrites'")
+                .get()?.value,
+            });
+          } finally {
+            connection.close();
+          }
+        },
       },
-    });
+      recoveryCipher,
+    );
     try {
       await importProfileSettings(db, profile);
       await saveProfileSettings(db, { terminalClipboardWrites: true });
@@ -173,6 +179,7 @@ test("data SQLite: Environment uses native safeStorage or refuses secrets withou
   const result = await app.evaluate(async ({ app, safeStorage }, modulePath) => {
     const load = process.getBuiltinModule("node:module").createRequire(modulePath);
     const { ProfileDatabase } = load(modulePath);
+    const recoveryCipher = load(process.cwd() + "/tests/electron/sqlite-recovery-cipher.js")();
     const api = load("./environment.js");
     const { safeStorageCipher } = load("../../setup/environment.js");
     const fs = load("node:fs/promises");
@@ -184,7 +191,7 @@ test("data SQLite: Environment uses native safeStorage or refuses secrets withou
       lists: { all: [{ name: "VISIBLE", value: "plain" }] },
     });
     await fs.writeFile(path.join(profile, "environment.json"), original, { mode: 0o600 });
-    const db = await ProfileDatabase.open(profile);
+    const db = await ProfileDatabase.open(profile, undefined, recoveryCipher);
     const cipher = safeStorageCipher(safeStorage);
     try {
       await api.importDatabaseEnvironment(db, profile, cipher);
@@ -239,6 +246,7 @@ test("data SQLite: board and control recovery preserve history without replay or
   const result = await app.evaluate(async ({ app }, modulePath) => {
     const load = process.getBuiltinModule("node:module").createRequire(modulePath);
     const { ProfileDatabase } = load(modulePath);
+    const recoveryCipher = load(process.cwd() + "/tests/electron/sqlite-recovery-cipher.js")();
     const api = load("./control.js");
     const { privateDirectory, atomicPrivate } = load("../../../node-common/private-files.js");
     const fs = load("node:fs/promises");
@@ -301,7 +309,7 @@ test("data SQLite: board and control recovery preserve history without replay or
       ],
       receipts: [],
     });
-    const db = await ProfileDatabase.open(profile);
+    const db = await ProfileDatabase.open(profile, undefined, recoveryCipher);
     try {
       await api.importDatabaseControl(db, profile);
       let replayRefused = false;
@@ -316,6 +324,9 @@ test("data SQLite: board and control recovery preserve history without replay or
         const operation = raw.prepare("SELECT status,recovered,data FROM control_operations").get();
         return {
           replayRefused,
+          recoveryEncrypted: !(
+            await fs.readFile(path.join(profile, "data/recovery/control-history-v1.json"), "utf8")
+          ).includes("never-store-this-token"),
           operation,
           posts: raw.prepare("SELECT * FROM board_posts").all().length,
           audits: raw.prepare("SELECT * FROM audit_records").all().length,
@@ -331,6 +342,7 @@ test("data SQLite: board and control recovery preserve history without replay or
     }
   }, path.resolve("build/main/data/sqlite/database.js"));
   assert.equal(result.replayRefused, true);
+  assert.equal(result.recoveryEncrypted, true);
   assert.equal(result.unchanged, true);
   assert.equal(result.operation.status, "indeterminate");
   assert.equal(result.operation.recovered, 1);
@@ -346,6 +358,7 @@ test("data SQLite: window and update metadata import without changing production
   const result = await app.evaluate(async ({ app }, modulePath) => {
     const load = process.getBuiltinModule("node:module").createRequire(modulePath);
     const { ProfileDatabase } = load(modulePath);
+    const recoveryCipher = load(process.cwd() + "/tests/electron/sqlite-recovery-cipher.js")();
     const api = load("./windows.js");
     const fs = load("node:fs/promises");
     const path = load("node:path");
@@ -367,7 +380,7 @@ test("data SQLite: window and update metadata import without changing production
       ]),
       { mode: 0o600 },
     );
-    const db = await ProfileDatabase.open(profile);
+    const db = await ProfileDatabase.open(profile, undefined, recoveryCipher);
     try {
       const imported = await api.importDatabaseWindows(db, profile);
       const first = await api.reserveDatabaseUpdateActivity(db, new Date("2026-11-17T12:00:00Z"));
