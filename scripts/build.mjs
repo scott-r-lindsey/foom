@@ -23,6 +23,12 @@ await rm(new URL("../build/", import.meta.url), { recursive: true, force: true }
 for (const config of ["tsconfig.main.json", "tsconfig.renderer.json"]) {
   execFileSync(process.execPath, [compiler, "-p", config], { cwd: root, stdio: "inherit" });
 }
+// Reviewed data migrations stay private to main inside ASAR.
+await cp(
+  join(root, "src/main/data/sqlite/migrations"),
+  join(root, "build/main/data/sqlite/migrations"),
+  { recursive: true },
+);
 // Trusted app metadata stays inside ASAR, separate from the unpacked host catalog.
 const sourceRevision = checkoutRevision(root);
 await writeFile(
@@ -153,6 +159,7 @@ await cp(join(root, "src/renderer/art"), join(root, "build/renderer/art"), { rec
 const thirdPartyNotices = [
   "src/shared/terminal-theme-LICENSE.txt",
   "node_modules/markdown-it/LICENSE",
+  "src/main/data/sqlite/drizzle-LICENSE.txt",
   "node_modules/@tanstack/react-query/LICENSE",
   "node_modules/@tanstack/query-core/LICENSE",
   "node_modules/smol-toml/LICENSE",

@@ -225,3 +225,57 @@ activity and DOM lights retain their existing transports. This is an explicit
 phase-B deferral, not authorization to enable the phase-D preload-read lint guard.
 The `sessions` and `worktrees` query hooks/channel are available for the later
 consumer migration.
+
+## Phase C preparation: first related group (#1162)
+
+`main/data/sqlite/` prepares the first group independently of production startup.
+`ProfileDatabase.open` must be explicitly supplied an app-owned profile; the
+application does **not** call it. JSON readers and writers remain authoritative.
+No phase-D guard is enabled. The pinned native `node:sqlite` Drizzle rc.5 adapter
+is exercised again by unit and real Electron tests. ORM Apache-2.0 attribution
+is included in bundled notices; Kit remains development tooling.
+
+This first migration covers registered hosts, local repository registrations,
+managed worktree claims, sessions and their saved placements/parent relationships,
+owned-worktree provenance, pending removals and parent-directory history.
+Remote repository inventories remain owned by `foom-host`; remote sessions refer
+to the hub's registered host and retain validated remote checkout claims, without
+inventing local repository/worktree parents. Home/config sessions and unmanaged
+Git checkouts likewise do not fabricate owned worktree records. Saved metadata
+remains a claim requiring all existing live Git/identity/authority checks.
+
+Schema source is `schema.ts`. Generate with `pnpm exec drizzle-kit generate
+--config drizzle.config.ts`; review the SQL, adding STRICT, explicit NOT NULL
+text primary keys and all three change triggers before accepting a migration.
+Generated snapshots describe Drizzle's model, not those reviewed SQL additions.
+Build copies the reviewed SQL into main's private ASAR files. Opening verifies
+migration version/checksum, STRICT table inventory, trigger inventory and database
+integrity. It refuses incompatible or damaged state rather than starting empty.
+
+Only main infrastructure uses `ProfileDatabase.write`; closed domain functions
+use it for one synchronous transaction each. The boundary serializes writes,
+asserts foreign keys before each transaction and drains triggers only after
+commit through the phase-B publication clock. Failed publication returns a
+committed result with `publicationPending`; retry publication rather than replaying
+the command. The cursor advances only after success. Schema creation invalidates
+all views. No log pruning is enabled in this preparation, so revisions cannot be
+reused and unacknowledged entries cannot be lost. Forget-host removes its saved
+sessions before the registration and performs no remote stop/kill effects.
+
+The explicit first-group importer reads bounded, private legacy `settings.json`,
+`worktrees.json` and `sessions.json` as untrusted input. Before its SQL transaction,
+it atomically freezes their original text in a private read-only recovery snapshot.
+Production source files retain their current permissions and writers. Restart
+reuses the frozen input; accepted rows, fixed quarantine positions/reasons and
+completion marker commit together. Row savepoints isolate constraint failures;
+missing/rejected parents never manufacture authority. Unsupported file versions
+refuse the import. Reports contain counts and fixed source names, never rejected
+payloads. Other settings and per-feature stores are not imported by this first
+group and remain in JSON. Later groups under #1162 still need settings/consents,
+environment ciphertext, board/forge/offers/control/audit and window/update state.
+The eventual cutover and retirement of JSON writers belong to phase D.
+
+The phase-A report supplies observational timings, **not** agreed cold-start or
+write-to-view budgets. This group records real Electron import/publication timing;
+a CI budget needs an explicit workload and approved limits before it can become
+a performance gate. It does not claim that spike write-to-changes is IPC latency.
