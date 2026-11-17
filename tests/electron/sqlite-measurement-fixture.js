@@ -1,7 +1,7 @@
 // Test-only cold-process fixture. No production Foom profile or agent CLI is opened.
 const { app, BrowserWindow, ipcMain } = require("electron");
 const path = require("node:path");
-const { pathToFileURL } = require("node:url");
+const { canonicalFileURL, requestFileURL } = require("./sqlite-measurement-files.js");
 const { createRequire } = require("node:module");
 const { randomUUID } = require("node:crypto");
 const [modulePath, root] = process.argv.slice(2);
@@ -47,9 +47,10 @@ async function measure() {
       partition: `measurement-${randomUUID()}`,
     },
   });
-  const allowed = new Set([pathToFileURL(page).href, pathToFileURL(script).href]);
+  const pageURL = canonicalFileURL(page);
+  const allowed = new Set([pageURL, canonicalFileURL(script)]);
   win.webContents.session.webRequest.onBeforeRequest((details, callback) =>
-    callback({ cancel: !allowed.has(details.url) }),
+    callback({ cancel: !allowed.has(requestFileURL(details.url)) }),
   );
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   win.webContents.on("will-navigate", (event) => event.preventDefault());
@@ -65,7 +66,7 @@ async function measure() {
     if (
       event.sender !== win.webContents ||
       event.senderFrame !== win.webContents.mainFrame ||
-      event.senderFrame.url !== pathToFileURL(page).href
+      requestFileURL(event.senderFrame.url) !== pageURL
     )
       return;
     try {
@@ -91,7 +92,7 @@ async function measure() {
   };
   ipcMain.on(channel, onMessage);
   try {
-    await win.loadFile(page);
+    await win.loadURL(pageURL);
     const first = await pending;
     pending = delivered();
     const writeStart = performance.timeOrigin + performance.now();
