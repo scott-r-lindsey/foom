@@ -1,3 +1,4 @@
+import { IMAGE_CSP, imagePage, validImage } from "./image";
 import { app, session, WebContentsView } from "electron";
 import type { PreviewRecord } from "../../shared/previews";
 import { readPreview, type CanonicalRoot } from "./contained-files";
@@ -12,9 +13,16 @@ export function requestAllowed(url: string, origin: string, network = false): bo
     "pathname" in pathnameFor(url, origin)
   );
 }
-export function navigationAllowed(url: string, origin: string): boolean {
+const IMAGE_ENTRY = /\.(png|jpe?g|webp)$/i;
+const RASTER_TYPE = /^image\/(png|jpeg|webp)$/;
+
+export function navigationAllowed(url: string, origin: string, mainFrame = true): boolean {
   const parsed = pathnameFor(url, origin);
-  return "pathname" in parsed && /\.(md|markdown|html|htm)$/i.test(parsed.pathname);
+  return (
+    "pathname" in parsed &&
+    (/\.(md|markdown|html|htm)$/i.test(parsed.pathname) ||
+      (mainFrame && IMAGE_ENTRY.test(parsed.pathname)))
+  );
 }
 
 /** Refusals render a local, inert page; paths are text, never markup. */
@@ -42,6 +50,11 @@ export function createPartition(
 ) {
   const origin = `foom-preview://${record.id}`;
   const partition = session.fromPartition(`preview-${record.id}`, { cache: false });
+  let documentPath: string | undefined;
+  const setDocumentUrl = (url: string) => {
+    const parsed = pathnameFor(url, origin);
+    documentPath = "pathname" in parsed ? parsed.pathname : undefined;
+  };
   partition.setPermissionRequestHandler((_contents, _permission, callback) => {
     callback(false);
   });
@@ -57,7 +70,31 @@ export function createPartition(
     const asset = markdownAsset(request.url, origin);
     if (asset)
       return new Response(new Uint8Array(asset.body), { headers: responseHeaders(asset.type) });
+    // Main selects the document for each native generation. Its raster response
+    // is a page, while images embedded in other documents remain ordinary assets.
+    const parsed = pathnameFor(request.url, origin);
+    const isDocument = "pathname" in parsed && parsed.pathname === documentPath;
     const result = await readPreview(root, request.url, origin, watcher.recorder(), record.network);
+    if (
+      result.status === 200 &&
+      isDocument &&
+      (IMAGE_ENTRY.test(parsed.pathname) || RASTER_TYPE.test(result.type))
+    ) {
+      const valid = RASTER_TYPE.test(result.type) && (await validImage(result.body, result.type));
+      return new Response(
+        valid
+          ? imagePage(result.body, result.type)
+          : "Invalid or oversized image. PNG, JPEG and WebP only (16 MiB, 16 million pixels).",
+        {
+          status: valid ? 200 : 400,
+          headers: {
+            ...result.headers,
+            "content-type": "text/html; charset=utf-8",
+            "content-security-policy": IMAGE_CSP,
+          },
+        },
+      );
+    }
     if (result.status === 200 && result.type.startsWith("text/markdown")) {
       return new Response(markdownPage(result.body.toString("utf8")), {
         headers: {
@@ -67,20 +104,14 @@ export function createPartition(
         },
       });
     }
-    return new Response(
-      result.status === 200
-        ? new Uint8Array(result.body)
-        : unavailablePage(request.url, origin, result.status === 404),
-      {
-        status: result.status,
-        headers:
-          result.status === 200
-            ? result.headers
-            : { ...responseHeaders("text/markdown"), "content-type": "text/html; charset=utf-8" },
-      },
-    );
+    if (result.status === 200 && (!isDocument || result.type.startsWith("text/html")))
+      return new Response(new Uint8Array(result.body), { headers: result.headers });
+    return new Response(unavailablePage(request.url, origin, result.status === 404), {
+      status: result.status === 200 ? 403 : result.status,
+      headers: { ...responseHeaders("text/markdown"), "content-type": "text/html; charset=utf-8" },
+    });
   });
-  return partition;
+  return { partition, setDocumentUrl };
 }
 
 export function createPreviewView(partition: Electron.Session) {

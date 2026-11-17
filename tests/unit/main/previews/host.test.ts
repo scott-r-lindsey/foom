@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { MARKDOWN_CSP } from "../../../../src/main/previews/policy";
-import { writeFile } from "node:fs/promises";
+import { symlink, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { DialogContent } from "../../../../src/shared/confirmation";
 import { expect, test, vi } from "vitest";
@@ -24,6 +24,9 @@ test("requests and navigation admit only own origin, with data/blob only for ass
   }
   expect(navigationAllowed(origin + "/a.MD#x", origin)).toBe(true);
   expect(navigationAllowed(origin + "/a.html", origin)).toBe(true);
+  expect(navigationAllowed(origin + "/a.WEBP?x=1#y", origin)).toBe(true);
+  expect(navigationAllowed(origin + "/a.png", origin, false)).toBe(false);
+  expect(navigationAllowed(origin + "/a.svg", origin)).toBe(false);
 });
 test("loads detached, denies capabilities, and attaches only loaded visible views", async () => {
   const f = await fixture();
@@ -405,6 +408,32 @@ test("concurrent manual opens reuse one record and disposal cancels pending open
   expect(pending.registry.records.size).toBe(0);
 });
 
+test("image entry protocol stays inert even with network enabled and refuses changed corrupt bytes", async () => {
+  const sharp = (await import("sharp")).default;
+  const f = await fixture();
+  const body = await sharp({ create: { width: 8, height: 8, channels: 3, background: "white" } })
+    .png()
+    .toBuffer();
+  await writeFile(join(f.root, "image.png"), body);
+  const id = await f.host.open(f.root, "image.png");
+  const serve = partition.protocol.handle.mock.calls.at(-1)?.[1];
+  if (!serve) throw new Error("Missing protocol");
+  const record = f.host.registry.records.get(id);
+  if (!record) throw new Error("Missing record");
+  record.network = true;
+  const response = await serve({ url: `foom-preview://${id}/image.png` });
+  expect(response.status).toBe(200);
+  expect(response.headers.get("content-security-policy")).not.toContain("https:");
+  expect(response.headers.get("content-security-policy")).toContain("default-src 'none'");
+  expect(await response.text()).toContain("data:image/png;base64,");
+  await writeFile(join(f.root, "image.png"), "<svg onload='evil()'/>");
+  const corrupt = await serve({ url: `foom-preview://${id}/image.png?reload=1` });
+  expect(corrupt.status).toBe(400);
+  expect(await corrupt.text()).toContain("Invalid or oversized image");
+  await expect(f.host.open(f.root, "image.png")).rejects.toThrow("preview-image-invalid");
+  await f.host.dispose(false);
+});
+
 test("unavailable pages keep escaped relative paths inert and use the restricted policy", async () => {
   const { unavailablePage } = await import("../../../../src/main/previews/partition");
   const origin = `foom-preview://${"a".repeat(32)}`;
@@ -424,3 +453,23 @@ test("unavailable pages keep escaped relative paths inert and use the restricted
   );
   await f.host.dispose(false);
 });
+
+test.skipIf(process.platform === "win32")(
+  "an active document cannot become an SVG asset through an alias",
+  async () => {
+    const f = await fixture();
+    const { id } = await f.open();
+    const serve = partition.protocol.handle.mock.calls[0]?.[1];
+    if (!serve) throw new Error("Missing protocol");
+    await writeFile(join(f.root, "picture.svg"), "<svg/>");
+    await unlink(join(f.root, "a.html"));
+    await symlink(join(f.root, "picture.svg"), join(f.root, "a.html"));
+    const response = await serve({ url: `foom-preview://${id}/a.html` });
+    expect(response.status).toBe(403);
+    expect(await response.text()).toContain("File unavailable");
+    expect(
+      (await serve({ url: `foom-preview://${id}/picture.svg` })).headers.get("content-type"),
+    ).toBe("image/svg+xml");
+    await f.host.dispose(false);
+  },
+);

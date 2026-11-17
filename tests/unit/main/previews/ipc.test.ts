@@ -92,6 +92,8 @@ test("board IPC accepts exact requests and routes only IDs to its window host", 
   host.registry.records.set(id, agentRecord);
   expect(invoke("describe", id)).toEqual({ ...agentRecord, repository: "", kind: "markdown" });
 
+  host.registry.records.set(id, { ...agentRecord, relativePath: "picture.png" });
+  expect(invoke("describe", id)).toMatchObject({ relativePath: "picture.png", kind: "image" });
   const moving = invoke("popout", id);
   expect(() => invoke("popout", id)).toThrow("in progress");
   await moving;

@@ -51,7 +51,11 @@ export function attachPreviews(
       worktree: record.worktree,
       relativePath: record.relativePath,
       network: record.network,
-      kind: /\.(md|markdown)$/i.test(record.relativePath) ? "markdown" : "html",
+      kind: /\.(md|markdown)$/i.test(record.relativePath)
+        ? "markdown"
+        : /\.(png|jpe?g|webp)$/i.test(record.relativePath)
+          ? "image"
+          : "html",
       ...(record.openedBy ? { openedBy: record.openedBy } : {}),
     };
   });

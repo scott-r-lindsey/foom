@@ -48,8 +48,10 @@ Only the verified descriptor supplies bytes; reads are bounded by its checked
 size (16 MiB, or 2 MiB for Markdown) and handles close even on read failure.
 `openInside` transfers `FileHandle` ownership to its caller, which must close it.
 The protocol handler awaits contained opens and bounded descriptor reads so slow
-filesystem operations yield the main event loop. Opening a preview validates and
-closes the contained handle without reading its body; the protocol reads it on load.
+filesystem operations yield the main event loop. Opening a document validates and
+closes the contained handle without reading its body;
+image entries also read and fully decode the bounded bytes before opening. The protocol
+revalidates image bytes on load.
 
 Malformed paths return 400, escapes/hidden targets/non-files 403, missing or
 unreadable files 404, and oversized files 413. Types use a fixed extension map,
@@ -69,13 +71,14 @@ builds. Window opens and redirects are prevented. Eligible external URLs (`https
 `http:` and `mailto:`) go through the trusted confirmation window with the full
 URL before main calls `shell.openExternal`. Navigation requests use this same
 path even without a user gesture. A per-preview pending guard drops overlapping
-requests; close aborts pending review and revokes any later answer. Only same-origin `.md`, `.markdown`, `.html` or `.htm` page navigation is allowed.
+requests; close aborts pending review and revokes any later answer. Page navigation
+allows same-origin Markdown and HTML, plus supported raster images in the main frame.
 
 Markdown responses embed the source as inert JSON with every `<` escaped, then run
 one synchronous browser bundle inside the preview origin. markdown-it 15 disables
 raw HTML and accepts only relative, HTTP(S) and mailto links; highlight.js 11 uses
 its common subset. A small core rule generates disabled task checkboxes. Mermaid
-remains escaped code. Relative Markdown and HTML document links navigate within the same tile;
+remains escaped code. Relative document and raster image links navigate within the same tile;
 external links have a visible arrow and go through the same confirmation.
 The exact `/__foom__/markdown.js` and `/__foom__/markdown.css` assets are served only
 by preview sessions; the reserved `__foom__` segment cannot name worktree files or
@@ -212,8 +215,11 @@ Recreation is bounded to once per 250 ms per preview; the old contents closes im
 and only one replacement can be pending. Closing cancels pending recreation.
 A previously clicked native contents can reacquire keyboard focus during reload on
 macOS even when detached; replacing it prevents that remembered focus grant.
-`did-start-loading` also detaches any loading view. Refused navigation leaves the
-loaded view in place. A native mouse-down grants focus; navigation carries that intent to the replacement.
+`did-start-loading` clears the loaded state and detaches the view until
+`did-finish-load`. A pending same-document main-frame navigation, such as an
+image preview's Actual size link, keeps the view attached and loaded. Refused
+navigation restores the previously loaded view. A native mouse-down grants focus;
+navigation carries that intent to the replacement.
 Blur or detachment otherwise revokes the native click grant. Unsolicited
 focus on an attached view returns to the last human-focused contents. This guard
 supplements detached loading; returning focus after load alone loses keystrokes.
@@ -311,17 +317,48 @@ copy. Search stays inside the offline page with no bridge or host changes.
 Guide prose cites its source docs in HTML comments; update it with behavior
 changes. The guide is never written into a repository or user profile.
 
-### Document navigation (#1208)
+## Document navigation (#1208)
 
 Main keeps up to 64 document history entries per live preview tile, including
-isolated-world scroll coordinates. Back and Forward appear in the title bar only
-after document navigation; unavailable directions are disabled. Alt+Left/Right,
+raster image entries and isolated-world page scroll coordinates. Back and Forward
+appear in the title bar only after document navigation; unavailable directions are disabled. Alt+Left/Right,
 and Command+[/] on macOS, navigate while the native preview has human focus.
-Each move uses the existing detached replacement and focus handoff. Reload and
-file changes stay on the current entry and preserve its scroll. Following a new
+Each move uses the existing detached replacement and focus handoff. Same-document
+fragment changes keep the current preview attached. Reload and file changes stay
+on the current entry and preserve its scroll. Following a new
 link after Back discards the forward entries. Missing or unreadable targets show
 an inert, theme-aware in-tile page naming the worktree-relative path, with Back
 available in the title bar; the usual missing-file watches permit recovery.
 History is ephemeral: restarting or moving to another window opens the originally
 registered document. The registry, copy-path action and agent canonical-path reuse
 continue to identify that original document.
+
+## Raster image entries (#1207)
+
+The picker, CLI and MCP accept PNG (`.png`), JPEG (`.jpg`, `.jpeg`) and WebP
+(`.webp`) alongside Markdown and HTML. Images retain the same worktree confinement,
+symlink checks and 16 MiB descriptor-read bound. Signatures must match the named
+format and Sharp must fully decode successfully with a 16 million pixel limit
+(including WebP animation frames). PNG chunks are scanned within the 16 MiB byte
+bound, with checked lengths and CRCs and a terminal IEND; malformed chunks and
+animation chunks (`acTL`, `fcTL`, `fdAT`) are refused before decoding. Animated PNG
+(APNG) is unsupported because Sharp only validates its default frame. Corrupt,
+animated PNG, mismatched or excessive images refuse with
+`invalid-image`; byte limits refuse with `too-large`. The picker maps these to
+the fixed `preview-image-invalid` application error, explaining formats and limits. SVG entries are explicitly
+unsupported, including aliases onto SVG targets. Cross-worktree access is outside
+this issue's scope.
+
+The isolated partition wraps image entries in a script-free page with an inert
+base64 `<img>` when an image is opened or loaded as a history entry. Images embedded
+in Markdown and HTML still load as ordinary assets. The image page's fixed CSP
+permits only data images, inline fixed styles and same-origin bundled fonts.
+Network permission cannot widen this response policy.
+No file bytes become markup, selectors or CSS. The board CSP and asset allowlist
+are unchanged. Fit is the default. Actual size uses a same-document fragment and
+CSS to display the image at its natural dimensions with document-level scrolling.
+Back and Forward restore the fragment and both scroll offsets through the existing
+per-document history. Every history load revalidates the file and the current
+entry recovers through its file watch when valid bytes return. Light and dark
+native themes change only the surrounding frame. Tile and sidebar metadata report
+kind `image` and the neutral IMG badge.

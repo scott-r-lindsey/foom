@@ -1,3 +1,4 @@
+import { ApplicationError } from "../../shared/application-errors";
 import { PreviewTransfer } from "./preview-transfer";
 import { PreviewViewLifecycle } from "./preview-view-lifecycle";
 import { PreviewFocus } from "./preview-focus";
@@ -6,7 +7,7 @@ import type { HostedPreview } from "./hosted-preview";
 import { shell } from "electron";
 import type { BrowserWindow, WebContents } from "electron";
 import type { PreviewBounds, PreviewRecord } from "../../shared/previews";
-import { canonicalRoot, openInside, type CanonicalRoot } from "./contained-files";
+import { canonicalRoot, openDocument, openInside, type CanonicalRoot } from "./contained-files";
 import type { DialogContent } from "../../shared/confirmation";
 import { externalLink } from "./policy";
 import type { PreviewRegistry } from "./registry";
@@ -125,9 +126,15 @@ export class PreviewHost {
     if (this.closed()) throw new Error("Preview host closed");
     const root = canonicalRoot(worktree);
     const pathname = `/${relativePath.split("/").map(encodeURIComponent).join("/")}`;
-    const file = await openInside(root, pathname);
-    if (file.status !== 200) throw new Error("Preview file unavailable");
-    await file.handle.close();
+    const file = await openDocument(root, pathname);
+    if (file.status !== 200) {
+      if (
+        file.reason === "invalid-image" ||
+        (file.status === 413 && /\.(png|jpe?g|webp)$/i.test(relativePath))
+      )
+        throw new ApplicationError("preview-image-invalid");
+      throw new Error("Preview file unavailable");
+    }
     if (this.closed()) throw new Error("Preview host closed");
     const record = this.registry.add(worktree, relativePath, agent?.id);
     if (agent) {

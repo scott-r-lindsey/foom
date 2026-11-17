@@ -18,7 +18,12 @@ export async function pickPreviewFile(
     title: "Preview file",
     defaultPath: worktree,
     properties: ["openFile"],
-    filters: [{ name: "Markdown and HTML", extensions: ["md", "markdown", "html", "htm"] }],
+    filters: [
+      {
+        name: "Documents and images",
+        extensions: ["md", "markdown", "html", "htm", "png", "jpg", "jpeg", "webp"],
+      },
+    ],
   });
   if (result.canceled) return null;
   const chosen = result.filePaths[0];

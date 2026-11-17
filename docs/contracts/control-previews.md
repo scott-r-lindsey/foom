@@ -2,7 +2,7 @@
 
 ### Agent previews (#297)
 
-Every Foom-launched agent, including an orchestrator, can show Markdown or HTML
+Every Foom-launched agent, including an orchestrator, can show Markdown, HTML, PNG, JPEG or WebP
 files from its own launch-bound worktree. These tools are listed from startup,
 including across #303 role changes, and callable by both agent roles. Paired human
 CLI grants cannot use them. They never take focus or need a trusted dialog.
@@ -27,3 +27,6 @@ return ownership to the human; later grants inherit nothing. Worktree removal
 closes previews. Fixed audit metadata precedes results; audit failure refuses.
 `list_previews` is read-only; open/close change presentation. All three have
 non-destructive, idempotent and closed-world MCP annotations.
+
+Preview kind is `markdown`, `html` or `image`. Raster image content must match its
+format and decode within 16 MiB and 16 million pixels. SVG entries are refused.

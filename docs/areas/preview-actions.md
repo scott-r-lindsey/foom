@@ -10,8 +10,7 @@ View actions change only Foom's presentation and need no trusted confirmation.
 `open_preview`, `list_previews` and `close_preview` are listed and granted to
 ordinary agents and orchestrators, never paired `cli` principals, through both
 MCP and `/control/v1`. Main's instance-wide broker resolves documents in the
-principal's launch-bound worktree using the contained-file protocol. Only Markdown
-and HTML documents are allowed; unknown fields and caller-supplied roots are refused.
+principal's launch-bound worktree using the contained-file protocol. Markdown, HTML, PNG, JPEG and WebP files are allowed; SVG entries are refused; unknown fields and caller-supplied roots are refused.
 
 Ownership follows the grant generation. Canonical-path reuse returns `existing`
 and leaves a tiled preview in place; an existing sidebar preview is placed on the

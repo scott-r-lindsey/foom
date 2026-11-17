@@ -1127,7 +1127,7 @@ const validPreviewSummary: Validator<PreviewSummary> = shape({
   repository: text,
   worktree: text,
   relativePath: text,
-  kind: literal("markdown", "html"),
+  kind: literal("markdown", "html", "image"),
 } satisfies Contract<PreviewSummary>);
 
 const validBoardPullRequest: Validator<BoardPullRequest> = shape({

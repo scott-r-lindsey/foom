@@ -211,6 +211,7 @@ it.each([
   [new ApplicationError("session-busy"), "git_failed"],
   [new ApplicationError("session-running"), "git_failed"],
   [new ApplicationError("session-remote-unreachable"), "git_failed"],
+  [new ApplicationError("preview-image-invalid"), "git_failed"],
   [new Error("secret git stderr"), "git_failed"],
 ] as const)("returns fixed removal diagnostics (%s)", async (error, reason) => {
   const h = harness();

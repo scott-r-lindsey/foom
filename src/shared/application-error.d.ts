@@ -12,6 +12,7 @@ export type ApplicationErrorCode =
   | "checkout-invalid"
   | "remote-host-unavailable"
   | "launch-cancel-incomplete"
+  | "preview-image-invalid"
   | "operation-failed"
   | "session-has-children"
   | "settings-busy"
