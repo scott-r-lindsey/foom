@@ -34,6 +34,25 @@ animation-frame assertion and startup diagnostics. The sandbox, controlled login
 shell/PATH, agent guard, process audit and quit-before-directory-removal ordering
 are unchanged.
 
+## Settings saves before comparison (#1253)
+
+The zoom test waits for the Foom keyboard shortcut to update both saved and
+native zoom before capturing the value that the subsequent agent save must
+preserve. Two renderer animation frames can finish before the Settings write.
+In the failing Windows trace the snapshots were 100% before the agent save and
+110% afterward. Pausing the shortcut's config write until the first snapshot
+reproduced that ordering under Xvfb.
+
+The sparse agent and Environment test polls the resolved IPC values with
+`expect.poll`. Playwright's `waitForFunction` treats a Promise as truthy before
+it resolves, so an async predicate can finish the wait when its result is still
+false. Pausing the argument save through the final snapshot reproduced the
+empty argument map, and releasing it made the expected arguments visible.
+The test checks the committed arguments before the Environment edits, then
+checks the live and on-disk arguments afterward. Config unit tests queue a
+scan and another Settings write behind a paused rename and verify that both
+zoom and arguments survive while an unrelated proposal remains held.
+
 ## Repository setup linked-checkout identity (#1080)
 
 The linked-checkout setup-admission case creates its Git worktree through a
