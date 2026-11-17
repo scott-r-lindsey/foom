@@ -299,6 +299,8 @@ test("remote review evidence is bounded, closed and requires a checkout identity
   const snapshot = { head: "a".repeat(40), digest: "b".repeat(64) };
   const bound = { ...spec, checkoutIdentity: "c".repeat(64), reviewSnapshot: snapshot };
   expect(remoteAgentSpec(bound)).toBe(true);
+  expect(remoteAgentSpec({ ...bound, reviewSnapshot: { ...snapshot, clean: true } })).toBe(true);
+  expect(remoteAgentSpec({ ...bound, reviewSnapshot: { ...snapshot, clean: false } })).toBe(true);
   expect(remoteAgentSpec({ ...spec, reviewSnapshot: snapshot })).toBe(false);
   for (const evidence of [
     null,
@@ -307,6 +309,7 @@ test("remote review evidence is bounded, closed and requires a checkout identity
     { ...snapshot, head: "bad" },
     { ...snapshot, head: 1 },
     { ...snapshot, digest: null },
+    { ...snapshot, clean: "true" },
     { ...snapshot, digest: "f".repeat(65) },
   ]) {
     expect(remoteAgentSpec({ ...bound, reviewSnapshot: evidence })).toBe(false);

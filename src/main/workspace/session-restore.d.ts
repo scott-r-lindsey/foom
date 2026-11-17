@@ -12,6 +12,16 @@ export interface OwnedWorktree {
   closedReviews?: readonly { id: string; handoffs: readonly Handoff[] }[];
 }
 
+/** Main-owned baseline for a reviewer borrowing an author's checkout. */
+export interface SharedReview {
+  /** Stored on the author before reviewer spawn; restores as a checkout hold. */
+  intent?: true;
+  authorId: string;
+  identity: string;
+  head: string;
+  digest: string;
+}
+
 /** Main-owned launch provenance. Never supplied by hooks, IPC, or conversation metadata. */
 export interface RemoteSavedPlacement {
   repository: string;
@@ -20,6 +30,7 @@ export interface RemoteSavedPlacement {
   branch: string;
 }
 export interface StoredSession extends WorkspaceTerminal {
+  sharedReview?: SharedReview;
   /** Private main-owned locator; never projected to the board. */
   remoteCheckout?: RemoteSavedPlacement;
   /** Transient discovery marker; never persisted or supplied to the renderer. */

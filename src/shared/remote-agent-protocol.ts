@@ -34,7 +34,8 @@ export function remotePath(value: unknown): value is string {
 export function remoteReviewEvidence(value: unknown): value is RemoteReviewSnapshot {
   return (
     record(value) &&
-    keys(value, ["head", "digest"]) &&
+    keys(value, ["head", "digest", "clean"]) &&
+    (value["clean"] === undefined || typeof value["clean"] === "boolean") &&
     typeof value["head"] === "string" &&
     /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/u.test(value["head"]) &&
     typeof value["digest"] === "string" &&

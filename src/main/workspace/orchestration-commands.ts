@@ -85,6 +85,7 @@ export async function makeOrchestrator(
       this.executionOwner.view(id).exitCode !== undefined
     )
       throw new Error("Only a running agent session can orchestrate");
+    if (this.checkoutHolds.busy(entry.worktree)) throw new Error("Shared review checkout is busy");
     const view = this.orchestration.view(id);
     if (view?.role === "child" && !view.takenOver) throw new Error("Take over this session first");
     return { entry, agent: entry.agent, active: view?.role === "orchestrator" && view.active };
@@ -226,6 +227,7 @@ export async function launchChild(
     resume?: { id: string; conversationId: string };
     loop?: AgentLaunch["loop"];
     snapshot?: ReviewSnapshot;
+    authorId?: string;
     validateSnapshot?: () => Promise<void>;
     validate(): void;
   },
@@ -294,7 +296,7 @@ export async function launchChild(
               rows: 24,
             },
             false,
-            false,
+            step?.authorId !== undefined,
             identity,
             replacement,
             {
@@ -404,6 +406,7 @@ export function exited(this: ExecutionEventsContext, id: string, code: number): 
 
 export function removed(this: ExecutionEventsContext, id: string): void {
   this.probeIds.delete(id);
+  this.checkoutHolds.releaseReview(id);
   this.lifecycle.removed(id);
   this.orchestration.removed(id);
   this.launched.delete(id);

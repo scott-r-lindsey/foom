@@ -121,7 +121,10 @@ export interface SidebarCommandsContext {
   readonly known: WorkspaceMethods["known"];
   readonly launched: Map<string, WorkspaceTerminal>;
   readonly makeOrchestrator: WorkspaceMethods["makeOrchestrator"];
-  readonly orchestration: Pick<Orchestration, "stopReviews" | "takeOver" | "view" | "worktreeHost">;
+  readonly orchestration: Pick<
+    Orchestration,
+    "stopReviews" | "takeOver" | "view" | "worktreeHost" | "checkSharedReview"
+  >;
   readonly refresh: () => void;
   readonly removeRepository: (
     repository: string,
@@ -263,6 +266,7 @@ export interface OrchestrationCommandsContext {
 }
 
 export interface ExecutionEventsContext {
+  readonly checkoutHolds: CheckoutHolds;
   focusOrchestrator(id: string): void;
   readonly closed: boolean;
   readonly configTokens: Map<string, string>;

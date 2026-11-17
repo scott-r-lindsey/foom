@@ -254,11 +254,19 @@ capacity, live authority and absence of prior rows before spawning. Starting
 launches still reserve the checkout. Failed continuation preserves used state.
 Restored metadata grants no authority and never starts automation.
 
-`review({pullRequest: N, agent?, since?, focus?, postFindings?, idempotencyKey})` creates
-one detached checkout at the fetched PR head and launches one ordinary reviewer using the selected provider with the standard read-only brief and structured verdict. `since` is a
+`review({pullRequest: N, authorId?, agent?, since?, focus?, postFindings?, idempotencyKey})`
+launches one reviewer with the standard read-only brief and structured verdict.
+With `authorId`, main borrows that exact owned idle/exited author's clean checkout
+at the PR head, holds it until Close and refuses author input meanwhile (#1232).
+Conflicts refuse without fallback. Close detects drift, reports
+`review_worktree_changed` and retains files and the reviewer; successful Close
+keeps the author's checkout. The private baseline and lease survive restart;
+neither participant automatically resumes while that lease remains.
+Without `authorId`, review creates a detached checkout for isolation or concurrent
+work. See [the full lease contract](../orchestration.md#reviews-in-the-authors-checkout-1232). `since` is a
 full lowercase 40- or 64-digit commit SHA; the reviewer checks its ancestry before
 scoping the diff. `focus` is quoted, bounded (4096 UTF-8 bytes) untrusted scope data.
-The console is `foom review --pull-request N [--agent PROVIDER] [--since SHA] [--focus TEXT]
+The console is `foom review --pull-request N [--author CHILD_ID] [--agent PROVIDER] [--since SHA] [--focus TEXT]
 [--post-findings true|false] --idempotency-key KEY`. No author's loop is changed;
 the parent reads the verdict and stops/closes the reviewer normally. Pending or
 red checks do not prevent a standalone review, but the fetched head must still

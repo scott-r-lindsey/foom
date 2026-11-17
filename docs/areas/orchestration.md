@@ -75,6 +75,12 @@ to the normal sidebar close path; the final screen is discarded while the checko
 branch and review state remain for ordinary worktrees. Foom-created detached
 review checkouts instead use the narrow #843 removal exception above.
 
+For a sequential one-shot review, `review.authorId` borrows that exact owned
+idle/exited author's checkout under the [#1232 lease and drift contract](../orchestration.md#reviews-in-the-authors-checkout-1232).
+The automatic #690 loop already uses the author's checkout after stopping the
+author; #1232 adds this explicit one-shot placement without altering loop phases.
+A separate #843 checkout remains appropriate while the author keeps working.
+
 ## Same-session resume and re-grant (#1081)
 
 A provider pause inside a live process leaves the grant and role intact. Host exit

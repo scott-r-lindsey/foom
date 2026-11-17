@@ -1,3 +1,4 @@
+import type { SharedReview } from "./session-restore.d";
 import type { WorkspaceTerminal } from "../../shared/workspace";
 
 /** Named branches share a reservation; detached checkouts reserve only their own path. */
@@ -36,6 +37,33 @@ export interface CheckoutHold {
 
 /** Canonical paths, independent of mutable Git branch names and filesystem identity. */
 export class CheckoutHolds {
+  private readonly reviews = new Map<string, { hold: CheckoutHold; baseline: SharedReview }>();
+
+  review(id: string) {
+    return this.reviews.get(id);
+  }
+
+  /** Retain the main-owned launch lease until successful Close/Forget, including after exit. */
+  retainReview(id: string, hold: CheckoutHold, baseline: SharedReview): void {
+    this.reviews.set(id, { hold, baseline });
+  }
+
+  /** Transfer a durable launch intent without releasing its checkout. */
+  moveReview(from: string, id: string, hold: CheckoutHold, baseline: SharedReview): void {
+    this.reviews.delete(from);
+    this.retainReview(id, hold, baseline);
+  }
+
+  releaseReview(id: string): void {
+    const review = this.reviews.get(id);
+    this.reviews.delete(id);
+    review?.hold.release();
+  }
+
+  blocksInput(id: string): boolean {
+    return [...this.reviews.values()].some((review) => review.baseline.authorId === id);
+  }
+
   private readonly paths = new Map<string, Set<CheckoutHold>>();
 
   busy(path: string, parent?: CheckoutHold): boolean {

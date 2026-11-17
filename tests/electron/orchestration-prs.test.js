@@ -6,7 +6,7 @@ const { gitSync: isolatedGit } = require("../helpers/git.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const path = require("node:path");
-const { mkdir, mkdtemp, writeFile } = require("node:fs/promises");
+const { mkdir, mkdtemp, writeFile, rm } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const { deadline, expect } = require("./test-policy.js");
 const {
@@ -337,6 +337,57 @@ for (const scenario of [
     await expect
       .poll(async () => (await call("session_state", { id: child.resultId })).state)
       .toBe("exited");
+    if (scenario.review) {
+      const inventory = git("worktree", "list", "--porcelain");
+      const reviewer = await tool("review", {
+        pullRequest: 340,
+        authorId: child.resultId,
+        agent: "codex",
+        idempotencyKey: "shared-review",
+      });
+      const sharedRow = (await page.evaluate(() => window.desktop.workspace())).terminals.find(
+        (row) => row.id === reviewer.resultId,
+      );
+      assert.equal(sharedRow.worktree, childRow.worktree);
+      assert.equal(git("worktree", "list", "--porcelain"), inventory);
+      const duplicate = await mcp("tools/call", {
+        name: "review",
+        arguments: {
+          pullRequest: 340,
+          authorId: child.resultId,
+          agent: "codex",
+          idempotencyKey: "second-shared-review",
+        },
+      });
+      assert.equal(duplicate.isError, true);
+      assert.match(duplicate.content[0].text, /conflict/);
+      await tool("stop", { id: reviewer.resultId, idempotencyKey: "stop-shared-review" });
+      await expect
+        .poll(async () => (await call("session_state", { id: reviewer.resultId })).state)
+        .toBe("exited");
+      const driftPath = path.join(childRow.worktree, "review-drift.txt");
+      await writeFile(driftPath, "retain this drift");
+      const changed = await mcp("tools/call", {
+        name: "close",
+        arguments: {
+          id: reviewer.resultId,
+          idempotencyKey: "close-shared-drift",
+        },
+      });
+      assert.equal(changed.isError, true);
+      assert.match(changed.content[0].text, /review_worktree_changed/);
+      assert.ok(existsSync(driftPath));
+      await expect(page.locator(`[data-drag-session="${reviewer.resultId}"]`)).toBeVisible();
+      await rm(driftPath);
+      assert.equal(
+        (await tool("close", { id: reviewer.resultId, idempotencyKey: "close-shared-clean" }))
+          .status,
+        "succeeded",
+      );
+      assert.ok(existsSync(childRow.worktree));
+      assert.equal(git("worktree", "list", "--porcelain"), inventory);
+      await expect(page.locator(`[data-drag-session="${reviewer.resultId}"]`)).toHaveCount(0);
+    }
     let close;
     if (showNewChildren) {
       await writeFile(forgeState, JSON.stringify({ pr: { state: "MERGED" }, checks: [] }));

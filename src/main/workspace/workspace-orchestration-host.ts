@@ -122,6 +122,10 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
       const write = caps.deps.terminals.recheckWake ? caps.deps.terminals.wakeInput : undefined;
       const allowed = () =>
         valid() &&
+        !caps.checkoutHolds.blocksInput(id) &&
+        !caps.checkoutHolds.busy(
+          caps.snapshot().terminals.find((row) => row.id === id)?.worktree ?? "",
+        ) &&
         caps.wakeIdle(id) &&
         caps.deps.focused?.(id) === false &&
         !caps.sessions.isRestoring(id);
@@ -274,62 +278,115 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
         )
       )
         throw new ControlError("conflict");
-      if (!tree)
+      if (!tree && !step?.authorId)
         return caps.launchChild(parentId, repository, worktree, identity, agent, prompt, step);
       const hold = caps.checkoutHolds.acquire(worktree);
       if (!hold) throw new ControlError("conflict");
       return (async () => {
+        let retained = false;
         try {
-          return await caps.withRepository(repository, () =>
-            reserved(
-              repository,
-              worktree,
-              async () => {
-                if (identity !== tree.identity)
-                  throw new LaunchFailure("remote_worktree_unavailable");
-                hosts().registered(tree.host, tree.codeFolder);
-                await hosts().requireAgent(tree.host, agent);
-                step?.validate();
-                const current = await inspect(repository, tree);
-                if (step?.loop && current.branch !== tree.branch)
-                  throw new ControlError("conflict");
-                return caps.launchChild(
-                  parentId,
+          if (step?.authorId && step.snapshot) {
+            caps.checkoutHolds.retainReview(step.authorId, hold, {
+              authorId: step.authorId,
+              identity,
+              head: step.snapshot.head,
+              digest: step.snapshot.digest,
+              intent: true,
+            });
+            retained = true;
+            // A crash after spawning must restore a held checkout even if the
+            // reviewer row or its final lease never reaches disk.
+            await caps.sessions.save();
+          }
+          const id = !tree
+            ? await caps.launchChild(
+                parentId,
+                repository,
+                worktree,
+                identity,
+                agent,
+                prompt,
+                step,
+                undefined,
+                hold,
+              )
+            : await caps.withRepository(repository, () =>
+                reserved(
                   repository,
                   worktree,
-                  identity,
-                  agent,
-                  prompt,
-                  {
-                    ...step,
-                    validate: () => {
-                      hosts().registered(tree.host, tree.codeFolder);
-                      step?.validate();
-                    },
-                  },
-                  {
-                    target: { host: tree.host },
-                    repository: tree.repository,
-                    worktree: tree.path,
-                    branch: current.branch,
-                    identity: tree.identity,
-                    ...(step?.snapshot ? { reviewSnapshot: step.snapshot } : {}),
-                    validate: () => {
-                      hosts().registered(tree.host, tree.codeFolder);
-                      step?.validate();
-                      return Promise.resolve();
-                    },
+                  async () => {
+                    if (identity !== tree.identity)
+                      throw new LaunchFailure("remote_worktree_unavailable");
+                    hosts().registered(tree.host, tree.codeFolder);
+                    await hosts().requireAgent(tree.host, agent);
+                    step?.validate();
+                    const current = await inspect(repository, tree);
+                    if (step?.loop && current.branch !== tree.branch)
+                      throw new ControlError("conflict");
+                    return caps.launchChild(
+                      parentId,
+                      repository,
+                      worktree,
+                      identity,
+                      agent,
+                      prompt,
+                      {
+                        ...step,
+                        validate: () => {
+                          hosts().registered(tree.host, tree.codeFolder);
+                          step?.validate();
+                        },
+                      },
+                      {
+                        target: { host: tree.host },
+                        repository: tree.repository,
+                        worktree: tree.path,
+                        branch: current.branch,
+                        identity: tree.identity,
+                        ...(step?.snapshot
+                          ? {
+                              reviewSnapshot: {
+                                head: step.snapshot.head,
+                                digest: step.snapshot.digest,
+                              },
+                            }
+                          : {}),
+                        validate: () => {
+                          hosts().registered(tree.host, tree.codeFolder);
+                          step?.validate();
+                          return Promise.resolve();
+                        },
+                      },
+                      hold,
+                    );
                   },
                   hold,
-                );
-              },
-              hold,
-            ),
-          );
+                ),
+              );
+          if (step?.authorId && step.snapshot) {
+            caps.checkoutHolds.moveReview(step.authorId, id, hold, {
+              authorId: step.authorId,
+              identity,
+              head: step.snapshot.head,
+              digest: step.snapshot.digest,
+            });
+            retained = true;
+            await caps.sessions.save();
+          }
+          return id;
         } finally {
-          hold.release();
+          if (!retained) hold.release();
         }
       })();
+    },
+    inputBlocked: (id) => {
+      const row = caps.snapshot().terminals.find((row) => row.id === id);
+      return (
+        caps.checkoutHolds.blocksInput(id) ||
+        (row !== undefined &&
+          !caps.checkoutHolds.review(id) &&
+          caps.checkoutHolds.busy(row.worktree))
+      );
     },
     reviewSnapshot: async (repository, worktree, identity) => {
       const tree = remoteTree(worktree, repository);
@@ -352,7 +409,10 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
         current.head !== current.snapshot.head
       )
         throw new ControlError("conflict");
-      return current.snapshot;
+      return {
+        ...current.snapshot,
+        clean: current.snapshot.clean === true && current.changes === "",
+      };
     },
     reviewAvailable: async (agent, worktree) => {
       const tree = worktree && remoteTree(worktree);
@@ -419,6 +479,12 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
     },
     starting: (id) => caps.sessions.isRestoring(id),
     reply: async (id, data) => {
+      const row = caps.snapshot().terminals.find((row) => row.id === id);
+      if (
+        caps.checkoutHolds.blocksInput(id) ||
+        (row && !caps.checkoutHolds.review(id) && caps.checkoutHolds.busy(row.worktree))
+      )
+        throw new ControlError("conflict");
       if (!caps.deps.terminals.childInput) throw new Error("Child input adapter unavailable");
       caps.input(id);
       await caps.deps.terminals.childInput(id, data);

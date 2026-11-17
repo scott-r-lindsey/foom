@@ -171,7 +171,15 @@ export class OrchestrationMutations extends OrchestrationAuthority {
     params: Record<string, unknown>,
     operations: Operations,
   ): Promise<Operation> {
-    exact(params, ["idempotencyKey", "pullRequest", "agent", "since", "focus", "postFindings"]);
+    exact(params, [
+      "idempotencyKey",
+      "pullRequest",
+      "agent",
+      "since",
+      "focus",
+      "postFindings",
+      "authorId",
+    ]);
     const key = identifier(params["idempotencyKey"]);
     const number = params["pullRequest"];
     const since = params["since"];
@@ -188,26 +196,31 @@ export class OrchestrationMutations extends OrchestrationAuthority {
     if (!knownAgentId(agent)) throw new ControlError("invalid_request");
     const focus = params["focus"] === undefined ? undefined : text(params["focus"], 4096);
     const post = params["postFindings"] === true;
+    const authorId = params["authorId"] === undefined ? undefined : identifier(params["authorId"]);
     const parent = this.parent(actor);
     const operation = await operations.begin(
       actor,
       "launch",
       key,
-      JSON.stringify([number, agent, since ?? null, focus ?? null, post]),
+      JSON.stringify([number, agent, since ?? null, focus ?? null, post, authorId ?? null]),
     );
     if (!operation.created) return publicOperation(operation);
     const label = `PR #${String(number)}`;
     this.note(parent, this.entry(operation, label));
     try {
-      const tree = await this.createWorktree(
-        actor,
-        {
-          pullRequest: number,
-          review: true,
-          idempotencyKey: `review-tree-${operation.operationId}`,
-        },
-        operations,
-      );
+      const author = authorId === undefined ? undefined : this.own(parent, authorId);
+      if (authorId !== undefined && !author) throw new ControlError("not_found");
+      const tree = author
+        ? { status: "succeeded", resultId: author.worktreeId }
+        : await this.createWorktree(
+            actor,
+            {
+              pullRequest: number,
+              review: true,
+              idempotencyKey: `review-tree-${operation.operationId}`,
+            },
+            operations,
+          );
       this.parent(actor);
       if (tree.status !== "succeeded" || !tree.resultId) throw new ControlError("unavailable");
       const prompt =
@@ -232,6 +245,7 @@ export class OrchestrationMutations extends OrchestrationAuthority {
         },
         operations,
         true,
+        authorId,
       );
       if (launched.reason === "host_busy") {
         const record = await operations.finish(
@@ -269,6 +283,7 @@ export class OrchestrationMutations extends OrchestrationAuthority {
     params: Record<string, unknown>,
     operations: Operations,
     standalone = false,
+    authorId?: string,
   ): Promise<Operation> {
     exact(params, [
       "idempotencyKey",
@@ -292,7 +307,9 @@ export class OrchestrationMutations extends OrchestrationAuthority {
     const inherited = this.parent(actor).worktrees.get(worktreeId);
     const review =
       params["review"] === undefined
-        ? inherited?.review
+        ? standalone
+          ? undefined
+          : inherited?.review
         : reviewOptions(params["review"], this.host.defaultAgent?.());
     const number =
       params["pullRequest"] === undefined ? inherited?.pullRequest : params["pullRequest"];
@@ -334,6 +351,7 @@ export class OrchestrationMutations extends OrchestrationAuthority {
         selection,
         host ?? null,
         params["pullRequest"] ?? null,
+        authorId ?? null,
       ]),
       worktreeId,
     );
@@ -345,7 +363,45 @@ export class OrchestrationMutations extends OrchestrationAuthority {
     if (host !== undefined && this.host.worktreeHost?.(tree.path) !== host)
       return this.refuse(actor, parent, operations, operation, label, "not_found");
     // Reuse only after every earlier session has left this owned checkout.
-    if (!this.launchable(parent, worktreeId))
+    const author = authorId === undefined ? undefined : this.own(parent, authorId);
+    const validateAuthor = () => {
+      if (authorId === undefined) return;
+      const row = this.host.terminals().find((row) => row.id === authorId);
+      if (
+        tree.reviewer ||
+        !author ||
+        this.own(parent, authorId) !== author ||
+        author.worktreeId !== worktreeId ||
+        !row ||
+        row.kind !== "agent" ||
+        row.config ||
+        row.probe ||
+        row.closeState ||
+        this.host.starting?.(authorId) ||
+        (!row.exited &&
+          (!["done", "quiet_ok"].includes(row.state?.state ?? "") ||
+            row.execution?.phase === "working" ||
+            row.execution?.phase === "blocked" ||
+            (row.inputRevision !== undefined && row.state?.inputRevision !== row.inputRevision) ||
+            (row.outputRevision !== undefined &&
+              row.state?.outputRevision !== row.outputRevision))) ||
+        [...parent.children].some(
+          ([id, child]) => id !== authorId && child.worktreeId === worktreeId,
+        ) ||
+        this.host.terminals().some((row) => row.id !== authorId && row.worktree === tree.path)
+      )
+        throw new ControlError("conflict");
+    };
+    if (authorId !== undefined) {
+      if (tree.state === "starting" || tree.state === "continuing")
+        return this.refuse(actor, parent, operations, operation, label, "conflict");
+      try {
+        validateAuthor();
+      } catch {
+        return this.refuse(actor, parent, operations, operation, label, "conflict");
+      }
+    }
+    if (authorId === undefined && !this.launchable(parent, worktreeId))
       return this.refuse(actor, parent, operations, operation, label, "conflict");
     if ((tree.closedReviews?.length ?? 0) + (review?.rounds ?? 1) > 1000)
       return this.refuse(actor, parent, operations, operation, label, "capacity");
@@ -365,6 +421,8 @@ export class OrchestrationMutations extends OrchestrationAuthority {
     try {
       await this.board?.flushChildren();
       const parentCurrent = this.remoteParentGuard(actor.terminalId);
+      if (authorId !== undefined && tree.pullRequest !== undefined && tree.pullRequest !== number)
+        throw new ControlError("pr_binding_unresolved");
       if (number !== undefined && (params["pullRequest"] !== undefined || review)) {
         if (!this.host.forge?.bindPullRequest) throw new ControlError("pr_binding_unresolved");
         await this.host.forge.bindPullRequest(parent.repository, tree.path, number);
@@ -381,6 +439,8 @@ export class OrchestrationMutations extends OrchestrationAuthority {
           this.host.forge?.read(parent.repository, tree.path)?.headSha !== snapshot.head)
       )
         throw new ControlError("pr_binding_unresolved");
+      if (authorId !== undefined && snapshot?.clean !== true)
+        throw new ControlError("review_worktree_changed");
       if (review) tree.review = review;
       const id = await this.host.launch(
         actor.terminalId,
@@ -395,6 +455,7 @@ export class OrchestrationMutations extends OrchestrationAuthority {
           },
           selection,
           ...(review ? { loop: review } : {}),
+          ...(authorId === undefined ? {} : { authorId }),
           ...(snapshot
             ? {
                 snapshot,
@@ -407,7 +468,8 @@ export class OrchestrationMutations extends OrchestrationAuthority {
                   if (
                     !current ||
                     current.head !== snapshot.head ||
-                    current.digest !== snapshot.digest
+                    current.digest !== snapshot.digest ||
+                    (authorId !== undefined && current.clean !== true)
                   )
                     throw new ControlError("pr_binding_unresolved");
                 },
@@ -418,6 +480,7 @@ export class OrchestrationMutations extends OrchestrationAuthority {
             const current = operations.lookup(actor, { operationId: operation.operationId });
             if (current.status !== "running") throw new ControlError("forbidden");
             this.parent(actor);
+            validateAuthor();
             if (
               snapshot &&
               this.host.forge?.read(parent.repository, tree.path)?.headSha !== snapshot.head
@@ -426,8 +489,10 @@ export class OrchestrationMutations extends OrchestrationAuthority {
             if (
               parent.worktrees.get(worktreeId) !== tree ||
               tree.state !== startingState ||
-              [...parent.children.values()].some((child) => child.worktreeId === worktreeId) ||
-              this.host.terminals().some((row) => row.worktree === tree.path)
+              [...parent.children].some(
+                ([id, child]) => id !== authorId && child.worktreeId === worktreeId,
+              ) ||
+              this.host.terminals().some((row) => row.id !== authorId && row.worktree === tree.path)
             )
               throw new ControlError("conflict");
           },
@@ -554,6 +619,8 @@ export class OrchestrationMutations extends OrchestrationAuthority {
         if (!closed)
           return await this.finish(actor, parent, operations, operation, label, "declined", id);
       } catch (error) {
+        if (error instanceof ControlError)
+          return await this.refuse(actor, parent, operations, operation, label, error.code);
         if (error instanceof LaunchFailure) {
           const record = await operations.finish(
             actor,

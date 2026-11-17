@@ -40,13 +40,21 @@ export async function reviewSnapshot(
       throw new Error("Worktree changed");
   };
   const inspect = (args: string[]) =>
-    git(worktree, ["--no-optional-locks", "-c", "core.fsmonitor=false", ...args], 3000);
+    git(
+      worktree,
+      ["--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "core.excludesFile=", ...args],
+      3000,
+    );
   await validate();
   const head = (await inspect(["rev-parse", "HEAD"])).trim();
-  const hash = createHash("sha256").update(head);
-  hash.update(indexState(await inspect(["ls-files", "--stage", "-v", "--debug", "-z"])));
+  const reference = (await inspect(["rev-parse", "--symbolic-full-name", "HEAD"])).trim();
+  const status = () => inspect(["status", "--porcelain=v1", "--untracked-files=all"]);
+  const initialStatus = await status();
+  const index = indexState(await inspect(["ls-files", "--stage", "-v", "--debug", "-z"]));
+  const hash = createHash("sha256").update(JSON.stringify([head, reference]));
+  hash.update(index);
   // Read tracked bytes as well as untracked files; diff alone misses skip-worktree
-  // entries and changes within an already-dirty file. No filters or diff helpers run.
+  // entries and changes within an already-dirty file. Hash raw bytes directly.
   const files = [
     ...new Set(
       (await inspect(["ls-files", "--cached", "--others", "--exclude-standard", "-z"]))
@@ -122,5 +130,17 @@ export async function reviewSnapshot(
   }
   await validate();
   if ((await inspect(["rev-parse", "HEAD"])).trim() !== head) throw new Error("Snapshot changed");
-  return { head, digest: hash.digest("hex") };
+  if ((await inspect(["rev-parse", "--symbolic-full-name", "HEAD"])).trim() !== reference)
+    throw new Error("Snapshot changed");
+  const finalStatus = await status();
+  // Lowercase and skip-worktree index tags conceal changes from ordinary status.
+  const visibleIndex = (await inspect(["ls-files", "-v", "-z"]))
+    .split("\0")
+    .filter(Boolean)
+    .every((entry) => entry.startsWith("H "));
+  return {
+    head,
+    digest: hash.digest("hex"),
+    clean: initialStatus === "" && finalStatus === "" && visibleIndex,
+  };
 }

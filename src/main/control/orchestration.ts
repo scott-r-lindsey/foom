@@ -219,6 +219,13 @@ export class Orchestration extends OrchestrationMutations {
             row.repository !== actor.repository
           )
             throw new ControlError("not_found");
+          const tree = parent.worktrees.get(this.own(parent, id)?.worktreeId ?? "");
+          if (
+            tree?.state === "starting" ||
+            tree?.state === "continuing" ||
+            this.host.inputBlocked?.(id)
+          )
+            throw new ControlError("conflict");
           if (this.own(parent, id)?.exited || row.exited || this.host.starting?.(id))
             throw new ControlError("conflict");
         };
