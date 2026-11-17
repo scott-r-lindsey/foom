@@ -1,6 +1,6 @@
-import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, randomBytes, createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, rm, writeFile, chmod, readFile, symlink } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, chmod, readFile, symlink, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -12,6 +12,7 @@ import { executeDataCommand } from "../../../../../src/main/data/sqlite/commands
 import { importLegacy, importRows } from "../../../../../src/main/data/sqlite/importer";
 import { ViewChanges } from "../../../../../src/main/data/view-changes";
 import { ViewRegistry } from "../../../../../src/main/data/view-registry";
+import { object } from "../../../../../src/shared/control-validation";
 import { registeredHosts } from "../../../../../src/shared/registered-hosts";
 import type { ViewSnapshot } from "../../../../../src/shared/data-views";
 import * as tables from "../../../../../src/main/data/sqlite/schema";
@@ -425,7 +426,12 @@ test("Drizzle schema declarations match the deployed foreign keys and SQL constr
           .map((row) => row["name"]),
       ).toEqual(config.columns.map((column) => column.name));
       const foreignKeys = raw.prepare(`PRAGMA foreign_key_list('${config.name}')`).all();
-      expect(foreignKeys).toHaveLength(config.foreignKeys.length);
+      expect(foreignKeys).toHaveLength(
+        config.foreignKeys.reduce(
+          (count, foreignKey) => count + foreignKey.reference().columns.length,
+          0,
+        ),
+      );
       for (const foreignKey of config.foreignKeys) {
         const reference = foreignKey.reference();
         expect(foreignKey.onDelete).toBe("restrict");
@@ -599,6 +605,9 @@ test("recovery corruption refuses instead of importing mutable JSON over frozen 
   const { db, profile } = await fixture();
   await put(profile);
   await importLegacy(db, profile);
+  await db.write((orm) => {
+    orm.delete(tables.imports).run();
+  });
   const recovery = join(profile, "data/recovery/hosts-worktrees-sessions-v1.json");
   await chmod(recovery, 0o600);
   await writeFile(recovery, "{}");
@@ -822,11 +831,13 @@ test("settings migration upgrades an existing first-group database without losin
       "_changes",
       "_imports",
     ]);
-    for (const table of Object.values(tables)) {
+    for (const table of Object.values(tables).reverse()) {
       const name = getTableConfig(table).name;
       if (!original.has(name)) raw.exec(`DROP TABLE "${name}"`);
     }
-    raw.exec("DELETE FROM _schema WHERE version > 1; PRAGMA user_version=1");
+    raw.exec(
+      "DROP INDEX IF EXISTS repositories_registration_identity; DELETE FROM _schema WHERE version > 1; PRAGMA user_version=1",
+    );
   });
   const upgraded = await ProfileDatabase.open(profile);
   connections.push(upgraded);
@@ -1055,4 +1066,718 @@ test("environment import quarantines malformed plaintext, bad ciphertext and cas
   await expect(
     db.write((orm) => importEnvironmentRows(orm, '{"version":2}', cipher, false)),
   ).rejects.toThrow("version");
+});
+
+const historyTime = new Date().toISOString();
+const operationId = "11111111-1111-4111-8111-111111111111";
+const actor = {
+  grantedAt: historyTime,
+  generation: "generation-1",
+  sessionId: "session-1",
+  repository: repo,
+  worktree: tree.path,
+  terminalId: "parent",
+  parentId: null,
+  role: "orchestrator",
+};
+const storedOperation = {
+  actor,
+  key: "a".repeat(64),
+  fingerprint: "b".repeat(64),
+  operation: {
+    operationId,
+    action: "prompt",
+    targetId: "child",
+    resultId: null,
+    status: "running",
+    createdAt: historyTime,
+    updatedAt: historyTime,
+    reason: "intent",
+    inputHash: "c".repeat(64),
+  },
+};
+const boardThread = {
+  id: "thread-1",
+  repository: createHash("sha256").update(repo).digest("hex"),
+  to: [createHash("sha256").update(repo).digest("hex")],
+  title: "Topic",
+  state: "open",
+  createdAt: historyTime,
+  updatedAt: historyTime,
+};
+const boardPost = {
+  id: "post-1",
+  thread: "thread-1",
+  author: "human",
+  kind: "fyi",
+  text: "Board message",
+  links: ["#1162"],
+  timestamp: historyTime,
+};
+const boardReceipt = {
+  scope: "human",
+  key: "key-1",
+  hash: "d".repeat(64),
+  result: { thread: "thread-1", post: "post-1" },
+};
+const verdictRecord = {
+  type: "verdict",
+  id: "verdict-1",
+  terminalId: "parent",
+  timestamp: historyTime,
+  verdict: {
+    state: "done",
+    reason: "exit",
+    signal: "process",
+    confidence: 1,
+    attentionKind: "unknown",
+  },
+};
+const verdictFeedback = {
+  type: "action",
+  terminalId: "parent",
+  verdictId: "verdict-1",
+  action: "replied",
+  timestamp: historyTime,
+};
+async function controlSources() {
+  const { parseSetupList } = await import("../../../../../src/shared/repository-setup");
+  const { setupDigest, setupCatalogDigest } = await import(
+    "../../../../../src/node-common/repository-setup-digest"
+  );
+  const requirements = parseSetupList(
+    JSON.stringify({
+      requirements: [
+        {
+          kind: "toolchain",
+          id: "node",
+          tool: "node",
+          version: "24.x",
+          purpose: "Build tooling",
+          sources: ["package.json"],
+        },
+      ],
+      evidence: [],
+    }),
+  );
+  const files = [{ path: "package.json", digest: "e".repeat(64) }];
+  const approved = {
+    repository: repo,
+    identity: "12345678-1234-1234-1234-123456789abc",
+    revision: 1,
+    digest: setupDigest(requirements),
+    catalog: setupCatalogDigest,
+    sources: { files, fingerprint: setupDigest(files) },
+    checkout: tree.path,
+    head: "f".repeat(40),
+    approvedAt: 1,
+    list: requirements,
+  };
+  const remotePath = "/code/.foom-worktree-child";
+  const remoteTree = {
+    repository: "/repo",
+    path: `/foom-remote/${createHash("sha256")
+      .update(JSON.stringify(["example", remotePath]))
+      .digest("hex")}`,
+    identity: "remote-identity",
+    branch: "topic",
+    remoteCheckout: {
+      host: "example",
+      codeFolder: "/code",
+      repository: "/code/repo",
+      path: remotePath,
+      origin: "git@example.test:repo.git",
+    },
+  };
+  const localForge = {
+    ...tree,
+    branch: "topic",
+    number: 1,
+    prBranch: "topic",
+    binding: "source",
+    remote: "https://example.test/repo.git",
+    orchestrator: false,
+    pr: { number: 1, headSha: "f".repeat(40), state: "OPEN", requiredChecks: "success" },
+  };
+  const observation = {
+    repository: repo,
+    host: null,
+    revision: 1,
+    state: "met",
+    missing: [],
+    changed: [],
+    sourcesAtLaunch: true,
+    checkedAt: 1,
+  };
+  return {
+    "control/board.json": JSON.stringify({
+      version: 1,
+      threads: [boardThread],
+      posts: [boardPost],
+      receipts: [boardReceipt],
+    }),
+    "control/forge.json": JSON.stringify({ version: 1, entries: [localForge, remoteTree] }),
+    [`control/operation-${operationId}.json`]: JSON.stringify({
+      ...storedOperation,
+      token: "forbidden-token",
+      prompt: "forbidden-prompt",
+    }),
+    "control/actions-0.jsonl":
+      JSON.stringify({
+        ...storedOperation.operation,
+        timestamp: historyTime,
+        actor,
+        tail: "forbidden-screen",
+        token: "forbidden-token",
+      }) + "\n",
+    "agent-setup/offers.json": JSON.stringify(["codex", "custom-agent"]),
+    "probe-notices/seen.json": JSON.stringify(["codex"]),
+    "repository-setup/state.json": JSON.stringify({
+      version: 1,
+      approvals: [approved],
+      rows: [observation, { ...observation, host: "example" }],
+    }),
+    "verdicts.jsonl": [verdictRecord, verdictFeedback].map((row) => JSON.stringify(row)).join("\n"),
+    "codex-hook-health.json": JSON.stringify({ state: "trusted", fingerprint: "a".repeat(64) }),
+    "foom-observers-1000/codex-health.json": JSON.stringify({
+      state: "outdated",
+      fingerprint: "b".repeat(64),
+    }),
+    "terminal-host-diagnostics/exits.json": JSON.stringify({
+      version: 3,
+      exits: [
+        JSON.stringify({
+          time: historyTime,
+          reason: "fixture-exit",
+          serviceName: "utility",
+          pid: 1,
+          exitCode: 0,
+          stderr: "forbidden-stderr",
+          cause: "host-exit",
+          snapshot: { liveTerminals: 1, hostMemoryKB: null, lastMessageAgeMs: 1, mainLagMs: 1 },
+          gone: { type: "Utility", reason: "crashed", exitCode: 1 },
+        }),
+      ],
+      timeouts: [JSON.stringify({ time: historyTime, command: "ping", elapsedMs: 1 })],
+      nearMisses: [
+        JSON.stringify({
+          time: historyTime,
+          kind: "late-reply",
+          replyLatencyMs: 1,
+          probeElapsedMs: 1,
+          lateCycles: 1,
+          mainLagMs: 1,
+        }),
+      ],
+    }),
+  };
+}
+async function populatedControl() {
+  const fixtureState = await fixture();
+  const { importControlRows } = await import("../../../../../src/main/data/sqlite/control");
+  const input = await controlSources();
+  await fixtureState.db.write((orm) => importRows(orm, sources()));
+  const result = await fixtureState.db.write((orm) => importControlRows(orm, input));
+  return { ...fixtureState, input, report: result.value };
+}
+test("control imports typed board/forge/operation/audit/history without credentials or replay", async () => {
+  const { file, report } = await populatedControl();
+  expect(report.quarantined).toBe(0);
+  inspect(file, (raw) => {
+    for (const [name, count] of [
+      ["board_threads", 1],
+      ["board_posts", 1],
+      ["board_recipients", 1],
+      ["board_bindings", 1],
+      ["board_receipts", 1],
+      ["forge_observations", 2],
+      ["offers", 3],
+      ["agent_health", 2],
+      ["control_operations", 1],
+      ["audit_records", 2],
+      ["operation_audit_links", 2],
+      ["verdict_records", 1],
+      ["verdict_actions", 1],
+      ["repository_approvals", 1],
+      ["repository_observations", 2],
+      ["terminal_diagnostics", 3],
+    ] as const)
+      expect(raw.prepare(`SELECT * FROM ${name}`).all()).toHaveLength(count);
+    expect(raw.prepare("SELECT status,recovered FROM control_operations").get()).toEqual({
+      status: "indeterminate",
+      recovered: 1,
+    });
+    for (const name of ["control_operations", "audit_records", "terminal_diagnostics"])
+      expect(JSON.stringify(raw.prepare(`SELECT * FROM ${name}`).all())).not.toMatch(
+        /forbidden-token|forbidden-prompt|forbidden-screen|forbidden-stderr/,
+      );
+  });
+});
+test("every new control/board/history FK rejects referenced deletes, including composite relations", async () => {
+  const { file } = await populatedControl();
+  const { getTableConfig } = await import("drizzle-orm/sqlite-core");
+  const selected = [
+    tables.boardPosts,
+    tables.boardRecipients,
+    tables.boardBindings,
+    tables.boardReceipts,
+    tables.forgeObservations,
+    tables.operationAuditLinks,
+    tables.verdictActions,
+    tables.repositoryApprovals,
+    tables.repositoryObservations,
+  ];
+  inspect(file, (raw) => {
+    let checked = 0;
+    for (const table of selected) {
+      const name = getTableConfig(table).name;
+      const keys = raw.prepare(`PRAGMA foreign_key_list('${name}')`).all();
+      for (const id of new Set(keys.map((row) => row["id"]))) {
+        const parts = keys.filter((row) => row["id"] === id);
+        const first = parts[0];
+        if (!first) throw new Error("Missing FK");
+        const parent = String(first["table"]);
+        const child = raw
+          .prepare(
+            `SELECT * FROM "${name}" WHERE ${parts.map((row) => `"${String(row["from"])}" IS NOT NULL`).join(" AND ")} LIMIT 1`,
+          )
+          .get();
+        expect(child).toBeDefined();
+        expect(() =>
+          raw
+            .prepare(
+              `DELETE FROM "${parent}" WHERE ${parts.map((row) => `"${String(row["to"])}" = ?`).join(" AND ")}`,
+            )
+            .run(...parts.map((row) => child?.[String(row["from"])] ?? null)),
+        ).toThrow(/FOREIGN KEY/);
+        checked++;
+      }
+    }
+    expect(checked).toBe(
+      selected.reduce((count, table) => count + getTableConfig(table).foreignKeys.length, 0),
+    );
+  });
+});
+test("board domain append/resolve/retention is atomic and keeps post text out of audit", async () => {
+  const api = await import("../../../../../src/main/data/sqlite/board");
+  const { db, file } = await fixture();
+  await db.write((orm) => importRows(orm, sources()));
+  await api.saveDatabaseBoardThread(db, boardThread);
+  await api.appendDatabaseBoardPost(db, boardPost, boardReceipt);
+  await api.resolveDatabaseBoardThread(db, "thread-1");
+  await expect(api.appendDatabaseBoardPost(db, { ...boardPost, id: "post-late" })).rejects.toThrow(
+    "resolved",
+  );
+  await expect(api.resolveDatabaseBoardThread(db, "missing")).rejects.toThrow();
+  await expect(
+    api.appendDatabaseBoardPost(db, { ...boardPost, thread: "missing" }),
+  ).rejects.toThrow();
+  const now = Date.parse(historyTime) + 31 * 24 * 60 * 60 * 1000;
+  await api.saveDatabaseBoardThread(db, {
+    ...boardThread,
+    id: "child-thread",
+    state: "resolved",
+    child: { id: "child", worktreeId: "worktree", removedAt: historyTime },
+  });
+  await api.appendDatabaseBoardPost(db, {
+    ...boardPost,
+    id: "child-post",
+    thread: "child-thread",
+    author: "orchestrator:repo",
+  });
+  await api.pruneDatabaseBoard(db, now);
+  await api.pruneDatabaseBoard(db, now);
+  await expect(api.pruneDatabaseBoard(db, -1)).rejects.toThrow();
+  inspect(file, (raw) => {
+    expect(raw.prepare("SELECT id FROM board_threads").all()).toEqual([{ id: "thread-1" }]);
+    expect(raw.prepare("SELECT * FROM audit_records").all()).toEqual([]);
+  });
+});
+test("operation intent is durable and deduplicated; audit clearing preserves operation state", async () => {
+  const api = await import("../../../../../src/main/data/sqlite/control");
+  const { db, file } = await fixture();
+  expect((await api.reserveDatabaseOperation(db, storedOperation)).value.created).toBe(true);
+  expect((await api.reserveDatabaseOperation(db, storedOperation)).value.created).toBe(false);
+  await expect(
+    api.reserveDatabaseOperation(db, { ...storedOperation, fingerprint: "f".repeat(64) }),
+  ).rejects.toThrow("conflict");
+  await expect(
+    api.reserveDatabaseOperation(db, {
+      ...storedOperation,
+      operation: { ...storedOperation.operation, status: "succeeded" },
+    }),
+  ).rejects.toThrow("Intent");
+  await api.finishDatabaseOperation(db, operationId, "succeeded", "completed");
+  await api.appendDatabaseAudit(db, {
+    ...storedOperation.operation,
+    actor,
+    timestamp: historyTime,
+  });
+  await api.clearDatabaseAudit(db);
+  inspect(file, (raw) => {
+    expect(raw.prepare("SELECT * FROM control_operations").all()).toHaveLength(1);
+    expect(raw.prepare("SELECT * FROM audit_records").all()).toEqual([]);
+  });
+  await expect(
+    api.finishDatabaseOperation(db, operationId, "invalid", "completed"),
+  ).rejects.toThrow();
+  await expect(api.finishDatabaseOperation(db, "missing", "failed", "error")).rejects.toThrow();
+  await api.retireDatabaseOperation(db, operationId);
+  await expect(
+    api.reserveDatabaseOperation(db, { ...storedOperation, key: "bad" }),
+  ).rejects.toThrow();
+  const recovered = await populatedControl();
+  await expect(api.reserveDatabaseOperation(recovered.db, storedOperation)).rejects.toThrow(
+    "conflict",
+  );
+  await expect(
+    api.finishDatabaseOperation(recovered.db, operationId, "failed", "error"),
+  ).rejects.toThrow("live operation");
+});
+test("forge, offer, setup and verdict domain functions preserve owner validations", async () => {
+  const api = await import("../../../../../src/main/data/sqlite/control");
+  const { db, file } = await fixture();
+  await db.write((orm) => importRows(orm, sources()));
+  const input = await controlSources();
+  const forgeData: unknown = JSON.parse(input["control/forge.json"]);
+  const forgeRows = object(forgeData)["entries"];
+  if (!Array.isArray(forgeRows)) throw new Error("Invalid fixture");
+  await api.saveDatabaseForgeObservation(db, forgeRows[0]);
+  for (const invalid of [
+    { ...tree, branch: "bad branch" },
+    { ...tree, branch: "main", pr: {} },
+    { ...tree, branch: "main", remote: "https://user:pass@example.test/repo" },
+    { ...tree, branch: "main", prBranch: "bad branch" },
+    { ...tree, branch: "main", orchestrator: "yes" },
+  ])
+    await expect(api.saveDatabaseForgeObservation(db, invalid)).rejects.toThrow();
+  await api.answerDatabaseOffer(db, "setup", "codex", true);
+  await api.answerDatabaseOffer(db, "setup", "codex", false);
+  await expect(api.answerDatabaseOffer(db, "setup", "bad!", true)).rejects.toThrow();
+  const setup: unknown = JSON.parse(input["repository-setup/state.json"]);
+  const approved = object(setup)["approvals"];
+  const rows = object(setup)["rows"];
+  if (!Array.isArray(approved) || !Array.isArray(rows)) throw new Error("Invalid fixture");
+  await api.saveDatabaseApproval(db, approved[0]);
+  await api.saveDatabaseSetupObservation(db, rows[0]);
+  await api.saveDatabaseVerdict(db, verdictRecord);
+  await api.feedbackDatabaseVerdict(db, verdictFeedback);
+  await expect(api.feedbackDatabaseVerdict(db, verdictFeedback)).rejects.toThrow();
+  await expect(
+    api.feedbackDatabaseVerdict(db, { ...verdictFeedback, verdictId: "missing" }),
+  ).rejects.toThrow();
+  await api.forgetDatabaseVerdict(db, "verdict-1");
+  await expect(
+    api.saveDatabaseVerdict(db, {
+      ...verdictRecord,
+      verdict: { ...verdictRecord.verdict, attentionKind: "invalid" },
+    }),
+  ).rejects.toThrow();
+  inspect(file, (raw) => {
+    expect(raw.prepare("SELECT * FROM verdict_records").all()).toEqual([]);
+  });
+});
+
+test("control importer is frozen, resumable and a no-op without rescanning changed production files", async () => {
+  const { importDatabaseControl } = await import("../../../../../src/main/data/sqlite/control");
+  const { db, profile, file } = await fixture();
+  await db.write((orm) => importRows(orm, sources()));
+  for (const [name, contents] of Object.entries(await controlSources())) {
+    const directory = name.includes("/") ? name.slice(0, name.lastIndexOf("/")) : "";
+    if (directory) await mkdir(join(profile, directory), { recursive: true, mode: 0o700 });
+    await writeFile(join(profile, name), contents, { mode: 0o600 });
+  }
+  const result = await importDatabaseControl(db, profile);
+  expect(object(JSON.parse(result.value.report))["quarantined"]).toBe(0);
+  await rm(join(profile, "control"), { recursive: true, force: true });
+  expect((await importDatabaseControl(db, profile)).value.alreadyImported).toBe(true);
+  inspect(file, (raw) => {
+    expect(raw.prepare("SELECT * FROM control_operations").all()).toHaveLength(1);
+  });
+});
+test("dynamic source recovery uses the frozen manifest after a crash, and SQL interruptions abort", async () => {
+  const { importLegacyGroup } = await import("../../../../../src/main/data/sqlite/importer");
+  const { LegacyBatch } = await import("../../../../../src/main/data/sqlite/legacy-batch");
+  const { db, profile, file } = await fixture();
+  await writeFile(join(profile, "base.json"), "{}", { mode: 0o600 });
+  await writeFile(join(profile, "extra.json"), "old", { mode: 0o600 });
+  const discover = vi.fn(() => Promise.resolve(["base.json", "extra.json"]));
+  await expect(
+    importLegacyGroup(
+      db,
+      profile,
+      "dynamic-fixture",
+      discover,
+      (orm) => {
+        const batch = new LegacyBatch(orm);
+        batch.row(
+          "base",
+          0,
+          () => "example",
+          (alias) => {
+            orm.insert(tables.hosts).values({ alias, data: "{}" }).run();
+            throw new Error("interrupted");
+          },
+        );
+      },
+      ["base.json"],
+    ),
+  ).rejects.toThrow("interrupted");
+  await rm(join(profile, "extra.json"));
+  discover.mockImplementation(() => Promise.resolve(["base.json"]));
+  const value = await importLegacyGroup(
+    db,
+    profile,
+    "dynamic-fixture",
+    discover,
+    (_orm, input) => input,
+    ["base.json"],
+  );
+  expect(JSON.parse(value.value.report)).toMatchObject({ "extra.json": "old" });
+  await importLegacyGroup(db, profile, "dynamic-fixture", discover, () => ({}), ["base.json"]);
+  expect(discover).toHaveBeenCalledTimes(2);
+  inspect(file, (raw) => {
+    expect(raw.prepare("SELECT * FROM hosts").all()).toEqual([]);
+  });
+});
+test("control quarantine isolates orphan references, duplicates, malformed metadata and unknown fields", async () => {
+  const { importControlRows } = await import("../../../../../src/main/data/sqlite/control");
+  const { db, file } = await fixture();
+  await db.write((orm) => importRows(orm, sources()));
+  const input = await controlSources();
+  const result = await db.write((orm) =>
+    importControlRows(orm, {
+      ...input,
+      "control/board.json": JSON.stringify({
+        version: 1,
+        threads: [boardThread, boardThread, { ...boardThread, id: "bad", state: "invalid" }],
+        posts: [boardPost, { ...boardPost, id: "orphan", thread: "missing" }],
+        receipts: [
+          boardReceipt,
+          { ...boardReceipt, key: "orphan", result: { thread: "missing", post: null } },
+        ],
+      }),
+      "control/forge.json": JSON.stringify({
+        version: 1,
+        entries: [
+          { ...tree, branch: "main", repository: join(repo, "missing") },
+          { ...tree, branch: "main", number: 0 },
+        ],
+      }),
+      "agent-setup/offers.json": JSON.stringify(["bad!", "codex", "codex"]),
+      "probe-notices/seen.json": "{}",
+      "verdicts.jsonl": [
+        JSON.stringify({
+          ...verdictRecord,
+          id: "invalid",
+          verdict: { ...verdictRecord.verdict, confidence: 2 },
+        }),
+        JSON.stringify({ ...verdictFeedback, verdictId: "missing" }),
+        "{",
+      ].join("\n"),
+      "repository-setup/state.json": JSON.stringify({
+        version: 1,
+        approvals: [{ repository: repo, identity: "wrong" }],
+        rows: [{ repository: repo, state: "invalid", host: null, sourcesAtLaunch: true }],
+      }),
+      "codex-hook-health.json": JSON.stringify({ state: "invalid", fingerprint: "bad" }),
+      "terminal-host-diagnostics/exits.json": JSON.stringify({
+        version: 3,
+        exits: ["{"],
+        timeouts: {},
+        nearMisses: [JSON.stringify({ time: historyTime, kind: "invalid" })],
+      }),
+    }),
+  );
+  expect(result.value.quarantined).toBeGreaterThan(10);
+  inspect(file, (raw) => {
+    expect(raw.prepare("SELECT * FROM board_threads").all()).toHaveLength(1);
+  });
+});
+test("legacy metadata parsers refuse incompatible versions and malformed file envelopes", async () => {
+  const { importControlRows } = await import("../../../../../src/main/data/sqlite/control");
+  const { db } = await fixture();
+  for (const input of [
+    { "control/board.json": '{"version":1,"threads":{},"posts":{},"receipts":{}}' },
+    {
+      "control/forge.json": "{}",
+      "repository-setup/state.json": '{"version":1,"approvals":{},"rows":{}}',
+    },
+    { "control/forge.json": "{", "agent-setup/offers.json": "{" },
+    { "control/forge.json": "[]", "terminal-host-diagnostics/exits.json": "[]" },
+  ])
+    await db.write((orm) => importControlRows(orm, input));
+  await expect(
+    db.write((orm) => importControlRows(orm, { "control/board.json": '{"version":99}' })),
+  ).rejects.toThrow("version");
+  await expect(
+    db.write((orm) => importControlRows(orm, { "repository-setup/state.json": '{"version":99}' })),
+  ).rejects.toThrow("version");
+});
+test("forgotten hosts lose only saved dependent facts while historical board/audit identities remain", async () => {
+  const { db, file } = await populatedControl();
+  await executeDataCommand(db, { type: "forget-host", host: "example" });
+  inspect(file, (raw) => {
+    expect(raw.prepare("SELECT * FROM forge_observations").all()).toHaveLength(1);
+    expect(raw.prepare("SELECT * FROM repository_observations").all()).toHaveLength(1);
+    expect(raw.prepare("SELECT * FROM board_threads").all()).toHaveLength(1);
+    expect(raw.prepare("SELECT * FROM audit_records").all()).toHaveLength(2);
+  });
+});
+
+test("board transitions preserve human waits, receipt atomicity and main-only retention", async () => {
+  const api = await import("../../../../../src/main/data/sqlite/board");
+  const { db, file } = await fixture();
+  await api.saveDatabaseBoardThread(db, boardThread);
+  const actor = "orchestrator:repo";
+  for (const [index, kind, author] of [
+    [0, "decision-needed", actor],
+    [1, "fyi", actor],
+    [2, "answer", "human"],
+    [3, "fyi", actor],
+    [4, "request", actor],
+  ] as const)
+    await api.appendDatabaseBoardPost(db, {
+      ...boardPost,
+      id: `post-${String(index)}`,
+      kind,
+      author,
+    });
+  await expect(
+    api.appendDatabaseBoardPost(
+      db,
+      { ...boardPost, id: "bad-receipt" },
+      { ...boardReceipt, result: { thread: "thread-1", post: "different" } },
+    ),
+  ).rejects.toThrow();
+  inspect(file, (raw) => {
+    expect(raw.prepare("SELECT state FROM board_threads").get()?.["state"]).toBe("waiting-repo");
+    expect(raw.prepare("SELECT * FROM board_posts").all()).toHaveLength(5);
+  });
+});
+test("audit retention prunes old/budgeted history and its links without deleting operations", async () => {
+  const api = await import("../../../../../src/main/data/sqlite/control");
+  const { db, file } = await fixture();
+  await api.reserveDatabaseOperation(db, storedOperation);
+  await api.appendDatabaseAudit(db, {
+    ...storedOperation.operation,
+    actor,
+    timestamp: historyTime,
+  });
+  await api.appendDatabaseAudit(db, {
+    ...storedOperation.operation,
+    actor,
+    timestamp: historyTime,
+  });
+  expect((await api.pruneDatabaseAudit(db, Date.now(), 1)).value).toBe(3);
+  inspect(file, (raw) => {
+    expect(raw.prepare("SELECT * FROM audit_records").all()).toEqual([]);
+    expect(raw.prepare("SELECT * FROM control_operations").all()).toHaveLength(1);
+  });
+  await api.appendDatabaseAudit(db, {
+    ...storedOperation.operation,
+    actor,
+    timestamp: "2000-01-01T00:00:00.000Z",
+  });
+  const aged = await db.write((orm) =>
+    api.importControlRows(orm, {
+      "control/actions-0.jsonl": JSON.stringify({
+        ...storedOperation.operation,
+        actor,
+        timestamp: "2000-01-01T00:00:00.000Z",
+      }),
+    }),
+  );
+  expect(aged.value.pruned).toBe(1);
+  await expect(api.pruneDatabaseAudit(db, -1)).rejects.toThrow();
+});
+test("restart starts new subscriptions at the current durable revision", async () => {
+  const { db, profile } = await populatedControl();
+  await db.close();
+  connections.pop();
+  const publications = new ViewChanges();
+  const received = vi.fn();
+  const off = publications.subscribe(received);
+  const reopened = await ProfileDatabase.open(profile, publications);
+  connections.push(reopened);
+  try {
+    await reopened.retryPublication();
+    expect(received).not.toHaveBeenCalled();
+    await reopened.write((orm) => {
+      orm
+        .insert(tables.offers)
+        .values({ category: "setup", agent: "new-agent", answered: 1 })
+        .run();
+    });
+    expect(received).toHaveBeenCalledTimes(1);
+    expect(received.mock.lastCall?.[0]).toEqual(new Set(["agents"]));
+  } finally {
+    off();
+  }
+});
+
+test("repository forgetting keeps historical posts and requires saved sessions to close first", async () => {
+  const { forgetDatabaseRepository } = await import("../../../../../src/main/data/sqlite/control");
+  const { db, file } = await populatedControl();
+  await expect(forgetDatabaseRepository(db, repo)).rejects.toThrow("saved sessions");
+  await executeDataCommand(db, { type: "remove-session", id: "parent" });
+  await forgetDatabaseRepository(db, repo);
+  inspect(file, (raw) => {
+    expect(raw.prepare("SELECT * FROM repositories").all()).toEqual([]);
+    expect(raw.prepare("SELECT * FROM board_bindings").all()).toEqual([]);
+    expect(raw.prepare("SELECT * FROM board_posts").all()).toHaveLength(1);
+  });
+});
+test("health and host-diagnostic writers validate fixed metadata and independent retention reserves", async () => {
+  const api = await import("../../../../../src/main/data/sqlite/control");
+  const { db, file } = await fixture();
+  await api.saveDatabaseAgentHealth(db, "legacy", "codex", "a".repeat(64), "trusted");
+  await api.saveDatabaseAgentHealth(db, "legacy", "codex", "b".repeat(64), "outdated");
+  await expect(
+    api.saveDatabaseAgentHealth(db, "outside", "codex", "a".repeat(64), "trusted"),
+  ).rejects.toThrow();
+  await db.write((orm) => {
+    for (let index = 0; index < 33; index++)
+      orm
+        .insert(tables.terminalDiagnostics)
+        .values({ kind: "exit", data: JSON.stringify({ time: historyTime }) })
+        .run();
+  });
+  await api.appendDatabaseHostDiagnostic(db, "timeout", {
+    time: historyTime,
+    command: "ping",
+    elapsedMs: 1,
+  });
+  await api.appendDatabaseHostDiagnostic(db, "exit", {
+    time: historyTime,
+    reason: "exit",
+    serviceName: "utility",
+    cause: "host-exit",
+    snapshot: { liveTerminals: 1, hostMemoryKB: null, lastMessageAgeMs: 1, mainLagMs: 1 },
+    gone: { type: "Utility", reason: "crashed", exitCode: 1 },
+  });
+  await expect(
+    api.appendDatabaseHostDiagnostic(db, "timeout", {
+      time: historyTime,
+      command: "raw input",
+      elapsedMs: 1,
+    }),
+  ).rejects.toThrow();
+  await expect(
+    api.appendDatabaseHostDiagnostic(db, "exit", {
+      time: historyTime,
+      reason: "exit",
+      serviceName: "utility",
+      cause: "invalid",
+    }),
+  ).rejects.toThrow();
+  await expect(api.appendDatabaseHostDiagnostic(db, "unknown", {})).rejects.toThrow();
+  inspect(file, (raw) => {
+    expect(raw.prepare("SELECT * FROM terminal_diagnostics WHERE kind='exit'").all()).toHaveLength(
+      32,
+    );
+    expect(
+      raw.prepare("SELECT * FROM terminal_diagnostics WHERE kind='timeout'").all(),
+    ).toHaveLength(1);
+  });
 });

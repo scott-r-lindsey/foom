@@ -7,6 +7,7 @@ import {
   createPrivateFile,
   privateDirectory,
   verifyLegacyProfileFile,
+  verifyPrivate,
 } from "../../../node-common/private-files";
 import { registeredHosts } from "../../../shared/registered-hosts";
 import { record } from "../../../shared/remote-agent-protocol";
@@ -31,6 +32,11 @@ const importName = "hosts-worktrees-sessions-v1";
 async function readSource(profile: string, source: string): Promise<string | null> {
   const path = join(profile, source);
   try {
+    let parent = profile;
+    for (const component of source.split("/").slice(0, -1)) {
+      parent = join(parent, component);
+      await verifyPrivate(parent, true);
+    }
     await verifyLegacyProfileFile(path);
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
@@ -42,16 +48,19 @@ async function readSource(profile: string, source: string): Promise<string | nul
   );
   try {
     const info = await file.stat();
-    if (!info.isFile() || info.size > 32 * 1024 * 1024)
+    const limit = /^control\/operation-[a-f0-9-]{36}\.json$/u.test(source)
+      ? 16384
+      : 32 * 1024 * 1024;
+    if (!info.isFile() || info.size > limit)
       throw new Error("Legacy data file exceeds the import limit");
-    const bytes = Buffer.alloc(32 * 1024 * 1024 + 1);
+    const bytes = Buffer.alloc(limit + 1);
     let bytesRead = 0;
     while (bytesRead < bytes.length) {
       const chunk = await file.read(bytes, bytesRead, bytes.length - bytesRead, bytesRead);
       if (chunk.bytesRead === 0) break;
       bytesRead += chunk.bytesRead;
     }
-    if (bytesRead > 32 * 1024 * 1024) throw new Error("Legacy data file exceeds the import limit");
+    if (bytesRead > limit) throw new Error("Legacy data file exceeds the import limit");
     return new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, bytesRead));
   } finally {
     await file.close();
@@ -65,6 +74,8 @@ async function originals(
   profile: string,
   name: string,
   files: readonly string[],
+  required: readonly string[] = files,
+  dynamic = false,
 ): Promise<Originals> {
   if (
     !/^[a-z0-9-]+$/u.test(name) ||
@@ -83,7 +94,7 @@ async function originals(
       !info.isFile() ||
       info.isSymbolicLink() ||
       info.nlink !== 1 ||
-      info.size > 200 * 1024 * 1024 ||
+      info.size > 1024 * 1024 * 1024 ||
       (process.platform !== "win32" &&
         (info.uid !== process.getuid?.() || (info.mode & 0o777) !== 0o400))
     )
@@ -91,12 +102,18 @@ async function originals(
     const value: unknown = JSON.parse(await readFile(file, "utf8"));
     if (
       !record(value) ||
-      Object.keys(value).length !== files.length ||
-      !files.every((file) => value[file] === null || typeof value[file] === "string")
+      (!dynamic && Object.keys(value).length !== files.length) ||
+      !required.every((file) => Object.hasOwn(value, file)) ||
+      !Object.entries(value).every(
+        ([file, text]) =>
+          /^[a-zA-Z0-9_./-]+$/u.test(file) &&
+          !file.split("/").some((part) => !part || part === "." || part === "..") &&
+          (text === null || typeof text === "string"),
+      )
     )
       throw new Error("Invalid recovery snapshot; restore the original files");
     const result: Record<string, string | null> = {};
-    for (const file of files) {
+    for (const file of Object.keys(value)) {
       const text = value[file];
       if (text === null || typeof text === "string") result[file] = text;
     }
@@ -105,7 +122,13 @@ async function originals(
     if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
   }
   const contents: Record<string, string | null> = {};
-  for (const file of files) contents[file] = await readSource(profile, file);
+  let total = 0;
+  for (const file of files) {
+    const text = await readSource(profile, file);
+    total += Buffer.byteLength(text ?? "");
+    if (total > 256 * 1024 * 1024) throw new Error("Legacy group exceeds the import limit");
+    contents[file] = text;
+  }
   const temporary = join(directory, `${randomUUID()}.tmp`);
   const handle = await createPrivateFile(temporary);
   try {
@@ -358,13 +381,33 @@ export function importLegacyGroup(
   database: ProfileDatabase,
   profile: string,
   name: string,
-  files: readonly string[],
+  files: readonly string[] | (() => Promise<readonly string[]>),
   ingest: (db: DataTransaction, input: LegacyOriginals) => unknown,
+  required?: readonly string[],
 ) {
   const next = (importing.get(database) ?? Promise.resolve())
     .catch(() => undefined)
     .then(async () => {
-      const snapshot = await originals(profile, name, files);
+      const previous = await database.read((db) =>
+        db.select().from(tables.imports).where(eq(tables.imports.name, name)).get(),
+      );
+      if (previous) {
+        let publicationPending = false;
+        try {
+          await database.retryPublication();
+        } catch {
+          publicationPending = true;
+        }
+        return { value: { alreadyImported: true, report: previous.report }, publicationPending };
+      }
+      const paths = typeof files === "function" ? await files() : files;
+      const snapshot = await originals(
+        profile,
+        name,
+        paths,
+        required ?? paths,
+        required !== undefined,
+      );
       return database.write((db) => {
         const previous = db
           .select()

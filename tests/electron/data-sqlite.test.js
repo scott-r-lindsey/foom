@@ -231,3 +231,110 @@ test("data SQLite: Environment uses native safeStorage or refuses secrets withou
     assert.equal(result.cipherPresent, true);
   }
 });
+
+test("data SQLite: board and control recovery preserve history without replay or credential restoration", {
+  timeout: deadline(45_000),
+}, async (context) => {
+  const app = await launchApp(context, { fixture: "empty-board" });
+  const result = await app.evaluate(async ({ app }, modulePath) => {
+    const load = process.getBuiltinModule("node:module").createRequire(modulePath);
+    const { ProfileDatabase } = load(modulePath);
+    const api = load("./control.js");
+    const { privateDirectory, atomicPrivate } = load("../../../node-common/private-files.js");
+    const fs = load("node:fs/promises");
+    const path = load("node:path");
+    const { DatabaseSync } = load("node:sqlite");
+    const profile = await fs.mkdtemp(path.join(app.getPath("userData"), "sqlite-control-"));
+    const directory = await privateDirectory(profile);
+    const now = new Date().toISOString();
+    const id = "11111111-1111-4111-8111-111111111111";
+    const record = {
+      actor: {
+        grantedAt: now,
+        generation: "generation",
+        sessionId: "session",
+        repository: "/repo",
+        worktree: "/repo",
+        terminalId: "parent",
+        parentId: null,
+        role: "orchestrator",
+      },
+      key: "a".repeat(64),
+      fingerprint: "b".repeat(64),
+      operation: {
+        operationId: id,
+        action: "prompt",
+        targetId: "child",
+        resultId: null,
+        status: "running",
+        createdAt: now,
+        updatedAt: now,
+        reason: "intent",
+        inputHash: "c".repeat(64),
+      },
+      token: "never-store-this-token",
+    };
+    await atomicPrivate(directory, `operation-${id}.json`, record);
+    await atomicPrivate(directory, "board.json", {
+      version: 1,
+      threads: [
+        {
+          id: "thread",
+          title: "Topic",
+          repository: "historical-repository",
+          to: ["other-repository"],
+          state: "open",
+          createdAt: now,
+          updatedAt: now,
+        },
+      ],
+      posts: [
+        {
+          id: "post",
+          thread: "thread",
+          author: "human",
+          kind: "fyi",
+          text: "Shared history",
+          links: [],
+          timestamp: now,
+        },
+      ],
+      receipts: [],
+    });
+    const db = await ProfileDatabase.open(profile);
+    try {
+      await api.importDatabaseControl(db, profile);
+      let replayRefused = false;
+      try {
+        await api.reserveDatabaseOperation(db, record);
+      } catch {
+        replayRefused = true;
+      }
+      await api.clearDatabaseAudit(db);
+      const raw = new DatabaseSync(path.join(profile, "data/profile.sqlite"));
+      try {
+        const operation = raw.prepare("SELECT status,recovered,data FROM control_operations").get();
+        return {
+          replayRefused,
+          operation,
+          posts: raw.prepare("SELECT * FROM board_posts").all().length,
+          audits: raw.prepare("SELECT * FROM audit_records").all().length,
+          unchanged:
+            JSON.parse(await fs.readFile(path.join(directory, `operation-${id}.json`), "utf8"))
+              .operation.status === "running",
+        };
+      } finally {
+        raw.close();
+      }
+    } finally {
+      await db.close();
+    }
+  }, path.resolve("build/main/data/sqlite/database.js"));
+  assert.equal(result.replayRefused, true);
+  assert.equal(result.unchanged, true);
+  assert.equal(result.operation.status, "indeterminate");
+  assert.equal(result.operation.recovered, 1);
+  assert.equal(result.operation.data.includes("never-store-this-token"), false);
+  assert.equal(result.posts, 1);
+  assert.equal(result.audits, 0);
+});

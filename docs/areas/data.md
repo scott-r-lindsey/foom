@@ -316,3 +316,45 @@ keychain refuses the atomic import for retry; malformed rows are quarantined.
 No secret plaintext, cipher bytes or values enter change logs or reports. Domain
 scope removal deletes intended variables before the scope. JSON remains the
 production owner and all launch-time environment validation remains required.
+
+### Board, forge, offers and history preparation
+
+The control/history migration adds normalized threads, append-only posts,
+recipients, idempotency receipts and explicit current-repository bindings. Receipt
+post/thread identity is a composite RESTRICT FK. Historical repository, actor and
+session IDs remain immutable snapshots rather than fabricated live parents;
+current bindings reference only known saved registrations. The shared existing
+Board parser validates imports and domain writes. Trusted author selection and
+live role checks remain in the existing service. Child-history expiry deletes
+intended receipts/posts/bindings before threads; it never deletes Git worktrees.
+
+Forge observations retain validated checkout/provider claims with host, repository
+and managed-worktree FKs. Forget-host removes its dependent observations and setup
+rows without remote effects. Generic offers, probe disclosures and fingerprinted
+hook-health observations retain their existing meanings, never installation or
+launch authority. Repository setup approvals bind the registration incarnation
+with a composite FK; plans, catalog/source hashes and observations retain their
+existing validators and must be revalidated by their owner before use.
+
+Control intent is reserved and audited in one transaction, with hashed
+idempotency keys and fingerprints. Duplicate reservations return `created: false`;
+conflicting/recovered records cannot authorize effects. Imported interrupted
+operations become indeterminate reconciliation history. No credentials, grants,
+prompts, key values, screens or replay handlers are restored. The existing audit
+whitelist/redactor is reused. Clearing audit removes links/history while retaining
+operation state; retiring an operation removes its links first. Audit retention
+keeps the existing 30-day/50-MiB bound. Verdict feedback has a RESTRICT verdict FK
+and a unique next-action row. Historical verdicts never populate a live owner's
+pending-feedback slot. Host diagnostic projections keep only fixed causes,
+commands and numeric health fields, omitting raw stderr and terminal content.
+
+The importer discovers only bounded, named profile files, excluding discovery
+credentials and external agent/config directories. Dynamic operation/health file
+manifests are frozen with their original text before the atomic group import;
+crash retries use that frozen manifest even if production files changed. Completed
+imports return without rescanning mutable sources. Restarted subscriptions begin
+from current snapshots and the existing durable high-water cursor, so old change
+rows are not replayed as new writes. All these paths remain explicit preparation:
+JSON, existing service authorization and existing production readers/writers stay
+in place. Current phase-B view dependencies are invalidated after commit; history
+without a current phase-B view remains in the internal change log for its owner.

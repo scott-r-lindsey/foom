@@ -163,6 +163,12 @@ export function executeDataCommand(database: ProfileDatabase, command: DataComma
         break;
       case "forget-host": {
         if (!hostAlias(command.host)) throw new Error("Invalid host alias");
+        db.delete(tables.forgeObservations)
+          .where(eq(tables.forgeObservations.host, command.host))
+          .run();
+        db.delete(tables.repositoryObservations)
+          .where(eq(tables.repositoryObservations.host, command.host))
+          .run();
         const ids = db
           .select({ id: tables.sessions.id })
           .from(tables.sessions)

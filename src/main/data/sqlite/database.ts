@@ -26,6 +26,22 @@ const views: Readonly<Record<string, readonly DataView[]>> = {
   pending_removals: ["worktrees"],
   worktree_parents: ["worktrees"],
   quarantine: [],
+  board_threads: [],
+  board_posts: [],
+  board_recipients: [],
+  board_bindings: [],
+  board_receipts: [],
+  forge_observations: ["worktrees", "sessions"],
+  offers: ["agents"],
+  agent_health: ["agents"],
+  control_operations: [],
+  audit_records: [],
+  operation_audit_links: [],
+  verdict_records: ["sessions"],
+  verdict_actions: ["sessions"],
+  repository_approvals: ["readiness", "repositories"],
+  repository_observations: ["readiness", "repositories", "hosts"],
+  terminal_diagnostics: [],
   profile_settings: ["settings", "hosts", "agents", "readiness"],
   agent_consents: ["settings", "agents"],
   profile_metadata: ["config", "settings"],
@@ -91,6 +107,13 @@ export class ProfileDatabase {
       const database = new ProfileDatabase(connection, publications);
       database.migrate();
       database.verify();
+      // Restarted subscriptions begin with current snapshots, not historical pushes.
+      const revision = connection
+        .prepare("SELECT COALESCE(MAX(revision),0) AS revision FROM _changes")
+        .get()?.["revision"];
+      if (typeof revision !== "number" || !Number.isSafeInteger(revision) || revision < 0)
+        throw new Error("Unsupported profile revision cursor");
+      database.cursor = revision;
       return database;
     } catch (error) {
       connection.close();

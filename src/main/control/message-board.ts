@@ -131,103 +131,7 @@ export class MessageBoard {
     return board;
   }
   private restore(value: unknown): void {
-    const data = object(value);
-    exact(data, ["version", "threads", "posts", "receipts"]);
-    if (
-      data["version"] !== 1 ||
-      !Array.isArray(data["threads"]) ||
-      !Array.isArray(data["posts"]) ||
-      !Array.isArray(data["receipts"])
-    )
-      throw new ControlError("unavailable");
-    const timestamp = (value: unknown) => {
-      if (
-        typeof value !== "string" ||
-        !Number.isFinite(Date.parse(value)) ||
-        new Date(value).toISOString() !== value
-      )
-        throw new ControlError("unavailable");
-      return value;
-    };
-    const threads = data["threads"].map((value: unknown): MessageThread => {
-      const row = object(value);
-      exact(row, ["id", "title", "repository", "to", "state", "createdAt", "updatedAt", "child"]);
-      const input = boardPost({
-        to: row["to"],
-        title: row["title"],
-        kind: "fyi",
-        text: "validate",
-        idempotencyKey: "restore",
-      });
-      return {
-        ...(row["child"] === undefined
-          ? {}
-          : {
-              child: (() => {
-                const child = object(row["child"]);
-                exact(child, ["id", "worktreeId", "removedAt"]);
-                return {
-                  id: identifier(child["id"]),
-                  worktreeId: identifier(child["worktreeId"]),
-                  ...(child["removedAt"] === undefined
-                    ? {}
-                    : { removedAt: timestamp(child["removedAt"]) }),
-                };
-              })(),
-            }),
-        id: identifier(row["id"]),
-        title: boardText(row["title"], 200),
-        repository: identifier(row["repository"]),
-        to: input.to ?? [],
-        state: threadState(row["state"]),
-        createdAt: timestamp(row["createdAt"]),
-        updatedAt: timestamp(row["updatedAt"]),
-      };
-    });
-    const posts = data["posts"].map((value: unknown): MessagePost => {
-      const row = object(value);
-      exact(row, ["id", "thread", "author", "kind", "text", "links", "timestamp"]);
-      const author = this.author(row["author"]);
-      const thread = identifier(row["thread"]);
-      if (!threads.some((row) => row.id === thread)) throw new ControlError("unavailable");
-      return {
-        id: identifier(row["id"]),
-        thread,
-        author,
-        kind: postKind(row["kind"]),
-        text: boardText(row["text"]),
-        links: boardLinks(row["links"]),
-        timestamp: timestamp(row["timestamp"]),
-      };
-    });
-    const receipts = data["receipts"].map((value: unknown): Receipt => {
-      const row = object(value);
-      exact(row, ["scope", "key", "hash", "result"]);
-      const result = object(row["result"]);
-      exact(result, ["thread", "post"]);
-      return {
-        scope: boardText(row["scope"], 512),
-        key: identifier(row["key"]),
-        hash: identifier(row["hash"]),
-        result: {
-          thread: identifier(result["thread"]),
-          post: result["post"] === null ? null : identifier(result["post"]),
-        },
-      };
-    });
-    if (
-      new Set(threads.map((row) => row.id)).size !== threads.length ||
-      new Set(posts.map((row) => row.id)).size !== posts.length ||
-      new Set(receipts.map((row) => `${row.scope}:${row.key}`)).size !== receipts.length
-    )
-      throw new ControlError("unavailable");
-    this.data = { version: 1, threads, posts, receipts };
-  }
-  private author(value: unknown): MessagePost["author"] {
-    if (value === "human") return value;
-    if (typeof value !== "string" || !value.startsWith("orchestrator:"))
-      throw new ControlError("invalid_request");
-    return `orchestrator:${identifier(value.slice(13))}`;
+    this.data = parseMessageBoard(value);
   }
   private visible(thread: MessageThread, repository?: string): boolean {
     return (
@@ -316,7 +220,7 @@ export class MessageBoard {
     child?: MessageThread["child"],
   ): Promise<BoardMutation> {
     const input = boardPost(value);
-    const identity = this.author(author);
+    const identity = boardAuthor(author);
     const repository = identity === "human" ? undefined : identity.slice(13);
     return this.mutate(scope, input.idempotencyKey, [identity, input], active, (data) => {
       const now = new Date().toISOString();
@@ -570,4 +474,104 @@ export class MessageBoard {
     this.writes = task.catch(() => undefined);
     return task;
   }
+}
+
+export function parseMessageBoard(value: unknown): Data {
+  const data = object(value);
+  exact(data, ["version", "threads", "posts", "receipts"]);
+  if (
+    data["version"] !== 1 ||
+    !Array.isArray(data["threads"]) ||
+    !Array.isArray(data["posts"]) ||
+    !Array.isArray(data["receipts"])
+  )
+    throw new ControlError("unavailable");
+  const timestamp = (value: unknown) => {
+    if (
+      typeof value !== "string" ||
+      !Number.isFinite(Date.parse(value)) ||
+      new Date(value).toISOString() !== value
+    )
+      throw new ControlError("unavailable");
+    return value;
+  };
+  const threads = data["threads"].map((value: unknown): MessageThread => {
+    const row = object(value);
+    exact(row, ["id", "title", "repository", "to", "state", "createdAt", "updatedAt", "child"]);
+    const input = boardPost({
+      to: row["to"],
+      title: row["title"],
+      kind: "fyi",
+      text: "validate",
+      idempotencyKey: "restore",
+    });
+    return {
+      ...(row["child"] === undefined
+        ? {}
+        : {
+            child: (() => {
+              const child = object(row["child"]);
+              exact(child, ["id", "worktreeId", "removedAt"]);
+              return {
+                id: identifier(child["id"]),
+                worktreeId: identifier(child["worktreeId"]),
+                ...(child["removedAt"] === undefined
+                  ? {}
+                  : { removedAt: timestamp(child["removedAt"]) }),
+              };
+            })(),
+          }),
+      id: identifier(row["id"]),
+      title: boardText(row["title"], 200),
+      repository: identifier(row["repository"]),
+      to: input.to ?? [],
+      state: threadState(row["state"]),
+      createdAt: timestamp(row["createdAt"]),
+      updatedAt: timestamp(row["updatedAt"]),
+    };
+  });
+  const posts = data["posts"].map((value: unknown): MessagePost => {
+    const row = object(value);
+    exact(row, ["id", "thread", "author", "kind", "text", "links", "timestamp"]);
+    const author = boardAuthor(row["author"]);
+    const thread = identifier(row["thread"]);
+    if (!threads.some((row) => row.id === thread)) throw new ControlError("unavailable");
+    return {
+      id: identifier(row["id"]),
+      thread,
+      author,
+      kind: postKind(row["kind"]),
+      text: boardText(row["text"]),
+      links: boardLinks(row["links"]),
+      timestamp: timestamp(row["timestamp"]),
+    };
+  });
+  const receipts = data["receipts"].map((value: unknown): Receipt => {
+    const row = object(value);
+    exact(row, ["scope", "key", "hash", "result"]);
+    const result = object(row["result"]);
+    exact(result, ["thread", "post"]);
+    return {
+      scope: boardText(row["scope"], 512),
+      key: identifier(row["key"]),
+      hash: identifier(row["hash"]),
+      result: {
+        thread: identifier(result["thread"]),
+        post: result["post"] === null ? null : identifier(result["post"]),
+      },
+    };
+  });
+  if (
+    new Set(threads.map((row) => row.id)).size !== threads.length ||
+    new Set(posts.map((row) => row.id)).size !== posts.length ||
+    new Set(receipts.map((row) => `${row.scope}:${row.key}`)).size !== receipts.length
+  )
+    throw new ControlError("unavailable");
+  return { version: 1, threads, posts, receipts };
+}
+function boardAuthor(value: unknown): MessagePost["author"] {
+  if (value === "human") return value;
+  if (typeof value !== "string" || !value.startsWith("orchestrator:"))
+    throw new ControlError("invalid_request");
+  return `orchestrator:${identifier(value.slice(13))}`;
 }
