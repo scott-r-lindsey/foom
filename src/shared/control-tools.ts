@@ -68,7 +68,7 @@ const previews = [
   {
     name: "open_preview",
     description:
-      "Show the user a rendered preview of a Markdown or HTML file in your worktree, in a Foom tile beside the terminals. Use it when you've written something the user should look at, like a mockup or a doc. Path is relative to your worktree. Opening the same file again returns the existing preview. Never takes focus.",
+      "Show the user a rendered preview of a Markdown, HTML, PNG, JPEG or WebP file in your worktree, in a Foom tile beside the terminals. Use it when you've written something the user should look at, like a mockup or a doc. Path is relative to your worktree. Opening the same file again returns the existing preview. Never takes focus.",
     properties: { path: { type: "string", maxLength: 1024 } },
     required: ["path"],
   },

@@ -24,7 +24,7 @@ Not verified: real models deciding on their own to call the tool (§5), Claude C
 
 | Tool | Input | Result | Errors |
 |---|---|---|---|
-| `open_preview` | `path`: string, ≤1024 bytes, relative to the caller's worktree (an absolute path is accepted only if it is inside) | `{ previewId, path, kind: "markdown" \| "html", placement: "landing" \| "empty" \| "column" \| "replace" \| "sidebar" \| "existing", reused }` | `invalid_request` (malformed, unsupported type, too large), `forbidden` (outside the worktree, hidden name, symlink escape, not a regular file), `not_found` (missing file), `capacity` (count or rate), `unavailable` |
+| `open_preview` | `path`: string, ≤1024 bytes, relative to the caller's worktree (an absolute path is accepted only if it is inside) | `{ previewId, path, kind: "markdown" \| "html" \| "image", placement: "landing" \| "empty" \| "column" \| "replace" \| "sidebar" \| "existing", reused }` | `invalid_request` (malformed, unsupported type, too large), `forbidden` (outside the worktree, hidden name, symlink escape, not a regular file), `not_found` (missing file), `capacity` (count or rate), `unavailable` |
 | `list_previews` | none | `{ previews: [{ previewId, path, kind, visible }] }`, the caller's own only | — |
 | `close_preview` | `previewId` | `{ previewId, closed: true }` | `not_found` for unknown **and** foreign IDs |
 
@@ -38,7 +38,7 @@ Annotations: `open_preview` and `close_preview` set `readOnlyHint: false`, becau
 
 ## 2. Authority
 
-- **The worktree comes from main, never from the caller.** The principal's worktree is bound at launch. An extra `worktree` argument is `invalid_request`: the schema has `additionalProperties: false` and the broker rejects unknown fields, through both adapters. Containment reuses #221's `openInside`: real paths, byte-exact prefix, no hidden segments even after a symlink, regular files only. Only `.md`, `.markdown`, `.html` and `.htm` can be opened; assets such as CSS and images load through the preview's own handler.
+- **The worktree comes from main, never from the caller.** The principal's worktree is bound at launch. An extra `worktree` argument is `invalid_request`: the schema has `additionalProperties: false` and the broker rejects unknown fields, through both adapters. Containment reuses #221's `openInside`: real paths, byte-exact prefix, no hidden segments even after a symlink, regular files only. Only `.md`, `.markdown`, `.html`, `.htm`, `.png`, `.jpg`, `.jpeg` and `.webp` can be opened; assets such as CSS and images load through the preview's own handler.
 - **Ownership.** Previews belong to the principal generation that opened them. Two agents opening the same file get separate previews. Each lists and closes only its own; a foreign ID is indistinguishable from an unknown one (tested).
 - **Orchestrators and children.** Both are ordinary principals for this purpose. An orchestrator previews files in its own checkout, the main checkout. A child previews files in its own worktree. An orchestrator cannot open or close a child's previews in the first version. If that's wanted later, it needs its own rule (own children's worktrees only), like `tail`.
 - **Exit, takeover, revocation.** Ownership ends and the previews stay: they become the human's. The agent can no longer list or close them, and a later grant (new launch, resume) does not inherit them. After exit, `list_previews` returns 401 (`cli-fallback.json`). Takeover of a child releases its previews the same way.
@@ -124,8 +124,8 @@ No real CLIs were run locally for #299. Auto permission mode is not established.
 
 **Interactive Claude Code connects MCP after the first turn starts.** The first model request carried no Foom tools, only `WaitForMcpServers`; the tools appeared after the model called it ("ready: true"). A real model asked to show something at once may not see `open_preview` on that turn. Claude Code may also defer MCP tools behind tool search, in which case the model sees only the tool's name and the server instructions until it searches. That happens in this very Claude Code session, launched by Foom with installed version 2.1.296. So the name and the server instructions matter more than the description. Proposed additions:
 
-- Server instructions for every agent: "To show the user a Markdown or HTML file you wrote, call open_preview with its path. It never takes focus."
-- `open_preview`'s description, as used in the spike: "Show the user a rendered preview of a Markdown or HTML file in your worktree, in a Foom tile beside the terminals. Use it when you've written something the user should look at, like a mockup or a doc. Path is relative to your worktree. Opening the same file again returns the existing preview. Never takes focus."
+- Server instructions for every agent: "To show the user a Markdown, HTML, PNG, JPEG or WebP file you wrote, call open_preview with its path. It never takes focus."
+- `open_preview`'s description, as used in the spike: "Show the user a rendered preview of a Markdown, HTML, PNG, JPEG or WebP file in your worktree, in a Foom tile beside the terminals. Use it when you've written something the user should look at, like a mockup or a doc. Path is relative to your worktree. Opening the same file again returns the existing preview. Never takes focus."
 
 ### Real-model discovery results (pending after merge)
 
@@ -155,7 +155,7 @@ Same exit codes as today: 0 success, 2 usage or schema, 3 auth or scope, 4 capac
 
 1. Three methods on `ControlService` (`open_preview`, `list_previews`, `close_preview`), exposed through MCP and the console, for `agent` and `orchestrator` principals only; `whoami` lists them.
 2. A main-process preview broker in front of #221's preview registry:
-   - Paths resolve in the principal's launch-bound worktree with #221's containment. Only `.md`, `.markdown`, `.html` and `.htm` can be opened.
+   - Paths resolve in the principal's launch-bound worktree with #221's containment. Only `.md`, `.markdown`, `.html`, `.htm`, `.png`, `.jpg`, `.jpeg` and `.webp` can be opened.
    - Ownership is per principal generation. Revocation, exit or takeover hands previews to the human, and worktree removal closes them.
    - Placement: landing spot, then first empty space, then the same far-right column growth and minimum-width fallback as a new terminal (#421). Preserve the focused tile and keyboard focus.
    - Limits: 4 previews per agent, 12 per instance, and calls of 6 in a burst then 1 every 10 s. Refuse; never evict. A human close sticks for that agent and path.

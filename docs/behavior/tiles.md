@@ -97,7 +97,7 @@ Terminals and previews are numbered, in tree order, including sidebar numbers an
 shortcuts. The focused tile's number is highlighted. Tile presets are unavailable;
 Directional Split and Grow, gutters and Tidy arrange the layout.
 
-Preview title bars show a document glyph, MD or HTML badge, relative path, tile menu,
+Preview title bars show a document glyph, MD, HTML or IMG badge, relative path, tile menu,
 Maximize/Restore, Reload and Close. The tile menu offers Allow network… when off, and Block network when on; its facts show Network Off or On, and the title bar marks enabled network. Allow network asks in the trusted confirmation window: "This page can send files from this worktree to the internet". Permission belongs to that preview, permits HTTPS and secure WebSockets, and resets on restart or when moved to another window. A move resets network to Off because permission was granted in the original window’s trusted dialog context. Plain HTTP stays blocked. External link requests always ask in the trusted window, showing the full URL, even when page script requested them without a click. Only HTTPS, HTTP and mailto links are eligible. Each preview has at most one pending confirmation; requests received while one is pending are dropped. Declining opens nothing.
 
 Preview headers have a keyboard-reachable **Reload** icon beside Close. It is faint at
@@ -301,3 +301,7 @@ cleanup may be incomplete** in the sidebar and session panel, and the usual acti
 failure dialog. Closing sessions cannot receive input, restart, or close twice;
 launches in their checkout are refused until cleanup settles. An interrupted Close
 appears as a failed row after restart for inspection and another explicit attempt.
+
+Image previews open PNG, JPEG and WebP in Fit mode. Choose Actual size to scroll
+the image at its natural dimensions. The light or dark frame never recolors the
+image. Corrupt or oversized images and SVG entries are refused.

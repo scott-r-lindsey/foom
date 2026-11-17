@@ -1,3 +1,4 @@
+import { IMAGE_CSP, imagePage, validImage } from "./image";
 import { app, session, WebContentsView } from "electron";
 import type { PreviewRecord } from "../../shared/previews";
 import { readPreview, type CanonicalRoot } from "./contained-files";
@@ -41,6 +42,29 @@ export function createPartition(
     if (asset)
       return new Response(new Uint8Array(asset.body), { headers: responseHeaders(asset.type) });
     const result = await readPreview(root, request.url, origin, watcher.recorder(), record.network);
+    if (
+      result.status === 200 &&
+      /\.(png|jpe?g|webp)$/i.test(record.relativePath) &&
+      new URL(request.url).pathname ===
+        `/${record.relativePath.split("/").map(encodeURIComponent).join("/")}`
+    ) {
+      const valid =
+        /^image\/(png|jpeg|webp)$/.test(result.type) &&
+        (await validImage(result.body, result.type));
+      return new Response(
+        valid
+          ? imagePage(result.body, result.type)
+          : "Invalid or oversized image. PNG, JPEG and WebP only (16 MiB, 16 million pixels).",
+        {
+          status: valid ? 200 : 400,
+          headers: {
+            ...result.headers,
+            "content-type": "text/html; charset=utf-8",
+            "content-security-policy": IMAGE_CSP,
+          },
+        },
+      );
+    }
     if (result.status === 200 && result.type.startsWith("text/markdown")) {
       return new Response(markdownPage(result.body.toString("utf8")), {
         headers: {

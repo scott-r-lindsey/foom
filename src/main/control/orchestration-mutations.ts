@@ -746,6 +746,7 @@ export class OrchestrationMutations extends OrchestrationAuthority {
                       "worktree-main": "main_checkout",
                       "worktree-prunable": "prunable",
                       "worktree-removal-incomplete": "git_failed",
+                      "preview-image-invalid": "git_failed",
                       "operation-failed": "git_failed",
                       "launch-cancel-incomplete": "git_failed",
                       "remote-host-unavailable": "git_failed",

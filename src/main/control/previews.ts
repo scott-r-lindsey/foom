@@ -2,7 +2,7 @@ import type { PreviewOpenAction } from "../../shared/previews";
 import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { canonicalRoot, openInside, type CanonicalRoot } from "../previews/contained-files";
+import { canonicalRoot, openDocument, type CanonicalRoot } from "../previews/contained-files";
 import type { Principal } from "./types";
 import { ControlError, exact, object } from "../../shared/control-validation";
 
@@ -16,7 +16,7 @@ export interface AgentPreview {
   worktree: string;
   real: string;
   path: string;
-  kind: "markdown" | "html";
+  kind: "markdown" | "html" | "image";
 }
 export interface PreviewAudit {
   session: string;
@@ -89,8 +89,9 @@ export class PreviewBroker {
       path.isAbsolute(relative)
     )
       throw new ControlError("forbidden");
-    if (!/\.(md|markdown|html|htm)$/i.test(relative)) throw new ControlError("invalid_request");
-    const opened = await openInside(
+    if (!/\.(md|markdown|html|htm|png|jpe?g|webp)$/i.test(relative))
+      throw new ControlError("invalid_request");
+    const opened = await openDocument(
       root,
       `/${relative.split(path.sep).map(encodeURIComponent).join("/")}`,
     );
@@ -98,11 +99,12 @@ export class PreviewBroker {
       throw new ControlError(
         opened.status === 404
           ? "not_found"
-          : opened.status === 413
+          : opened.status === 413 ||
+              opened.reason === "invalid-image" ||
+              opened.reason === "unsupported-type"
             ? "invalid_request"
             : "forbidden",
       );
-    await opened.handle.close();
     // A document-looking directory and a symlink onto an unsupported type are not documents.
     try {
       if (!fs.statSync(path.resolve(root.path, relative)).isFile())
@@ -111,11 +113,16 @@ export class PreviewBroker {
       if (error instanceof ControlError) throw error;
       throw new ControlError("not_found");
     }
-    if (!/\.(md|markdown|html|htm)$/i.test(opened.real)) throw new ControlError("invalid_request");
+    if (!/\.(md|markdown|html|htm|png|jpe?g|webp)$/i.test(opened.real))
+      throw new ControlError("invalid_request");
     return {
       real: opened.real,
       path: opened.relative.split(path.sep).join("/"),
-      kind: /\.(md|markdown)$/i.test(opened.real) ? ("markdown" as const) : ("html" as const),
+      kind: /\.(md|markdown)$/i.test(opened.real)
+        ? ("markdown" as const)
+        : /\.(png|jpe?g|webp)$/i.test(opened.real)
+          ? ("image" as const)
+          : ("html" as const),
     };
   }
   private async record(

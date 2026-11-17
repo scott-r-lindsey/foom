@@ -204,7 +204,13 @@ export function TileMenu({
                   </>
                 )}
                 <dt>Kind</dt>
-                <dd>{preview.kind === "markdown" ? "Markdown" : "HTML"}</dd>
+                <dd>
+                  {preview.kind === "markdown"
+                    ? "Markdown"
+                    : preview.kind === "image"
+                      ? "Image"
+                      : "HTML"}
+                </dd>
                 <dt>Network</dt>
                 <dd>{preview.network ? "On" : "Off"}</dd>
               </>

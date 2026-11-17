@@ -48,8 +48,10 @@ Only the verified descriptor supplies bytes; reads are bounded by its checked
 size (16 MiB, or 2 MiB for Markdown) and handles close even on read failure.
 `openInside` transfers `FileHandle` ownership to its caller, which must close it.
 The protocol handler awaits contained opens and bounded descriptor reads so slow
-filesystem operations yield the main event loop. Opening a preview validates and
-closes the contained handle without reading its body; the protocol reads it on load.
+filesystem operations yield the main event loop. Opening a document validates and
+closes the contained handle without reading its body;
+image entries also read and fully decode the bounded bytes before opening. The protocol
+revalidates image bytes on load.
 
 Malformed paths return 400, escapes/hidden targets/non-files 403, missing or
 unreadable files 404, and oversized files 413. Types use a fixed extension map,
@@ -311,3 +313,23 @@ and Escape clears. Empty queries and unmatched queries show no results or helper
 copy. Search stays inside the offline page with no bridge or host changes.
 Guide prose cites its source docs in HTML comments; update it with behavior
 changes. The guide is never written into a repository or user profile.
+
+## Raster image entries (#1207)
+
+The picker, CLI and MCP accept PNG (`.png`), JPEG (`.jpg`, `.jpeg`) and WebP
+(`.webp`) alongside Markdown and HTML. Images retain the same worktree confinement,
+symlink checks and 16 MiB descriptor-read bound. Signatures must match the named
+format and Sharp must fully decode successfully with a 16 million pixel limit
+(including animation frames). Corrupt, mismatched or excessive images refuse with
+`invalid-image`; byte limits refuse with `too-large`. The picker maps these to
+the fixed `preview-image-invalid` application error, explaining formats and limits. SVG entries are explicitly
+unsupported, including aliases onto SVG targets. Cross-worktree access is outside
+this issue's scope.
+
+The isolated partition wraps image entries in a script-free page with an inert
+base64 `<img>`. Its fixed CSP permits only data images, inline fixed styles and
+same-origin bundled fonts; network permission cannot widen this response policy.
+No file bytes become markup, selectors or CSS. The board CSP and asset allowlist
+are unchanged. Fit is the default; Actual size enables scrolling at natural image
+size. Light and dark native themes change only the surrounding frame. Tile and
+sidebar metadata report kind `image` and the neutral IMG badge.

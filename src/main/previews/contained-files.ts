@@ -1,3 +1,4 @@
+import { validImage } from "./image";
 import fs from "node:fs";
 import type { FileHandle } from "node:fs/promises";
 import path from "node:path";
@@ -135,6 +136,10 @@ export async function readInside(
 ): Promise<ReadFile | Refusal> {
   const opened = await openInside(root, pathname, recordMissing);
   if (opened.status !== 200) return opened;
+  return readOpened(opened);
+}
+
+async function readOpened(opened: OpenedFile): Promise<ReadFile> {
   try {
     const body = Buffer.alloc(opened.size);
     let offset = 0;
@@ -192,4 +197,30 @@ export function openFlags(constants: {
   O_NONBLOCK?: number;
 }): number {
   return constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0);
+}
+
+/** Entry validation retains the contained descriptor checks and bounds image decoding. */
+export async function openDocument(
+  root: CanonicalRoot,
+  pathname: string,
+): Promise<Omit<OpenedFile, "handle"> | Refusal> {
+  const opened = await openInside(root, pathname);
+  if (opened.status !== 200) return opened;
+  if (/\.(png|jpe?g|webp)$/i.test(pathname) && !/^image\/(png|jpeg|webp)$/.test(opened.type)) {
+    await opened.handle.close();
+    return { status: 400, reason: "invalid-image" };
+  }
+  if (!/^(text\/(html|markdown);|image\/(png|jpeg|webp)$)/.test(opened.type)) {
+    await opened.handle.close();
+    return { status: 400, reason: "unsupported-type" };
+  }
+  if (/^image\/(png|jpeg|webp)$/.test(opened.type)) {
+    const image = await readOpened(opened);
+    if (!(await validImage(image.body, image.type)))
+      return { status: 400, reason: "invalid-image" };
+    return image;
+  }
+  const { handle, ...metadata } = opened;
+  await handle.close();
+  return metadata;
 }

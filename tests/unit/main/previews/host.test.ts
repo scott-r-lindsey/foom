@@ -404,3 +404,28 @@ test("concurrent manual opens reuse one record and disposal cancels pending open
   await refused;
   expect(pending.registry.records.size).toBe(0);
 });
+
+test("image entry protocol stays inert even with network enabled and refuses changed corrupt bytes", async () => {
+  const sharp = (await import("sharp")).default;
+  const f = await fixture();
+  const body = await sharp({ create: { width: 8, height: 8, channels: 3, background: "white" } })
+    .png()
+    .toBuffer();
+  await writeFile(join(f.root, "image.png"), body);
+  const id = await f.host.open(f.root, "image.png");
+  const serve = partition.protocol.handle.mock.calls.at(-1)?.[1];
+  if (!serve) throw new Error("Missing protocol");
+  const record = f.host.registry.records.get(id);
+  if (!record) throw new Error("Missing record");
+  record.network = true;
+  const response = await serve({ url: `foom-preview://${id}/image.png` });
+  expect(response.status).toBe(200);
+  expect(response.headers.get("content-security-policy")).not.toContain("https:");
+  expect(response.headers.get("content-security-policy")).toContain("default-src 'none'");
+  expect(await response.text()).toContain("data:image/png;base64,");
+  await writeFile(join(f.root, "image.png"), "<svg onload='evil()'/>");
+  const corrupt = await serve({ url: `foom-preview://${id}/image.png` });
+  expect(corrupt.status).toBe(400);
+  expect(await corrupt.text()).toContain("Invalid or oversized image");
+  await expect(f.host.open(f.root, "image.png")).rejects.toThrow("preview-image-invalid");
+});

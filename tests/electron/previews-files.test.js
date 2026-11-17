@@ -1,3 +1,4 @@
+const { evidencePath } = require("../helpers/evidence.js");
 const { sizeTileBoard } = require("./tile-fixture.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
 const { test } = require("./test-shard.js");
@@ -237,4 +238,142 @@ test("Markdown previews render hostile documents safely, follow native theme and
   assert.equal(await read('document.querySelector(".hljs-keyword")?.textContent'), "const");
   assert.equal((await previewViewState(app, id)).focused, false);
   await page.evaluate((id) => window.desktop.previews.close(id), id);
+});
+
+test("raster image previews validate content, fit, show actual size and preserve pixels in both themes", async (context) => {
+  const sharp = require("sharp");
+  const app = await launchApp(context, { fixture: "repository" });
+  const page = await boardPage(app);
+  await sizeTileBoard(app, page);
+  const root = (await page.evaluate(() => window.desktop.workspace())).repositories[0].path;
+  const ids = [];
+  for (const format of ["png", "jpeg", "webp"]) {
+    const file = `image.${format}`;
+    // Large enough to exercise fit and scrolling, with a recognizable fixed picture.
+    const svg = Buffer.from(
+      '<svg width="1600" height="1000"><rect width="1600" height="1000" fill="#14101f"/><circle cx="800" cy="500" r="280" fill="#9b6bff"/><circle cx="800" cy="500" r="180" fill="#06050b"/><path d="M200 750L1400 250" stroke="#f4efff" stroke-width="16"/></svg>',
+    );
+    await writeFile(path.join(root, file), await sharp(svg).toFormat(format).toBuffer());
+    await app.evaluate(
+      ({ dialog }, file) => {
+        dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] });
+      },
+      path.join(root, file),
+    );
+    await page.getByRole("button", { name: "Actions for Main checkout", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Preview file…", exact: true }).click();
+    await expect(
+      page.locator('.terminal-tile[data-kind="preview"]').filter({ hasText: file }),
+    ).toBeVisible();
+    const inventory = await page.evaluate(() => window.desktop.sidebarInventory());
+    const id = inventory.previews.find((preview) => preview.relativePath === file)?.id;
+    assert.ok(id);
+    ids.push(id);
+    await expect
+      .poll(() =>
+        previewContents(app, id, 'document.querySelector("img")?.naturalWidth', {
+          requireAttached: true,
+        }),
+      )
+      .toBe(1600);
+    const read = (code) => previewContents(app, id, code, { requireAttached: true });
+    assert.equal(
+      (await page.evaluate((id) => window.desktop.previews.describe(id), id)).kind,
+      "image",
+    );
+    assert.equal(await read("document.scripts.length"), 0);
+    assert.equal(
+      await read(
+        'document.querySelector("img").getBoundingClientRect().width <= document.querySelector("main").clientWidth',
+      ),
+      true,
+    );
+    await read('document.querySelector("#actual").click()');
+    assert.equal(await read('document.querySelector("img").getBoundingClientRect().width'), 1600);
+    assert.equal(
+      await read(
+        'document.querySelector("main").scrollWidth > document.querySelector("main").clientWidth',
+      ),
+      true,
+    );
+    await read('document.querySelector("#fit").click()');
+  }
+  const id = ids[0];
+  const before = await previewContents(app, id, 'document.querySelector("img").src');
+  for (const [mode, background] of [
+    ["light", "rgb(243, 240, 250)"],
+    ["dark", "rgb(5, 4, 10)"],
+  ]) {
+    await page.evaluate(
+      (mode) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${mode}` }),
+      mode,
+    );
+    for (const imageId of ids) {
+      await expect
+        .poll(() =>
+          previewContents(
+            app,
+            imageId,
+            "getComputedStyle(document.documentElement).backgroundColor",
+            { requireAttached: true },
+          ),
+        )
+        .toBe(background);
+      await previewContents(
+        app,
+        imageId,
+        "new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))",
+      );
+    }
+    assert.equal(await previewContents(app, id, 'document.querySelector("img").src'), before);
+    if (process.env.FOOM_SCREENSHOTS === "1" && process.platform === "linux") {
+      await page.waitForFunction(
+        (mode) => document.documentElement.style.colorScheme === mode,
+        mode,
+      );
+      await page.evaluate(
+        () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+      );
+      const handle = await app.evaluate(({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows()
+          .find((board) => board.webContents.getURL() === "app://bundle/index.html")
+          .getNativeWindowHandle()
+          .readUInt32LE(),
+      );
+      const sample = await app.evaluate(async ({ BrowserWindow, webContents }, id) => {
+        const contents = webContents
+          .getAllWebContents()
+          .find((entry) => entry.getURL().startsWith(`foom-preview://${id}/`));
+        const board = BrowserWindow.getAllWindows().find(
+          (board) => board.webContents.getURL() === "app://bundle/index.html",
+        );
+        const view = board.contentView.children.find((view) => view.webContents === contents);
+        const bounds = view.getBounds();
+        const point = await contents.executeJavaScript(
+          `(() => { const rect = document.querySelector("img").getBoundingClientRect(); return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 4 }; })()`,
+        );
+        return { x: Math.floor(bounds.x + point.x), y: Math.floor(bounds.y + point.y) };
+      }, id);
+      await expect
+        .poll(async () => {
+          const file = evidencePath(`1207-images-${mode}.png`);
+          require("node:child_process").execFileSync("import", ["-window", String(handle), file]);
+          const { data, info } = await sharp(file)
+            .removeAlpha()
+            .raw()
+            .toBuffer({ resolveWithObject: true });
+          const offset = (sample.y * info.width + sample.x) * info.channels;
+          return [...data.subarray(offset, offset + 3)];
+        })
+        .toEqual([155, 107, 255]);
+    }
+  }
+  for (const file of ["fake.png", "unsafe.svg"]) {
+    await writeFile(
+      path.join(root, file),
+      '<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"/>',
+    );
+    await assert.rejects(() => pickPreviewFile(app, page, root, file));
+  }
+  for (const id of ids) await page.evaluate((id) => window.desktop.previews.close(id), id);
 });
