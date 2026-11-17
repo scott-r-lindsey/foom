@@ -18,10 +18,13 @@ function findings(report) {
     !object(report.metadata?.vulnerabilities)
   )
     fail("Audit failed: invalid audit report.");
-  const counts = Object.values(report.metadata.vulnerabilities);
+  const severities = ["info", "low", "moderate", "high", "critical"];
+  const counted = report.metadata.vulnerabilities;
+  const counts = severities.map((severity) => counted[severity]);
   const entries = Object.values(report.advisories);
   if (
-    counts.length !== 5 ||
+    Object.keys(counted).length !== severities.length ||
+    !severities.every((severity) => Object.hasOwn(counted, severity)) ||
     !counts.every((count) => Number.isSafeInteger(count) && count >= 0) ||
     counts.reduce((sum, count) => sum + count, 0) !== entries.length
   )

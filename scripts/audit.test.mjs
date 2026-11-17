@@ -109,6 +109,18 @@ test("malformed audit reports never hide advisories or registry errors", () => {
     finding(report)[field] = value;
     assert.throws(() => check(report), /invalid audit report/);
   }
+  for (const source of [all, prod]) {
+    const renamed = structuredClone(source);
+    const { high, ...rest } = renamed.metadata.vulnerabilities;
+    renamed.metadata.vulnerabilities = { ...rest, unrecognized: high };
+    const extra = structuredClone(source);
+    extra.metadata.vulnerabilities.unrecognized = 0;
+    for (const report of [renamed, extra])
+      assert.throws(
+        () => (source === all ? check(report) : check(all, report)),
+        /invalid audit report/,
+      );
+  }
 });
 
 test("audit command uses argument arrays, low threshold, JSON and explicit production scope", () => {
