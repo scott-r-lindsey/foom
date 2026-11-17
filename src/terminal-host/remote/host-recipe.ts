@@ -92,9 +92,19 @@ export async function runHostRecipe(argv: readonly string[], home = homedir()): 
           maxBuffer: 4096,
           encoding: "utf8",
         });
-        const version = /^gh version (\d+)\.(\d+)\.(\d+)(?:[ \r\n]|$)/u.exec(stdout);
+        const lines = stdout.replace(/\r?\n$/u, "").split(/\r?\n/u);
+        // Six decimal digits bound every component to a small safe integer.
+        // Accept only one complete version line and its optional standard release URL.
+        const version =
+          /^gh version (\d{1,6})\.(\d{1,6})\.(\d{1,6})(?: \([\w .:+~/-]{1,128}\))?$/u.exec(
+            lines[0] ?? "",
+          );
         expiring =
           !!version &&
+          (lines.length === 1 ||
+            (lines.length === 2 &&
+              lines[1] ===
+                `https://github.com/cli/cli/releases/tag/v${version.slice(1, 4).join(".")}`)) &&
           (Number(version[1]) > 2 || (Number(version[1]) === 2 && Number(version[2]) >= 103));
       } catch {
         /* Unknown versions retain the compatible recipe. */

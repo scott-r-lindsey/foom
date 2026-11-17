@@ -375,9 +375,36 @@ test.each([true, false])(
   },
 );
 
-test.each(["2.102.9", "2.103.0", "3.0.0", "1.99.0", "unknown"])(
-  "gh version %s selects only the fixed expiry variant and ignores auth stdin",
-  async (version) => {
+test.each([
+  ["2.102.0", false],
+  ["2.102.9", false],
+  ["2.103.0", true],
+  ["2.103.3 (fixture)", true],
+  ["2.103.3 (2026-11-01)\nhttps://github.com/cli/cli/releases/tag/v2.103.3", true],
+  ["2.103.0 (2026-11-01)\r\nhttps://github.com/cli/cli/releases/tag/v2.103.0\r", true],
+  ["3.0.0", true],
+  ["1.99.0", false],
+  ["unknown", false],
+  [`${"9".repeat(400)}.0.0`, false],
+  ["2.9007199254740992.0", false],
+  ["2.103.9007199254740992", false],
+  ["1000000.0.0", false],
+  ["2.1000000.0", false],
+  ["2.103.1000000", false],
+  ["2.103.0\ngh version 2.102.0", false],
+  ["2.102.0\ngh version 2.103.0", false],
+  ["2.103.0\ngh version 2.103.0", false],
+  ["2.103.0\ngh version malformed", false],
+  ["2.103.0 trailing junk", false],
+  ["2.103.0 (fixture) trailing junk", false],
+  ["2.103.0junk", false],
+  ["2.103.0\ntrailing junk", false],
+  ["2.103.0\nhttps://github.com/cli/cli/releases/tag/v2.102.0", false],
+  ["2.103", false],
+  ["2.-103.0", false],
+])(
+  "gh version %s selects only the fixed expiry variant (expiring: %s) and ignores auth stdin",
+  async (version, expiring) => {
     mock.version.mockImplementation(
       (
         _command: string,
@@ -390,7 +417,7 @@ test.each(["2.102.9", "2.103.0", "3.0.0", "1.99.0", "unknown"])(
     );
     expect(await runHostRecipe(["gh", "sign-in", "debian"], "/fixture/home")).toBe(0);
     const login = mock.spawn.mock.calls[0];
-    expect(login?.[1].includes("--expiring")).toBe(["2.103.0", "3.0.0"].includes(version));
+    expect(login?.[1].includes("--expiring")).toBe(expiring);
     expect(login?.[2]).toMatchObject({ shell: false, stdio: ["ignore", "inherit", "inherit"] });
     expect(mock.spawn.mock.lastCall?.[1]).toEqual([
       "auth",
