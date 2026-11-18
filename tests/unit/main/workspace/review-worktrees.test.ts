@@ -1,3 +1,4 @@
+import { createWorktreeFixture } from "./worktree-git-fixture";
 import { CheckoutHolds } from "../../../../src/main/workspace/worktree-reservations";
 import { reviewExclusions } from "../../../../src/main/workspace/review-worktrees";
 import { writeFileSync } from "node:fs";
@@ -10,7 +11,6 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { WorktreeService } from "../../../../src/main/workspace/worktrees";
 import { git, gitSync } from "../../../helpers/git.js";
 import { nativeDeadline } from "../../../helpers/native-test-policy";
-import { createWorktreeFixture } from "./worktree-git-fixture";
 
 vi.setConfig({ testTimeout: nativeDeadline(10000), hookTimeout: nativeDeadline(10000) });
 const fixtures = createWorktreeFixture();

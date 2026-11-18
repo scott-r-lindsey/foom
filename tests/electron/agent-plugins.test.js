@@ -1,3 +1,4 @@
+const { publishFixtureRecord } = require("./fixture-records.js");
 const { evidencePath } = require("../helpers/evidence.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
 const { test } = require("./test-shard.js");
@@ -37,9 +38,10 @@ test("a manifest-only v2 fixture agent loads from the config folder, reloads edi
   await writeFile(
     script,
     // argv.json is the readiness marker for all three captures, so publish it last.
-    `require("node:fs").writeFileSync(process.env.TEST_ARGV + ".mcp", require("node:fs").readFileSync(process.env.AGENT_CONFIG));
+    `const publish = ${publishFixtureRecord.toString()};
+require("node:fs").writeFileSync(process.env.TEST_ARGV + ".mcp", require("node:fs").readFileSync(process.env.AGENT_CONFIG));
 require("node:fs").writeFileSync(process.env.TEST_ARGV + ".env", process.env.AGENT_CONFIG);
-require("node:fs").writeFileSync(process.env.TEST_ARGV, JSON.stringify(process.argv.slice(2)));
+publish(process.env.TEST_ARGV, JSON.stringify(process.argv.slice(2)));
 process.stdin.on('data', async () => {
   if (!process.env.FOOM_TOKEN) return;
   const payload = { session_id: 'fixture-hook-conversation', hook_event_name: 'PermissionRequest' };
@@ -525,12 +527,13 @@ test("missing agent cards recover on explicit reload and manifest reload without
     preload,
     `
 const fs = require("node:fs");
+const publish = ${publishFixtureRecord.toString()};
 const gate = ${JSON.stringify(gate)};
 if (fs.existsSync(gate)) {
   const watcher = fs.watch(require("node:path").dirname(gate), () => {
     if (!fs.existsSync(gate)) watcher.close();
   });
-  fs.writeFileSync(${JSON.stringify(started)}, String(process.pid));
+  publish(${JSON.stringify(started)}, String(process.pid));
 }
 `,
   );
