@@ -205,7 +205,7 @@ vi.mock("../../../src/main/themes/library", () => ({
     constructor(_root: string, changed: () => void) {
       mock.themeChanged = changed;
     }
-    initialize = async () => {};
+    initialize = () => mock.themeInitialize();
     snapshot = () => mock.catalog;
     dispose = vi.fn();
   },
@@ -216,7 +216,9 @@ vi.mock("../../../src/main/themes/ipc", () => ({ attachThemes: vi.fn(() => vi.fn
 vi.mock("../../../src/main/config/service", () => ({
   ConfigService: class {
     folder = "/home/.foom/config";
-    ready = true;
+    get ready() {
+      return mock.config.ready;
+    }
     constructor(deps: ConfigServiceDependencies) {
       mock.config.deps = deps;
     }
@@ -327,7 +329,7 @@ vi.mock("../../../src/main/setup/environment-ipc", () => ({
 vi.mock("../../../src/main/workspace/workspace", () => ({
   Workspace: class {
     restore = mock.workspace.restore;
-    restartSaved = async () => {};
+    restartSaved = mock.workspace.restartSaved;
     prepareQuit = async () => {};
     cancelQuit = () => {};
     snapshot = () => ({
@@ -564,6 +566,7 @@ const mock = vi.hoisted(() => {
     removed: vi.fn(),
     hook: vi.fn(),
     dispose: vi.fn<() => Promise<void>>(),
+    restartSaved: vi.fn(() => Promise.resolve()),
     configure: vi.fn(),
     addRepository: vi.fn(),
     removeRepository: vi.fn(),
@@ -627,6 +630,7 @@ const mock = vi.hoisted(() => {
     >(() => ipc),
     setup,
     themeChanged: () => {},
+    themeInitialize: vi.fn(() => Promise.resolve()),
     catalog,
     setupIpc: { dispose: vi.fn(), zoom: vi.fn<(direction: string) => Promise<void>>() },
     attachSetup: vi.fn<(...args: unknown[]) => unknown>(),
@@ -639,6 +643,7 @@ const mock = vi.hoisted(() => {
     saveWindowSize: vi.fn<() => Promise<void>>(),
     openSettings: vi.fn<() => Promise<unknown>>(),
     config: {
+      ready: true,
       deps: undefined as ConfigServiceDependencies | undefined,
       initialize: vi.fn<(legacy: unknown) => Promise<unknown>>(),
       activePalette: vi.fn(() => undefined),
@@ -654,6 +659,7 @@ const mock = vi.hoisted(() => {
       legacyConfig: vi.fn<() => ConfigSettings | undefined>(() => ({ terminalFontSize: 16 })),
       configDigest: vi.fn(() => null),
       attachConfig: vi.fn(() => Promise.resolve()),
+      deferConfig: vi.fn(),
       setConfig: vi.fn(),
       themeDigest: vi.fn<(_file: string) => string | null>(() => null),
       setThemeDigest: vi.fn((_file: string, _digest: string | null) => Promise.resolve()),
@@ -863,6 +869,7 @@ beforeEach(() => {
     listRepositories: () => [],
     managesPath: mock.managesPath,
   });
+  mock.config.ready = true;
   mock.config.initialize.mockResolvedValue({});
   mock.setupState.mockResolvedValue({ settings: mock.settingsStore.get() });
   mock.openSettings.mockResolvedValue(mock.settingsStore);
