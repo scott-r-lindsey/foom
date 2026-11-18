@@ -111,6 +111,22 @@ test("trusted quit dialog appears above the board on first show and after hide/s
   const app = await launchApp(context, { fixture: "running-shell" });
   const board = await boardPage(app);
   const dialog = await confirmationPage(app);
+  // Quit may be this hidden renderer's first request. Its default fonts should
+  // already be available when the one-second presentation guard starts.
+  await expect
+    .poll(() =>
+      dialog.evaluate(() => {
+        const faces = Array.from(document.fonts);
+        return Object.entries({ Geist: 13, "Geist Mono": 12 })
+          .filter(
+            ([family, size]) =>
+              faces.some((face) => face.family === family && face.status === "loaded") &&
+              document.fonts.check(`400 ${size}px "${family}"`),
+          )
+          .map(([family]) => family);
+      }),
+    )
+    .toEqual(["Geist", "Geist Mono"]);
   const evidence = [];
   const paintErrors = [];
   for (const phase of ["first", "reused"]) {
