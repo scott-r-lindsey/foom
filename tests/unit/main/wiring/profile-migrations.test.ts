@@ -4,6 +4,7 @@ import {
   mkdtemp,
   readFile,
   realpath,
+  rename,
   rm,
   symlink,
   unlink,
@@ -18,7 +19,12 @@ import { removeRetiredRepositorySetup } from "../../../../src/main/wiring/profil
 vi.mock("../../../../src/node-common/private-file-permissions", () => ({ windowsAcl: vi.fn() }));
 vi.mock("node:fs/promises", async (original) => {
   const fs = await original<typeof FsPromises>();
-  return { ...fs, realpath: vi.fn(fs.realpath), unlink: vi.fn(fs.unlink) };
+  return {
+    ...fs,
+    realpath: vi.fn(fs.realpath),
+    rename: vi.fn(fs.rename),
+    unlink: vi.fn(fs.unlink),
+  };
 });
 
 let profile: string;
@@ -83,13 +89,13 @@ test.skipIf(process.platform === "win32")(
   },
 );
 
-test("a busy state file is preserved and retried on the next launch", async () => {
+test("a busy state file that cannot be renamed is retried on the next launch", async () => {
   const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
   const directory = join(profile, "repository-setup");
   const state = join(directory, "state.json");
   await mkdir(directory, { mode: 0o700 });
   await writeFile(state, '{"version":1,"approvals":[],"rows":[]}', { mode: 0o600 });
-  vi.mocked(unlink).mockRejectedValueOnce(Object.assign(new Error("Busy"), { code: "EBUSY" }));
+  vi.mocked(rename).mockRejectedValueOnce(Object.assign(new Error("Busy"), { code: "EBUSY" }));
 
   await expect(removeRetiredRepositorySetup(profile, shutdown.signal)).resolves.toBeUndefined();
   expect(warn).toHaveBeenCalledWith(expect.stringContaining("Cleanup will retry at startup"));
@@ -98,6 +104,65 @@ test("a busy state file is preserved and retried on the next launch", async () =
   await removeRetiredRepositorySetup(profile, shutdown.signal);
   await expect(readFile(state)).rejects.toMatchObject({ code: "ENOENT" });
   expect(warn).toHaveBeenCalledTimes(1);
+});
+
+test("a replacement at the original pathname survives a pending unlink", async () => {
+  const fs = await vi.importActual<typeof FsPromises>("node:fs/promises");
+  const directory = join(await realpath(profile), "repository-setup");
+  const state = join(directory, "state.json");
+  await mkdir(directory, { mode: 0o700 });
+  await writeFile(state, "retired", { mode: 0o600 });
+
+  const held = Promise.withResolvers<undefined>();
+  const pendingUnlink = vi.fn(async (file: Parameters<typeof unlink>[0]) => {
+    await held.promise;
+    await fs.unlink(file);
+  });
+  vi.mocked(unlink).mockImplementationOnce(pendingUnlink);
+  const cleanup = removeRetiredRepositorySetup(profile, shutdown.signal);
+  let target: string;
+  try {
+    await vi.waitFor(() => {
+      expect(pendingUnlink).toHaveBeenCalledOnce();
+    });
+    const file = pendingUnlink.mock.lastCall?.[0];
+    if (typeof file !== "string") throw new Error("Missing unlink pathname");
+    target = file;
+    expect(target).not.toBe(state);
+    await expect(readFile(target, "utf8")).resolves.toBe("retired");
+    await writeFile(state, "replacement", { flag: "wx", mode: 0o600 });
+  } finally {
+    held.resolve(undefined);
+    await cleanup;
+  }
+  await expect(readFile(state, "utf8")).resolves.toBe("replacement");
+  await expect(readFile(target)).rejects.toMatchObject({ code: "ENOENT" });
+});
+
+test("preserves a replacement moved by the rename when its identity differs", async () => {
+  const fs = await vi.importActual<typeof FsPromises>("node:fs/promises");
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const directory = join(await realpath(profile), "repository-setup");
+  const state = join(directory, "state.json");
+  const saved = join(directory, "saved.json");
+  await mkdir(directory, { mode: 0o700 });
+  await writeFile(state, "retired", { mode: 0o600 });
+  const replaceDuringRename = vi.fn(async (...[from, to]: Parameters<typeof rename>) => {
+    await fs.rename(from, saved);
+    await writeFile(from, "replacement", { mode: 0o600 });
+    await fs.rename(from, to);
+    await writeFile(from, "current", { mode: 0o600 });
+  });
+  vi.mocked(rename).mockImplementationOnce(replaceDuringRename);
+
+  await removeRetiredRepositorySetup(profile, shutdown.signal);
+
+  const target = replaceDuringRename.mock.lastCall?.[1];
+  if (!target) throw new Error("Missing rename destination");
+  expect(warn).toHaveBeenCalledWith(expect.stringContaining("Cleanup will retry at startup"));
+  await expect(readFile(target, "utf8")).resolves.toBe("replacement");
+  await expect(readFile(saved, "utf8")).resolves.toBe("retired");
+  await expect(readFile(state, "utf8")).resolves.toBe("current");
 });
 
 test("leaves a state file reached through a redirected store directory in place", async () => {

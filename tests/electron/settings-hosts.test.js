@@ -1149,16 +1149,21 @@ test("the board opens while retired setup unlink is pending", {
     args: [`--user-data-dir=${root}`],
     holdStartupUnlink: state,
   });
+  let tombstone;
   try {
     await expect.poll(() => app.evaluate(() => globalThis.startupUnlink.pending)).toBe(true);
     const page = await boardPage(app);
     assert.ok(await page.evaluate(() => window.desktop.workspace()));
     assert.equal(await app.evaluate(() => globalThis.startupUnlink.pending), true);
-    await access(state);
+    tombstone = await app.evaluate(() => globalThis.startupUnlink.file);
+    assert.ok(tombstone.startsWith(state + ".retired-"));
+    await access(tombstone);
+    await writeFile(state, "replacement", { flag: "wx", mode: 0o600 });
   } finally {
     await app.evaluate(() => globalThis.startupUnlink.release());
   }
-  await assert.rejects(access(state), { code: "ENOENT" });
+  await assert.rejects(access(tombstone), { code: "ENOENT" });
+  assert.equal(await readFile(state, "utf8"), "replacement");
   assert.equal(await readFile(marker, "utf8"), "keep");
 });
 

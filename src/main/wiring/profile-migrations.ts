@@ -1,4 +1,5 @@
-import { realpath, unlink } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { lstat, realpath, rename, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { verifyPrivate } from "../../node-common/private-files";
 
@@ -12,10 +13,19 @@ export async function removeRetiredRepositorySetup(
     const directory = join(await realpath(profile), "repository-setup");
     await verifyPrivate(directory, true);
     const state = join(directory, "state.json");
+    const expected = await lstat(state, { bigint: true });
     await verifyPrivate(state, false);
-    // Quit can happen during verification. Only dispatch while the app still owns the profile.
+    const tombstone = join(directory, `state.json.retired-${randomUUID()}`);
     signal.throwIfAborted();
-    await unlink(state);
+    await rename(state, tombstone);
+    // If the source changed before the rename, preserve what we moved.
+    await verifyPrivate(tombstone, false);
+    const moved = await lstat(tombstone, { bigint: true });
+    const identity = ["dev", "ino", "mode", "uid", "gid", "nlink"] as const;
+    if (identity.some((key) => moved[key] !== expected[key]))
+      throw new Error("Retired repository setup state changed");
+    signal.throwIfAborted();
+    await unlink(tombstone);
   } catch (error) {
     if (signal.aborted && error === signal.reason) return;
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
