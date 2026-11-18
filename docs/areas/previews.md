@@ -119,15 +119,16 @@ every OS.
 The human picker and local agent preview tools accept a supported readable document
 from any location the Foom process can read. Agent paths are absolute or relative
 to the caller’s launch checkout, including paths that use `..` to reach another
-checkout. Main resolves the canonical document and walks up to the closest
-directory containing a `.git` entry. It asks Git to check that specific entry
-with `git --git-dir=.git rev-parse --show-toplevel` and uses the directory only
-when Git confirms the same location and the directory identity still matches the
-identity captured before inspecting its entry. Main uses the document's immediate
-directory if the nearest repository is bare or lacks a worktree, or if the entry
-is absent, invalid, or changed during validation. Git must report the same
-location, so repository config cannot extend the root to a parent directory.
-Links to sibling and parent assets work within a confirmed checkout.
+checkout. Main refuses an entry with a `.git` segment in its requested or resolved
+path. It walks the canonical ancestors using only file type and directory identity
+checks, stopping at bare repository metadata or the nearest `.git` entry. A bounded
+`git --git-dir=.git rev-parse --show-toplevel` confirms that exact checkout.
+Main rechecks the boundary markers and identities of every directory on the walk.
+An absent, invalid, moved, or mismatched checkout falls back to the document's
+immediate directory. Links to sibling and parent assets work within a confirmed
+checkout. The scans are separate observations. A same-user writer that hides a
+nested checkout during both scans and restores it between identity checks can
+still cause the enclosing checkout to be selected.
 A symlink passed as an entry selects the target's root. The picker preserves an
 alias inside that root, so its relative links and live reload continue to use the
 selected path. Agent reuse and aliases outside the root use the canonical entry.

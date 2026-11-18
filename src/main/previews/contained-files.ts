@@ -33,6 +33,7 @@ export interface CanonicalRoot {
 /** Canonical directory root, captured once when the preview opens. */
 export function canonicalRoot(root: string): CanonicalRoot {
   const real = fs.realpathSync.native(root);
+  if (hasGitSegment(root) || hasGitSegment(real)) throw new Error("Git metadata is hidden");
   const stat = fs.statSync(real, { bigint: true });
   if (!stat.isDirectory()) throw new Error("Preview root is not a directory");
   return { path: real, dev: stat.dev, ino: stat.ino };
@@ -49,12 +50,43 @@ export function documentPathname(relative: string): string {
   return `/${relative.split("/").map(encodeURIComponent).join("/")}`;
 }
 
-const execute = promisify(execFile);
+function pathSegments(absolute: string): string[] {
+  return absolute
+    .slice(path.parse(absolute).root.length)
+    .split(process.platform === "win32" ? /[\\/]/ : "/");
+}
 
-function gitAt(directory: string, gitDir: "." | ".git", ...query: string[]) {
-  return execute(
+function hasGitSegment(absolute: string): boolean {
+  return pathSegments(absolute).some((name) => name.toLowerCase() === ".git");
+}
+
+function documentPathRefusal(absolute: string): Refusal | undefined {
+  if (hasGitSegment(absolute)) return { status: 400, reason: "hidden" };
+  if (
+    pathSegments(absolute).some(
+      (name) =>
+        name.toLowerCase() === "__foom__" || (process.platform === "win32" && /:|[. ]$/.test(name)),
+    )
+  )
+    return { status: 403, reason: "reserved" };
+  return undefined;
+}
+
+const execute = promisify(execFile);
+const MAX_GIT_FILE_BYTES = 16 * 1024;
+
+async function gitConfirmsCheckout(directory: string): Promise<boolean> {
+  const { stdout } = await execute(
     "git",
-    ["-C", directory, `--git-dir=${gitDir}`, "-c", "core.fsmonitor=false", "rev-parse", ...query],
+    [
+      "-C",
+      directory,
+      "--git-dir=.git",
+      "-c",
+      "core.fsmonitor=false",
+      "rev-parse",
+      "--show-toplevel",
+    ],
     {
       cwd: path.dirname(process.execPath),
       env: {
@@ -67,21 +99,46 @@ function gitAt(directory: string, gitDir: "." | ".git", ...query: string[]) {
         GIT_TERMINAL_PROMPT: "0",
       },
       timeout: 5000,
-      maxBuffer: 16 * 1024,
+      maxBuffer: MAX_GIT_FILE_BYTES,
       encoding: "utf8",
       windowsHide: true,
     },
   );
+  const top = stdout.replace(/\r?\n$/, "");
+  // Compare Git's answer without following a path supplied by repository config.
+  return (
+    path.isAbsolute(top) && !/[\p{Cc}\p{Cs}]/u.test(top) && path.relative(directory, top) === ""
+  );
 }
 
-async function entryExists(entry: string): Promise<boolean> {
+async function statEntry(entry: string): Promise<fs.BigIntStats | undefined> {
   try {
-    await fs.promises.lstat(entry);
-    return true;
+    return await fs.promises.lstat(entry, { bigint: true });
   } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") return false;
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined;
     throw error;
   }
+}
+
+async function boundaryAt(directory: string): Promise<"checkout" | "stop" | "none"> {
+  const dotGit = await statEntry(path.join(directory, ".git"));
+  if (dotGit) {
+    return dotGit.isDirectory() ||
+      dotGit.isSymbolicLink() ||
+      (dotGit.isFile() && dotGit.size <= MAX_GIT_FILE_BYTES)
+      ? "checkout"
+      : "stop";
+  }
+  // A bare repository or Git metadata directory has HEAD and its own objects or a commondir.
+  // These are only boundary markers. The scan never opens them.
+  const head = await statEntry(path.join(directory, "HEAD"));
+  if (head?.isFile() || head?.isSymbolicLink()) {
+    const objects = await statEntry(path.join(directory, "objects"));
+    if (objects?.isDirectory() || objects?.isSymbolicLink()) return "stop";
+    const common = await statEntry(path.join(directory, "commondir"));
+    if (common?.isFile() || common?.isSymbolicLink()) return "stop";
+  }
+  return "none";
 }
 
 async function captureDirectory(directory: string): Promise<CanonicalRoot> {
@@ -90,46 +147,36 @@ async function captureDirectory(directory: string): Promise<CanonicalRoot> {
   return { path: directory, dev: stat.dev, ino: stat.ino };
 }
 
-async function nearestCheckoutCandidate(directory: string): Promise<CanonicalRoot | undefined> {
+async function confirmedCheckout(directory: string): Promise<CanonicalRoot | undefined> {
+  const walked: CanonicalRoot[] = [];
   for (let current = directory; ; current = path.dirname(current)) {
-    // Anchor identity before inspecting metadata. A .git symlink is still an entry.
     const candidate = await captureDirectory(current);
-    if (await entryExists(path.join(current, ".git"))) return candidate;
-    // Check the metadata layout without reading config that could hide a bare repository.
-    if (await entryExists(path.join(current, "HEAD"))) {
-      const repository = await gitAt(current, ".", "--resolve-git-dir", ".").catch(
-        (error: unknown) => {
-          if (error instanceof Error && "code" in error && error.code === 128) return undefined;
-          throw error;
-        },
-      );
-      if (repository) return undefined;
+    walked.push(candidate);
+    const boundary = await boundaryAt(current);
+    if (boundary === "stop") return undefined;
+    if (boundary === "checkout") {
+      if (!(await gitConfirmsCheckout(current))) return undefined;
+      for (const previous of walked) {
+        const expected = previous === candidate ? "checkout" : "none";
+        const currentBoundary = await boundaryAt(previous.path);
+        const { dev, ino } = await captureDirectory(previous.path);
+        if (dev !== previous.dev || ino !== previous.ino || currentBoundary !== expected)
+          return undefined;
+      }
+      return candidate;
     }
     if (path.dirname(current) === current) return undefined;
   }
 }
 
 async function previewRoot(directory: string): Promise<CanonicalRoot> {
-  const canonical = fs.realpathSync.native(directory);
   try {
-    const candidate = await nearestCheckoutCandidate(canonical);
-    if (candidate) {
-      const { stdout } = await gitAt(candidate.path, ".git", "--show-toplevel");
-      const top = stdout.replace(/\r?\n$/, "");
-      // Compare Git's answer without following a path supplied by repository config.
-      if (
-        path.isAbsolute(top) &&
-        !/[\p{Cc}\p{Cs}]/u.test(top) &&
-        path.relative(candidate.path, top) === ""
-      ) {
-        const current = await captureDirectory(candidate.path);
-        if (candidate.dev === current.dev && candidate.ino === current.ino) return candidate;
-      }
-    }
+    const checkout = await confirmedCheckout(directory);
+    if (checkout) return checkout;
   } catch {
     // Standalone files remain usable when Git is unavailable or rejects discovery.
   }
-  return captureDirectory(canonical);
+  return captureDirectory(directory);
 }
 
 /** Resolve the document before selecting the scope of its browser origin. */
@@ -149,26 +196,20 @@ export async function resolveDocument(
     !DOCUMENT_EXTENSION.test(file)
   )
     return { status: 400, reason: "invalid-path" };
+  const requestedRefusal = documentPathRefusal(file);
+  if (requestedRefusal) return requestedRefusal;
   const named = segmentsFor(documentPathname(path.basename(file)));
   if ("error" in named) return { status: 403, reason: named.error };
-  const forbiddenAncestor = (absolute: string) =>
-    absolute
-      .slice(path.parse(absolute).root.length)
-      .split(path.sep)
-      .some(
-        (name) =>
-          name.toLowerCase() === "__foom__" ||
-          (process.platform === "win32" && /:|[. ]$/.test(name)),
-      );
-  if (forbiddenAncestor(file)) return { status: 403, reason: "reserved" };
 
   let root: CanonicalRoot;
   let real: string;
   try {
     real = await fs.promises.realpath(file);
-    if (forbiddenAncestor(real)) return { status: 403, reason: "reserved" };
+    const directory = fs.realpathSync.native(path.dirname(real));
+    const targetRefusal = documentPathRefusal(real) ?? documentPathRefusal(directory);
+    if (targetRefusal) return targetRefusal;
     if (!(await fs.promises.stat(real)).isFile()) return { status: 403, reason: "not-file" };
-    root = await previewRoot(path.dirname(real));
+    root = await previewRoot(directory);
   } catch {
     return { status: 404, reason: "unreadable" };
   }
