@@ -308,6 +308,8 @@ export async function initializeWorkspace(
         wiring.attention();
       },
     });
+    // The restore owner uses this preference when it imports and reserves saved rows.
+    wiring.workspace.configure(wiring.settings.get());
     await wiring.workspace.restore();
     wiring.initialized = true;
   }

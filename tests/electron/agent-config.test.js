@@ -9,7 +9,9 @@ const {
   assertAccessible,
   boardCommand,
   boardPage,
+  confirmationPage,
   launchApp,
+  quitAndWait,
   removeAfterApps,
 } = require("./harness.js");
 
@@ -614,6 +616,103 @@ for (const restoreSessions of [false, true]) {
     assert.equal((await rows()).length, 2);
   });
 }
+
+async function launchWithDeferredShell(context, restoreSessions, config) {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-deferred-shell-")));
+  removeAfterApps(context, root);
+  const home = path.join(root, "home");
+  const folder = path.join(home, ".foom", "config");
+  const profile = path.join(root, "profile");
+  const lock = path.join(folder, ".foom-settings.lock");
+  await mkdir(folder, { recursive: true });
+  await mkdir(profile);
+  await writeFile(lock, foreignSettingsLock());
+  await writeFile(
+    path.join(profile, "settings.json"),
+    JSON.stringify({
+      version: 1,
+      settings: { setupComplete: true, checkForUpdates: false, restoreSessions },
+    }),
+  );
+  const id = "saved-shell";
+  const directory = config ? folder : home;
+  await writeFile(
+    path.join(profile, "sessions.json"),
+    JSON.stringify([
+      {
+        id,
+        agent: "shell",
+        repository: directory,
+        worktree: directory,
+        branch: null,
+        ...(config ? { config: true } : { home: true }),
+        running: true,
+      },
+    ]),
+  );
+  const app = await launchApp(context, {
+    fixture: "restored",
+    home,
+    args: [`--user-data-dir=${profile}`],
+  });
+  const page = await boardPage(app);
+  assert.match(
+    (await page.evaluate(() => window.desktop.configStatus())).error,
+    /Settings are busy/,
+  );
+  return { app, page, id, lock };
+}
+
+test("deferred config restore skips a saved shell while quit confirmation is pending", {
+  timeout: deadline(45_000),
+}, async (context) => {
+  const { app, page, id, lock } = await launchWithDeferredShell(context, true, true);
+  const home = await page.evaluate(() => window.desktop.sidebarCommand({ kind: "home-shell" }));
+  const rows = () => page.evaluate(async () => (await window.desktop.workspace()).terminals);
+  await expect
+    .poll(async () => (await rows()).find((row) => row.id === home.terminalId)?.dormant)
+    .toBeUndefined();
+  await app.evaluate(({ app }) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { WorktreeService } = load("./build/main/workspace/worktrees.js");
+    const reconcile = WorktreeService.prototype.reconcileRemovals;
+    WorktreeService.prototype.reconcileRemovals = function (...args) {
+      // This runs after the deferred restore pass either settles or is skipped.
+      globalThis.deferredStartupSettled = true;
+      return reconcile.apply(this, args);
+    };
+    app.quit();
+  });
+  const confirmation = await confirmationPage(app);
+  const card = confirmation.getByRole("alertdialog");
+  await expect(card).toHaveAccessibleName("Quit with 1 terminal running?");
+  await unlink(lock);
+  await expect.poll(() => app.evaluate(() => globalThis.deferredStartupSettled)).toBe(true);
+  const sessions = await rows();
+  assert.equal(sessions.find((row) => row.id === id)?.dormant, true);
+  assert.deepEqual(
+    sessions.filter((row) => !row.dormant && !row.exited).map((row) => row.id),
+    [home.terminalId],
+  );
+  await expect(card).toHaveAccessibleName("Quit with 1 terminal running?");
+  await quitAndWait(app, () =>
+    confirmation.getByRole("button", { name: "Stop all and quit", exact: true }).click(),
+  );
+});
+
+test("disabled startup restore exposes Restart shell while the Settings lock is busy", {
+  timeout: deadline(45_000),
+}, async (context) => {
+  const { page, id, lock } = await launchWithDeferredShell(context, false, false);
+  const snapshot = await page.evaluate(() => window.desktop.workspace());
+  assert.equal(snapshot.terminals.find((row) => row.id === id)?.exited, true);
+  const row = page.locator(".board-row[data-kind='shell'][data-exited='true']");
+  await row.locator(".row-actions").click();
+  await expect(page.getByRole("menuitem", { name: "Restart shell", exact: true })).toBeVisible();
+  assert.equal(await readFile(lock, "utf8"), foreignSettingsLock());
+});
 
 test("start:fresh state isolation keeps config and worktrees inside its temporary profile", async (context) => {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-fresh-state-")));

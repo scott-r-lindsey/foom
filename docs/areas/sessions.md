@@ -25,7 +25,10 @@ rejection exits the row normally and keeps the ID; no agent transcript or runtim
 `restoreSessions` defaults to `true`; disabling it keeps saved rows dormant for manual resume. If the shared Settings lock delays startup, saved rows remain dormant
 until Foom can load the applied Settings and attach the writer. The single
 startup restore pass then uses the applied `restoreSessions` value, including
-for saved Foom config shells. Screens and scrollback are never persisted.
+for saved Foom config shells. A verified disabled preference makes saved rows
+restartable as soon as the board opens. Foom skips a deferred restore if a quit
+request is pending so the confirmation's terminal count stays accurate.
+Screens and scrollback are never persisted.
 
 `src/main/workspace/session-owner.ts` owns session restoration and persistence behind
 `SessionOwner` and its typed capability dependencies. It holds saved records,

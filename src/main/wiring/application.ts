@@ -532,6 +532,9 @@ export function runApplication() {
     get quitPending() {
       return quitPending;
     },
+    get quitRequested() {
+      return quitRequest !== undefined;
+    },
     get quitting() {
       return quitting;
     },
@@ -757,6 +760,8 @@ async function startApplication(wiring: ApplicationWiring): Promise<void> {
       if (isQuitting()) return;
       wiring.applyThemeSettings();
       wiring.configApplied();
+      // Keep deferred launches out of an in-progress quit request.
+      if (wiring.quitRequested) return;
     }
     await wiring.workspace.restartSaved();
   };
