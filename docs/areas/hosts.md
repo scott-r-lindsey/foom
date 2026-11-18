@@ -836,10 +836,14 @@ it to finish, then closes Settings and disposes the views. Failed termination
 keeps Settings open. Installs still launching are included in the check. Section
 changes retain window ownership and reattach the install when Hosts is reopened.
 Closing a board window drains its Settings terminal views, waits for each PTY to
-exit through the terminal stop path, then disposes its session. The exit
+exit through the terminal stop path, then disposes its session. The window
+shows **Stopping…** while it waits. On Unix, the terminal host gives Settings
+recipes five seconds to finish after SIGHUP before escalating to SIGKILL. This
+lets responding helpers remove their private staging files. The exit
 notification completes the recipe and releases any installer reservation.
 A failed stop keeps the session and owning window available for retry. App quit
-uses its existing main-owned confirmation. Origin trust, remote plugin installs,
+uses its existing main-owned confirmation and the same grace for local Settings
+recipes. Origin trust, remote plugin installs,
 and sign-in use the same window ownership and exit guard. On exit, origin trust,
 plugin installs, and agent sign-in collapse their terminal view and keep the
 outcome by the action row. Tool installs retain their screen until dismissed or

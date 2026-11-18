@@ -473,6 +473,7 @@ test("native close waits for starting Settings repairs and remains retryable aft
   mock.windowEvents.get("close")?.(event);
   mock.windowEvents.get("close")?.(event);
   expect(event.preventDefault).toHaveBeenCalledTimes(2);
+  expect(mock.window.webContents.send).toHaveBeenCalledWith("windows:settings-stopping", true);
   expect(mock.terminals.stop).not.toHaveBeenCalled();
   await expect(mock.setup.deps?.launchHostRecipe?.(target)).rejects.toThrow(
     "Settings window closing",
@@ -487,6 +488,7 @@ test("native close waits for starting Settings repairs and remains retryable aft
     );
   });
   expect(mock.window.close).not.toHaveBeenCalled();
+  expect(mock.window.webContents.send).toHaveBeenCalledWith("windows:settings-stopping", false);
   expect(mock.workspace.removed).not.toHaveBeenCalled();
   expect(mock.terminals.kill).not.toHaveBeenCalled();
   mock.windowEvents.get("close")?.(event);

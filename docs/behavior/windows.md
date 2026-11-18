@@ -21,7 +21,8 @@ window. The longest-waiting shortcut starts from the current window and focuses
 another window when that session is already shown there.
 
 Closing a window hides its board sessions. Foom stops Settings repairs owned by
-that window before it closes. On macOS, closing
+that window before it closes and shows **Stopping…** while it waits. A failed
+stop leaves the window open for retry. On macOS, closing
 the last window leaves Foom running; Dock activation opens another window. On
 Windows and Linux, closing the last window requests quit. Quit from any window
 stops the entire app and uses the focused window's trusted confirmation. Other

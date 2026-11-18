@@ -33,6 +33,7 @@ type Session = {
   viewBlocked: boolean;
   exited: boolean;
   exitSettled: Promise<void>;
+  stopGraceMs: number;
   terminationRequested: boolean;
   generation: number;
 };
@@ -119,6 +120,7 @@ export class TerminalManager {
       viewBlocked: false,
       exited: false,
       exitSettled,
+      stopGraceMs: process.platform !== "win32" && spec.settingsRecipe ? 5000 : 1000,
       terminationRequested: false,
       generation: 0,
     };
@@ -529,10 +531,10 @@ export class TerminalManager {
         } catch (error) {
           finish(new Error("Unable to stop terminal", { cause: error }));
         }
-      }, 1000);
+      }, session.stopGraceMs);
       const deadline = setTimeout(() => {
         finish(new Error("A terminal did not exit; try quitting again."));
-      }, 5000);
+      }, session.stopGraceMs + 4000);
       try {
         this.terminate(session);
       } catch (error) {

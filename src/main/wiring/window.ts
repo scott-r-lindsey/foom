@@ -770,6 +770,7 @@ export async function buildWindow(
     event.preventDefault();
     closingSettings = true;
     void (async () => {
+      window.webContents.send("windows:settings-stopping", true);
       await Promise.allSettled(settingsLaunches);
       const ids = wiring.views.settingsSessions(window.id);
       if (ids.length) {
@@ -793,6 +794,8 @@ export async function buildWindow(
       });
     })().catch(() => {
       closingSettings = false;
+      if (window.isDestroyed()) return;
+      window.webContents.send("windows:settings-stopping", false);
       dialog.showErrorBox(
         "Unable to close window",
         "Could not stop a Settings repair. Please try again.",

@@ -5,7 +5,7 @@ const { AxeBuilder } = require("@axe-core/playwright");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const path = require("node:path");
-const { mkdir, mkdtemp, readFile, realpath, writeFile } = require("node:fs/promises");
+const { access, mkdir, mkdtemp, readFile, realpath, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const { deadline, expect } = require("./test-policy.js");
 const {
@@ -431,6 +431,27 @@ async function useLocalInstallerFixture(app, root) {
   );
 }
 
+async function openInstallerBoards(app) {
+  const page = await boardPage(app);
+  const owner = await app.evaluate(
+    ({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows().find(
+        (window) => window.webContents.getURL() === "app://bundle/index.html",
+      ).id,
+  );
+  await page.evaluate(() => window.desktop.appMenu.execute("new-window"));
+  await expect
+    .poll(() => app.windows().filter((window) => window.url() === "app://bundle/index.html").length)
+    .toBe(2);
+  const other = app
+    .windows()
+    .find((window) => window !== page && window.url() === "app://bundle/index.html");
+  assert.ok(other);
+  const closeOwner = () =>
+    app.evaluate(({ BrowserWindow }, owner) => BrowserWindow.fromId(owner).close(), owner);
+  return { page, other, closeOwner };
+}
+
 test("one-click local agent installers stay in Settings and refuse untrusted selectors", {
   timeout: deadline(45_000),
   skip: process.platform === "win32",
@@ -589,23 +610,7 @@ load(${JSON.stringify(terminalHost)});
         { entry, terminalHost },
       );
     }
-    const page = await boardPage(app);
-    const owner = await app.evaluate(
-      ({ BrowserWindow }) =>
-        BrowserWindow.getAllWindows().find(
-          (window) => window.webContents.getURL() === "app://bundle/index.html",
-        ).id,
-    );
-    await page.evaluate(() => window.desktop.appMenu.execute("new-window"));
-    await expect
-      .poll(
-        () => app.windows().filter((window) => window.url() === "app://bundle/index.html").length,
-      )
-      .toBe(2);
-    const other = app
-      .windows()
-      .find((window) => window !== page && window.url() === "app://bundle/index.html");
-    assert.ok(other);
+    const { page, other, closeOwner } = await openInstallerBoards(app);
     await page.evaluate(() => window.desktop.saveSetup({ agents: { claude: true, codex: true } }));
     const { recipeSession: id } = await page.evaluate(() =>
       window.desktop.localAgentInstall("claude"),
@@ -626,8 +631,6 @@ load(${JSON.stringify(terminalHost)});
           (await window.desktop.workspace()).terminals.some((row) => row.id === id && !row.exited),
         id,
       );
-    const closeOwner = () =>
-      app.evaluate(({ BrowserWindow }, owner) => BrowserWindow.fromId(owner).close(), owner);
     if (throwFirst) {
       await closeOwner();
       await expect
@@ -635,6 +638,7 @@ load(${JSON.stringify(terminalHost)});
         .toBe("Unable to close window");
       assert.equal(await readFile(throwMarker, "utf8"), "threw");
       assert.equal(page.isClosed(), false);
+      await expect(page.getByRole("dialog", { name: "Stopping Settings repairs" })).toHaveCount(0);
       assert.equal(await running(page), true);
       process.kill(pid, 0);
     }
@@ -657,6 +661,72 @@ load(${JSON.stringify(terminalHost)});
     }
   });
 }
+
+test("Closing an installer window shows Stopping while the vendor helper cleans its staging directory", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "foom-install-close-cleanup-"));
+  removeAfterApps(context, root);
+  const cleanup = path.join(root, "cleanup-started");
+  // Preserve the real vendor helper, its SIGHUP handler and its private staging.
+  // Delay the removal at the filesystem boundary to model slow cleanup with one file.
+  await writeFile(
+    path.join(root, "foom"),
+    `#!${process.execPath}
+const fs = require("node:fs/promises");
+const { setTimeout: delay } = require("node:timers/promises");
+const remove = fs.rm;
+process.env.TMPDIR = ${JSON.stringify(root)};
+globalThis.fetch = async () => new Response("echo Fixture installer ready\\nread answer\\n");
+fs.rm = async (directory, options) => {
+  await fs.writeFile(${JSON.stringify(cleanup)}, directory);
+  await delay(2500);
+  return remove(directory, options);
+};
+require(${JSON.stringify(path.resolve("build/node-common/local-agent-install.js"))})
+  .installLocalAgent("claude")
+  .then((code) => { process.exitCode = code; });
+`,
+    { mode: 0o755 },
+  );
+  const app = await launchApp(context, { fixture: "empty-board" });
+  await useLocalInstallerFixture(app, root);
+  const { page, other, closeOwner } = await openInstallerBoards(app);
+  await page.evaluate(() =>
+    window.desktop.saveSetup({ agents: { claude: true }, interfaceTheme: "eclipse-light" }),
+  );
+  await openSettingsScreen(page);
+  await page
+    .getByRole("navigation", { name: "Settings sections" })
+    .getByRole("button", { name: "Agents", exact: true })
+    .click();
+  await page.getByRole("tab", { name: "Machines", exact: true }).click();
+  const card = page.getByRole("region", { name: "Claude Code", exact: true });
+  await card.getByRole("button", { name: "Install", exact: true }).click();
+  await expect(card.locator(".xterm-screen")).toContainText("Fixture installer ready");
+  const closed = page.waitForEvent("close");
+  await closeOwner();
+  const stopping = page.getByRole("dialog", { name: "Stopping Settings repairs" });
+  await expect(stopping.getByRole("status")).toHaveText("Stopping…");
+  await expect(other.getByRole("dialog", { name: "Stopping Settings repairs" })).toHaveCount(0);
+  await expect.poll(() => readFile(cleanup, "utf8").catch(() => "")).not.toBe("");
+  const staging = await readFile(cleanup, "utf8");
+  await access(path.join(staging, "install.sh"));
+  for (const mode of ["light", "dark"]) {
+    await page.evaluate(
+      (mode) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${mode}` }),
+      mode,
+    );
+    await expect
+      .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
+      .toBe(mode === "dark");
+    await page.screenshot({ path: evidencePath(`1260/stopping-${mode}.png`) });
+  }
+  await closed;
+  await assert.rejects(access(staging), { code: "ENOENT" });
+  assert.equal((await other.evaluate(() => window.desktop.workspace())).terminals.length, 0);
+});
 
 for (const agent of ["claude", "codex", "agy", "copilot", "opencode", "pi"])
   test(`bundled ${agent} installer receives account environment locally and on registered hosts`, {

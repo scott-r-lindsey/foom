@@ -824,16 +824,22 @@ test("shutdown counts only live PTYs and waits for all exits before disposal", a
   }).toThrow("Unknown terminal ID");
 });
 
-test.each(["linux", "win32"] as const)(
-  "shutdown escalation respects %s signal support",
-  async (platform) => {
+test.each([
+  { platform: "linux", settingsRecipe: false, grace: 1000 },
+  { platform: "linux", settingsRecipe: true, grace: 5000 },
+  { platform: "win32", settingsRecipe: true, grace: 1000 },
+] as const)(
+  "shutdown escalation on $platform gives Settings recipe=$settingsRecipe a $grace ms grace",
+  async ({ platform, settingsRecipe, grace }) => {
     vi.spyOn(process, "platform", "get").mockReturnValue(platform);
     vi.useFakeTimers();
     try {
-      manager.create(spec);
+      manager.create({ ...spec, settingsRecipe });
       pty().kill.mockImplementation(() => {});
       const shutdown = manager.shutdown();
-      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(grace - 1);
+      expect(pty().kill).toHaveBeenCalledExactlyOnceWith();
+      await vi.advanceTimersByTimeAsync(1);
       if (platform === "win32") expect(pty().kill).toHaveBeenCalledExactlyOnceWith();
       else expect(pty().kill).toHaveBeenLastCalledWith("SIGKILL");
       exitPty();

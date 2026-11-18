@@ -1977,6 +1977,15 @@ const desktop: DesktopApi = {
       },
     },
     id: windowArgument("window-id") ?? "main",
+    onSettingsStopping: (callback) => {
+      const listener = (_event: IpcRendererEvent, stopping: unknown) => {
+        if (typeof stopping === "boolean") callback(stopping);
+      };
+      ipcRenderer.on("windows:settings-stopping", listener);
+      return () => {
+        ipcRenderer.removeListener("windows:settings-stopping", listener);
+      };
+    },
     restored: windowArgument("window-restored") === "true",
     number: Number(windowArgument("window-number") ?? 0),
     initialSession: windowArgument("initial-session"),

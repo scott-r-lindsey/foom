@@ -400,7 +400,9 @@ export async function startShell(
         : {}),
       command: localRecipe?.command ?? (remote ? `ssh ${remote.host}` : shellPath()),
       args: localRecipe?.args ?? (process.platform === "win32" ? ["-NoLogo"] : ["-l"]),
-      ...(localRecipe ? { replaceEnvironment: true } : { shellIntegration: true }),
+      ...(localRecipe
+        ? { replaceEnvironment: true, settingsRecipe: true }
+        : { shellIntegration: true }),
       env: { ...environment.env, ...configEnvironment },
       cwd: checkout?.worktree ?? location.worktree,
       cols: 80,
