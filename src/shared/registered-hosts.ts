@@ -565,7 +565,6 @@ export function hostsAction(value: unknown): value is HostsAction {
     value["action"] === "list" ||
     value["action"] === "locations" ||
     value["action"] === "progress" ||
-    value["action"] === "dismiss-output" ||
     value["action"] === "cancel-trust"
   )
     return keys(value, ["action"]);

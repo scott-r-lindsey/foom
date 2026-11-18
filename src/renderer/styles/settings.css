@@ -795,6 +795,15 @@
   margin: 4px 0 0;
   font-family: var(--font-mono);
 }
+.host-checkouts {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.host-checkouts ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
 .host-folder-form {
   display: flex;
   align-items: end;

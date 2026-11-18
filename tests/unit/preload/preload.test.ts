@@ -1987,27 +1987,24 @@ test("agent display details are bounded, copied and never expose undeclared meta
   await expect(api.hosts({ action: "list" })).rejects.toThrow();
 });
 
-test("host setup output and recipe IDs are bounded display-only reply fields", async () => {
+test("host setup validates fixed SSH trust failure reasons and bounded recipe IDs", async () => {
   const api = await bridge();
-  const output = {
+  const host = {
     host: "worker",
-    text: "SSH stderr\n<script>inert</script>",
-    running: false,
-    failed: true,
+    codeFolder: "/code",
+    hostKeyTrustFailure: "askpass-prompt-rejected",
   };
-  mock.invoke.mockResolvedValue({ hosts: [], locations: [], output, recipeSession: "recipe" });
-  await expect(api.hosts({ action: "progress" })).resolves.toMatchObject({
-    output,
+  mock.invoke.mockResolvedValue({ hosts: [host], locations: [], recipeSession: "recipe" });
+  await expect(api.hosts({ action: "list" })).resolves.toMatchObject({
+    hosts: [host],
     recipeSession: "recipe",
   });
-  for (const invalid of [
-    { ...output, text: "x".repeat(65537) },
-    { ...output, running: 1 },
-    { ...output, failed: "no" },
-    { ...output, host: "-oCommand" },
-  ]) {
-    mock.invoke.mockResolvedValue({ hosts: [], locations: [], output: invalid });
-    await expect(api.hosts({ action: "progress" })).rejects.toThrow();
+  for (const hostKeyTrustFailure of ["raw SSH prompt", 1]) {
+    mock.invoke.mockResolvedValue({
+      hosts: [{ ...host, hostKeyTrustFailure }],
+      locations: [],
+    });
+    await expect(api.hosts({ action: "list" })).rejects.toThrow();
   }
   for (const recipeSession of ["", "x".repeat(201), 1]) {
     mock.invoke.mockResolvedValue({ hosts: [], locations: [], recipeSession });

@@ -28,12 +28,12 @@ Add host accepts an optional nickname with the same validation and inline errors
 main validates it again and saves it only together with a successful enrollment. Folder changes and canonical expansion preserve nicknames.
 
 `setup:hosts` accepts one closed action from the registered board main frame:
-list, progress, dismiss-output, test, add, rename, preflight, draft-preflight, create-folder, change-folder, refresh, remove, locations, clone, trust-origin, trust-host-key, cancel-trust, end, recipe or reload. Main selects enabled agent
+list, progress, test, add, rename, preflight, draft-preflight, create-folder, change-folder, refresh, remove, locations, clone, trust-origin, trust-host-key, cancel-trust, end, recipe or reload. Main selects enabled agent
 executables from its validated manifest catalog. Renderer inputs cannot choose
 remote commands, probe arguments, origins or checkout destinations. Replies are
-validated in preload and rebuilt from declared fields. Failures retain fixed states/reasons. Explicit Add and check actions additionally
-expose bounded, display-only SSH output as described below; Git and agent probe
-output remain private. Artifact absence, version/handshake
+validated in preload and rebuilt from declared fields. Failures retain fixed
+states and reasons. SSH, Git and agent probe output remain private.
+Artifact absence, version/handshake
 mismatch, provider validation, changed agent configuration, invalid replies and
 cancellation have distinct reasons; only connection failures report unreachable.
 The local `progress` read bypasses the action queues and returns an array of active
@@ -134,8 +134,11 @@ origins are accepted; local paths, command protocols and URL passwords are refus
 The checkout directory is `repository-` plus 24 hex characters of the origin's
 SHA-256, directly beneath the approved folder. Existing destinations must be
 owned, non-writable by other users, canonical directories with matching origin
-and Git top level. Settings shows only read-only lists of existing checkouts, without clone controls, absent rows or per-repository clone status. A checkout must have
-a valid HEAD commit; an initialized repository with an unborn HEAD is refused.
+and Git top level. Settings lists existing checkouts as read-only facts. In
+Settings → Hosts, **Host facts** shows one line per checkout as **repository · path**.
+The lists omit clone controls, absent rows and per-repository clone status.
+A checkout must have a valid HEAD commit. Foom refuses initialized repositories
+with an unborn HEAD.
 
 First-use repository launch and worktree creation prepare a missing checkout automatically. Main shares concurrent preparation for the same registered host, folder and origin; existing valid checkouts are reused. Clone authorization rechecks the current host, approved folder and repository membership after origin reads and provider preparation, synchronously immediately before remote dispatch. A changed registration refuses without a remote mutation. Preparation runs Git with an argument array on the host, with the host's own login
 PATH and Git configuration/access. No local files, credentials, SSH keys or agent
@@ -687,7 +690,7 @@ A host is Ready when SSH, platform, daemon, code folder and Git pass and at leas
 one enabled agent is installed and probeable. Optional missing agents, gh sign-in, absent checkouts and nonblocking macOS
 folder/power warnings are neutral. Install and Sign in remain available. Repository access failures keep
 their fixed failure rows without making an otherwise usable host unavailable.
-Checkout creation belongs to first-use launch/worktree preparation (#1074), not Settings. The summary says Ready; existing checkouts are a read-only list.
+Checkout creation belongs to first-use launch/worktree preparation (#1074), not Settings. The summary says Ready. Existing checkouts are a read-only list in Host facts.
 
 An origin-host-key failure offers **Trust host key…**. Main re-reads the registered
 repository's validated SSH origin and opens a human-owned tile on the registered
@@ -834,15 +837,11 @@ by adding text to process output. The main exit subscription starts before
 creation; exits received while launch settles pass through the existing workspace
 exit lifecycle before the view is returned.
 
-Add and explicit checks show a read-only output panel inside Add host or the
-host card. Main retains the latest 65,536 UTF-16 units in memory, including
-connection/platform steps, artifact verification, daemon upload/readiness and
-OpenSSH stderr. Progress reads reuse the existing local progress channel during
-an action; no idle polling or remote request is added. Raw text is inert display
-content, never instructions, parsed facts, error diagnostics or a saved profile
-field. Background inventory and repository/agent probe output are excluded.
-Completion retains output until dismissed or the next check; failures retain
-the fixed failure state alongside the output.
+Add host shows an inline status during enrollment and a fixed error in the
+form if enrollment is refused. Host cards show progress in the header during a
+check. Completed checks show fixed failure text on the affected rows. A failed
+facts refresh appears under Host facts. OpenSSH diagnostics stay in main for
+classification. Progress reads use the existing local channel during an action.
 
 ## GitHub device sign-in (#1067)
 
@@ -933,7 +932,7 @@ checkout requests run and no dependent failures are synthesized. An unavailable
 local artifact catalog is reported only after SSH and platform checks succeed.
 While SSH reports host-key-unknown, Settings hides every dependent section,
 including stale repository failures, tools/agents, checkout rows, Last checked and
-Host facts. Only the header, address/folder/Remove line, output and SSH trust row
+Host facts. Only the header, address/folder/Remove line and SSH trust row
 remain. The full card returns when the accepted key's normal first check runs.
 Changed-key and other SSH failures retain their current presentation, but likewise
 skip dependent repository checks because no connection was established.
@@ -973,15 +972,15 @@ See [8.4 source](https://raw.githubusercontent.com/openssh/openssh-portable/V_8_
 and [8.5 source](https://raw.githubusercontent.com/openssh/openssh-portable/V_8_5_P1/sshconnect.c).
 Unexpected OpenSSH question variants are refused rather than displayed verbatim.
 An authenticated helper rejection reports only a fixed code, without forwarding
-the rejected prompt. Non-decline failures publish fixed trust reason codes in the
-check output panel; raw SSH prompts, host-file entries and exceptions are excluded.
+the rejected prompt. Non-decline failures show a fixed trust reason code on the
+SSH row. Raw SSH prompts, host-file entries and exceptions stay private.
 Only one question can receive an answer per run. Cancel is focused by default;
 Cancel, Escape and close decline. No renderer payload can provide the answer.
 
 The run expires after two minutes. Cancellation, Settings section exit, board
 navigation/loss, window disposal and quit abort the dialog and kill the detached
 SSH group, revoke its credential and remove its directory. Accepted first-time
-hosts rerun their first full check automatically, using the existing output panel.
+hosts rerun their first full check automatically, with progress in the card header.
 An earlier successful observation (including retained lastAgents) prevents an
 automatic full check; Check capabilities remains explicit for established hosts.
 Declining preserves the failed observation. Changed keys require manual repair.

@@ -654,7 +654,9 @@
         "Hosts preserves a rejected replacement folder and reports unrepresentable row reloads inline": [
           6.587, 0, 7.836
         ],
-        "Hosts retains failed Add stderr in a read-only panel": [5.599, 0, 8.621],
+        "Hosts shows Add progress and fixed failures without a check output panel": [
+          5.599, 0, 8.621
+        ],
         "Linux launch rejects absent or foreign displays before fixture creation": [0.002, 0, 0],
         "Pi fixed per-launch extension observes lifecycle, filters role tools and removes its private files": [
           2.229, 0, 3.958
@@ -1163,7 +1165,9 @@
         "Hosts reloads individual rows and actions never trigger full capability checks": [
           8.828, 0, 9.187
         ],
-        "Hosts retains failed Add stderr in a read-only panel": [5.599, 0, 8.621],
+        "Hosts shows Add progress and fixed failures without a check output panel": [
+          5.599, 0, 8.621
+        ],
         "Hosts shows independent inspection and repository check progress": [10.028, 0, 14.941],
         "Settings opens on General from the menu, sidebar and keyboard": [1.81, 7.286, 3.22],
         "Settings persists literal agent defaults and discloses bypass once per agent": [
@@ -1938,7 +1942,7 @@
         "Hosts never offers host-key trust from a remote command's forged SSH diagnostic": [
           3.827, 0, 6.41
         ],
-        "Hosts retains SSH client diagnostics when a check connection fails after discovery": [
+        "Hosts shows a fixed SSH failure when the client disconnects after discovery": [
           2.678, 0, 5.21
         ],
         "OSC 52 clipboard writes require consent and reject queries, malformed output and replay": [
@@ -2206,7 +2210,9 @@
           2.011, 0, 5.108
         ],
         "Hosts reports dialog-unavailable when native trust presentation fails": [3.131, 0, 5.493],
-        "Hosts retains failed Add stderr in a read-only panel": [5.599, 0, 14.29],
+        "Hosts shows Add progress and fixed failures without a check output panel": [
+          5.599, 0, 14.29
+        ],
         "Hosts shows a fixed trust failure when askpass refuses an unrecognized prompt": [
           2.7, 0, 7.219
         ],

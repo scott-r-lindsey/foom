@@ -3,8 +3,6 @@ import { setupCatalogDigest, setupDigest } from "../../node-common/repository-se
 import { HostObservations } from "../data/host-observations";
 import { viewChanges } from "../data/view-changes";
 import { askpassSupported, trustHostKey } from "./ssh-host-key";
-import type { HostKeyTrustFailure } from "./ssh-host-key";
-import type { HostOutput } from "../../shared/registered-hosts.d";
 import { recipeDigestInput, selectHostRecipe } from "../../shared/registered-host-recipes";
 import type { RemoteTarget } from "../../shared/remote-host";
 import { bundledAgentData } from "../../shared/bundled-agent-data";
@@ -31,6 +29,7 @@ import {
 } from "../../shared/registered-hosts";
 import type {
   HostCheckTarget,
+  HostKeyTrustFailure,
   RegisteredHost,
   HostFailure,
   HostCheck,
@@ -670,30 +669,13 @@ export class Hosts {
       else this.checksRunning--;
     };
   }
-  private output: HostOutput | undefined;
-  private outputGeneration = 0;
-  private appendOutput(text: string, startLine = false): void {
-    if (this.output)
-      this.output = {
-        ...this.output,
-        text: (
-          this.output.text +
-          (startLine && this.output.text && !this.output.text.endsWith("\n") ? "\n" : "") +
-          text
-        ).slice(-65536),
-      };
-  }
   private locations: RepositoryLocation[] = [];
   private pending: Promise<unknown> = Promise.resolve();
   constructor(
     private readonly store: Pick<SettingsStore, "get" | "update">,
     private readonly repositories: () => readonly Repository[],
     private readonly version: string,
-    private readonly execute?: (
-      host: string,
-      request: HostManagement,
-      output?: (text: string, startLine?: boolean) => void,
-    ) => Promise<HostResult>,
+    private readonly execute?: (host: string, request: HostManagement) => Promise<HostResult>,
     private readonly profile?: string,
     private readonly buildSupport?: () => Promise<boolean>,
   ) {}
@@ -863,8 +845,10 @@ export class Hosts {
               ? host.observation?.preflight.result
               : undefined
             : this.results.get(host.host));
+        const hostKeyTrustFailure = this.hostKeyTrustFailures.get(host.host);
         return {
           ...host,
+          ...(hostKeyTrustFailure ? { hostKeyTrustFailure } : {}),
           ...(this.hostKeyTrust ? { hostKeyTrust: this.hostKeyTrust } : {}),
           ...(rowFailures.length ? { rowFailures } : {}),
           ...(host.observation
@@ -912,9 +896,9 @@ export class Hosts {
       ),
       ...(result ? { result } : {}),
       ...(this.progress.size ? { progress: [...this.progress.values()] } : {}),
-      ...(this.output ? { output: this.output } : {}),
     };
   }
+  private readonly hostKeyTrustFailures = new Map<string, HostKeyTrustFailure>();
   private hostKeyTrust: "askpass" | "manual" | undefined;
   private readonly pendingRows = new HostObservations<string, PendingHostRow[]>();
   private pendingRecipeRefreshes = 0;
@@ -999,7 +983,6 @@ export class Hosts {
   private async reloadRow(
     host: string,
     target: HostCheckTarget,
-    output = false,
   ): Promise<HostPreflight | undefined> {
     const registration = this.registeredRow(host, target);
     let result: HostResult;
@@ -1021,21 +1004,17 @@ export class Hosts {
         }
       }
     } else {
-      result = await this.run(
-        host,
-        {
-          type: "manage",
-          operation: "inspect",
-          readOnly: true,
-          partial: true,
-          codeFolder: registration.codeFolder,
-          ...(target.kind === "tool" && !["git", "gh"].includes(target.tool)
-            ? { agentDetails: true as const }
-            : {}),
-          target,
-        },
-        { output },
-      );
+      result = await this.run(host, {
+        type: "manage",
+        operation: "inspect",
+        readOnly: true,
+        partial: true,
+        codeFolder: registration.codeFolder,
+        ...(target.kind === "tool" && !["git", "gh"].includes(target.tool)
+          ? { agentDetails: true as const }
+          : {}),
+        target,
+      });
     }
     const previous = registration.observation?.preflight;
     const displayed = previous?.result ?? this.results.get(host);
@@ -1219,21 +1198,14 @@ export class Hosts {
         this.pending,
         this.hostPending.get(host) ?? Promise.resolve(),
       ]).then(async () => {
-        const generation = this.outputGeneration;
         const registration = this.registered(host);
         const latest = this.results.get(host) ?? registration.observation?.preflight.result;
         const cancelled = () => signal.aborted;
-        const report = (reason: HostKeyTrustFailure) => {
-          if (this.outputGeneration !== generation) return;
-          this.outputGeneration++;
-          this.output = {
-            host,
-            text: `Unable to trust host key · ${reason}\n`,
-            running: false,
-            failed: true,
-          };
-        };
         if (cancelled()) return false;
+        this.hostKeyTrustFailures.delete(host);
+        const report = (reason: HostKeyTrustFailure) => {
+          if (!cancelled()) this.hostKeyTrustFailures.set(host, reason);
+        };
         if (!unknownHostKey(latest)) {
           report("trust-not-eligible");
           return false;
@@ -1276,10 +1248,6 @@ export class Hosts {
         return this.state();
       });
     }
-    if (input.action === "dismiss-output") {
-      if (!this.output?.running) this.output = undefined;
-      return Promise.resolve(this.state());
-    }
     if (input.action === "progress") return Promise.resolve(this.state());
     if (input.action === "list" && !this.pendingRows.size && !this.pendingRecipeRefreshes)
       return this.trustState(this.state(undefined, true), trustSignal);
@@ -1307,18 +1275,9 @@ export class Hosts {
       ].includes(input.action)
     )
       this.sidebarLocations = undefined;
-    const showOutput = [
-      "add",
-      "test",
-      "preflight",
-      "draft-preflight",
-      "reload",
-      "refresh",
-    ].includes(input.action);
     const isCheck = input.action === "preflight" || input.action === "draft-preflight";
     const host = "host" in input ? input.host : undefined;
     let release: (() => void) | undefined;
-    let outputGeneration: number | undefined;
     const hostWork = host ? (this.hostPending.get(host) ?? Promise.resolve()) : Promise.resolve();
     const prior = host
       ? Promise.allSettled(isCheck ? [hostWork] : [this.pending, hostWork])
@@ -1327,11 +1286,6 @@ export class Hosts {
       .catch(() => undefined)
       .then(async () => {
         if (isCheck) release = await this.enterCheck();
-        if (input.action === "recipe") this.output = undefined;
-        if (showOutput && "host" in input) {
-          outputGeneration = ++this.outputGeneration;
-          this.output = { host: input.host, text: "", running: true, failed: false };
-        }
         if (input.action === "list") {
           for (const [host, rows] of [...this.pendingRows]) {
             const retained: PendingHostRow[] = [];
@@ -1356,7 +1310,8 @@ export class Hosts {
         if (input.action === "reload") {
           // Supersede any queued observation even when this reload cannot be saved.
           this.queueRows(input.host, [input.target]);
-          const preflight = await this.reloadRow(input.host, input.target, true);
+          if (input.target.kind === "ssh") this.hostKeyTrustFailures.delete(input.host);
+          const preflight = await this.reloadRow(input.host, input.target);
           const remaining = (this.pendingRows.get(input.host) ?? []).filter(
             (row) => JSON.stringify(row.target) !== JSON.stringify(input.target),
           );
@@ -1500,17 +1455,13 @@ export class Hosts {
             phase: "inspect",
             repositories: this.repositories().map((repo) => ({ repository: repo.path })),
           });
-          const generation = this.outputGeneration;
+          if (registration) this.hostKeyTrustFailures.delete(input.host);
           const connection = this.execute
             ? undefined
             : new RemoteCheckConnection(
                 { host: input.host },
                 this.version,
                 this.cancellation.signal,
-                (text, startLine) => {
-                  if (this.outputGeneration === generation && this.output?.host === input.host)
-                    this.appendOutput(text, startLine);
-                },
               );
           try {
             const preflight = await this.preflight(input.host, input.codeFolder, connection);
@@ -1653,17 +1604,13 @@ export class Hosts {
             if (error) throw new Error(error);
           };
           validateName(hosts);
-          const result = await this.run(
-            input.host,
-            {
-              type: "manage",
-              operation: "inspect",
-              readOnly: true,
-              partial: true,
-              codeFolder: input.codeFolder,
-            },
-            { output: true },
-          );
+          const result = await this.run(input.host, {
+            type: "manage",
+            operation: "inspect",
+            readOnly: true,
+            partial: true,
+            codeFolder: input.codeFolder,
+          });
           if (
             input.action === "add" &&
             !(
@@ -1735,6 +1682,7 @@ export class Hosts {
           this.results.delete(host.host);
           this.resourceResults.delete(host.host);
           this.pendingRows.delete(host.host);
+          this.hostKeyTrustFailures.delete(host.host);
           this.sessionInventories.delete(host.host);
           this.invalidateWorktrees(host.host);
           for (const [path, entry] of this.savedPlacements)
@@ -1747,18 +1695,14 @@ export class Hosts {
             await this.readSessions(host.host);
             await this.readWorktrees(host.host, true);
           }
-          const result = await this.run(
-            host.host,
-            {
-              type: "manage",
-              operation: "inspect",
-              readOnly: true,
-              partial: true,
-              target: { kind: "facts" },
-              codeFolder: host.codeFolder,
-            },
-            { output: true },
-          );
+          const result = await this.run(host.host, {
+            type: "manage",
+            operation: "inspect",
+            readOnly: true,
+            partial: true,
+            target: { kind: "facts" },
+            codeFolder: host.codeFolder,
+          });
           const live = this.results.get(host.host);
           const previous = live ?? host.observation?.preflight.result;
           const refreshed: HostResult =
@@ -1804,17 +1748,7 @@ export class Hosts {
         this.cacheHostLocations(state, repositories);
         return state;
       })
-      .finally(() => {
-        release?.();
-        if (
-          showOutput &&
-          this.outputGeneration === outputGeneration &&
-          this.output &&
-          this.output.host === host
-        )
-          this.output = { ...this.output, running: false };
-      })
-      .then((state) => ({ ...state, ...(this.output ? { output: this.output } : {}) }));
+      .finally(() => release?.());
     if (host) {
       this.hostPending.set(host, work);
       void work
@@ -1849,29 +1783,15 @@ export class Hosts {
     request: HostManagement,
     options: {
       currentObservation?: () => boolean;
-      output?: boolean;
       beforeDispatch?: () => boolean;
       connection?: RemoteCheckConnection | undefined;
     } = {},
   ): Promise<HostResult> {
     const currentObservation = options.currentObservation ?? (() => true);
-    const generation = this.outputGeneration;
-    const currentOutput = () =>
-      options.output &&
-      this.outputGeneration === generation &&
-      this.output?.running &&
-      this.output.host === host
-        ? this.output
-        : undefined;
     const failed = (
       reason: HostFailure,
       step: "providers" | "connection" | "reply" | "configuration" | "cancellation",
     ): HostResult => {
-      const output = currentOutput();
-      if (output && !output.failed && reason !== "artifact-unavailable") {
-        output.failed = true;
-        this.appendOutput(`Failed · ${reason}\n`, true);
-      }
       console.warn(`Host check failed: reason=${reason} step=${step}`);
       return { ok: false, reason };
     };
@@ -1911,44 +1831,17 @@ export class Hosts {
       // Provider preparation can await. Revoke stale mutation authority before dispatch.
       if (options.beforeDispatch?.() === false) return failed("checkout-refused", "configuration");
       try {
-        const output =
-          currentOutput() && request.operation === "inspect"
-            ? (text: string, startLine = false) => {
-                if (currentOutput()) this.appendOutput(text, startLine);
-              }
-            : undefined;
-        const execute =
-          this.execute ??
-          ((
-            host: string,
-            request: HostManagement,
-            output?: (text: string, startLine?: boolean) => void,
-          ) =>
-            options.connection
-              ? options.connection.manage(request)
+        const requestWithAgents = { ...request, agents: probes };
+        result = this.execute
+          ? await this.execute(host, requestWithAgents)
+          : await (options.connection
+              ? options.connection.manage(requestWithAgents)
               : remoteManagement(
                   { host },
                   this.version,
-                  request,
+                  requestWithAgents,
                   this.cancellation.signal,
-                  output,
                 ));
-        result = output
-          ? await execute(host, { ...request, agents: probes }, output)
-          : await execute(host, { ...request, agents: probes });
-        if (output && hostResult(result)) {
-          output(
-            result.ok
-              ? "Done\n"
-              : result.reason === "artifact-unavailable"
-                ? "Unavailable in this build\n"
-                : `Failed · ${result.reason}\n`,
-            true,
-          );
-          const current = currentOutput();
-          if (current && !result.ok && result.reason !== "artifact-unavailable")
-            current.failed = true;
-        }
       } catch {
         return cancelled()
           ? failed("cancelled", "cancellation")
@@ -2023,7 +1916,7 @@ export class Hosts {
         readOnly: true,
         partial: true,
       },
-      { output: true, connection: channel },
+      { connection: channel },
     );
     const pass: HostCheck = { state: "pass" };
     const unknown: HostCheck = { state: "not-checked" };

@@ -683,7 +683,6 @@ test.each(["artifact-unavailable", "unreachable", "version-mismatch", "invalid-r
     expect(reopened.hosts[0]?.observation?.preflight).toEqual(full.preflight);
     expect(full.preflight?.repositories).toEqual([]);
     expect(execute.mock.calls.every(([, request]) => request.operation === "inspect")).toBe(true);
-    expect(reload.output?.failed).toBe(reason !== "artifact-unavailable");
   },
 );
 

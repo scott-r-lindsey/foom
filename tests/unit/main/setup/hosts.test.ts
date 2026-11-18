@@ -41,10 +41,9 @@ vi.mock("../../../../src/main/terminals/remote-transport", () => ({
       private readonly target: { host: string },
       private readonly version: string,
       private readonly signal: AbortSignal,
-      private readonly output?: (text: string, startLine?: boolean) => void,
     ) {}
     manage(request: HostManagement) {
-      return mock.remote(this.target, this.version, request, this.signal, this.output);
+      return mock.remote(this.target, this.version, request, this.signal);
     }
     inventory(request: Parameters<typeof remoteTransport.remoteInventory>[2]) {
       return mock.inventory(this.target, this.version, request, this.signal);
@@ -102,7 +101,6 @@ test("test does not authorize, add records enrollment, refresh replaces stale fa
       operation: "inspect",
       agents: run.mock.calls[0]?.[1].agents,
     }),
-    expect.any(Function),
   );
   await expect(
     hosts.action({ action: "add", host: "worker", codeFolder: "~/code" }),
@@ -208,7 +206,6 @@ test("windows share the same serialized registration owner and production transp
     "0.1.0",
     expect.objectContaining({ type: "manage" }),
     expect.any(AbortSignal),
-    expect.any(Function),
   );
   expect(new Hosts(store, () => repositories, "0.1.0").state().hosts).toHaveLength(1);
 });
@@ -2431,70 +2428,6 @@ test("a queued registered preflight rechecks registration after removal", async 
   expect(run).not.toHaveBeenCalled();
 });
 
-test("host check output is live, bounded, inert and retained after failure", async () => {
-  let finish: (result: HostResult) => void = () => {};
-  let write: (text: string) => void = () => {};
-  const execute = vi.fn(
-    (_host: string, _request: HostManagement, output?: (text: string) => void) => {
-      write = output ?? (() => {});
-      write("Connecting\n");
-      return new Promise<HostResult>((resolve) => {
-        finish = resolve;
-      });
-    },
-  );
-  hosts = new Hosts(store, () => [], "0.1.0", execute);
-  const pending = hosts.action({ action: "test", host: "worker", codeFolder: "~/code" });
-  await vi.waitFor(() => {
-    expect(execute).toHaveBeenCalled();
-  });
-  expect((await hosts.action({ action: "progress" })).output).toMatchObject({
-    host: "worker",
-    running: true,
-    text: "Connecting\n",
-  });
-  write("x".repeat(70000));
-  write("<script>untrusted</script>\nSSH refused\n");
-  finish({ ok: false, reason: "unreachable" });
-  const state = await pending;
-  expect(state.output?.text.length).toBe(65536);
-  expect(state.output).toMatchObject({ running: false, failed: true });
-  expect(state.output?.text).toContain("<script>untrusted</script>");
-  expect((await hosts.action({ action: "progress" })).output).toEqual(state.output);
-  expect((await hosts.action({ action: "dismiss-output" })).output).toBeUndefined();
-});
-
-test.each(["", "\n", "\r\n", "\r"])(
-  "Foom output lines stay separate after SSH chunks ending with %j",
-  async (ending) => {
-    for (const outcome of ["done", "failed", "thrown"] as const) {
-      const execute = vi.fn(
-        (
-          _host: string,
-          _request: HostManagement,
-          output?: (text: string, startLine?: boolean) => void,
-        ): Promise<HostResult> => {
-          output?.("SSH chunk");
-          output?.(ending);
-          output?.("Inspecting…\n", true);
-          output?.("last SSH chunk");
-          output?.(ending);
-          if (outcome === "thrown") throw new Error("fixture connection failed");
-          return Promise.resolve(
-            outcome === "done" ? { ok: true, facts } : { ok: false, reason: "unreachable" },
-          );
-        },
-      );
-      hosts = new Hosts(store, () => [], "0.1.0", execute);
-      const state = await hosts.action({ action: "test", host: "worker", codeFolder: "~/code" });
-      const lineEnd = ending.endsWith("\n") ? ending : `${ending}\n`;
-      expect(state.output?.text).toBe(
-        `SSH chunk${lineEnd}Inspecting…\nlast SSH chunk${lineEnd}${outcome === "done" ? "Done" : "Failed · unreachable"}\n`,
-      );
-    }
-  },
-);
-
 test("first-use launch and worktree creation share one absent checkout preparation", async () => {
   settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
   hosts = new Hosts(store, () => repositories, "0.1.0", run, "a".repeat(32));
@@ -3028,18 +2961,15 @@ test("checks on the same host serialize while another host can complete", async 
 
 test("a production full check shares its transport with repositories and profile inventories", async () => {
   settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
-  mock.remote.mockImplementation(
-    (_target, _version, request: HostManagement, _signal, output?: (text: string) => void) => {
-      output?.("Fixture check\n");
-      return Promise.resolve({
-        ok: true,
-        facts,
-        ...("directory" in request
-          ? { checkout: { path: `${facts.codeFolder}/${request.directory}`, state: "absent" } }
-          : {}),
-      });
-    },
-  );
+  mock.remote.mockImplementation((_target, _version, request: HostManagement) => {
+    return Promise.resolve({
+      ok: true,
+      facts,
+      ...("directory" in request
+        ? { checkout: { path: `${facts.codeFolder}/${request.directory}`, state: "absent" } }
+        : {}),
+    });
+  });
   mock.inventory.mockResolvedValue({ type: "inventory-result", own: [], foreign: [] });
   const owner = new Hosts(store, () => repositories, "0.1.0", undefined, "f".repeat(32));
   const checked = await owner.action({
@@ -3056,7 +2986,6 @@ test("a production full check shares its transport with repositories and profile
   ]);
   expect(mock.inventory).toHaveBeenCalledTimes(1);
   expect(mock.close).toHaveBeenCalledTimes(1);
-  expect(checked.output?.text).toContain("Fixture check");
 });
 
 test("a slow global locations read does not queue another host's capability check", async () => {
@@ -3089,67 +3018,3 @@ test("a slow global locations read does not queue another host's capability chec
     checked.locations.find((entry) => entry.host === "fast"),
   );
 });
-
-test("late SSH output from a completed batch cannot enter the next check's panel", async () => {
-  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
-  const owner = new Hosts(store, () => [], "0.1.0");
-  mock.remote.mockResolvedValueOnce({ ok: true, facts });
-  await owner.action({ action: "preflight", host: "worker", codeFolder: facts.codeFolder });
-  const held = Promise.withResolvers<HostResult>();
-  mock.remote.mockImplementationOnce(() => held.promise);
-  const pending = owner.action({
-    action: "preflight",
-    host: "worker",
-    codeFolder: facts.codeFolder,
-  });
-  await vi.waitFor(() => {
-    expect(mock.remote).toHaveBeenCalledTimes(2);
-  });
-  mock.remote.mock.calls[0]?.[4]?.("stale output");
-  mock.remote.mock.calls[1]?.[4]?.("current output");
-  expect((await owner.action({ action: "progress" })).output?.text).toBe("current output");
-  held.resolve({ ok: true, facts });
-  await pending;
-});
-
-test.each([false, true])(
-  "a failed concurrent check cannot mark another host's output failed (finished=%s)",
-  async (finished) => {
-    settings.registeredHosts = ["first", "second"].map((host) => ({
-      host,
-      codeFolder: facts.codeFolder,
-    }));
-    const first = Promise.withResolvers<HostResult>();
-    const second = Promise.withResolvers<HostResult>();
-    mock.remote.mockImplementation(({ host }) =>
-      host === "first" ? first.promise : second.promise,
-    );
-    const owner = new Hosts(store, () => [], "0.1.0");
-    const check = (host: string) =>
-      owner.action({ action: "preflight", host, codeFolder: facts.codeFolder });
-    const a = check("first");
-    await vi.waitFor(() => {
-      expect(mock.remote).toHaveBeenCalledTimes(1);
-    });
-    const b = check("second");
-    await vi.waitFor(() => {
-      expect(mock.remote).toHaveBeenCalledTimes(2);
-    });
-    mock.remote.mock.calls[1]?.[4]?.("Second host\n");
-    if (finished) {
-      second.resolve({ ok: true, facts });
-      await b;
-    }
-    first.resolve({ ok: false, reason: "unreachable" });
-    await a;
-    mock.remote.mock.calls[0]?.[4]?.("Stale first host\n");
-    const during = (await owner.action({ action: "progress" })).output;
-    expect(during).toMatchObject({ host: "second", failed: false, running: !finished });
-    expect(during?.text).not.toMatch(/Failed|Stale/u);
-    if (!finished) second.resolve({ ok: true, facts });
-    const completed = await b;
-    expect(completed.output).toMatchObject({ host: "second", failed: false, running: false });
-    expect(completed.output?.text).toBe("Second host\nDone\n");
-    owner.dispose();
-  },
-);

@@ -8,7 +8,6 @@ import { Fragment, createContext, use, useCallback, useEffect, useRef, useState 
 import type { ReactNode, RefObject } from "react";
 import { CopyValue } from "../ui/copy-value";
 import type {
-  HostOutput,
   HostCheckTarget,
   HostCheck,
   HostCheckProgress,
@@ -48,41 +47,6 @@ const reasons: Record<HostFailure, string> = {
   "clone-failed": "Could not clone from origin",
   "checkout-refused": "Checkout unavailable",
 };
-
-function HostCheckOutput({
-  output,
-  dismiss,
-  awaitingTrust = false,
-}: {
-  output: HostOutput;
-  dismiss: () => void;
-  awaitingTrust?: boolean;
-}) {
-  return (
-    <section className="host-terminal" aria-label="Host check output">
-      <header>
-        <span
-          role="status"
-          className={awaitingTrust ? "host-need" : output.failed ? "hosts-failure" : undefined}
-        >
-          {awaitingTrust
-            ? "Host key not trusted"
-            : output.running
-              ? "Checking…"
-              : output.failed
-                ? "Failed"
-                : "Done"}
-        </span>
-        {!output.running && !awaitingTrust && (
-          <button type="button" onClick={dismiss}>
-            Dismiss
-          </button>
-        )}
-      </header>
-      <pre tabIndex={0}>{output.text}</pre>
-    </section>
-  );
-}
 
 type Tone = "pass" | "need" | "fail" | "neutral" | "work";
 function failureTone(reason: HostFailure): "need" | "fail" | "neutral" {
@@ -279,7 +243,27 @@ function Checklist({
   const connection = progress?.result
     ? progress.result.connection
     : (preflight ?? result?.connection);
-  const folder = facts?.folder;
+  const unmatchedFailure =
+    result &&
+    !result.ok &&
+    !(result.reason === "unreachable" && connection?.ssh.state === "fail") &&
+    ![connection?.ssh, connection?.platform, connection?.artifact].some(
+      (check) => check?.state === "fail" && check.reason === result.reason,
+    )
+      ? result.reason
+      : undefined;
+  const folderFailure =
+    unmatchedFailure === "folder-missing" ||
+    unmatchedFailure === "folder-refused" ||
+    unmatchedFailure === "unsafe-folder";
+  const folder = folderFailure
+    ? { state: "fail" as const, reason: unmatchedFailure }
+    : facts?.folder;
+  const sshStatus = checkPresentation(connection?.ssh, "Host key trusted");
+  const daemon =
+    unmatchedFailure && !folderFailure
+      ? { state: "fail" as const, reason: unmatchedFailure }
+      : connection?.artifact;
   const folderStatus = checkPresentation(folder, "Valid");
   if (mac?.protectedFolder) {
     if (folder?.state !== "fail") folderStatus.tone = "neutral";
@@ -392,7 +376,12 @@ function Checklist({
       <Row
         target={{ kind: "ssh" }}
         name="SSH"
-        {...checkPresentation(connection?.ssh, "Host key trusted")}
+        tone={entry.hostKeyTrustFailure ? "fail" : sshStatus.tone}
+        text={
+          entry.hostKeyTrustFailure
+            ? "Unable to trust host key · " + entry.hostKeyTrustFailure
+            : sshStatus.text
+        }
         action={
           connection?.ssh.state === "fail" && connection.ssh.reason === "host-key-unknown" ? (
             entry.hostKeyTrust === "askpass" ? (
@@ -422,7 +411,7 @@ function Checklist({
           <Row
             target={{ kind: "artifact" }}
             name="Remote daemon"
-            {...checkPresentation(connection?.artifact, "In this build")}
+            {...checkPresentation(daemon, "In this build")}
           />
           <Row
             target={{ kind: "folder" }}
@@ -447,15 +436,6 @@ function Checklist({
               </>
             }
           />
-          {result &&
-            !result.ok &&
-            ![connection?.ssh, connection?.platform, connection?.artifact].some(
-              (check) => check?.state === "fail" && check.reason === result.reason,
-            ) && (
-              <p className={`host-${failureTone(result.reason)}`} role="status">
-                {reasons[result.reason]}
-              </p>
-            )}
           <Group>Tools</Group>
           {mac && (
             <Row
@@ -549,21 +529,6 @@ function Checklist({
                   </div>
                 )}
               </Fragment>
-            ))}
-          <Group>Checked out repositories</Group>
-          <p>Foom checks out repositories automatically when you use this host.</p>
-          {repositories
-            .filter(
-              (repo) =>
-                repo.checkout?.ok &&
-                repo.checkout.checkout &&
-                repo.checkout.checkout.state !== "absent",
-            )
-            .map((repo) => (
-              <div key={repo.repository} className="host-repository-row">
-                <span>{repo.repository.split(/[\\/]/u).at(-1)}</span>
-                <code>{repo.checkout?.ok ? repo.checkout.checkout?.path : ""}</code>
-              </div>
             ))}
           {mac && (
             <>
@@ -726,6 +691,7 @@ export function HostsSettings({
   const [changing, setChanging] = useState<{ host: string; folder: string }>();
   const [busy, setBusy] = useState<ReadonlySet<string>>(() => new Set());
   const [addBusy, setAddBusy] = useState(false);
+  const [addError, setAddError] = useState<ReactNode>();
   const [error, setError] = useState<ReactNode>("");
   const api = source.hosts;
   const [resuming, setResuming] = useState(!!source.views);
@@ -748,8 +714,6 @@ export function HostsSettings({
   const [checkingHosts, setCheckingHosts] = useState<ReadonlySet<string>>(() => new Set());
   const [progress, setProgress] = useState<readonly HostCheckProgress[]>();
   const [rowPending, setRowPending] = useState<ReadonlySet<string>>(() => new Set());
-  const [outputOverride, setOutputOverride] = useState<HostOutput | null>();
-  const output = outputOverride === null ? undefined : (outputOverride ?? state.output);
   const [recipes, setRecipes] = useState<
     ReadonlyMap<string, { id: string; finished: boolean; gh?: "install" | "sign-in" }>
   >(
@@ -778,10 +742,6 @@ export function HostsSettings({
       next.delete(host);
       return next;
     });
-  };
-  const dismissOutput = () => {
-    setOutputOverride(null);
-    void api?.({ action: "dismiss-output" });
   };
   const recipeFinished = useCallback(
     async (id: string, succeeded?: boolean) => {
@@ -827,7 +787,6 @@ export function HostsSettings({
     setupRefusal?.host ? new Map([[setupRefusal.host, true]]) : new Map(),
   );
   const applyState = (next: HostsState, host: string, startedRename?: { nickname: string }) => {
-    if (next.output) setOutputOverride(next.output);
     setState((previous) => ({
       ...next,
       hosts: [
@@ -861,10 +820,7 @@ export function HostsSettings({
         progressPendingRef.current = true;
         try {
           const next = await api({ action: "progress" });
-          if (active) {
-            setProgress(next.progress);
-            if (next.output) setOutputOverride(next.output);
-          }
+          if (active) setProgress(next.progress);
         } catch {
           // The authoritative preflight request owns error reporting.
         }
@@ -906,14 +862,16 @@ export function HostsSettings({
 
   const act = async (action: HostsAction) => {
     changedRef.current = true;
-    if (action.action === "recipe") setOutputOverride(undefined);
     if ("host" in action) clearRecipe(action.host, action.action === "remove");
     if ("host" in action) setExpanded((previous) => new Map(previous).set(action.host, true));
     const target = "host" in action ? action.host : "";
     const startedRename = renamedRef.current.get(target);
     setBusy((previous) => new Set(previous).add(target));
     let enrolling = action.action === "add";
-    if (enrolling) setAddBusy(true);
+    if (enrolling) {
+      setAddBusy(true);
+      setAddError(undefined);
+    }
     setError("");
     try {
       let next =
@@ -958,7 +916,7 @@ export function HostsSettings({
         setFolder("~/foom");
         setNickname("");
       } else if (action.action === "add" && next.result && !next.result.ok)
-        setError(
+        setAddError(
           <Status tone={failureTone(next.result.reason)}>{reasons[next.result.reason]}</Status>,
         );
       if (action.action === "change-folder") setChanging(undefined);
@@ -995,7 +953,8 @@ export function HostsSettings({
         }
       }
     } catch {
-      setError("Unable to update hosts");
+      if (enrolling) setAddError("Unable to add host");
+      else setError("Unable to update hosts");
     } finally {
       setBusy((previous) => {
         const next = new Set(previous);
@@ -1047,6 +1006,7 @@ export function HostsSettings({
             type="button"
             disabled={addBusy}
             onClick={() => {
+              setAddError(undefined);
               setAdding(true);
             }}
           >
@@ -1082,6 +1042,7 @@ export function HostsSettings({
                 placeholder="user@host"
                 value={host}
                 onChange={(event) => {
+                  setAddError(undefined);
                   setHost(event.target.value);
                 }}
               />
@@ -1092,6 +1053,7 @@ export function HostsSettings({
                 value={nickname}
                 aria-invalid={!!nicknameError}
                 onChange={(event) => {
+                  setAddError(undefined);
                   setNickname(event.target.value);
                 }}
               />
@@ -1101,6 +1063,7 @@ export function HostsSettings({
               <input
                 value={folder}
                 onChange={(event) => {
+                  setAddError(undefined);
                   setFolder(event.target.value);
                 }}
               />
@@ -1111,6 +1074,17 @@ export function HostsSettings({
             {nicknameError && (
               <span role="alert" className="hosts-failure host-notice">
                 {nicknameError}
+              </span>
+            )}
+            {addBusy && (
+              <span className="host-check-progress host-work host-notice" role="status">
+                <span className="host-throbber" aria-hidden="true" />
+                Checking host…
+              </span>
+            )}
+            {addError && (
+              <span className="host-notice" role="alert">
+                {addError}
               </span>
             )}
             <span className="host-notice">Host key trusted outside Foom</span>
@@ -1125,16 +1099,6 @@ export function HostsSettings({
           >
             Cancel
           </button>
-          {output?.host === host.trim() && (
-            <HostCheckOutput
-              output={output}
-              dismiss={dismissOutput}
-              awaitingTrust={
-                state.preflight?.ssh.state === "fail" &&
-                state.preflight.ssh.reason === "host-key-unknown"
-              }
-            />
-          )}
         </form>
       )}
       {!state.hosts.length && !adding && <p>No hosts</p>}
@@ -1157,6 +1121,12 @@ export function HostsSettings({
           state.remoteHostsAvailable,
         );
         const hostProgress = progress?.find((item) => item.host === entry.host);
+        const checkouts = (hostProgress?.repositories ?? preflight?.repositories ?? []).flatMap(
+          ({ repository, checkout: result }) =>
+            result?.ok && result.checkout && result.checkout.state !== "absent"
+              ? [{ repository, path: result.checkout.path }]
+              : [],
+        );
         const connection = hostProgress?.result
           ? hostProgress.result.connection
           : (preflight ?? entry.result?.connection);
@@ -1253,13 +1223,6 @@ export function HostsSettings({
                   Remove
                 </button>
               </div>
-              {output?.host === entry.host && (
-                <HostCheckOutput
-                  output={output}
-                  dismiss={dismissOutput}
-                  awaitingTrust={awaitingTrust}
-                />
-              )}
               {!awaitingTrust && (
                 <RepositorySetupPanel
                   source={source}
@@ -1452,13 +1415,16 @@ export function HostsSettings({
                         )}
                       </p>
                     )}
-                    {entry.result && !entry.result.ok && preflight?.result.ok && (
-                      <p role="status">
-                        <Status tone={failureTone(entry.result.reason)}>
-                          {reasons[entry.result.reason]}
-                        </Status>
-                      </p>
-                    )}
+                    {entry.result &&
+                      !entry.result.ok &&
+                      preflight &&
+                      (preflight.result.ok || preflight.result.reason !== entry.result.reason) && (
+                        <p role="status">
+                          <Status tone={failureTone(entry.result.reason)}>
+                            {reasons[entry.result.reason]}
+                          </Status>
+                        </p>
+                      )}
                     {entry.result?.ok && (
                       <dl className="host-facts">
                         {Object.entries({
@@ -1476,6 +1442,20 @@ export function HostsSettings({
                             <dd>{value}</dd>
                           </div>
                         ))}
+                      </dl>
+                    )}
+                    {checkouts.length > 0 && (
+                      <dl className="host-facts host-checkouts">
+                        <dt>Checked out repositories</dt>
+                        <dd>
+                          <ul>
+                            {checkouts.map(({ repository, path }) => (
+                              <li key={repository}>
+                                {repository.split(/[\\/]/u).at(-1)} · <code>{path}</code>
+                              </li>
+                            ))}
+                          </ul>
+                        </dd>
                       </dl>
                     )}
                   </details>

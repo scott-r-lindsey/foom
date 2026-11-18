@@ -206,9 +206,7 @@ export class Setup {
         }
         if (hostsAction(input)) {
           if (input.action === "rename") this.refresh();
-          if (
-            !["progress", "dismiss-output", "cancel-trust", "list", "reload"].includes(input.action)
-          )
+          if (!["progress", "cancel-trust", "list", "reload"].includes(input.action))
             this.deps.hostsChanged?.();
         }
         return state;

@@ -747,15 +747,6 @@ const validHostsState: Validator<HostsState> = shape({
   ),
   preflight: either(absent, validHostPreflight),
   recipeSession: either(absent, (value): value is string => nonempty(value) && value.length <= 200),
-  output: either(
-    absent,
-    shape({
-      host: hostAlias,
-      text: (value): value is string => typeof value === "string" && value.length <= 65536,
-      running: boolean,
-      failed: boolean,
-    }),
-  ),
   recipeFailure: either(absent, literal("recipe-unavailable")),
   hosts: array(
     shape({
@@ -773,6 +764,23 @@ const validHostsState: Validator<HostsState> = shape({
         ),
       ),
       result: either(absent, validHostResult),
+      hostKeyTrustFailure: either(
+        absent,
+        literal(
+          "trust-not-eligible",
+          "invalid-alias",
+          "ssh-config-failed",
+          "ssh-config-invalid",
+          "socket-path-too-long",
+          "askpass-prompt-rejected",
+          "prompt-host-mismatch",
+          "ssh-exited-without-prompt",
+          "trust-timeout",
+          "ssh-start-failed",
+          "dialog-unavailable",
+          "trust-unavailable",
+        ),
+      ),
       hostKeyTrust: either(absent, literal("askpass", "manual")),
       recipes: either(
         absent,

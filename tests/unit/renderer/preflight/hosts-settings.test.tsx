@@ -581,7 +581,12 @@ test("ready hosts list checkout paths without rendering dirty or clone state", a
   });
   await screen.findByText("Ready");
   fireEvent.click(screen.getByText("Git access · 1 ready"));
-  expect(screen.getByText("/remote/project")).toBeTruthy();
+  const details = screen.getByText("Host facts").closest("details");
+  expect(details?.open).toBe(true);
+  expect(screen.getByText("/remote/project").closest("details")).toBe(details);
+  expect(details?.querySelector(".host-checkouts li")?.textContent).toBe(
+    "project · /remote/project",
+  );
   expect(screen.queryByRole("button", { name: "Clone here" })).toBeNull();
 });
 test("unknown distro offers no install recipe and initial preflight failures stay fixed", async () => {
@@ -610,9 +615,7 @@ test("absent checkouts have no clone state or clone control in Hosts", async () 
   await mount();
   expect(screen.queryByText("Not checked out")).toBeNull();
   expect(screen.queryByRole("button", { name: "Clone here" })).toBeNull();
-  expect(
-    screen.getByText("Foom checks out repositories automatically when you use this host."),
-  ).toBeTruthy();
+  expect(screen.queryByText("Checked out repositories")).toBeNull();
 });
 
 test("Mac protected-folder warning never hides a missing-folder failure or its Create action", async () => {
@@ -665,7 +668,9 @@ test("a failed connection row is not repeated as helper copy, and credential tip
     hosts: [{ ...host, result: { ok: false, reason: "version-mismatch" } }],
     locations: [],
   });
-  await screen.findByText("Host version mismatch");
+  expect(
+    (await screen.findByText("Host version mismatch")).closest(".host-check-row")?.textContent,
+  ).toContain("Remote daemon");
 });
 
 test("host aliases and agent IDs are literal data even when they name object prototypes", async () => {
@@ -1150,7 +1155,7 @@ test("Add nickname validates inline, preserves invalid or failed input and submi
   fireEvent.change(input, { target: { value: "Build box" } });
   api.mockRejectedValueOnce(new Error("Failed"));
   fireEvent.click(screen.getByRole("button", { name: "Add host" }));
-  await screen.findByText("Unable to update hosts");
+  await screen.findByText("Unable to add host");
   expect(screen.getByRole<HTMLInputElement>("textbox", { name: "Nickname (optional)" }).value).toBe(
     "Build box",
   );
@@ -1310,23 +1315,6 @@ test.skipIf(process.platform === "win32")(
     }
   },
 );
-
-test("host check output remains inert, readable and dismissible after failure", async () => {
-  const output = {
-    host: "worker",
-    text: "<script>never execute</script>\nSSH refused",
-    running: false,
-    failed: true,
-  };
-  const { api } = await mount({ ...initial, output });
-  const panel = await screen.findByRole("region", { name: "Host check output" });
-  expect(panel.textContent).toContain(output.text);
-  expect(panel.querySelector("script")).toBeNull();
-  expect(within(panel).getByRole("status").textContent).toBe("Failed");
-  fireEvent.click(within(panel).getByRole("button", { name: "Dismiss" }));
-  expect(screen.queryByRole("region", { name: "Host check output" })).toBeNull();
-  expect(api).toHaveBeenCalledWith({ action: "dismiss-output" });
-});
 
 test.each([false, true])(
   "embedded recipe exit reloads its saved rows (read fails: %s)",
@@ -1728,10 +1716,17 @@ test("untrusted hosts hide dependent checks and stale failures until acceptance 
         },
       ],
     },
-    output: { host: "worker", text: "Host key verification failed", running: false, failed: true },
   });
+  const failedTrust: HostsState = {
+    ...state,
+    hosts: state.hosts.map((entry) => ({ ...entry, hostKeyTrustFailure: "dialog-unavailable" })),
+  };
+  const trust = vi
+    .fn<() => Promise<HostsState>>()
+    .mockResolvedValueOnce(failedTrust)
+    .mockResolvedValue(saved(initial));
   const api = vi.fn((action: HostsAction) =>
-    Promise.resolve(action.action === "trust-host-key" ? saved(initial) : state),
+    action.action === "trust-host-key" ? trust() : Promise.resolve(state),
   );
   render(<HostsSettings source={{ hosts: api }} headingRef={createRef()} />);
   const card = await screen.findByRole("region", { name: "worker" });
@@ -1752,7 +1747,11 @@ test("untrusted hosts hide dependent checks and stale failures until acceptance 
   }
   expect(card.querySelector(".host-footer")).toBeNull();
   expect(within(card).getByRole("button", { name: "Remove" })).toBeTruthy();
-  expect(within(card).getByRole("region", { name: "Host check output" })).toBeTruthy();
+  expect(within(card).queryByRole("region", { name: "Host check output" })).toBeNull();
+  fireEvent.click(within(card).getByRole("button", { name: "Trust host key…" }));
+  const failure = await within(card).findByText("Unable to trust host key · dialog-unavailable");
+  expect(failure.closest(".host-check-row")?.textContent).toContain("SSH");
+  expect(card.querySelectorAll(".host-check-row")).toHaveLength(1);
   fireEvent.click(within(card).getByRole("button", { name: "Trust host key…" }));
   await within(card).findByText("Pass · Host key trusted");
   for (const text of [
@@ -1762,44 +1761,12 @@ test("untrusted hosts hide dependent checks and stale failures until acceptance 
     "git",
     "GitHub CLI",
     "Agents",
-    "Checked out repositories",
     "Host facts",
   ]) {
     expect(within(card).getByText(text, { exact: true })).toBeTruthy();
   }
   expect(card.querySelector(".host-footer")).toBeTruthy();
 });
-
-test.each(["host-key-unknown", "host-key-changed", "login-rejected", "unreachable"] as const)(
-  "check output for %s distinguishes waiting from failure and dismissal",
-  async (reason) => {
-    const result = { ok: false as const, reason };
-    const output = {
-      host: "worker",
-      text: "Read-only SSH diagnostic",
-      running: false,
-      failed: true,
-    };
-    await mount({
-      ...initial,
-      hosts: [{ ...host, result, hostKeyTrust: "askpass" }],
-      preflight: { ...preflight, result, ssh: { state: "fail", reason } },
-      output,
-    });
-    const panel = screen.getByRole("region", { name: "Host check output" });
-    const status = within(panel).getByRole("status");
-    expect(status.textContent).toBe(
-      reason === "host-key-unknown" ? "Host key not trusted" : "Failed",
-    );
-    expect(
-      status.classList.contains(reason === "host-key-unknown" ? "host-need" : "hosts-failure"),
-    ).toBe(true);
-    expect(panel.textContent).toContain(output.text);
-    if (reason === "host-key-unknown")
-      expect(within(panel).queryByRole("button", { name: "Dismiss" })).toBeNull();
-    else expect(within(panel).getByRole("button", { name: "Dismiss" })).toBeTruthy();
-  },
-);
 
 test("sealed build omission is announced once on opening Hosts, including saved ready hosts", async () => {
   const { api } = await mount({ ...initial, remoteHostsAvailable: false });
