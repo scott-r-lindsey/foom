@@ -26,8 +26,9 @@ rejection exits the row normally and keeps the ID; no agent transcript or runtim
 until Foom can load the applied Settings and attach the writer. The single
 startup restore pass then uses the applied `restoreSessions` value, including
 for saved Foom config shells. A verified disabled preference makes saved rows
-restartable as soon as the board opens. Foom skips a deferred restore if a quit
-request is pending so the confirmation's terminal count stays accurate.
+restartable by hand as soon as the board opens, even while Settings is busy.
+Deferred restoration waits for a pending quit decision so the terminal count
+stays accurate. Canceling quit lets the restore pass proceed.
 Screens and scrollback are never persisted.
 
 `src/main/workspace/session-owner.ts` owns session restoration and persistence behind

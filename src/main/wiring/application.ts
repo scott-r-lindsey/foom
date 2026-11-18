@@ -532,8 +532,8 @@ export function runApplication() {
     get quitPending() {
       return quitPending;
     },
-    get quitRequested() {
-      return quitRequest !== undefined;
+    get quitRequest() {
+      return quitRequest;
     },
     get quitting() {
       return quitting;
@@ -760,8 +760,9 @@ async function startApplication(wiring: ApplicationWiring): Promise<void> {
       if (isQuitting()) return;
       wiring.applyThemeSettings();
       wiring.configApplied();
-      // Keep deferred launches out of an in-progress quit request.
-      if (wiring.quitRequested) return;
+      // Keep the confirmed terminal count stable until the quit request settles.
+      while (wiring.quitRequest) await wiring.quitRequest;
+      if (isQuitting()) return;
     }
     await wiring.workspace.restartSaved();
   };

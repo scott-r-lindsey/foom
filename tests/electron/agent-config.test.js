@@ -663,9 +663,7 @@ async function launchWithDeferredShell(context, restoreSessions, config) {
   return { app, page, id, lock };
 }
 
-test("deferred config restore skips a saved shell while quit confirmation is pending", {
-  timeout: deadline(45_000),
-}, async (context) => {
+async function deferredRestoreAtQuit(context) {
   const { app, page, id, lock } = await launchWithDeferredShell(context, true, true);
   const home = await page.evaluate(() => window.desktop.sidebarCommand({ kind: "home-shell" }));
   const rows = () => page.evaluate(async () => (await window.desktop.workspace()).terminals);
@@ -676,12 +674,20 @@ test("deferred config restore skips a saved shell while quit confirmation is pen
     const load = process
       .getBuiltinModule("node:module")
       .createRequire(app.getAppPath() + "/package.json");
-    const { WorktreeService } = load("./build/main/workspace/worktrees.js");
-    const reconcile = WorktreeService.prototype.reconcileRemovals;
-    WorktreeService.prototype.reconcileRemovals = function (...args) {
-      // This runs after the deferred restore pass either settles or is skipped.
-      globalThis.deferredStartupSettled = true;
-      return reconcile.apply(this, args);
+    const { ThemeLibrary } = load("./build/main/themes/library.js");
+    const { Workspace } = load("./build/main/workspace/workspace.js");
+    const initialize = ThemeLibrary.prototype.initialize;
+    ThemeLibrary.prototype.initialize = async function () {
+      await initialize.call(this);
+      // Allow the startup continuation to reach its quit check after theme initialization.
+      setImmediate(() => {
+        globalThis.deferredRestoreReachedQuit = true;
+      });
+    };
+    const restartSaved = Workspace.prototype.restartSaved;
+    Workspace.prototype.restartSaved = function () {
+      globalThis.deferredRestoreStarted = true;
+      return restartSaved.call(this);
     };
     app.quit();
   });
@@ -689,7 +695,8 @@ test("deferred config restore skips a saved shell while quit confirmation is pen
   const card = confirmation.getByRole("alertdialog");
   await expect(card).toHaveAccessibleName("Quit with 1 terminal running?");
   await unlink(lock);
-  await expect.poll(() => app.evaluate(() => globalThis.deferredStartupSettled)).toBe(true);
+  await expect.poll(() => app.evaluate(() => globalThis.deferredRestoreReachedQuit)).toBe(true);
+  assert.equal(await app.evaluate(() => globalThis.deferredRestoreStarted), undefined);
   const sessions = await rows();
   assert.equal(sessions.find((row) => row.id === id)?.dormant, true);
   assert.deepEqual(
@@ -697,9 +704,27 @@ test("deferred config restore skips a saved shell while quit confirmation is pen
     [home.terminalId],
   );
   await expect(card).toHaveAccessibleName("Quit with 1 terminal running?");
+  return { app, confirmation, id, rows };
+}
+
+test("deferred config restore skips a saved shell while quit confirmation is pending", {
+  timeout: deadline(45_000),
+}, async (context) => {
+  const { app, confirmation } = await deferredRestoreAtQuit(context);
   await quitAndWait(app, () =>
     confirmation.getByRole("button", { name: "Stop all and quit", exact: true }).click(),
   );
+});
+
+test("canceling quit resumes deferred config restore", {
+  timeout: deadline(45_000),
+}, async (context) => {
+  const { confirmation, id, rows } = await deferredRestoreAtQuit(context);
+  await confirmation.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect
+    .poll(async () => (await rows()).filter((row) => !row.dormant && !row.exited).length)
+    .toBe(2);
+  assert.equal((await rows()).find((row) => row.id === id)?.dormant, undefined);
 });
 
 test("disabled startup restore exposes Restart shell while the Settings lock is busy", {
@@ -710,7 +735,13 @@ test("disabled startup restore exposes Restart shell while the Settings lock is 
   assert.equal(snapshot.terminals.find((row) => row.id === id)?.exited, true);
   const row = page.locator(".board-row[data-kind='shell'][data-exited='true']");
   await row.locator(".row-actions").click();
-  await expect(page.getByRole("menuitem", { name: "Restart shell", exact: true })).toBeVisible();
+  await page.getByRole("menuitem", { name: "Restart shell", exact: true }).click();
+  await expect
+    .poll(async () => {
+      const { terminals } = await page.evaluate(() => window.desktop.workspace());
+      return terminals.some((row) => row.id !== id && row.home && !row.dormant && !row.exited);
+    })
+    .toBe(true);
   assert.equal(await readFile(lock, "utf8"), foreignSettingsLock());
 });
 
