@@ -767,7 +767,7 @@ observations may update only the corresponding fields of an existing live
 inventory, without renewing its freshness; saved observations never populate it.
 Resource refresh replies remain separate from the launch inventory when no live
 inventory exists or a full read is pending. A failed resource refresh reports its
-failure under Host facts while retaining the checklist observations.
+failure under Host facts while retaining the checklist observations, including\nwhen both checks return the same reason.
 
 ## Settings agent scopes (#1070)
 
@@ -973,7 +973,7 @@ and [8.5 source](https://raw.githubusercontent.com/openssh/openssh-portable/V_8_
 Unexpected OpenSSH question variants are refused rather than displayed verbatim.
 An authenticated helper rejection reports only a fixed code, without forwarding
 the rejected prompt. Non-decline failures show a fixed trust reason code on the
-SSH row. Raw SSH prompts, host-file entries and exceptions stay private.
+SSH row. A newer SSH observation keeps its own status alongside a rejected trust\nattempt. Raw SSH prompts, host-file entries and exceptions stay private.
 Only one question can receive an answer per run. Cancel is focused by default;
 Cancel, Escape and close decline. No renderer payload can provide the answer.
 

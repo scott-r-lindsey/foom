@@ -100,7 +100,7 @@ function Row({
 }: {
   name: ReactNode;
   tone: Tone;
-  text: string;
+  text: ReactNode;
   action?: ReactNode;
   target?: HostCheckTarget;
 }) {
@@ -260,6 +260,8 @@ function Checklist({
     ? { state: "fail" as const, reason: unmatchedFailure }
     : facts?.folder;
   const sshStatus = checkPresentation(connection?.ssh, "Host key trusted");
+  const trustFailure =
+    entry.hostKeyTrustFailure && "Unable to trust host key · " + entry.hostKeyTrustFailure;
   const daemon =
     unmatchedFailure && !folderFailure
       ? { state: "fail" as const, reason: unmatchedFailure }
@@ -376,11 +378,17 @@ function Checklist({
       <Row
         target={{ kind: "ssh" }}
         name="SSH"
-        tone={entry.hostKeyTrustFailure ? "fail" : sshStatus.tone}
+        tone={awaitingTrust && trustFailure ? "fail" : sshStatus.tone}
         text={
-          entry.hostKeyTrustFailure
-            ? "Unable to trust host key · " + entry.hostKeyTrustFailure
-            : sshStatus.text
+          trustFailure && !awaitingTrust ? (
+            <>
+              <span>{sshStatus.text}</span>
+              <br />
+              <span className="host-fail">{trustFailure}</span>
+            </>
+          ) : (
+            (trustFailure ?? sshStatus.text)
+          )
         }
         action={
           connection?.ssh.state === "fail" && connection.ssh.reason === "host-key-unknown" ? (
@@ -1415,16 +1423,13 @@ export function HostsSettings({
                         )}
                       </p>
                     )}
-                    {entry.result &&
-                      !entry.result.ok &&
-                      preflight &&
-                      (preflight.result.ok || preflight.result.reason !== entry.result.reason) && (
-                        <p role="status">
-                          <Status tone={failureTone(entry.result.reason)}>
-                            {reasons[entry.result.reason]}
-                          </Status>
-                        </p>
-                      )}
+                    {entry.factsRefreshFailure && (
+                      <p role="status">
+                        <Status tone={failureTone(entry.factsRefreshFailure)}>
+                          {reasons[entry.factsRefreshFailure]}
+                        </Status>
+                      </p>
+                    )}
                     {entry.result?.ok && (
                       <dl className="host-facts">
                         {Object.entries({

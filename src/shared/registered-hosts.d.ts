@@ -172,6 +172,8 @@ export type HostKeyTrustFailure =
 
 export interface HostRow extends RegisteredHost {
   hostKeyTrustFailure?: HostKeyTrustFailure;
+  /** Failure from the latest explicit facts refresh. */
+  factsRefreshFailure?: HostFailure;
   hostKeyTrust?: "askpass" | "manual";
   rowFailures?: readonly { target: HostCheckTarget; reason: "save-failed" | "check-failed" }[];
   recipes?: readonly {

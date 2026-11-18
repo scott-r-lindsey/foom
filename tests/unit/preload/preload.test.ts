@@ -1987,23 +1987,25 @@ test("agent display details are bounded, copied and never expose undeclared meta
   await expect(api.hosts({ action: "list" })).rejects.toThrow();
 });
 
-test("host setup validates fixed SSH trust failure reasons and bounded recipe IDs", async () => {
+test("host setup validates fixed host failure reasons and bounded recipe IDs", async () => {
   const api = await bridge();
   const host = {
     host: "worker",
     codeFolder: "/code",
     hostKeyTrustFailure: "askpass-prompt-rejected",
+    factsRefreshFailure: "facts-unavailable",
   };
   mock.invoke.mockResolvedValue({ hosts: [host], locations: [], recipeSession: "recipe" });
   await expect(api.hosts({ action: "list" })).resolves.toMatchObject({
     hosts: [host],
     recipeSession: "recipe",
   });
-  for (const hostKeyTrustFailure of ["raw SSH prompt", 1]) {
-    mock.invoke.mockResolvedValue({
-      hosts: [{ ...host, hostKeyTrustFailure }],
-      locations: [],
-    });
+  for (const invalid of [
+    { ...host, hostKeyTrustFailure: "raw SSH prompt" },
+    { ...host, hostKeyTrustFailure: 1 },
+    { ...host, factsRefreshFailure: "raw refresh error" },
+  ]) {
+    mock.invoke.mockResolvedValue({ hosts: [invalid], locations: [] });
     await expect(api.hosts({ action: "list" })).rejects.toThrow();
   }
   for (const recipeSession of ["", "x".repeat(201), 1]) {

@@ -792,7 +792,11 @@ test("saved Settings views overlay explicit resource refresh success and failure
   await hosts.action({ action: "refresh", host: "fixture" });
   const saved = hosts.state(undefined, true).hosts[0];
   expect(saved?.result).toEqual({ ok: false, reason: "unreachable" });
+  expect(saved?.factsRefreshFailure).toBe("unreachable");
   expect(saved?.observation?.preflight.result).toMatchObject({ ok: true, facts: { cores: 8 } });
+  execute.mockResolvedValue({ ok: true, facts });
+  await hosts.action({ action: "refresh", host: "fixture" });
+  expect(hosts.state(undefined, true).hosts[0]?.factsRefreshFailure).toBeUndefined();
 });
 
 test("saved Settings views exclude unsolicited inventory failures", async () => {

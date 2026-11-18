@@ -151,7 +151,14 @@ if (args.includes('BatchMode=no')) {
  if(helper.status===0 && helper.stdout==='yes\\n') require('node:fs').writeFileSync(${JSON.stringify(knownHosts)},'fixture-cloud fixture-key\\n');
  process.exit(255);
 }
-if (current.sshFailure === 'changed') { clientError('@ WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED! @\\nHost key verification failed.\\n'); process.exit(255); }
+if (current.sshFailure === 'changed') {
+ const changedKey = () => { clientError('@ WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED! @\\nHost key verification failed.\\n'); process.exit(255); };
+ if(current.holdChangedKey) {
+  setInterval(() => { if(!JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8')).holdChangedKey) changedKey(); },20);
+  return;
+ }
+ changedKey();
+}
 if (current.sshFailure && !require('node:fs').readFileSync(${JSON.stringify(knownHosts)},'utf8')) { clientError('No ED25519 host key is known for fixture-cloud and you have requested strict checking.\\nHost key verification failed.\\n'); process.exit(255); }
 if (current.loginRejected) { clientError('user@fixture-cloud: Permission denied (publickey).\\n'); process.exit(255); }
 for (const flag of ['BatchMode=yes','ClearAllForwardings=yes','ForwardAgent=no','ForwardX11=no','ConnectTimeout=10']) assert.ok(args.includes(flag));
@@ -1373,6 +1380,30 @@ test("Hosts reloads individual rows and actions never trigger full capability ch
   await expect(card.getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
   await captureHosts(app, page, "1061/resource-refresh-failed");
   await assertAccessible(page);
+
+  const failure = "Host daemon needs an update for host facts";
+  const factsPanel = card.locator(".host-details");
+  await updateScenario({ inspectFailure: "facts-unavailable", factsFailure: "facts-unavailable" });
+  await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
+  await expect(card.locator(".host-check-row").getByText(failure, { exact: true })).toBeVisible();
+  await page.evaluate(() => window.desktop.sidebarInventory());
+  const failedCheckTimestamp = await checkedAt();
+  await expect(factsPanel.getByText(failure, { exact: true })).toHaveCount(0);
+  before = (await capabilityCalls()).length;
+  const refresh = factsPanel.getByRole("button", { name: "Refresh facts", exact: true });
+  await refresh.click();
+  await expect(refresh).toBeEnabled();
+  assert.deepEqual(
+    (await capabilityCalls()).slice(before).map(({ operation, target }) => ({ operation, target })),
+    [{ operation: "inspect", target: { kind: "facts" } }],
+  );
+  await expect(factsPanel.getByText(failure, { exact: true })).toBeVisible();
+  assert.equal(await checkedAt(), failedCheckTimestamp);
+  await updateScenario({});
+  await refresh.click();
+  await expect(factsPanel.getByText("CPU cores", { exact: true })).toBeVisible();
+  await expect(factsPanel.getByText(failure, { exact: true })).toHaveCount(0);
+  await expect(card.locator(".host-check-row").getByText(failure, { exact: true })).toBeVisible();
 });
 
 test("Hosts preserves a rejected replacement folder and reports unrepresentable row reloads inline", {
@@ -2446,6 +2477,35 @@ test("Hosts accepts new SSH keys only through the trusted askpass dialog", {
   await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
   await expect(card.getByText("Login rejected", { exact: true }).first()).toBeVisible();
   await expect(trust).toHaveCount(0);
+});
+
+test("Hosts preserves a changed SSH key warning when a queued trust attempt is refused", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { page, card, updateScenario, knownHosts } = await hostsFixture(context, false, {
+    sshFailure: "unknown",
+  });
+  const reload = card.getByRole("button", { name: "Reload SSH", exact: true });
+  const ssh = card.locator(".host-check-row").filter({
+    has: page.getByRole("button", { name: "Reload SSH", exact: true }),
+  });
+  const trust = ssh.getByRole("button", { name: "Trust host key…", exact: true });
+  await expect(trust).toBeEnabled();
+  await updateScenario({ sshFailure: "changed", holdChangedKey: true });
+  await reload.click();
+  await expect(ssh.getByText("Checking…", { exact: true })).toBeVisible();
+  await trust.click();
+  await expect(trust).toBeDisabled();
+  await updateScenario({ sshFailure: "changed" });
+
+  await expect(
+    ssh.getByText("Unable to trust host key · trust-not-eligible", { exact: true }),
+  ).toBeVisible();
+  await expect(ssh.getByText("Host key changed", { exact: true })).toBeVisible();
+  await expect(trust).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Copy SSH command", exact: true })).toHaveCount(0);
+  assert.equal(await readFile(knownHosts, "utf8"), "");
 });
 
 test("Hosts keeps an accepted key when the first recheck rejects login and offers the old-client fallback", {

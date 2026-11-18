@@ -1130,7 +1130,16 @@ test("row reload keeps other rows usable and does not run a full preflight", asy
 test("failed resource refresh reports its failure without replacing checklist results", async () => {
   const { api } = await mount();
   api.mockResolvedValue(
-    saved({ ...initial, hosts: [{ ...host, result: { ok: false, reason: "unreachable" } }] }),
+    saved({
+      ...initial,
+      hosts: [
+        {
+          ...host,
+          result: { ok: false, reason: "unreachable" },
+          factsRefreshFailure: "unreachable",
+        },
+      ],
+    }),
   );
   fireEvent.click(screen.getByRole("button", { name: "Refresh facts" }));
   await screen.findByText("Host unreachable");
@@ -1635,7 +1644,15 @@ test.each(["host-key-unknown", "host-key-changed", "login-rejected", "unreachabl
     const result = { ok: false as const, reason: "unreachable" as const };
     await mount({
       ...initial,
-      hosts: [{ ...host, result }],
+      hosts: [
+        {
+          ...host,
+          result,
+          ...(reason === "host-key-changed"
+            ? { hostKeyTrustFailure: "trust-not-eligible" as const }
+            : {}),
+        },
+      ],
       preflight: {
         ...preflight,
         ssh: check,
@@ -1655,6 +1672,8 @@ test.each(["host-key-unknown", "host-key-changed", "login-rejected", "unreachabl
       expect(
         status?.classList.contains(reason === "host-key-unknown" ? "host-need" : "host-fail"),
       ).toBe(true);
+      if (reason === "host-key-changed")
+        expect(status?.textContent).toContain("Unable to trust host key · trust-not-eligible");
       expect(status?.querySelector(".host-symbol")?.textContent).toBe(
         reason === "host-key-unknown" ? "" : "×",
       );

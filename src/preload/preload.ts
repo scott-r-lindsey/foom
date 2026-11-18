@@ -764,6 +764,7 @@ const validHostsState: Validator<HostsState> = shape({
         ),
       ),
       result: either(absent, validHostResult),
+      factsRefreshFailure: either(absent, validHostFailure),
       hostKeyTrustFailure: either(
         absent,
         literal(

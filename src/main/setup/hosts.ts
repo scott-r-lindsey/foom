@@ -838,8 +838,9 @@ export class Hosts {
           (!savedOnly && this.results.get(host.host)) || host.observation?.preflight.result;
         // Explicit Refresh facts belongs to Settings. Otherwise retain the
         // saved check rather than a background board connection failure.
+        const resourceResult = this.resourceResults.get(host.host);
         const runtimeResult =
-          this.resourceResults.get(host.host) ??
+          resourceResult ??
           (savedOnly
             ? liveInventories
               ? host.observation?.preflight.result
@@ -849,6 +850,7 @@ export class Hosts {
         return {
           ...host,
           ...(hostKeyTrustFailure ? { hostKeyTrustFailure } : {}),
+          ...(resourceResult?.ok === false ? { factsRefreshFailure: resourceResult.reason } : {}),
           ...(this.hostKeyTrust ? { hostKeyTrust: this.hostKeyTrust } : {}),
           ...(rowFailures.length ? { rowFailures } : {}),
           ...(host.observation
