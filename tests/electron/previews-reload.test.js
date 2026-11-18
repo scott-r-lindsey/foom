@@ -209,6 +209,8 @@ test("preview live reload follows retargeted symlinks and junctions", async (con
   const kind = process.platform === "win32" ? "junction" : "dir";
   await symlink(path.join(root, "one"), path.join(root, "alias"), kind);
   const id = await pickPreviewFile(app, page, root, "alias/index.html");
+  const picked = await page.evaluate((id) => window.desktop.previews.describe(id), id);
+  assert.equal(picked.relativePath, "alias/index.html");
   await page.evaluate(
     (id) =>
       window.desktop.previews.bounds(id, {

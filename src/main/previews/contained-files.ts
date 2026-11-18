@@ -1,7 +1,6 @@
 import { validImage } from "./image";
 import fs from "node:fs";
 import { execFile } from "node:child_process";
-import { devNull } from "node:os";
 import { promisify } from "node:util";
 import type { FileHandle } from "node:fs/promises";
 import path from "node:path";
@@ -60,8 +59,8 @@ async function checkoutDirectory(directory: string): Promise<string> {
         ...Object.fromEntries(
           Object.entries(process.env).filter(([key]) => !key.toUpperCase().startsWith("GIT_")),
         ),
-        GIT_CONFIG_GLOBAL: devNull,
-        GIT_CONFIG_SYSTEM: devNull,
+        GIT_CONFIG_GLOBAL: "/dev/null",
+        GIT_CONFIG_SYSTEM: "/dev/null",
         GIT_CONFIG_NOSYSTEM: "1",
         GIT_TERMINAL_PROMPT: "0",
       },
@@ -73,7 +72,7 @@ async function checkoutDirectory(directory: string): Promise<string> {
     const top = stdout.replace(/\r?\n$/, "");
     if (path.isAbsolute(top) && !/[\p{Cc}\p{Cs}]/u.test(top)) {
       const canonical = await fs.promises.realpath(top);
-      if (inside(canonical, directory, path.sep)) return canonical;
+      if (documentWithin(canonical, directory)) return canonical;
     }
   } catch {
     // Standalone files remain usable when Git is unavailable or rejects discovery.
@@ -122,7 +121,7 @@ export async function resolveDocument(
     return { status: 404, reason: "unreadable" };
   }
   // An in-root picker alias remains watchable and may be retargeted in that root.
-  const entry = preserveAlias && inside(root.path, file, path.sep) ? file : real;
+  const entry = preserveAlias && documentWithin(root.path, file) ? file : real;
   const relative = path.relative(root.path, entry).split(path.sep).join("/");
   const opened = await openDocument(root, documentPathname(relative));
   if (opened.status !== 200) return opened;

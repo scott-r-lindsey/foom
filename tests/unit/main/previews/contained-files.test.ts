@@ -153,6 +153,22 @@ test.skipIf(process.platform === "win32")(
   },
 );
 
+test.runIf(process.platform === "win32")(
+  "retains an in-checkout picker junction when the checkout's spelling differs",
+  async () => {
+    gitSync(["init", "-q"], { cwd: outside });
+    const docs = path.join(outside, "docs");
+    fs.mkdirSync(docs);
+    fs.writeFileSync(path.join(docs, "page.html"), "<p>Checkout</p>");
+    fs.symlinkSync(docs, path.join(outside, "alias"), "junction");
+    const alternate = path.join(path.dirname(outside), path.basename(outside).toUpperCase());
+    expect(await resolveDocument(path.join(alternate, "alias", "page.html"), true)).toMatchObject({
+      status: 200,
+      relative: "alias/page.html",
+    });
+  },
+);
+
 test("serves pages, relative assets and directory indexes from owned handles", async () => {
   expect(await body("/docs/page.html")).toBe("<p>page</p>");
   expect(await body(new URL("assets/a.css", "foom-preview://id/docs/page.html").pathname)).toBe(
