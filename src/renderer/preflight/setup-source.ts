@@ -1,6 +1,6 @@
 import type { DataViewApi } from "../../shared/data-views";
 import { createTerminalView } from "../terminal/terminal-view-source";
-import type { SetupSource } from "./setup-source.d";
+import type { HostTerminalAction, SetupSource } from "./setup-source.d";
 
 export function createSetupSource(
   createView = createTerminalView,
@@ -8,6 +8,7 @@ export function createSetupSource(
 ): SetupSource {
   const desktop = window.desktop;
   const ghSessions = new Map<string, boolean>();
+  const hostActions = new Map<string, HostTerminalAction>();
   const installs = new Map<string, string>();
   const launches = new Set<Promise<unknown>>();
   const exited = new Set<string>();
@@ -97,7 +98,13 @@ export function createSetupSource(
     },
     installs: {
       dispose,
-      sessions: () => new Map([...installs].map(([id, host]) => [host, id])),
+      sessions: () =>
+        new Map(
+          [...installs]
+            .filter(([id]) => hostActions.get(id)?.action !== "trust-origin")
+            .map(([id, host]) => [host, id]),
+        ),
+      hostActions: () => hostActions,
       hasSessions: () => installs.size > 0 || launches.size > 0,
       running: async () => {
         for (;;) {
@@ -120,6 +127,7 @@ export function createSetupSource(
               await (closeSession?.(id) ?? desktop.kill(id));
             installs.delete(id);
             ghSessions.delete(id);
+            hostActions.delete(id);
             exited.delete(id);
           }
           releaseObserver();
@@ -143,17 +151,15 @@ export function createSetupSource(
         : desktop.repositorySetup(action),
     copyHost: (command) => desktop.copyHost(command),
     hosts: (action) => {
-      if (
-        action.action !== "recipe" ||
-        (action.operation !== "install" &&
-          action.operation !== "install-sign-in" &&
-          !(action.tool === "gh" && action.operation === "sign-in"))
-      )
+      if (action.action !== "recipe" && action.action !== "trust-origin")
         return desktop.hosts(action);
       return trackInstall(action.host, async () => {
         const state = await desktop.hosts(action);
-        if (state.recipeSession && action.tool === "gh" && action.operation !== "install")
-          ghSessions.set(state.recipeSession, action.operation === "install-sign-in");
+        if (state.recipeSession) {
+          hostActions.set(state.recipeSession, action);
+          if (action.action === "recipe" && action.tool === "gh" && action.operation !== "install")
+            ghSessions.set(state.recipeSession, action.operation === "install-sign-in");
+        }
         return state;
       });
     },

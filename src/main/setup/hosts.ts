@@ -925,6 +925,23 @@ export class Hosts {
     for (const target of targets) rows.set(JSON.stringify(target), { target });
     this.pendingRows.set(host, [...rows.values()]);
   }
+  private refreshRecipeRows(host: string, targets: readonly HostCheckTarget[]) {
+    this.pendingRecipeRefreshes++;
+    const queued = this.pending
+      .catch(() => undefined)
+      .then(() => {
+        this.queueRows(host, targets);
+      })
+      .finally(() => {
+        this.pendingRecipeRefreshes--;
+      });
+    this.pending = queued;
+    void queued
+      .then(() => this.action({ action: "list" }))
+      .catch(() => {
+        console.warn("Recipe row refresh failed");
+      });
+  }
   private registeredRow(host: string, target: HostCheckTarget) {
     const registration = this.registered(host);
     if (
@@ -1375,17 +1392,21 @@ export class Hosts {
           this.registered(input.host, registration.codeFolder);
           if (!originSshArgs(origin) || !launchRecipe || !this.profile)
             return { ...this.state(), recipeFailure: "recipe-unavailable" as const };
-          await launchRecipe({
-            host: input.host,
-            profile: this.profile,
-            human: true,
-            trustOrigin: origin,
-          });
-          this.queueRows(input.host, [
+          const targets: HostCheckTarget[] = [
             { kind: "origin", repository: input.repository },
             { kind: "checkout", repository: input.repository },
-          ]);
-          return this.state();
+          ];
+          const recipeSession = await launchRecipe(
+            { host: input.host, profile: this.profile, human: true, trustOrigin: origin },
+            () => {
+              this.refreshRecipeRows(input.host, targets);
+            },
+          );
+          if (typeof recipeSession !== "string") this.queueRows(input.host, targets);
+          return {
+            ...this.state(),
+            ...(typeof recipeSession === "string" ? { recipeSession } : {}),
+          };
         }
         if (input.action === "recipe") {
           this.registered(input.host);
@@ -1438,29 +1459,13 @@ export class Hosts {
               },
             },
             () => {
-              this.pendingRecipeRefreshes++;
-              const queued = this.pending
-                .catch(() => undefined)
-                .then(() => {
-                  this.queueRows(input.host, targets);
-                })
-                .finally(() => {
-                  this.pendingRecipeRefreshes--;
-                });
-              this.pending = queued;
-              void queued
-                .then(() => this.action({ action: "list" }))
-                .catch(() => {
-                  console.warn("Recipe row refresh failed");
-                });
+              this.refreshRecipeRows(input.host, targets);
             },
           );
           if (typeof recipeSession !== "string") this.queueRows(input.host, targets);
           return {
             ...this.state(),
-            ...((input.operation === "install" || ghSignIn) && typeof recipeSession === "string"
-              ? { recipeSession }
-              : {}),
+            ...(typeof recipeSession === "string" ? { recipeSession } : {}),
           };
         }
         if (input.action === "end") {

@@ -29,8 +29,12 @@ const {
   assertAccessible,
 } = require("./harness.js");
 
-async function captureHosts(app, page, name) {
-  const area = page.locator(".hosts-page:visible, .repository-hosts:visible").first();
+async function captureHosts(
+  app,
+  page,
+  name,
+  area = page.locator(".hosts-page:visible, .repository-hosts:visible").first(),
+) {
   if (!(await area.count())) return;
   const original = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
   const height = await area.evaluate(
@@ -60,7 +64,7 @@ async function captureHosts(app, page, name) {
         .toBe(mode === "dark");
       await area.screenshot({
         path: evidencePath(
-          `${/^(?:1059|1061|1062|1067|1074|1131)\//u.test(name) ? name : `1074/${name}`}-${mode}.png`,
+          `${/^(?:1059|1061|1062|1067|1074|1131|1260)\//u.test(name) ? name : `1074/${name}`}-${mode}.png`,
         ),
       });
     }
@@ -176,7 +180,7 @@ if(checking) for(const option of ['ControlMaster=no','ControlPath=none','Control
 if(checking) process.stdout.write(${JSON.stringify(`${platform === "darwin" ? "Darwin" : "Linux"}\n${process.arch === "x64" ? "x86_64" : platform === "darwin" ? "arm64" : "aarch64"}\n`)}+(JSON.stringify(current).includes('musl')?'FOOM-LIBC-UNSUPPORTED':'FOOM-LIBC-OK')+'\\nFOOM-PROBED\\n');
 else process.stdout.write('FOOM-READY\\n');
 let bootstrapPending=checking;
-let input=Buffer.alloc(0), terminalOutput='', recipeInput='', recipeEnded=false, finishTimer;
+let input=Buffer.alloc(0), terminalOutput='', recipeInput='', recipeEnded=false, trustingOrigin=false, finishTimer;
 const {spawnSync}=require('node:child_process');
 const {selectHostRecipe,recipeDigestInput}=require(${JSON.stringify(path.resolve("build/shared/registered-host-recipes.js"))});
 function frame(message) { const data=Buffer.from(JSON.stringify({version:3,message})); const head=Buffer.alloc(4); head.writeUInt32BE(data.length); return Buffer.concat([head,data]); }
@@ -195,15 +199,18 @@ process.stdin.on('data', bytes => {
       const args=originSshArgs(message.trustOrigin);
       assert.ok(args.includes('StrictHostKeyChecking=ask'));
       assert.deepEqual(args.slice(-2),['--','git@forge.test']);
-      terminalOutput='FIXTURE_VERIFY_FINGERPRINT_AND_ANSWER_SSH\\r\\n';
+      trustingOrigin=true;
+      terminalOutput='ED25519 key fingerprint is SHA256:fixture-fingerprint.\\r\\nAre you sure you want to continue connecting (yes/no/[fingerprint])? ';
       send({type:'open-result',id:message.id,request:message.request,state:'live'});continue;
     }
-    const recipe=selectHostRecipe(message.recipe,{distro:'debian',libc:'supported',packageManager:'apt'});
+    const setup=message.recipe.tool==='codex'?{signIn:{debian:['codex','login','--device-auth']}}:undefined;
+    const recipe=selectHostRecipe(message.recipe,{distro:'debian',libc:'supported',packageManager:'apt'},setup);
     assert.equal(message.recipe.digest,require('node:crypto').createHash('sha256').update(recipeDigestInput(recipe)).digest('hex'));
     assert.ok(recipe);
     for (const step of recipe.steps) {
       const child=spawnSync(${JSON.stringify(process.execPath)},[${JSON.stringify(recipeFixture)},...step],{env:{},encoding:'utf8'});
       assert.equal(child.status,0); terminalOutput=child.stdout;
+      if(message.recipe.action==='install-plugin') terminalOutput='foom-host --stage-plugin agy\\r\\nagy plugin install /fixture/staged-plugin\\r\\n';
     }
     const immediate=JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8'));
     if(immediate.githubDevice) terminalOutput='! First copy your one-time code: ABCD-1234\\r\\nOpen this URL to continue in your web browser: https://evil.test/\\r\\n';
@@ -228,6 +235,16 @@ process.stdin.on('data', bytes => {
       send({type:'exit',id:message.id,code:143});
     }
     const recipeSettings=JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8'));
+    if(message.type==='write' && trustingOrigin && !recipeEnded) {
+      recipeInput+=message.data;
+      if(recipeInput.endsWith(String.fromCharCode(13))) {
+        recipeEnded=true;
+        assert.equal(recipeInput,'yes'+String.fromCharCode(13));
+        appendFileSync(${JSON.stringify(calls)},JSON.stringify({host,message:{type:'origin-answer',answer:'yes'}})+'\\n');
+        require('node:fs').writeFileSync(${JSON.stringify(scenario)},JSON.stringify({...recipeSettings,origin:undefined}));
+        send({type:'exit',id:message.id,code:0});
+      }
+    }
     if(message.type==='write' && recipeSettings.recipeInteractive && !recipeEnded) {
       recipeInput+=message.data;
       if(recipeInput.includes('fixture-password'+String.fromCharCode(13))) {
@@ -866,23 +883,45 @@ test("Hosts shows readiness and read-only checkouts with explicit origin trust",
   await expect(card.getByRole("button", { name: "Trust host key…", exact: true })).toBeEnabled();
   await capture("origin-host-key");
   const beforeTrust = (await readFile(calls, "utf8")).trim().split("\n").length;
+  const checkedAt = await page.evaluate(
+    async () =>
+      (await window.desktop.setupState()).settings.registeredHosts[0].observation.checkedAt,
+  );
   await card.getByRole("button", { name: "Trust host key…", exact: true }).click();
-  await expect(page.locator(".terminal-tile[data-kind='shell']").last()).toBeVisible();
-  await expect
-    .poll(() =>
-      page.evaluate(async () => {
-        const id = (await window.desktop.workspace()).terminals.at(-1)?.id;
-        return id ? (await window.desktop.tail(id, 40)).join("\n") : "";
-      }),
-    )
-    .toContain("FIXTURE_VERIFY_FINGERPRINT_AND_ANSWER_SSH");
-  await capture("trust-host-key-tile");
-  await openSettingsScreen(page);
-  await page
-    .getByRole("navigation", { name: "Settings sections" })
-    .getByRole("button", { name: "Hosts", exact: true })
-    .click();
-  await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
+  const terminal = card.getByRole("region", { name: "Origin host key terminal", exact: true });
+  await expect(terminal.locator(".xterm-screen")).toContainText("continue connecting");
+  await expect(terminal.getByRole("button", { name: "Stop", exact: true })).toBeEnabled();
+  await expect(page.getByRole("region", { name: "Settings", exact: true })).toBeVisible();
+  await expect(page.locator(".terminal-tile[data-kind='shell']")).toHaveCount(0);
+  await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
+  const stop = page.getByRole("dialog", { name: "Stop the install?", exact: true });
+  await expect(stop).toBeVisible();
+  await stop.getByRole("button", { name: "Keep open", exact: true }).click();
+  await captureHosts(app, page, "1260/origin-trust", card.locator(".host-checks"));
+  const beforeAnswer = (await readFile(calls, "utf8"))
+    .trim()
+    .split("\n")
+    .slice(beforeTrust)
+    .map((line) => JSON.parse(line).message);
+  assert.equal(
+    beforeAnswer.some(({ operation, type }) =>
+      ["origin", "repository", "origin-answer"].includes(operation ?? type),
+    ),
+    false,
+  );
+  await terminal.locator(".xterm-helper-textarea").focus();
+  await page.keyboard.type("yes");
+  await page.keyboard.press("Enter");
+  await expect(terminal.getByRole("status")).toHaveText("Done");
+  await expect(terminal.locator(".xterm-screen")).toHaveCount(0);
+  await expect(card.getByText("Pass · Reachable", { exact: true })).toBeVisible();
+  assert.equal(
+    await page.evaluate(
+      async () =>
+        (await window.desktop.setupState()).settings.registeredHosts[0].observation.checkedAt,
+    ),
+    checkedAt,
+  );
   const trustChecks = (await readFile(calls, "utf8"))
     .trim()
     .split("\n")
@@ -2023,7 +2062,18 @@ test("Agents scopes use trusted consent and fixed recipes for host plugin instal
       ["agy", "plugin", "install", "{stagedPlugin}"],
     ],
   );
-  await expect(page.getByRole("region", { name: "Settings", exact: true })).toHaveCount(0);
+  const settings = page.getByRole("region", { name: "Settings", exact: true });
+  const agy = settings.getByRole("region", { name: "Antigravity", exact: true });
+  const terminal = agy.getByRole("region", { name: "Antigravity plugin terminal", exact: true });
+  await expect(terminal.locator(".xterm-screen")).toContainText("agy plugin install");
+  await expect(terminal.getByRole("button", { name: "Stop", exact: true })).toBeEnabled();
+  await expect(settings).toBeVisible();
+  await expect(page.locator(".terminal-tile[data-kind='shell']")).toHaveCount(0);
+  await captureHosts(app, page, "1260/plugin-install", agy);
+  await page.getByRole("tab", { name: "Global", exact: true }).click();
+  await expect(terminal).toHaveCount(0);
+  await page.getByRole("tab", { name: "Machines", exact: true }).click();
+  await expect(terminal.locator(".xterm-screen")).toContainText("agy plugin install");
   const checkpoint = (await readFile(calls, "utf8")).split("\n").filter(Boolean).length;
   await updateScenario({
     recipeExit: 0,
@@ -2035,37 +2085,65 @@ test("Agents scopes use trusted consent and fixed recipes for host plugin instal
       ],
     },
   });
-  // Row refresh follows the reported PTY exit, rather than recipe creation.
-  await expect
-    .poll(async () =>
-      (await page.evaluate(() => window.desktop.workspace())).terminals.some(
-        (row) => row.recipe && row.exited,
-      ),
-    )
-    .toBe(true);
-  await openSettingsScreen(page);
-  await page
-    .getByRole("navigation", { name: "Settings sections" })
-    .getByRole("button", { name: "Agents", exact: true })
-    .click();
-  await page.getByRole("tab", { name: "Machines", exact: true }).click();
-  await page
-    .getByRole("combobox", { name: "Machine", exact: true })
-    .selectOption("host:fixture-cloud");
+  await expect(terminal.getByRole("status")).toHaveText("Done");
+  await expect(terminal.locator(".xterm-screen")).toHaveCount(0);
   await expect(page.getByText("Present · use agy to manage", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Install plugin", exact: true })).toHaveCount(0);
-  const inspected = (await readFile(calls, "utf8"))
-    .split("\n")
-    .filter(Boolean)
-    .slice(checkpoint)
-    .map((line) => JSON.parse(line))
-    .filter(({ message }) => message.operation === "inspect");
-  assert.deepEqual(
-    inspected.map(({ message }) => message.target),
-    [
+  await expect
+    .poll(async () =>
+      (await readFile(calls, "utf8"))
+        .split("\n")
+        .filter(Boolean)
+        .slice(checkpoint)
+        .map((line) => JSON.parse(line).message)
+        .filter(({ operation }) => operation === "inspect")
+        .map(({ target }) => target),
+    )
+    .toEqual([
       { kind: "tool", tool: "agy" },
       { kind: "sign-in", tool: "agy" },
-    ],
+    ]);
+  await expect(settings).toBeVisible();
+  await expect(page.locator(".terminal-tile[data-kind='shell']")).toHaveCount(0);
+});
+
+test("Agents keeps fixed Codex device sign-in in Settings and refreshes sign-in on exit", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { page, card, calls, recipeCalls, updateScenario } = await hostsFixture(context);
+  const codex = { id: "codex", state: "ready", signIn: "signed-out" };
+  await updateScenario({ facts: { agents: [codex] } });
+  await card.getByRole("button", { name: "Open", exact: true }).click();
+  await page.getByRole("button", { name: "Re-check fixture-cloud", exact: true }).click();
+  const agent = page.getByRole("region", { name: "Codex", exact: true });
+  await agent.getByRole("button", { name: "Sign in", exact: true }).click();
+  const terminal = agent.getByRole("region", { name: "Agent sign-in terminal", exact: true });
+  await expect(terminal.locator(".xterm-screen")).toContainText("FIXTURE_RECIPE_COMPLETE");
+  assert.deepEqual(JSON.parse((await readFile(recipeCalls, "utf8")).trim()), [
+    "codex",
+    "login",
+    "--device-auth",
+  ]);
+  await expect(page.getByRole("region", { name: "Settings", exact: true })).toBeVisible();
+  await expect(page.locator(".terminal-tile[data-kind='shell']")).toHaveCount(0);
+  const checkpoint = (await readFile(calls, "utf8")).trim().split("\n").length;
+  await updateScenario({
+    recipeExit: 0,
+    facts: { agents: [{ ...codex, signIn: "signed-in" }] },
+  });
+  await expect(terminal.getByRole("status")).toHaveText("Done");
+  await expect(terminal.locator(".xterm-screen")).toHaveCount(0);
+  await expect(agent.getByText("Signed in", { exact: true })).toBeVisible();
+  const inspected = (await readFile(calls, "utf8"))
+    .trim()
+    .split("\n")
+    .slice(checkpoint)
+    .map((line) => JSON.parse(line).message)
+    .filter(({ operation }) => operation === "inspect");
+  assert.deepEqual(
+    inspected.map(({ target }) => target),
+    [{ kind: "sign-in", tool: "codex" }],
   );
 });
 

@@ -20,6 +20,7 @@ import type {
 } from "../../shared/registered-hosts.d";
 import type { SetupSource } from "./setup-source.d";
 import type { Repository } from "../../shared/worktrees";
+const originRecipeKey = (host: string, repository: string) => JSON.stringify([host, repository]);
 const EMPTY_HOSTS: HostsState = { hosts: [], locations: [] };
 const reasons: Record<HostFailure, string> = {
   unreachable: "Host unreachable",
@@ -255,9 +256,13 @@ function Checklist({
   enabledAgents,
   ghPanel,
   ghRunning,
+  originTerminals,
+  signInTerminal,
   copySsh,
 }: {
   ghPanel?: ReactNode;
+  originTerminals: ReadonlyMap<string, { running: boolean; panel: ReactNode }>;
+  signInTerminal?: { tool: string; running: boolean; panel: ReactNode } | undefined;
   ghRunning?: boolean;
   awaitingTrust: boolean;
   copySsh: () => Promise<unknown>;
@@ -291,7 +296,11 @@ function Checklist({
   const recipe = (id: string, operation: "install" | "sign-in") => (
     <button
       type="button"
-      disabled={disabled || (id === "gh" && ghRunning)}
+      disabled={
+        disabled ||
+        (id === "gh" && ghRunning) ||
+        (signInTerminal?.tool === id && signInTerminal.running)
+      }
       aria-label={`${operation === "install" ? (id === "gh" ? "Install & sign in" : "Install") : "Sign in"} ${id}`}
       onClick={() => {
         act({
@@ -368,6 +377,7 @@ function Checklist({
             />
           )}
           {agent.id === "gh" && agent.state === "ready" && ghPanel}
+          {signInTerminal?.tool === agent.id && signInTerminal.panel}
           {agent.id === "gh" && agent.signIn !== "signed-in" && (
             <p className="github-token-note">
               Without a keyring, gh may store your token in plain text on this host.
@@ -507,7 +517,12 @@ function Checklist({
             </button>
           )}
           {repositories
-            .filter((repo) => showReady || !readyRepositories.includes(repo))
+            .filter(
+              (repo) =>
+                showReady ||
+                originTerminals.has(repo.repository) ||
+                !readyRepositories.includes(repo),
+            )
             .map((repo) => (
               <Fragment key={repo.repository}>
                 <Group>Repository · {repo.repository.split(/[\\/]/u).at(-1)}</Group>
@@ -523,7 +538,7 @@ function Checklist({
                     repo.origin.reason === "origin-host-key" ? (
                       <button
                         type="button"
-                        disabled={disabled}
+                        disabled={disabled || originTerminals.get(repo.repository)?.running}
                         onClick={() => {
                           act({
                             action: "trust-origin",
@@ -537,6 +552,7 @@ function Checklist({
                     ) : undefined
                   }
                 />
+                {originTerminals.get(repo.repository)?.panel}
                 {facts && repo.origin?.state === "fail" && repo.origin.reason === "origin-auth" && (
                   <div className="host-origin-fixes" aria-label="Git access fixes">
                     <span title={"Configure the host's Git to use HTTPS through gh"}>
@@ -751,33 +767,44 @@ export function HostsSettings({
   const [outputOverride, setOutputOverride] = useState<HostOutput | null>();
   const output = outputOverride === null ? undefined : (outputOverride ?? state.output);
   const [recipes, setRecipes] = useState<
-    ReadonlyMap<string, { id: string; finished: boolean; gh?: "install" | "sign-in" }>
-  >(
-    () =>
-      new Map(
-        [...(source.installs?.sessions() ?? [])].map(([host, id]) => [
+    ReadonlyMap<string, { host: string; id: string; finished: boolean; gh?: "install" | "sign-in" }>
+  >(() => {
+    const saved = new Map(
+      [...(source.installs?.sessions() ?? [])].map(([host, id]) => [
+        host,
+        {
           host,
-          {
-            id,
-            finished: false,
-            ...(source.githubSignInSessions?.().has(id)
-              ? {
-                  gh: source.githubSignInSessions().get(id)
-                    ? ("install" as const)
-                    : ("sign-in" as const),
-                }
-              : {}),
-          },
-        ]),
-      ),
-  );
+          id,
+          finished: false,
+          ...(source.githubSignInSessions?.().has(id)
+            ? {
+                gh: source.githubSignInSessions().get(id)
+                  ? ("install" as const)
+                  : ("sign-in" as const),
+              }
+            : {}),
+        },
+      ]),
+    );
+    for (const [id, action] of source.installs?.hostActions?.() ?? []) {
+      if (action.action === "trust-origin")
+        saved.set(originRecipeKey(action.host, action.repository), {
+          host: action.host,
+          id,
+          finished: false,
+        });
+    }
+    return saved;
+  });
   const clearRecipe = (host: string, force = false) => {
-    if (!force && !recipes.get(host)?.finished) return;
-    setRecipes((previous) => {
-      const next = new Map(previous);
-      next.delete(host);
-      return next;
-    });
+    setRecipes(
+      (previous) =>
+        new Map(
+          [...previous].filter(
+            ([, recipe]) => recipe.host !== host || (!force && !recipe.finished),
+          ),
+        ),
+    );
   };
   const dismissOutput = () => {
     setOutputOverride(null);
@@ -786,8 +813,8 @@ export function HostsSettings({
   const recipeFinished = useCallback(
     async (id: string, succeeded?: boolean) => {
       setRecipes((previous) => {
-        for (const [host, recipe] of previous)
-          if (recipe.id === id) return new Map(previous).set(host, { ...recipe, finished: true });
+        for (const [key, recipe] of previous)
+          if (recipe.id === id) return new Map(previous).set(key, { ...recipe, finished: true });
         return previous;
       });
       await api?.({ action: "list" })
@@ -937,18 +964,24 @@ export function HostsSettings({
       if (next.recipeSession && "host" in action) {
         const id = next.recipeSession;
         setRecipes((previous) =>
-          new Map(previous).set(action.host, {
-            id,
-            finished: false,
-            ...(action.action === "recipe" && action.tool === "gh"
-              ? {
-                  gh:
-                    action.operation === "install-sign-in"
-                      ? ("install" as const)
-                      : ("sign-in" as const),
-                }
-              : {}),
-          }),
+          new Map(previous).set(
+            action.action === "trust-origin"
+              ? originRecipeKey(action.host, action.repository)
+              : action.host,
+            {
+              host: action.host,
+              id,
+              finished: false,
+              ...(action.action === "recipe" && action.tool === "gh"
+                ? {
+                    gh:
+                      action.operation === "install-sign-in"
+                        ? ("install" as const)
+                        : ("sign-in" as const),
+                  }
+                : {}),
+            },
+          ),
         );
       }
       if (next.recipeFailure) setError("Recipe unavailable for this host");
@@ -1152,6 +1185,27 @@ export function HostsSettings({
       )}
       {state.hosts.map((entry) => {
         const recipe = recipes.get(entry.host);
+        const recipeAction = recipe && source.installs?.hostActions?.().get(recipe.id);
+        const originTerminals = new Map<string, { running: boolean; panel: ReactNode }>();
+        const terminal =
+          recipe &&
+          !recipe.gh &&
+          !(recipeAction?.action === "recipe" && recipeAction.operation === "install-plugin") &&
+          source.hostTerminal ? (
+            <HostTerminal
+              key={recipe.id}
+              id={recipe.id}
+              source={source.hostTerminal}
+              finished={recipeFinished}
+              {...(recipeAction?.action === "recipe" && recipeAction.operation === "sign-in"
+                ? {
+                    label: "Agent sign-in terminal",
+                    activeLabel: "Signing in…",
+                    collapseOnExit: true,
+                  }
+                : {})}
+            />
+          ) : undefined;
         const preflight = buildPreflight(
           checks.get(entry.host) ?? entry.observation?.preflight,
           state.remoteHostsAvailable,
@@ -1162,12 +1216,34 @@ export function HostsSettings({
           : (preflight ?? entry.result?.connection);
         const awaitingTrust =
           connection?.ssh.state === "fail" && connection.ssh.reason === "host-key-unknown";
+        if (!awaitingTrust && source.hostTerminal) {
+          for (const repo of preflight?.repositories ?? []) {
+            const origin = recipes.get(originRecipeKey(entry.host, repo.repository));
+            if (!origin) continue;
+            originTerminals.set(repo.repository, {
+              running: !origin.finished,
+              panel: (
+                <HostTerminal
+                  key={origin.id}
+                  id={origin.id}
+                  source={source.hostTerminal}
+                  finished={recipeFinished}
+                  label="Origin host key terminal"
+                  activeLabel="Verify the fingerprint in SSH"
+                  collapseOnExit
+                />
+              ),
+            });
+          }
+        }
         const summary = hostSummary(preflight);
         const distro = entry.result?.ok ? entry.result.facts.requirements?.distro : undefined;
         const os = distro === "darwin" ? "macOS" : distro;
         const open =
           expanded.get(entry.host) ??
-          (summary === "Needs you" ||
+          (!!recipe ||
+            originTerminals.size > 0 ||
+            summary === "Needs you" ||
             preflight?.repositories.some(
               (repo) => repo.origin.state === "fail" || !repo.checkout.ok,
             ) === true);
@@ -1270,14 +1346,9 @@ export function HostsSettings({
                     : {})}
                 />
               )}
-              {!awaitingTrust && recipe && !recipe.gh && source.hostTerminal && (
-                <HostTerminal
-                  key={recipe.id}
-                  id={recipe.id}
-                  source={source.hostTerminal}
-                  finished={recipeFinished}
-                />
-              )}
+              {!awaitingTrust &&
+                !(recipeAction?.action === "recipe" && recipeAction.operation === "sign-in") &&
+                terminal}
               <ReloadContext
                 value={{
                   reload: (target) => {
@@ -1304,6 +1375,16 @@ export function HostsSettings({
                 }}
               >
                 <Checklist
+                  originTerminals={originTerminals}
+                  signInTerminal={
+                    !awaitingTrust &&
+                    recipe &&
+                    !recipe.gh &&
+                    recipeAction?.action === "recipe" &&
+                    recipeAction.operation === "sign-in"
+                      ? { tool: recipeAction.tool, running: !recipe.finished, panel: terminal }
+                      : undefined
+                  }
                   ghRunning={!!recipe?.gh && !recipe.finished}
                   ghPanel={
                     !awaitingTrust && recipe?.gh ? (

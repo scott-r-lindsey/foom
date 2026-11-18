@@ -10,9 +10,11 @@ export function HostTerminal({
   finished,
   label = "Install terminal",
   activeLabel = "Installing…",
+  collapseOnExit = false,
 }: {
   label?: string;
   activeLabel?: string;
+  collapseOnExit?: boolean;
   id: string;
   source: NonNullable<SetupSource["hostTerminal"]>;
   finished: (id: string) => void | Promise<void>;
@@ -30,9 +32,10 @@ export function HostTerminal({
     (element: HTMLDivElement | null) => (element ? view.mount(element) : undefined),
     [view],
   );
+  const visible = !dismissed && !(collapseOnExit && exit.exited);
   useEffect(() => {
     let current = true;
-    if (!dismissed && observed)
+    if (visible && observed)
       void view.open(id).then(() => {
         if (current) setReady(!view.getSnapshot().toggleDisabled);
       });
@@ -40,7 +43,7 @@ export function HostTerminal({
       current = false;
       void view.hide();
     };
-  }, [view, id, dismissed, observed]);
+  }, [view, id, visible, observed]);
   const completedRef = useRef<string | undefined>(undefined);
   useEffect(() => {
     return source.observe(id, (next) => {
@@ -54,7 +57,7 @@ export function HostTerminal({
   }, [source, id, finished]);
   if (dismissed) return null;
   return (
-    <section className="host-terminal" aria-label={label} aria-busy={!ready}>
+    <section className="host-terminal" aria-label={label} aria-busy={visible && !ready}>
       <header>
         <span
           role="status"
@@ -94,8 +97,8 @@ export function HostTerminal({
         )}
       </header>
       {stopFailed && <p role="alert">Unable to stop setup. Try again.</p>}
-      <div className="host-terminal-view" ref={mount} />
-      {menu?.id === id && (
+      {visible && <div className="host-terminal-view" ref={mount} />}
+      {visible && menu?.id === id && (
         <TerminalMenu
           menu={menu}
           close={() => {

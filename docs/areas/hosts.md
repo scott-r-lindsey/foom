@@ -374,8 +374,9 @@ Mac whose login Keychain may be locked over SSH.
 Settings → Hosts uses the Add → Check → Fix checklist described below.
 Main selects checked-in recipes from the observed closed distro and the enabled
 bundled catalog. Install opens the human-owned terminal inside its host card in
-Settings and the preflight rail. gh uses the device panel below. Other agents’
-Sign in retains its foreground human-owned tile; foreground placement waits for the refreshed row before closing Settings. The remote executable verifies a main-supplied SHA-256 digest of the fixed argv sequence before running it, without shell
+Settings and the preflight rail. gh uses the device panel below. Agent sign-in
+opens under the relevant Settings row. The remote executable verifies a main-supplied
+SHA-256 digest of the fixed argv sequence before running it, without shell
 source or typing into an existing tile. Multi-step package repository preparation
 stops on the first failure. Every Debian install starts with fixed
 `/usr/bin/sudo /usr/bin/apt-get update`, including manifest-provided package
@@ -387,7 +388,7 @@ so a new image with missing or stale databases may fail until the user updates i
 DNF install already synchronizes missing or expired metadata
 ([DNF metadata synchronization](https://dnf.readthedocs.io/en/stable/command_ref.html#metadata-synchronization)),
 so it needs no separate refresh step. Prompts and sudo remain in the terminal. Recipe processes
-receive no terminal ID, orchestration authority or hub credentials. Restarting an exited recipe tile opens an ordinary shell on the same registered host, without replaying the install/sign-in. Recipe sessions
+receive no terminal ID, orchestration authority or hub credentials. Recipe sessions
 reserve the daemon mutation slot until exit or completed session removal;
 disconnect does not release it. Removal releases the reservation even when stop
 times out or native disposal fails and no exit callback reaches the daemon.
@@ -604,8 +605,8 @@ sandboxed preload validates and rebuilds all nested onboarding observations.
 
 Add host takes the SSH selector and code folder in one form, enrolls the host,
 and runs the full preflight. Ordinary opening of Hosts reads saved state only, without SSH,
-including session and worktree inventory. Returning after an explicit foreground
-recipe refreshes only its affected rows as described under [refresh scope](#checklist-refresh-scope-1061). Each host's Check capabilities runs the
+including session and worktree inventory. Recipes refresh only their affected
+rows as described under [refresh scope](#checklist-refresh-scope-1061). Each host's Check capabilities runs the
 full preflight, repositories and session/worktree inventory, saving a Last checked
 timestamp and the closed observations in its profile registration. Never-checked
 hosts say Not checked. Saved observations contain no secrets, terminal output,
@@ -629,8 +630,8 @@ limited to the existing closed observations; no OS version or CPU is invented.
 
 Create explicitly creates the approved folder. Change folder edits its approved
 path and rechecks without creating it. Install uses the existing main-selected
-recipe in the host card; Settings stays open. Other agents’ Sign in retains foreground tile
-placement and closes Settings once the tile is visible. No background install, recipe replay or terminal typing is added.
+recipe in the host card. Agent sign-in uses the same Settings-owned terminal.
+No background install, recipe replay or terminal typing is added.
 Missing recipes show no Install button. Git access to origin and explicit Trust host key… remain in each repository’s Git-access group. Origin-auth hints identify HTTPS through gh, a deploy key and ssh-agent as user-configured access options; Foom never applies them or instructs global URL rewrites. Host facts,
 foreign session End and foreign worktree counts remain under Host facts.
 
@@ -690,12 +691,13 @@ their fixed failure rows without making an otherwise usable host unavailable.
 Checkout creation belongs to first-use launch/worktree preparation (#1074), not Settings. The summary says Ready; existing checkouts are a read-only list.
 
 An origin-host-key failure offers **Trust host key…**. Main re-reads the registered
-repository's validated SSH origin and opens a human-owned tile on the registered
-host. The fixed command is ssh -T with StrictHostKeyChecking=ask, forwarding
+repository's validated SSH origin and opens a human-owned terminal just below
+its Git access to origin row in Settings (#1260). The fixed command is ssh -T with StrictHostKeyChecking=ask, forwarding
 disabled, and the origin's account/host and optional port. HTTPS cannot select this
 action. Compatible older daemons must advertise originTrust=1; otherwise the
-launch refuses until the host daemon is updated. The user verifies the fingerprint and answers SSH; Foom never supplies an
-answer or accepts a key. Check capabilities observes the result.
+launch refuses until the host daemon is updated. The user verifies the fingerprint
+and answers SSH; Foom never supplies an answer or accepts a key. On exit the
+terminal collapses and the card automatically rechecks that origin and checkout.
 
 Codex's hook trust is not exposed by the existing version/help or exit-code sign-in
 probes. Foom does not inspect or modify Codex's hook-trust store. On a new host,
@@ -720,7 +722,7 @@ A full check runs only for **Check capabilities** and the first check on Add
 **Last checked**. Rename contacts nothing remote. Create/Change folder use their
 own successful folder reply and invalidate affected repository rows to **Not checked**;
 there is no hidden repository check. Clone and Trust origin update only that
-repository. Install and Sign in automatically refresh only their affected tool/sign-in rows
+repository, with Trust origin rechecking on terminal exit. Install and Sign in automatically refresh only their affected tool/sign-in rows
 on exit, including failures, without advancing the full-check timestamp. Hosts
 reads the updated rows after an embedded install finishes; queued persistence
 failures retain the existing retry behavior when Hosts is reopened. Queued rows that become stale (disabled tools
@@ -776,8 +778,9 @@ reload in Agents runs the full preflight and advances Last checked; individual
 agent reloads use the existing scoped tool/sign-in requests. The selected machine
 also reattaches its Settings-owned tool install terminal, sharing the same install
 exit guard as Hosts. Global and machine changes hide the view without ending the
-install; returning to that machine reattaches it. The separately confirmed plugin
-installation and sign-in recipes retain their human-owned foreground tiles.
+install; returning to that machine reattaches it. The separately confirmed
+plugin installation and agent sign-in open embedded terminals under their
+respective rows on the selected machine (#1260).
 
 Protocol-3 hello advertises `agentSettings: 1`. Read-only inspect may request
 `agentDetails: true`; only then does each agent include bounded display-only path,
@@ -790,7 +793,7 @@ Antigravity's Install plugin is opt-in and separately confirmed in main, naming 
 host, two fixed steps and global CLI effect. Its digest-bound recipe runs the
 `foom-host --stage-plugin agy` handler, prints the staged directory, then runs
 resolved `agy plugin install DIRECTORY` with an argument array in a human-owned
-recipe tile. Both hub and daemon select only the bundled agy action; no supplied
+terminal under the Foom plugin row. Both hub and daemon select only the bundled agy action; no supplied
 path, shell source, other plugin or manifest can select it. The host rechecks CLI
 inventory and refuses unless Foom is absent; present or unrecognized inventories
 must be managed in agy. Staging alone does not install. No global configuration
@@ -807,8 +810,8 @@ Read-only observations and other recipes retain their existing compatibility.
 
 ## Embedded host terminals (#1062)
 
-Settings and preflight render in the registered board window. Install attaches
-the existing human-owned recipe PTY through that window's ID-scoped terminal
+Settings and preflight render in the registered board window. Host actions attach
+the existing human-owned PTY through that window's ID-scoped terminal
 capability and shared attachment queue. No cross-window attachment or remote
 protocol change is needed. Output and scrollback retain the existing terminal
 bounds; input goes directly through terminal IPC and is never copied into setup
@@ -826,11 +829,11 @@ it to finish, then closes Settings and disposes the views. Failed termination
 keeps Settings open. Installs still launching are included in the check. Section
 changes retain window ownership and reattach the install when Hosts is reopened.
 Closing the whole window or quitting uses the existing main-owned confirmation,
-without this additional Settings dialog. Other agents’ sign-in tiles are unchanged. gh sign-in uses the same window ownership and exit guard.
-The panel retains its screen until dismissed or a
-new install replaces it. Its own header states Installing, Done, or Failed with
-the exit code; recipe tiles also state the final outcome in Foom chrome, never
-by adding text to process output. The main exit subscription starts before
+without this additional Settings dialog. Origin trust, remote plugin installs,
+and sign-in use the same window ownership and exit guard. On exit, origin trust,
+plugin installs, and agent sign-in collapse their terminal view and keep the
+outcome by the action row. Tool installs retain their screen until dismissed or
+replaced. Foom chrome shows the outcome independently of the process output. The main exit subscription starts before
 creation; exits received while launch settles pass through the existing workspace
 exit lifecycle before the view is returned.
 

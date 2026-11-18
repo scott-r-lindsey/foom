@@ -429,16 +429,17 @@ test("install recipes stay in Settings and native exit refreshes their rows once
   expect(off).toHaveBeenCalledOnce();
 });
 
-test("other agents’ sign-in recipes keep the human foreground tile", async () => {
+test.each([
+  { trustOrigin: "git@forge.test:team/project.git" },
+  { recipe: { tool: "agy", action: "install-plugin", distro: "debian", digest: "a".repeat(64) } },
+  { recipe: { tool: "codex", action: "sign-in", distro: "debian", digest: "a".repeat(64) } },
+] as const)("returns the owning Settings window’s terminal ID for %j", async (action) => {
   await start();
-  await mock.setup.deps?.launchHostRecipe?.({
-    host: "worker",
-    human: true,
-    recipe: { tool: "codex", action: "sign-in", distro: "debian", digest: "a".repeat(64) },
-  });
-  await vi.waitFor(() => {
-    expect(mock.window.webContents.send).toHaveBeenCalledWith("app-menu:session", "recipe");
-  });
+  const target = { host: "worker", human: true, ...action } as const;
+  const id = await mock.setup.deps?.launchHostRecipe?.(target);
+  expect(id).toBe("recipe");
+  expect(mock.workspace.startHostRecipe).toHaveBeenCalledExactlyOnceWith(target);
+  expect(mock.window.webContents.send).not.toHaveBeenCalledWith("app-menu:session", "recipe");
 });
 
 test("a recipe that exits during startup still refreshes its rows", async () => {

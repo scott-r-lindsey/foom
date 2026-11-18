@@ -406,15 +406,6 @@ export async function buildWindow(
         );
         finished();
       }
-      if (
-        "localSetup" in target ||
-        "localAgent" in target ||
-        target.repositorySetup ||
-        gh ||
-        target.recipe?.action === "install"
-      )
-        return id;
-      wiring.revealSession(id);
       return id;
     } catch (error) {
       off?.();

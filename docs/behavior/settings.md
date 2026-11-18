@@ -333,8 +333,8 @@ See the [channel and privacy policy](../product.md#updates-603).
 
 ## Hosts and repository locations (#757 PR 1)
 
-Ordinary opening of Hosts makes no SSH connections. Returning after an
-Install, Sign in or Trust host key… action refreshes only its affected rows.
+Ordinary opening of Hosts makes no SSH connections. Install, Sign in and
+Trust host key… refresh only their affected rows when the terminal exits.
 Hosts shows the last saved results, including
 session and worktree inventory even when stale, with Last checked and a timestamp,
 or Not checked. Check capabilities refreshes the full checklist and remote
@@ -358,9 +358,10 @@ appear as each step finishes. Reduced motion keeps the throbber still while the
 step text continues to update. Check capabilities retries without creating directories.
 Missing folders offer Create, and Change folder selects a replacement. Install
 and Sign in appear only for available recipes. Installs and gh Sign in stay in
-the host card; other agents’ Sign in opens a foreground terminal tile for the
-user’s prompts. Origin SSH host-key failures offer Trust host key…
-in a human-owned tile; the user verifies and accepts the fingerprint. Other Git
+the host card. Agent sign-in and Antigravity plugin installation open below
+their rows in the selected machine’s agent card. Origin SSH host-key failures
+offer Trust host key… below Git access to origin in the host card. The user
+verifies the fingerprint and answers SSH in that terminal. Other Git
 access fixes remain user-run instructions. Ready means the host checks and Git
 pass with at least one installed agent; optional missing agents, gh sign-in and
 absent checkouts do not affect readiness. Existing checkouts appear in a read-only list.
@@ -405,16 +406,17 @@ internal reason codes. Checks blocked by daemon inspection show neutral
 Accepting a new SSH key may rerun the first check only if the host has never had a successful check. Other Hosts actions never start a full check. Rename is local. Folder actions
 refresh the folder from their successful reply and mark affected repositories **Not checked**.
 A failed replacement reports the attempted change and preserves the registered folder's result.
-Clone/Trust origin update that repository. Install stays in Settings in an
-interactive terminal inside the host card. Closing Settings disposes its install
+Clone and Trust origin update that repository. Interactive host actions stay in
+Settings in their embedded terminals. Closing Settings disposes its install
 terminals immediately if they have exited. If an install is running, closing by
 any route shows **Stop the install?** with **Stop** and **Keep open**. Keep open
 is focused by default; Escape keeps Settings and the install open. Stop terminates
 the install and closes Settings, without moving it to the board or sidebar.
-Window close and quit keep their existing confirmation. Other agents’ Sign in retains its foreground tile. gh Sign in stays in Settings: Foom copies the code and opens GitHub’s fixed device page, then the user pastes and authorizes. The panel shows Needs you, the code and browser/clipboard markers, fallback buttons and a Terminal toggle. Install & sign in installs first and stops on failure. A short note discloses possible plain-text token storage without a host keyring. On exit,
+Window close and quit keep their existing confirmation. gh Sign in stays in Settings: Foom copies the code and opens GitHub’s fixed device page, then the user pastes and authorizes. The panel shows Needs you, the code and browser/clipboard markers, fallback buttons and a Terminal toggle. Install & sign in installs first and stops on failure. A short note discloses possible plain-text token storage without a host keyring. On exit,
 Install and Sign in refresh only their affected tool and sign-in rows. The
-terminal header states Done or Failed with its exit code and retains the output
-until dismissed or replaced. Add and checks retain bounded read-only step
+terminal header shows Done or Failed with its exit code. Origin trust, the plugin
+installer and agent sign-in collapse their output on exit. Tool installs retain
+output until dismissed or replaced. Add and checks retain bounded read-only step
 output, including OpenSSH stderr, in the Add section or host card. **Last checked** records full checks only.
 Each checklist row has a reload icon on hover and keyboard focus, with a name
 that identifies the row. Reload shows a spinner only on that row, preserves other

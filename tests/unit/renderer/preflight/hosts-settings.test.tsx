@@ -920,6 +920,86 @@ test("host-key fix identifies only the repository", async () => {
     });
   });
 });
+test("reopening Hosts restores each origin terminal independently of other recipes", async () => {
+  const repositories = ["/local/one", "/local/two"].map(
+    (repository) =>
+      ({
+        repository,
+        origin: { state: "fail", reason: "origin-host-key" },
+        checkout: {
+          ...host.result,
+          checkout: { path: "/remote/project", state: "clean" },
+        },
+      }) as const,
+  );
+  const exit = new Map<string, (state: { exited: boolean; code?: number }) => void>();
+  const open = vi.fn(() => Promise.resolve());
+  const { api } = await mount(
+    { ...initial, preflight: { ...preflight, repositories } },
+    {
+      installs: {
+        sessions: () => new Map([["worker", "install"]]),
+        hostActions: () =>
+          new Map(
+            repositories.map(({ repository }) => [
+              repository,
+              { action: "trust-origin", host: "worker", repository },
+            ]),
+          ),
+        hasSessions: () => true,
+        running: () => Promise.resolve(true),
+        close: () => Promise.resolve(),
+        dispose: () => {},
+      },
+      hostTerminal: {
+        createView: () => ({
+          mount: () => () => {},
+          open,
+          hide: async () => {},
+          focus: () => {},
+          subscribe: () => () => {},
+          getSnapshot: () => ({
+            status: "",
+            state: "quiet_ok",
+            visible: true,
+            attaching: false,
+            toggleLabel: "",
+            toggleDisabled: false,
+            restartDisabled: false,
+          }),
+        }),
+        observe: (id, listener) => {
+          exit.set(id, listener);
+          listener({ exited: false });
+          return () => {};
+        },
+      },
+    },
+  );
+  expect(screen.getAllByRole("region", { name: "Origin host key terminal" })).toHaveLength(2);
+  expect(screen.getByRole("region", { name: "Install terminal" })).toBeTruthy();
+  await waitFor(() => {
+    expect(open.mock.calls).toHaveLength(3);
+  });
+  const refreshed = saved({
+    ...initial,
+    preflight: {
+      ...preflight,
+      repositories: repositories.map((row, index) =>
+        index === 0 ? { ...row, origin: { state: "pass" } } : row,
+      ),
+    },
+  });
+  api.mockResolvedValue(refreshed);
+  await act(async () => {
+    exit.get("/local/one")?.({ exited: true, code: 0 });
+    await Promise.resolve();
+  });
+  expect(screen.getByText("Pass · Reachable")).toBeTruthy();
+  expect(screen.getByText("Done")).toBeTruthy();
+  expect(screen.getByText("Verify the fingerprint in SSH")).toBeTruthy();
+});
+
 test("opening uses saved checks, keeps ready hosts compact and exposes every ready repository", async () => {
   const state = saved({
     ...initial,
