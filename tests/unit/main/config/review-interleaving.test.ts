@@ -129,8 +129,7 @@ test("startup returns on lock contention and attaches the writer after its defer
     return files.withSettingsLock(work);
   });
   try {
-    await startup.service.initialize();
-    store.deferConfig();
+    store.deferConfig(await startup.service.initialize());
     expect(startup.service.ready).toBe(false);
     expect(startup.service.status().error).toBe("Settings are busy; try again.");
     expect(onDeferredReady).not.toHaveBeenCalled();
@@ -179,4 +178,38 @@ test("a watcher retries a busy scan after lock removal without another settings 
   } finally {
     lock.mockRestore();
   }
+});
+
+test("deferred startup shows a profile write failure alongside the busy status until attachment", async () => {
+  const owner = await fixture({ defaults });
+  await owner.service.initialize();
+  const store = await SettingsStore.open(join(owner.root, "profile"));
+  const release = Promise.withResolvers<undefined>();
+  const onDeferredReady = vi.fn<(values: ConfigSettings) => Promise<void>>();
+  const startup = await fixture({ root: owner.folder, defaults, onDeferredReady });
+  onDeferredReady
+    .mockRejectedValueOnce(new Error("fixture profile write failure"))
+    .mockImplementation(async (values) => {
+      await release.promise;
+      await store.attachConfig((patch) => startup.service.write(patch), values, startup.baseline());
+    });
+  const lock = vi.spyOn(ConfigFiles.prototype, "withSettingsLock");
+  lock.mockRejectedValueOnce(new ApplicationError("settings-busy"));
+  try {
+    store.deferConfig(await startup.service.initialize());
+    await vi.waitFor(() => {
+      expect(startup.service.status().error).toBe(
+        "Settings are busy; try again. Unable to save profile settings.",
+      );
+    });
+    expect(startup.service.ready).toBe(false);
+    await expect(store.update({ interfaceScale: 120 })).rejects.toThrow("foom-error:settings-busy");
+  } finally {
+    lock.mockRestore();
+    release.resolve(undefined);
+  }
+  await vi.waitFor(() => {
+    expect(startup.service.ready).toBe(true);
+  });
+  expect(startup.service.status().error).toBeUndefined();
 });

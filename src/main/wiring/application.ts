@@ -646,6 +646,10 @@ async function startApplication(wiring: ApplicationWiring): Promise<void> {
     safeStorageCipher(safeStorage),
   );
   addTailSecrets(wiring.environment.redactions());
+  let resolveConfigReady = () => {};
+  const configReady = new Promise<void>((resolve) => {
+    resolveConfigReady = resolve;
+  });
   const attachConfigWriter = (values: ConfigSettings) =>
     wiring.settings.attachConfig(
       (patch) => wiring.config.write(patch),
@@ -702,7 +706,10 @@ async function startApplication(wiring: ApplicationWiring): Promise<void> {
         agentBypassIdentities: identities,
       });
     },
-    onStatus: wiring.configStatusChanged,
+    onStatus: () => {
+      wiring.configStatusChanged();
+      if (wiring.config.ready) resolveConfigReady();
+    },
     onDeferredReady: attachConfigWriter,
     onThemeDecision: () => {
       void wiring.themes.reload();
@@ -726,7 +733,7 @@ async function startApplication(wiring: ApplicationWiring): Promise<void> {
       migratedScale === undefined ? legacy : { ...legacy, interfaceScale: migratedScale },
     );
     configDeferred = !wiring.config.ready;
-    if (configDeferred) wiring.settings.deferConfig();
+    if (configDeferred) wiring.settings.deferConfig(values);
     else await attachConfigWriter(values);
   } catch (error) {
     // Settings stay in the profile until the folder is usable.
@@ -738,13 +745,22 @@ async function startApplication(wiring: ApplicationWiring): Promise<void> {
   if (placements.length)
     for (const placement of placements) await wiring.createWindow(undefined, placement);
   else await wiring.createWindow(await loadWindowSize(app.getPath("userData")));
-  if (configDeferred)
-    void wiring.themes.initialize().catch((error: unknown) => {
-      console.error("Unable to initialize themes:", error);
-    });
   wiring.workspace.configure(wiring.settings.get());
-  void wiring.workspace
-    .restartSaved()
+  const isQuitting = () => wiring.quitting;
+  const restore = async () => {
+    if (configDeferred) {
+      await configReady;
+      if (isQuitting()) return;
+      await wiring.themes.initialize().catch((error: unknown) => {
+        console.error("Unable to initialize themes:", error);
+      });
+      if (isQuitting()) return;
+      wiring.applyThemeSettings();
+      wiring.configApplied();
+    }
+    await wiring.workspace.restartSaved();
+  };
+  void restore()
     .then(() => wiring.worktrees.reconcileRemovals(() => wiring.quitPending || wiring.quitting))
     .then(() => {
       if (!wiring.quitPending && !wiring.quitting) wiring.workspace.refresh();

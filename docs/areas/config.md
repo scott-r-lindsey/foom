@@ -119,7 +119,12 @@ a held file refuses Settings saves until reviewed. Missing, unreadable or invali
 files also refuse saves without replacing external bytes. If the initial lock
 attempt is busy, startup opens the window after that bounded attempt. Foom config
 shows the busy status and config saves return `settings-busy` until the background
-scan succeeds and attaches the writer. Profile-only settings can still be saved.
+scan succeeds and attaches the writer. While deferred, the app uses the verified
+profile baseline or defaults, with built-in Default palettes. Profile-only
+settings can still be saved without replacing legacy config values. A failed
+profile write is reported alongside the busy status, separately from shared
+folder errors. After attachment, Foom loads the reviewed palettes and runs
+the startup session restore pass once.
 A migrated profile with no attached writer refuses config saves. Allow and Keep it
 on use the same lock to verify the proposal
 before applying or replacing it. Settings writes use compact JSON when the

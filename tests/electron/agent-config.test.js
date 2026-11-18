@@ -427,6 +427,16 @@ test("fresh profiles adopt shared config without resetting a running profile", {
   assert.deepEqual(await readFile(file), before);
 });
 
+function foreignSettingsLock() {
+  return JSON.stringify({
+    hostname: require("node:os").hostname() + ".foreign.example",
+    pid: 1,
+    start: null,
+    timestamp: 0,
+    token: "foreign-fixture-owner",
+  });
+}
+
 test("a persistent foreign Settings lock opens the board and defers config saves until release", {
   timeout: deadline(45_000),
 }, async (context) => {
@@ -438,14 +448,19 @@ test("a persistent foreign Settings lock opens the board and defers config saves
   const file = path.join(folder, "settings.json");
   const lock = path.join(folder, ".foom-settings.lock");
   const settings = '{"kind":"settings","terminalFontSize":19}';
-  const foreign = JSON.stringify({
-    hostname: require("node:os").hostname() + ".foreign.example",
-    pid: 1,
-    start: null,
-    timestamp: 0,
-    token: "foreign-fixture-owner",
-  });
-  await mkdir(folder, { recursive: true });
+  const foreign = foreignSettingsLock();
+  const { interfaceThemes } = require("../../build/shared/interface-themes.js");
+  const palette = interfaceThemes["eclipse-light"];
+  await mkdir(path.join(folder, "themes"), { recursive: true });
+  await writeFile(
+    path.join(folder, "themes", "review.json"),
+    JSON.stringify({
+      kind: "theme",
+      name: "Awaiting Review",
+      base: palette.base,
+      colors: { ...palette.colors, attention: palette.colors.ink },
+    }),
+  );
   await writeFile(file, settings);
   await writeFile(lock, foreign);
   const profileSettings = path.join(profile, "settings.json");
@@ -454,7 +469,12 @@ test("a persistent foreign Settings lock opens the board and defers config saves
     profileSettings,
     JSON.stringify({
       version: 1,
-      settings: { setupComplete: true, interfaceScale: 110, checkForUpdates: false },
+      settings: {
+        setupComplete: true,
+        interfaceScale: 110,
+        interfaceTheme: "user:review.json",
+        checkForUpdates: false,
+      },
     }),
   );
 
@@ -469,6 +489,12 @@ test("a persistent foreign Settings lock opens the board and defers config saves
   await sections.getByRole("button", { name: "Foom config", exact: true }).click();
   const busy = page.getByText("Settings are busy; try again.", { exact: true });
   await expect(busy).toBeVisible();
+  const during = await page.evaluate(async () => ({
+    appearance: (await window.desktop.setupState()).settings.interfaceTheme,
+    catalog: (await window.desktop.listThemes()).interface,
+  }));
+  assert.equal(during.appearance, "follow");
+  assert.deepEqual(during.catalog, []);
   await assert.rejects(
     page.evaluate(() => window.desktop.saveSetup({ interfaceScale: 120 })),
     /foom-error:settings-busy/,
@@ -482,6 +508,7 @@ test("a persistent foreign Settings lock opens the board and defers config saves
   const savedProfile = JSON.parse(await readFile(profileSettings, "utf8"));
   assert.equal(savedProfile.version, 1);
   assert.equal(savedProfile.settings.interfaceScale, 110);
+  assert.equal(savedProfile.settings.interfaceTheme, "user:review.json");
   assert.equal(savedProfile.settings.middleClickPaste, true);
 
   await unlink(lock);
@@ -495,7 +522,98 @@ test("a persistent foreign Settings lock opens the board and defers config saves
     interfaceScale: 120,
   });
   assert.equal(JSON.parse(await readFile(profileSettings, "utf8")).version, 2);
+  await expect
+    .poll(async () => (await page.evaluate(() => window.desktop.listThemes())).interface)
+    .toMatchObject([{ id: "user:review.json", theme: { name: "Awaiting Review" } }]);
+  assert.equal(result.settings.interfaceTheme, "follow");
 });
+
+for (const restoreSessions of [false, true]) {
+  test(`a busy Settings lock waits to restore saved shells with restoreSessions=${restoreSessions}`, {
+    timeout: deadline(45_000),
+  }, async (context) => {
+    const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-config-lock-restore-")));
+    removeAfterApps(context, root);
+    const home = path.join(root, "home");
+    const folder = path.join(home, ".foom", "config");
+    const profile = path.join(root, "profile");
+    await mkdir(folder, { recursive: true });
+    await mkdir(profile);
+    const lock = path.join(folder, ".foom-settings.lock");
+    const configText = JSON.stringify({ kind: "settings", restoreSessions });
+    const { createHash } = require("node:crypto");
+    await writeFile(path.join(folder, "settings.json"), configText);
+    await writeFile(lock, foreignSettingsLock());
+    await writeFile(
+      path.join(profile, "settings.json"),
+      JSON.stringify({
+        version: 2,
+        settings: { setupComplete: true, checkForUpdates: false },
+        configText,
+        configDigest: createHash("sha256").update(configText).digest("hex"),
+      }),
+    );
+    await writeFile(
+      path.join(profile, "sessions.json"),
+      JSON.stringify([
+        {
+          id: "saved-config-shell",
+          agent: "shell",
+          repository: folder,
+          worktree: folder,
+          branch: null,
+          config: true,
+          running: true,
+        },
+        {
+          id: "saved-home-shell",
+          agent: "shell",
+          repository: home,
+          worktree: home,
+          branch: null,
+          home: true,
+          running: true,
+        },
+      ]),
+    );
+
+    const app = await launchApp(context, {
+      fixture: "restored",
+      home,
+      args: [`--user-data-dir=${profile}`],
+    });
+    const page = await boardPage(app);
+    const rows = () =>
+      page.evaluate(async () =>
+        (await window.desktop.workspace()).terminals.map(({ id, dormant, exited }) => ({
+          id,
+          state: dormant ? "dormant" : exited ? "exited" : "running",
+        })),
+      );
+    const matches = (running) =>
+      expect.arrayContaining(
+        ["saved-config-shell", "saved-home-shell"].map((id) => ({
+          id,
+          state: running ? "running" : "dormant",
+        })),
+      );
+    assert.equal(
+      (await page.evaluate(() => window.desktop.setupState())).settings.restoreSessions,
+      restoreSessions,
+    );
+    assert.match(
+      (await page.evaluate(() => window.desktop.configStatus())).error,
+      /Settings are busy/,
+    );
+    await expect.poll(rows).toEqual(matches(false));
+    await unlink(lock);
+    await expect
+      .poll(async () => (await page.evaluate(() => window.desktop.configStatus())).error)
+      .toBeUndefined();
+    await expect.poll(rows).toEqual(matches(restoreSessions));
+    assert.equal((await rows()).length, 2);
+  });
+}
 
 test("start:fresh state isolation keeps config and worktrees inside its temporary profile", async (context) => {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-fresh-state-")));

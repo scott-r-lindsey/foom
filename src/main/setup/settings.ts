@@ -193,7 +193,7 @@ export class SettingsStore {
   /** Digests of the interface theme files this profile last applied, by config path. */
   private themeDigests: Readonly<Record<string, string>> = {};
   private writer: ConfigWriter | undefined;
-  private configDeferred = false;
+  private deferredConfig: ConfigSettings | undefined;
 
   private constructor(private readonly file: string) {}
 
@@ -349,7 +349,9 @@ export class SettingsStore {
   }
 
   get(): Settings {
-    return this.committedSettings;
+    return this.deferredConfig
+      ? { ...this.committedSettings, ...CONFIG_DEFAULTS, ...this.deferredConfig }
+      : this.committedSettings;
   }
 
   /** Agent-editable values a version 1 profile still holds; undefined once migrated. */
@@ -366,9 +368,9 @@ export class SettingsStore {
     return this.digest;
   }
 
-  /** The shared config is busy at startup. Profile-only writes can still proceed. */
-  deferConfig(): void {
-    this.configDeferred = true;
+  /** Show the verified baseline while leaving the persisted profile intact. */
+  deferConfig(values: ConfigSettings): void {
+    this.deferredConfig = values;
   }
 
   /**
@@ -388,11 +390,13 @@ export class SettingsStore {
       this.digest = digest;
       this.settings = { ...this.settings, ...CONFIG_DEFAULTS, ...values };
     });
-    this.configDeferred = false;
+    this.deferredConfig = undefined;
   }
 
   /** Values from a validated config file; the file, not the profile, stores them. */
   setConfig(values: ConfigSettings): void {
+    // Deferred startup publishes the new values only once attachConfig commits.
+    if (this.deferredConfig) return;
     const before = this.committedSettings;
     this.settings = { ...this.settings, ...CONFIG_DEFAULTS, ...values };
     this.committedSettings = { ...before, ...CONFIG_DEFAULTS, ...values };
@@ -444,16 +448,16 @@ export class SettingsStore {
     const profile: SettingsPatch = {};
     for (const [key, value] of Object.entries(patch))
       Object.assign(
-        (this.migrated || this.configDeferred) && isConfigSetting(key) ? config : profile,
+        (this.migrated || this.deferredConfig) && isConfigSetting(key) ? config : profile,
         {
           [key]: value,
         },
       );
     if (Object.keys(config).length) {
-      if (this.configDeferred) throw new ApplicationError("settings-busy");
+      if (this.deferredConfig) throw new ApplicationError("settings-busy");
       if (!this.writer) throw new Error("The Foom config folder is unavailable.");
       await this.writer(config);
-      if (!Object.keys(profile).length) return this.committedSettings;
+      if (!Object.keys(profile).length) return this.get();
     }
     await this.write(() => {
       const argumentsPatch = profile.agentArguments;
@@ -466,7 +470,7 @@ export class SettingsStore {
           ? agentArguments
           : undefined;
     });
-    return this.committedSettings;
+    return this.get();
   }
 
   private async write(change: () => void): Promise<void> {

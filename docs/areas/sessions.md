@@ -22,7 +22,10 @@ current defaults and shared-checkout confirmation. Hook events pin against that 
 rejection exits the row normally and keeps the ID; no agent transcript or runtime file is read.
 
 
-`restoreSessions` defaults to `true`; disabling it keeps saved rows dormant for manual resume. Screens and scrollback are never persisted.
+`restoreSessions` defaults to `true`; disabling it keeps saved rows dormant for manual resume. If the shared Settings lock delays startup, saved rows remain dormant
+until Foom can load the applied Settings and attach the writer. The single
+startup restore pass then uses the applied `restoreSessions` value, including
+for saved Foom config shells. Screens and scrollback are never persisted.
 
 `src/main/workspace/session-owner.ts` owns session restoration and persistence behind
 `SessionOwner` and its typed capability dependencies. It holds saved records,

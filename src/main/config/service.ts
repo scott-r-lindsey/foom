@@ -109,6 +109,8 @@ const watchFolder = (directory: string, listener: (file: string | null) => void)
   return watcher;
 };
 
+const SETTINGS_BUSY_MESSAGE = errorMessage(new ApplicationError("settings-busy"));
+
 function settingsBusy(error: unknown): boolean {
   return error instanceof ApplicationError && error.code === "settings-busy";
 }
@@ -149,6 +151,7 @@ export class ConfigService {
   private timer: ReturnType<typeof setTimeout> | undefined;
   private retryingScan = false;
   private deferredStartup = false;
+  private profileWriteFailed = false;
   private available = true;
   private error: string | undefined;
   private closed = false;
@@ -252,8 +255,11 @@ export class ConfigService {
       if (!settingsBusy(error)) throw error;
       this.deferredStartup = true;
       this.retryScan(error);
+      this.publish();
     }
     this.startWatching();
+    if (this.deferredStartup)
+      return { ...this.applied.values, interfaceTheme: "follow", terminalTheme: "follow" };
     return this.liveValues ?? this.applied.values;
   }
 
@@ -340,9 +346,12 @@ export class ConfigService {
     }, this.deps.delay ?? 250);
   }
 
-  private retryScan(error: unknown): void {
+  private retryScan(error?: unknown): void {
     if (this.deferredStartup) {
-      const message = errorMessage(error, "The Foom config folder is unavailable.");
+      const message =
+        error === undefined || settingsBusy(error)
+          ? undefined
+          : errorMessage(error, "The Foom config folder is unavailable.");
       if (this.error !== message) {
         this.error = message;
         this.publish();
@@ -386,7 +395,14 @@ export class ConfigService {
 
   private async finishDeferredStartup(): Promise<void> {
     if (!this.deferredStartup || this.closed) return;
-    await this.deps.onDeferredReady?.(this.liveValues ?? this.applied.values);
+    try {
+      await this.deps.onDeferredReady?.(this.liveValues ?? this.applied.values);
+    } catch {
+      this.profileWriteFailed = true;
+      this.retryScan();
+      return;
+    }
+    this.profileWriteFailed = false;
     this.deferredStartup = false;
     this.started = true;
     this.error = undefined;
@@ -505,6 +521,7 @@ export class ConfigService {
     parsed: ParsedThemeFile,
   ): Promise<ParsedThemeFile | undefined> {
     return this.serial(async () => {
+      if (this.deferredStartup) return undefined;
       // The library reads before joining this queue. A config scan may already
       // have reviewed a newer edit, so an old snapshot must not clear its hold
       // or replace the profile's approval baseline.
@@ -653,6 +670,13 @@ export class ConfigService {
   }
 
   status(): ConfigStatus {
+    const error = [
+      this.deferredStartup && SETTINGS_BUSY_MESSAGE,
+      this.error,
+      this.profileWriteFailed && "Unable to save profile settings.",
+    ]
+      .filter(Boolean)
+      .join(" ");
     const pending = this.pending;
     const held = this.heldThemes.entries().next().value;
     const rejected = [...this.rejected]
@@ -719,7 +743,7 @@ export class ConfigService {
             }
           : null,
       rejected,
-      ...(this.error ? { error: this.error } : {}),
+      ...(error ? { error } : {}),
     };
   }
 
