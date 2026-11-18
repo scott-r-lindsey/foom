@@ -64,7 +64,9 @@ the profile as version 2 without config settings. Values the file cannot express
 such as portable palette objects, fall back to the default. A version 2 profile
 stores only profile settings plus `configDigest`, the SHA-256 of the settings file
 this profile last applied, and `configText`, a copy of that file (at most 64 KiB)
-so Keep it on can restore it after a restart. If the folder cannot be prepared, settings stay in the
+so Keep it on can restore it after a restart. Main persists the digest and copy
+in one atomic profile replacement, along with the digest of a newly selected
+custom palette when available. If the folder cannot be prepared, settings stay in the
 version 1 profile and migration is retried at the next launch. For profiles with a
 verified applied config baseline, nonempty validated per-agent launch arguments
 move once into the recoverable approved baseline before the profile copy is removed. Invalid profile lists retain the existing per-agent drop
@@ -109,11 +111,11 @@ ownership. Later acquisitions sweep complete `.foom-*.tmp` lock records only
 when the same-host process is proven dead by the lock recovery rules; other
 config temporaries and live, foreign or unverified owners remain untouched.
 Safe external edits are adopted through the approval gate. With a verified
-baseline, unrelated held keys remain on disk and held while only the Settings
-patch is applied. Without a trusted baseline (including rejected profile loads),
+baseline, a save applies safe preferences from the current file and the Settings
+patch. Unrelated held changes remain on disk and pending. Without a trusted baseline (including rejected profile loads),
 a held file refuses Settings saves until reviewed. Missing, unreadable or invalid
-files also refuse saves without replacing external bytes. Keep it on uses the
-same lock and rechecks the proposal before replacement.
+files also refuse saves without replacing external bytes. Allow and Keep it on
+use the same lock to verify the proposal before applying or replacing it.
 The [#1234 investigation](../research/settings-reset-1234.md) records both
 reproduced races and recovery limits; it does not establish the historical
 incident trigger. On Windows only, atomic
@@ -143,20 +145,26 @@ settings in force, it turns alerts off, sets alert or master volume from positiv
 to 0, turns master mute on, turns hooks or an agent off, enables restoreSessions,
 or changes any agentArguments list. See the [user-visible hold rules](../behavior/settings.md#foom-config). A missing key means the default. Sizes and turning things on apply without approval. `showNewChildren` is a display preference and applies without approval in either direction: it changes placement only, leaving attention and permissions intact. Theme changes follow the
 attention-distinctness hold described below. Settings → Foom config
-and the config footer dock show the held change in amber. The held change carries an ID,
-the digest of its text, and a decision must name it: if an agent replaced the
-proposal after the banner was shown, the decision is refused and the new one shown.
-**Allow** rechecks that the file still has the held content and applies it. **Keep it on** writes back the
-last applied text. At startup the working file is trusted only if its digest
+and the config footer dock show the held change in amber. The decision ID binds
+the proposal's settings bytes and any custom palette involved in a selection
+change. An active palette edit also binds the working Settings file. If either
+input changes, the decision is refused and main refreshes the review.
+**Allow** applies the verified snapshot. **Keep it on** restores only held
+fields, preserving safe changes from the shared file. If restoring held provider
+toggles would exceed the provider map limit, Keep it on retains the approved
+provider map. At startup the working file is trusted only if its digest
 matches `configDigest`; otherwise the profile's `configText` is trusted if its
 digest matches; otherwise the baseline is the defaults (`{ "kind": "settings" }`),
 so an off switch written while Foom was closed is held and Keep it on restores a
 valid default file. A Settings save preserves unrelated held keys; an unverified baseline refuses the save. Every file argument change holds,
 regardless of known bypass detection. Allow opens the existing main-owned trusted
-dialog containing literal before/after lists and known bypass flags, then rechecks
-the proposal bytes before applying. Accepted bypass changes persist per-agent
+dialog containing literal before/after lists and known bypass flags, then reacquires
+the lock and rechecks both the settings and palette before applying. Accepted bypass changes persist per-agent
 acknowledgement in the profile. Argument text never enters board status metadata.
 Settings UI edits use the config writer directly and retain their bypass dialog.
+Each argument editor submits only its provider's list, which main merges under
+the shared lock. A manifest reservation masks a saved list at runtime while
+preserving the approved bytes for later use.
 
 **Status.** Settings → Foom config shows the folder, **Open folder**, and only
 what needs the user now: a held change, or each rejected file with its fixed

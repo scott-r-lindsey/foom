@@ -72,8 +72,15 @@ function fake(initial: SetupState, scan: AgentReport = all) {
     ),
     openThemesFolder: vi.fn(async () => {}),
     state: vi.fn(() => Promise.resolve(state)),
-    save: vi.fn((patch: SettingsPatch) =>
-      update({ ...state, settings: { ...state.settings, ...patch } }),
+    save: vi.fn(({ agentArguments, ...patch }: SettingsPatch) =>
+      update({
+        ...state,
+        settings: {
+          ...state.settings,
+          ...patch,
+          agentArguments: { ...state.settings.agentArguments, ...agentArguments },
+        },
+      }),
     ),
     changeAgyPlugin: vi.fn(() => Promise.resolve(scan)),
     scanAgents: vi.fn((_refresh: boolean) => Promise.resolve(scan)),
@@ -816,7 +823,7 @@ test("Settings saves agent defaults through its source and retains the saved sta
   fireEvent.blur(screen.getByLabelText("Codex default arguments"));
   await waitFor(() => {
     expect(source.save).toHaveBeenCalledWith({
-      agentArguments: { claude: [], codex: ["--model", "example"], agy: [] },
+      agentArguments: { codex: ["--model", "example"] },
     });
   });
   expect(screen.getByLabelText("Codex default arguments")).toHaveProperty(
@@ -961,14 +968,14 @@ test("concurrent card saves preserve other agents' defaults and continue after a
   await screen.findByText("Unable to update settings.");
   await waitFor(() => {
     expect(source.save).toHaveBeenLastCalledWith({
-      agentArguments: { claude: [], codex: ["--model", "two"], agy: [] },
+      agentArguments: { codex: ["--model", "two"] },
     });
   });
   fireEvent.change(claude, { target: { value: "--model\nthree" } });
   fireEvent.blur(claude);
   await waitFor(() => {
     expect(source.save).toHaveBeenLastCalledWith({
-      agentArguments: { claude: ["--model", "three"], codex: ["--model", "two"], agy: [] },
+      agentArguments: { claude: ["--model", "three"] },
     });
   });
 });

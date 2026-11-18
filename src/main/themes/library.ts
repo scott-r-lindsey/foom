@@ -13,6 +13,12 @@ import { ThemeValidationError, validThemeFile } from "../../shared/theme-validat
 import { interfaceThemes } from "../../shared/interface-themes";
 import { terminalThemeOptions } from "../../shared/terminal-themes";
 const kinds = ["theme", "terminal-theme"] as const;
+function catalogTheme(theme: ThemeCatalog["interface"][number]["theme"]) {
+  const collision = Object.values(interfaceThemes).some(
+    (builtin) => builtin.name.toLowerCase() === theme.name.toLowerCase(),
+  );
+  return { ...theme, name: theme.name + (collision ? " (custom)" : "") };
+}
 /** Owns bounded reads and session-only last-good versions. No raw contents escape main. */
 export class ThemeLibrary {
   private catalog: ThemeCatalog = { interface: [], terminal: [], errors: [] };
@@ -29,12 +35,26 @@ export class ThemeLibrary {
       text: string,
       theme: ParsedThemeFile,
     ) => Promise<ParsedThemeFile | undefined>,
+    private readonly activePalette?: () =>
+      | {
+          id: string;
+          theme: ThemeCatalog["interface"][number]["theme"] | undefined;
+        }
+      | undefined,
   ) {}
   folder(kind: ThemeKind): string {
     return join(this.root, kind === "theme" ? "themes" : "terminal-themes");
   }
   snapshot(): ThemeCatalog {
-    return structuredClone(this.catalog);
+    const active = this.activePalette?.();
+    if (!active) return structuredClone(this.catalog);
+    // The independent catalog reload may still have an older inactive palette.
+    // Always substitute the snapshot approved for the active selection.
+    const entries = this.catalog.interface.flatMap((entry) => {
+      if (entry.id !== active.id) return [entry];
+      return active.theme ? [{ id: active.id, theme: catalogTheme(active.theme) }] : [];
+    });
+    return structuredClone({ ...this.catalog, interface: entries });
   }
   async initialize(): Promise<void> {
     for (const kind of kinds) {
@@ -153,13 +173,7 @@ export class ThemeLibrary {
                 .map((warning) => ({ ...warning, file, kind })),
             );
           if (theme.kind === "theme") {
-            const collision = Object.values(interfaceThemes).some(
-              (builtin) => builtin.name.toLowerCase() === theme.theme.name.toLowerCase(),
-            );
-            next.interface.push({
-              id: `user:${file}`,
-              theme: { ...theme.theme, name: theme.theme.name + (collision ? " (custom)" : "") },
-            });
+            next.interface.push({ id: `user:${file}`, theme: catalogTheme(theme.theme) });
           } else {
             const collision = terminalThemeOptions.some(
               (builtin) => builtin.name.toLowerCase() === theme.name.toLowerCase(),

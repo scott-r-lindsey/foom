@@ -80,12 +80,7 @@ export function useSetupSaves(
     const saving = argumentSaveRef.current
       .catch(() => undefined)
       .then(async () => {
-        const latest = await source.state();
-        receiveState(
-          await source.save({
-            agentArguments: { ...latest.settings.agentArguments, [id]: args },
-          }),
-        );
+        receiveState(await source.save({ agentArguments: { [id]: args } }));
       });
     argumentSaveRef.current = saving;
     return saving;

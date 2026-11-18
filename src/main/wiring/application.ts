@@ -655,11 +655,8 @@ async function startApplication(wiring: ApplicationWiring): Promise<void> {
     },
     baseline: {
       get: () => wiring.settings.configDigest(),
-      set: (value) => wiring.settings.setConfigDigest(value),
-    },
-    appliedText: {
-      get: () => wiring.settings.configText(),
-      set: (text) => wiring.settings.setConfigText(text),
+      copy: () => wiring.settings.configText(),
+      set: (digest, text, theme) => wiring.settings.setConfigBaseline(digest, text, theme),
     },
     themeBaseline: {
       get: (file) => wiring.settings.themeDigest(file),
@@ -703,8 +700,11 @@ async function startApplication(wiring: ApplicationWiring): Promise<void> {
       void wiring.themes.reload();
     },
   });
-  wiring.themes = new ThemeLibrary(wiring.configRoot, wiring.themesChanged, (file, text, theme) =>
-    wiring.config.reviewTheme(file, text, theme),
+  wiring.themes = new ThemeLibrary(
+    wiring.configRoot,
+    wiring.themesChanged,
+    (file, text, theme) => wiring.config.reviewTheme(file, text, theme),
+    () => wiring.config.activePalette(),
   );
   wiring.disposeThemes = () => {
     wiring.themes.dispose();

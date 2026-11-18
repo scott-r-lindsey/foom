@@ -26,7 +26,7 @@ export async function fixture({
   themeDigests = [],
   realWatch = false,
   ...options
-}: Partial<Omit<ConfigServiceDependencies, "baseline" | "appliedText">> & {
+}: Partial<Omit<ConfigServiceDependencies, "baseline">> & {
   baseline?: string;
   appliedText?: string;
   themeDigests?: [string, string][];
@@ -49,15 +49,11 @@ export async function fixture({
     },
     baseline: {
       get: () => baseline,
-      set: (value) => {
+      copy: () => copy,
+      set: (value, text, theme) => {
         baseline = value;
-        return Promise.resolve();
-      },
-    },
-    appliedText: {
-      get: () => copy,
-      set: (text) => {
         copy = text;
+        if (theme) themeBaselines.set(theme.file, theme.digest);
         return Promise.resolve();
       },
     },
@@ -112,8 +108,7 @@ export async function restart(f: Awaited<ReturnType<typeof fixture>>) {
     root: f.folder,
     defaults: configPart({ ...DEFAULT_SETTINGS, agents: { claude: true, codex: true, agy: true } }),
     apply: () => {},
-    baseline: { get: () => f.baseline(), set: () => Promise.resolve() },
-    appliedText: { get: () => f.copy(), set: () => Promise.resolve() },
+    baseline: { get: f.baseline, copy: f.copy, set: () => Promise.resolve() },
     themeBaseline: {
       get: (file) => f.themeBaselines.get(file) ?? null,
       set: (file, value) => {

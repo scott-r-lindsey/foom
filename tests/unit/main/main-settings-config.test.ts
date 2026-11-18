@@ -182,11 +182,13 @@ test("Foom config migrates profile values, applies file changes live and broadca
   deps.onStatus?.(mock.config.status as never);
   expect(mock.window.webContents.send).toHaveBeenCalledWith("config:changed", mock.config.status);
   expect(deps.baseline.get()).toBeNull();
-  await deps.baseline.set("d".repeat(64));
-  expect(mock.settingsStore.setConfigDigest).toHaveBeenCalledWith("d".repeat(64));
-  expect(deps.appliedText?.get()).toBeNull();
-  await deps.appliedText?.set("{}");
-  expect(mock.settingsStore.setConfigText).toHaveBeenCalledWith("{}");
+  expect(deps.baseline.copy?.()).toBeNull();
+  await deps.baseline.set("d".repeat(64), "{}");
+  expect(mock.settingsStore.setConfigBaseline).toHaveBeenCalledWith(
+    "d".repeat(64),
+    "{}",
+    undefined,
+  );
   expect(mock.attachConfig).toHaveBeenCalled();
   const config = mock.workspace.deps?.config;
   if (!config) throw new Error("Expected config launch dependencies");
@@ -524,9 +526,10 @@ test.each(["hooks", "theme"] as const)(
       expect(replaced).toBe(true);
       expect(await readFile(join(folder, "settings.json"), "utf8")).toBe(proposal);
       expect(config?.status().pending).toMatchObject({
-        id: digest(proposal),
         detail: kind === "hooks" ? "hooks: on → off" : "interfaceTheme: attention-distinctness",
       });
+      expect(config?.status().pending?.id).toMatch(/^[0-9a-f]{64}$/u);
+      if (kind === "hooks") expect(config?.status().pending?.id).toBe(digest(proposal));
       expect(mock.settingsStore.update).not.toHaveBeenCalled();
     } finally {
       await config?.dispose();
