@@ -60,7 +60,7 @@ async function captureHosts(app, page, name) {
         .toBe(mode === "dark");
       await area.screenshot({
         path: evidencePath(
-          `${/^(?:1059|1061|1062|1067|1074|1131)\//u.test(name) ? name : `1074/${name}`}-${mode}.png`,
+          `${/^(?:1059|1061|1062|1067|1074|1131|1262)\//u.test(name) ? name : `1074/${name}`}-${mode}.png`,
         ),
       });
     }
@@ -1192,6 +1192,23 @@ test("Hosts opens saved checks without SSH and keeps ready repositories compact"
       },
     }),
   );
+  const retiredSetup = path.join(root, "repository-setup");
+  const retiredState = path.join(retiredSetup, "state.json");
+  await mkdir(retiredSetup, { mode: 0o700 });
+  await writeFile(
+    retiredState,
+    JSON.stringify({
+      version: 1,
+      approvals: [
+        {
+          repository: "/local/project-0",
+          list: { requirements: [{ kind: "toolchain", tool: "node", version: "24.x" }] },
+        },
+      ],
+      rows: [{ state: "needs-setup" }],
+    }),
+    { mode: 0o600 },
+  );
   const app = await launchApp(context, {
     fixture: "empty-board",
     args: [`--user-data-dir=${root}`],
@@ -1222,6 +1239,9 @@ test("Hosts opens saved checks without SSH and keeps ready repositories compact"
   await expect(card.getByText("Repository · project-0", { exact: true })).toHaveCount(0);
   await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
   await assertHostColumns(card);
+  await assert.rejects(access(retiredState), { code: "ENOENT" });
+  await expect(page.getByRole("region", { name: "Repository setup" })).toHaveCount(0);
+  await captureHosts(app, page, "1262/hosts");
   await capture("expanded");
   await card.getByRole("button", { name: /Git access · 6 ready/ }).click();
   await expect(card.locator(".host-repository-row")).toHaveCount(6);

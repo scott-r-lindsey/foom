@@ -1,10 +1,3 @@
-vi.mock("../../../../src/terminal-host/remote/agent-discovery", () => ({
-  hostLoginEnvironment: vi.fn(() => Promise.resolve({ PATH: "/fixture/bin" })),
-}));
-vi.mock("../../../../src/node-common/repository-setup-run", () => ({
-  runRepositorySetup: vi.fn(() => Promise.resolve(0)),
-  remoteToolchainPrefix: vi.fn(() => "/fixture/toolchains"),
-}));
 import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -281,28 +274,6 @@ test("trust-origin selects the interactive helper without starting a daemon", as
     expect(mock.trust).toHaveBeenCalledWith(["git@forge.test:repo"]);
   });
   expect(mock.serve).not.toHaveBeenCalled();
-});
-
-test("Settings repository setup uses the host login environment and closed helper mode", async () => {
-  const { runRepositorySetup } = await import("../../../../src/node-common/repository-setup-run");
-  const { hostLoginEnvironment } = await import(
-    "../../../../src/terminal-host/remote/agent-discovery"
-  );
-  await runHost(["node", "host", "--repository-setup", "{}"]);
-  await Promise.resolve();
-  await Promise.resolve();
-  expect(runRepositorySetup).toHaveBeenCalledWith("{}", "/fixture/toolchains", {
-    PATH: "/fixture/bin",
-  });
-  await vi.advanceTimersByTimeAsync(0);
-  expect(process.exitCode).toBe(0);
-  vi.mocked(hostLoginEnvironment).mockRejectedValueOnce(new Error("unavailable"));
-  await runHost(["node", "host", "--repository-setup", "{}"]);
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
-  await vi.advanceTimersByTimeAsync(0);
-  expect(process.exitCode).toBe(2);
 });
 
 test("SEA entry refuses startup with a fixed diagnostic on initialization failure", async () => {

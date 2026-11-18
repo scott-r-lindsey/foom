@@ -141,8 +141,6 @@
         "hosts.ts",
         "local-host.ts",
         "readiness.ts",
-        "repository-setup-service.ts",
-        "repository-setup.ts",
         "settings.ts",
         "setup-ipc.ts",
         "setup.ts"

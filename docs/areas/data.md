@@ -60,6 +60,15 @@ from an invalid record to make import pass. Schema version mismatches, migration
 failure and integrity failure must be actionable failures, not silent data loss.
 Phase D (#1163) removes superseded JSON writers only after migration validation.
 
+### Retired repository setup list (#1262)
+
+On startup, [#1262](https://github.com/scott-r-lindsey/foom/issues/1262) removes the obsolete private JSON store at
+`repository-setup/state.json` from the active profile. The operation is
+idempotent and verifies the private directory and file before unlinking the file.
+It leaves neighboring files and installed toolchains in place. The prepared
+control importer no longer reads the obsolete store, and a forward migration
+drops its approval and observation tables from prepared databases.
+
 ## Commit-driven changes
 
 Each domain table has INSERT, UPDATE and DELETE triggers appending its table name
@@ -368,12 +377,9 @@ live role checks remain in the existing service. Child-history expiry deletes
 intended receipts/posts/bindings before threads; it never deletes Git worktrees.
 
 Forge observations retain validated checkout/provider claims with host, repository
-and managed-worktree FKs. Forget-host removes its dependent observations and setup
-rows without remote effects. Generic offers, probe disclosures and fingerprinted
-hook-health observations retain their existing meanings, never installation or
-launch authority. Repository setup approvals bind the registration incarnation
-with a composite FK; plans, catalog/source hashes and observations retain their
-existing validators and must be revalidated by their owner before use.
+and managed-worktree FKs. Forget-host removes its dependent observations without
+remote effects. Generic offers, probe disclosures and fingerprinted hook-health
+observations retain their existing meanings, never installation or launch authority.
 
 Control intent is reserved and audited in one transaction, with hashed
 idempotency keys and fingerprints. Duplicate reservations return `created: false`;

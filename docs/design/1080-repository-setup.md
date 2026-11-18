@@ -1,5 +1,7 @@
 # Repository setup on hosts (#1080)
 
+**Superseded by [#1262](https://github.com/scott-r-lindsey/foom/issues/1262).** This document records the historical #1080 design.
+
 **Approved design.** Phase 1 was approved by the user and merged in #1192.
 Phase 2 implements the runtime and fixture acceptance below. The user merges the
 implementation because this extends host execution and trusted human approvals.

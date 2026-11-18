@@ -1705,9 +1705,6 @@
         "legacy inference profiles upgrade without evaluator controls or stored keys": [
           1.71, 7.824, 5.545
         ],
-        "local linked-worktree launch admission never probes tools in the registered main checkout": [
-          3.043, 0, 7.869
-        ],
         "merged cleanup deletes external worktrees and branches while preserving a skipped checkout": [
           5.925, 29.151, 11.92
         ],
@@ -1881,9 +1878,6 @@
           4.219, 28.683, 10.637
         ],
         "removal reviews serialize orchestrator before review across boards": [4.07, 17.377, 8.214],
-        "repository setup separates approval from human execution and rechecks failure, success and stale sources": [
-          10.269, 0, 16.949
-        ],
         "restores running claude in a linked worktree, shell and orchestrator children across windows": [
           12.614, 0, 23.609
         ],
@@ -2085,9 +2079,6 @@
         "app fixtures isolate inherited Foom variables and retain explicit overrides": [
           1.187, 7.527, 1.684
         ],
-        "catalog-v1 setup approvals preserve the launch block and open an editable review after restart": [
-          5.215, 20.322, 8.457
-        ],
         "config probe CLI drives only scratch fixture screens and the user can interrupt its tile": [
           11.907, 55.801, 15.078
         ],
@@ -2143,10 +2134,6 @@
         "renderer bundle contains production React without a Node process dependency": [
           0.809, 0.851, 0.676
         ],
-        "repository setup IPC refuses source edits during launch preparation before creating a terminal": [
-          6.729, 0, 2.892
-        ],
-        "repository setup pins env-selected pnpm interpreters across ABI awaits": [2.093, 0, 6.147],
         "restores running claude in a linked worktree with a replaced checkout, shell and orchestrator children across windows": [
           6.375, 0, 13.338
         ],

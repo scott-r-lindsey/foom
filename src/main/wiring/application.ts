@@ -1,3 +1,4 @@
+import { removeRetiredRepositorySetup } from "./profile-migrations";
 import { viewChanges } from "../data/view-changes";
 import { readFileSync } from "node:fs";
 import { autoUpdater } from "electron";
@@ -628,6 +629,7 @@ export function runApplication() {
 }
 
 async function startApplication(wiring: ApplicationWiring): Promise<void> {
+  await removeRetiredRepositorySetup(app.getPath("userData"));
   const root = stateRoot(app);
   wiring.configRoot = path.join(root, "config");
   wiring.worktrees = await WorktreeService.open(

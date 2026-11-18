@@ -14,12 +14,14 @@ test("loads worktree state from userData before creating a window", async () => 
       }),
   );
   await start(false);
-  expect(mock.openWorktrees).toHaveBeenCalledWith(
-    "/test/user-data",
-    join("/test/user-data", ".foom", "worktrees"),
-    [join("/test/user-data", ".foom", "config")],
-    expect.any(Function),
-  );
+  await vi.waitFor(() => {
+    expect(mock.openWorktrees).toHaveBeenCalledWith(
+      "/test/user-data",
+      join("/test/user-data", ".foom", "worktrees"),
+      [join("/test/user-data", ".foom", "config")],
+      expect.any(Function),
+    );
+  });
   expect(mock.construct).not.toHaveBeenCalled();
   finish?.();
   await vi.waitFor(() => {

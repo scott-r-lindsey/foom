@@ -1,10 +1,6 @@
 import type { copyableErrorText } from "./application-errors";
 /** Closed vocabulary for errors crossing a desktop capability boundary. */
 export type ApplicationErrorCode =
-  | "repository-setup-missing"
-  | "repository-setup-changed"
-  | "repository-setup-manual"
-  | "repository-setup-unavailable"
   | "origin-auth"
   | "origin-host-key"
   | "origin-unreachable"

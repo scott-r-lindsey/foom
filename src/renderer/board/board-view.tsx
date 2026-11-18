@@ -1,5 +1,3 @@
-import type { SetupRefusal } from "../../shared/repository-setup.d";
-import { launchReasons } from "../../shared/launch-failure";
 import { ConfigThemeLauncherContext } from "../preflight/custom-theme-hint";
 import type { TerminalFocusRestoration } from "../terminal/terminal-view-source.d";
 import { restoreBoardFocus, captureTerminalFocusRestoration } from "./focus-restore";
@@ -118,7 +116,6 @@ function BoardContents({
   inactive = false,
   onSettings,
   settingsView,
-  setupRefusal,
   onCloseSettings,
   soundSetup,
 }: {
@@ -128,7 +125,6 @@ function BoardContents({
   inactive?: boolean;
   onSettings?: (section?: "config" | "hosts") => void;
   settingsView?: ReactNode;
-  setupRefusal?: SetupRefusal;
   onCloseSettings?: (proceed?: () => void) => void;
 }) {
   const [approvalCount, setApprovalCount] = useState(0);
@@ -577,12 +573,6 @@ function BoardContents({
       };
       if (!defer && !place()) return Promise.resolve();
       const failed = (message: string) => {
-        if (
-          Object.entries(launchReasons).some(
-            ([code, text]) => code.startsWith("repository_setup_") && text === message,
-          )
-        )
-          setRemoveError(message);
         if (defer && !leaves(layoutRef.current.tree).some((tile) => sessionId(tile) === id))
           place();
         pendingLaunchesRef.current.delete(key);
@@ -867,27 +857,6 @@ function BoardContents({
         <ActionError
           returnFocus={() => actionOriginRef.current}
           message={actionMessage}
-          details={
-            setupRefusal &&
-            Object.entries(launchReasons).some(
-              ([code, message]) =>
-                code.startsWith("repository_setup_") && message === actionMessage,
-            ) ? (
-              <div>
-                <p>
-                  {setupRefusal.host ?? "This computer"} · {setupRefusal.repository}
-                </p>
-                <ul>
-                  {setupRefusal.missing.map((item) => (
-                    <li key={item.id}>
-                      {item.id}
-                      {item.version ? ` · ${item.version}` : ""}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : undefined
-          }
           close={() => {
             setRemoveError("");
           }}
@@ -899,19 +868,7 @@ function BoardContents({
                     void command({ ...prune, kind: "prune-worktree" });
                   },
                 }
-              : onSettings &&
-                  Object.entries(launchReasons).some(
-                    ([code, message]) =>
-                      code.startsWith("repository_setup_") && message === actionMessage,
-                  )
-                ? {
-                    label: "Open setup",
-                    run: () => {
-                      setRemoveError("");
-                      onSettings("hosts");
-                    },
-                  }
-                : undefined
+              : undefined
           }
         />
       )}

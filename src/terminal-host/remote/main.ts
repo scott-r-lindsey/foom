@@ -1,4 +1,3 @@
-import { runRepositorySetup, remoteToolchainPrefix } from "../../node-common/repository-setup-run";
 import { record } from "../../shared/remote-agent-protocol";
 import { isSea } from "node:sea";
 import { spawn } from "node:child_process";
@@ -9,19 +8,6 @@ import { homedir } from "node:os";
 import { checkSocket, hostSocket } from "./private-path";
 
 export async function runHost(argv: readonly string[] = process.argv): Promise<void> {
-  if (argv[2] === "--repository-setup" && argv.length === 4) {
-    const { hostLoginEnvironment } = await import("./agent-discovery.js");
-    const { remoteShell } = await import("./daemon.js");
-    void hostLoginEnvironment(remoteShell(), homedir(), undefined, true)
-      .then((env) => runRepositorySetup(argv[3] ?? "", remoteToolchainPrefix(homedir()), env))
-      .then((code) => {
-        process.exitCode = code;
-      })
-      .catch(() => {
-        process.exitCode = 2;
-      });
-    return;
-  }
   if (argv[2] === "--recipe" || argv[2] === "--trust-origin") {
     const { runHostRecipe, runOriginTrust } = await import("./host-recipe.js");
     void (

@@ -76,7 +76,7 @@ describe("persistent ownership", () => {
     await store({ version: 1, repositories: [repo], managed: [] });
     const first = await restart();
     const identity = first.registrationIdentity(repo);
-    await first.persistRegistrationIdentities();
+    await first.addRepository(repo);
     const second = await restart();
     expect(second.registrationIdentity(repo)).toBe(identity);
     await second.removeRepository(repo);
