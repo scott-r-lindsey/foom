@@ -1,10 +1,10 @@
+import { createWorktreeFixture } from "./worktree-git-fixture";
 import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { WorktreeService } from "../../../../src/main/workspace/worktrees";
 import { git as execute } from "../../../helpers/git.js";
 import { nativeDeadline } from "../../../helpers/native-test-policy";
-import { createWorktreeFixture } from "./worktree-git-fixture";
 
 // Real Git startup and filesystem IO are slower on Windows (run 39076862694).
 vi.setConfig({ testTimeout: nativeDeadline(5000), hookTimeout: nativeDeadline(10_000) });

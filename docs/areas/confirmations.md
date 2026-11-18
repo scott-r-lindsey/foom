@@ -118,8 +118,11 @@ child window for each board at creation. Each extra renderer process lives until
 its parent board closes: this trades memory for immediate confirmation even when
 the board has crashed or hung. Do not move its initialization into the renderer or
 lazy-load it on quit. Its background throttling is disabled so a reused request
-can render and report dimensions while the child is still hidden. With no macOS boards, quit opens a board and its trusted
-child before asking for confirmation.
+can render and report dimensions while the child is still hidden. The hidden
+page starts loading Geist and Geist Mono at startup so a first request can
+measure with the default fonts already loaded. It still waits for the fonts
+used by the actual card before reporting its size. With no macOS boards, quit
+opens a board and its trusted child before asking for confirmation.
 A separate in-memory session and `app://confirmation/confirmation.html` origin
 isolate its renderer process from the board. The opaque frameless window contains only
 its raised card, with a native shadow and platform rounding where supported (square

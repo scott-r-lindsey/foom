@@ -194,14 +194,19 @@ function Worktrees({
 export function ConfirmationPage() {
   const [request, setRequest] = useState<DialogRequest | null>(null);
   const [updatedAt, setUpdatedAt] = useState(Date.now);
-  useEffect(
-    () =>
-      window.confirmation.render((value) => {
-        setUpdatedAt(Date.now());
-        setRequest(value);
-      }),
-    [],
-  );
+  useEffect(() => {
+    // The hidden page has no text before its first request. Start loading the
+    // default faces before the presentation guard starts. The card still waits
+    // for the fonts used by the request before reporting its size.
+    void Promise.allSettled([
+      document.fonts.load('400 13px "Geist"'),
+      document.fonts.load('400 12px "Geist Mono"'),
+    ]);
+    return window.confirmation.render((value) => {
+      setUpdatedAt(Date.now());
+      setRequest(value);
+    });
+  }, []);
   return request?.approvals ? (
     <ApprovalQueue request={request} updatedAt={updatedAt} />
   ) : (
