@@ -3,6 +3,7 @@ import { mkdtemp, mkdir, writeFile, rm, symlink, copyFile } from "node:fs/promis
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { validateConfig } from "../../../src/cli/config";
+import { ConfigFiles } from "../../../src/main/config/files";
 import { execute } from "../../../src/cli/execute";
 import { interfaceThemes } from "../../../src/shared/interface-themes";
 const roots: string[] = [];
@@ -94,6 +95,24 @@ test("walks only the config layout, checks kind placement and rejects unexpected
   expect((await validateConfig(root)).problems.some((problem) => problem.file === "unknown")).toBe(
     true,
   );
+});
+test("validates the config root while Foom holds a Settings lock", async () => {
+  const root = await fixture();
+  await put(root, "settings.json", '{"kind":"settings"}');
+  const files = new ConfigFiles({ root });
+  await files.withSettingsLock(async () => {
+    const temporary = ".foom-12345678-1234-4321-abcd-123456789abc.tmp";
+    await put(root, temporary, "incomplete");
+    await put(root, ".foom-settings.lock.recovery.recovery", "internal");
+    expect(await validateConfig(root)).toEqual({ problems: [], code: 0 });
+
+    // A lookalike user file remains outside the config layout.
+    await put(root, ".foom-settings.lock.backup", "{}");
+    expect(await validateConfig(root)).toMatchObject({
+      code: 1,
+      problems: [{ file: ".foom-settings.lock.backup", reason: "unsafe-file" }],
+    });
+  });
 });
 test("caps folder counts including unexpected entries", async () => {
   const root = await fixture();
