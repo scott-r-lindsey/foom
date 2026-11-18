@@ -1,9 +1,9 @@
+import { createWorktreeFixture } from "./worktree-git-fixture";
 import { mkdir, readFile, realpath, rename, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { Workspace } from "../../../../src/main/workspace/workspace";
 import { git } from "../../../helpers/git.js";
-import { createWorktreeFixture } from "./worktree-git-fixture";
 
 const fixture = createWorktreeFixture();
 afterEach(() => fixture.cleanup());

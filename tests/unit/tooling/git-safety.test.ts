@@ -1,7 +1,32 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
+import { promisify } from "node:util";
 import ts from "typescript";
 import { expect, test } from "vitest";
+import { gitEnvironment, isolatedGitExecFile } from "../../helpers/git.js";
+
+test("test Git supplies a fixed identity after filtering inherited Git variables", async () => {
+  const source = {
+    GIT_AUTHOR_NAME: "Inherited Author",
+    GIT_AUTHOR_EMAIL: "author@example.test",
+    GIT_COMMITTER_NAME: "Inherited Committer",
+    GIT_COMMITTER_EMAIL: "committer@example.test",
+  };
+  expect(gitEnvironment(source)).toMatchObject({
+    GIT_AUTHOR_NAME: "Foom Test",
+    GIT_AUTHOR_EMAIL: "test@example.invalid",
+    GIT_COMMITTER_NAME: "Foom Test",
+    GIT_COMMITTER_EMAIL: "test@example.invalid",
+  });
+
+  const execute = promisify(isolatedGitExecFile);
+  for (const variable of ["GIT_AUTHOR_IDENT", "GIT_COMMITTER_IDENT"]) {
+    const { stdout } = await execute("git", ["var", variable], {
+      env: { ...process.env, ...source },
+    });
+    expect(stdout).toMatch(/^Foom Test <test@example\.invalid> /);
+  }
+});
 
 // Inspect calls rather than text so comments and embedded fake-agent scripts are ignored.
 // Track renamed imports and promisified functions as well as member calls.
