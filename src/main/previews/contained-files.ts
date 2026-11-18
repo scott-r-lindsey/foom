@@ -51,65 +51,85 @@ export function documentPathname(relative: string): string {
 
 const execute = promisify(execFile);
 
-async function nearestCheckoutCandidate(directory: string): Promise<string | undefined> {
+function gitAt(directory: string, gitDir: "." | ".git", ...query: string[]) {
+  return execute(
+    "git",
+    ["-C", directory, `--git-dir=${gitDir}`, "-c", "core.fsmonitor=false", "rev-parse", ...query],
+    {
+      cwd: path.dirname(process.execPath),
+      env: {
+        ...Object.fromEntries(
+          Object.entries(process.env).filter(([key]) => !key.toUpperCase().startsWith("GIT_")),
+        ),
+        GIT_CONFIG_GLOBAL: "/dev/null",
+        GIT_CONFIG_SYSTEM: "/dev/null",
+        GIT_CONFIG_NOSYSTEM: "1",
+        GIT_TERMINAL_PROMPT: "0",
+      },
+      timeout: 5000,
+      maxBuffer: 16 * 1024,
+      encoding: "utf8",
+      windowsHide: true,
+    },
+  );
+}
+
+async function entryExists(entry: string): Promise<boolean> {
+  try {
+    await fs.promises.lstat(entry);
+    return true;
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+async function captureDirectory(directory: string): Promise<CanonicalRoot> {
+  const stat = await fs.promises.lstat(directory, { bigint: true });
+  if (!stat.isDirectory()) throw new Error("Preview root is not a directory");
+  return { path: directory, dev: stat.dev, ino: stat.ino };
+}
+
+async function nearestCheckoutCandidate(directory: string): Promise<CanonicalRoot | undefined> {
   for (let current = directory; ; current = path.dirname(current)) {
-    try {
-      // Keep the physical spelling of the checkout even if its metadata is linked.
-      await fs.promises.lstat(path.join(current, ".git"));
-      return current;
-    } catch (error) {
-      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+    // Anchor identity before inspecting metadata. A .git symlink is still an entry.
+    const candidate = await captureDirectory(current);
+    if (await entryExists(path.join(current, ".git"))) return candidate;
+    // Check the metadata layout without reading config that could hide a bare repository.
+    if (await entryExists(path.join(current, "HEAD"))) {
+      const repository = await gitAt(current, ".", "--resolve-git-dir", ".").catch(
+        (error: unknown) => {
+          if (error instanceof Error && "code" in error && error.code === 128) return undefined;
+          throw error;
+        },
+      );
+      if (repository) return undefined;
     }
     if (path.dirname(current) === current) return undefined;
   }
 }
 
 async function previewRoot(directory: string): Promise<CanonicalRoot> {
+  const canonical = fs.realpathSync.native(directory);
   try {
-    const candidate = await nearestCheckoutCandidate(directory);
+    const candidate = await nearestCheckoutCandidate(canonical);
     if (candidate) {
-      const physical = canonicalRoot(candidate);
-      const { stdout } = await execute(
-        "git",
-        [
-          "-C",
-          physical.path,
-          "--git-dir=.git",
-          "-c",
-          "core.fsmonitor=false",
-          "rev-parse",
-          "--show-toplevel",
-        ],
-        {
-          cwd: path.dirname(process.execPath),
-          env: {
-            ...Object.fromEntries(
-              Object.entries(process.env).filter(([key]) => !key.toUpperCase().startsWith("GIT_")),
-            ),
-            GIT_CONFIG_GLOBAL: "/dev/null",
-            GIT_CONFIG_SYSTEM: "/dev/null",
-            GIT_CONFIG_NOSYSTEM: "1",
-            GIT_TERMINAL_PROMPT: "0",
-          },
-          timeout: 5000,
-          maxBuffer: 16 * 1024,
-          encoding: "utf8",
-          windowsHide: true,
-        },
-      );
+      const { stdout } = await gitAt(candidate.path, ".git", "--show-toplevel");
       const top = stdout.replace(/\r?\n$/, "");
-      // Repository-local config can redirect Git. Compare its answer without following it.
+      // Compare Git's answer without following a path supplied by repository config.
       if (
         path.isAbsolute(top) &&
         !/[\p{Cc}\p{Cs}]/u.test(top) &&
-        path.relative(physical.path, top) === ""
-      )
-        return physical;
+        path.relative(candidate.path, top) === ""
+      ) {
+        const current = await captureDirectory(candidate.path);
+        if (candidate.dev === current.dev && candidate.ino === current.ino) return candidate;
+      }
     }
   } catch {
     // Standalone files remain usable when Git is unavailable or rejects discovery.
   }
-  return canonicalRoot(directory);
+  return captureDirectory(canonical);
 }
 
 /** Resolve the document before selecting the scope of its browser origin. */

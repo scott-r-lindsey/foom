@@ -149,6 +149,77 @@ test("a configured parent worktree cannot expose files outside the checkout", as
   expect(await readInside(resolved.root, "/sibling.txt")).toMatchObject({ status: 404 });
 });
 
+test("a checkout swapped after inspecting its Git entry falls back to the document directory", async () => {
+  const checkout = fs.realpathSync.native(outside);
+  const directory = path.join(checkout, "docs");
+  const document = path.join(directory, "page.html");
+  const replacement = path.join(base, "replacement");
+  fs.mkdirSync(directory);
+  fs.writeFileSync(document, "<p>Original</p>");
+  fs.mkdirSync(path.join(replacement, "docs"), { recursive: true });
+  fs.writeFileSync(path.join(replacement, "docs", "page.html"), "<p>Replacement</p>");
+  fs.writeFileSync(path.join(replacement, "secret.txt"), "Replacement checkout");
+  for (const cwd of [checkout, replacement]) gitSync(["init", "-q"], { cwd });
+
+  const lstat = fs.promises.lstat;
+  let swapped = false;
+  vi.spyOn(fs.promises, "lstat").mockImplementation(async (...args) => {
+    const result = await lstat(...args);
+    if (args[0] === path.join(checkout, ".git")) {
+      fs.renameSync(checkout, path.join(base, "original"));
+      fs.renameSync(replacement, checkout);
+      swapped = true;
+    }
+    return result;
+  });
+
+  const resolved = await resolveDocument(document);
+  expect(swapped).toBe(true);
+  expect(resolved).toMatchObject({ status: 200, root: { path: directory }, relative: "page.html" });
+  if (resolved.status !== 200) throw new Error(resolved.reason);
+  expect(await readInside(resolved.root, "/secret.txt")).toMatchObject({ status: 404 });
+});
+
+test.each([false, true])(
+  "a bare repository inside a checkout contains the preview even with malformed config (%s)",
+  async (malformed) => {
+    gitSync(["init", "-q"], { cwd: outside });
+    const bare = path.join(outside, "bare.git");
+    gitSync(["init", "-q", "--bare", bare], { cwd: outside });
+    const directory = path.join(bare, "docs");
+    fs.mkdirSync(directory);
+    const document = path.join(directory, "page.html");
+    fs.writeFileSync(document, "<p>Bare repo document</p>");
+    const bareResult = await git(["rev-parse", "--is-bare-repository"], { cwd: directory });
+    expect(bareResult.stdout.trim()).toBe("true");
+    if (malformed) fs.appendFileSync(path.join(bare, "config"), "\n[invalid\n");
+
+    const resolved = await resolveDocument(document);
+    expect(resolved).toMatchObject({
+      status: 200,
+      root: { path: fs.realpathSync.native(directory) },
+      relative: "page.html",
+    });
+    if (resolved.status !== 200) throw new Error(resolved.reason);
+    expect(await readInside(resolved.root, "/secret.txt")).toMatchObject({ status: 404 });
+  },
+);
+
+test("an ordinary HEAD file leaves the enclosing checkout eligible", async () => {
+  gitSync(["init", "-q"], { cwd: outside });
+  const directory = path.join(outside, "docs");
+  fs.mkdirSync(directory);
+  fs.writeFileSync(path.join(directory, "HEAD"), "An ordinary file");
+  const document = path.join(directory, "page.html");
+  fs.writeFileSync(document, "<p>Checkout</p>");
+
+  expect(await resolveDocument(document)).toMatchObject({
+    status: 200,
+    root: { path: fs.realpathSync.native(outside) },
+    relative: "docs/page.html",
+  });
+});
+
 test.skipIf(process.platform === "win32")(
   "Git cannot confirm a dangling checkout marker with an enclosing repository",
   async () => {
