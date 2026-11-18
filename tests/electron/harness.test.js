@@ -247,6 +247,50 @@ test("document readiness awaits native navigation and releases listeners on succ
   }
 });
 
+test("fixture record publication retries Windows rename contention and cleans up on failure", async (context) => {
+  const fs = require("node:fs");
+  const { runInNewContext } = require("node:vm");
+  const { publishFixtureRecord } = require("./fixture-records.js");
+  const root = await mkdtemp(path.join(tmpdir(), "foom-record-publish-"));
+  removeAfterApps(context, root);
+  const file = path.join(root, "launch.json");
+  const initial = JSON.stringify({ args: [] });
+  const resumed = JSON.stringify({ args: ["--resume", "fixture"] });
+  fs.writeFileSync(file, initial);
+  const contention = Object.assign(new Error("Fixture rename contention"), { code: "EPERM" });
+  let failures = 1;
+  const waits = [];
+  const publish = runInNewContext(`(${publishFixtureRecord.toString()})`, {
+    require: () => ({
+      ...fs,
+      renameSync(from, to) {
+        if (failures-- > 0) throw contention;
+        fs.renameSync(from, to);
+      },
+    }),
+    process: { platform: "win32", pid: process.pid },
+    Atomics: {
+      wait(_buffer, _index, _expected, delay) {
+        waits.push(delay);
+      },
+    },
+  });
+  publish(file, resumed);
+  assert.deepEqual(waits, [10]);
+  assert.equal(fs.readFileSync(file, "utf8"), resumed);
+  assert.deepEqual(fs.readdirSync(root), ["launch.json"]);
+
+  failures = Infinity;
+  waits.length = 0;
+  assert.throws(
+    () => publish(file, initial),
+    (error) => error === contention,
+  );
+  assert.deepEqual(waits, [10, 20, 40, 80]);
+  assert.equal(fs.readFileSync(file, "utf8"), resumed);
+  assert.deepEqual(fs.readdirSync(root), ["launch.json"]);
+});
+
 test("fixture records await atomic writes, surface errors and abort with their case", async (context) => {
   const { writeFile, rename } = require("node:fs/promises");
   const { waitForFixtureRecord } = require("./fixture-records.js");

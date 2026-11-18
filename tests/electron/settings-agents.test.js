@@ -1,3 +1,4 @@
+const { publishFixtureRecord } = require("./fixture-records.js");
 const { evidencePath } = require("../helpers/evidence.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
 const { AxeBuilder } = require("@axe-core/playwright");
@@ -127,7 +128,7 @@ test("Settings persists literal agent defaults and discloses bypass once per age
   );
   const args = [
     "--eval",
-    'require("node:fs").writeFileSync(process.env.TEST_ARGV, JSON.stringify([...process.execArgv, ...process.argv.slice(1)])); setInterval(() => {}, 1000)',
+    `const publish = ${publishFixtureRecord.toString().replaceAll("\n", " ")}; publish(process.env.TEST_ARGV, JSON.stringify([...process.execArgv, ...process.argv.slice(1)])); setInterval(() => {}, 1000)`,
     "value with spaces",
     "'literal quotes'",
     "$(not-a-command); &",
