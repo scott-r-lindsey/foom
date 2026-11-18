@@ -378,6 +378,19 @@ export function runApplication() {
     requestQuit,
   });
   let quitRequest: Promise<void> | undefined;
+  let startupRestore: Promise<void> | undefined;
+  async function restoreSavedSessions(): Promise<void> {
+    // A quit request that gets here first owns the terminal inventory until it settles.
+    while (quitRequest) await quitRequest;
+    if (quitting) return;
+    const restore = Promise.resolve().then(() => workspace.restartSaved());
+    startupRestore = restore;
+    try {
+      await restore;
+    } finally {
+      startupRestore = undefined;
+    }
+  }
   function requestQuit(): Promise<void> {
     quitRequest ??= performQuit().finally(() => {
       quitRequest = undefined;
@@ -392,6 +405,8 @@ export function runApplication() {
       return;
     }
     try {
+      // Once restoration starts, let all of its launches finish before counting terminals.
+      if (startupRestore) await Promise.allSettled([startupRestore]);
       let entry =
         [...windows.values()].find(({ window }) => window.isFocused()) ??
         windows.values().next().value;
@@ -532,9 +547,7 @@ export function runApplication() {
     get quitPending() {
       return quitPending;
     },
-    get quitRequest() {
-      return quitRequest;
-    },
+    restoreSavedSessions,
     get quitting() {
       return quitting;
     },
@@ -760,11 +773,8 @@ async function startApplication(wiring: ApplicationWiring): Promise<void> {
       if (isQuitting()) return;
       wiring.applyThemeSettings();
       wiring.configApplied();
-      // Keep the confirmed terminal count stable until the quit request settles.
-      while (wiring.quitRequest) await wiring.quitRequest;
-      if (isQuitting()) return;
     }
-    await wiring.workspace.restartSaved();
+    await wiring.restoreSavedSessions();
   };
   void restore()
     .then(() => wiring.worktrees.reconcileRemovals(() => wiring.quitPending || wiring.quitting))

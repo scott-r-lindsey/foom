@@ -617,7 +617,7 @@ for (const restoreSessions of [false, true]) {
   });
 }
 
-async function launchWithDeferredShell(context, restoreSessions, config) {
+async function launchWithDeferredShell(context, restoreSessions, config, savedCount = 1) {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-deferred-shell-")));
   removeAfterApps(context, root);
   const home = path.join(root, "home");
@@ -638,17 +638,17 @@ async function launchWithDeferredShell(context, restoreSessions, config) {
   const directory = config ? folder : home;
   await writeFile(
     path.join(profile, "sessions.json"),
-    JSON.stringify([
-      {
-        id,
+    JSON.stringify(
+      Array.from({ length: savedCount }, (_, index) => ({
+        id: index === 0 ? id : `${id}-${index}`,
         agent: "shell",
         repository: directory,
         worktree: directory,
         branch: null,
         ...(config ? { config: true } : { home: true }),
         running: true,
-      },
-    ]),
+      })),
+    ),
   );
   const app = await launchApp(context, {
     fixture: "restored",
@@ -663,8 +663,8 @@ async function launchWithDeferredShell(context, restoreSessions, config) {
   return { app, page, id, lock };
 }
 
-async function deferredRestoreAtQuit(context) {
-  const { app, page, id, lock } = await launchWithDeferredShell(context, true, true);
+async function deferredRestoreAtQuit(context, savedCount) {
+  const { app, page, id, lock } = await launchWithDeferredShell(context, true, true, savedCount);
   const home = await page.evaluate(() => window.desktop.sidebarCommand({ kind: "home-shell" }));
   const rows = () => page.evaluate(async () => (await window.desktop.workspace()).terminals);
   await expect
@@ -725,6 +725,50 @@ test("canceling quit resumes deferred config restore", {
     .poll(async () => (await rows()).filter((row) => !row.dormant && !row.exited).length)
     .toBe(2);
   assert.equal((await rows()).find((row) => row.id === id)?.dormant, undefined);
+});
+
+test("a second quit counts all shells from an in-flight startup restore", {
+  timeout: deadline(45_000),
+}, async (context) => {
+  const savedCount = 4;
+  const { app, confirmation, rows } = await deferredRestoreAtQuit(context, savedCount);
+  await app.evaluate(({ app }) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { SessionOwner } = load("./build/main/workspace/session-owner.js");
+    const restartSavedEntry = SessionOwner.prototype.restartSavedEntry;
+    const gate = new Promise((resolve) => {
+      globalThis.releaseSavedShells = resolve;
+    });
+    let launches = 0;
+    SessionOwner.prototype.restartSavedEntry = async function (entry) {
+      // Shells share the config worktree, so the second launch follows the first.
+      if (++launches === 2) {
+        globalThis.savedShellsPaused = true;
+        await gate;
+      }
+      return restartSavedEntry.call(this, entry);
+    };
+  });
+  try {
+    await confirmation.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect.poll(() => app.evaluate(() => globalThis.savedShellsPaused)).toBe(true);
+    assert.equal((await rows()).filter((row) => !row.dormant && !row.exited).length, 2);
+    await app.evaluate(({ app }) => app.quit());
+  } finally {
+    await app.evaluate(() => globalThis.releaseSavedShells());
+  }
+  const second = await confirmationPage(app);
+  await expect
+    .poll(async () => (await rows()).filter((row) => !row.dormant && !row.exited).length)
+    .toBe(savedCount + 1);
+  await expect(second.getByRole("alertdialog")).toHaveAccessibleName(
+    `Quit with ${savedCount + 1} terminals running?`,
+  );
+  await quitAndWait(app, () =>
+    second.getByRole("button", { name: "Stop all and quit", exact: true }).click(),
+  );
 });
 
 test("disabled startup restore exposes Restart shell while the Settings lock is busy", {

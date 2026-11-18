@@ -27,8 +27,9 @@ until Foom can load the applied Settings and attach the writer. The single
 startup restore pass then uses the applied `restoreSessions` value, including
 for saved Foom config shells. A verified disabled preference makes saved rows
 restartable by hand as soon as the board opens, even while Settings is busy.
-Deferred restoration waits for a pending quit decision so the terminal count
-stays accurate. Canceling quit lets the restore pass proceed.
+Startup restoration waits for a pending quit decision. Canceling quit lets
+the restore pass proceed. If restoration is already in flight, quit waits
+for it to finish before counting the live terminals for confirmation.
 Screens and scrollback are never persisted.
 
 `src/main/workspace/session-owner.ts` owns session restoration and persistence behind

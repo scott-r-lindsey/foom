@@ -12,6 +12,27 @@ test("window close requests the same quit path without destroying the window", a
   });
 });
 
+test("quit counts terminals after an in-flight startup restore finishes", async () => {
+  const restore = Promise.withResolvers<undefined>();
+  mock.workspace.restartSaved.mockReturnValueOnce(restore.promise);
+  mock.terminals.runningCount = 1;
+  await start();
+  await vi.waitFor(() => {
+    expect(mock.workspace.restartSaved).toHaveBeenCalledOnce();
+  });
+
+  quitting();
+  expect(mock.message).not.toHaveBeenCalled();
+  mock.terminals.runningCount = 3;
+  restore.resolve(undefined);
+
+  await vi.waitFor(() => {
+    expect(mock.message).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ title: "Quit with 3 terminals running?" }),
+    );
+  });
+});
+
 test.each([1, 3])(
   "cancel preserves %s running terminals and permits another attempt",
   async (count) => {
