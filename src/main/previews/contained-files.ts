@@ -229,7 +229,8 @@ async function absoluteLinkPath(root: string, target: string): Promise<string[] 
     if (!(await statEntry(directory))?.isDirectory()) return undefined;
     if (directory === path.dirname(directory)) break;
   }
-  if (path.relative(root, await fs.promises.realpath(prefix)) === "") return remaining;
+  // A case-sensitive Windows directory may have a distinct case-variant sibling.
+  if ((await fs.promises.realpath(prefix)) === root) return remaining;
   return undefined;
 }
 

@@ -966,6 +966,32 @@ test.skipIf(!links || process.platform === "win32")(
   },
 );
 
+test.runIf(links && process.platform === "linux")(
+  "a case-variant Windows sibling cannot supply a route back into the preview root",
+  async () => {
+    const checkout = path.join(base, "Root");
+    const sibling = path.join(base, "root");
+    const docs = path.join(checkout, "docs");
+    fs.mkdirSync(docs, { recursive: true });
+    fs.mkdirSync(sibling);
+    fs.writeFileSync(path.join(docs, "page.html"), "<p>Checkout</p>");
+    fs.symlinkSync(docs, path.join(sibling, "docs"), "dir");
+    fs.symlinkSync(path.join(sibling, "docs"), path.join(checkout, "alias"), "dir");
+    const capturedCheckout = canonicalRoot(checkout);
+
+    // Apply Windows case folding while retaining real, case-sensitive filesystem lookups.
+    vi.stubGlobal("process", { ...process, platform: "win32" });
+    vi.spyOn(path, "relative").mockImplementation((from, to) =>
+      path.win32.relative(from, to).replaceAll("\\", path.sep),
+    );
+    expect(await readInside(capturedCheckout, "/docs/page.html")).toMatchObject({ status: 200 });
+    expect(await readInside(capturedCheckout, "/alias/page.html")).toEqual({
+      status: 403,
+      reason: "escape",
+    });
+  },
+);
+
 test.skipIf(!links || process.platform === "win32")(
   "relative links can go up within the root but cannot leave and reenter it",
   async () => {
