@@ -2,11 +2,38 @@ const { existsSync, readFileSync, watch } = require("node:fs");
 const path = require("node:path");
 
 // Self-contained so fake CLI scripts can embed it with toString().
+// Windows readers can briefly prevent replacement, so allow up to 150 ms of backoff.
 function publishFixtureRecord(file, contents) {
-  const { renameSync, writeFileSync } = require("node:fs");
+  const { renameSync, rmSync, writeFileSync } = require("node:fs");
   const temporary = file + "." + process.pid + ".tmp";
-  writeFileSync(temporary, contents);
-  renameSync(temporary, file);
+  try {
+    writeFileSync(temporary, contents);
+    for (let delay = 10; ; delay *= 2) {
+      try {
+        renameSync(temporary, file);
+        return;
+      } catch (error) {
+        if (
+          process.platform !== "win32" ||
+          delay > 80 ||
+          !["EPERM", "EACCES", "EBUSY"].includes(error?.code)
+        )
+          throw error;
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delay);
+      }
+    }
+  } catch (error) {
+    try {
+      rmSync(temporary, { force: true });
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        "Could not publish or remove fixture record",
+        { cause: cleanupError },
+      );
+    }
+    throw error;
+  }
 }
 
 // Fixture records are atomically renamed into place. Wait for that event rather
