@@ -20,6 +20,13 @@ import type {
 } from "../../shared/registered-hosts.d";
 import type { SetupSource } from "./setup-source.d";
 import type { Repository } from "../../shared/worktrees";
+type RecipeView = {
+  host: string;
+  id: string;
+  finished: boolean;
+  repository?: string;
+  gh?: "install" | "sign-in";
+};
 const originRecipeKey = (host: string, repository: string) => JSON.stringify([host, repository]);
 const EMPTY_HOSTS: HostsState = { hosts: [], locations: [] };
 const reasons: Record<HostFailure, string> = {
@@ -766,10 +773,8 @@ export function HostsSettings({
   const [rowPending, setRowPending] = useState<ReadonlySet<string>>(() => new Set());
   const [outputOverride, setOutputOverride] = useState<HostOutput | null>();
   const output = outputOverride === null ? undefined : (outputOverride ?? state.output);
-  const [recipes, setRecipes] = useState<
-    ReadonlyMap<string, { host: string; id: string; finished: boolean; gh?: "install" | "sign-in" }>
-  >(() => {
-    const saved = new Map(
+  const [recipes, setRecipes] = useState<ReadonlyMap<string, RecipeView>>(() => {
+    const saved = new Map<string, RecipeView>(
       [...(source.installs?.sessions() ?? [])].map(([host, id]) => [
         host,
         {
@@ -791,19 +796,16 @@ export function HostsSettings({
         saved.set(originRecipeKey(action.host, action.repository), {
           host: action.host,
           id,
+          repository: action.repository,
           finished: false,
         });
     }
     return saved;
   });
-  const clearRecipe = (host: string, force = false) => {
+  const clearRecipe = (host: string) => {
     setRecipes(
       (previous) =>
-        new Map(
-          [...previous].filter(
-            ([, recipe]) => recipe.host !== host || (!force && !recipe.finished),
-          ),
-        ),
+        new Map([...previous].filter(([, recipe]) => recipe.host !== host || !recipe.finished)),
     );
   };
   const dismissOutput = () => {
@@ -812,11 +814,6 @@ export function HostsSettings({
   };
   const recipeFinished = useCallback(
     async (id: string, succeeded?: boolean) => {
-      setRecipes((previous) => {
-        for (const [key, recipe] of previous)
-          if (recipe.id === id) return new Map(previous).set(key, { ...recipe, finished: true });
-        return previous;
-      });
       await api?.({ action: "list" })
         .then((next) => {
           setState(next);
@@ -825,11 +822,29 @@ export function HostsSettings({
         .catch(() => {
           setError("Unable to refresh tool");
         });
+      setRecipes((previous) => {
+        for (const [key, recipe] of previous)
+          if (recipe.id === id) return new Map(previous).set(key, { ...recipe, finished: true });
+        return previous;
+      });
       if (succeeded)
         setRecipes((previous) => new Map([...previous].filter(([, recipe]) => recipe.id !== id)));
     },
     [api, setState],
   );
+  const originPanel = (id: string) =>
+    source.hostTerminal && (
+      <HostTerminal
+        key={id}
+        id={id}
+        source={source.hostTerminal}
+        finished={recipeFinished}
+        label="Origin host key terminal"
+        activeLabel="Verify the fingerprint in SSH"
+        collapseOnExit
+        showExitStatus={false}
+      />
+    );
   const refreshGithubTool = useCallback(
     async (host: string) => {
       try {
@@ -934,8 +949,10 @@ export function HostsSettings({
   const act = async (action: HostsAction) => {
     changedRef.current = true;
     if (action.action === "recipe") setOutputOverride(undefined);
-    if ("host" in action) clearRecipe(action.host, action.action === "remove");
-    if ("host" in action) setExpanded((previous) => new Map(previous).set(action.host, true));
+    if ("host" in action && action.action !== "remove") {
+      clearRecipe(action.host);
+      setExpanded((previous) => new Map(previous).set(action.host, true));
+    }
     const target = "host" in action ? action.host : "";
     const startedRename = renamedRef.current.get(target);
     setBusy((previous) => new Set(previous).add(target));
@@ -952,6 +969,10 @@ export function HostsSettings({
         enrolling = false;
       }
       if (!next) return;
+      if (action.action === "remove") {
+        if (next.hosts.some((entry) => entry.host === action.host)) return;
+        clearRecipe(action.host);
+      }
       if ("host" in action && ["preflight", "add", "remove"].includes(action.action))
         setRowFailed(
           (previous) => new Set([...previous].filter((key) => !key.startsWith(`${action.host}:`))),
@@ -972,6 +993,7 @@ export function HostsSettings({
               host: action.host,
               id,
               finished: false,
+              ...(action.action === "trust-origin" ? { repository: action.repository } : {}),
               ...(action.action === "recipe" && action.tool === "gh"
                 ? {
                     gh:
@@ -1183,6 +1205,24 @@ export function HostsSettings({
           />
         </section>
       )}
+      {hostsQuery.data !== undefined &&
+        [...recipes.values()].map((recipe) =>
+          recipe.repository &&
+          !recipe.finished &&
+          !state.hosts.some((host) => host.host === recipe.host) ? (
+            <section
+              className="host-card host-compact"
+              key={recipe.id}
+              aria-label={`Origin trust · ${recipe.host}`}
+            >
+              <header className="hosts-heading">
+                <h3>{recipe.host} · Removed</h3>
+              </header>
+              <Group>Repository · {recipe.repository.split(/[\\/]/u).at(-1)}</Group>
+              {originPanel(recipe.id)}
+            </section>
+          ) : null,
+        )}
       {state.hosts.map((entry) => {
         const recipe = recipes.get(entry.host);
         const recipeAction = recipe && source.installs?.hostActions?.().get(recipe.id);
@@ -1222,17 +1262,7 @@ export function HostsSettings({
             if (!origin) continue;
             originTerminals.set(repo.repository, {
               running: !origin.finished,
-              panel: (
-                <HostTerminal
-                  key={origin.id}
-                  id={origin.id}
-                  source={source.hostTerminal}
-                  finished={recipeFinished}
-                  label="Origin host key terminal"
-                  activeLabel="Verify the fingerprint in SSH"
-                  collapseOnExit
-                />
-              ),
+              panel: originPanel(origin.id),
             });
           }
         }

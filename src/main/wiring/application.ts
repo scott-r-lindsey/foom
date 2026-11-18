@@ -211,6 +211,7 @@ export function runApplication() {
   };
   /** Shows a session in the window that owns its view, or the focused board. */
   const revealSession = (id: string) => {
+    if (workspace.isSettingsTerminal(id)) return;
     const entry =
       [...windows.values()].find(({ window }) => window.isFocused()) ??
       windows.values().next().value;
@@ -237,9 +238,10 @@ export function runApplication() {
     if (!newWindowCommand) return;
     const targets = process.platform === "win32" ? [...windows.values()] : [entry];
     const snapshot = workspace.snapshot();
+    const board = { ...snapshot, terminals: snapshot.terminals.filter((row) => !row.recipe) };
     if (updates.state(0).status === "downloaded") publishSettings();
     for (const current of targets)
-      updateAttention(current?.window, snapshot, newWindowCommand, revealSession);
+      updateAttention(current?.window, board, newWindowCommand, revealSession);
   };
   /** Keep an actor's pending removals on one board even while its dialog owns focus. */
   const removalPresentations = new RemovalPresentations();

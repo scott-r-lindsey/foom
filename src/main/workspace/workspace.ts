@@ -120,6 +120,9 @@ export class Workspace {
   async restore(): Promise<void> {
     return this.owner.restore();
   }
+  isSettingsTerminal(id: string): boolean {
+    return this.owner.launched.get(id)?.recipe === true;
+  }
   ownsSession(id: string): boolean {
     return this.owner.ownsSession(id);
   }

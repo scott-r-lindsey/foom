@@ -359,6 +359,7 @@ vi.mock("../../../src/main/workspace/workspace", () => ({
     shellState = mock.workspace.shellState;
     mcpConnectionChanged = mock.workspace.mcpConnectionChanged;
     ownsSession = mock.workspace.ownsSession;
+    isSettingsTerminal = mock.workspace.isSettingsTerminal;
     initializeControl = mock.workspace.initializeControl;
     refresh = mock.workspace.refresh;
     focusOrchestrator = mock.workspace.focusOrchestrator;
@@ -547,6 +548,7 @@ const mock = vi.hoisted(() => {
     shellState: vi.fn(),
     mcpConnectionChanged: vi.fn(),
     ownsSession: vi.fn(() => true),
+    isSettingsTerminal: vi.fn((_id: string) => false),
     scanAgents: vi.fn((_refresh?: boolean) =>
       Promise.resolve({
         agents: [

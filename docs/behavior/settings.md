@@ -372,7 +372,9 @@ host ([#1024](https://github.com/scott-r-lindsey/foom/issues/1024)).
 Codex hook trust is not inferred from installation or
 sign-in; the first launch may need hook review in Codex's tile.
 
-Remove forgets the host without stopping sessions. Host facts contains daemon
+Remove forgets the host without stopping sessions. A running origin trust
+prompt remains in Hosts under the removed host with its Stop button.
+Host facts contains daemon
 version, live sessions, CPU cores/load average, total/available memory, foreign
 session/worktree counts and Refresh facts. Ready tool/agent checks mean installed
 and probeable; Not found and Unable to check are fixed states. Declared bounded
@@ -415,7 +417,8 @@ the install and closes Settings, without moving it to the board or sidebar.
 Window close and quit keep their existing confirmation. gh Sign in stays in Settings: Foom copies the code and opens GitHub’s fixed device page, then the user pastes and authorizes. The panel shows Needs you, the code and browser/clipboard markers, fallback buttons and a Terminal toggle. Install & sign in installs first and stops on failure. A short note discloses possible plain-text token storage without a host keyring. On exit,
 Install and Sign in refresh only their affected tool and sign-in rows. The
 terminal header shows Done or Failed with its exit code. Origin trust, the plugin
-installer and agent sign-in collapse their output on exit. Tool installs retain
+installer and agent sign-in collapse their output on exit. For origin trust, the
+Git access row shows the scoped check result. Tool installs retain
 output until dismissed or replaced. Add and checks retain bounded read-only step
 output, including OpenSSH stderr, in the Add section or host card. **Last checked** records full checks only.
 Each checklist row has a reload icon on hover and keyboard focus, with a name

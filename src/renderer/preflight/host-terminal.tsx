@@ -11,10 +11,12 @@ export function HostTerminal({
   label = "Install terminal",
   activeLabel = "Installing…",
   collapseOnExit = false,
+  showExitStatus = true,
 }: {
   label?: string;
   activeLabel?: string;
   collapseOnExit?: boolean;
+  showExitStatus?: boolean;
   id: string;
   source: NonNullable<SetupSource["hostTerminal"]>;
   finished: (id: string) => void | Promise<void>;
@@ -45,17 +47,20 @@ export function HostTerminal({
     };
   }, [view, id, visible, observed]);
   const completedRef = useRef<string | undefined>(undefined);
-  useEffect(() => {
-    return source.observe(id, (next) => {
+  const observeExit = useCallback(
+    (next: { exited: boolean; code?: number }) => {
+      if (completedRef.current === id) return;
       setExit(next);
       setObserved(true);
-      if (next.exited && completedRef.current !== id) {
+      if (next.exited) {
         completedRef.current = id;
         void finished(id);
       }
-    });
-  }, [source, id, finished]);
-  if (dismissed) return null;
+    },
+    [id, finished],
+  );
+  useEffect(() => source.observe(id, observeExit), [source, id, observeExit]);
+  if (dismissed || (exit.exited && !showExitStatus)) return null;
   return (
     <section className="host-terminal" aria-label={label} aria-busy={visible && !ready}>
       <header>
@@ -76,10 +81,19 @@ export function HostTerminal({
             onClick={() => {
               setStopping(true);
               setStopFailed(false);
-              void source.stop?.(id).catch(() => {
-                setStopFailed(true);
-                setStopping(false);
-              });
+              void view
+                .hide()
+                .then(() => source.stop?.(id))
+                .then(
+                  () => {
+                    if (!showExitStatus) observeExit({ exited: true });
+                  },
+                  () => {
+                    setStopFailed(true);
+                    setStopping(false);
+                    void view.open(id);
+                  },
+                );
             }}
           >
             Stop

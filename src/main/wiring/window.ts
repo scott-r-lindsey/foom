@@ -379,6 +379,12 @@ export async function buildWindow(
           : "localAgent" in target
             ? await wiring.workspace.startLocalAgentInstall(target.localAgent)
             : await wiring.workspace.startHostRecipe(target);
+      if (window.isDestroyed()) {
+        await wiring.terminals.kill(id);
+        wiring.workspace.removed(id);
+        throw new Error("Settings window closed");
+      }
+      wiring.views.reserveSettings(id, window.id);
       const gh =
         "recipe" in target &&
         target.recipe.tool === "gh" &&
@@ -659,7 +665,8 @@ export async function buildWindow(
     owns: (content) =>
       content.kind === "preview"
         ? previewHost.registry.records.has(content.id)
-        : (wiring.terminals.owns(content.id) || wiring.workspace.ownsSession(content.id)) &&
+        : !wiring.workspace.isSettingsTerminal(content.id) &&
+          (wiring.terminals.owns(content.id) || wiring.workspace.ownsSession(content.id)) &&
           !wiring.workspace
             .snapshot()
             .terminals.some((row) => row.id === content.id && row.dormant && row.exited) &&
@@ -693,7 +700,9 @@ export async function buildWindow(
     },
   });
   const disposeViews = attachWindowViews(window, ipc, wiring.views, {
-    knows: (id) => wiring.terminals.owns(id) || wiring.workspace.ownsSession(id),
+    knows: (id) =>
+      !wiring.workspace.isSettingsTerminal(id) &&
+      (wiring.terminals.owns(id) || wiring.workspace.ownsSession(id)),
     find: (id) => wiring.windows.get(id)?.window,
     detach: (id) => {
       wiring.terminals.detachView(id, window.webContents);

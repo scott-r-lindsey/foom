@@ -242,7 +242,7 @@ process.stdin.on('data', bytes => {
         assert.equal(recipeInput,'yes'+String.fromCharCode(13));
         appendFileSync(${JSON.stringify(calls)},JSON.stringify({host,message:{type:'origin-answer',answer:'yes'}})+'\\n');
         require('node:fs').writeFileSync(${JSON.stringify(scenario)},JSON.stringify({...recipeSettings,origin:undefined}));
-        send({type:'exit',id:message.id,code:0});
+        send({type:'exit',id:message.id,code:1});
       }
     }
     if(message.type==='write' && recipeSettings.recipeInteractive && !recipeEnded) {
@@ -912,9 +912,9 @@ test("Hosts shows readiness and read-only checkouts with explicit origin trust",
   await terminal.locator(".xterm-helper-textarea").focus();
   await page.keyboard.type("yes");
   await page.keyboard.press("Enter");
-  await expect(terminal.getByRole("status")).toHaveText("Done");
-  await expect(terminal.locator(".xterm-screen")).toHaveCount(0);
+  await expect(terminal).toHaveCount(0);
   await expect(card.getByText("Pass · Reachable", { exact: true })).toBeVisible();
+  await expect(card.getByText(/exit code 1/u)).toHaveCount(0);
   assert.equal(
     await page.evaluate(
       async () =>
@@ -931,6 +931,7 @@ test("Hosts shows readiness and read-only checkouts with explicit origin trust",
     .map(({ message }) => message.operation)
     .filter((operation) => operation !== "list-worktrees");
   assert.deepEqual(trustChecks, ["origin", "repository"]);
+  await captureHosts(app, page, "1260/origin-reachable", card.locator(".host-checks"));
   await updateScenario(ready);
   await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
   await expect(card.getByText("Ready", { exact: true })).toBeVisible();
@@ -1787,7 +1788,8 @@ test("Hosts confirms stopping a running install before Settings closes and close
   await expect(dialog).toBeVisible();
   await expect(page.getByRole("region", { name: "Message board", exact: true })).toHaveCount(0);
   await dialog.getByRole("button", { name: "Keep open" }).click();
-  await page.locator(`[data-drag-session="${id}"]`).click();
+  await expect(page.locator(`[data-drag-session="${id}"]`)).toHaveCount(0);
+  await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
   await expect(dialog).toBeVisible();
   await dialog.getByRole("button", { name: "Stop", exact: true }).click();
   await expect(settings).toHaveCount(0);
@@ -1992,6 +1994,81 @@ test("Agents scopes use saved host observations and Global enablement without ch
   assert.equal(draft.preflight.result.ok, true);
   assert.deepEqual(draft.hosts, []);
   assert.ok(app);
+});
+
+test("Origin trust stays off both boards and remains stoppable after host removal", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, navigation, calls, updateScenario } = await hostsFixture(context);
+  await updateScenario({
+    origin: "origin-host-key",
+    facts: { tools: [{ id: "git", state: "ready", signIn: "unknown" }] },
+  });
+  await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
+  await card.getByRole("button", { name: "Trust host key…", exact: true }).click();
+  const terminal = page.getByRole("region", { name: "Origin host key terminal", exact: true });
+  await expect(terminal.locator(".xterm-screen")).toContainText("continue connecting");
+  const id = await page.evaluate(async () => {
+    const snapshot = await window.desktop.workspace();
+    return snapshot.terminals.find((row) => row.recipe && !row.exited)?.id;
+  });
+  assert.ok(id);
+  await page.evaluate(() => window.desktop.appMenu.execute("new-window"));
+  await expect
+    .poll(() => app.windows().filter((window) => window.url() === "app://bundle/index.html").length)
+    .toBe(2);
+  const other = app
+    .windows()
+    .find((window) => window !== page && window.url() === "app://bundle/index.html");
+  assert.ok(other);
+  await expect(other.locator(".config-gear")).toBeVisible();
+  const testBoardRoutes = (board) =>
+    board.evaluate(async (id) => {
+      const selected = await window.desktop.windows.select(id).then(
+        () => true,
+        () => false,
+      );
+      const views = await window.desktop.windows.snapshot();
+      return { selected, reserved: views.some((view) => view.id === id) };
+    }, id);
+  await expect(page.locator(`[data-drag-session="${id}"]`)).toHaveCount(0);
+  await expect(other.locator(`[data-drag-session="${id}"]`)).toHaveCount(0);
+  assert.deepEqual(await testBoardRoutes(page), { selected: false, reserved: false });
+  assert.deepEqual(await testBoardRoutes(other), { selected: false, reserved: false });
+
+  // Leave Hosts so no terminal is attached. The other board still cannot claim it.
+  await navigation.getByRole("button", { name: "General", exact: true }).click();
+  await expect(terminal).toHaveCount(0);
+  await page.evaluate((id) => window.desktop.detach(id), id);
+  assert.equal(
+    await other.evaluate(
+      (id) =>
+        window.desktop.attach(id).then(
+          () => true,
+          () => false,
+        ),
+      id,
+    ),
+    false,
+  );
+  await other.evaluate(() => window.desktop.hosts({ action: "remove", host: "fixture-cloud" }));
+
+  await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
+  await expect(card).toHaveCount(0);
+  const removed = page.getByRole("region", { name: "Origin trust · fixture-cloud", exact: true });
+  await expect(removed.getByText("fixture-cloud · Removed", { exact: true })).toBeVisible();
+  await expect(terminal.locator(".xterm-screen")).toContainText("continue connecting");
+  const killed = async () =>
+    (await readFile(calls, "utf8"))
+      .split("\n")
+      .filter(Boolean)
+      .some((line) => JSON.parse(line).closed === id);
+  assert.equal(await killed(), false, "removal sends no kill");
+  await terminal.getByRole("button", { name: "Stop", exact: true }).click();
+  await expect(removed).toHaveCount(0);
+  await expect.poll(killed).toBe(true);
+  await expect(page.locator(".terminal-tile[data-kind='shell']")).toHaveCount(0);
 });
 
 test("Agents scopes use trusted consent and fixed recipes for host plugin installation", {

@@ -45,6 +45,7 @@ export async function initializeWorkspace(
           wiring.workspace.input(id);
         },
         onRemoved: (id) => {
+          wiring.views.forgetSettings(id);
           wiring.workspace.removed(id);
         },
       },
@@ -53,6 +54,8 @@ export async function initializeWorkspace(
           (entry) => entry.window.webContents === contents,
         );
         if (!entry) return false;
+        if (wiring.workspace.isSettingsTerminal(id))
+          return wiring.views.ownsSettings(id, entry.window.id);
         const accepted = wiring.views.claim(id, entry.window.id);
         if (accepted) wiring.publishViews();
         return accepted;

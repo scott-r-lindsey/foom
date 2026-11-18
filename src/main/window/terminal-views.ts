@@ -1,6 +1,19 @@
 /** Main-owned view reservations outlive renderer attachment (for example Settings). */
 export class TerminalViews {
   private readonly owners = new Map<string, number>();
+  private readonly settingsOwners = new Map<string, number>();
+
+  reserveSettings(id: string, window: number): void {
+    this.settingsOwners.set(id, window);
+  }
+
+  ownsSettings(id: string, window: number): boolean {
+    return this.settingsOwners.get(id) === window;
+  }
+
+  forgetSettings(id: string): void {
+    this.settingsOwners.delete(id);
+  }
 
   owner(id: string): number | undefined {
     return this.owners.get(id);
@@ -29,6 +42,8 @@ export class TerminalViews {
   }
 
   close(window: number): string[] {
+    for (const [id, owner] of this.settingsOwners)
+      if (owner === window) this.settingsOwners.delete(id);
     const released: string[] = [];
     for (const [id, owner] of this.owners)
       if (owner === window) {

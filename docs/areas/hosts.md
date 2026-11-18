@@ -81,6 +81,9 @@ and host caches in the same
 operation, without sending stop, kill or session-close, including when the last
 observation reports live sessions. Open attached tiles keep their connections until
 exit or Close and are excluded from saved rows for the rest of that app run.
+An active origin trust prompt remains in its owning Settings window after
+removal. Hosts shows it under the removed host and keeps Stop available until
+exit. Cancelling removal leaves the existing prompt and its controls in place.
 While the host is unregistered, its ordinary saved sessions are not restored.
 Re-enrolling the same host later allows startup discovery to recover any of this
 profile's sessions still live on its daemon as human-owned tiles, without their
@@ -698,6 +701,9 @@ action. Compatible older daemons must advertise originTrust=1; otherwise the
 launch refuses until the host daemon is updated. The user verifies the fingerprint
 and answers SSH; Foom never supplies an answer or accepts a key. On exit the
 terminal collapses and the card automatically rechecks that origin and checkout.
+The Git access row shows the scoped check result. SSH may exit 1 after
+successful authentication, so its process exit status does not determine the
+trust outcome.
 
 Codex's hook trust is not exposed by the existing version/help or exit-code sign-in
 probes. Foom does not inspect or modify Codex's hook-trust store. On a new host,
@@ -812,8 +818,9 @@ Read-only observations and other recipes retain their existing compatibility.
 
 Settings and preflight render in the registered board window. Host actions attach
 the existing human-owned PTY through that window's ID-scoped terminal
-capability and shared attachment queue. No cross-window attachment or remote
-protocol change is needed. Output and scrollback retain the existing terminal
+capability and shared attachment queue. Main reserves the attachment for the
+launching window. The board excludes Settings terminals from sidebar, tile and
+window placement, and saved sessions exclude them. Output and scrollback retain the existing terminal
 bounds; input goes directly through terminal IPC and is never copied into setup
 state, diagnostics or persistence. Foom never types into the process.
 

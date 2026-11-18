@@ -421,6 +421,8 @@ test("install recipes stay in Settings and native exit refreshes their rows once
   );
   expect(id).toBe("recipe");
   expect(mock.window.webContents.send).not.toHaveBeenCalledWith("app-menu:session", "recipe");
+  mock.workspace.isSettingsTerminal.mockImplementation((id) => id === "recipe");
+  expect(mock.allowView(mock.window.webContents, "recipe")).toBe(true);
   const listener = mock.terminals.onExit.mock.calls[0]?.[0];
   listener?.("other", 0);
   expect(finished).not.toHaveBeenCalled();
@@ -440,6 +442,20 @@ test.each([
   expect(id).toBe("recipe");
   expect(mock.workspace.startHostRecipe).toHaveBeenCalledExactlyOnceWith(target);
   expect(mock.window.webContents.send).not.toHaveBeenCalledWith("app-menu:session", "recipe");
+});
+
+test("a Settings recipe launched during window closure is stopped before it can be reserved", async () => {
+  await start();
+  mock.window.isDestroyed.mockReturnValueOnce(true);
+  await expect(
+    mock.setup.deps?.launchHostRecipe?.({
+      host: "worker",
+      human: true,
+      trustOrigin: "git@forge.test:team/project.git",
+    }),
+  ).rejects.toThrow("Settings window closed");
+  expect(mock.terminals.kill).toHaveBeenCalledWith("recipe");
+  expect(mock.workspace.removed).toHaveBeenCalledWith("recipe");
 });
 
 test("a recipe that exits during startup still refreshes its rows", async () => {

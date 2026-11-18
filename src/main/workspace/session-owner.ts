@@ -258,7 +258,7 @@ export class SessionOwner {
       if (!ids.has(id)) this.remotePlacements.delete(id);
     return this.retained(
       entries
-        .filter((entry) => !entry.probe && !this.forgettingSessions.has(entry.id))
+        .filter((entry) => !entry.probe && !entry.recipe && !this.forgettingSessions.has(entry.id))
         .map((entry) => {
           const remoteCheckout = entry.remote ? this.remotePlacements.get(entry.id) : undefined;
           const sharedReview = this.deps.sharedReview?.(entry.id);
