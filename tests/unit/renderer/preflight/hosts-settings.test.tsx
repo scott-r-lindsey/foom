@@ -1769,7 +1769,10 @@ test("untrusted hosts hide dependent checks and stale failures until acceptance 
   expect(within(card).queryByRole("region", { name: "Host check output" })).toBeNull();
   fireEvent.click(within(card).getByRole("button", { name: "Trust host key…" }));
   const failure = await within(card).findByText("Unable to trust host key · dialog-unavailable");
-  expect(failure.closest(".host-check-row")?.textContent).toContain("SSH");
+  const ssh = failure.closest(".host-check-row");
+  expect(ssh?.textContent).toContain("Host key not trusted");
+  expect(ssh?.querySelector(".host-status")?.classList.contains("host-need")).toBe(true);
+  expect(failure.classList.contains("host-fail")).toBe(true);
   expect(card.querySelectorAll(".host-check-row")).toHaveLength(1);
   fireEvent.click(within(card).getByRole("button", { name: "Trust host key…" }));
   await within(card).findByText("Pass · Host key trusted");

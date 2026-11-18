@@ -547,7 +547,16 @@ test("profile inventories project only counts to Settings and End confirms exact
   expect(confirm).not.toHaveBeenCalled();
   mock.inventory.mockRejectedValue(new Error("private network detail"));
   expect(await hosts.sessions()).toEqual([]);
+  const inventoryCalls = mock.inventory.mock.calls.length;
+  run.mockResolvedValueOnce({ ok: false, reason: "facts-unavailable" });
+  const unavailable = await hosts.action({ action: "refresh", host: "worker" });
+  expect(unavailable.hosts[0]?.factsRefreshFailure).toBe("facts-unavailable");
+  run.mockResolvedValueOnce({ ok: false, reason: "host-key-changed" });
+  const changed = await hosts.action({ action: "refresh", host: "worker" });
+  expect(changed.hosts[0]?.factsRefreshFailure).toBe("host-key-changed");
+  expect(mock.inventory.mock.calls).toHaveLength(inventoryCalls);
   await expect(hosts.action({ action: "refresh", host: "worker" })).rejects.toThrow();
+  expect(hosts.state().hosts[0]?.factsRefreshFailure).toBeUndefined();
 });
 
 test("recovery placements are profile-owned, registered, and bound to the hashed host/path checkout key", async () => {

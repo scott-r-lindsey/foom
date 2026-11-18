@@ -1693,10 +1693,6 @@ export class Hosts {
           return this.state();
         }
         if (input.action === "refresh") {
-          if (this.profile) {
-            await this.readSessions(host.host);
-            await this.readWorktrees(host.host, true);
-          }
           const result = await this.run(host.host, {
             type: "manage",
             operation: "inspect",
@@ -1725,6 +1721,10 @@ export class Hosts {
           this.resourceResults.set(host.host, refreshed);
           if (result.ok && live?.ok && !this.inventoryReads.has(host.host))
             this.results.set(host.host, refreshed);
+          if (result.ok && this.profile) {
+            await this.readSessions(host.host);
+            await this.readWorktrees(host.host, true);
+          }
           await this.expandRegistration(host.host, result);
           return this.state();
         }

@@ -378,16 +378,16 @@ function Checklist({
       <Row
         target={{ kind: "ssh" }}
         name="SSH"
-        tone={awaitingTrust && trustFailure ? "fail" : sshStatus.tone}
+        tone={sshStatus.tone}
         text={
-          trustFailure && !awaitingTrust ? (
+          trustFailure ? (
             <>
               <span>{sshStatus.text}</span>
               <br />
               <span className="host-fail">{trustFailure}</span>
             </>
           ) : (
-            (trustFailure ?? sshStatus.text)
+            sshStatus.text
           )
         }
         action={

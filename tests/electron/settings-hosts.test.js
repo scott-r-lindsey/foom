@@ -1403,6 +1403,15 @@ test("Hosts reloads individual rows and actions never trigger full capability ch
   );
   await expect(factsPanel.getByText(failure, { exact: true })).toBeVisible();
   assert.equal(await checkedAt(), failedCheckTimestamp);
+
+  await updateScenario({ sshFailure: "changed" });
+  await refresh.click();
+  await expect(refresh).toBeEnabled();
+  await expect(factsPanel.getByText("Host key changed", { exact: true })).toBeVisible();
+  await expect(factsPanel.getByText(failure, { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Unable to update hosts", { exact: true })).toHaveCount(0);
+  assert.equal(await checkedAt(), failedCheckTimestamp);
+
   await updateScenario({});
   await refresh.click();
   await expect(factsPanel.getByText("CPU cores", { exact: true })).toBeVisible();
@@ -3009,6 +3018,7 @@ test("Hosts shows a fixed trust failure when askpass refuses an unrecognized pro
   await expect(
     ssh.getByText("Unable to trust host key · askpass-prompt-rejected", { exact: true }),
   ).toBeVisible();
+  await expect(ssh.getByText("Host key not trusted", { exact: true })).toBeVisible();
   await expect(card).not.toContainText("FIXTURE_PRIVATE_PROMPT");
   await captureHosts(app, page, "1259/trust-failed");
   const dialog = await confirmationPage(app);
