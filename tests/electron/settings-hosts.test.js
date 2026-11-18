@@ -1393,8 +1393,12 @@ test("Hosts reloads individual rows and actions never trigger full capability ch
   const refresh = factsPanel.getByRole("button", { name: "Refresh facts", exact: true });
   await refresh.click();
   await expect(refresh).toBeEnabled();
+  // Sidebar inventory can finish concurrently. A full check requests agent details.
+  const capabilityRequests = (await capabilityCalls())
+    .slice(before)
+    .filter(({ target, agentDetails }) => target || agentDetails);
   assert.deepEqual(
-    (await capabilityCalls()).slice(before).map(({ operation, target }) => ({ operation, target })),
+    capabilityRequests.map(({ operation, target }) => ({ operation, target })),
     [{ operation: "inspect", target: { kind: "facts" } }],
   );
   await expect(factsPanel.getByText(failure, { exact: true })).toBeVisible();
