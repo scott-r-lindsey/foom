@@ -435,9 +435,12 @@ export class SettingsStore {
     const config: ConfigSettings = {};
     const profile: SettingsPatch = {};
     for (const [key, value] of Object.entries(patch))
-      Object.assign(this.writer && isConfigSetting(key) ? config : profile, { [key]: value });
-    if (this.writer && Object.keys(config).length) await this.writer(config);
-    if (Object.keys(config).length && !Object.keys(profile).length) return this.committedSettings;
+      Object.assign(this.migrated && isConfigSetting(key) ? config : profile, { [key]: value });
+    if (Object.keys(config).length) {
+      if (!this.writer) throw new Error("The Foom config folder is unavailable.");
+      await this.writer(config);
+      if (!Object.keys(profile).length) return this.committedSettings;
+    }
     await this.write(() => {
       const argumentsPatch = profile.agentArguments;
       const agentArguments = argumentsPatch

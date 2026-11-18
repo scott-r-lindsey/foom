@@ -114,8 +114,11 @@ Safe external edits are adopted through the approval gate. With a verified
 baseline, a save applies safe preferences from the current file and the Settings
 patch. Unrelated held changes remain on disk and pending. Without a trusted baseline (including rejected profile loads),
 a held file refuses Settings saves until reviewed. Missing, unreadable or invalid
-files also refuse saves without replacing external bytes. Allow and Keep it on
-use the same lock to verify the proposal before applying or replacing it.
+files also refuse saves without replacing external bytes. Startup waits for a busy
+lock before attaching the config writer. A migrated profile with no attached writer
+refuses config saves. Allow and Keep it on use the same lock to verify the proposal
+before applying or replacing it. Settings writes use compact JSON when the
+pretty-printed form would exceed 64 KiB.
 The [#1234 investigation](../research/settings-reset-1234.md) records both
 reproduced races and recovery limits; it does not establish the historical
 incident trigger. On Windows only, atomic
@@ -127,7 +130,9 @@ file, and retains the existing file, applied values and pending approval.
 `config/service.ts` keeps approval baselines, held settings and theme changes, trusted argument disclosure, and decision revalidation together. `config/files.ts` owns bounded reads, directory containment and atomic replacement; `config/catalog.ts` owns theme path discovery and agent and forge manifest discovery, validation and reload.
 
 **Live reload.** Main watches `settings.json`, `themes/` and `terminal-themes/`,
-waits 250 ms after the last event and scans serially. When `themes` or
+waits 250 ms after the last event and scans serially. A scan blocked by a busy
+Settings lock retries, including when the lock changes, without requiring
+another Settings edit. When `themes` or
 `terminal-themes` is replaced, the root watcher resubscribes to it. The config
 scanner (`config/files.ts`) refuses file links, nonregular files and files over
 64 KiB; [offline validation](console.md) also rejects in-folder links. The separate

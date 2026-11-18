@@ -216,12 +216,17 @@ export async function validateConfig(
         let child: FolderKind | undefined;
         if (kind === "config") {
           // Foom writes these itself; validation covers only the agent-editable formats.
-          if (
-            FOOM_OWNED.includes(entry.name) ||
-            SETTINGS_LOCK.test(entry.name) ||
-            CONFIG_TEMPORARY.test(entry.name)
-          )
+          if (FOOM_OWNED.includes(entry.name)) continue;
+          if (SETTINGS_LOCK.test(entry.name) || CONFIG_TEMPORARY.test(entry.name)) {
+            try {
+              if (!(await lstat(file)).isFile()) fail("unsafe-file");
+            } catch (error) {
+              // A live writer can remove the transient entry after enumeration.
+              if (!(error instanceof Error && "code" in error && error.code === "ENOENT"))
+                report(name, error);
+            }
             continue;
+          }
           if (entry.name === "captures") {
             const captures = await directoryIdentity(file);
             if (dirname(captures.canonical) !== identity.canonical) fail("unsafe-file");

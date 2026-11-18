@@ -96,7 +96,7 @@ separation from readable ink as well as failure, accent, highlight and done.
 The approved version is the one this profile last applied, recorded as a
 per-file digest in the profile. Active selections display the palette snapshot
 accepted by the approval gate, even while the independent catalog is still
-publishing an older version. After a restart the file counts as approved only
+publishing an older version or has yet to publish that palette. After a restart the file counts as approved only
 if its digest matches. Allow verifies the proposal digest and current bytes and
 records the new digest. Keep it on restores the approved version applied in
 this session. When there is none, it switches `interfaceTheme` back to the default

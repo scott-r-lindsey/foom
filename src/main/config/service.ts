@@ -1,5 +1,12 @@
 import { ConfigCatalog } from "./catalog";
-import { ConfigFiles, decode, ignore, settle } from "./files";
+import {
+  ConfigFiles,
+  decode,
+  ignore,
+  MAX_CONFIG_FILE_BYTES,
+  SETTINGS_LOCK_FILE,
+  settle,
+} from "./files";
 import { bundledForgeManifests } from "../control/forge-manifests";
 import type { LoadedForgeManifest } from "./plugins";
 import type { AgentProvider } from "../agents/providers/registry";
@@ -12,12 +19,13 @@ import {
   parseAgentDefaults,
   recoverAgentDefaults,
 } from "../agents/default-arguments";
+import { ApplicationError } from "../../shared/application-errors";
 import type { DialogContent } from "../../shared/confirmation";
 import type { ConfigSettings } from "../../shared/config";
 import { parseSettingsFile } from "../../shared/config-files";
 import type { ConfigStatus } from "../../shared/foom-config";
 import { SOUND_KINDS } from "../../shared/sounds";
-import type { ParsedThemeFile, ThemeKind } from "../../shared/theme-file";
+import type { ParsedThemeFile, ThemeKind, UserThemeId } from "../../shared/theme-file";
 import { parseThemeFile } from "../../shared/theme-files";
 import { attentionConflicts } from "../../shared/user-interface-theme";
 import { isUserThemeId, ThemeValidationError, validThemeFile } from "../../shared/theme-validation";
@@ -99,6 +107,10 @@ const watchFolder = (directory: string, listener: (file: string | null) => void)
   return watcher;
 };
 
+function settingsBusy(error: unknown): boolean {
+  return error instanceof ApplicationError && error.code === "settings-busy";
+}
+
 function invalid(error: unknown): string {
   return error instanceof ThemeValidationError
     ? `${error.path}: ${error.reason}${error.detail ? `: ${error.detail}` : ""}`
@@ -133,6 +145,7 @@ export class ConfigService {
   private queue: Promise<unknown> = Promise.resolve();
   private watchers = new Map<string, { close(): void }>();
   private timer: ReturnType<typeof setTimeout> | undefined;
+  private retryingScan = false;
   private available = true;
   private error: string | undefined;
   private closed = false;
@@ -230,7 +243,16 @@ export class ConfigService {
     }
     if (migrated && this.applied === migrated) await this.recordBaseline(migrated.text);
     this.applyLive(this.applied.values);
-    await this.scan();
+    // A live writer can outlast one bounded acquisition. Keep startup queued
+    // until the initial scan succeeds, so the application can attach the writer.
+    for (;;) {
+      try {
+        await this.scan();
+        break;
+      } catch (error) {
+        if (!settingsBusy(error) || this.closed) throw error;
+      }
+    }
     this.startWatching();
     this.started = true;
     return this.liveValues ?? this.applied.values;
@@ -274,7 +296,12 @@ export class ConfigService {
       );
       // A theme folder that was removed and recreated needs a new subscription.
       if (replaced) this.watchFolder(replaced);
-      return file === null || file === SETTINGS_FILE || replaced !== undefined;
+      return (
+        file === null ||
+        file === SETTINGS_FILE ||
+        (file === SETTINGS_LOCK_FILE && this.retryingScan) ||
+        replaced !== undefined
+      );
     });
     for (const folder of [...Object.values(THEME_FOLDERS), "agents", "forges"])
       this.watchFolder(folder);
@@ -301,7 +328,17 @@ export class ConfigService {
     if (this.closed) return;
     clearTimeout(this.timer);
     this.timer = setTimeout(() => {
-      void this.serial(() => this.scan()).catch(ignore);
+      void this.serial(async () => {
+        // Ignore our own lock events while acquiring and scanning.
+        this.retryingScan = false;
+        try {
+          await this.scan();
+        } catch (error) {
+          if (!settingsBusy(error)) throw error;
+          this.retryingScan = true;
+          this.schedule();
+        }
+      }).catch(ignore);
     }, this.deps.delay ?? 250);
   }
 
@@ -408,7 +445,7 @@ export class ConfigService {
 
   /** The active palette comes from the same snapshot as the applied selection. */
   activePalette():
-    | { id: string; theme: Extract<ParsedThemeFile, { kind: "theme" }>["theme"] | undefined }
+    | { id: UserThemeId; theme: Extract<ParsedThemeFile, { kind: "theme" }>["theme"] | undefined }
     | undefined {
     const id = effective(this.deps.defaults, this.applied.values).interfaceTheme;
     if (!isUserThemeId(id)) return undefined;
@@ -757,7 +794,9 @@ export class ConfigService {
 
   private settingsFile(values: ConfigSettings): Applied {
     if (isDeepStrictEqual(values, this.applied.values)) return this.applied;
-    const text = `${JSON.stringify({ kind: "settings", ...values }, null, 2)}\n`;
+    const file = { kind: "settings", ...values };
+    const pretty = `${JSON.stringify(file, null, 2)}\n`;
+    const text = Buffer.byteLength(pretty) <= MAX_CONFIG_FILE_BYTES ? pretty : JSON.stringify(file);
     return { text, values: parseSettingsFile(text) };
   }
 

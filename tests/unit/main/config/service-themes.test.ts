@@ -643,3 +643,21 @@ test("a failed profile replacement after palette fallback retains the approved c
     interfaceScale: 120,
   });
 });
+
+test("the library exposes an approved active palette before its first catalog reload", async () => {
+  const f = await fixture();
+  await f.service.initialize();
+  const library = new ThemeLibrary(
+    f.folder,
+    undefined,
+    (file, text, parsed) => f.service.reviewTheme(file, text, parsed),
+    () => f.service.activePalette(),
+  );
+  expect(library.snapshot().interface).toEqual([]);
+  await f.write("themes/new.json", theme("New palette"));
+  await f.settings({ interfaceTheme: "user:new.json" });
+  await f.service.refresh();
+  expect(library.snapshot().interface).toEqual([
+    { id: "user:new.json", theme: { ...palette, name: "New palette" } },
+  ]);
+});

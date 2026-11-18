@@ -114,6 +114,23 @@ test("validates the config root while Foom holds a Settings lock", async () => {
     });
   });
 });
+test("rejects directories and symlinks at reserved transient paths", async () => {
+  const root = await fixture();
+  const outside = await fixture();
+  await mkdir(join(root, ".foom-settings.lock"));
+  const temporary = ".foom-12345678-1234-4321-abcd-123456789abc.tmp";
+  const target = await put(outside, "ordinary", "regular file");
+  await symlink(target, join(root, temporary));
+  const result = await validateConfig(root);
+  expect(result.code).toBe(1);
+  expect(result.problems).toHaveLength(2);
+  expect(result.problems).toEqual(
+    expect.arrayContaining([
+      { file: ".foom-settings.lock", path: "$", reason: "unsafe-file" },
+      { file: temporary, path: "$", reason: "unsafe-file" },
+    ]),
+  );
+});
 test("caps folder counts including unexpected entries", async () => {
   const root = await fixture();
   const themes = join(root, "themes");

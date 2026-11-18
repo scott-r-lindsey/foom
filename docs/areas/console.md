@@ -34,7 +34,8 @@ saved screen captures; config-root traversal checks the supported built-in captu
 See [capture/replay](../contracts/agent-report.md#saved-screen-rule-regressions-592).
 Only the documented config layout is walked. Root traversal skips Foom's Settings
 lock, recovery locks and UUID-named temporary files so live writes can overlap
-validation. These entries still count toward the traversal bound. Unexpected
+validation. The validator checks these names with `lstat` and skips only regular
+files. These entries still count toward the traversal bound. Unexpected
 entries, symlinks (including in-folder links), nonregular files and redirected
 directories are rejected. Reads
 use capped open descriptors, carry the validated parent identity through each read,

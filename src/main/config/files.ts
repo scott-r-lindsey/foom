@@ -19,7 +19,8 @@ import { ApplicationError } from "../../shared/application-errors";
 import { ThemeValidationError } from "../../shared/theme-validation";
 import type { ConfigServiceDependencies } from "./service";
 
-const MAX_FILE = 65536;
+export const MAX_CONFIG_FILE_BYTES = 65536;
+export const SETTINGS_LOCK_FILE = ".foom-settings.lock";
 
 /** Rejections that only mean "unavailable"; the caller falls back. */
 export const ignore = (): undefined => undefined;
@@ -39,7 +40,7 @@ async function readConfigFile(path: string): Promise<Buffer | null> {
   });
   if (!before) return null;
   if (!before.isFile()) throw new ThemeValidationError("$", "unsafe-file");
-  if (before.size > MAX_FILE) throw new ThemeValidationError("$", "too-large");
+  if (before.size > MAX_CONFIG_FILE_BYTES) throw new ThemeValidationError("$", "too-large");
   const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW).catch(() => {
     throw new ThemeValidationError("$", "unsafe-file");
   });
@@ -47,14 +48,14 @@ async function readConfigFile(path: string): Promise<Buffer | null> {
     const info = await file.stat();
     if (!info.isFile() || info.ino !== before.ino || info.dev !== before.dev)
       throw new ThemeValidationError("$", "unsafe-file");
-    const bytes = Buffer.alloc(MAX_FILE + 1);
+    const bytes = Buffer.alloc(MAX_CONFIG_FILE_BYTES + 1);
     let count = 0;
     while (count < bytes.length) {
       const { bytesRead } = await file.read(bytes, count, bytes.length - count, count);
       if (!bytesRead) break;
       count += bytesRead;
     }
-    if (count > MAX_FILE) throw new ThemeValidationError("$", "too-large");
+    if (count > MAX_CONFIG_FILE_BYTES) throw new ThemeValidationError("$", "too-large");
     return bytes.subarray(0, count);
   } finally {
     await file.close();
@@ -123,7 +124,7 @@ export class ConfigFiles {
 
   /** All cooperating profiles hold this lock from the settings read through rename. */
   async withSettingsLock<T>(work: () => Promise<T>): Promise<T> {
-    return withSettingsLock(this.path(".foom-settings.lock"), work);
+    return withSettingsLock(this.path(SETTINGS_LOCK_FILE), work);
   }
 
   /** Atomic replacement inside the folder; the temporary name is hidden from the catalogs. */

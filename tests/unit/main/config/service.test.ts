@@ -451,3 +451,22 @@ test.each(["partial JSON", "read failure"])(
     expect(f.service.status().rejected).toEqual([]);
   },
 );
+
+test("Keep writes compact settings when pretty printing would exceed the byte limit", async () => {
+  const agentArguments = { fixture: Array.from({ length: 64 }, () => "é".repeat(509)) };
+  const approved = JSON.stringify({ kind: "settings", agentArguments });
+  const f = await fixture({ baseline: digest(approved), appliedText: approved });
+  await mkdir(f.folder);
+  await f.write("settings.json", approved);
+  await f.service.initialize();
+  const proposal = { kind: "settings", agentArguments, interfaceScale: 120, hooks: false };
+  expect(Buffer.byteLength(JSON.stringify(proposal))).toBeLessThanOrEqual(65536);
+  expect(Buffer.byteLength(JSON.stringify(proposal, null, 2))).toBeGreaterThan(65536);
+  await f.write("settings.json", JSON.stringify(proposal));
+  expect((await f.service.refresh()).pending?.detail).toBe("hooks: on → off");
+  await f.decide("keep");
+  const expected = JSON.stringify({ kind: "settings", agentArguments, interfaceScale: 120 });
+  expect(await f.read("settings.json")).toBe(expected);
+  expect(f.copy()).toBe(expected);
+  expect(f.service.status().pending).toBeNull();
+});

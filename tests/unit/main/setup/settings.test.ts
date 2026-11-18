@@ -534,6 +534,19 @@ test("a version 2 profile ignores stray config keys and invalid digests", async 
   expect(store.legacyConfig()).toBeUndefined();
 });
 
+test("a migrated profile refuses config saves if the config writer is unavailable", async () => {
+  const dir = await directory();
+  const original = JSON.stringify({ version: 2, settings: { setupComplete: true } });
+  const file = path.join(dir, "settings.json");
+  await writeFile(file, original);
+  const store = await SettingsStore.open(dir);
+  const before = await readFile(file, "utf8");
+  await expect(store.update({ interfaceScale: 120 })).rejects.toThrow("config folder");
+  expect(store.get().interfaceScale).toBe(DEFAULT_SETTINGS.interfaceScale);
+  expect(await readFile(file, "utf8")).toBe(before);
+  expect(await store.update({ setupComplete: false })).toMatchObject({ setupComplete: false });
+});
+
 test("a failed attach keeps the version 1 profile for the next launch", async () => {
   const root = await directory();
   const dir = path.join(root, "blocked");

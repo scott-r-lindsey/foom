@@ -7,6 +7,7 @@ import type {
   ThemeCatalog,
   ThemeDiagnostic,
   ThemeKind,
+  UserThemeId,
 } from "../../shared/theme-file";
 import { parseThemeFile } from "../../shared/theme-files";
 import { ThemeValidationError, validThemeFile } from "../../shared/theme-validation";
@@ -37,7 +38,7 @@ export class ThemeLibrary {
     ) => Promise<ParsedThemeFile | undefined>,
     private readonly activePalette?: () =>
       | {
-          id: string;
+          id: UserThemeId;
           theme: ThemeCatalog["interface"][number]["theme"] | undefined;
         }
       | undefined,
@@ -50,10 +51,13 @@ export class ThemeLibrary {
     if (!active) return structuredClone(this.catalog);
     // The independent catalog reload may still have an older inactive palette.
     // Always substitute the snapshot approved for the active selection.
-    const entries = this.catalog.interface.flatMap((entry) => {
-      if (entry.id !== active.id) return [entry];
-      return active.theme ? [{ id: active.id, theme: catalogTheme(active.theme) }] : [];
-    });
+    const entries = [...this.catalog.interface];
+    const index = entries.findIndex(({ id }) => id === active.id);
+    if (active.theme) {
+      const entry = { id: active.id, theme: catalogTheme(active.theme) };
+      if (index === -1) entries.push(entry);
+      else entries[index] = entry;
+    } else if (index !== -1) entries.splice(index, 1);
     return structuredClone({ ...this.catalog, interface: entries });
   }
   async initialize(): Promise<void> {
