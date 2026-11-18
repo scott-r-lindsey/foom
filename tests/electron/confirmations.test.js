@@ -116,9 +116,13 @@ test("trusted quit dialog appears above the board on first show and after hide/s
     .poll(() =>
       dialog.evaluate(() => {
         const faces = Array.from(document.fonts);
-        return ["Geist", "Geist Mono"].filter((family) =>
-          faces.some((face) => face.family === family && face.status === "loaded"),
-        );
+        return Object.entries({ Geist: 13, "Geist Mono": 12 })
+          .filter(
+            ([family, size]) =>
+              faces.some((face) => face.family === family && face.status === "loaded") &&
+              document.fonts.check(`400 ${size}px "${family}"`),
+          )
+          .map(([family]) => family);
       }),
     )
     .toEqual(["Geist", "Geist Mono"]);
