@@ -1,3 +1,4 @@
+const { publishFixtureRecord } = require("./fixture-records.js");
 const { evidencePath } = require("../helpers/evidence.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
 const { AxeBuilder } = require("@axe-core/playwright");
@@ -1668,7 +1669,7 @@ test("config file agent arguments require trusted Allow before a fake Codex laun
   const original = await readFile(file, "utf8");
   const args = [
     "--eval",
-    'require("node:fs").writeFileSync(process.env.TEST_ARGV, JSON.stringify([...process.execArgv, ...process.argv.slice(1)]));process.stdin.resume()',
+    `const publish = ${publishFixtureRecord.toString().replaceAll("\n", " ")}; publish(process.env.TEST_ARGV, JSON.stringify([...process.execArgv, ...process.argv.slice(1)])); process.stdin.resume()`,
     "fixture",
     "--ask-for-approval",
     "never",

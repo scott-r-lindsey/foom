@@ -1,3 +1,4 @@
+import "./worktree-git-fixture";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
@@ -24,16 +25,7 @@ beforeEach(async () => {
   fixture = join(root, "state.json");
   await mkdir(repo);
   await run("init", "-b", "main");
-  await run(
-    "-c",
-    "user.name=Test",
-    "-c",
-    "user.email=t@example.com",
-    "commit",
-    "--allow-empty",
-    "-m",
-    "init",
-  );
+  await run("commit", "--allow-empty", "-m", "init");
   await run("branch", "child-one");
   await run("clone", "--bare", repo, remote);
   await run("branch", "-D", "child-one");
