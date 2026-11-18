@@ -120,9 +120,11 @@ The human picker and local agent preview tools accept a supported readable docum
 from any location the Foom process can read. Agent paths are absolute or relative
 to the caller’s launch checkout, including paths that use `..` to reach another
 checkout. Main refuses an entry with a `.git` segment in its requested or resolved
-path. It walks the canonical ancestors using only file type and directory identity
-checks, stopping at bare repository metadata or the nearest `.git` entry. A bounded
-`git --git-dir=.git rev-parse --show-toplevel` confirms that exact checkout.
+path. It checks file types and directory identities along the canonical ancestors.
+A regular `HEAD` and `objects/` and `refs/` directories stop the walk only if a
+bounded Git metadata check confirms the repository without loading its configuration.
+A bounded `git --git-dir=.git rev-parse --show-toplevel` confirms the nearest
+checkout at its exact `.git` entry.
 Main rechecks the boundary markers and identities of every directory on the walk.
 An absent, invalid, moved, or mismatched checkout falls back to the document's
 immediate directory. Links to sibling and parent assets work within a confirmed

@@ -75,18 +75,10 @@ function documentPathRefusal(absolute: string): Refusal | undefined {
 const execute = promisify(execFile);
 const MAX_GIT_FILE_BYTES = 16 * 1024;
 
-async function gitConfirmsCheckout(directory: string): Promise<boolean> {
-  const { stdout } = await execute(
+function revParse(directory: string, metadata: string, ...args: string[]) {
+  return execute(
     "git",
-    [
-      "-C",
-      directory,
-      "--git-dir=.git",
-      "-c",
-      "core.fsmonitor=false",
-      "rev-parse",
-      "--show-toplevel",
-    ],
+    ["-C", directory, `--git-dir=${metadata}`, "-c", "core.fsmonitor=false", "rev-parse", ...args],
     {
       cwd: path.dirname(process.execPath),
       env: {
@@ -104,6 +96,10 @@ async function gitConfirmsCheckout(directory: string): Promise<boolean> {
       windowsHide: true,
     },
   );
+}
+
+async function gitConfirmsCheckout(directory: string): Promise<boolean> {
+  const { stdout } = await revParse(directory, ".git", "--show-toplevel");
   const top = stdout.replace(/\r?\n$/, "");
   // Compare Git's answer without following a path supplied by repository config.
   return (
@@ -111,9 +107,10 @@ async function gitConfirmsCheckout(directory: string): Promise<boolean> {
   );
 }
 
-async function statEntry(entry: string): Promise<fs.BigIntStats | undefined> {
+async function statEntry(entry: string, follow = false): Promise<fs.BigIntStats | undefined> {
   try {
-    return await fs.promises.lstat(entry, { bigint: true });
+    const stat = follow ? fs.promises.stat : fs.promises.lstat;
+    return await stat(entry, { bigint: true });
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined;
     throw error;
@@ -129,14 +126,18 @@ async function boundaryAt(directory: string): Promise<"checkout" | "stop" | "non
       ? "checkout"
       : "stop";
   }
-  // A bare repository or Git metadata directory has HEAD and its own objects or a commondir.
-  // These are only boundary markers. The scan never opens them.
   const head = await statEntry(path.join(directory, "HEAD"));
-  if (head?.isFile() || head?.isSymbolicLink()) {
-    const objects = await statEntry(path.join(directory, "objects"));
-    if (objects?.isDirectory() || objects?.isSymbolicLink()) return "stop";
-    const common = await statEntry(path.join(directory, "commondir"));
-    if (common?.isFile() || common?.isSymbolicLink()) return "stop";
+  if (
+    head?.isFile() &&
+    head.size <= MAX_GIT_FILE_BYTES &&
+    (await statEntry(path.join(directory, "objects"), true))?.isDirectory() &&
+    (await statEntry(path.join(directory, "refs"), true))?.isDirectory()
+  ) {
+    // --resolve-git-dir validates metadata without loading repository config.
+    const confirmed = await revParse(directory, directory, "--resolve-git-dir", ".").catch(
+      () => undefined,
+    );
+    if (confirmed) return "stop";
   }
   return "none";
 }

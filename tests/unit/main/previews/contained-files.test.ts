@@ -265,20 +265,34 @@ test.each(["regular", "malformed config", "linked objects"])(
   },
 );
 
-test("an ordinary HEAD file leaves the enclosing checkout eligible", async () => {
-  gitSync(["init", "-q"], { cwd: outside });
-  const directory = path.join(outside, "docs");
-  fs.mkdirSync(directory);
-  fs.writeFileSync(path.join(directory, "HEAD"), "An ordinary file");
-  const document = path.join(directory, "page.html");
-  fs.writeFileSync(document, "<p>Checkout</p>");
+test.each([{ artifacts: [] }, { artifacts: ["objects"] }, { artifacts: ["objects", "refs"] }])(
+  "an ordinary HEAD file with build artifact directories $artifacts retains parent assets",
+  async ({ artifacts }) => {
+    gitSync(["init", "-q"], { cwd: outside });
+    const directory = path.join(outside, "docs");
+    fs.mkdirSync(directory);
+    for (const name of artifacts) fs.mkdirSync(path.join(directory, name));
+    fs.writeFileSync(path.join(directory, "HEAD"), "An ordinary file");
+    const document = path.join(directory, "page.html");
+    fs.writeFileSync(document, '<link rel="stylesheet" href="../style.css">');
+    const stylesheet = "body { color: red; }";
+    fs.writeFileSync(path.join(outside, "style.css"), stylesheet);
 
-  expect(await resolveDocument(document)).toMatchObject({
-    status: 200,
-    root: { path: fs.realpathSync.native(outside) },
-    relative: "docs/page.html",
-  });
-});
+    const resolved = await resolveDocument(document);
+    expect(resolved).toMatchObject({
+      status: 200,
+      root: { path: fs.realpathSync.native(outside) },
+      relative: "docs/page.html",
+    });
+    if (resolved.status !== 200) throw new Error(resolved.reason);
+    const origin = "foom-preview://id";
+    const asset = new URL("../style.css", `${origin}/${resolved.relative}`);
+    const response = await readPreview(resolved.root, asset.href, origin);
+    expect(response.status).toBe(200);
+    if (response.status !== 200) throw new Error(response.reason);
+    expect(response.body.toString("utf8")).toBe(stylesheet);
+  },
+);
 
 test.skipIf(process.platform === "win32")(
   "a FIFO named HEAD leaves the enclosing checkout eligible",
