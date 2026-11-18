@@ -8,7 +8,6 @@ const {
   mkdir,
   mkdtemp,
   readFile,
-  realpath,
   writeFile,
   rename,
   rm,
@@ -1129,44 +1128,6 @@ test("Repositories lists existing checkouts and opens fixed repair recipes witho
   assert.ok(recorded.every(({ message }) => message.operation !== "clone"));
 });
 
-test("the board opens while retired setup unlink is pending", {
-  skip: process.platform === "win32",
-  timeout: deadline(30000),
-}, async (context) => {
-  const root = await realpath(await mkdtemp(path.join(tmpdir(), "retired-setup-profile-")));
-  removeAfterApps(context, root);
-  const directory = path.join(root, "repository-setup");
-  const toolchains = path.join(directory, "toolchains");
-  const marker = path.join(toolchains, "marker");
-  const state = path.join(directory, "state.json");
-  await mkdir(directory, { mode: 0o700 });
-  await mkdir(toolchains, { recursive: true });
-  await writeFile(marker, "keep");
-  await writeFile(state, '{"version":1,"approvals":[],"rows":[]}', { mode: 0o600 });
-
-  const app = await launchApp(context, {
-    fixture: "empty-board",
-    args: [`--user-data-dir=${root}`],
-    holdStartupUnlink: state,
-  });
-  let tombstone;
-  try {
-    await expect.poll(() => app.evaluate(() => globalThis.startupUnlink.pending)).toBe(true);
-    const page = await boardPage(app);
-    assert.ok(await page.evaluate(() => window.desktop.workspace()));
-    assert.equal(await app.evaluate(() => globalThis.startupUnlink.pending), true);
-    tombstone = await app.evaluate(() => globalThis.startupUnlink.file);
-    assert.ok(tombstone.startsWith(state + ".retired-"));
-    await access(tombstone);
-    await writeFile(state, "replacement", { flag: "wx", mode: 0o600 });
-  } finally {
-    await app.evaluate(() => globalThis.startupUnlink.release());
-  }
-  await assert.rejects(access(tombstone), { code: "ENOENT" });
-  assert.equal(await readFile(state, "utf8"), "replacement");
-  assert.equal(await readFile(marker, "utf8"), "keep");
-});
-
 test("Hosts opens saved checks without SSH and keeps ready repositories compact", {
   skip: process.platform === "win32",
   timeout: deadline(30000),
@@ -1234,20 +1195,17 @@ test("Hosts opens saved checks without SSH and keeps ready repositories compact"
   const retiredSetup = path.join(root, "repository-setup");
   const retiredState = path.join(retiredSetup, "state.json");
   await mkdir(retiredSetup, { mode: 0o700 });
-  await writeFile(
-    retiredState,
-    JSON.stringify({
-      version: 1,
-      approvals: [
-        {
-          repository: "/local/project-0",
-          list: { requirements: [{ kind: "toolchain", tool: "node", version: "24.x" }] },
-        },
-      ],
-      rows: [{ state: "needs-setup" }],
-    }),
-    { mode: 0o600 },
-  );
+  const retiredContents = JSON.stringify({
+    version: 1,
+    approvals: [
+      {
+        repository: "/local/project-0",
+        list: { requirements: [{ kind: "toolchain", tool: "node", version: "24.x" }] },
+      },
+    ],
+    rows: [{ state: "needs-setup" }],
+  });
+  await writeFile(retiredState, retiredContents, { mode: 0o600 });
   const app = await launchApp(context, {
     fixture: "empty-board",
     args: [`--user-data-dir=${root}`],
@@ -1278,7 +1236,6 @@ test("Hosts opens saved checks without SSH and keeps ready repositories compact"
   await expect(card.getByText("Repository · project-0", { exact: true })).toHaveCount(0);
   await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
   await assertHostColumns(card);
-  await assert.rejects(access(retiredState), { code: "ENOENT" });
   await expect(page.getByRole("region", { name: "Repository setup" })).toHaveCount(0);
   await captureHosts(app, page, "1262/hosts");
   await capture("expanded");
@@ -1317,6 +1274,7 @@ test("Hosts opens saved checks without SSH and keeps ready repositories compact"
   await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
   await expect(card.getByText("Ready", { exact: true })).toBeVisible();
   assert.equal(await readFile(calls, "utf8"), before);
+  assert.equal(await readFile(retiredState, "utf8"), retiredContents);
 });
 
 test("Hosts reloads individual rows and actions never trigger full capability checks", {

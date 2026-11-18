@@ -62,17 +62,12 @@ Phase D (#1163) removes superseded JSON writers only after migration validation.
 
 ### Retired repository setup list (#1262)
 
-On startup, [#1262](https://github.com/scott-r-lindsey/foom/issues/1262) starts
-background cleanup of the obsolete private JSON store at
-`repository-setup/state.json` from the active profile. It verifies the private
-directory and file, renames the state to a unique name in that directory, then
-checks the moved file's identity and metadata before unlinking that name.
-A replacement at the original pathname survives this launch. Shutdown cancels
-undispatched mutations. Failures log a fixed warning. If cleanup stops after
-the rename, the moved file remains at its unique name for recovery. The next
-launch checks only the original pathname. Neighboring files and installed
-toolchains stay in place. The prepared control importer skips the obsolete
-store, and a forward migration drops its approval and observation tables.
+[#1262](https://github.com/scott-r-lindsey/foom/issues/1262) retires
+`repository-setup/state.json` as a profile data source. Foom ignores the legacy
+file and any prior cleanup remnants. Existing files, including installed
+toolchains, stay in place. Stored lists contribute no approvals or prerequisites
+to a launch. The prepared control importer skips the obsolete store, and a
+forward migration drops its approval and observation tables.
 
 ## Commit-driven changes
 

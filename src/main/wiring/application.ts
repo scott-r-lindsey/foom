@@ -1,4 +1,3 @@
-import { removeRetiredRepositorySetup } from "./profile-migrations";
 import { viewChanges } from "../data/view-changes";
 import { readFileSync } from "node:fs";
 import { autoUpdater } from "electron";
@@ -589,10 +588,6 @@ export function runApplication() {
     // Do not initialize persistence, sessions, IPC, or shutdown writers in the loser.
     app.quit();
   } else {
-    const profileCleanup = new AbortController();
-    app.once("quit", () => {
-      profileCleanup.abort();
-    });
     app.on("before-quit", (event) => {
       if (!quitting) {
         event.preventDefault();
@@ -617,7 +612,6 @@ export function runApplication() {
     app
       .whenReady()
       .then(async () => {
-        void removeRetiredRepositorySetup(app.getPath("userData"), profileCleanup.signal);
         await startApplication(wiring);
       })
       .catch((error: unknown) => {
