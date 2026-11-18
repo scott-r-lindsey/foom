@@ -1,3 +1,4 @@
+const { publishFixtureRecord } = require("./fixture-records.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const path = require("node:path");
@@ -40,7 +41,8 @@ module.exports = (event) => {
   await writeFile(
     script,
     `const report = require(${JSON.stringify(extension)});
-require('node:fs').writeFileSync(${JSON.stringify(path.join(root, "launch.json"))}, JSON.stringify({args:process.argv.slice(2), tokenDigest:require('node:crypto').createHash('sha256').update(process.env.FOOM_TOKEN).digest('hex')}));
+const publish = ${publishFixtureRecord.toString()};
+publish(${JSON.stringify(path.join(root, "launch.json"))}, JSON.stringify({args:process.argv.slice(2), tokenDigest:require('node:crypto').createHash('sha256').update(process.env.FOOM_TOKEN).digest('hex')}));
 report('Ready');
 process.stdin.on('data', (data) => {
   const command = data.toString().trim();

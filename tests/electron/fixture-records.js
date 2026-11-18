@@ -1,6 +1,14 @@
 const { existsSync, readFileSync, watch } = require("node:fs");
 const path = require("node:path");
 
+// Self-contained so fake CLI scripts can embed it with toString().
+function publishFixtureRecord(file, contents) {
+  const { renameSync, writeFileSync } = require("node:fs");
+  const temporary = file + "." + process.pid + ".tmp";
+  writeFileSync(temporary, contents);
+  renameSync(temporary, file);
+}
+
 // Fixture records are atomically renamed into place. Wait for that event rather
 // than spending an assertion's budget on a production handoff cooldown.
 async function waitForFixtureRecord(file, errors, signal) {
@@ -33,4 +41,4 @@ async function waitForFixtureRecord(file, errors, signal) {
   }
 }
 
-module.exports = { waitForFixtureRecord };
+module.exports = { publishFixtureRecord, waitForFixtureRecord };

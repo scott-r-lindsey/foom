@@ -1,3 +1,4 @@
+const { publishFixtureRecord } = require("./fixture-records.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const path = require("node:path");
@@ -24,7 +25,8 @@ test("Pi static-title spinner publishes Working during continuous redraws and re
 const args = process.argv.slice(2);
 if (args[0] === "--version") { console.log("1.4.0"); process.exit(0); }
 if (args[0] === "--help") { console.log("--session --session-id"); process.exit(0); }
-require("node:fs").writeFileSync(process.env.PI_FIXTURE_ARGV, JSON.stringify(args));
+const publish = ${publishFixtureRecord.toString()};
+publish(process.env.PI_FIXTURE_ARGV, JSON.stringify(args));
 process.stdin.setRawMode(true);
 process.stdin.resume();
 process.stdout.write('\\x1b]2;π - fixture\\x07');
