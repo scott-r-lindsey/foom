@@ -2511,6 +2511,8 @@ test("Hosts shows a changed SSH key when saving the checklist fails", {
   await updateScenario({ sshFailure: "changed" });
   try {
     await chmod(profile, 0o555);
+    await ssh.getByRole("button", { name: "Reload SSH", exact: true }).click();
+    await expect(ssh.getByText("Unable to check", { exact: true })).toBeVisible();
     await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
     await expect(page.getByText("Unable to update hosts", { exact: true })).toBeVisible();
     await expect(ssh.getByText("Host key changed", { exact: true })).toBeVisible();
@@ -2520,6 +2522,17 @@ test("Hosts shows a changed SSH key when saving the checklist fails", {
     await chmod(profile, 0o700);
   }
   await capture("1259/changed-key-save-failed");
+
+  await card.getByText("Host facts", { exact: true }).click();
+  const facts = card.locator(".host-details");
+  await facts.getByRole("button", { name: "Refresh facts", exact: true }).click();
+  await expect(facts.getByText("Host key changed", { exact: true })).toBeVisible();
+  await expect(ssh.getByText("Host key changed", { exact: true })).toBeVisible();
+  assert.deepEqual(await savedObservation(), saved);
+
+  await updateScenario({});
+  await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
+  await expect(ssh.getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
 });
 
 test("Hosts preserves a changed SSH key warning when a queued trust attempt is refused", {

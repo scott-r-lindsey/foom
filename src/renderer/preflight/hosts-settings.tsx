@@ -903,6 +903,14 @@ export function HostsSettings({
       if (action.action === "preflight" && next.preflight) {
         const preflight = next.preflight;
         setChecks((previous) => new Map(previous).set(action.host, preflight));
+        if (next.preflightSaveFailed && preflight.ssh.state !== "not-checked") {
+          const key = `${action.host}:${rowKey({ kind: "ssh" })}`;
+          setRowFailed((previous) => {
+            const updated = new Set(previous);
+            updated.delete(key);
+            return updated;
+          });
+        }
       }
       if (next.recipeSession && "host" in action) {
         const id = next.recipeSession;
@@ -940,7 +948,8 @@ export function HostsSettings({
         setError(
           <Status tone={failureTone(next.result.reason)}>{reasons[next.result.reason]}</Status>,
         );
-      if (action.action !== "preflight" && "host" in action) {
+      // Refresh facts returns resource and inventory observations only.
+      if (action.action !== "preflight" && action.action !== "refresh" && "host" in action) {
         const observed =
           next.preflight ??
           next.hosts.find((entry) => entry.host === action.host)?.observation?.preflight;

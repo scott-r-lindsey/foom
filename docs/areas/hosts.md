@@ -612,9 +612,10 @@ recipe refreshes only its affected rows as described under [refresh scope](#chec
 full preflight, repositories and session/worktree inventory, saving a Last checked
 timestamp and the closed observations in its profile registration. If saving
 the checklist fails, the card shows the completed checks and Settings reports
-the write failure. Never-checked hosts say Not checked. Saved observations
-contain no secrets, terminal output,
-session identities or worktree authority; removal deletes them. They remain
+the write failure. A completed SSH check supersedes an older SSH row reload
+error even if saving the checklist fails. Never-checked hosts say Not checked.
+Saved observations contain no secrets, terminal output, session identities or
+worktree authority; removal deletes them. They remain
 visible across restarts even when stale and never populate authorization caches.
 Saved requirements also restore Install and Sign in availability for display; missing or
 invalid requirements offer no recipes. Clicking an action selects its recipe from a
@@ -770,10 +771,11 @@ A partial seed never stands in for the full location inventory. Scoped
 observations may update only the corresponding fields of an existing live
 inventory, without renewing its freshness; saved observations never populate it.
 Resource refresh replies remain separate from the launch inventory when no live
-inventory exists or a full read is pending. A failed resource refresh reports its
-failure under Host facts while retaining the checklist observations, including
-when both checks return the same reason. Refresh facts inspects resources before
-reading session and worktree inventories. If scoped facts require a daemon
+inventory exists or a full read is pending. Refresh facts retains the displayed
+checklist, including an SSH result that could not be saved. A resource refresh
+failure appears under Host facts, including when the checklist shows the same
+reason. Refresh facts inspects resources before reading session and worktree
+inventories. If scoped facts require a daemon
 update, Foom shows that reason and still tries both inventory endpoints. Other
 inspection failures end the refresh after recording the reason.
 

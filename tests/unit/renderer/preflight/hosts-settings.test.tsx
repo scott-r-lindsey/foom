@@ -1170,6 +1170,67 @@ test("failed resource refresh reports its failure without replacing checklist re
   expect(api.mock.calls.some(([action]) => action.action === "preflight")).toBe(false);
 });
 
+test.each(["row reload error", "facts refresh"] as const)(
+  "a changed SSH key survives a %s when the full check cannot be saved",
+  async (scenario) => {
+    const { api } = await mount();
+    const reload = screen.getByRole("button", { name: "Reload SSH" });
+    const row = reload.closest(".host-check-row");
+    expect(row?.textContent).toContain("Pass · Host key trusted");
+    if (scenario === "row reload error") {
+      api.mockRejectedValueOnce(new Error("Cannot save SSH row"));
+      fireEvent.click(reload);
+      await screen.findByText("Unable to check");
+    }
+    const changed: HostPreflight = {
+      ssh: { state: "fail", reason: "host-key-changed" },
+      platform: { state: "not-checked" },
+      artifact: { state: "not-checked" },
+      result: { ok: false, reason: "host-key-changed" },
+      repositories: [],
+    };
+    const savedState = saved(initial);
+    api.mockImplementation((action) =>
+      Promise.resolve(
+        action.action === "preflight"
+          ? { ...savedState, preflight: changed, preflightSaveFailed: true }
+          : savedState,
+      ),
+    );
+    const check = screen.getByRole("button", { name: "Check capabilities" });
+    fireEvent.click(check);
+    await screen.findByText("Unable to update hosts");
+    expect(row?.textContent).toContain("Host key changed");
+
+    if (scenario === "facts refresh") {
+      api.mockImplementation((action) =>
+        Promise.resolve(
+          action.action === "refresh"
+            ? {
+                locations: savedState.locations,
+                hosts: savedState.hosts.map((entry) => ({
+                  ...entry,
+                  result: changed.result,
+                  factsRefreshFailure: "host-key-changed",
+                })),
+              }
+            : savedState,
+        ),
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Refresh facts" }));
+      await screen.findByText("Host key changed", {
+        selector: ".host-details span",
+      });
+      expect(row?.textContent).toContain("Host key changed");
+
+      fireEvent.click(check);
+      await waitFor(() => {
+        expect(row?.textContent).toContain("Pass · Host key trusted");
+      });
+    }
+  },
+);
+
 test("Add nickname validates inline, preserves invalid or failed input and submits valid names", async () => {
   const { api } = await mount();
   fireEvent.click(screen.getByRole("button", { name: "Add host" }));
