@@ -2,6 +2,28 @@ import { mock, start } from "./main-fixture";
 import { join } from "node:path";
 
 import { expect, test, vi } from "vitest";
+import { removeRetiredRepositorySetup } from "../../../src/main/wiring/profile-migrations";
+
+vi.mock("../../../src/main/wiring/profile-migrations", () => ({
+  removeRetiredRepositorySetup: vi.fn(() => Promise.resolve()),
+}));
+
+test("opens the board while retired-store cleanup is pending and cancels dispatch on quit", async () => {
+  const held = Promise.withResolvers<undefined>();
+  const cleanup = vi.mocked(removeRetiredRepositorySetup);
+  cleanup.mockReturnValueOnce(held.promise);
+  try {
+    await start();
+    expect(mock.window.loadURL).toHaveBeenCalledWith("app://bundle/index.html");
+    const signal = cleanup.mock.calls.at(-1)?.[1];
+    expect(signal?.aborted).toBe(false);
+    mock.appEvents.get("quit")?.({ preventDefault: vi.fn() });
+    expect(signal?.aborted).toBe(true);
+  } finally {
+    held.resolve(undefined);
+    await held.promise;
+  }
+});
 
 test("loads worktree state from userData before creating a window", async () => {
   let finish: (() => void) | undefined;

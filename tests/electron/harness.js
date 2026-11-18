@@ -802,6 +802,22 @@ async function launchApp(context, options = { fixture: "running-shell" }) {
               `const ProductionWorkspace = workspaceModule.Workspace;`,
               `workspaceModule.Workspace = class extends ProductionWorkspace { constructor(deps) { super({ ...deps, probeWaitingMs: ${JSON.stringify(options.probeWaitingMs)} }); } };`,
             ]),
+        ...(options.holdStartupUnlink === undefined
+          ? []
+          : [
+              'const startupFs = require("node:fs/promises");',
+              "const unlink = startupFs.unlink;",
+              "const unlinkGate = Promise.withResolvers();",
+              "const unlinkFinished = Promise.withResolvers();",
+              "const startupUnlink = { pending: false, release() { startupFs.unlink = unlink; unlinkGate.resolve(); return this.pending ? unlinkFinished.promise : Promise.resolve(); } };",
+              "globalThis.startupUnlink = startupUnlink;",
+              "startupFs.unlink = async (file) => {",
+              `  if (file !== ${JSON.stringify(options.holdStartupUnlink)}) return unlink(file);`,
+              "  startupUnlink.pending = true;",
+              "  try { await unlinkGate.promise; return await unlink(file); }",
+              "  finally { startupUnlink.pending = false; unlinkFinished.resolve(); }",
+              "};",
+            ]),
         `require(${JSON.stringify(path.join(entry, "build/main/setup/local-host.js"))}).localResources = async () => (${JSON.stringify(options.hostResources ?? { cores: 64, load: [0, 0, 0], memoryTotal: 256 * 1024 ** 3, memoryAvailable: 128 * 1024 ** 3 })});`,
         `app.setPath("home", ${JSON.stringify(options.home)});`,
         `app.setPath("sessionData", ${JSON.stringify(sessionData)});`,

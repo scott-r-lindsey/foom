@@ -8,6 +8,7 @@ const {
   mkdir,
   mkdtemp,
   readFile,
+  realpath,
   writeFile,
   rename,
   rm,
@@ -1128,25 +1129,36 @@ test("Repositories lists existing checkouts and opens fixed repair recipes witho
   assert.ok(recorded.every(({ message }) => message.operation !== "clone"));
 });
 
-test("the board opens with a nonprivate retired setup directory", {
+test("the board opens while retired setup unlink is pending", {
   skip: process.platform === "win32",
   timeout: deadline(30000),
 }, async (context) => {
-  const root = await mkdtemp(path.join(tmpdir(), "retired-setup-profile-"));
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "retired-setup-profile-")));
   removeAfterApps(context, root);
   const directory = path.join(root, "repository-setup");
   const toolchains = path.join(directory, "toolchains");
   const marker = path.join(toolchains, "marker");
+  const state = path.join(directory, "state.json");
+  await mkdir(directory, { mode: 0o700 });
   await mkdir(toolchains, { recursive: true });
-  await chmod(directory, 0o755);
   await writeFile(marker, "keep");
+  await writeFile(state, '{"version":1,"approvals":[],"rows":[]}', { mode: 0o600 });
 
   const app = await launchApp(context, {
     fixture: "empty-board",
     args: [`--user-data-dir=${root}`],
+    holdStartupUnlink: state,
   });
-  const page = await boardPage(app);
-  assert.ok(await page.evaluate(() => window.desktop.workspace()));
+  try {
+    await expect.poll(() => app.evaluate(() => globalThis.startupUnlink.pending)).toBe(true);
+    const page = await boardPage(app);
+    assert.ok(await page.evaluate(() => window.desktop.workspace()));
+    assert.equal(await app.evaluate(() => globalThis.startupUnlink.pending), true);
+    await access(state);
+  } finally {
+    await app.evaluate(() => globalThis.startupUnlink.release());
+  }
+  await assert.rejects(access(state), { code: "ENOENT" });
   assert.equal(await readFile(marker, "utf8"), "keep");
 });
 

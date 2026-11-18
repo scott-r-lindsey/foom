@@ -589,6 +589,10 @@ export function runApplication() {
     // Do not initialize persistence, sessions, IPC, or shutdown writers in the loser.
     app.quit();
   } else {
+    const profileCleanup = new AbortController();
+    app.once("quit", () => {
+      profileCleanup.abort();
+    });
     app.on("before-quit", (event) => {
       if (!quitting) {
         event.preventDefault();
@@ -613,6 +617,7 @@ export function runApplication() {
     app
       .whenReady()
       .then(async () => {
+        void removeRetiredRepositorySetup(app.getPath("userData"), profileCleanup.signal);
         await startApplication(wiring);
       })
       .catch((error: unknown) => {
@@ -629,7 +634,6 @@ export function runApplication() {
 }
 
 async function startApplication(wiring: ApplicationWiring): Promise<void> {
-  await removeRetiredRepositorySetup(app.getPath("userData"));
   const root = stateRoot(app);
   wiring.configRoot = path.join(root, "config");
   wiring.worktrees = await WorktreeService.open(

@@ -62,11 +62,13 @@ Phase D (#1163) removes superseded JSON writers only after migration validation.
 
 ### Retired repository setup list (#1262)
 
-On startup, [#1262](https://github.com/scott-r-lindsey/foom/issues/1262) removes the obsolete private JSON store at
-`repository-setup/state.json` from the active profile. The operation is
-idempotent and verifies the private directory and file before unlinking the file.
-Cleanup failures produce a fixed warning, allow startup to continue, and are
-retried at the next launch. Neighboring files and installed toolchains stay in
+On startup, [#1262](https://github.com/scott-r-lindsey/foom/issues/1262) starts
+background cleanup of the obsolete private JSON store at
+`repository-setup/state.json` from the active profile. The idempotent operation
+verifies the private directory and file before unlinking the file. Shutdown
+cancels dispatch of a pending unlink. A dispatched unlink affects only the
+retired store and is safe to retry. Cleanup failures produce a fixed warning
+and are retried at the next launch. Neighboring files and installed toolchains stay in
 place. The prepared control importer skips the obsolete store, and a forward
 migration drops its approval and observation tables from prepared databases.
 
