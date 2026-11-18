@@ -1128,6 +1128,28 @@ test("Repositories lists existing checkouts and opens fixed repair recipes witho
   assert.ok(recorded.every(({ message }) => message.operation !== "clone"));
 });
 
+test("the board opens with a nonprivate retired setup directory", {
+  skip: process.platform === "win32",
+  timeout: deadline(30000),
+}, async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "retired-setup-profile-"));
+  removeAfterApps(context, root);
+  const directory = path.join(root, "repository-setup");
+  const toolchains = path.join(directory, "toolchains");
+  const marker = path.join(toolchains, "marker");
+  await mkdir(toolchains, { recursive: true });
+  await chmod(directory, 0o755);
+  await writeFile(marker, "keep");
+
+  const app = await launchApp(context, {
+    fixture: "empty-board",
+    args: [`--user-data-dir=${root}`],
+  });
+  const page = await boardPage(app);
+  assert.ok(await page.evaluate(() => window.desktop.workspace()));
+  assert.equal(await readFile(marker, "utf8"), "keep");
+});
+
 test("Hosts opens saved checks without SSH and keeps ready repositories compact", {
   skip: process.platform === "win32",
   timeout: deadline(30000),

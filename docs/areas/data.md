@@ -65,9 +65,10 @@ Phase D (#1163) removes superseded JSON writers only after migration validation.
 On startup, [#1262](https://github.com/scott-r-lindsey/foom/issues/1262) removes the obsolete private JSON store at
 `repository-setup/state.json` from the active profile. The operation is
 idempotent and verifies the private directory and file before unlinking the file.
-It leaves neighboring files and installed toolchains in place. The prepared
-control importer no longer reads the obsolete store, and a forward migration
-drops its approval and observation tables from prepared databases.
+Cleanup failures produce a fixed warning, allow startup to continue, and are
+retried at the next launch. Neighboring files and installed toolchains stay in
+place. The prepared control importer skips the obsolete store, and a forward
+migration drops its approval and observation tables from prepared databases.
 
 ## Commit-driven changes
 

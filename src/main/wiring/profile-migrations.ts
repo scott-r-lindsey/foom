@@ -12,8 +12,6 @@ export async function removeRetiredRepositorySetup(profile: string): Promise<voi
     await unlink(state);
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
-    throw new Error("Unable to retire legacy repository setup state in this profile", {
-      cause: error,
-    });
+    console.warn("Unable to retire legacy repository setup state. Cleanup will retry at startup.");
   }
 }
