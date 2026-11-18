@@ -1,3 +1,4 @@
+const { publishFixtureRecord } = require("./fixture-records.js");
 const { evidencePath } = require("../helpers/evidence.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
 const { AxeBuilder } = require("@axe-core/playwright");
@@ -110,6 +111,22 @@ test("trusted quit dialog appears above the board on first show and after hide/s
   const app = await launchApp(context, { fixture: "running-shell" });
   const board = await boardPage(app);
   const dialog = await confirmationPage(app);
+  // Quit may be this hidden renderer's first request. Its default fonts should
+  // already be available when the one-second presentation guard starts.
+  await expect
+    .poll(() =>
+      dialog.evaluate(() => {
+        const faces = Array.from(document.fonts);
+        return Object.entries({ Geist: 13, "Geist Mono": 12 })
+          .filter(
+            ([family, size]) =>
+              faces.some((face) => face.family === family && face.status === "loaded") &&
+              document.fonts.check(`400 ${size}px "${family}"`),
+          )
+          .map(([family]) => family);
+      }),
+    )
+    .toEqual(["Geist", "Geist Mono"]);
   const evidence = [];
   const paintErrors = [];
   for (const phase of ["first", "reused"]) {
@@ -1652,7 +1669,7 @@ test("config file agent arguments require trusted Allow before a fake Codex laun
   const original = await readFile(file, "utf8");
   const args = [
     "--eval",
-    'require("node:fs").writeFileSync(process.env.TEST_ARGV, JSON.stringify([...process.execArgv, ...process.argv.slice(1)]));process.stdin.resume()',
+    `const publish = ${publishFixtureRecord.toString().replaceAll("\n", " ")}; publish(process.env.TEST_ARGV, JSON.stringify([...process.execArgv, ...process.argv.slice(1)])); process.stdin.resume()`,
     "fixture",
     "--ask-for-approval",
     "never",

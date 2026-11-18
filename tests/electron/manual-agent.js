@@ -1,4 +1,5 @@
 const assert = require("node:assert/strict");
+const { publishFixtureRecord } = require("./fixture-records.js");
 const { execFileSync } = require("node:child_process");
 const { chmod, copyFile, mkdir, readFile, writeFile } = require("node:fs/promises");
 const path = require("node:path");
@@ -20,7 +21,7 @@ async function installManualAgent(home, bin, configSession = false) {
   await writeFile(
     script,
     `
-const fs = require('node:fs');
+const publish = ${publishFixtureRecord.toString()};
 if (process.argv.includes('--version')) { console.log('codex-cli 0.161.0'); process.exit(0); }
 if (process.argv.includes('--help')) { console.log('-c --no-alt-screen'); process.exit(0); }
 (async () => {
@@ -64,8 +65,8 @@ if (process.argv.includes('--help')) { console.log('-c --no-alt-screen'); proces
       refused.push(name);
     }
   }
-  fs.writeFileSync(${JSON.stringify(report)}, JSON.stringify({ url, token: process.env.FOOM_CONTROL_TOKEN, session, refused, instructions: initialized.instructions, tools: tools.tools.map(t => t.name), sections: list.structuredContent.sections, text }));
-})().catch(error => fs.writeFileSync(${JSON.stringify(report)}, JSON.stringify({ error: String(error) })));
+  publish(${JSON.stringify(report)}, JSON.stringify({ url, token: process.env.FOOM_CONTROL_TOKEN, session, refused, instructions: initialized.instructions, tools: tools.tools.map(t => t.name), sections: list.structuredContent.sections, text }));
+})().catch(error => publish(${JSON.stringify(report)}, JSON.stringify({ error: String(error) })));
 `,
   );
   const temporary = path.join(home, "manual-sea");

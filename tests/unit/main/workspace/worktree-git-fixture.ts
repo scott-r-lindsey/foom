@@ -6,9 +6,9 @@ import { vi } from "vitest";
 import { WorktreeService } from "../../../../src/main/workspace/worktrees";
 import { git } from "../../../helpers/git.js";
 
-// All real Git reached through WorktreeService must obey the same isolation as
-// fixture setup. Production's environment filtering otherwise drops setup.js's
-// GIT_CONFIG_* values before starting the subprocess.
+// Import this fixture before any workspace modules so the mock is registered
+// before WorktreeService captures execFile. Production filters the test
+// runner's GIT_* settings, so restore isolation and identity at spawn time.
 vi.mock("node:child_process", async (original) => {
   const { isolatedGitExecFile } = await import("../../../helpers/git.js");
   return {
@@ -38,19 +38,7 @@ export function createWorktreeFixture() {
       const root = join(temporary, "root");
       await mkdir(repo);
       await git(["init", "-b", "main"], { cwd: repo });
-      await git(
-        [
-          "-c",
-          "user.name=Test",
-          "-c",
-          "user.email=test@example.com",
-          "commit",
-          "--allow-empty",
-          "-m",
-          "Initial",
-        ],
-        { cwd: repo },
-      );
+      await git(["commit", "--allow-empty", "-m", "Initial"], { cwd: repo });
       const service = new WorktreeService(root);
       await service.addRepository(repo);
       return { temporary, repo, root, service };

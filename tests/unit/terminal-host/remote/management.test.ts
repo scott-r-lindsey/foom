@@ -856,8 +856,6 @@ test.skipIf(process.platform === "win32").each(["replacement", "graft"] as const
     await mkdir(repository, { mode: 0o700 });
     const git = (...args: string[]) => gitSync(args, { cwd: repository }).toString().trim();
     git("init", "-q", "-b", "main");
-    git("config", "user.name", "Fixture");
-    git("config", "user.email", "fixture@example.test");
     git("commit", "--allow-empty", "-qm", "base");
     const base = git("rev-parse", "HEAD");
     git("worktree", "add", "--detach", path, base);

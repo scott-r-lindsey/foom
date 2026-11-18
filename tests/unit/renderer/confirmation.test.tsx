@@ -7,7 +7,7 @@ import { ConfirmationPage } from "../../../src/renderer/confirmation";
 beforeEach(() => {
   Object.defineProperty(document, "fonts", {
     configurable: true,
-    value: { ready: Promise.resolve() },
+    value: { ready: Promise.resolve(), load: vi.fn().mockResolvedValue([]) },
   });
 });
 afterEach(cleanup);
@@ -785,7 +785,8 @@ test("waits for fonts before measuring and ignores font completion for a dismiss
   const fonts = new Promise<void>((resolve) => {
     ready = resolve;
   });
-  Object.defineProperty(document, "fonts", { configurable: true, value: { ready: fonts } });
+  const load = vi.fn().mockResolvedValue([]);
+  Object.defineProperty(document, "fonts", { configurable: true, value: { ready: fonts, load } });
   let receive: (value: DialogRequest | null) => void = () => {};
   const size = vi.fn();
   const observe = vi.fn();
@@ -808,6 +809,7 @@ test("waits for fonts before measuring and ignores font completion for a dismiss
     },
   });
   render(<ConfirmationPage />);
+  expect(load.mock.calls).toEqual([['400 13px "Geist"'], ['400 12px "Geist Mono"']]);
   const request = {
     presented: true,
     id: "fonts",

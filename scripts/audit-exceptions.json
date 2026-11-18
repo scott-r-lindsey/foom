@@ -1,12 +1,1 @@
-[
-  {
-    "ghsa": "GHSA-fc5q-39xc-vjpf",
-    "package": "picomatch",
-    "vulnerableVersions": "<=4.0.7",
-    "expires": "2026-12-01",
-    "issue": 1249,
-    "justification": "User-approved in #1249: no patched release exists; picomatch is development/build-only. Remove when a fix ships; production exposure is never excepted. Upstream fix PR #194 is open and unmerged as of 2026-11-17.",
-    "cve": "CVE-2026-112366",
-    "upstreamFix": "https://github.com/micromatch/picomatch/pull/194"
-  }
-]
+[]
