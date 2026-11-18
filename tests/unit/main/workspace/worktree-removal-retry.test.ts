@@ -1,3 +1,4 @@
+import { createWorktreeFixture } from "./worktree-git-fixture";
 import * as fs from "node:fs/promises";
 import { WorktreeStore } from "../../../../src/main/workspace/worktree-store";
 import { lstat, mkdir, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
@@ -11,7 +12,6 @@ import {
 import { WorktreeService } from "../../../../src/main/workspace/worktrees";
 import { git } from "../../../helpers/git.js";
 import { nativeDeadline } from "../../../helpers/native-test-policy";
-import { createWorktreeFixture } from "./worktree-git-fixture";
 
 vi.mock("node:fs/promises", async (original) => ({ ...(await original<typeof fs>()) }));
 vi.mock("../../../../src/main/workspace/worktree-operations", async (original) => ({
