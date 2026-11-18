@@ -5,6 +5,7 @@ import { ConfigFiles } from "../../../../src/main/config/files";
 import { configPart } from "../../../../src/main/config/approval";
 import { DEFAULT_SETTINGS, SettingsStore } from "../../../../src/main/setup/settings";
 import { ApplicationError } from "../../../../src/shared/application-errors";
+import type { ConfigSettings } from "../../../../src/shared/config";
 import { fixture } from "./service-fixture";
 const defaults = configPart(DEFAULT_SETTINGS);
 const preferences = {
@@ -103,61 +104,58 @@ test("an unsafe lock path refuses saves and a failed rename releases its lock", 
   await expect(files.withSettingsLock(async () => {})).rejects.toThrow();
 });
 
-test("startup waits past the lock retry window and attaches the writer before saving", async () => {
+test("startup returns on lock contention and attaches the writer after its deferred scan", async () => {
   const owner = await fixture({ defaults });
   await owner.service.initialize();
-  const profile = join(owner.root, "profile");
-  const initial = await SettingsStore.open(profile);
-  await initial.attachConfig(async () => {}, {}, owner.baseline());
-  const store = await SettingsStore.open(profile);
+  const store = await SettingsStore.open(join(owner.root, "profile"));
+  const onDeferredReady = vi.fn<(values: ConfigSettings) => Promise<void>>();
   const startup = await fixture({
     root: owner.folder,
     defaults,
     apply: (values) => {
       store.setConfig(values);
     },
+    onDeferredReady,
   });
+  onDeferredReady.mockImplementation((values) =>
+    store.attachConfig((patch) => startup.service.write(patch), values, startup.baseline()),
+  );
   const unlock = Promise.withResolvers<undefined>();
-  const timedOut = Promise.withResolvers<undefined>();
   const files = new ConfigFiles({ root: owner.folder });
-  // Simulate the bounded acquisition timing out, then keep the next acquisition
-  // parked until the other profile completes its write.
   const lock = vi.spyOn(ConfigFiles.prototype, "withSettingsLock");
-  lock.mockImplementationOnce(() => {
-    timedOut.resolve(undefined);
-    return Promise.reject(new ApplicationError("settings-busy"));
-  });
+  lock.mockRejectedValueOnce(new ApplicationError("settings-busy"));
   lock.mockImplementationOnce(async (work) => {
     await unlock.promise;
     return files.withSettingsLock(work);
   });
-  const initialized = startup.service.initialize().then(
-    (values) => ({ values }),
-    (error: unknown) => ({ error }),
-  );
   try {
-    await timedOut.promise;
+    await startup.service.initialize();
+    store.deferConfig();
     expect(startup.service.ready).toBe(false);
+    expect(startup.service.status().error).toBe("Settings are busy; try again.");
+    expect(onDeferredReady).not.toHaveBeenCalled();
+    await expect(store.update({ interfaceScale: 120 })).rejects.toThrow("foom-error:settings-busy");
     await owner.settings({ terminalFontSize: 18 });
   } finally {
     unlock.resolve(undefined);
   }
-  const result = await initialized;
-  lock.mockRestore();
-  if ("error" in result) throw result.error;
-  await store.attachConfig(
-    (patch) => startup.service.write(patch),
-    result.values,
-    startup.baseline(),
-  );
-  expect(await store.update({ interfaceScale: 150 })).toMatchObject({
-    interfaceScale: 150,
-    terminalFontSize: 18,
-  });
-  expect(JSON.parse(await owner.read("settings.json"))).toMatchObject({
-    interfaceScale: 150,
-    terminalFontSize: 18,
-  });
+  try {
+    await vi.waitFor(() => {
+      expect(startup.service.ready).toBe(true);
+    });
+    expect(startup.service.status().error).toBeUndefined();
+    expect(onDeferredReady).toHaveBeenCalledExactlyOnceWith({ terminalFontSize: 18 });
+    expect(await store.update({ interfaceScale: 150 })).toMatchObject({
+      interfaceScale: 150,
+      terminalFontSize: 18,
+    });
+    expect(JSON.parse(await owner.read("settings.json"))).toMatchObject({
+      interfaceScale: 150,
+      terminalFontSize: 18,
+    });
+  } finally {
+    lock.mockRestore();
+  }
 });
 
 test("a watcher retries a busy scan after lock removal without another settings edit", async () => {

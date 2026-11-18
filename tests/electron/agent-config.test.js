@@ -2,7 +2,7 @@ const { evidencePath } = require("../helpers/evidence.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const path = require("node:path");
-const { mkdir, mkdtemp, readFile, realpath, writeFile } = require("node:fs/promises");
+const { mkdir, mkdtemp, readFile, realpath, unlink, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const { deadline, expect } = require("./test-policy.js");
 const {
@@ -425,6 +425,76 @@ test("fresh profiles adopt shared config without resetting a running profile", {
     "eclipse-dark",
   );
   assert.deepEqual(await readFile(file), before);
+});
+
+test("a persistent foreign Settings lock opens the board and defers config saves until release", {
+  timeout: deadline(45_000),
+}, async (context) => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-config-foreign-lock-")));
+  removeAfterApps(context, root);
+  const home = path.join(root, "home");
+  const folder = path.join(home, ".foom", "config");
+  const profile = path.join(root, "profile");
+  const file = path.join(folder, "settings.json");
+  const lock = path.join(folder, ".foom-settings.lock");
+  const settings = '{"kind":"settings","terminalFontSize":19}';
+  const foreign = JSON.stringify({
+    hostname: require("node:os").hostname() + ".foreign.example",
+    pid: 1,
+    start: null,
+    timestamp: 0,
+    token: "foreign-fixture-owner",
+  });
+  await mkdir(folder, { recursive: true });
+  await writeFile(file, settings);
+  await writeFile(lock, foreign);
+  const profileSettings = path.join(profile, "settings.json");
+  await mkdir(profile);
+  await writeFile(
+    profileSettings,
+    JSON.stringify({
+      version: 1,
+      settings: { setupComplete: true, interfaceScale: 110, checkForUpdates: false },
+    }),
+  );
+
+  const app = await launchApp(context, {
+    fixture: "empty-board",
+    home,
+    args: [`--user-data-dir=${profile}`],
+  });
+  const page = await boardPage(app);
+  await boardCommand(app, ",", process.platform !== "darwin");
+  const sections = page.getByRole("navigation", { name: "Settings sections" });
+  await sections.getByRole("button", { name: "Foom config", exact: true }).click();
+  const busy = page.getByText("Settings are busy; try again.", { exact: true });
+  await expect(busy).toBeVisible();
+  await assert.rejects(
+    page.evaluate(() => window.desktop.saveSetup({ interfaceScale: 120 })),
+    /foom-error:settings-busy/,
+  );
+  const profileOnly = await page.evaluate(() =>
+    window.desktop.saveSetup({ middleClickPaste: true }),
+  );
+  assert.equal(profileOnly.settings.middleClickPaste, true);
+  assert.equal(await readFile(file, "utf8"), settings);
+  assert.equal(await readFile(lock, "utf8"), foreign);
+  const savedProfile = JSON.parse(await readFile(profileSettings, "utf8"));
+  assert.equal(savedProfile.version, 1);
+  assert.equal(savedProfile.settings.interfaceScale, 110);
+  assert.equal(savedProfile.settings.middleClickPaste, true);
+
+  await unlink(lock);
+  await expect(busy).toHaveCount(0);
+  const result = await page.evaluate(() => window.desktop.saveSetup({ interfaceScale: 120 }));
+  assert.equal(result.settings.interfaceScale, 120);
+  assert.equal(result.settings.terminalFontSize, 19);
+  assert.deepEqual(JSON.parse(await readFile(file, "utf8")), {
+    kind: "settings",
+    terminalFontSize: 19,
+    interfaceScale: 120,
+  });
+  assert.equal(JSON.parse(await readFile(profileSettings, "utf8")).version, 2);
 });
 
 test("start:fresh state isolation keeps config and worktrees inside its temporary profile", async (context) => {

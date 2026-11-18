@@ -95,7 +95,9 @@ ESRCH or a mismatching start identity proves death or PID reuse. Recovery uses a
 exclusive recovery lock and rechecks the stale record before removing it; crashed
 recovery locks use the same protocol (up to four nested recovery locks, then fail
 closed). Release removes only a matching token. Live owners and foreign-host
-records never expire. Unreadable, linked and nonregular locks fail closed.
+records never expire. A foreign-host record stays busy until the owner releases
+it or an operator verifies the owner is gone, stops all sharing Foom instances,
+and removes the record. Unreadable, linked and nonregular locks fail closed.
 Readable corrupt records also fail closed at any age: atomic publication means
 a crash while writing the record leaves only an unpublished temporary file.
 There is no longer a need for the 24-hour corrupt-record recovery rule, which
@@ -114,9 +116,12 @@ Safe external edits are adopted through the approval gate. With a verified
 baseline, a save applies safe preferences from the current file and the Settings
 patch. Unrelated held changes remain on disk and pending. Without a trusted baseline (including rejected profile loads),
 a held file refuses Settings saves until reviewed. Missing, unreadable or invalid
-files also refuse saves without replacing external bytes. Startup waits for a busy
-lock before attaching the config writer. A migrated profile with no attached writer
-refuses config saves. Allow and Keep it on use the same lock to verify the proposal
+files also refuse saves without replacing external bytes. If the initial lock
+attempt is busy, startup opens the window after that bounded attempt. Foom config
+shows the busy status and config saves return `settings-busy` until the background
+scan succeeds and attaches the writer. Profile-only settings can still be saved.
+A migrated profile with no attached writer refuses config saves. Allow and Keep it
+on use the same lock to verify the proposal
 before applying or replacing it. Settings writes use compact JSON when the
 pretty-printed form would exceed 64 KiB.
 The [#1234 investigation](../research/settings-reset-1234.md) records both

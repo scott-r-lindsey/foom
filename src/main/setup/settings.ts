@@ -16,6 +16,7 @@ import {
   parseConfigSettings,
 } from "../../shared/config-settings";
 import type { ConfigSettings } from "../../shared/config";
+import { ApplicationError } from "../../shared/application-errors";
 import { DEFAULT_SOUND, migrateSoundSettings } from "../../shared/sounds";
 import { randomUUID } from "node:crypto";
 import { link, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
@@ -192,6 +193,7 @@ export class SettingsStore {
   /** Digests of the interface theme files this profile last applied, by config path. */
   private themeDigests: Readonly<Record<string, string>> = {};
   private writer: ConfigWriter | undefined;
+  private configDeferred = false;
 
   private constructor(private readonly file: string) {}
 
@@ -364,6 +366,11 @@ export class SettingsStore {
     return this.digest;
   }
 
+  /** The shared config is busy at startup. Profile-only writes can still proceed. */
+  deferConfig(): void {
+    this.configDeferred = true;
+  }
+
   /**
    * Hands the agent-editable settings to the config folder. The same write removes
    * them from the profile, so the migration happens exactly once.
@@ -381,6 +388,7 @@ export class SettingsStore {
       this.digest = digest;
       this.settings = { ...this.settings, ...CONFIG_DEFAULTS, ...values };
     });
+    this.configDeferred = false;
   }
 
   /** Values from a validated config file; the file, not the profile, stores them. */
@@ -435,8 +443,14 @@ export class SettingsStore {
     const config: ConfigSettings = {};
     const profile: SettingsPatch = {};
     for (const [key, value] of Object.entries(patch))
-      Object.assign(this.migrated && isConfigSetting(key) ? config : profile, { [key]: value });
+      Object.assign(
+        (this.migrated || this.configDeferred) && isConfigSetting(key) ? config : profile,
+        {
+          [key]: value,
+        },
+      );
     if (Object.keys(config).length) {
+      if (this.configDeferred) throw new ApplicationError("settings-busy");
       if (!this.writer) throw new Error("The Foom config folder is unavailable.");
       await this.writer(config);
       if (!Object.keys(profile).length) return this.committedSettings;

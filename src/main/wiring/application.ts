@@ -1,3 +1,4 @@
+import type { ConfigSettings } from "../../shared/config";
 import { viewChanges } from "../data/view-changes";
 import { readFileSync } from "node:fs";
 import { autoUpdater } from "electron";
@@ -645,6 +646,12 @@ async function startApplication(wiring: ApplicationWiring): Promise<void> {
     safeStorageCipher(safeStorage),
   );
   addTailSecrets(wiring.environment.redactions());
+  const attachConfigWriter = (values: ConfigSettings) =>
+    wiring.settings.attachConfig(
+      (patch) => wiring.config.write(patch),
+      values,
+      wiring.settings.configDigest(),
+    );
   wiring.config = new ConfigService({
     root: wiring.configRoot,
     defaults: configPart(DEFAULT_SETTINGS),
@@ -696,6 +703,7 @@ async function startApplication(wiring: ApplicationWiring): Promise<void> {
       });
     },
     onStatus: wiring.configStatusChanged,
+    onDeferredReady: attachConfigWriter,
     onThemeDecision: () => {
       void wiring.themes.reload();
     },
@@ -709,6 +717,7 @@ async function startApplication(wiring: ApplicationWiring): Promise<void> {
   wiring.disposeThemes = () => {
     wiring.themes.dispose();
   };
+  let configDeferred = false;
   try {
     // Include the old window scale only in no-clobber initial creation. Never
     // follow initialization with a Settings save: another profile may replace
@@ -716,21 +725,23 @@ async function startApplication(wiring: ApplicationWiring): Promise<void> {
     const values = await wiring.config.initialize(
       migratedScale === undefined ? legacy : { ...legacy, interfaceScale: migratedScale },
     );
-    await wiring.settings.attachConfig(
-      (patch) => wiring.config.write(patch),
-      values,
-      wiring.settings.configDigest(),
-    );
+    configDeferred = !wiring.config.ready;
+    if (configDeferred) wiring.settings.deferConfig();
+    else await attachConfigWriter(values);
   } catch (error) {
     // Settings stay in the profile until the folder is usable.
     console.error("Foom config is unavailable:", error);
   }
-  await wiring.themes.initialize();
+  if (!configDeferred) await wiring.themes.initialize();
   wiring.applyThemeSettings();
   attachAssetSecurity();
   if (placements.length)
     for (const placement of placements) await wiring.createWindow(undefined, placement);
   else await wiring.createWindow(await loadWindowSize(app.getPath("userData")));
+  if (configDeferred)
+    void wiring.themes.initialize().catch((error: unknown) => {
+      console.error("Unable to initialize themes:", error);
+    });
   wiring.workspace.configure(wiring.settings.get());
   void wiring.workspace
     .restartSaved()

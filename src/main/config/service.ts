@@ -19,7 +19,7 @@ import {
   parseAgentDefaults,
   recoverAgentDefaults,
 } from "../agents/default-arguments";
-import { ApplicationError } from "../../shared/application-errors";
+import { ApplicationError, errorMessage } from "../../shared/application-errors";
 import type { DialogContent } from "../../shared/confirmation";
 import type { ConfigSettings } from "../../shared/config";
 import { parseSettingsFile } from "../../shared/config-files";
@@ -61,6 +61,8 @@ export interface ConfigServiceDependencies {
   confirmArguments?(content: DialogContent): Promise<boolean>;
   acknowledgeBypass?(agents: readonly string[]): Promise<void>;
   onStatus?(status: ConfigStatus): void;
+  /** Attaches the Settings writer after a busy startup finishes in the background. */
+  onDeferredReady?(values: ConfigSettings): Promise<void>;
   onThemeDecision?(): void;
   watch?: (directory: string, listener: (file: string | null) => void) => { close(): void };
   delay?: number;
@@ -146,6 +148,7 @@ export class ConfigService {
   private watchers = new Map<string, { close(): void }>();
   private timer: ReturnType<typeof setTimeout> | undefined;
   private retryingScan = false;
+  private deferredStartup = false;
   private available = true;
   private error: string | undefined;
   private closed = false;
@@ -242,19 +245,15 @@ export class ConfigService {
       await this.recordBaseline(this.applied.text);
     }
     if (migrated && this.applied === migrated) await this.recordBaseline(migrated.text);
-    this.applyLive(this.applied.values);
-    // A live writer can outlast one bounded acquisition. Keep startup queued
-    // until the initial scan succeeds, so the application can attach the writer.
-    for (;;) {
-      try {
-        await this.scan();
-        break;
-      } catch (error) {
-        if (!settingsBusy(error) || this.closed) throw error;
-      }
+    try {
+      await this.scan(true);
+      this.started = true;
+    } catch (error) {
+      if (!settingsBusy(error)) throw error;
+      this.deferredStartup = true;
+      this.retryScan(error);
     }
     this.startWatching();
-    this.started = true;
     return this.liveValues ?? this.applied.values;
   }
 
@@ -334,12 +333,23 @@ export class ConfigService {
         try {
           await this.scan();
         } catch (error) {
-          if (!settingsBusy(error)) throw error;
-          this.retryingScan = true;
-          this.schedule();
+          if (!settingsBusy(error) && !this.deferredStartup) throw error;
+          this.retryScan(error);
         }
       }).catch(ignore);
     }, this.deps.delay ?? 250);
+  }
+
+  private retryScan(error: unknown): void {
+    if (this.deferredStartup) {
+      const message = errorMessage(error, "The Foom config folder is unavailable.");
+      if (this.error !== message) {
+        this.error = message;
+        this.publish();
+      }
+    }
+    this.retryingScan = true;
+    this.schedule();
   }
 
   /** Runs one scan now; tests and IPC use it instead of waiting for the watcher. */
@@ -354,9 +364,13 @@ export class ConfigService {
     this.rejected.set(file, { object, reason });
   }
 
-  private async scan(): Promise<void> {
+  private async scan(initial = false): Promise<void> {
     if (this.closed) return;
-    await this.files.withSettingsLock(() => this.scanSettings());
+    await this.files.withSettingsLock(async () => {
+      // Keep legacy profile values in use if startup has to defer the scan.
+      if (initial) this.applyLive(this.applied.values);
+      await this.scanSettings();
+    });
     await this.scanPlugins();
     // Known names too, so a removed theme clears its applied, held or rejected state.
     const themes = new Set([
@@ -366,7 +380,16 @@ export class ConfigService {
       ...[...this.rejected.keys()].filter((path) => themeKind(path) !== undefined),
     ]);
     for (const relative of [...themes].sort()) await this.scanTheme(relative);
+    await this.finishDeferredStartup();
     this.publish();
+  }
+
+  private async finishDeferredStartup(): Promise<void> {
+    if (!this.deferredStartup || this.closed) return;
+    await this.deps.onDeferredReady?.(this.liveValues ?? this.applied.values);
+    this.deferredStartup = false;
+    this.started = true;
+    this.error = undefined;
   }
 
   private async scanPlugins(): Promise<void> {
