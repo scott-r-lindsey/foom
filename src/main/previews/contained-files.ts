@@ -180,6 +180,22 @@ async function previewRoot(directory: string): Promise<CanonicalRoot> {
   return captureDirectory(directory);
 }
 
+async function pickerRelativePath(root: string, file: string): Promise<string | undefined> {
+  if (documentWithin(root, file)) return path.relative(root, file);
+  // Resolve only the prefix that names the root. Resolving the whole path
+  // would also follow the in-checkout junction that the picker should watch.
+  try {
+    for (let parent = path.dirname(file); ; parent = path.dirname(parent)) {
+      if (path.relative(root, await fs.promises.realpath(parent)) === "")
+        return path.relative(parent, file);
+      if (parent === path.dirname(parent)) break;
+    }
+  } catch {
+    // A missing or unreadable alias prefix cannot supply an entry path.
+  }
+  return undefined;
+}
+
 /** Resolve the document before selecting the scope of its browser origin. */
 export async function resolveDocument(
   file: string,
@@ -214,9 +230,8 @@ export async function resolveDocument(
   } catch {
     return { status: 404, reason: "unreadable" };
   }
-  // An in-root picker alias remains watchable and may be retargeted in that root.
-  const entry = preserveAlias && documentWithin(root.path, file) ? file : real;
-  const relative = path.relative(root.path, entry).split(path.sep).join("/");
+  const picked = preserveAlias ? await pickerRelativePath(root.path, file) : undefined;
+  const relative = (picked ?? path.relative(root.path, real)).split(path.sep).join("/");
   const opened = await openDocument(root, documentPathname(relative));
   if (opened.status !== 200) return opened;
   try {

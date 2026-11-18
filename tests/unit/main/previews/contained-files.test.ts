@@ -372,10 +372,39 @@ test.runIf(process.platform === "win32")(
     const alternate = path.join(path.dirname(outside), path.basename(outside).toUpperCase());
     expect(await resolveDocument(path.join(alternate, "alias", "page.html"), true)).toMatchObject({
       status: 200,
+      root: { path: fs.realpathSync.native(outside) },
       relative: "alias/page.html",
     });
   },
 );
+
+test("retains a picker alias when an alternate parent path names the checkout", async () => {
+  const parent = path.join(base, "Long checkout container");
+  const checkout = path.join(parent, "checkout");
+  const docs = path.join(checkout, "docs");
+  fs.mkdirSync(docs, { recursive: true });
+  fs.writeFileSync(path.join(docs, "page.html"), "<p>Checkout</p>");
+  gitSync(["init", "-q"], { cwd: checkout });
+  const alternate = path.join(base, "short");
+  const kind = process.platform === "win32" ? "junction" : "dir";
+  fs.symlinkSync(parent, alternate, kind);
+  fs.symlinkSync(docs, path.join(checkout, "alias"), kind);
+
+  const file = path.join(alternate, "checkout", "alias", "page.html");
+  expect(await resolveDocument(file, true)).toMatchObject({
+    status: 200,
+    root: { path: fs.realpathSync.native(checkout) },
+    relative: "alias/page.html",
+  });
+
+  const outsideAlias = path.join(base, "outside-alias");
+  fs.symlinkSync(docs, outsideAlias, kind);
+  expect(await resolveDocument(path.join(outsideAlias, "page.html"), true)).toMatchObject({
+    status: 200,
+    root: { path: fs.realpathSync.native(checkout) },
+    relative: "docs/page.html",
+  });
+});
 
 test("serves pages, relative assets and directory indexes from owned handles", async () => {
   expect(await body("/docs/page.html")).toBe("<p>page</p>");
