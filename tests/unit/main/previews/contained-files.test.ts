@@ -897,6 +897,8 @@ test.skipIf(!links || process.platform === "win32")(
     fs.mkdirSync(path.join(short, "docs"), { recursive: true });
     const link = path.join(root, "alias");
     fs.symlinkSync(path.join(short, "docs"), link, "dir");
+    const back = path.join(root, "back");
+    fs.symlinkSync(short, back, "dir");
     const realpath = fs.promises.realpath;
     vi.spyOn(fs.promises, "realpath").mockImplementation((file) =>
       path.relative(short, file.toString()) === "" ? Promise.resolve(root) : realpath(file),
@@ -910,10 +912,57 @@ test.skipIf(!links || process.platform === "win32")(
         { directory: path.join(root, "docs"), name: "page.html" },
       ],
     });
+    const fromRoot = path.join(back, "docs", "page.html");
+    expect(await walkPreviewPath(root, fromRoot)).toEqual({
+      missing: false,
+      watches: [
+        { directory: root, name: "back" },
+        { directory: path.join(root, "docs"), name: "page.html" },
+      ],
+    });
 
     fs.renameSync(short, path.join(base, "old-short"));
     fs.symlinkSync(root, short, "dir");
     expect(await walkPreviewPath(root, request)).toEqual({ status: 403, reason: "escape" });
+    expect(await walkPreviewPath(root, fromRoot)).toEqual({ status: 403, reason: "escape" });
+  },
+);
+
+test.skipIf(!links || process.platform === "win32")(
+  "absolute link dot segments are walked inside the checkout before they can go up",
+  async () => {
+    gitSync(["init", "-q"], { cwd: outside });
+    fs.mkdirSync(path.join(outside, "docs"));
+    fs.writeFileSync(path.join(outside, "page.html"), "<p>Checkout</p>");
+    const alias = path.join(outside, "alias.html");
+    fs.symlinkSync(`${outside}/docs/../page.html`, alias);
+    expect(await resolveDocument(alias, true)).toMatchObject({
+      status: 200,
+      relative: "alias.html",
+    });
+    const checkout = canonicalRoot(outside);
+    expect(await readInside(checkout, "/alias.html")).toMatchObject({
+      status: 200,
+      body: Buffer.from("<p>Checkout</p>"),
+    });
+
+    gitSync(["init", "-q", "--bare", "bare.git"], { cwd: outside });
+    fs.symlinkSync(path.join(outside, "bare.git"), path.join(outside, "metadata"), "dir");
+    fs.symlinkSync(`${outside}/metadata/../page.html`, path.join(outside, "through-bare.html"));
+    fs.symlinkSync(`${outside}/.git/../page.html`, path.join(outside, "through-dotgit.html"));
+    fs.symlinkSync(`${outside}/../outside/page.html`, path.join(outside, "reenter.html"));
+    expect(await readInside(checkout, "/through-bare.html")).toEqual({
+      status: 403,
+      reason: "metadata",
+    });
+    expect(await readInside(checkout, "/through-dotgit.html")).toEqual({
+      status: 403,
+      reason: "target-hidden",
+    });
+    expect(await readInside(checkout, "/reenter.html")).toEqual({
+      status: 403,
+      reason: "escape",
+    });
   },
 );
 

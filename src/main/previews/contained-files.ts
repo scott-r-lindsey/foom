@@ -207,26 +207,30 @@ const nativeRealpath = promisify(fs.realpath.native);
 type WatchEntry = { directory: string; name: string };
 type WalkResult = { watches: WatchEntry[]; missing: boolean } | { status: 403; reason: string };
 
-async function absoluteLinkPath(root: string, target: string): Promise<string | undefined> {
+async function absoluteLinkPath(root: string, target: string): Promise<string[] | undefined> {
   const absolute =
     process.platform === "win32"
       ? target.replace(/^\\\\\?\\UNC\\/i, "\\\\").replace(/^\\\\\?\\/, "")
       : target;
-  if (hasGitSegment(absolute) || pathSegments(absolute).includes("..")) return undefined;
-  if (documentWithin(root, absolute)) return path.relative(root, absolute);
+  const segments = pathSegments(absolute).filter((name) => name !== "" && name !== ".");
+  const depth = pathSegments(root).filter(Boolean).length;
+  const prefixSegments = segments.slice(0, depth);
+  if (segments.length < depth || prefixSegments.includes("..")) return undefined;
+  // Preserve the suffix's ".." components for the same walk used by relative
+  // links. Resolving them here would skip directories and links on the route.
+  const remaining = segments.slice(depth);
+  const prefix = path.join(path.parse(absolute).root, ...prefixSegments);
+  if (root === prefix) return remaining;
   if (process.platform !== "win32") return undefined;
 
-  // Windows junctions may store a short spelling for the checkout prefix.
-  // Accept a spelling alias only through ordinary directory entries.
-  const relative = await pickerRelativePath(root, absolute);
-  if (relative === undefined) return undefined;
-  let prefix = absolute;
-  for (let count = relative.split(path.sep).filter(Boolean).length; count > 0; count--)
-    prefix = path.dirname(prefix);
+  // Short Windows spellings change the name of a directory at the same depth.
+  // Check the prefix itself even when the junction points straight to the root.
   for (let directory = prefix; ; directory = path.dirname(directory)) {
     if (!(await statEntry(directory))?.isDirectory()) return undefined;
-    if (directory === path.dirname(directory)) return relative;
+    if (directory === path.dirname(directory)) break;
   }
+  if (path.relative(root, await fs.promises.realpath(prefix)) === "") return remaining;
+  return undefined;
 }
 
 /** Inspect each link and directory before serving bytes or registering a watch. */
@@ -264,7 +268,7 @@ export async function walkPreviewPath(root: string, file: string): Promise<WalkR
           const relative = await absoluteLinkPath(root, link);
           if (relative === undefined) return { status: 403, reason: "escape" };
           directory = root;
-          pending = [...relative.split(path.sep), ...pending.slice(index + 1)];
+          pending = [...relative, ...pending.slice(index + 1)];
         } else {
           if (path.parse(link).root) return { status: 403, reason: "escape" };
           pending = [
