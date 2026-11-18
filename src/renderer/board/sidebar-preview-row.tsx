@@ -12,7 +12,7 @@ export function SidebarPreviewRow({ preview, opener, tile, filter, open }: Sideb
   return (
     <div
       role="treeitem"
-      aria-label={`${preview.kind === "markdown" ? "Markdown" : "HTML"} preview: ${preview.relativePath}${preview.openedBy ? `, opened by ${opener}` : ""}${tile !== undefined ? "" : ", not shown"}`}
+      aria-label={`${preview.kind === "markdown" ? "Markdown" : preview.kind === "image" ? "Image" : "HTML"} preview: ${preview.relativePath}${preview.openedBy ? `, opened by ${opener}` : ""}${tile !== undefined ? "" : ", not shown"}`}
     >
       <button
         type="button"

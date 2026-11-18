@@ -20,7 +20,7 @@ import { registerTileAreaFixture } from "./tile-area-fixture";
 
 registerTileAreaFixture();
 
-test.each(["markdown", "html"] as const)(
+test.each(["markdown", "html", "image"] as const)(
   "%s previews share numbering, focus and tile commands without terminal attachment",
   async (kind) => {
     const data = createSampleSource(sampleRows(100).slice(0, 1));
@@ -80,7 +80,7 @@ test.each(["markdown", "html"] as const)(
     const tile = screen.getByRole("region", { name: "Tile 2: docs/test.md" });
     expect(tile.querySelector(".board-light")).toBeNull();
     expect(tile.querySelector(".board-agent")?.textContent).toBe(
-      kind === "markdown" ? "MD" : "HTML",
+      kind === "markdown" ? "MD" : kind === "image" ? "IMG" : "HTML",
     );
     const sidebarRow = screen.getByRole("treeitem", { name: /preview: docs\/test.md/ });
     expect(within(sidebarRow).getByLabelText("Tile 2")).toBeTruthy();
@@ -141,7 +141,9 @@ test.each(["markdown", "html"] as const)(
     fireEvent.click(within(tile).getByRole("button", { name: "Tile 2 menu" }));
     expect(screen.queryByRole("menuitem", { name: "Hide" })).toBeNull();
     expect(
-      screen.getByText(kind === "markdown" ? "Markdown" : "HTML", { selector: "dd" }),
+      screen.getByText(kind === "markdown" ? "Markdown" : kind === "image" ? "Image" : "HTML", {
+        selector: "dd",
+      }),
     ).toBeTruthy();
     expect(screen.getByText("Off", { selector: "dd" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Copy opened file path" }));

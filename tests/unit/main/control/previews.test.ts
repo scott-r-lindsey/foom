@@ -540,3 +540,16 @@ it("rechecks the live grant after asynchronous containment validation before aud
   expect(board.previews.size).toBe(0);
   expect(events).toEqual([]);
 });
+
+it("agent image opens validate content and report image kind through the shared broker", async () => {
+  const sharp = (await import("sharp")).default;
+  const body = await sharp({ create: { width: 8, height: 8, channels: 3, background: "white" } })
+    .webp()
+    .toBuffer();
+  writeFileSync(join(tree, "image.webp"), body);
+  expect(await open("image.webp")).toMatchObject({ kind: "image", path: "image.webp" });
+  writeFileSync(join(tree, "fake.png"), body);
+  await expect(open("fake.png")).rejects.toMatchObject({ code: "invalid_request" });
+  writeFileSync(join(tree, "unsafe.svg"), '<svg onload="evil()"/>');
+  await expect(open("unsafe.svg")).rejects.toMatchObject({ code: "invalid_request" });
+});

@@ -19,7 +19,12 @@ test("validates before showing the main-owned picker, revalidating through the h
     title: "Preview file",
     defaultPath: root,
     properties: ["openFile"],
-    filters: [{ name: "Markdown and HTML", extensions: ["md", "markdown", "html", "htm"] }],
+    filters: [
+      {
+        name: "Documents and images",
+        extensions: ["md", "markdown", "html", "htm", "png", "jpg", "jpeg", "webp"],
+      },
+    ],
   });
   expect(host.open).toHaveBeenCalledWith(root, "docs/page.html");
   validate.mockRejectedValueOnce(new Error("Unknown worktree"));

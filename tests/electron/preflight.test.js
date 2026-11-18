@@ -416,9 +416,11 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   const missingClaude = page.locator("#agent-card-claude");
   await missingClaude.getByRole("switch").check();
   await expect(missingClaude.getByRole("switch")).toBeChecked();
-  await page.waitForFunction(
-    async () => (await window.desktop.setupState()).settings.agents.claude === true,
-  );
+  await expect
+    .poll(() =>
+      page.evaluate(async () => (await window.desktop.setupState()).settings.agents.claude),
+    )
+    .toBe(true);
   if (process.platform !== "win32")
     await expect(missingClaude.getByRole("button", { name: "Install", exact: true })).toBeVisible();
   await assertFooter();
@@ -478,10 +480,11 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   await page.getByRole("button", { name: "Re-check This computer" }).click();
   for (const id of Object.keys(agents)) {
     await page.locator(`#agent-card-${id}`).getByRole("switch").check();
-    await page.waitForFunction(
-      async (id) => (await window.desktop.setupState()).settings.agents[id] === true,
-      id,
-    );
+    await expect
+      .poll(() =>
+        page.evaluate(async (id) => (await window.desktop.setupState()).settings.agents[id], id),
+      )
+      .toBe(true);
   }
   await page.getByRole("button", { name: "Re-check This computer" }).click();
   for (const [id, version] of Object.entries({

@@ -976,10 +976,11 @@ test("Settings Agents and Environment work without Claude Codex or Antigravity k
     ).not.toBeChecked();
   await page.getByLabel("OpenCode default arguments").fill("--model\nexample");
   await page.getByLabel("OpenCode default arguments").blur();
-  await page.waitForFunction(
-    async () =>
-      (await window.desktop.setupState()).settings.agentArguments.opencode?.[1] === "example",
-  );
+  await expect
+    .poll(() =>
+      page.evaluate(async () => (await window.desktop.setupState()).settings.agentArguments),
+    )
+    .toEqual({ opencode: ["--model", "example"] });
   await page.screenshot({ path: evidencePath("1122/optional-agent-settings.png") });
   await page.getByRole("tab", { name: "Machines", exact: true }).click();
   await expect(page.locator(".agent-card")).toHaveCount(1);
@@ -993,9 +994,13 @@ test("Settings Agents and Environment work without Claude Codex or Antigravity k
   const row = page.getByRole("group", { name: "AGENT_SETTING", exact: true });
   await row.getByRole("textbox", { name: "AGENT_SETTING value", exact: true }).fill("scoped");
   await row.getByRole("textbox", { name: "AGENT_SETTING value", exact: true }).blur();
-  await page.waitForFunction(
-    async () => (await window.desktop.environmentState()).lists.opencode?.[0]?.value === "scoped",
-  );
+  await expect
+    .poll(() =>
+      page.evaluate(
+        async () => (await window.desktop.environmentState()).lists.opencode?.[0]?.value,
+      ),
+    )
+    .toBe("scoped");
   await page.getByRole("button", { name: "Environment", exact: true }).click();
   const allSessions = page.getByRole("region", { name: "All sessions", exact: true });
   await allSessions
@@ -1007,13 +1012,17 @@ test("Settings Agents and Environment work without Claude Codex or Antigravity k
   const global = page.getByRole("group", { name: "GLOBAL_SETTING", exact: true });
   await global.getByRole("textbox", { name: "GLOBAL_SETTING value", exact: true }).fill("shared");
   await global.getByRole("textbox", { name: "GLOBAL_SETTING value", exact: true }).blur();
-  await page.waitForFunction(
-    async () => (await window.desktop.environmentState()).lists.all[0]?.value === "shared",
-  );
+  await expect
+    .poll(() =>
+      page.evaluate(async () => (await window.desktop.environmentState()).lists.all[0]?.value),
+    )
+    .toBe("shared");
   await page.screenshot({ path: evidencePath("1122/optional-agent-environment.png") });
   const settings = await page.evaluate(async () => (await window.desktop.setupState()).settings);
   assert.deepEqual(settings.agents, { opencode: true });
   assert.deepEqual(settings.agentArguments, { opencode: ["--model", "example"] });
+  const config = JSON.parse(await readFile(path.join(home, ".foom/config/settings.json"), "utf8"));
+  assert.deepEqual(config.agentArguments, { opencode: ["--model", "example"] });
   const environment = JSON.parse(await readFile(path.join(profile, "environment.json"), "utf8"));
   assert.deepEqual(Object.keys(environment.lists).sort(), ["all", "opencode"]);
 });
@@ -1224,7 +1233,10 @@ test("native and Foom zoom entry points survive agent Settings saves without rel
     await page.evaluate(
       () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
     );
-    if (mode === "native-request") await expect.poll(async () => (await inspect()).saved).toBe(120);
+    // Frames flush input and rendering, but a config write can still be in flight.
+    if (mode === "shortcut" || (mode === "plain-shortcut" && process.platform === "darwin"))
+      await expect.poll(inspect).toEqual({ saved: 110, actual: 1.1 });
+    if (mode === "native-request") await expect.poll(inspect).toEqual({ saved: 120, actual: 1.2 });
     const before = await inspect();
     await openSettingsScreen(page);
     await page.getByRole("button", { name: "Agents", exact: true }).click();

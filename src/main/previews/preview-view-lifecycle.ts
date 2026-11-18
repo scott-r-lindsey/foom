@@ -1,4 +1,4 @@
-import type { Session, WebContents } from "electron";
+import type { WebContents } from "electron";
 import type { PreviewBounds, PreviewRecord } from "../../shared/previews";
 import type { HostedPreview } from "./hosted-preview";
 import type { CanonicalRoot } from "./contained-files";
@@ -142,13 +142,13 @@ export class PreviewViewLifecycle {
       void this.reload(record.id);
     });
     this.watchers.set(record.id, watcher);
-    const partition = createPartition(record, root, watcher);
+    const session = createPartition(record, root, watcher);
     const pathname = record.relativePath.split("/").map(encodeURIComponent).join("/");
-    return this.createView(record, partition, `${origin}/${pathname}`, { ...EMPTY_BOUNDS });
+    return this.createView(record, session, `${origin}/${pathname}`, { ...EMPTY_BOUNDS });
   }
   private createView(
     record: PreviewRecord,
-    partition: Session,
+    session: ReturnType<typeof createPartition>,
     url: string,
     bounds: PreviewBounds,
     restoreFocus = false,
@@ -158,6 +158,8 @@ export class PreviewViewLifecycle {
   ): HostedPreview {
     const origin = `foom-preview://${record.id}`;
     this.watchers.get(record.id)?.beginGeneration();
+    const { partition, setDocumentUrl } = session;
+    setDocumentUrl(url);
     const view = createPreviewView(partition);
     const entry: HostedPreview = {
       id: record.id,
@@ -180,6 +182,19 @@ export class PreviewViewLifecycle {
     });
     this.install(entry);
     const contents = view.webContents;
+    let sameDocumentPending = false;
+    let pendingLoading: ReturnType<typeof setImmediate> | undefined;
+    const clearPendingLoading = () => {
+      clearImmediate(pendingLoading);
+      pendingLoading = undefined;
+    };
+    const detachForLoad = () => {
+      clearPendingLoading();
+      if (!this.current(entry) || this.closed() || contents.isDestroyed()) return;
+      this.state(entry).previouslyLoaded = entry.loaded;
+      entry.loaded = false;
+      this.detach(entry);
+    };
     // The board's own guard (prepended in the constructor) runs first, so a pending
     // focus handoff blocks and Escape cancels it here too.
     const beforeInput = (event: Electron.Event, input: Electron.Input) => {
@@ -234,7 +249,8 @@ export class PreviewViewLifecycle {
     const frameNavigate = (
       event: Electron.Event<Electron.WebContentsWillFrameNavigateEventParams>,
     ) => {
-      if (!navigationAllowed(event.url, origin)) {
+      if (pendingLoading) detachForLoad();
+      if (!navigationAllowed(event.url, origin, event.isMainFrame)) {
         event.preventDefault();
         void this.external(record, event.url);
         entry.loaded ||= this.state(entry).previouslyLoaded;
@@ -259,12 +275,18 @@ export class PreviewViewLifecycle {
     const navigate = (event: Electron.Event<Electron.WebContentsDidStartNavigationEventParams>) => {
       if (!this.current(entry) || this.state(entry).replacementTimer || contents.isDestroyed())
         return;
-      if (!event.isMainFrame) return;
-      if (event.isSameDocument) {
+      // In-page links emit did-start-loading without a corresponding
+      // did-finish-load, so preserve the loaded view for that loading event.
+      if (event.isMainFrame && event.isSameDocument) {
+        sameDocumentPending = pendingLoading === undefined;
+        clearPendingLoading();
         const page = history.pages[history.index];
-        if (page) page.url = event.url;
+        if (page && navigationAllowed(event.url, origin)) page.url = event.url;
         return;
       }
+      if (pendingLoading) detachForLoad();
+      if (!event.isMainFrame) return;
+      sameDocumentPending = false;
       if (!this.state(entry).navigated) {
         this.state(entry).navigated = true;
         return;
@@ -307,7 +329,7 @@ export class PreviewViewLifecycle {
         if (this.closed() || this.hosted.get(entry.id) !== entry) return;
         this.createView(
           record,
-          partition,
+          session,
           event.url,
           entry.bounds,
           heldFocus && this.focus.owns(contents),
@@ -326,18 +348,31 @@ export class PreviewViewLifecycle {
     listeners.push(() => {
       contents.removeListener("did-start-navigation", navigate);
     });
+    const inPage = (_event: Electron.Event, _url: string, isMainFrame: boolean) => {
+      if (isMainFrame) sameDocumentPending = false;
+    };
+    contents.on("did-navigate-in-page", inPage);
+    listeners.push(() => {
+      contents.removeListener("did-navigate-in-page", inPage);
+    });
     const loading = () => {
       if (!this.current(entry) || this.closed() || contents.isDestroyed()) return;
-      this.state(entry).previouslyLoaded = entry.loaded;
-      entry.loaded = false;
-      this.detach(entry);
+      if (sameDocumentPending) {
+        sameDocumentPending = false;
+        return;
+      }
+      // Chromium can signal loading before it identifies the navigation. Give
+      // that event this turn to classify the load. If it is absent, still detach.
+      pendingLoading ??= setImmediate(detachForLoad);
     };
     contents.on("did-start-loading", loading);
     listeners.push(() => {
+      clearPendingLoading();
       contents.removeListener("did-start-loading", loading);
     });
     const loaded = () => {
       if (!this.current(entry) || this.closed() || contents.isDestroyed()) return;
+      if (pendingLoading) detachForLoad();
       const attach = () => {
         if (!this.current(entry) || this.closed() || contents.isDestroyed()) return;
         entry.loaded = true;

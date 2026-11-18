@@ -487,7 +487,11 @@ export function Tile({
               <svg className="preview-glyph" aria-hidden="true" viewBox="0 0 16 16">
                 <path d="M4 1.5h5l3 3v10H4z M9 1.5v3h3 M6 8h4 M6 10.5h4" />
               </svg>
-              <AgentBadge mark={preview.kind === "markdown" ? "MD" : "HTML"} />
+              <AgentBadge
+                mark={
+                  preview.kind === "markdown" ? "MD" : preview.kind === "image" ? "IMG" : "HTML"
+                }
+              />
               <span className="tile-name" title={preview.relativePath}>
                 {preview.relativePath}
               </span>

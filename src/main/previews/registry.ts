@@ -13,7 +13,7 @@ export function previewPath(value: unknown): value is string {
     value.length > 0 &&
     value.length <= 1024 &&
     !value.startsWith("/") &&
-    /\.(md|markdown|html|htm)$/i.test(value) &&
+    /\.(md|markdown|html|htm|png|jpe?g|webp)$/i.test(value) &&
     !("error" in segmentsFor(`/${value.split("/").map(encodeURIComponent).join("/")}`))
   );
 }

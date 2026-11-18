@@ -279,7 +279,7 @@ export interface PreviewSummary {
   repository: string;
   worktree: string;
   relativePath: string;
-  kind: "markdown" | "html";
+  kind: "markdown" | "html" | "image";
 }
 
 /** Human launch commands return their request-specific terminal identity. */
