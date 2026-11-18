@@ -599,6 +599,7 @@ const mock = vi.hoisted(() => {
           ) => void
         >(),
       detachView: vi.fn(),
+      suspendViews: vi.fn(() => Promise.resolve(() => {})),
       runningSessions: () => [
         { id: "t1", command: "claude", cwd: "/tree" },
         { id: "t2", command: "bash", cwd: "/tree2" },

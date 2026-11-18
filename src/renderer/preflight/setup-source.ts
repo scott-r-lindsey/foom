@@ -22,6 +22,13 @@ export function createSetupSource(
   const releaseObserver = () => {
     if (!installs.size && !launches.size) dispose();
   };
+  const forgetInstall = (id: string) => {
+    installs.delete(id);
+    ghSessions.delete(id);
+    hostActions.delete(id);
+    exited.delete(id);
+    releaseObserver();
+  };
   let closing = false;
   let launchVersion = 0;
   const settled = async () => {
@@ -62,7 +69,10 @@ export function createSetupSource(
   return {
     views,
     hostTerminal: {
-      stop: (id) => closeSession?.(id) ?? desktop.kill(id),
+      stop: async (id) => {
+        await (closeSession?.(id) ?? desktop.kill(id));
+        forgetInstall(id);
+      },
       createView: () => createView(),
       observe: (id, listener) => {
         let active = true;
@@ -104,7 +114,12 @@ export function createSetupSource(
             .filter(([id]) => hostActions.get(id)?.action !== "trust-origin")
             .map(([id, host]) => [host, id]),
         ),
-      hostActions: () => hostActions,
+      hostActions: () =>
+        new Map(
+          [...hostActions].filter(
+            ([id, action]) => action.action !== "trust-origin" || !exited.has(id),
+          ),
+        ),
       hasSessions: () => installs.size > 0 || launches.size > 0,
       running: async () => {
         for (;;) {
@@ -125,10 +140,7 @@ export function createSetupSource(
           for (const id of installs.keys()) {
             if (snapshot.terminals.some((row) => row.id === id))
               await (closeSession?.(id) ?? desktop.kill(id));
-            installs.delete(id);
-            ghSessions.delete(id);
-            hostActions.delete(id);
-            exited.delete(id);
+            forgetInstall(id);
           }
           releaseObserver();
         } finally {

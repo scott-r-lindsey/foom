@@ -20,7 +20,8 @@ forward and focuses its tile. Sidebar tile numbers always refer to the current
 window. The longest-waiting shortcut starts from the current window and focuses
 another window when that session is already shown there.
 
-Closing a window hides its sessions without stopping their PTYs. On macOS, closing
+Closing a window hides its board sessions. Foom stops Settings repairs owned by
+that window before it closes. On macOS, closing
 the last window leaves Foom running; Dock activation opens another window. On
 Windows and Linux, closing the last window requests quit. Quit from any window
 stops the entire app and uses the focused window's trusted confirmation. Other

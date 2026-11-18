@@ -458,6 +458,44 @@ test("a Settings recipe launched during window closure is stopped before it can 
   expect(mock.workspace.removed).toHaveBeenCalledWith("recipe");
 });
 
+test("native close waits for starting Settings repairs and remains retryable after a failed stop", async () => {
+  vi.spyOn(process, "platform", "get").mockReturnValue("darwin");
+  await start();
+  const launch = Promise.withResolvers<string>();
+  mock.workspace.startHostRecipe.mockReturnValueOnce(launch.promise);
+  const target = {
+    host: "worker",
+    human: true,
+    trustOrigin: "git@forge.test:team/project.git",
+  } as const;
+  const starting = mock.setup.deps?.launchHostRecipe?.(target);
+  const event = { preventDefault: vi.fn() };
+  mock.windowEvents.get("close")?.(event);
+  mock.windowEvents.get("close")?.(event);
+  expect(event.preventDefault).toHaveBeenCalledTimes(2);
+  expect(mock.terminals.kill).not.toHaveBeenCalled();
+  await expect(mock.setup.deps?.launchHostRecipe?.(target)).rejects.toThrow(
+    "Settings window closing",
+  );
+  mock.terminals.kill.mockRejectedValueOnce(new Error("Stop failed"));
+  launch.resolve("recipe");
+  await starting;
+  await vi.waitFor(() => {
+    expect(mock.errorBox).toHaveBeenCalledWith(
+      "Unable to close window",
+      "Could not stop a Settings repair. Please try again.",
+    );
+  });
+  expect(mock.window.close).not.toHaveBeenCalled();
+  expect(mock.workspace.removed).not.toHaveBeenCalled();
+  mock.windowEvents.get("close")?.(event);
+  await vi.waitFor(() => {
+    expect(mock.window.close).toHaveBeenCalledOnce();
+  });
+  expect(mock.terminals.kill).toHaveBeenCalledTimes(2);
+  expect(mock.workspace.removed).toHaveBeenCalledExactlyOnceWith("recipe");
+});
+
 test("a recipe that exits during startup still refreshes its rows", async () => {
   await start();
   forgeUi.rows = [

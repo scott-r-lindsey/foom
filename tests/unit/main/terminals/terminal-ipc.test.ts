@@ -1280,6 +1280,33 @@ test("shutdown flush validates its sender and envelope before stopping native pr
   expect(pty().kill).toHaveBeenCalledOnce();
   send("views-flushed", [[id], 1]);
 });
+test("window close suspends its Settings views and restores only surviving terminal capabilities", async () => {
+  const first = await create();
+  const second = await create();
+  contents.send.mockImplementation(() => {});
+  const owner = contents as unknown as WebContents;
+  const suspended = terminalControl.suspendViews(owner, [first]);
+  const queued = terminalControl.suspendViews(owner, [second]);
+  expect(contents.send).toHaveBeenCalledWith("terminal:availability", [first], false);
+  expect(contents.send).toHaveBeenCalledWith("terminal:flush-views", [first], 1);
+  await expect(invoke("attach", [first])).rejects.toThrow("Session is closing");
+  expect(contents.send).not.toHaveBeenCalledWith("terminal:flush-views", [second], 2);
+  send("views-flushed", [[first], 1]);
+  const resumeFirst = await suspended;
+  await vi.waitFor(() => {
+    expect(contents.send).toHaveBeenCalledWith("terminal:flush-views", [second], 2);
+  });
+  send("views-flushed", [[second], 2]);
+  const resumeSecond = await queued;
+  await terminalControl.kill(first);
+  contents.send.mockClear();
+  resumeFirst();
+  resumeSecond();
+  expect(contents.send).toHaveBeenCalledExactlyOnceWith("terminal:availability", [second], true);
+  expect(terminalControl.owns(first)).toBe(false);
+  expect(terminalControl.owns(second)).toBe(true);
+});
+
 test("an unresponsive renderer cannot block native shutdown indefinitely", async () => {
   vi.useFakeTimers();
   try {

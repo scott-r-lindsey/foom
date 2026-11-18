@@ -208,6 +208,40 @@ test("Settings waits for its own host actions and disposes running or exited ses
   expect(installs.hostActions?.().get("trust")).toBeUndefined();
 });
 
+test("origin trust metadata disappears on exit or successful Stop and survives a failed Stop", async () => {
+  let exit = (_id: string, _code: number) => {};
+  const hosts = vi
+    .fn()
+    .mockResolvedValueOnce({ hosts: [], locations: [], recipeSession: "exits" })
+    .mockResolvedValueOnce({ hosts: [], locations: [], recipeSession: "stopped" });
+  const close = vi
+    .fn((_id: string) => Promise.resolve())
+    .mockRejectedValueOnce(new Error("Stop failed"));
+  Object.defineProperty(window, "desktop", {
+    configurable: true,
+    value: {
+      hosts,
+      onExit: (listener: typeof exit) => {
+        exit = listener;
+        return () => {};
+      },
+    },
+  });
+  const source = createSetupSource(undefined, close);
+  const trust = { action: "trust-origin", host: "cloud", repository: "/repo" } as const;
+  if (!source.hosts || !source.hostTerminal?.stop || !source.installs?.hostActions)
+    throw new Error("Missing Settings repair owner");
+  await source.hosts(trust);
+  exit("exits", 1);
+  expect(source.installs.hostActions().has("exits")).toBe(false);
+  await source.hosts(trust);
+  await expect(source.hostTerminal.stop("stopped")).rejects.toThrow("Stop failed");
+  expect(source.installs.hostActions().get("stopped")).toEqual(trust);
+  await source.hostTerminal.stop("stopped");
+  expect(source.installs.hostActions().size).toBe(0);
+  expect(source.installs.sessions().size).toBe(0);
+});
+
 test("Settings close waits for pending installs, refuses a new install while closing and retries failures", async () => {
   let resolve = (_value: { hosts: []; locations: []; recipeSession?: string }) => {};
   const hosts = vi.fn(

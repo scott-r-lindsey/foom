@@ -2068,7 +2068,67 @@ test("Origin trust stays off both boards and remains stoppable after host remova
   await terminal.getByRole("button", { name: "Stop", exact: true }).click();
   await expect(removed).toHaveCount(0);
   await expect.poll(killed).toBe(true);
+  await navigation.getByRole("button", { name: "General", exact: true }).click();
+  await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
+  await expect(page.getByText("No hosts", { exact: true })).toBeVisible();
+  await expect(removed).toHaveCount(0);
   await expect(page.locator(".terminal-tile[data-kind='shell']")).toHaveCount(0);
+});
+
+test("Closing the owner window stops a removed host's origin repair", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, calls, updateScenario } = await hostsFixture(context);
+  const owner = await app.evaluate(
+    ({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows().find(
+        (window) => window.webContents.getURL() === "app://bundle/index.html",
+      ).id,
+  );
+  await page.evaluate(() => window.desktop.appMenu.execute("new-window"));
+  await expect
+    .poll(() => app.windows().filter((window) => window.url() === "app://bundle/index.html").length)
+    .toBe(2);
+  const other = app
+    .windows()
+    .find((window) => window !== page && window.url() === "app://bundle/index.html");
+  assert.ok(other);
+  await updateScenario({
+    origin: "origin-host-key",
+    facts: { tools: [{ id: "git", state: "ready", signIn: "unknown" }] },
+  });
+  await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
+  await card.getByRole("button", { name: "Trust host key…", exact: true }).click();
+  const terminal = page.getByRole("region", { name: "Origin host key terminal", exact: true });
+  await expect(terminal.locator(".xterm-screen")).toContainText("continue connecting");
+  const id = await page.evaluate(
+    async () =>
+      (await window.desktop.workspace()).terminals.find((row) => row.recipe && !row.exited)?.id,
+  );
+  assert.ok(id);
+  await card.getByRole("button", { name: "Remove", exact: true }).click();
+  await expect(
+    page
+      .getByRole("region", { name: "Origin trust · fixture-cloud", exact: true })
+      .getByRole("button", { name: "Stop", exact: true }),
+  ).toBeEnabled();
+
+  const closed = page.waitForEvent("close");
+  await app.evaluate(({ BrowserWindow }, id) => BrowserWindow.fromId(id).close(), owner);
+  await closed;
+  assert.ok(
+    (await readFile(calls, "utf8"))
+      .trim()
+      .split("\n")
+      .some((line) => JSON.parse(line).closed === id),
+  );
+  const snapshot = await other.evaluate(() => window.desktop.workspace());
+  assert.equal(
+    snapshot.terminals.some((row) => row.id === id),
+    false,
+  );
+  assert.equal(other.isClosed(), false);
 });
 
 test("Agents scopes use trusted consent and fixed recipes for host plugin installation", {

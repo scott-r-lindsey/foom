@@ -343,7 +343,9 @@ export async function buildWindow(
   window.once("closed", () => {
     githubSignIn.dispose();
   });
-  const launchRecipe = async (
+  const settingsLaunches = new Set<Promise<string>>();
+  let closingSettings = false;
+  const startRecipe = async (
     target:
       | RemoteTarget
       | { localAgent: string }
@@ -417,6 +419,14 @@ export async function buildWindow(
       off?.();
       throw error;
     }
+  };
+  const launchRecipe: typeof startRecipe = (target, finished) => {
+    if (closingSettings) return Promise.reject(new Error("Settings window closing"));
+    const launch = startRecipe(target, finished).finally(() => {
+      settingsLaunches.delete(launch);
+    });
+    settingsLaunches.add(launch);
+    return launch;
   };
   const setup = new Setup({
     repositorySetup: repositorySetupFor(wiring.settings),
@@ -749,7 +759,43 @@ export async function buildWindow(
     if (wiring.quitPending || (wiring.windows.size === 1 && process.platform !== "darwin")) {
       event.preventDefault();
       void wiring.requestQuit();
+      return;
     }
+    if (closingSettings) {
+      event.preventDefault();
+      return;
+    }
+    const settingsSessions = wiring.views.settingsSessions(window.id);
+    if (!settingsSessions.length && !settingsLaunches.size) return;
+    event.preventDefault();
+    closingSettings = true;
+    void (async () => {
+      await Promise.allSettled(settingsLaunches);
+      const ids = wiring.views.settingsSessions(window.id);
+      if (ids.length) {
+        const resume = await wiring.terminals.suspendViews(window.webContents, ids);
+        try {
+          for (const id of ids) {
+            await wiring.terminals.kill(id);
+            wiring.workspace.removed(id);
+            wiring.views.forgetSettings(id);
+          }
+        } finally {
+          resume();
+        }
+      }
+      // Let the intercepted native close unwind before closing again.
+      setImmediate(() => {
+        closingSettings = false;
+        if (!window.isDestroyed()) window.close();
+      });
+    })().catch(() => {
+      closingSettings = false;
+      dialog.showErrorBox(
+        "Unable to close window",
+        "Could not stop a Settings repair. Please try again.",
+      );
+    });
   });
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event) => {

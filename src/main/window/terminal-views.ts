@@ -11,6 +11,10 @@ export class TerminalViews {
     return this.settingsOwners.get(id) === window;
   }
 
+  settingsSessions(window: number): string[] {
+    return [...this.settingsOwners].filter(([, owner]) => owner === window).map(([id]) => id);
+  }
+
   forgetSettings(id: string): void {
     this.settingsOwners.delete(id);
   }
