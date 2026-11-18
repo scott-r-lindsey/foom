@@ -27,9 +27,11 @@ The pure policy rejects empty/dot segments, encoded separators, NUL, controls,
 hidden names and Windows aliases (colons, trailing dots/spaces, device names and
 reserved characters) on every OS. Queries and fragments do not name files.
 
-Request resolution uses asynchronous `fs/promises` operations (`realpath` uses
-the native implementation), a byte-exact root/separator comparison with no case
-folding, and another segment check after symlinks. Directories resolve their
+Request resolution uses asynchronous filesystem operations, a byte-exact
+root/separator comparison with no case folding, and checks each directory and
+symlink in the requested path. Paths that pass through `.git` or confirmed bare
+repository metadata are refused, including links that would return to a readable
+file. Directories resolve their
 `index.html` through the same containment checks. Main stats before opening,
 refuses non-files, opens the resolved path with `O_NOFOLLOW | O_NONBLOCK`, and
 verifies descriptor type and `dev`/`ino`. Windows exposes neither flag through
@@ -131,14 +133,17 @@ immediate directory. Links to sibling and parent assets work within a confirmed
 checkout. The scans are separate observations. A same-user writer that hides a
 nested checkout during both scans and restores it between identity checks can
 still cause the enclosing checkout to be selected.
-A symlink passed as an entry selects the target's root. The picker preserves an
-alias inside that root, so its relative links and live reload continue to use the
-selected path. Agent reuse and aliases outside the root use the canonical entry.
-Requests made by the rendered page remain contained in the selected root.
+A symlink passed as an entry selects the target's root. The picker preserves a
+safe alias inside that root, even when the user reaches the checkout through an
+alternate spelling or the alias points back to the root. Aliases that leave the
+root or pass through Git metadata use the canonical entry when it is readable
+under the same rules. Agent reuse uses the canonical entry. Main rechecks routes
+on every request, including after a symlink retarget.
 
 An HTML page's scripts can read readable non-hidden files under that root, including
-files unrelated to the entry. A checkout preview exposes those files across the
-checkout. A standalone preview exposes them across its directory and descendants.
+files unrelated to the entry. Resource routes under the root exclude Git metadata.
+A checkout preview exposes eligible files across the checkout. A standalone preview
+exposes them across its directory and descendants.
 The protocol still reserves `__foom__`, rejects symlink escapes in resource requests
 and applies the existing filename, descriptor and size checks. Network starts off,
 external links require trusted confirmation and control results contain metadata only.
@@ -255,8 +260,9 @@ replacement on navigation or reload releases the preceding generation's handles,
 filename sets and pending notifications before recording the new load's served and
 missing dependencies. Asynchronous resource reads retain their starting generation;
 late completion cannot restore a retired load's dependencies. Historical chapters and asset names do not consume the cap
-or trigger reloads. Requested symlink names and parent
-symlinks/junctions are watched as well as resolved targets. Missing nested parents
+or trigger reloads. Main rechecks paths before registering watches and subscribes
+only to contained directory entries outside Git metadata. Requested symlink names
+and parent symlinks/junctions are watched as well as resolved targets. Missing nested parents
 use their nearest existing contained ancestor until a reload can subscribe closer.
 A 120 ms trailing debounce with a one-second maximum wait triggers the existing
 detached replacement path. Main captures finite, bounded `[scrollX, scrollY]` in

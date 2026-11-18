@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { PreviewWatcher } from "../../../../src/main/previews/watcher";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
@@ -12,6 +13,7 @@ import {
   readInside,
   readPreview,
   resolveDocument,
+  walkPreviewPath,
 } from "../../../../src/main/previews/contained-files";
 import { MAX_FILE_BYTES, MAX_MARKDOWN_BYTES } from "../../../../src/main/previews/policy";
 
@@ -79,7 +81,7 @@ beforeEach(() => {
     handle.close = () => io.close(fd);
     return handle;
   });
-  base = fs.mkdtempSync(path.join(os.tmpdir(), "foom-preview-"));
+  base = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "foom-preview-")));
   root = path.join(base, "tree");
   outside = path.join(base, "outside");
   fs.mkdirSync(path.join(root, "docs", "assets"), { recursive: true });
@@ -404,6 +406,94 @@ test("retains a picker alias when an alternate parent path names the checkout", 
     root: { path: fs.realpathSync.native(checkout) },
     relative: "docs/page.html",
   });
+});
+
+test.each([".git", "bare.git"])(
+  "a picker alias through %s falls back and is neither served nor watched",
+  async (metadata) => {
+    gitSync(["init", "-q"], { cwd: outside });
+    const docs = path.join(outside, "docs");
+    fs.mkdirSync(docs);
+    fs.writeFileSync(path.join(docs, "page.html"), "<p>Checkout</p>");
+    if (metadata === "bare.git") gitSync(["init", "-q", "--bare", metadata], { cwd: outside });
+    const kind = process.platform === "win32" ? "junction" : "dir";
+    const alternate = path.join(base, "alternate");
+    fs.symlinkSync(outside, alternate, kind);
+    fs.symlinkSync(path.join(outside, metadata), path.join(outside, "via"), kind);
+    fs.symlinkSync(docs, path.join(outside, metadata, "return"), kind);
+    fs.symlinkSync(path.join(outside, metadata, "return"), path.join(outside, "direct"), kind);
+
+    const opened = await resolveDocument(path.join(alternate, "via", "return", "page.html"), true);
+    expect(opened).toMatchObject({ status: 200, relative: "docs/page.html" });
+    if (opened.status !== 200) throw new Error(opened.reason);
+    const watcher = new PreviewWatcher(opened.root.path, vi.fn());
+    const watch = vi.spyOn(fs, "watch").mockImplementation(() => {
+      throw new Error("A rejected path must not reach fs.watch");
+    });
+    try {
+      const origin = "foom-preview://id";
+      for (const relative of ["via/return/page.html", "direct/page.html"]) {
+        expect(
+          await readPreview(opened.root, `${origin}/${relative}`, origin, watcher.recorder()),
+        ).toMatchObject({ status: 403 });
+        await watcher.record(path.join(outside, relative));
+      }
+      expect(watch).not.toHaveBeenCalled();
+    } finally {
+      watcher.close();
+    }
+  },
+);
+
+test("a retained picker alias cannot serve a file after retargeting to bare metadata", async () => {
+  gitSync(["init", "-q"], { cwd: outside });
+  const docs = path.join(outside, "docs");
+  fs.mkdirSync(docs);
+  fs.writeFileSync(path.join(docs, "page.html"), "<p>Checkout</p>");
+  const kind = process.platform === "win32" ? "junction" : "dir";
+  const alternate = path.join(base, "alternate");
+  fs.symlinkSync(outside, alternate, kind);
+  const alias = path.join(outside, "alias");
+  fs.symlinkSync(docs, alias, kind);
+  const opened = await resolveDocument(path.join(alternate, "alias", "page.html"), true);
+  expect(opened).toMatchObject({ status: 200, relative: "alias/page.html" });
+  if (opened.status !== 200) throw new Error(opened.reason);
+
+  const bare = path.join(outside, "bare.git");
+  gitSync(["init", "-q", "--bare", bare], { cwd: outside });
+  fs.writeFileSync(path.join(bare, "page.html"), "Bare repository contents");
+  fs.renameSync(alias, path.join(outside, "original-alias"));
+  fs.symlinkSync(bare, alias, kind);
+  const origin = "foom-preview://id";
+  const record = vi.fn();
+  expect(
+    await readPreview(opened.root, `${origin}/${opened.relative}`, origin, record),
+  ).toMatchObject({ status: 403, reason: "metadata" });
+  expect(record).not.toHaveBeenCalled();
+  expect(await readInside(opened.root, "/bare.git/page.html")).toMatchObject({ status: 403 });
+});
+
+test("an alias back to the checkout root stays watchable under an alternate picker prefix", async () => {
+  gitSync(["init", "-q"], { cwd: outside });
+  const docs = path.join(outside, "docs");
+  fs.mkdirSync(docs);
+  fs.writeFileSync(path.join(docs, "page.html"), "<p>Checkout</p>");
+  const kind = process.platform === "win32" ? "junction" : "dir";
+  const alternate = path.join(base, "alternate");
+  fs.symlinkSync(outside, alternate, kind);
+  const back = path.join(outside, "back");
+  fs.symlinkSync(outside, back, kind);
+  const opened = await resolveDocument(path.join(alternate, "back", "docs", "page.html"), true);
+  expect(opened).toMatchObject({ status: 200, relative: "back/docs/page.html" });
+  if (opened.status !== 200) throw new Error(opened.reason);
+  const replacement = path.join(outside, "replacement");
+  fs.mkdirSync(path.join(replacement, "docs"), { recursive: true });
+  fs.writeFileSync(path.join(replacement, "docs", "page.html"), "<p>Retargeted</p>");
+  fs.renameSync(back, path.join(outside, "original-back"));
+  fs.symlinkSync(replacement, back, kind);
+  const result = await readInside(opened.root, `/${opened.relative}`);
+  if (result.status !== 200) throw new Error(result.reason);
+  expect(result.body.toString("utf8")).toBe("<p>Retargeted</p>");
 });
 
 test("serves pages, relative assets and directory indexes from owned handles", async () => {
@@ -799,6 +889,47 @@ test.skipIf(!links)("keeps the canonical root captured before a root path swap",
   fs.symlinkSync(outside, root, "dir");
   expect(await openInside(captured, "/secret.txt")).toEqual({ status: 403, reason: "escape" });
 });
+
+test.skipIf(!links || process.platform === "win32")(
+  "an absolute junction target can use an ordinary Windows short spelling of the root",
+  async () => {
+    const short = path.join(base, "SHORT");
+    fs.mkdirSync(path.join(short, "docs"), { recursive: true });
+    const link = path.join(root, "alias");
+    fs.symlinkSync(path.join(short, "docs"), link, "dir");
+    const realpath = fs.promises.realpath;
+    vi.spyOn(fs.promises, "realpath").mockImplementation((file) =>
+      path.relative(short, file.toString()) === "" ? Promise.resolve(root) : realpath(file),
+    );
+    vi.stubGlobal("process", { ...process, platform: "win32" });
+    const request = path.join(link, "page.html");
+    expect(await walkPreviewPath(root, request)).toEqual({
+      missing: false,
+      watches: [
+        { directory: root, name: "alias" },
+        { directory: path.join(root, "docs"), name: "page.html" },
+      ],
+    });
+
+    fs.renameSync(short, path.join(base, "old-short"));
+    fs.symlinkSync(root, short, "dir");
+    expect(await walkPreviewPath(root, request)).toEqual({ status: 403, reason: "escape" });
+  },
+);
+
+test.skipIf(!links || process.platform === "win32")(
+  "relative links can go up within the root but cannot leave and reenter it",
+  async () => {
+    const docs = path.join(root, "docs");
+    fs.symlinkSync("../README.md", path.join(docs, "readme.txt"));
+    fs.symlinkSync("../tree/docs", path.join(root, "escape"), "dir");
+    expect(await body("/docs/readme.txt")).toBe("# readme");
+    expect(await readInside(captured, "/escape/page.html")).toEqual({
+      status: 403,
+      reason: "escape",
+    });
+  },
+);
 
 test.skipIf(process.platform === "win32" || !links)(
   "rechecks Windows alias targets even on POSIX",

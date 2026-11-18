@@ -310,14 +310,14 @@ test("preview requests yield while filesystem resolution is pending", async () =
   const { id } = await f.open();
   const serve = partition.protocol.handle.mock.calls[0]?.[1];
   if (!serve) throw new Error("Missing protocol");
-  const realpath = fs.promises.realpath;
+  const lstat = fs.promises.lstat;
   let release: () => void = () => {};
   const gate = new Promise<void>((resolve) => {
     release = resolve;
   });
-  const resolve = vi.spyOn(fs.promises, "realpath").mockImplementationOnce(async (file) => {
+  const resolve = vi.spyOn(fs.promises, "lstat").mockImplementationOnce(async (...args) => {
     await gate;
-    return realpath(file);
+    return lstat(...args);
   });
   const response = serve({ url: `foom-preview://${id}/a.html` });
   try {

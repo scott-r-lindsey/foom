@@ -126,20 +126,26 @@ async function boundaryAt(directory: string): Promise<"checkout" | "stop" | "non
       ? "checkout"
       : "stop";
   }
+  return (await isBareMetadata(directory)) ? "stop" : "none";
+}
+
+async function isBareMetadata(directory: string): Promise<boolean> {
   const head = await statEntry(path.join(directory, "HEAD"));
   if (
-    head?.isFile() &&
-    head.size <= MAX_GIT_FILE_BYTES &&
-    (await statEntry(path.join(directory, "objects"), true))?.isDirectory() &&
-    (await statEntry(path.join(directory, "refs"), true))?.isDirectory()
-  ) {
-    // --resolve-git-dir validates metadata without loading repository config.
-    const confirmed = await revParse(directory, directory, "--resolve-git-dir", ".").catch(
-      () => undefined,
-    );
-    if (confirmed) return "stop";
+    !head?.isFile() ||
+    head.size > MAX_GIT_FILE_BYTES ||
+    !(await statEntry(path.join(directory, "objects"), true))?.isDirectory() ||
+    !(await statEntry(path.join(directory, "refs"), true))?.isDirectory()
+  )
+    return false;
+  // --resolve-git-dir validates metadata without loading repository config.
+  try {
+    await revParse(directory, directory, "--resolve-git-dir", ".");
+    return true;
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === 128) return false;
+    throw error;
   }
-  return "none";
 }
 
 async function captureDirectory(directory: string): Promise<CanonicalRoot> {
@@ -182,18 +188,104 @@ async function previewRoot(directory: string): Promise<CanonicalRoot> {
 
 async function pickerRelativePath(root: string, file: string): Promise<string | undefined> {
   if (documentWithin(root, file)) return path.relative(root, file);
-  // Resolve only the prefix that names the root. Resolving the whole path
-  // would also follow the in-checkout junction that the picker should watch.
+  // Retain the suffix at its outermost checkout prefix. A deeper link can also
+  // resolve to the root and still be part of the entry that needs watching.
+  let relative: string | undefined;
   try {
     for (let parent = path.dirname(file); ; parent = path.dirname(parent)) {
       if (path.relative(root, await fs.promises.realpath(parent)) === "")
-        return path.relative(parent, file);
+        relative = path.relative(parent, file);
       if (parent === path.dirname(parent)) break;
     }
   } catch {
-    // A missing or unreadable alias prefix cannot supply an entry path.
+    // A missing or unreadable prefix cannot supply an entry path.
   }
-  return undefined;
+  return relative;
+}
+
+const nativeRealpath = promisify(fs.realpath.native);
+type WatchEntry = { directory: string; name: string };
+type WalkResult = { watches: WatchEntry[]; missing: boolean } | { status: 403; reason: string };
+
+async function absoluteLinkPath(root: string, target: string): Promise<string | undefined> {
+  const absolute =
+    process.platform === "win32"
+      ? target.replace(/^\\\\\?\\UNC\\/i, "\\\\").replace(/^\\\\\?\\/, "")
+      : target;
+  if (hasGitSegment(absolute) || pathSegments(absolute).includes("..")) return undefined;
+  if (documentWithin(root, absolute)) return path.relative(root, absolute);
+  if (process.platform !== "win32") return undefined;
+
+  // Windows junctions may store a short spelling for the checkout prefix.
+  // Accept a spelling alias only through ordinary directory entries.
+  const relative = await pickerRelativePath(root, absolute);
+  if (relative === undefined) return undefined;
+  let prefix = absolute;
+  for (let count = relative.split(path.sep).filter(Boolean).length; count > 0; count--)
+    prefix = path.dirname(prefix);
+  for (let directory = prefix; ; directory = path.dirname(directory)) {
+    if (!(await statEntry(directory))?.isDirectory()) return undefined;
+    if (directory === path.dirname(directory)) return relative;
+  }
+}
+
+/** Inspect each link and directory before serving bytes or registering a watch. */
+export async function walkPreviewPath(root: string, file: string): Promise<WalkResult> {
+  const initial = targetRefusal(root, file);
+  if (initial) return initial;
+  const watches: WatchEntry[] = [];
+  let directory = root;
+  let pending = path.relative(root, file).split(path.sep);
+  let links = 0;
+  try {
+    if (!(await statEntry(root))?.isDirectory()) return { status: 403, reason: "escape" };
+    if (hasGitSegment(root) || (await isBareMetadata(root)))
+      return { status: 403, reason: "metadata" };
+    for (let index = 0; index < pending.length; index++) {
+      const name = pending[index];
+      if (!name || name === ".") continue;
+      if (name === "..") {
+        if (directory === root) return { status: 403, reason: "escape" };
+        directory = path.dirname(directory);
+        continue;
+      }
+      const entry = path.join(directory, name);
+      const refused = targetRefusal(root, entry);
+      if (refused) return refused;
+      const stat = await statEntry(entry);
+      if (!stat || stat.isSymbolicLink() || index === pending.length - 1)
+        watches.push({ directory, name });
+      if (!stat) return { watches, missing: true };
+      if (stat.isSymbolicLink()) {
+        if (++links > 40) return { watches, missing: true };
+        const link = await fs.promises.readlink(entry);
+        if (path.isAbsolute(link)) {
+          if (hasGitSegment(link)) return { status: 403, reason: "target-hidden" };
+          const relative = await absoluteLinkPath(root, link);
+          if (relative === undefined) return { status: 403, reason: "escape" };
+          directory = root;
+          pending = [...relative.split(path.sep), ...pending.slice(index + 1)];
+        } else {
+          if (path.parse(link).root) return { status: 403, reason: "escape" };
+          pending = [
+            ...link.split(process.platform === "win32" ? /[\\/]/ : "/"),
+            ...pending.slice(index + 1),
+          ];
+        }
+        index = -1;
+      } else if (stat.isDirectory()) {
+        directory = process.platform === "win32" ? await nativeRealpath(entry) : entry;
+        const resolvedRefusal = targetRefusal(root, directory);
+        if (resolvedRefusal) return resolvedRefusal;
+        if (await isBareMetadata(directory)) return { status: 403, reason: "metadata" };
+      } else if (index < pending.length - 1) {
+        return { watches, missing: true };
+      }
+    }
+    return { watches, missing: false };
+  } catch {
+    return { status: 403, reason: "unavailable-path" };
+  }
 }
 
 /** Resolve the document before selecting the scope of its browser origin. */
@@ -230,8 +322,15 @@ export async function resolveDocument(
   } catch {
     return { status: 404, reason: "unreadable" };
   }
-  const picked = preserveAlias ? await pickerRelativePath(root.path, file) : undefined;
-  const relative = (picked ?? path.relative(root.path, real)).split(path.sep).join("/");
+  let relative = path.relative(root.path, real);
+  if (preserveAlias) {
+    const picked = await pickerRelativePath(root.path, file);
+    if (picked !== undefined) {
+      const route = await walkPreviewPath(root.path, path.join(root.path, picked));
+      if ("watches" in route && !route.missing) relative = picked;
+    }
+  }
+  relative = relative.split(path.sep).join("/");
   const opened = await openDocument(root, documentPathname(relative));
   if (opened.status !== 200) return opened;
   try {
@@ -245,7 +344,7 @@ export async function resolveDocument(
   return { status: 200, root, real, relative, type: opened.type };
 }
 
-function targetRefusal(root: string, real: string): Refusal | undefined {
+function targetRefusal(root: string, real: string): { status: 403; reason: string } | undefined {
   if (!inside(root, real, path.sep)) return { status: 403, reason: "escape" };
   const relative = path.relative(root, real);
   // Symlinks and replaced ancestors can land on names the URL could not name.
@@ -262,22 +361,26 @@ function targetRefusal(root: string, real: string): Refusal | undefined {
 export async function openInside(
   root: CanonicalRoot,
   pathname: unknown,
-  recordMissing?: (file: string) => void,
+  recordMissing?: (file: string) => void | Promise<void>,
 ): Promise<OpenedFile | Refusal> {
   const parsed = segmentsFor(pathname);
   if ("error" in parsed) return { status: 400, reason: parsed.error };
   let candidate = path.join(root.path, ...parsed.segments);
   let real: string;
+  const initial = await walkPreviewPath(root.path, candidate);
+  if ("status" in initial) return initial;
   try {
     real = await fs.promises.realpath(candidate);
     if (!inside(root.path, real, path.sep)) return { status: 403, reason: "escape" };
     if ((await fs.promises.stat(real)).isDirectory()) {
-      candidate = path.join(real, "index.html");
+      candidate = path.join(candidate, "index.html");
+      const indexRoute = await walkPreviewPath(root.path, candidate);
+      if ("status" in indexRoute) return indexRoute;
       real = await fs.promises.realpath(candidate);
       if (!inside(root.path, real, path.sep)) return { status: 403, reason: "escape" };
     }
   } catch {
-    recordMissing?.(candidate);
+    await recordMissing?.(candidate);
     return { status: 404, reason: "missing" };
   }
   const recheck = targetRefusal(root.path, real);
@@ -313,6 +416,11 @@ export async function openInside(
         return { status: 403, reason: "not-file" };
       }
     }
+    for (const file of new Set([candidate, verified])) {
+      const route = await walkPreviewPath(root.path, file);
+      if ("status" in route) return route;
+      if (route.missing) return { status: 404, reason: "missing" };
+    }
     const currentRoot = await fs.promises.stat(root.path, { bigint: true });
     if (
       !currentRoot.isDirectory() ||
@@ -331,7 +439,7 @@ export async function openInside(
     transferred = true;
     return { status: 200, handle, real, relative, size: Number(stat.size), type };
   } catch {
-    recordMissing?.(real);
+    await recordMissing?.(real);
     return { status: 404, reason: "unreadable" };
   } finally {
     if (!transferred) await handle?.close();
@@ -341,7 +449,7 @@ export async function openInside(
 export async function readInside(
   root: CanonicalRoot,
   pathname: unknown,
-  recordMissing?: (file: string) => void,
+  recordMissing?: (file: string) => void | Promise<void>,
 ): Promise<ReadFile | Refusal> {
   const opened = await openInside(root, pathname, recordMissing);
   if (opened.status !== 200) return opened;
@@ -380,15 +488,15 @@ export async function readPreview(
   root: CanonicalRoot,
   url: unknown,
   origin: string,
-  record?: (file: string) => void,
+  record?: (file: string) => void | Promise<void>,
   network = false,
 ): Promise<(ReadFile | Refusal) & { headers: Record<string, string> }> {
   const parsed = pathnameFor(url, origin);
   const result = "pathname" in parsed ? await readInside(root, parsed.pathname, record) : parsed;
   if ("pathname" in parsed && (result.status === 200 || result.status === 404)) {
     const segments = segmentsFor(parsed.pathname);
-    if ("segments" in segments) record?.(path.join(root.path, ...segments.segments));
-    if (result.status === 200) record?.(result.real);
+    if ("segments" in segments) await record?.(path.join(root.path, ...segments.segments));
+    if (result.status === 200) await record?.(result.real);
   }
   return {
     ...result,
