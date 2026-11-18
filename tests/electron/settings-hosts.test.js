@@ -2535,6 +2535,68 @@ test("Hosts shows a changed SSH key when saving the checklist fails", {
   await expect(ssh.getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
 });
 
+test("Hosts orders SSH checks across two open Settings windows", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, updateScenario } = await hostsFixture(context);
+  await page.evaluate(() => window.desktop.appMenu.execute("new-window"));
+  await expect
+    .poll(() => app.windows().filter((window) => window.url() === "app://bundle/index.html").length)
+    .toBe(2);
+  const other = app
+    .windows()
+    .find((window) => window !== page && window.url() === "app://bundle/index.html");
+  await openSettingsScreen(other);
+  await other
+    .getByRole("navigation", { name: "Settings sections" })
+    .getByRole("button", { name: "Hosts", exact: true })
+    .click();
+  const otherCard = other.getByRole("region", { name: "fixture-cloud", exact: true });
+  const check = (hostCard) =>
+    hostCard.getByRole("button", { name: "Check capabilities", exact: true });
+  const ssh = (hostCard) =>
+    hostCard.locator(".host-check-row").filter({
+      has: hostCard.page().getByRole("button", { name: "Reload SSH", exact: true }),
+    });
+  const checkedAt = (hostCard) => hostCard.locator(".host-footer time").getAttribute("datetime");
+  const previous = await checkedAt(card);
+  await check(card).click();
+  await expect.poll(() => checkedAt(card)).not.toBe(previous);
+  await card.getByText("Host facts", { exact: true }).click();
+  const panel = card.locator(".host-details");
+  const refresh = panel.getByRole("button", { name: "Refresh facts", exact: true });
+
+  await updateScenario({ sshFailure: "changed" });
+  await check(otherCard).click();
+  await expect(ssh(otherCard).getByText("Host key changed", { exact: true })).toBeVisible();
+  const changedAt = await checkedAt(otherCard);
+  await expect(card.locator(".host-footer time")).toHaveAttribute("datetime", changedAt);
+  await refresh.click();
+  await expect(panel.getByText("Host key changed", { exact: true })).toBeVisible();
+  await expect(ssh(card).getByText("Host key changed", { exact: true })).toBeVisible();
+
+  const profile = await app.evaluate(({ app }) => app.getPath("userData"));
+  try {
+    await chmod(profile, 0o555);
+    await check(card).click();
+    await expect(page.getByText("Unable to update hosts", { exact: true })).toBeVisible();
+    await expect(ssh(card).getByText("Host key changed", { exact: true })).toBeVisible();
+    await expect(card.locator(".host-footer time")).toHaveAttribute("datetime", changedAt);
+  } finally {
+    await chmod(profile, 0o700);
+  }
+
+  await updateScenario({});
+  await check(otherCard).click();
+  await expect(ssh(otherCard).getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
+  const restoredAt = await checkedAt(otherCard);
+  await expect(card.locator(".host-footer time")).toHaveAttribute("datetime", restoredAt);
+  await refresh.click();
+  await expect(panel.getByText("CPU cores", { exact: true })).toBeVisible();
+  await expect(ssh(card).getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
+});
+
 test("Hosts preserves a changed SSH key warning when a queued trust attempt is refused", {
   skip: process.platform === "win32",
   timeout: deadline(60000),

@@ -614,8 +614,21 @@ test("a failed checklist write returns the actual SSH result and retains the sav
   const checked = await hosts.action(check);
   expect(checked.preflightSaveFailed).toBe(true);
   expect(checked.preflight?.ssh).toEqual({ state: "fail", reason: "host-key-changed" });
+  expect(checked.preflight?.sshRevision).toBeGreaterThan(saved?.preflight.sshRevision ?? 0);
   expect(checked.hosts[0]?.observation).toEqual(saved);
   expect(settings.registeredHosts[0]?.observation).toEqual(saved);
+
+  const recovered = await hosts.action({
+    action: "reload",
+    host: "worker",
+    target: { kind: "ssh" },
+  });
+  expect(recovered.preflight?.ssh).toEqual({ state: "pass" });
+  expect(recovered.preflight?.sshRevision).toBeGreaterThan(checked.preflight?.sshRevision ?? 0);
+  expect(recovered.hosts[0]?.observation?.preflight.sshRevision).toBe(
+    recovered.preflight?.sshRevision,
+  );
+  expect(recovered.hosts[0]?.observation?.checkedAt).toBe(saved?.checkedAt);
 });
 
 test("recovery placements are profile-owned, registered, and bound to the hashed host/path checkout key", async () => {

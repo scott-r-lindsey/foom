@@ -77,6 +77,7 @@ const ReloadContext = createContext<
   | undefined
 >(undefined);
 const rowKey = (target: HostCheckTarget) => JSON.stringify(target);
+const sshRowKey = rowKey({ kind: "ssh" });
 function reloadName(target: HostCheckTarget): string {
   if ("tool" in target)
     return `${agentNames.get(target.tool) ?? target.tool}${target.kind === "sign-in" ? " sign-in" : ""}`;
@@ -690,6 +691,19 @@ export function HostsSettings({
   const [checks, setChecks] = useState<ReadonlyMap<string, HostPreflight>>(
     () => new Map<string, HostPreflight>(),
   );
+  const rememberChecklist = useCallback(
+    (host: string, preflight: HostPreflight | undefined, removed = false) => {
+      setChecks((previous) => {
+        if (!removed && (preflight?.sshRevision ?? 0) < (previous.get(host)?.sshRevision ?? 0))
+          return previous;
+        const updated = new Map(previous);
+        if (preflight) updated.set(host, preflight);
+        else updated.delete(host);
+        return updated;
+      });
+    },
+    [],
+  );
   const [adding, setAdding] = useState(false);
   const [host, setHost] = useState("");
   const [folder, setFolder] = useState("~/foom");
@@ -761,7 +775,10 @@ export function HostsSettings({
       await api?.({ action: "list" })
         .then((next) => {
           setState(next);
-          setChecks(new Map());
+          setChecks(
+            (previous) =>
+              new Map([...previous].filter(([, check]) => check.sshRevision !== undefined)),
+          );
         })
         .catch(() => {
           setError("Unable to refresh tool");
@@ -777,18 +794,13 @@ export function HostsSettings({
         const next = await api?.({ action: "reload", host, target: { kind: "tool", tool: "gh" } });
         if (next) {
           setState(next);
-          setChecks((previous) => {
-            const updated = new Map(previous);
-            if (next.preflight) updated.set(host, next.preflight);
-            else updated.delete(host);
-            return updated;
-          });
+          rememberChecklist(host, next.preflight);
         }
       } catch {
         setError("Unable to refresh tool");
       }
     },
-    [api, setState],
+    [api, rememberChecklist, setState],
   );
   const changedRef = useRef(false);
   const [expanded, setExpanded] = useState<ReadonlyMap<string, boolean>>(() =>
@@ -897,16 +909,17 @@ export function HostsSettings({
         ["preflight", "add", "remove"].includes(action.action)
       )
         setRowFailed(
-          (previous) => new Set([...previous].filter((key) => !key.startsWith(`${action.host}:`))),
+          (previous) =>
+            new Map([...previous].filter(([key]) => !key.startsWith(`${action.host}:`))),
         );
       applyState(next, target, startedRename);
       if (action.action === "preflight" && next.preflight) {
         const preflight = next.preflight;
-        setChecks((previous) => new Map(previous).set(action.host, preflight));
+        rememberChecklist(action.host, preflight);
         if (next.preflightSaveFailed && preflight.ssh.state !== "not-checked") {
-          const key = `${action.host}:${rowKey({ kind: "ssh" })}`;
+          const key = `${action.host}:${sshRowKey}`;
           setRowFailed((previous) => {
-            const updated = new Set(previous);
+            const updated = new Map(previous);
             updated.delete(key);
             return updated;
           });
@@ -953,12 +966,7 @@ export function HostsSettings({
         const observed =
           next.preflight ??
           next.hosts.find((entry) => entry.host === action.host)?.observation?.preflight;
-        setChecks((previous) => {
-          const updated = new Map(previous);
-          if (observed) updated.set(action.host, observed);
-          else updated.delete(action.host);
-          return updated;
-        });
+        rememberChecklist(action.host, observed, action.action === "remove");
       }
       if (action.action === "add") {
         const entry = next.hosts.find((entry) => entry.host === action.host);
@@ -966,10 +974,7 @@ export function HostsSettings({
           next = await runCheck(entry.host, entry.codeFolder);
           if (next) {
             applyState(next, target, startedRename);
-            if (next.preflight) {
-              const preflight = next.preflight;
-              setChecks((previous) => new Map(previous).set(entry.host, preflight));
-            }
+            if (next.preflight) rememberChecklist(entry.host, next.preflight);
           }
         }
       }
@@ -986,15 +991,15 @@ export function HostsSettings({
       if (enrolling) setAddBusy(false);
     }
   };
-  const [rowFailed, setRowFailed] = useState<ReadonlySet<string>>(() => new Set());
-  const reload = async (host: string, target: HostCheckTarget) => {
+  const [rowFailed, setRowFailed] = useState<ReadonlyMap<string, number>>(() => new Map());
+  const reload = async (host: string, target: HostCheckTarget, sshRevision: number) => {
     clearRecipe(host);
     const key = `${host}:${rowKey(target)}`;
     setExpanded((previous) => new Map(previous).set(host, true));
     setError("");
     setRowPending((previous) => new Set(previous).add(key));
     setRowFailed((previous) => {
-      const next = new Set(previous);
+      const next = new Map(previous);
       next.delete(key);
       return next;
     });
@@ -1002,13 +1007,10 @@ export function HostsSettings({
       const next = await api?.({ action: "reload", host, target });
       if (next) {
         applyState(next, host);
-        if (next.preflight) {
-          const preflight = next.preflight;
-          setChecks((previous) => new Map(previous).set(host, preflight));
-        }
+        if (next.preflight) rememberChecklist(host, next.preflight);
       }
     } catch {
-      setRowFailed((previous) => new Set(previous).add(key));
+      setRowFailed((previous) => new Map(previous).set(key, sshRevision));
     } finally {
       setRowPending((previous) => {
         const next = new Set(previous);
@@ -1138,10 +1140,14 @@ export function HostsSettings({
       )}
       {state.hosts.map((entry) => {
         const recipe = recipes.get(entry.host);
-        const preflight = buildPreflight(
-          checks.get(entry.host) ?? entry.observation?.preflight,
-          state.remoteHostsAvailable,
-        );
+        const local = checks.get(entry.host);
+        const saved = entry.observation?.preflight;
+        const latest =
+          saved?.sshRevision !== undefined && saved.sshRevision >= (local?.sshRevision ?? 0)
+            ? saved
+            : (local ?? saved);
+        const sshRevision = latest?.sshRevision ?? 0;
+        const preflight = buildPreflight(latest, state.remoteHostsAvailable);
         const hostProgress = progress?.find((item) => item.host === entry.host);
         const checkouts = (hostProgress?.repositories ?? preflight?.repositories ?? []).flatMap(
           ({ repository, checkout: result }) =>
@@ -1266,7 +1272,7 @@ export function HostsSettings({
               <ReloadContext
                 value={{
                   reload: (target) => {
-                    void reload(entry.host, target);
+                    void reload(entry.host, target, sshRevision);
                   },
                   needsFullCheck:
                     (preflight?.result ?? entry.result)?.ok !== true || summary === "Not checked",
@@ -1277,8 +1283,12 @@ export function HostsSettings({
                   ),
                   failed: new Set([
                     ...[...rowFailed]
-                      .filter((key) => key.startsWith(`${entry.host}:`))
-                      .map((key) => key.slice(entry.host.length + 1)),
+                      .filter(
+                        ([key, failedAt]) =>
+                          key.startsWith(`${entry.host}:`) &&
+                          (key !== `${entry.host}:${sshRowKey}` || failedAt >= sshRevision),
+                      )
+                      .map(([key]) => key.slice(entry.host.length + 1)),
                     ...(entry.rowFailures ?? []).map((row) => rowKey(row.target)),
                   ]),
                   pending: new Set(

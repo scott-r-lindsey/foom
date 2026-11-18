@@ -583,6 +583,7 @@ const validHostResult: Validator<HostResult> = either(
 );
 const validHostPreflight = shape({
   ssh: validHostCheck,
+  sshRevision: either(absent, count),
   platform: validHostCheck,
   artifact: validHostCheck,
   result: validHostResult,

@@ -54,6 +54,8 @@ export interface HostConnectionChecks {
   artifact: HostCheck;
 }
 export interface HostPreflight extends HostConnectionChecks {
+  /** Main-assigned order of the SSH check, independent of Last checked. */
+  sshRevision?: number;
   result: HostResult;
   repositories: readonly { repository: string; origin: HostCheck; checkout: HostResult }[];
 }

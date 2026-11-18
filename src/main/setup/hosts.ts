@@ -982,6 +982,11 @@ export class Hosts {
     }
     return preflight;
   }
+  private sshRevision = 0;
+  private nextSshRevision(previous: HostPreflight | undefined): number {
+    this.sshRevision = Math.max(this.sshRevision, previous?.sshRevision ?? 0) + 1;
+    return this.sshRevision;
+  }
   private async reloadRow(
     host: string,
     target: HostCheckTarget,
@@ -1022,8 +1027,10 @@ export class Hosts {
     const displayed = previous?.result ?? this.results.get(host);
     const connectionRow = ["ssh", "platform", "artifact"].includes(target.kind);
     const failedConnection = !result.ok && (connectionRow || connectionFailure(result));
-    if (!previous && !this.results.has(host) && failedConnection)
-      return { ...connectionChecks(result), result, repositories: [] };
+    const sshRevision =
+      failedConnection || connectionRow ? this.nextSshRevision(previous) : undefined;
+    if (!previous && !this.results.has(host) && !result.ok && sshRevision !== undefined)
+      return { ...connectionChecks(result), sshRevision, result, repositories: [] };
     if (
       !failedConnection &&
       (target.kind === "power" || target.kind === "command-line-tools") &&
@@ -1050,7 +1057,7 @@ export class Hosts {
       ? { state: "pass" }
       : { state: "fail", reason: result.reason };
     const change = (previous: HostPreflight): HostPreflight => {
-      if (failedConnection || connectionRow) {
+      if (sshRevision !== undefined) {
         const connection = connectionChecks(result);
         const recovering = result.ok && !previous.result.ok;
         const next = !result.ok
@@ -1064,6 +1071,7 @@ export class Hosts {
         return {
           ...previous,
           ...connection,
+          sshRevision,
           result: next,
           repositories:
             failedConnection || recovering
@@ -1466,7 +1474,10 @@ export class Hosts {
                 this.cancellation.signal,
               );
           try {
-            const preflight = await this.preflight(input.host, input.codeFolder, connection);
+            const preflight: HostPreflight = {
+              ...(await this.preflight(input.host, input.codeFolder, connection)),
+              sshRevision: this.nextSshRevision(registration?.observation?.preflight),
+            };
             let preflightSaveFailed = false;
             if (registration) {
               this.resourceResults.delete(input.host);

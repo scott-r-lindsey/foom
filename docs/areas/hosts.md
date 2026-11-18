@@ -771,10 +771,12 @@ A partial seed never stands in for the full location inventory. Scoped
 observations may update only the corresponding fields of an existing live
 inventory, without renewing its freshness; saved observations never populate it.
 Resource refresh replies remain separate from the launch inventory when no live
-inventory exists or a full read is pending. Refresh facts retains the displayed
-checklist, including an SSH result that could not be saved. A resource refresh
-failure appears under Host facts, including when the checklist shows the same
-reason. Refresh facts inspects resources before reading session and worktree
+inventory exists or a full read is pending. Main assigns an increasing revision
+to each checklist observation of SSH independently of Last checked. Settings
+uses the newest checklist even when it came from another window or could not be
+saved. Refresh facts preserves this ordering. A resource refresh failure
+appears under Host facts, including when the checklist shows the same reason.
+Refresh facts inspects resources before reading session and worktree
 inventories. If scoped facts require a daemon
 update, Foom shows that reason and still tries both inventory endpoints. Other
 inspection failures end the refresh after recording the reason.

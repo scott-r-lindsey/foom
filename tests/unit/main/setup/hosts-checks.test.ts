@@ -679,8 +679,12 @@ test.each(["artifact-unavailable", "unreachable", "version-mismatch", "invalid-r
       target: { kind: "artifact" },
     });
     const reopened = await hosts.action({ action: "list" });
-    expect(reload.preflight).toEqual(full.preflight);
-    expect(reopened.hosts[0]?.observation?.preflight).toEqual(full.preflight);
+    expect(reload.preflight?.sshRevision).toBeGreaterThan(full.preflight?.sshRevision ?? 0);
+    expect(reload.preflight).toEqual({
+      ...full.preflight,
+      sshRevision: reload.preflight?.sshRevision,
+    });
+    expect(reopened.hosts[0]?.observation?.preflight).toEqual(reload.preflight);
     expect(full.preflight?.repositories).toEqual([]);
     expect(execute.mock.calls.every(([, request]) => request.operation === "inspect")).toBe(true);
   },

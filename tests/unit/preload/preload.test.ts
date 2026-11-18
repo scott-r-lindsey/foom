@@ -1700,6 +1700,7 @@ test("preflight bridge validates and rebuilds every partial observation", async 
     locations: [],
     preflight: {
       ssh: { state: "pass" },
+      sshRevision: 2,
       platform: { state: "not-checked" },
       artifact: check,
       result,
@@ -1714,6 +1715,7 @@ test("preflight bridge validates and rebuilds every partial observation", async 
   ).resolves.toEqual(value);
   for (const bad of [
     { ...value.preflight, ssh: { state: "raw" } },
+    { ...value.preflight, sshRevision: -1 },
     { ...value.preflight, artifact: { state: "fail", reason: "secret" } },
     {
       ...value.preflight,
