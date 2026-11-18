@@ -115,9 +115,16 @@ const previewMock = vi.hoisted(() => ({
   popout: undefined as ((id: string) => Promise<void>) | undefined,
   humanClose: undefined as ((id: string) => void) | undefined,
   pick: undefined as ((worktree: string) => Promise<string | null>) | undefined,
-  pickFile: vi.fn(() => Promise.resolve("a".repeat(32))),
+  pickFile: vi.fn(
+    (
+      _window: unknown,
+      _host: unknown,
+      _validate: (worktree: string) => Promise<void>,
+      _worktree: string,
+    ) => Promise.resolve("a".repeat(32)),
+  ),
   hosts: [] as {
-    validate: (worktree: string) => Promise<void>;
+    validate: (root: string, relativePath: string) => Promise<void>;
     changed: () => void;
     confirm: (content: unknown, signal: AbortSignal) => Promise<boolean>;
     reconcile: () => Promise<void>;
@@ -159,7 +166,7 @@ vi.mock("../../../src/main/previews/host", () => ({
     constructor(
       _window: unknown,
       _registry: unknown,
-      validate: (worktree: string) => Promise<void>,
+      validate: (root: string, relativePath: string) => Promise<void>,
       changed: () => void,
       confirm: (content: unknown, signal: AbortSignal) => Promise<boolean>,
       _bundledRoot: string | undefined,

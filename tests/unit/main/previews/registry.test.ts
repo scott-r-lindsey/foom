@@ -38,7 +38,7 @@ test("only opaque IDs and contained preview document paths are valid", () => {
     "CON.html",
     "a\\b.html",
     "a.css",
-    "a".repeat(1025) + ".html",
+    "a".repeat(4097) + ".html",
   ])
     expect(previewPath(value)).toBe(false);
 });

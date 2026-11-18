@@ -71,6 +71,7 @@ beforeEach(() => {
   tree = join(root, "tree");
   mkdirSync(join(tree, "docs"), { recursive: true });
   mkdirSync(join(root, "other"));
+  mkdirSync(join(tree, ".git"));
   writeFileSync(join(tree, "docs", "plan.md"), "# plan");
   writeFileSync(join(tree, "mockup.html"), "<h1>mock</h1>");
   for (let i = 0; i < 8; i++) writeFileSync(join(tree, `p${String(i)}.md`), `# ${String(i)}`);
@@ -190,15 +191,27 @@ it("validates reuse after asynchronous placement and maps backend failures", asy
   });
   await expect(open("docs/plan.md")).rejects.toMatchObject({ code: "not_found" });
 });
-it("refuses traversal, hidden names, unsupported types, missing files and malformed input", async () => {
+it("opens absolute and relative paths outside the launch checkout, including under another checkout", async () => {
+  const outside = join(root, "other", "secret.md");
+  const first = id(await open("../other/secret.md"));
+  expect(await open(outside)).toMatchObject({ previewId: first, path: "secret.md", reused: true });
+  expect(board.previews.get(first)?.preview.worktree).toBe(fs.realpathSync(join(root, "other")));
+  const child = join(root, "child");
+  mkdirSync(join(child, "docs"), { recursive: true });
+  writeFileSync(join(child, ".git"), "gitdir: ../tree/.git/worktrees/child");
+  writeFileSync(join(child, "docs", "page.html"), "<h1>Child</h1>");
+  const second = id(
+    await open(join(child, "docs", "page.html"), { ...actor, role: "orchestrator" }),
+  );
+  expect(board.previews.get(second)?.preview).toMatchObject({
+    worktree: fs.realpathSync(child),
+    path: "docs/page.html",
+    kind: "html",
+  });
+});
+it("refuses hidden names, unsupported types, missing files and malformed input", async () => {
   broker = new PreviewBroker(board, audit, active, () => now, { ...PREVIEW_LIMITS, burst: 100 });
-  for (const path of [
-    "../other/secret.md",
-    join(root, "other", "secret.md"),
-    ".env.md",
-    "/etc/hostname.md",
-  ])
-    await expect(open(path)).rejects.toMatchObject({ code: "forbidden" });
+  await expect(open(".env.md")).rejects.toMatchObject({ code: "forbidden" });
   for (const input of [
     null,
     [],
@@ -223,17 +236,18 @@ it("refuses traversal, hidden names, unsupported types, missing files and malfor
   truncateSync(big, 2 * 1024 * 1024 + 1);
   await expect(open("big.md")).rejects.toMatchObject({ code: "invalid_request" });
   rmSync(tree, { recursive: true });
-  await expect(open("p0.md")).rejects.toMatchObject({ code: "unavailable" });
+  await expect(open("p0.md")).rejects.toMatchObject({ code: "not_found" });
 });
 it.skipIf(process.platform === "win32")(
-  "refuses symlink escapes, hidden targets and unsupported targets; reuses contained aliases",
+  "reuses aliases to canonical entries and refuses hidden and unsupported targets",
   async () => {
     symlinkSync(join(root, "other", "secret.md"), join(tree, "escape.md"));
     symlinkSync(join(tree, ".env.md"), join(tree, "hidden-link.md"));
     symlinkSync(join(tree, "notes.txt"), join(tree, "text-link.md"));
     symlinkSync(join(tree, "docs", "plan.md"), join(tree, "link.md"));
-    for (const path of ["escape.md", "hidden-link.md"])
-      await expect(open(path)).rejects.toMatchObject({ code: "forbidden" });
+    const outside = id(await open("escape.md"));
+    expect(await open("../other/secret.md")).toMatchObject({ previewId: outside, reused: true });
+    await expect(open("hidden-link.md")).rejects.toMatchObject({ code: "forbidden" });
     await expect(open("text-link.md")).rejects.toMatchObject({ code: "invalid_request" });
     const first = id(await open("link.md"));
     expect(await open("docs/plan.md")).toMatchObject({ previewId: first, reused: true });

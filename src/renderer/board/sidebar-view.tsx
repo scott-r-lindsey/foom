@@ -81,6 +81,7 @@ export function Sidebar(props: SidebarProps) {
     configPanel,
     session,
     previewRow,
+    otherPreviews,
     panel,
     matchingPreviews,
   } = useSidebar(props);
@@ -261,6 +262,7 @@ export function Sidebar(props: SidebarProps) {
             </div>
           )}
           {compact && matchingPreviews.map(previewRow)}
+          {otherPreviews.map(previewRow)}
 
           {(source.getMachines?.() ?? []).length > 0 && (
             <div className="machine-list" role="group" aria-label="Machines">

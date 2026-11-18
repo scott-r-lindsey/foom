@@ -174,7 +174,7 @@ test("network needs disclosure, updates both policies, reloads and persists only
   expect(f.registry.records.get(id)?.network).toBe(false);
   expect(confirm).toHaveBeenCalledWith(
     expect.objectContaining({
-      detail: "This page can send files from this worktree to the internet",
+      detail: "This page can send files from its preview root to the internet",
     }),
     expect.any(AbortSignal),
   );

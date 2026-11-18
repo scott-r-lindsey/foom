@@ -258,7 +258,7 @@ export async function buildWindow(
   const previewHost = new PreviewHost(
     window,
     new PreviewRegistry(path.join(app.getPath("userData"), `previews-${windowId}.json`)),
-    wiring.validatePreviewWorktree,
+    wiring.validatePreviewRoot,
     () => {
       if (!window.isDestroyed() && !window.webContents.isDestroyed())
         window.webContents.send("workspace:changed");
@@ -278,7 +278,7 @@ export async function buildWindow(
   const disposePreviews = attachPreviews(
     ipc,
     previewHost,
-    (worktree) => pickPreviewFile(window, previewHost, wiring.validatePreviewWorktree, worktree),
+    (worktree) => pickPreviewFile(window, previewHost, wiring.validatePreviewPicker, worktree),
     (id) =>
       wiring.moves.popout(window.id, async () => {
         const targetWindow = await wiring.createWindow();

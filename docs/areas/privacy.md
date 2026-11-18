@@ -229,3 +229,8 @@ or credential is copied into the notice. Screen matching stays local and is not
 retained as wake evidence. Durable operations retain metadata and input
 fingerprints, not the submitted notice. See the
 [best-effort delivery and residual race](../orchestration.md#opt-in-idle-orchestrator-wake-548).
+
+## Preview files (#1209)
+
+See the [preview privacy contract](../contracts/control-privacy.md#preview-files-1209)
+for local file selection, script scope and control-plane metadata.

@@ -1,5 +1,6 @@
 import { validImage } from "./image";
 import fs from "node:fs";
+import type { BigIntStats } from "node:fs";
 import type { FileHandle } from "node:fs/promises";
 import path from "node:path";
 import {
@@ -28,12 +29,106 @@ export interface CanonicalRoot {
   readonly ino: bigint;
 }
 
-/** Canonical worktree root, captured once when the preview opens. */
+/** Canonical directory root, captured once when the preview opens. */
 export function canonicalRoot(root: string): CanonicalRoot {
   const real = fs.realpathSync.native(root);
   const stat = fs.statSync(real, { bigint: true });
   if (!stat.isDirectory()) throw new Error("Preview root is not a directory");
   return { path: real, dev: stat.dev, ino: stat.ino };
+}
+
+export function documentWithin(directory: string, document: string): boolean {
+  const child = path.relative(directory, document);
+  return child !== ".." && !child.startsWith(`..${path.sep}`) && !path.isAbsolute(child);
+}
+
+const DOCUMENT_EXTENSION = /\.(md|markdown|html|htm|png|jpe?g|webp)$/i;
+
+export function documentPathname(relative: string): string {
+  return `/${relative.split("/").map(encodeURIComponent).join("/")}`;
+}
+
+async function isGitFile(file: string, marker: BigIntStats): Promise<boolean> {
+  if (!marker.isFile()) return false;
+  const handle = await fs.promises.open(file, openFlags(fs.constants));
+  try {
+    const opened = await handle.stat({ bigint: true });
+    if (!opened.isFile() || opened.dev !== marker.dev || opened.ino !== marker.ino) return false;
+    const prefix = Buffer.alloc(8);
+    const { bytesRead } = await handle.read(prefix, 0, prefix.length, 0);
+    return bytesRead === prefix.length && prefix.toString("utf8") === "gitdir: ";
+  } finally {
+    await handle.close();
+  }
+}
+
+async function checkoutDirectory(directory: string): Promise<string> {
+  for (let parent = directory; ; parent = path.dirname(parent)) {
+    const dotGit = path.join(parent, ".git");
+    const marker = await fs.promises.lstat(dotGit, { bigint: true }).catch(() => undefined);
+    if (marker) {
+      // An invalid marker stops discovery, as it does for Git.
+      const checkout = marker.isDirectory() || (await isGitFile(dotGit, marker).catch(() => false));
+      return checkout ? parent : directory;
+    }
+    if (parent === path.dirname(parent)) return directory;
+  }
+}
+
+/** Resolve the document before selecting the scope of its browser origin. */
+export async function resolveDocument(
+  file: string,
+  preserveAlias = false,
+): Promise<
+  { status: 200; root: CanonicalRoot; real: string; relative: string; type: string } | Refusal
+> {
+  if (
+    !path.isAbsolute(file) ||
+    file.length > 4096 ||
+    /[\p{Cc}\p{Cs}]/u.test(file) ||
+    (process.platform === "win32" &&
+      (/^[\\/]{2}[?.][\\/]/.test(file) ||
+        (!path.parse(file).root.includes(":") && !/^[\\/]{2}/.test(file)))) ||
+    !DOCUMENT_EXTENSION.test(file)
+  )
+    return { status: 400, reason: "invalid-path" };
+  const named = segmentsFor(documentPathname(path.basename(file)));
+  if ("error" in named) return { status: 403, reason: named.error };
+  const forbiddenAncestor = (absolute: string) =>
+    absolute
+      .slice(path.parse(absolute).root.length)
+      .split(path.sep)
+      .some(
+        (name) =>
+          name.toLowerCase() === "__foom__" ||
+          (process.platform === "win32" && /:|[. ]$/.test(name)),
+      );
+  if (forbiddenAncestor(file)) return { status: 403, reason: "reserved" };
+
+  let root: CanonicalRoot;
+  let real: string;
+  try {
+    real = await fs.promises.realpath(file);
+    if (forbiddenAncestor(real)) return { status: 403, reason: "reserved" };
+    if (!(await fs.promises.stat(real)).isFile()) return { status: 403, reason: "not-file" };
+    root = canonicalRoot(await checkoutDirectory(path.dirname(real)));
+  } catch {
+    return { status: 404, reason: "unreadable" };
+  }
+  // An in-root picker alias remains watchable and may be retargeted in that root.
+  const entry = preserveAlias && inside(root.path, file, path.sep) ? file : real;
+  const relative = path.relative(root.path, entry).split(path.sep).join("/");
+  const opened = await openDocument(root, documentPathname(relative));
+  if (opened.status !== 200) return opened;
+  try {
+    if (opened.real !== real || (await fs.promises.realpath(file)) !== real)
+      return { status: 403, reason: "changed" };
+  } catch {
+    return { status: 404, reason: "unreadable" };
+  }
+  if (/\.(png|jpe?g|webp)$/i.test(file) && !opened.type.startsWith("image/"))
+    return { status: 400, reason: "invalid-image" };
+  return { status: 200, root, real, relative, type: opened.type };
 }
 
 function targetRefusal(root: string, real: string): Refusal | undefined {

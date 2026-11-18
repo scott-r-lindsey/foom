@@ -80,11 +80,11 @@ conversation IDs survive Foom restarts. Sessions running at quit restart when Re
 Hover and keyboard focus do not preview terminal output or switch the pane. Click or press Enter to show
 its terminal and focus input, using the [tile placement rules](tiles.md). Saved exited rows have no screen to show until resumed. Needs you remains; Done and Failed dim once seen.
 
-Previews appear beneath their worktree with a document glyph and no light or attention state.
-Their rows show the worktree-relative path and shared tile number. Agent-opened previews nest beneath the opener’s session and name that agent. Clicking a visible row focuses its preview; showing a sidebar-only preview uses human placement.
+Previews associated with a checkout appear in the repository tree. Other previews have their own sidebar rows.
+All preview rows show a document glyph, root-relative path and shared tile number. Agent-opened previews name the opener and can nest beneath that session. Clicking a visible row focuses its preview; showing a sidebar-only preview uses human placement.
 Checkout panels offer **Preview file…**. The file picker starts in that checkout and accepts
-Markdown (`.md`, `.markdown`) and HTML (`.html`, `.htm`). Main validates the selection;
-files outside the checkout, hidden files and unsupported types are refused.
+readable Markdown, HTML, PNG, JPEG and WebP files anywhere the OS allows.
+Main validates the selection and refuses unsupported types and hidden document names.
 Opening fills the landing spot, then empty space, and follows human session placement
 when the board is full. Opening keeps focus where it was. Previews and their v2 tile
 content survive restart. Removing a worktree closes its previews and leaves empty space.

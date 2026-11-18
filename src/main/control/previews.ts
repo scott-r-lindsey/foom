@@ -1,8 +1,7 @@
 import type { PreviewOpenAction } from "../../shared/previews";
 import { randomBytes } from "node:crypto";
-import fs from "node:fs";
 import path from "node:path";
-import { canonicalRoot, openDocument, type CanonicalRoot } from "../previews/contained-files";
+import { resolveDocument } from "../previews/contained-files";
 import type { Principal } from "./types";
 import { ControlError, exact, object } from "../../shared/control-validation";
 
@@ -71,56 +70,33 @@ export class PreviewBroker {
     bucket.tokens--;
   }
   private async resolve(actor: Principal, raw: unknown) {
-    if (typeof raw !== "string" || !raw || Buffer.byteLength(raw) > 1024 || /\p{Cc}/u.test(raw))
-      throw new ControlError("invalid_request");
-    let root: CanonicalRoot;
-    try {
-      root = canonicalRoot(actor.worktree);
-    } catch {
-      throw new ControlError("unavailable");
-    }
-    const relative = path.isAbsolute(raw)
-      ? path.relative(actor.worktree, raw)
-      : path.normalize(raw);
     if (
-      !relative ||
-      relative === ".." ||
-      relative.startsWith(`..${path.sep}`) ||
-      path.isAbsolute(relative)
+      typeof raw !== "string" ||
+      !raw ||
+      Buffer.byteLength(raw) > 1024 ||
+      /[\p{Cc}\p{Cs}]/u.test(raw) ||
+      (process.platform === "win32" && /^(?:[a-z]:[^\\/]|[a-z]:$|[\\/](?![\\/]))/i.test(raw))
     )
-      throw new ControlError("forbidden");
-    if (!/\.(md|markdown|html|htm|png|jpe?g|webp)$/i.test(relative))
       throw new ControlError("invalid_request");
-    const opened = await openDocument(
-      root,
-      `/${relative.split(path.sep).map(encodeURIComponent).join("/")}`,
-    );
+    const opened = await resolveDocument(path.resolve(actor.worktree, raw));
     if (opened.status !== 200)
       throw new ControlError(
         opened.status === 404
           ? "not_found"
           : opened.status === 413 ||
+              opened.reason === "invalid-path" ||
               opened.reason === "invalid-image" ||
               opened.reason === "unsupported-type"
             ? "invalid_request"
             : "forbidden",
       );
-    // A document-looking directory and a symlink onto an unsupported type are not documents.
-    try {
-      if (!fs.statSync(path.resolve(root.path, relative)).isFile())
-        throw new ControlError("forbidden");
-    } catch (error) {
-      if (error instanceof ControlError) throw error;
-      throw new ControlError("not_found");
-    }
-    if (!/\.(md|markdown|html|htm|png|jpe?g|webp)$/i.test(opened.real))
-      throw new ControlError("invalid_request");
     return {
       real: opened.real,
-      path: opened.relative.split(path.sep).join("/"),
-      kind: /\.(md|markdown)$/i.test(opened.real)
+      worktree: opened.root.path,
+      path: opened.relative,
+      kind: opened.type.startsWith("text/markdown")
         ? ("markdown" as const)
-        : /\.(png|jpe?g|webp)$/i.test(opened.real)
+        : opened.type.startsWith("image/")
           ? ("image" as const)
           : ("html" as const),
     };
@@ -212,7 +188,6 @@ export class PreviewBroker {
       previewId: randomBytes(16).toString("hex"),
       owner: actor.generation,
       session: actor.sessionId,
-      worktree: actor.worktree,
       ...target,
     };
     await this.record(actor, method, preview, "opening");

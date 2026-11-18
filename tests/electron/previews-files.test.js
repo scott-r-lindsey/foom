@@ -95,9 +95,24 @@ test("worktree panel previews pick contained Markdown and HTML, persist v2 tiles
   for (const id of ids) assert.ok(JSON.stringify(saved).includes(id));
   await writeFile(path.join(checkout, ".hidden.html"), "hidden");
   await writeFile(path.join(checkout, "unsupported.txt"), "unsupported");
-  await writeFile(path.join(root, "outside.html"), "outside");
+  const outside = path.join(root, "outside.html");
+  await writeFile(outside, "<h1>Outside checkout</h1>");
+  await app.evaluate(({ dialog }, file) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] });
+  }, outside);
+  await page.getByRole("button", { name: "Actions for topic/preview", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Preview file…", exact: true }).click();
+  await expect(page.getByRole("treeitem", { name: "HTML preview: outside.html" })).toBeVisible();
+  const external = (await page.evaluate(() => window.desktop.sidebarInventory())).previews.find(
+    (preview) => preview.relativePath === "outside.html",
+  );
+  assert.ok(external);
+  assert.equal(external.repository, "");
+  await expect
+    .poll(() => previewContents(app, external.id, "document.body.innerText"))
+    .toContain("Outside checkout");
   for (const file of [
-    path.join(root, "outside.html"),
+    path.join(root, "missing.html"),
     path.join(checkout, ".hidden.html"),
     path.join(checkout, "unsupported.txt"),
   ]) {
@@ -106,8 +121,11 @@ test("worktree panel previews pick contained Markdown and HTML, persist v2 tiles
     }, file);
     await page.getByRole("button", { name: "Actions for topic/preview", exact: true }).click();
     await page.getByRole("menuitem", { name: "Preview file…", exact: true }).click();
-    await expect(page.getByRole("alert")).toBeVisible();
-    await expect(page.locator('.terminal-tile[data-kind="preview"]')).toHaveCount(2);
+    const alert = page.getByRole("alert");
+    await expect(alert).toBeVisible();
+    if (path.basename(file) === "missing.html")
+      await expect(alert).toContainText("Preview file is missing or unreadable.");
+    await expect(page.locator('.terminal-tile[data-kind="preview"]')).toHaveCount(3);
     await page.getByRole("button", { name: "Dismiss", exact: true }).click();
   }
   await app.evaluate(({ dialog }) => {
@@ -119,20 +137,21 @@ test("worktree panel previews pick contained Markdown and HTML, persist v2 tiles
   await quitAndWait(app, () => app.evaluate(({ app }) => app.quit()));
   app = await launchApp(context, { ...options, fixture: "restored" });
   page = await boardPage(app);
-  await expect(page.locator('.terminal-tile[data-kind="preview"]')).toHaveCount(2);
-  for (const id of ids)
+  await expect(page.locator('.terminal-tile[data-kind="preview"]')).toHaveCount(3);
+  for (const id of [...ids, external.id])
     await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
   await page.getByRole("button", { name: "Actions for topic/preview", exact: true }).click();
   await page.getByRole("menuitem", { name: "Delete worktree…", exact: true }).click();
   const removal = await confirmationPage(app);
   await removal.getByRole("button", { name: "Discard 2 changes and remove", exact: true }).click();
-  await expect(page.locator(".preview-row")).toHaveCount(0);
-  await expect(page.locator('.terminal-tile[data-kind="preview"]')).toHaveCount(0);
+  await expect(page.locator(".preview-row")).toHaveCount(1);
+  await expect(page.locator('.terminal-tile[data-kind="preview"]')).toHaveCount(1);
+  await expect(page.locator(`[data-preview-id="${external.id}"]`)).toBeVisible();
   await expect
     .poll(
       async () => (await page.evaluate(() => window.desktop.sidebarInventory())).previews.length,
     )
-    .toBe(0);
+    .toBe(1);
   assert.equal(
     await app.evaluate(
       ({ webContents }) =>
@@ -140,7 +159,7 @@ test("worktree panel previews pick contained Markdown and HTML, persist v2 tiles
           .getAllWebContents()
           .filter((contents) => contents.getURL().startsWith("foom-preview:")).length,
     ),
-    0,
+    1,
   );
 });
 

@@ -81,11 +81,10 @@ its common subset. A small core rule generates disabled task checkboxes. Mermaid
 remains escaped code. Relative document and raster image links navigate within the same tile;
 external links have a visible arrow and go through the same confirmation.
 The exact `/__foom__/markdown.js` and `/__foom__/markdown.css` assets are served only
-by preview sessions; the reserved `__foom__` segment cannot name worktree files or
+by preview sessions; the reserved `__foom__` segment cannot name local files or
 symlink targets. The isolated stylesheet uses Eclipse tokens and follows
 `prefers-color-scheme` from `nativeTheme`; custom interface themes are not conveyed.
 Bundled dependency licenses are included in `THIRD_PARTY_NOTICES.txt`.
-Every non-hidden file in the captured worktree is readable by a preview page.
 
 Post-open verification uses separate filesystem observations and does not exclude
 all ancestor/root replacements. The user accepts these residuals with no native
@@ -115,38 +114,50 @@ sandbox. Native containment tests run on Linux, macOS and Windows, including
 Windows junctions; deterministic failure-path tests exercise both strategies on
 every OS.
 
+## Selecting a document and its root (#1209)
+
+The human picker and local agent preview tools accept a supported readable document
+from any location the Foom process can read. Agent paths are absolute or relative
+to the caller’s launch checkout, including paths that use `..` to reach another
+checkout. Main resolves the canonical document first and selects the nearest Git
+checkout (the ancestor with its `.git` directory or gitfile), or the document's
+immediate directory when there is no checkout. This keeps sibling and parent asset
+links within a checkout working and limits the scope of standalone documents.
+A symlink passed as an entry selects the target's root. The picker preserves an
+alias inside that root, so its relative links and live reload continue to use the
+selected path. Agent reuse and aliases outside the root use the canonical entry.
+Requests made by the rendered page remain contained in the selected root.
+
+An HTML page's scripts can read readable non-hidden files under that root, including
+files unrelated to the entry. A checkout preview exposes those files across the
+checkout. A standalone preview exposes them across its directory and descendants.
+The protocol still reserves `__foom__`, rejects symlink escapes in resource requests
+and applies the existing filename, descriptor and size checks. Network starts off,
+external links require trusted confirmation and control results contain metadata only.
+
 The main-owned registry stores `{ id, worktree, relativePath, network: false }`
-per stable window ID in profile JSON, with bounded validation and serialized
-atomic writes. Paths never enter layout localStorage. Opens revalidate membership
-and canonical checkout identity against registered worktrees, then validate and
-open the contained document without reading its body. `preview:pick`,
-`preview:copy-path`, `preview:close` and `preview:bounds` use `WindowIpcRouter` to validate the owning board, exact app URL and top frame,
-and validate argument counts, worktree IDs and finite bounded rectangles.
-The picker command carries only the inventory worktree path that identifies the checkout.
-Main dismisses the command panel before the native picker can change focus, so
-blur cancellation cannot leave a panel covering the loaded preview. It shows the
-picker rooted there and derives the relative document path;
-the renderer never chooses or sends a document path.
-IDs grant access only within their owning window. The tile panel's copy control
-sends only its preview ID; main resolves the full opened path from that window's
-registry without reading file bytes. The display remains worktree-relative.
-Closed, foreign and bundled-manual IDs refuse; see the
-[copy IPC contract](ipc.md#visible-fact-copy-controls-960).
-Sidebar inventory reports those IDs and display facts. An unavailable repository retains the window's previously
-known preview associations while its records remain open. A first partial inventory
-keeps unassociated owned preview IDs with an empty display repository until membership
-is known, so restored tile assignments survive without guessing a checkout's owner.
-Closed records disappear immediately; a healthy membership read still excludes
-previews whose checkout is absent. These display associations grant no file access
-or worktree authorization. The board places human previews with `placeContent`, preserving
-focus, and measures each preview body to report bounds through the source interface.
-Agent placement obtains the owned record's display facts through `preview:describe`
-without waiting for sidebar inventory, repository scans or registered-host reads.
-The renderer uses cached repository associations until ordinary inventory refresh
-supplies them. Slow inventory cannot consume the placement deadline.
-Inventory reads begun before a local preview publication cannot remove that ID;
-they may still refresh other sidebar facts. A successful read begun after
-publication reconciles it normally.
+per stable window ID in profile JSON, with bounded validation and serialized atomic
+writes. The legacy `worktree` key stores the preview root, including standalone
+directories. Restore validates that the root is still available and can show the
+missing-file state for an absent document. Registry records and tile layout restore
+independently of repository inventory. Paths stay out of layout localStorage.
+`preview:pick`, `preview:copy-path`, `preview:close` and `preview:bounds` validate the
+owning board, exact app URL and top frame, and check argument counts, IDs and bounds.
+The renderer supplies a validated checkout ID as the picker’s starting location.
+Main dismisses the command panel before the native dialog can change focus and
+validates the selected absolute path. The tile panel displays the root-relative
+path, and its copy control supplies only the owning preview ID. Main builds the
+absolute path from the registry without reading file bytes. Closed, foreign and
+bundled-manual IDs refuse. See the [copy IPC contract](ipc.md#visible-fact-copy-controls-960).
+
+Sidebar inventory includes every open record. It associates matching checkout roots
+with their inventory repositories and retains known associations while those
+repositories are unavailable. Other documents have independent sidebar rows.
+These display associations grant no file or worktree authority. The board places
+human previews with `placeContent`, preserving focus, and reports measured bounds.
+Agent placement obtains owned display facts through `preview:describe` without
+waiting for repository inventory. Slow inventory cannot consume the placement deadline.
+Inventory reads begun before a local preview publication cannot remove that ID.
 
 Cross-window token drops and **Move to window** call the same `PreviewHost.moveTo`
 transaction after the destination reserves valid tile geometry; they retain the
@@ -168,7 +179,7 @@ Restored registry entries stay detached and allocate no view until bounds arrive
 Confirmed Foom worktree removal closes that checkout’s previews in all windows before
 Git runs, releasing live-reload directory handles. New preview opens are refused
 until removal finishes, including opens awaiting registry persistence. External
-removal closes previews when workspace inventory refreshes; on Windows, close
+removal of a preview root closes the preview when workspace inventory refreshes; on Windows, close
 preview tiles first because directory watches can block external deletion.
 
 The test-only `tests/electron/preview-move-measurement.js` benchmark records board
@@ -327,7 +338,7 @@ Each move uses the existing detached replacement and focus handoff. Same-documen
 fragment changes keep the current preview attached. Reload and file changes stay
 on the current entry and preserve its scroll. Following a new
 link after Back discards the forward entries. Missing or unreadable targets show
-an inert, theme-aware in-tile page naming the worktree-relative path, with Back
+an inert, theme-aware in-tile page naming the root-relative path, with Back
 available in the title bar; the usual missing-file watches permit recovery.
 History is ephemeral: restarting or moving to another window opens the originally
 registered document. The registry, copy-path action and agent canonical-path reuse
@@ -336,7 +347,7 @@ continue to identify that original document.
 ## Raster image entries (#1207)
 
 The picker, CLI and MCP accept PNG (`.png`), JPEG (`.jpg`, `.jpeg`) and WebP
-(`.webp`) alongside Markdown and HTML. Images retain the same worktree confinement,
+(`.webp`) alongside Markdown and HTML. Images retain the same preview-root containment,
 symlink checks and 16 MiB descriptor-read bound. Signatures must match the named
 format and Sharp must fully decode successfully with a 16 million pixel limit
 (including WebP animation frames). PNG chunks are scanned within the 16 MiB byte
@@ -346,8 +357,7 @@ animation chunks (`acTL`, `fcTL`, `fdAT`) are refused before decoding. Animated 
 animated PNG, mismatched or excessive images refuse with
 `invalid-image`; byte limits refuse with `too-large`. The picker maps these to
 the fixed `preview-image-invalid` application error, explaining formats and limits. SVG entries are explicitly
-unsupported, including aliases onto SVG targets. Cross-worktree access is outside
-this issue's scope.
+unsupported, including aliases onto SVG targets.
 
 The isolated partition wraps image entries in a script-free page with an inert
 base64 `<img>` when an image is opened or loaded as a history entry. Images embedded

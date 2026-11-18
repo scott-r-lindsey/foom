@@ -6,7 +6,7 @@ import type { PreviewHost } from "./host";
 /** Only main chooses document paths; the inventory path identifies the checkout. */
 export async function pickPreviewFile(
   window: BrowserWindow,
-  host: Pick<PreviewHost, "open">,
+  host: Pick<PreviewHost, "openFile">,
   validate: (worktree: string) => Promise<void>,
   worktree: string,
 ): Promise<string | null> {
@@ -29,6 +29,5 @@ export async function pickPreviewFile(
   const chosen = result.filePaths[0];
   if (result.filePaths.length !== 1 || !chosen || !path.isAbsolute(chosen))
     throw new Error("Invalid preview selection");
-  // Host revalidates inventory after the dialog and applies contained-file checks.
-  return host.open(worktree, path.relative(worktree, chosen).split(path.sep).join("/"));
+  return host.openFile(chosen);
 }

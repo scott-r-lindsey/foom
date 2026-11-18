@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, isAbsolute } from "node:path";
 import type { PreviewRecord } from "../../shared/previews";
 import { segmentsFor } from "./policy";
 
@@ -11,7 +11,8 @@ export function previewPath(value: unknown): value is string {
   return (
     typeof value === "string" &&
     value.length > 0 &&
-    value.length <= 1024 &&
+    value.length <= 4096 &&
+    !/[\p{Cc}\p{Cs}]/u.test(value) &&
     !value.startsWith("/") &&
     /\.(md|markdown|html|htm|png|jpe?g|webp)$/i.test(value) &&
     !("error" in segmentsFor(`/${value.split("/").map(encodeURIComponent).join("/")}`))
@@ -30,9 +31,9 @@ export function parseRegistry(value: unknown): PreviewRecord[] {
       ids.has(entry.id) ||
       !("worktree" in entry) ||
       typeof entry.worktree !== "string" ||
-      !entry.worktree ||
+      !isAbsolute(entry.worktree) ||
       entry.worktree.length > 4096 ||
-      entry.worktree.includes("\0") ||
+      /[\p{Cc}\p{Cs}]/u.test(entry.worktree) ||
       !("relativePath" in entry) ||
       !previewPath(entry.relativePath) ||
       !("network" in entry) ||

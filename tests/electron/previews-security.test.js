@@ -296,7 +296,7 @@ test("preview network permission allows local HTTPS only and resets after restar
     dialog.getByRole("heading", { name: "Allow network for this preview?" }),
   ).toBeVisible();
   await expect(
-    dialog.getByText("This page can send files from this worktree to the internet", {
+    dialog.getByText("This page can send files from its preview root to the internet", {
       exact: true,
     }),
   ).toBeVisible();

@@ -3,6 +3,7 @@ import { locationId, metadataName } from "../control/metadata";
 import { hostsForStore } from "../setup/hosts";
 import type { BrowserWindow } from "electron";
 import { app, clipboard, Notification, powerMonitor, shell } from "electron";
+import { realpath } from "node:fs/promises";
 import * as path from "node:path";
 import { HookReceiver } from "../agents/hook-receiver";
 import { ProbeNotices } from "../agents/probe-notices";
@@ -278,13 +279,14 @@ export async function initializeWorkspace(
       receiver: () => HookReceiver.listen((signal) => void wiring.workspace.hook(signal)),
       environment: (target) => wiring.environment.layers(target),
       prepareWorktreeRemoval: async (worktree) => {
-        wiring.removingPreviewWorktrees.add(worktree);
+        const canonical = await realpath(worktree);
+        wiring.removingPreviewWorktrees.add(canonical);
         const release = () => {
-          wiring.removingPreviewWorktrees.delete(worktree);
+          wiring.removingPreviewWorktrees.delete(canonical);
         };
         try {
           await Promise.all(
-            [...wiring.previewHosts.values()].map((host) => host.closeWorktree(worktree)),
+            [...wiring.previewHosts.values()].map((host) => host.closeWorktree(canonical)),
           );
           return release;
         } catch (error) {

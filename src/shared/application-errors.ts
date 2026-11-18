@@ -23,6 +23,7 @@ const messages = {
   "session-busy": "This session is busy. Try again when its current action finishes.",
   "session-running": "Stop this session before closing it.",
   "session-remote-unreachable": "Remote host unreachable. Reconnect before closing this session.",
+  "preview-file-unreadable": "Preview file is missing or unreadable.",
   "preview-image-invalid":
     "Invalid or oversized image. Use PNG, JPEG or WebP, at most 16 MiB and 16 million pixels.",
   "operation-failed": "Unable to complete this action.",

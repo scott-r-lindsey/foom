@@ -1,4 +1,5 @@
 import { viewChanges } from "../data/view-changes";
+import { stat } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { autoUpdater } from "electron";
 import { UpdateActivity } from "../update-activity";
@@ -33,6 +34,7 @@ import { RemovalPresentations } from "../confirmations/removal-review";
 import { ForgeRuntime } from "../control/forge-runtime";
 import type { PreviewBroker } from "../control/previews";
 import { addTailSecrets } from "../evaluator/terminal-tail";
+import { documentWithin } from "../previews/contained-files";
 import type { PreviewHost } from "../previews/host";
 import type { PreviewPlacement } from "../previews/placement";
 import { clearParentHooks, selectProfile, stateRoot } from "../profile";
@@ -158,7 +160,7 @@ export function runApplication() {
   let agentPreviews: PreviewBroker | undefined;
   previewHosts = new Map<number, PreviewHost>();
   const removingPreviewWorktrees = new Set<string>();
-  async function validatePreviewWorktree(path: string): Promise<void> {
+  async function validatePreviewPicker(path: string): Promise<void> {
     if (removingPreviewWorktrees.has(path)) throw new Error("Worktree is being removed");
     for (const repository of worktrees.listRepositories()) {
       if ((await worktrees.listWorktrees(repository.path)).some((tree) => tree.path === path)) {
@@ -168,6 +170,12 @@ export function runApplication() {
       }
     }
     throw new Error("Unknown preview worktree");
+  }
+  async function validatePreviewRoot(root: string, relativePath: string): Promise<void> {
+    if (!(await stat(root)).isDirectory()) throw new Error("Preview directory unavailable");
+    const document = path.join(root, relativePath);
+    for (const removing of removingPreviewWorktrees)
+      if (documentWithin(removing, document)) throw new Error("Worktree is being removed");
   }
   let terminals: ReturnType<typeof attachTerminal>;
   let workspace: Workspace;
@@ -566,7 +574,8 @@ export function runApplication() {
       themes = value;
     },
     themesChanged,
-    validatePreviewWorktree,
+    validatePreviewPicker,
+    validatePreviewRoot,
     views,
     moves,
     windows,
