@@ -265,13 +265,27 @@ observation in all three attempts: 12.750s failing (artifact **13645683548**),
 then 2.771s and 2.874s passing. That earlier observation alone cannot identify
 the failing click's cause; the original run's artifacts are no longer available.
 
-The helper now clicks near the screen's top, horizontally centered, rather than
-its potentially clipped bottom edge. The Escape regression holds the observed
-clipped screen geometry using a test-owned inline height, asserts that the former
-point hits the tile, and requires the corrected native click to restore terminal
-focus and exact PTY input. The height is released after the click. Native input,
-focus assertions, exact PTY-byte checks (including forbidden handoff input),
-deadlines and product behavior remain unchanged.
+Three later Linux 2/4 failures, runs
+[44256089799](https://github.com/scott-r-lindsey/foom/actions/runs/44256089799)
+(artifact **14406537280**),
+[44303463290](https://github.com/scott-r-lindsey/foom/actions/runs/44303463290)
+(**14426044599**) and
+[44317356991](https://github.com/scott-r-lindsey/foom/actions/runs/44317356991)
+(**14433672650**), exposed a second fixture geometry race. In all three, xterm
+started at y=38 when measured and y=57 when the board received mouse-down at
+(596, 48). The click hit a span above xterm and moved focus from the textarea
+to the tile. The window stayed focused, the replacement remained detached and
+no cancellation blur ran. On the succeeding attempts (artifacts **14415947621**,
+**14432977025** and **14436462760**), the helper measured y=57 and the click at
+y=67 hit xterm.
+
+The helper hit-tests the center of the screen clipped to the terminal body and
+viewport before sending one native click. That point has room for the observed
+top displacement and avoids the clipped bottom. The Escape regression holds
+the observed clipped screen geometry with a test-owned inline height, verifies
+that the old bottom point hits the tile and requires the native click to restore
+terminal focus and exact PTY input. The navigation case still rejects any PTY
+bytes during the handoff and checks exact bytes after the terminal click.
 
 ## Chromium session storage
 
