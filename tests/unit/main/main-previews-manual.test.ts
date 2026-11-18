@@ -1,4 +1,4 @@
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { previewMock, mock, start, invokeWindow, newWindow } from "./main-fixture";
@@ -34,6 +34,9 @@ test("preview hosts accept standalone roots, notify the board, reconcile and clo
   await expect(host.validate(root, "plan.md")).resolves.toBeUndefined();
   expect(launchIdentity).not.toHaveBeenCalled();
   await expect(host.validate(join(root, "missing"), "plan.md")).rejects.toThrow();
+  const file = join(root, "not-a-directory");
+  await writeFile(file, "");
+  await expect(host.validate(file, "plan.md")).rejects.toThrow("Preview directory unavailable");
   host.changed();
   expect(mock.window.webContents.send).toHaveBeenCalledWith("workspace:changed");
   mock.window.webContents.isDestroyed.mockReturnValueOnce(true);
@@ -141,9 +144,17 @@ test("main preview composition targets the opener's board and releases human-clo
 test("worktree removal blocks preview opens and closes every window's previews before Git", async ({
   onTestFinished,
 }) => {
-  const root = await realpath(await mkdtemp(join(tmpdir(), "foom-preview-removal-")));
-  onTestFinished(() => rm(root, { recursive: true, force: true }));
+  const sandbox = await realpath(await mkdtemp(join(tmpdir(), "foom-preview-removal-")));
+  onTestFinished(() => rm(sandbox, { recursive: true, force: true }));
+  const root = join(sandbox, "checkout");
+  await mkdir(root);
   previewMock.hosts.length = 0;
+  const launchIdentity = vi.fn(async () => {});
+  mock.openWorktrees.mockResolvedValue({
+    listRepositories: () => [{ path: sandbox, name: "repo" }],
+    listWorktrees: () => Promise.resolve([{ path: root }]),
+    launchIdentity,
+  });
   await start();
   await newWindow();
   const [first, second] = previewMock.hosts;
@@ -155,10 +166,28 @@ test("worktree removal blocks preview opens and closes every window's previews b
     return deps.prepareWorktreeRemoval(root);
   };
   await first.validate(root, "page.html");
+  await previewMock.pick?.(root);
+  const validatePicker = previewMock.pickFile.mock.lastCall?.[2];
+  if (!validatePicker) throw new Error("Missing picker validation");
+  let finishIdentity: () => void = () => {};
+  launchIdentity.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        finishIdentity = resolve;
+      }),
+  );
+  const pending = validatePicker(root);
+  await vi.waitFor(() => {
+    expect(launchIdentity).toHaveBeenCalledOnce();
+  });
   const release = await prepare();
   expect(first.closeWorktree).toHaveBeenCalledWith(root);
   expect(second.closeWorktree).toHaveBeenCalledWith(root);
   await expect(first.validate(root, "page.html")).rejects.toThrow("being removed");
+  await expect(first.validate(sandbox, "standalone.html")).resolves.toBeUndefined();
+  await expect(validatePicker(root)).rejects.toThrow("being removed");
+  finishIdentity();
+  await expect(pending).rejects.toThrow("being removed");
   release();
   await first.validate(root, "page.html");
   vi.mocked(second.closeWorktree).mockRejectedValueOnce(new Error("cleanup failed"));
