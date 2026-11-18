@@ -617,7 +617,12 @@ for (const restoreSessions of [false, true]) {
   });
 }
 
-async function launchWithDeferredShell(context, restoreSessions, config, savedCount = 1) {
+async function launchWithDeferredShell(
+  context,
+  restoreSessions,
+  config,
+  { savedCount = 1, copilot = false } = {},
+) {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-deferred-shell-")));
   removeAfterApps(context, root);
   const home = path.join(root, "home");
@@ -626,12 +631,32 @@ async function launchWithDeferredShell(context, restoreSessions, config, savedCo
   const lock = path.join(folder, ".foom-settings.lock");
   await mkdir(folder, { recursive: true });
   await mkdir(profile);
+  const bin = path.join(root, "bin");
+  const marker = path.join(root, "copilot-launched");
+  if (copilot) {
+    await mkdir(bin);
+    await writeFile(
+      path.join(bin, "copilot"),
+      `#!/usr/bin/env node
+const option = process.argv[2];
+if (option === "--version") console.log("GitHub Copilot CLI 1.0.103.");
+else if (option === "--help") console.log("--plugin-dir --additional-mcp-config --interactive --session-id --resume");
+else require("node:fs").writeFileSync(${JSON.stringify(marker)}, "started");
+`,
+      { mode: 0o755 },
+    );
+  }
   await writeFile(lock, foreignSettingsLock());
   await writeFile(
     path.join(profile, "settings.json"),
     JSON.stringify({
       version: 1,
-      settings: { setupComplete: true, checkForUpdates: false, restoreSessions },
+      settings: {
+        setupComplete: true,
+        checkForUpdates: false,
+        restoreSessions,
+        ...(copilot ? { agents: { copilot: true }, hooks: false } : {}),
+      },
     }),
   );
   const id = "saved-shell";
@@ -641,7 +666,8 @@ async function launchWithDeferredShell(context, restoreSessions, config, savedCo
     JSON.stringify(
       Array.from({ length: savedCount }, (_, index) => ({
         id: index === 0 ? id : `${id}-${index}`,
-        agent: "shell",
+        agent: copilot ? "copilot" : "shell",
+        ...(copilot ? { conversationId: "12345678-1234-4234-8234-123456789abc" } : {}),
         repository: directory,
         worktree: directory,
         branch: null,
@@ -653,6 +679,7 @@ async function launchWithDeferredShell(context, restoreSessions, config, savedCo
   const app = await launchApp(context, {
     fixture: "restored",
     home,
+    ...(copilot ? { env: { PATH: bin, COPILOT_ALLOW_ALL: "1" } } : {}),
     args: [`--user-data-dir=${profile}`],
   });
   const page = await boardPage(app);
@@ -660,11 +687,13 @@ async function launchWithDeferredShell(context, restoreSessions, config, savedCo
     (await page.evaluate(() => window.desktop.configStatus())).error,
     /Settings are busy/,
   );
-  return { app, page, id, lock };
+  return { app, page, id, lock, marker };
 }
 
 async function deferredRestoreAtQuit(context, savedCount) {
-  const { app, page, id, lock } = await launchWithDeferredShell(context, true, true, savedCount);
+  const { app, page, id, lock } = await launchWithDeferredShell(context, true, true, {
+    savedCount,
+  });
   const home = await page.evaluate(() => window.desktop.sidebarCommand({ kind: "home-shell" }));
   const rows = () => page.evaluate(async () => (await window.desktop.workspace()).terminals);
   await expect
@@ -787,6 +816,86 @@ test("disabled startup restore exposes Restart shell while the Settings lock is 
     })
     .toBe(true);
   assert.equal(await readFile(lock, "utf8"), foreignSettingsLock());
+});
+
+for (const approvalOpen of [false, true]) {
+  test(`quit declines a restored Copilot bypass approval ${approvalOpen ? "already open" : "not yet open"}`, {
+    timeout: deadline(45_000),
+    skip: process.platform === "win32" && "The Copilot fixture is a POSIX executable",
+  }, async (context) => {
+    const { app, page, id, lock, marker } = await launchWithDeferredShell(context, true, true, {
+      copilot: true,
+    });
+    await page.evaluate(() => window.desktop.sidebarCommand({ kind: "home-shell" }));
+    await app.evaluate(({ app }, pause) => {
+      const load = process
+        .getBuiltinModule("node:module")
+        .createRequire(app.getAppPath() + "/package.json");
+      const { SessionOwner } = load("./build/main/workspace/session-owner.js");
+      const restartSavedEntry = SessionOwner.prototype.restartSavedEntry;
+      const gate = new Promise((resolve) => {
+        globalThis.releaseCopilotRestore = resolve;
+      });
+      SessionOwner.prototype.restartSavedEntry = async function (entry) {
+        if (pause) {
+          globalThis.copilotRestorePaused = true;
+          await gate;
+        }
+        return restartSavedEntry.call(this, entry);
+      };
+    }, !approvalOpen);
+    try {
+      await unlink(lock);
+      if (approvalOpen) {
+        const approval = await confirmationPage(app);
+        await expect(approval.getByRole("alertdialog")).toHaveAccessibleName(
+          "Launch GitHub Copilot with bypass?",
+        );
+      } else {
+        await expect.poll(() => app.evaluate(() => globalThis.copilotRestorePaused)).toBe(true);
+      }
+      await app.evaluate(({ app }) => app.quit());
+    } finally {
+      await app.evaluate(() => globalThis.releaseCopilotRestore());
+    }
+    const confirmation = await confirmationPage(app);
+    await expect(confirmation.getByRole("alertdialog")).toHaveAccessibleName(
+      "Quit with 1 terminal running?",
+    );
+    const { terminals } = await page.evaluate(() => window.desktop.workspace());
+    assert.equal(terminals.find((row) => row.id === id)?.exited, true);
+    await quitAndWait(app, () =>
+      confirmation.getByRole("button", { name: "Stop all and quit", exact: true }).click(),
+    );
+    await assert.rejects(readFile(marker), { code: "ENOENT" });
+  });
+}
+
+test("quit finishes while a startup restore launch remains stalled", {
+  timeout: deadline(45_000),
+}, async (context) => {
+  const { app, page, lock } = await launchWithDeferredShell(context, true, true);
+  await page.evaluate(() => window.desktop.sidebarCommand({ kind: "home-shell" }));
+  await app.evaluate(({ app }) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { SessionOwner } = load("./build/main/workspace/session-owner.js");
+    SessionOwner.prototype.restartSavedEntry = function () {
+      globalThis.restoreLaunchStalled = true;
+      return new Promise(() => {});
+    };
+  });
+  await unlink(lock);
+  await expect.poll(() => app.evaluate(() => globalThis.restoreLaunchStalled)).toBe(true);
+  await app.evaluate(({ app }) => app.quit());
+  const confirmation = await confirmationPage(app);
+  await expect(confirmation.getByRole("alertdialog")).toHaveAccessibleName(
+    "Quit with 1 terminal running?",
+  );
+  await quitAndWait(app, () =>
+    confirmation.getByRole("button", { name: "Stop all and quit", exact: true }).click(),
+  );
 });
 
 test("start:fresh state isolation keeps config and worktrees inside its temporary profile", async (context) => {

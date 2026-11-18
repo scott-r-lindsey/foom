@@ -299,8 +299,8 @@ export class SessionOwner {
   }
 
   /** Freeze the pre-shutdown state, before stopping PTYs reports their exits. */
-  async prepareQuit(): Promise<void> {
-    await this.restoreWork;
+  async prepareQuit(waitForRestore = true): Promise<void> {
+    if (waitForRestore) await this.restoreWork;
     this.quitting = true;
     try {
       await this.deps.store?.save(this.records());

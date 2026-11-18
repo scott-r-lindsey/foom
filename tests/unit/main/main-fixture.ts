@@ -309,11 +309,13 @@ vi.mock("../../../src/main/terminals/terminal-ipc", () => ({
     copyOnSelect: () => boolean,
     _remoteProfile: string | undefined,
     clipboardWrites: () => boolean,
+    restoreLaunchSignal: () => AbortSignal | undefined,
   ) => {
     mock.allowView = allow;
     mock.shellEnvironment = shellEnvironment;
     mock.copyOnSelect = copyOnSelect;
     mock.clipboardWrites = clipboardWrites;
+    mock.restoreLaunchSignal = restoreLaunchSignal;
     mock.terminalEvents = events;
     return mock.terminals;
   },
@@ -699,7 +701,8 @@ const mock = vi.hoisted(() => {
       removeListener: vi.fn(),
     },
     confirmParent: vi.fn(),
-    confirmSignal: vi.fn(),
+    confirmSignal: vi.fn<(signal?: AbortSignal) => void>(),
+    restoreLaunchSignal: (): AbortSignal | undefined => undefined,
     message: vi.fn<(content?: unknown) => Promise<{ response: number }>>(),
     errorBox: vi.fn(),
     openDialog: vi.fn<() => Promise<{ canceled: boolean; filePaths: string[] }>>(),

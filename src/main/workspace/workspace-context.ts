@@ -508,8 +508,8 @@ export class WorkspaceContext {
   }
 
   /** Freeze the pre-shutdown state, before stopping PTYs reports their exits. */
-  async prepareQuit(): Promise<void> {
-    await this.sessions.prepareQuit();
+  async prepareQuit(waitForRestore = true): Promise<void> {
+    await this.sessions.prepareQuit(waitForRestore);
   }
 
   cancelQuit(): void {

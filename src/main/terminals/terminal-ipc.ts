@@ -56,6 +56,7 @@ export function attachTerminal(
   copyOnSelect: () => boolean = () => false,
   remoteProfile?: string,
   clipboardWrites: () => boolean = () => false,
+  restoreLaunchSignal?: () => AbortSignal | undefined,
 ) {
   const windows = new Map<
     WebContents,
@@ -538,17 +539,32 @@ export function attachTerminal(
     dispose,
     runningSessions: () => [...running.values()],
     async create(spec: TerminalSpec) {
-      const id = await manager.create(
-        spec.remote && remoteProfile
-          ? { ...spec, remote: { ...spec.remote, profile: remoteProfile } }
-          : spec,
-      );
+      const restore = restoreLaunchSignal?.();
+      const signal =
+        restore && spec.signal ? AbortSignal.any([restore, spec.signal]) : (restore ?? spec.signal);
+      signal?.throwIfAborted();
+      const id = spec.id ?? randomUUID();
+      if (running.has(id)) throw new Error("Invalid or occupied terminal ID");
+      // Keep an admitted launch in the quit inventory even while the host acknowledges it.
+      running.set(id, { id, command: spec.command, cwd: spec.cwd });
+      try {
+        await manager.create({
+          ...spec,
+          id,
+          ...(signal ? { signal } : {}),
+          ...(spec.remote && remoteProfile
+            ? { remote: { ...spec.remote, profile: remoteProfile } }
+            : {}),
+        });
+      } catch (error) {
+        running.delete(id);
+        throw error;
+      }
       owned.add(id);
       if (spec.imagePaste) {
         pasteRecipients.add(id);
         imageSessions.set(id, randomUUID());
       }
-      running.set(id, { id, command: spec.command, cwd: spec.cwd });
       broadcast("terminal:availability", [id], true, true);
       return id;
     },

@@ -1,6 +1,7 @@
 import type { ConfigSettings } from "../../shared/config";
 import { viewChanges } from "../data/view-changes";
 import { readFileSync } from "node:fs";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { autoUpdater } from "electron";
 import { UpdateActivity } from "../update-activity";
 import { Updates } from "../updates";
@@ -177,6 +178,10 @@ export function runApplication() {
   let windowQueue: Promise<unknown> = Promise.resolve();
   let quitting = false;
   let quitPending = false;
+  const restoreScope = new AsyncLocalStorage<{
+    approvals: AbortController;
+    launches: AbortController;
+  }>();
   let savingWindows = Promise.resolve();
   const windows = new Map<
     number,
@@ -307,6 +312,8 @@ export function runApplication() {
     return approvals.requestOutcome({ ...content, approval: origin }, signal);
   }
   async function requestTrusted(content: DialogContent, signal: AbortSignal): Promise<boolean> {
+    const restore = restoreScope.getStore();
+    if (restore) signal = AbortSignal.any([signal, restore.approvals.signal]);
     if (content.userAction) {
       const cancelled = () => signal.aborted || quitting || quitPending;
       if (cancelled()) return false;
@@ -378,17 +385,44 @@ export function runApplication() {
     requestQuit,
   });
   let quitRequest: Promise<void> | undefined;
-  let startupRestore: Promise<void> | undefined;
+  let startupRestore:
+    | {
+        work: Promise<void>;
+        approvals: AbortController;
+        launches: AbortController;
+      }
+    | undefined;
   async function restoreSavedSessions(): Promise<void> {
     // A quit request that gets here first owns the terminal inventory until it settles.
     while (quitRequest) await quitRequest;
     if (quitting) return;
-    const restore = Promise.resolve().then(() => workspace.restartSaved());
-    startupRestore = restore;
+    const scope = { approvals: new AbortController(), launches: new AbortController() };
+    const work = restoreScope.run(scope, () =>
+      Promise.resolve().then(() => workspace.restartSaved()),
+    );
+    startupRestore = { ...scope, work };
     try {
-      await restore;
+      await work;
     } finally {
       startupRestore = undefined;
+    }
+  }
+  async function settleRestoreForQuit(restore: NonNullable<typeof startupRestore>): Promise<void> {
+    restore.approvals.abort();
+    if (restore.launches.signal.aborted) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        Promise.allSettled([restore.work]),
+        new Promise<void>((resolve) => {
+          timer = setTimeout(() => {
+            restore.launches.abort();
+            resolve();
+          }, 5_000);
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
     }
   }
   function requestQuit(): Promise<void> {
@@ -405,8 +439,6 @@ export function runApplication() {
       return;
     }
     try {
-      // Once restoration starts, let all of its launches finish before counting terminals.
-      if (startupRestore) await Promise.allSettled([startupRestore]);
       let entry =
         [...windows.values()].find(({ window }) => window.isFocused()) ??
         windows.values().next().value;
@@ -417,6 +449,7 @@ export function runApplication() {
       if (!entry) return;
       const { window, confirmations } = entry;
       quitPending = true;
+      if (startupRestore) await settleRestoreForQuit(startupRestore);
       const count = terminals.runningCount;
       if (count > 0) {
         const snapshot = workspace.snapshot();
@@ -449,7 +482,8 @@ export function runApplication() {
       await saveWindows().catch((error: unknown) => {
         console.error("Unable to save windows:", error);
       });
-      await workspace.prepareQuit();
+      // The bounded restore wait above already settled or fenced further launches.
+      await workspace.prepareQuit(false);
       try {
         await terminals.shutdown();
       } catch (error) {
@@ -548,6 +582,7 @@ export function runApplication() {
       return quitPending;
     },
     restoreSavedSessions,
+    restoreLaunchSignal: () => restoreScope.getStore()?.launches.signal,
     get quitting() {
       return quitting;
     },

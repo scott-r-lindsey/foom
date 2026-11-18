@@ -28,8 +28,10 @@ startup restore pass then uses the applied `restoreSessions` value, including
 for saved Foom config shells. A verified disabled preference makes saved rows
 restartable by hand as soon as the board opens, even while Settings is busy.
 Startup restoration waits for a pending quit decision. Canceling quit lets
-the restore pass proceed. If restoration is already in flight, quit waits
-for it to finish before counting the live terminals for confirmation.
+the restore pass proceed. If restoration is already in flight, quit declines
+its pending launch approvals and waits up to five seconds for it to finish.
+At the deadline it cancels further restore launches before counting terminals
+for confirmation.
 Screens and scrollback are never persisted.
 
 `src/main/workspace/session-owner.ts` owns session restoration and persistence behind
@@ -44,8 +46,9 @@ and config path in `sidebar-commands.ts`; launch/removal locks, terminal queues
 and cancellation remain in `workspace-context.ts`. Execution and
 verdict state belong to `ExecutionOwner`. No owner receives the facade or coordinator object
 or owns PTYs or terminal views.
-Quit preparation waits for restoration, freezes and flushes the running records
-before PTYs stop; failed preparation or cancelled quit re-enables persistence.
+After the bounded restore wait, quit preparation freezes and flushes the
+running records before PTYs stop. Failed preparation or cancelled quit re-enables
+persistence.
 The coordinator still releases agents and control/hook services after terminals stop,
 then asks the owner to drain session writes.
 

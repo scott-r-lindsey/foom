@@ -123,8 +123,8 @@ export class Workspace {
   ownsSession(id: string): boolean {
     return this.owner.ownsSession(id);
   }
-  async prepareQuit(): Promise<void> {
-    return this.owner.prepareQuit();
+  async prepareQuit(waitForRestore = true): Promise<void> {
+    return this.owner.prepareQuit(waitForRestore);
   }
   cancelQuit(): void {
     this.owner.cancelQuit();
