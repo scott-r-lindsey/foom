@@ -27,25 +27,34 @@ async function recordTerminalInput(page, root) {
 }
 
 async function clickTerminal(app, page) {
-  const terminalBounds = await page.locator(".xterm-screen").boundingBox();
-  assert.ok(terminalBounds);
-  await app.evaluate(({ BrowserWindow }, bounds) => {
+  const target = await page.locator(".xterm-screen").evaluate((screen) => {
+    const bounds = screen.getBoundingClientRect();
+    const clip = screen.closest(".tile-terminal")?.getBoundingClientRect();
+    if (!clip) throw new Error("Missing terminal body");
+    // The screen can extend beyond the clipped body during refit, and the
+    // attention strip can move its top between measurement and native dispatch.
+    const left = Math.max(0, bounds.left, clip.left);
+    const right = Math.min(innerWidth, bounds.right, clip.right);
+    const top = Math.max(0, bounds.top, clip.top);
+    const bottom = Math.min(innerHeight, bounds.bottom, clip.bottom);
+    const point = { x: Math.round((left + right) / 2), y: Math.round((top + bottom) / 2) };
+    return {
+      bounds: bounds.toJSON(),
+      point,
+      hitsScreen: screen.contains(document.elementFromPoint(point.x, point.y)),
+    };
+  });
+  await app.evaluate(({ BrowserWindow }, { bounds, point, hitsScreen }) => {
+    globalThis.previewFocusTrace?.markClick(bounds, point);
+    if (!hitsScreen) throw new Error("Terminal click point does not hit the xterm screen");
     const contents = BrowserWindow.getAllWindows().find(
       (window) => window.webContents.getURL() === "app://bundle/index.html",
     ).webContents;
-    const mouse = {
-      x: Math.round(bounds.x + bounds.width / 2),
-      // xterm can retain its pre-refit height beyond the clipped terminal body.
-      // Its top stays inside the body; the old bottom-edge point can hit the tile.
-      y: Math.round(bounds.y + 10),
-      button: "left",
-      clickCount: 1,
-    };
-    globalThis.previewFocusTrace?.markClick(bounds, { x: mouse.x, y: mouse.y });
+    const mouse = { ...point, button: "left", clickCount: 1 };
     contents.focus();
     contents.sendInputEvent({ type: "mouseDown", ...mouse });
     contents.sendInputEvent({ type: "mouseUp", ...mouse });
-  }, terminalBounds);
+  }, target);
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   await expect
     .poll(() => app.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL()))
