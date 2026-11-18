@@ -519,7 +519,7 @@ test("data SQLite: report cold process to first renderer view and write to rende
         },
         workload: { samples: 10, repositories: 1000, pageSize: 100, writesPerSample: 1 },
         scope:
-          "Cold fixture Electron process spawn through SQLite open and first sandboxed renderer view; OS caches retained. ViewRegistry delivery includes renderer DOM update and receipt acknowledgement. Seed and fixture file creation excluded. Nearest-rank percentiles; reporting only. Production Foom startup remains JSON-backed.",
+          "Cold fixture Electron process spawn through SQLite open and first sandboxed renderer view; OS caches retained. ViewRegistry delivery includes renderer DOM update and receipt acknowledgement. Seed and fixture file creation excluded. Nearest-rank percentiles. Production Foom startup remains JSON-backed.",
         coldStartToFirstView: summarize(cold),
         writeToView: summarize(writes),
       };
@@ -530,13 +530,36 @@ test("data SQLite: report cold process to first renderer view and write to rende
       childTimeoutMs: deadline(30_000),
     },
   );
-  context.diagnostic(`SQLite view measurements (no latency thresholds): ${JSON.stringify(result)}`);
+  // #1246 budgets are fixed. Only enforce platform/metric pairs within budget
+  // in #1236's latest successful CI run (44105455993); see docs/areas/data.md.
+  const budgets = {
+    coldStartToFirstView: { p95Ms: 500, enforced: result.platform === "linux" },
+    writeToView: {
+      p95Ms: 25,
+      enforced: result.platform === "linux" || result.platform === "darwin",
+    },
+  };
+  context.diagnostic(`SQLite view measurements: ${JSON.stringify({ ...result, budgets })}`);
   const fs = require("node:fs/promises");
   await fs.mkdir("test-results", { recursive: true });
   await fs.writeFile(
     `test-results/data-sqlite-measurements-${process.platform}.json`,
-    JSON.stringify(result, null, 2),
+    JSON.stringify({ ...result, budgets }, null, 2),
   );
   assert.equal(result.coldStartToFirstView.samplesMs.length, 10);
   assert.equal(result.writeToView.samplesMs.length, 10);
+  for (const metric of ["coldStartToFirstView", "writeToView"]) {
+    const measured = result[metric].p95Ms;
+    const budget = budgets[metric];
+    if (budget.enforced) {
+      assert.ok(
+        measured <= budget.p95Ms,
+        `SQLite ${metric} on ${result.platform}: measured p95 ${measured} ms exceeds approved p95 budget ${budget.p95Ms} ms`,
+      );
+    } else {
+      context.diagnostic(
+        `SQLite ${metric} on ${result.platform}: reporting only; measured p95 ${measured} ms, approved p95 budget ${budget.p95Ms} ms, gap ${Math.max(0, measured - budget.p95Ms)} ms`,
+      );
+    }
+  }
 });

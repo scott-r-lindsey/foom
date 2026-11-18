@@ -419,7 +419,7 @@ newer UTC day/week/month dates in one transaction before the existing owner's
 request; the prepared domain path sends no network request. Sources remain intact
 and production window/update/preview owners continue to use their JSON files.
 
-### Reporting-only view measurements
+### View measurements and approved budgets (#1246)
 
 The named `data SQLite: report cold process to first renderer view and write
 to renderer view measurements` Electron case runs in CI on each desktop platform.
@@ -436,5 +436,29 @@ Each sample starts a new fixture process with OS page caches retained. It
 measures the prepared SQLite/view path; production Foom startup remains JSON-backed.
 Nearest-rank p50/p95, individual samples, workload, platform and runtime versions
 appear in CI logs and `test-results/data-sqlite-measurements-<platform>.json`.
-There are no latency assertions. Approved workload-specific budgets remain a
-separate product decision; the harness reports observations for that decision.
+The user-approved workload-specific budgets are **p95 ≤ 500 ms** for cold process
+to first renderer view and **p95 ≤ 25 ms** for write to renderer view. They apply
+to the unchanged workload above: 1,000 repositories, page size 100, ten samples
+and one write per sample. With ten samples, nearest-rank p95 is the maximum.
+
+The latest successful CI run for PR #1236,
+[44105455993](https://github.com/scott-r-lindsey/foom/actions/runs/44105455993)
+(head `45b88a92b9fa1f6fdacdf22d5fee61cff1c1e01a`), uploaded these baseline
+measurements in the `data-sqlite-measurements-<platform>.json` files inside its
+`electron-results-*` artifacts. All used Electron 44.9.3, Node 24.22.0 and
+SQLite 3.53.4. Values below are rounded to two decimal places; assertions use
+unrounded measurements.
+
+| CI platform | Cold p95 | Write p95 | Assertions |
+| --- | ---: | ---: | --- |
+| Linux x64 (`ubuntu-24.04`) | 361.78 ms | 6.96 ms | Both budgets |
+| macOS arm64 (`macos-15`) | 660.86 ms | 7.95 ms | Write budget only |
+| Windows x64 (`windows-2025`) | 1,293.08 ms | 72.47 ms | Reporting only |
+
+macOS cold p95 exceeds the approved budget by 160.86 ms. Windows cold p95 exceeds
+it by 793.08 ms, and write p95 exceeds its budget by 47.47 ms. Those platform/metric
+pairs keep reporting measurements and gaps pending a user decision; their budgets
+are not increased. Other platforms remain reporting-only until measured. Linux
+asserts both p95 budgets and macOS asserts write p95, with failures naming the
+platform, measured value and approved limit. Logs and JSON retain all measurements
+and the budgets with their enforcement status, including before an assertion fails.
