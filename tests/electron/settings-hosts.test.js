@@ -2492,6 +2492,36 @@ test("Hosts accepts new SSH keys only through the trusted askpass dialog", {
   await expect(trust).toHaveCount(0);
 });
 
+test("Hosts shows a changed SSH key when saving the checklist fails", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, capture, updateScenario } = await hostsFixture(context);
+  const profile = await app.evaluate(({ app }) => app.getPath("userData"));
+  const savedObservation = () =>
+    page.evaluate(
+      async () => (await window.desktop.setupState()).settings.registeredHosts[0].observation,
+    );
+  const saved = await savedObservation();
+  assert.equal(saved.preflight.ssh.state, "pass");
+  const ssh = card.locator(".host-check-row").filter({
+    has: page.getByRole("button", { name: "Reload SSH", exact: true }),
+  });
+  await expect(ssh.getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
+  await updateScenario({ sshFailure: "changed" });
+  try {
+    await chmod(profile, 0o555);
+    await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
+    await expect(page.getByText("Unable to update hosts", { exact: true })).toBeVisible();
+    await expect(ssh.getByText("Host key changed", { exact: true })).toBeVisible();
+    await expect(ssh.getByText("Pass · Host key trusted", { exact: true })).toHaveCount(0);
+    assert.deepEqual(await savedObservation(), saved);
+  } finally {
+    await chmod(profile, 0o700);
+  }
+  await capture("1259/changed-key-save-failed");
+});
+
 test("Hosts preserves a changed SSH key warning when a queued trust attempt is refused", {
   skip: process.platform === "win32",
   timeout: deadline(60000),

@@ -200,6 +200,7 @@ export class Setup {
         this.deps.confirmHostKey,
       )
       .then(async (state) => {
+        if (state.preflightSaveFailed) return state;
         if (hostsAction(input) && input.action === "preflight" && this.deps.repositorySetup) {
           for (const repository of this.deps.code.worktrees.listRepositories())
             await this.deps.repositorySetup.check(this.setupScope, input.host, repository.path);

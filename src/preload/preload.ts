@@ -746,6 +746,7 @@ const validHostsState: Validator<HostsState> = shape({
     ),
   ),
   preflight: either(absent, validHostPreflight),
+  preflightSaveFailed: either(absent, literal(true)),
   recipeSession: either(absent, (value): value is string => nonempty(value) && value.length <= 200),
   recipeFailure: either(absent, literal("recipe-unavailable")),
   hosts: array(

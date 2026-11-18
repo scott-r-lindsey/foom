@@ -566,6 +566,12 @@ test("completed host checks refresh inventory while saved list/progress reads an
   action.mockRejectedValueOnce(new Error("refused"));
   await expect(setup.hosts({ action: "refresh", host: "worker" })).rejects.toThrow("refused");
   expect(changed).toHaveBeenCalledOnce();
+  const unsaved = { ...state, preflightSaveFailed: true as const };
+  action.mockResolvedValueOnce(unsaved);
+  await expect(
+    setup.hosts({ action: "preflight", host: "worker", codeFolder: "/code" }),
+  ).resolves.toBe(unsaved);
+  expect(changed).toHaveBeenCalledOnce();
   hosts.dispose();
 });
 

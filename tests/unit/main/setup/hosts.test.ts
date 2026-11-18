@@ -551,12 +551,71 @@ test("profile inventories project only counts to Settings and End confirms exact
   run.mockResolvedValueOnce({ ok: false, reason: "facts-unavailable" });
   const unavailable = await hosts.action({ action: "refresh", host: "worker" });
   expect(unavailable.hosts[0]?.factsRefreshFailure).toBe("facts-unavailable");
+  expect(mock.inventory.mock.calls).toHaveLength(inventoryCalls + 1);
+  expect(run.mock.lastCall?.[1].operation).toBe("list-worktrees");
   run.mockResolvedValueOnce({ ok: false, reason: "host-key-changed" });
   const changed = await hosts.action({ action: "refresh", host: "worker" });
   expect(changed.hosts[0]?.factsRefreshFailure).toBe("host-key-changed");
-  expect(mock.inventory.mock.calls).toHaveLength(inventoryCalls);
+  expect(mock.inventory.mock.calls).toHaveLength(inventoryCalls + 1);
   await expect(hosts.action({ action: "refresh", host: "worker" })).rejects.toThrow();
   expect(hosts.state().hosts[0]?.factsRefreshFailure).toBeUndefined();
+});
+
+test("refresh updates both inventories when scoped facts require a daemon update", async () => {
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  const profile = "a".repeat(32);
+  hosts = new Hosts(store, () => [], "0.1.0", run, profile);
+  run.mockImplementation((_host, request) =>
+    Promise.resolve(
+      request.operation === "list-worktrees"
+        ? { ok: true, facts, inventory: { own: [], other: 4 } }
+        : { ok: false, reason: "facts-unavailable" },
+    ),
+  );
+  mock.inventory
+    .mockResolvedValueOnce({ type: "inventory-result", own: [], foreign: [] })
+    .mockResolvedValueOnce({
+      type: "inventory-result",
+      own: [],
+      foreign: [{ id: "foreign", generation: "b".repeat(32), count: 3 }],
+    });
+  await hosts.sessions();
+  expect(hosts.state().hosts[0]?.foreignSessions).toBe(0);
+
+  const refreshed = await hosts.action({ action: "refresh", host: "worker" });
+  expect(refreshed.hosts[0]).toMatchObject({
+    factsRefreshFailure: "facts-unavailable",
+    foreignSessions: 3,
+    foreignWorktrees: 4,
+  });
+  expect(run.mock.calls.map(([, request]) => request.operation)).toEqual([
+    "inspect",
+    "list-worktrees",
+  ]);
+});
+
+test("a failed checklist write returns the actual SSH result and retains the saved observation", async () => {
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  const check = { action: "preflight", host: "worker", codeFolder: facts.codeFolder } as const;
+  await hosts.action(check);
+  const saved = settings.registeredHosts[0]?.observation;
+  expect(saved?.preflight.ssh.state).toBe("pass");
+  run.mockResolvedValueOnce({
+    ok: false,
+    reason: "host-key-changed",
+    connection: {
+      ssh: { state: "fail", reason: "host-key-changed" },
+      platform: { state: "not-checked" },
+      artifact: { state: "not-checked" },
+    },
+  });
+  store.update.mockRejectedValueOnce(new Error("fixture settings write failure"));
+
+  const checked = await hosts.action(check);
+  expect(checked.preflightSaveFailed).toBe(true);
+  expect(checked.preflight?.ssh).toEqual({ state: "fail", reason: "host-key-changed" });
+  expect(checked.hosts[0]?.observation).toEqual(saved);
+  expect(settings.registeredHosts[0]?.observation).toEqual(saved);
 });
 
 test("recovery placements are profile-owned, registered, and bound to the hashed host/path checkout key", async () => {

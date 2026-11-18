@@ -891,7 +891,11 @@ export function HostsSettings({
         enrolling = false;
       }
       if (!next) return;
-      if ("host" in action && ["preflight", "add", "remove"].includes(action.action))
+      if (
+        !next.preflightSaveFailed &&
+        "host" in action &&
+        ["preflight", "add", "remove"].includes(action.action)
+      )
         setRowFailed(
           (previous) => new Set([...previous].filter((key) => !key.startsWith(`${action.host}:`))),
         );
@@ -960,6 +964,7 @@ export function HostsSettings({
           }
         }
       }
+      if (next?.preflightSaveFailed) setError("Unable to update hosts");
     } catch {
       if (enrolling) setAddError("Unable to add host");
       else setError("Unable to update hosts");

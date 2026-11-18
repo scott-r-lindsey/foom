@@ -1467,6 +1467,7 @@ export class Hosts {
               );
           try {
             const preflight = await this.preflight(input.host, input.codeFolder, connection);
+            let preflightSaveFailed = false;
             if (registration) {
               this.resourceResults.delete(input.host);
               this.results.set(input.host, preflight.result);
@@ -1476,7 +1477,7 @@ export class Hosts {
                 await this.readWorktrees(input.host, true, connection);
               }
               const row = this.state().hosts.find((entry) => entry.host === input.host);
-              await this.updateRegistrations((hosts) =>
+              preflightSaveFailed = await this.updateRegistrations((hosts) =>
                 hosts.map((entry) =>
                   entry.host === input.host
                     ? {
@@ -1506,8 +1507,11 @@ export class Hosts {
                       }
                     : entry,
                 ),
+              ).then(
+                () => false,
+                () => true,
               );
-              this.pendingRows.delete(input.host);
+              if (!preflightSaveFailed) this.pendingRows.delete(input.host);
             }
             this.progress.delete(input.host);
             if (registration)
@@ -1524,7 +1528,11 @@ export class Hosts {
                   ),
                 ),
               ];
-            const state = { ...this.state(), preflight };
+            const state: HostsState = {
+              ...this.state(),
+              preflight,
+              ...(preflightSaveFailed ? { preflightSaveFailed: true } : {}),
+            };
             if (registration) this.cacheHostLocations(state, repositories);
             return state;
           } finally {
@@ -1721,9 +1729,15 @@ export class Hosts {
           this.resourceResults.set(host.host, refreshed);
           if (result.ok && live?.ok && !this.inventoryReads.has(host.host))
             this.results.set(host.host, refreshed);
-          if (result.ok && this.profile) {
-            await this.readSessions(host.host);
-            await this.readWorktrees(host.host, true);
+          if (this.profile && (result.ok || result.reason === "facts-unavailable")) {
+            // A daemon can support either inventory independently of scoped facts.
+            try {
+              await this.readSessions(host.host);
+            } catch (error) {
+              if (result.ok) throw error;
+            } finally {
+              await this.readWorktrees(host.host, true);
+            }
           }
           await this.expandRegistration(host.host, result);
           return this.state();

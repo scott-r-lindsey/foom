@@ -610,8 +610,10 @@ and runs the full preflight. Ordinary opening of Hosts reads saved state only, w
 including session and worktree inventory. Returning after an explicit foreground
 recipe refreshes only its affected rows as described under [refresh scope](#checklist-refresh-scope-1061). Each host's Check capabilities runs the
 full preflight, repositories and session/worktree inventory, saving a Last checked
-timestamp and the closed observations in its profile registration. Never-checked
-hosts say Not checked. Saved observations contain no secrets, terminal output,
+timestamp and the closed observations in its profile registration. If saving
+the checklist fails, the card shows the completed checks and Settings reports
+the write failure. Never-checked hosts say Not checked. Saved observations
+contain no secrets, terminal output,
 session identities or worktree authority; removal deletes them. They remain
 visible across restarts even when stale and never populate authorization caches.
 Saved requirements also restore Install and Sign in availability for display; missing or
@@ -620,8 +622,10 @@ fresh inspection, never from saved observations. Host facts offers a separate
 session/worktree inventory refresh.
 
 Each host is a compact name, OS, status and chevron row, opening by default only
-when it needs attention. Expanding exposes all controls and observations. Ready Git-access checks collapse to a count; failed origin checks remain visible. Checked-out repositories appear in a separate read-only list. Busy state belongs to each host; checking
-one never disables another. Add host is enabled during loading and checks and is
+when it needs attention. Expanding exposes all controls and observations. Ready
+Git-access checks collapse to a count. Failed origin checks remain visible.
+Checked-out repositories appear with their paths under Host facts. Checking one
+host leaves other hosts' controls available. Add host is enabled during loading and checks and is
 disabled only while an add is running. An added host and its own check cannot be
 replaced by an older check reply. The grouped checklist keeps
 Host, Tools, Agents, each repository and macOS Power observations independent.
@@ -769,8 +773,9 @@ Resource refresh replies remain separate from the launch inventory when no live
 inventory exists or a full read is pending. A failed resource refresh reports its
 failure under Host facts while retaining the checklist observations, including
 when both checks return the same reason. Refresh facts inspects resources before
-reading session and worktree inventories. If that inspection fails, Foom records
-its reason and skips the inventory reads.
+reading session and worktree inventories. If scoped facts require a daemon
+update, Foom shows that reason and still tries both inventory endpoints. Other
+inspection failures end the refresh after recording the reason.
 
 ## Settings agent scopes (#1070)
 

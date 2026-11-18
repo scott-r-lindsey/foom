@@ -326,6 +326,11 @@ test("reports failed reads and actions without discarding cached cards; pending 
   fireEvent.click(screen.getByRole("button", { name: "Re-check Build" }));
   await screen.findByText("Unable to check agent settings");
   fireEvent.click(await screen.findByRole("button", { name: "Dismiss" }));
+  f.api.mockResolvedValueOnce({ hosts: [], locations: [], preflightSaveFailed: true });
+  fireEvent.click(screen.getByRole("button", { name: "Re-check Build" }));
+  await screen.findByText("Unable to check agent settings");
+  expect(screen.getByRole("region", { name: "Codex" })).toBeTruthy();
+  fireEvent.click(await screen.findByRole("button", { name: "Dismiss" }));
   f.api.mockResolvedValueOnce({ hosts: [], locations: [], recipeFailure: "recipe-unavailable" });
   fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
   await screen.findByText("Recipe unavailable for this host");

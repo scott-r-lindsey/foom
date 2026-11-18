@@ -210,6 +210,7 @@ export interface HostsState {
   recipeSession?: string;
   progress?: readonly HostCheckProgress[];
   preflight?: HostPreflight;
+  preflightSaveFailed?: true;
   recipeFailure?: "recipe-unavailable";
   hosts: readonly HostRow[];
   locations: readonly RepositoryLocation[];

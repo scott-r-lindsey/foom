@@ -611,6 +611,29 @@ test("unknown distro offers no install recipe and initial preflight failures sta
   fireEvent.click(screen.getByRole("button", { name: "Check capabilities" }));
   await screen.findByText("Unable to update hosts");
 });
+test("a full check shows its SSH failure alongside a checklist save failure", async () => {
+  const { api } = await mount();
+  await screen.findByText("Pass · Host key trusted");
+  api.mockImplementation((action) =>
+    Promise.resolve(
+      action.action === "preflight"
+        ? {
+            ...saved(initial),
+            preflight: {
+              ...preflight,
+              ssh: { state: "fail", reason: "host-key-changed" },
+              result: { ok: false, reason: "host-key-changed" },
+            },
+            preflightSaveFailed: true,
+          }
+        : saved(initial),
+    ),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Check capabilities" }));
+  await screen.findByText("Unable to update hosts");
+  expect(screen.getByText("Host key changed")).toBeTruthy();
+  expect(screen.queryByText("Pass · Host key trusted")).toBeNull();
+});
 test("absent checkouts have no clone state or clone control in Hosts", async () => {
   await mount();
   expect(screen.queryByText("Not checked out")).toBeNull();
