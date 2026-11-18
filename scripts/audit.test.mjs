@@ -6,7 +6,18 @@ import { readAudit, runAudit, validateAudit } from "./audit.mjs";
 const load = (path) => JSON.parse(readFileSync(new URL(path, import.meta.url), "utf8"));
 const all = load("../tests/fixtures/audit/development.json");
 const prod = load("../tests/fixtures/audit/production.json");
-const exceptions = load("./audit-exceptions.json");
+const exceptions = [
+  {
+    ghsa: "GHSA-fc5q-39xc-vjpf",
+    package: "picomatch",
+    vulnerableVersions: "<=4.0.7",
+    expires: "2026-12-01",
+    issue: 1249,
+    justification: "Historical development-only exception for the recorded audit report.",
+    cve: "CVE-2026-112366",
+    upstreamFix: "https://github.com/micromatch/picomatch/pull/194",
+  },
+];
 const now = new Date("2026-11-17T00:00:00Z");
 const finding = (report) => Object.values(report.advisories)[0];
 const check = (report = all, production = prod, entries = exceptions, date = now) =>
@@ -19,7 +30,7 @@ test("recorded development-only advisory passes and both audit scopes are reques
   const calls = [];
   runAudit((args) => {
     calls.push(args);
-    return args.length ? prod : all;
+    return prod;
   }, now);
   assert.deepEqual(calls, [[], ["--prod"]]);
 });

@@ -1,6 +1,14 @@
 const { execFile, execFileSync } = require("node:child_process");
 const { promisify } = require("node:util");
 const execute = promisify(execFile);
+// Reflog writes also need an identity. Without one Git can resolve the host's
+// name, making even local branch and worktree operations depend on DNS.
+const identity = {
+  GIT_AUTHOR_NAME: "Foom Test",
+  GIT_AUTHOR_EMAIL: "test@example.invalid",
+  GIT_COMMITTER_NAME: "Foom Test",
+  GIT_COMMITTER_EMAIL: "test@example.invalid",
+};
 
 /** @param {NodeJS.ProcessEnv} [source] */
 function gitEnvironment(source = process.env) {
@@ -10,6 +18,7 @@ function gitEnvironment(source = process.env) {
     ),
     GIT_CONFIG_GLOBAL: "/dev/null",
     GIT_CONFIG_NOSYSTEM: "1",
+    ...identity,
   };
 }
 
@@ -35,6 +44,7 @@ function optionsFor(file, options) {
       GIT_CONFIG_GLOBAL: "/dev/null",
       GIT_CONFIG_SYSTEM: "/dev/null",
       GIT_CONFIG_NOSYSTEM: "1",
+      ...identity,
     },
   };
 }
