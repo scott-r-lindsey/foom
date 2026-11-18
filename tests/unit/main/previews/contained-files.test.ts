@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
+import { git, gitSync } from "../../../helpers/git.js";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
   canonicalRoot,
@@ -10,6 +11,7 @@ import {
   openInside,
   readInside,
   readPreview,
+  resolveDocument,
 } from "../../../../src/main/previews/contained-files";
 import { MAX_FILE_BYTES, MAX_MARKDOWN_BYTES } from "../../../../src/main/previews/policy";
 
@@ -107,6 +109,49 @@ async function body(pathname: string): Promise<string> {
   if (result.status !== 200) throw new Error(result.reason);
   return result.body.toString();
 }
+
+test("a stale gitfile keeps the preview in the document directory", async () => {
+  const directory = path.join(outside, "docs");
+  fs.mkdirSync(directory);
+  const document = path.join(directory, "page.html");
+  fs.writeFileSync(document, "<p>Standalone</p>");
+  fs.writeFileSync(path.join(outside, ".git"), "gitdir: missing-metadata\n");
+  await expect(git(["rev-parse", "--show-toplevel"], { cwd: directory })).rejects.toThrow();
+
+  const resolved = await resolveDocument(document);
+  expect(resolved).toMatchObject({
+    status: 200,
+    root: { path: fs.realpathSync.native(directory) },
+    relative: "page.html",
+  });
+  if (resolved.status !== 200) throw new Error(resolved.reason);
+  expect(await readInside(resolved.root, "/secret.txt")).toMatchObject({ status: 404 });
+});
+
+test.skipIf(process.platform === "win32")(
+  "uses the checkout root when Git follows a symlink to separate metadata",
+  async () => {
+    const directory = path.join(outside, "docs");
+    fs.mkdirSync(directory);
+    const document = path.join(directory, "page.html");
+    fs.writeFileSync(document, "<p>Checkout</p>");
+    const metadata = path.join(base, "metadata");
+    gitSync(["init", "-q", "--separate-git-dir", metadata, outside], { cwd: base });
+    fs.unlinkSync(path.join(outside, ".git"));
+    fs.symlinkSync(metadata, path.join(outside, ".git"), "dir");
+    const top = await git(["rev-parse", "--show-toplevel"], { cwd: directory });
+    expect(fs.realpathSync.native(top.stdout.trim())).toBe(fs.realpathSync.native(outside));
+
+    const resolved = await resolveDocument(document);
+    expect(resolved).toMatchObject({
+      status: 200,
+      root: { path: fs.realpathSync.native(outside) },
+      relative: "docs/page.html",
+    });
+    if (resolved.status !== 200) throw new Error(resolved.reason);
+    expect(await readInside(resolved.root, "/secret.txt")).toMatchObject({ status: 200 });
+  },
+);
 
 test("serves pages, relative assets and directory indexes from owned handles", async () => {
   expect(await body("/docs/page.html")).toBe("<p>page</p>");

@@ -11,6 +11,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { gitSync } from "../../../helpers/git.js";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { PreviewBroker, PREVIEW_LIMITS } from "../../../../src/main/control/previews";
 import type {
@@ -71,7 +72,7 @@ beforeEach(() => {
   tree = join(root, "tree");
   mkdirSync(join(tree, "docs"), { recursive: true });
   mkdirSync(join(root, "other"));
-  mkdirSync(join(tree, ".git"));
+  gitSync(["init", "-q"], { cwd: tree });
   writeFileSync(join(tree, "docs", "plan.md"), "# plan");
   writeFileSync(join(tree, "mockup.html"), "<h1>mock</h1>");
   for (let i = 0; i < 8; i++) writeFileSync(join(tree, `p${String(i)}.md`), `# ${String(i)}`);
@@ -198,7 +199,7 @@ it("opens absolute and relative paths outside the launch checkout, including und
   expect(board.previews.get(first)?.preview.worktree).toBe(fs.realpathSync(join(root, "other")));
   const child = join(root, "child");
   mkdirSync(join(child, "docs"), { recursive: true });
-  writeFileSync(join(child, ".git"), "gitdir: ../tree/.git/worktrees/child");
+  gitSync(["init", "-q", "--separate-git-dir", join(root, "metadata"), child], { cwd: root });
   writeFileSync(join(child, "docs", "page.html"), "<h1>Child</h1>");
   const second = id(
     await open(join(child, "docs", "page.html"), { ...actor, role: "orchestrator" }),

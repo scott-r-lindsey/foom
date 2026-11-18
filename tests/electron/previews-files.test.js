@@ -95,7 +95,10 @@ test("worktree panel previews pick contained Markdown and HTML, persist v2 tiles
   for (const id of ids) assert.ok(JSON.stringify(saved).includes(id));
   await writeFile(path.join(checkout, ".hidden.html"), "hidden");
   await writeFile(path.join(checkout, "unsupported.txt"), "unsupported");
-  const outside = path.join(root, "outside.html");
+  const standalone = path.join(root, "stale", "docs");
+  await mkdir(standalone, { recursive: true });
+  await writeFile(path.join(root, "stale", ".git"), "gitdir: missing-metadata\n");
+  const outside = path.join(standalone, "outside.html");
   await writeFile(outside, "<h1>Outside checkout</h1>");
   await app.evaluate(({ dialog }, file) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] });
@@ -108,6 +111,7 @@ test("worktree panel previews pick contained Markdown and HTML, persist v2 tiles
   );
   assert.ok(external);
   assert.equal(external.repository, "");
+  assert.equal(external.worktree, standalone);
   await expect
     .poll(() => previewContents(app, external.id, "document.body.innerText"))
     .toContain("Outside checkout");

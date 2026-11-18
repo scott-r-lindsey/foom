@@ -1,6 +1,8 @@
 import { validImage } from "./image";
 import fs from "node:fs";
-import type { BigIntStats } from "node:fs";
+import { execFile } from "node:child_process";
+import { devNull } from "node:os";
+import { promisify } from "node:util";
 import type { FileHandle } from "node:fs/promises";
 import path from "node:path";
 import {
@@ -48,31 +50,35 @@ export function documentPathname(relative: string): string {
   return `/${relative.split("/").map(encodeURIComponent).join("/")}`;
 }
 
-async function isGitFile(file: string, marker: BigIntStats): Promise<boolean> {
-  if (!marker.isFile()) return false;
-  const handle = await fs.promises.open(file, openFlags(fs.constants));
-  try {
-    const opened = await handle.stat({ bigint: true });
-    if (!opened.isFile() || opened.dev !== marker.dev || opened.ino !== marker.ino) return false;
-    const prefix = Buffer.alloc(8);
-    const { bytesRead } = await handle.read(prefix, 0, prefix.length, 0);
-    return bytesRead === prefix.length && prefix.toString("utf8") === "gitdir: ";
-  } finally {
-    await handle.close();
-  }
-}
+const execute = promisify(execFile);
 
 async function checkoutDirectory(directory: string): Promise<string> {
-  for (let parent = directory; ; parent = path.dirname(parent)) {
-    const dotGit = path.join(parent, ".git");
-    const marker = await fs.promises.lstat(dotGit, { bigint: true }).catch(() => undefined);
-    if (marker) {
-      // An invalid marker stops discovery, as it does for Git.
-      const checkout = marker.isDirectory() || (await isGitFile(dotGit, marker).catch(() => false));
-      return checkout ? parent : directory;
+  try {
+    const { stdout } = await execute("git", ["-C", directory, "rev-parse", "--show-toplevel"], {
+      cwd: path.dirname(process.execPath),
+      env: {
+        ...Object.fromEntries(
+          Object.entries(process.env).filter(([key]) => !key.toUpperCase().startsWith("GIT_")),
+        ),
+        GIT_CONFIG_GLOBAL: devNull,
+        GIT_CONFIG_SYSTEM: devNull,
+        GIT_CONFIG_NOSYSTEM: "1",
+        GIT_TERMINAL_PROMPT: "0",
+      },
+      timeout: 5000,
+      maxBuffer: 16 * 1024,
+      encoding: "utf8",
+      windowsHide: true,
+    });
+    const top = stdout.replace(/\r?\n$/, "");
+    if (path.isAbsolute(top) && !/[\p{Cc}\p{Cs}]/u.test(top)) {
+      const canonical = await fs.promises.realpath(top);
+      if (inside(canonical, directory, path.sep)) return canonical;
     }
-    if (parent === path.dirname(parent)) return directory;
+  } catch {
+    // Standalone files remain usable when Git is unavailable or rejects discovery.
   }
+  return directory;
 }
 
 /** Resolve the document before selecting the scope of its browser origin. */

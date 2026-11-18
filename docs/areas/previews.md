@@ -120,8 +120,8 @@ The human picker and local agent preview tools accept a supported readable docum
 from any location the Foom process can read. Agent paths are absolute or relative
 to the caller’s launch checkout, including paths that use `..` to reach another
 checkout. Main resolves the canonical document first and selects the nearest Git
-checkout (the ancestor with its `.git` directory or gitfile), or the document's
-immediate directory when there is no checkout. This keeps sibling and parent asset
+checkout confirmed by `git rev-parse --show-toplevel`. If Git cannot confirm a
+containing checkout, main uses the document's immediate directory. This keeps sibling and parent asset
 links within a checkout working and limits the scope of standalone documents.
 A symlink passed as an entry selects the target's root. The picker preserves an
 alias inside that root, so its relative links and live reload continue to use the
@@ -152,7 +152,9 @@ bundled-manual IDs refuse. See the [copy IPC contract](ipc.md#visible-fact-copy-
 
 Sidebar inventory includes every open record. It associates matching checkout roots
 with their inventory repositories and retains known associations while those
-repositories are unavailable. Other documents have independent sidebar rows.
+repositories are unavailable. An associated preview appears once in its document’s
+checkout. It nests under its opener when that session is visible in the same
+checkout. Other documents have independent sidebar rows.
 These display associations grant no file or worktree authority. The board places
 human previews with `placeContent`, preserving focus, and reports measured bounds.
 Agent placement obtains owned display facts through `preview:describe` without
