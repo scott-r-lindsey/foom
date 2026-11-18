@@ -128,6 +128,51 @@ test("a stale gitfile keeps the preview in the document directory", async () => 
   expect(await readInside(resolved.root, "/secret.txt")).toMatchObject({ status: 404 });
 });
 
+test("a configured parent worktree cannot expose files outside the checkout", async () => {
+  const directory = path.join(outside, "docs");
+  fs.mkdirSync(directory);
+  const document = path.join(directory, "page.html");
+  fs.writeFileSync(document, "<p>Checkout</p>");
+  fs.writeFileSync(path.join(base, "sibling.txt"), "Outside the checkout");
+  gitSync(["init", "-q"], { cwd: outside });
+  gitSync(["config", "--local", "core.worktree", base], { cwd: outside });
+  const { stdout } = await git(["rev-parse", "--show-toplevel"], { cwd: directory });
+  expect(fs.realpathSync.native(stdout.trim())).toBe(fs.realpathSync.native(base));
+
+  const resolved = await resolveDocument(document);
+  expect(resolved).toMatchObject({
+    status: 200,
+    root: { path: fs.realpathSync.native(directory) },
+    relative: "page.html",
+  });
+  if (resolved.status !== 200) throw new Error(resolved.reason);
+  expect(await readInside(resolved.root, "/sibling.txt")).toMatchObject({ status: 404 });
+});
+
+test.skipIf(process.platform === "win32")(
+  "Git cannot confirm a dangling checkout marker with an enclosing repository",
+  async () => {
+    const directory = path.join(outside, "docs");
+    fs.mkdirSync(directory);
+    const document = path.join(directory, "page.html");
+    fs.writeFileSync(document, "<p>Standalone</p>");
+    fs.symlinkSync(path.join(base, "missing"), path.join(outside, ".git"), "dir");
+    gitSync(["init", "-q"], { cwd: base });
+    gitSync(["config", "--local", "core.worktree", outside], { cwd: base });
+    const { stdout } = await git(["rev-parse", "--show-toplevel"], { cwd: outside });
+    expect(fs.realpathSync.native(stdout.trim())).toBe(fs.realpathSync.native(outside));
+
+    const resolved = await resolveDocument(document);
+    expect(resolved).toMatchObject({
+      status: 200,
+      root: { path: fs.realpathSync.native(directory) },
+      relative: "page.html",
+    });
+    if (resolved.status !== 200) throw new Error(resolved.reason);
+    expect(await readInside(resolved.root, "/secret.txt")).toMatchObject({ status: 404 });
+  },
+);
+
 test.skipIf(process.platform === "win32")(
   "uses the checkout root when Git follows a symlink to separate metadata",
   async () => {

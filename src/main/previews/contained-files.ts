@@ -51,33 +51,65 @@ export function documentPathname(relative: string): string {
 
 const execute = promisify(execFile);
 
-async function checkoutDirectory(directory: string): Promise<string> {
+async function nearestCheckoutCandidate(directory: string): Promise<string | undefined> {
+  for (let current = directory; ; current = path.dirname(current)) {
+    try {
+      // Keep the physical spelling of the checkout even if its metadata is linked.
+      await fs.promises.lstat(path.join(current, ".git"));
+      return current;
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+    }
+    if (path.dirname(current) === current) return undefined;
+  }
+}
+
+async function previewRoot(directory: string): Promise<CanonicalRoot> {
   try {
-    const { stdout } = await execute("git", ["-C", directory, "rev-parse", "--show-toplevel"], {
-      cwd: path.dirname(process.execPath),
-      env: {
-        ...Object.fromEntries(
-          Object.entries(process.env).filter(([key]) => !key.toUpperCase().startsWith("GIT_")),
-        ),
-        GIT_CONFIG_GLOBAL: "/dev/null",
-        GIT_CONFIG_SYSTEM: "/dev/null",
-        GIT_CONFIG_NOSYSTEM: "1",
-        GIT_TERMINAL_PROMPT: "0",
-      },
-      timeout: 5000,
-      maxBuffer: 16 * 1024,
-      encoding: "utf8",
-      windowsHide: true,
-    });
-    const top = stdout.replace(/\r?\n$/, "");
-    if (path.isAbsolute(top) && !/[\p{Cc}\p{Cs}]/u.test(top)) {
-      const canonical = await fs.promises.realpath(top);
-      if (documentWithin(canonical, directory)) return canonical;
+    const candidate = await nearestCheckoutCandidate(directory);
+    if (candidate) {
+      const physical = canonicalRoot(candidate);
+      const { stdout } = await execute(
+        "git",
+        [
+          "-C",
+          physical.path,
+          "--git-dir=.git",
+          "-c",
+          "core.fsmonitor=false",
+          "rev-parse",
+          "--show-toplevel",
+        ],
+        {
+          cwd: path.dirname(process.execPath),
+          env: {
+            ...Object.fromEntries(
+              Object.entries(process.env).filter(([key]) => !key.toUpperCase().startsWith("GIT_")),
+            ),
+            GIT_CONFIG_GLOBAL: "/dev/null",
+            GIT_CONFIG_SYSTEM: "/dev/null",
+            GIT_CONFIG_NOSYSTEM: "1",
+            GIT_TERMINAL_PROMPT: "0",
+          },
+          timeout: 5000,
+          maxBuffer: 16 * 1024,
+          encoding: "utf8",
+          windowsHide: true,
+        },
+      );
+      const top = stdout.replace(/\r?\n$/, "");
+      // Repository-local config can redirect Git. Compare its answer without following it.
+      if (
+        path.isAbsolute(top) &&
+        !/[\p{Cc}\p{Cs}]/u.test(top) &&
+        path.relative(physical.path, top) === ""
+      )
+        return physical;
     }
   } catch {
     // Standalone files remain usable when Git is unavailable or rejects discovery.
   }
-  return directory;
+  return canonicalRoot(directory);
 }
 
 /** Resolve the document before selecting the scope of its browser origin. */
@@ -116,7 +148,7 @@ export async function resolveDocument(
     real = await fs.promises.realpath(file);
     if (forbiddenAncestor(real)) return { status: 403, reason: "reserved" };
     if (!(await fs.promises.stat(real)).isFile()) return { status: 403, reason: "not-file" };
-    root = canonicalRoot(await checkoutDirectory(path.dirname(real)));
+    root = await previewRoot(path.dirname(real));
   } catch {
     return { status: 404, reason: "unreadable" };
   }
