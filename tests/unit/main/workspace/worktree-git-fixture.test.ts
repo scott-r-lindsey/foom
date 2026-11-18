@@ -1,9 +1,9 @@
+import { createWorktreeFixture } from "./worktree-git-fixture";
 import { readFile, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, it, vi } from "vitest";
 import { git } from "../../../helpers/git.js";
 import { nativeDeadline } from "../../../helpers/native-test-policy";
-import { createWorktreeFixture } from "./worktree-git-fixture";
 
 vi.setConfig({ testTimeout: nativeDeadline(5000) });
 

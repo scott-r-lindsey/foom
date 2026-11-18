@@ -19,11 +19,10 @@ expired, stale or malformed entries, changed package/range, an available patched
 release, and invalid reports or command failures. Remove stale exceptions when a
 fix ships. No other suppression is allowed.
 
-#1249 approves only GHSA-fc5q-39xc-vjpf for development-only picomatch `<=4.0.7`
-through 2026-12-01. The advisory is CVE-2026-112366; the
-[upstream fix PR #194](https://github.com/micromatch/picomatch/pull/194) is open and
-unmerged as of 2026-11-17. Recorded full/production audit fixtures exercise the policy
-without network requests in `scripts/audit.test.mjs`.
+#1249 approved an exception for GHSA-fc5q-39xc-vjpf affecting development-only
+picomatch `<=4.0.7`. #1277 removed the exception after GitHub withdrew the
+advisory on 2026-11-18. Recorded full/production audit fixtures exercise the
+policy without network requests in `scripts/audit.test.mjs`.
 
 ## Tests and coverage
 
