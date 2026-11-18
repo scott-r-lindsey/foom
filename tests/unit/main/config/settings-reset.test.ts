@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test, vi } from "vitest";
 import { configPart } from "../../../../src/main/config/approval";
@@ -14,6 +14,54 @@ const preferences = {
 
 // #1234: use production defaults; older config fixtures enable agents by default.
 const defaults = configPart(DEFAULT_SETTINGS);
+
+test.each([
+  ["zoom", { interfaceScale: 110 }],
+  ["agent arguments", { agentArguments: { opencode: ["--model", "example"] } }],
+] as const)("a scan and later Settings save preserve saved %s", async (_setting, patch) => {
+  const { promise: entered, resolve: atRename } = Promise.withResolvers<undefined>();
+  const { promise: resume, resolve: finishRename } = Promise.withResolvers<undefined>();
+  let pauseSettingsWrite = false;
+  const f = await fixture({
+    defaults,
+    rename: async (from, to) => {
+      if (pauseSettingsWrite && to === join(f.folder, "settings.json")) {
+        pauseSettingsWrite = false;
+        atRename(undefined);
+        await resume;
+      }
+      await rename(from, to);
+    },
+  });
+  await f.service.initialize();
+  await f.settings({ hooks: false });
+  expect((await f.service.refresh()).pending?.detail).toBe("hooks: on → off");
+
+  pauseSettingsWrite = true;
+  const first = f.service.write(patch);
+  await entered;
+  const scan = f.service.refresh();
+  const agents = { claude: true };
+  const later = f.service.write({ agents });
+  try {
+    expect(f.applied.at(-1)).toEqual({});
+  } finally {
+    finishRename(undefined);
+  }
+  await first;
+  expect((await scan).pending?.detail).toBe("hooks: on → off");
+  await later;
+
+  expect(f.applied.at(-1)).toEqual({ ...patch, agents });
+  expect(JSON.parse(f.copy() ?? "")).toEqual({ kind: "settings", ...patch, agents });
+  expect(JSON.parse(await f.read("settings.json"))).toEqual({
+    kind: "settings",
+    hooks: false,
+    ...patch,
+    agents,
+  });
+  expect(f.service.status().pending?.detail).toBe("hooks: on → off");
+});
 
 test("a second profile's stale Settings save preserves the child limit and zoom before its watcher runs", async () => {
   const first = await fixture({ defaults });
