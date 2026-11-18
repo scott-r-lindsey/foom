@@ -776,6 +776,8 @@ export async function buildWindow(
         const resume = await wiring.terminals.suspendViews(window.webContents, ids);
         try {
           for (const id of ids) {
+            // Keep the PTY and its exit listener until Stop confirms process exit.
+            await wiring.terminals.stop(id);
             await wiring.terminals.kill(id);
             wiring.workspace.removed(id);
             wiring.views.forgetSettings(id);

@@ -410,20 +410,7 @@ test("Pi Settings card discloses project trust bypass and keeps MCP roles unavai
   await page.screenshot({ path: "test-results/pi-agent-settings.png", animations: "disabled" });
 });
 
-test("one-click local agent installers stay in Settings and refuse untrusted selectors", {
-  timeout: deadline(45_000),
-  skip: process.platform === "win32",
-}, async (context) => {
-  const { writeFile } = require("node:fs/promises");
-  const root = await mkdtemp(path.join(tmpdir(), "foom-install-1071-"));
-  removeAfterApps(context, root);
-  // The production click/IPC/session path runs a fixture helper, never a vendor download.
-  await writeFile(
-    path.join(root, "foom"),
-    '#!/bin/sh\nset -u\n: "$HOME" "$USER" "$LOGNAME" "$SHELL" "$PATH" "$TMPDIR" "$LANG"\n[ "$FOOM_SETTINGS_INSTALL" = "1" ] || exit 98\n[ -z "${INSTALL_FIXTURE_SECRET_1071-}" ] || exit 99\nprintf "Download https://claude.ai/install.sh\\nFixture installer: waiting for input\\n"\nread answer\nexit 7\n',
-    { mode: 0o755 },
-  );
-  const app = await launchApp(context, { fixture: "empty-board" });
+async function useLocalInstallerFixture(app, root) {
   await app.evaluate(
     (_electron, { modulePath, directory }) => {
       const load = process.getBuiltinModule("node:module").createRequire(modulePath);
@@ -442,6 +429,23 @@ test("one-click local agent installers stay in Settings and refuse untrusted sel
     },
     { modulePath: path.resolve("build/main/workspace/workspace.js"), directory: root },
   );
+}
+
+test("one-click local agent installers stay in Settings and refuse untrusted selectors", {
+  timeout: deadline(45_000),
+  skip: process.platform === "win32",
+}, async (context) => {
+  const { writeFile } = require("node:fs/promises");
+  const root = await mkdtemp(path.join(tmpdir(), "foom-install-1071-"));
+  removeAfterApps(context, root);
+  // The production click/IPC/session path runs a fixture helper, never a vendor download.
+  await writeFile(
+    path.join(root, "foom"),
+    '#!/bin/sh\nset -u\n: "$HOME" "$USER" "$LOGNAME" "$SHELL" "$PATH" "$TMPDIR" "$LANG"\n[ "$FOOM_SETTINGS_INSTALL" = "1" ] || exit 98\n[ -z "${INSTALL_FIXTURE_SECRET_1071-}" ] || exit 99\nprintf "Download https://claude.ai/install.sh\\nFixture installer: waiting for input\\n"\nread answer\nexit 7\n',
+    { mode: 0o755 },
+  );
+  const app = await launchApp(context, { fixture: "empty-board" });
+  await useLocalInstallerFixture(app, root);
   const page = await boardPage(app);
   await page.evaluate(() =>
     window.desktop.saveEnvironment({
@@ -517,6 +521,142 @@ test("one-click local agent installers stay in Settings and refuse untrusted sel
     .poll(async () => (await page.evaluate(() => window.desktop.workspace())).terminals.length)
     .toBe(0);
 });
+
+for (const throwFirst of [false, true]) {
+  test(throwFirst
+    ? "Closing an installer window retries a one-time PTY termination exception"
+    : "Closing an installer window escalates past SIGHUP and releases the next installer", {
+    skip: process.platform === "win32",
+    timeout: deadline(60000),
+  }, async (context) => {
+    const root = await mkdtemp(path.join(tmpdir(), "foom-install-owner-close-"));
+    removeAfterApps(context, root);
+    const hangup = path.join(root, "hangup");
+    const throwMarker = path.join(root, "throw");
+    const installer = path.join(root, "foom");
+    await writeFile(
+      installer,
+      `#!${process.execPath}
+const fs = require("node:fs");
+if (process.argv.at(-1) === "codex") {
+  console.log("Second fixture installer");
+  process.exit(0);
+}
+process.on("SIGHUP", () => fs.writeFileSync(${JSON.stringify(hangup)}, "ignored"));
+console.log("Fixture installer PID: " + process.pid);
+setInterval(() => {}, 1000);
+`,
+      { mode: 0o755 },
+    );
+    const app = await launchApp(context, { fixture: "empty-board" });
+    await useLocalInstallerFixture(app, root);
+    if (throwFirst) {
+      const terminalHost = path.resolve("build/terminal-host/terminal-host.js");
+      const entry = path.join(root, "terminal-host.cjs");
+      await writeFile(
+        entry,
+        `const { createRequire } = require("node:module");
+const load = createRequire(${JSON.stringify(terminalHost)});
+const pty = load("node-pty");
+const spawn = pty.spawn;
+let threw = false;
+pty.spawn = (command, ...args) => {
+  const terminal = spawn(command, ...args);
+  if (command !== ${JSON.stringify(installer)}) return terminal;
+  const kill = terminal.kill.bind(terminal);
+  terminal.kill = (...signals) => {
+    if (!threw) {
+      threw = true;
+      require("node:fs").writeFileSync(${JSON.stringify(throwMarker)}, "threw");
+      throw Error("Fixture termination failed");
+    }
+    return kill(...signals);
+  };
+  return terminal;
+};
+load(${JSON.stringify(terminalHost)});
+`,
+      );
+      await app.evaluate(
+        ({ utilityProcess, dialog }, { entry, terminalHost }) => {
+          const fork = utilityProcess.fork.bind(utilityProcess);
+          utilityProcess.fork = (file, ...args) =>
+            fork(file === terminalHost ? entry : file, ...args);
+          dialog.showErrorBox = (title, detail) => {
+            globalThis.fixtureCloseError = { title, detail };
+          };
+        },
+        { entry, terminalHost },
+      );
+    }
+    const page = await boardPage(app);
+    const owner = await app.evaluate(
+      ({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows().find(
+          (window) => window.webContents.getURL() === "app://bundle/index.html",
+        ).id,
+    );
+    await page.evaluate(() => window.desktop.appMenu.execute("new-window"));
+    await expect
+      .poll(
+        () => app.windows().filter((window) => window.url() === "app://bundle/index.html").length,
+      )
+      .toBe(2);
+    const other = app
+      .windows()
+      .find((window) => window !== page && window.url() === "app://bundle/index.html");
+    assert.ok(other);
+    await page.evaluate(() => window.desktop.saveSetup({ agents: { claude: true, codex: true } }));
+    const { recipeSession: id } = await page.evaluate(() =>
+      window.desktop.localAgentInstall("claude"),
+    );
+    assert.ok(id);
+    const tail = (board, id) => board.evaluate((id) => window.desktop.tail(id, 10), id);
+    let pid;
+    await expect
+      .poll(async () => {
+        const text = (await tail(page, id)).join("\n");
+        pid = Number(/Fixture installer PID: (\d+)/u.exec(text)?.[1]);
+        return Number.isSafeInteger(pid) && pid > 0;
+      })
+      .toBe(true);
+    const running = (board) =>
+      board.evaluate(
+        async (id) =>
+          (await window.desktop.workspace()).terminals.some((row) => row.id === id && !row.exited),
+        id,
+      );
+    const closeOwner = () =>
+      app.evaluate(({ BrowserWindow }, owner) => BrowserWindow.fromId(owner).close(), owner);
+    if (throwFirst) {
+      await closeOwner();
+      await expect
+        .poll(() => app.evaluate(() => globalThis.fixtureCloseError?.title))
+        .toBe("Unable to close window");
+      assert.equal(await readFile(throwMarker, "utf8"), "threw");
+      assert.equal(page.isClosed(), false);
+      assert.equal(await running(page), true);
+      process.kill(pid, 0);
+    }
+    const closed = page.waitForEvent("close");
+    await closeOwner();
+    await closed;
+    assert.equal(await readFile(hangup, "utf8"), "ignored");
+    assert.throws(() => process.kill(pid, 0), { code: "ESRCH" });
+    const survivors = await other.evaluate(() => window.desktop.workspace());
+    assert.equal(
+      survivors.terminals.some((row) => row.id === id),
+      false,
+    );
+    if (!throwFirst) {
+      const second = await other.evaluate(() => window.desktop.localAgentInstall("codex"));
+      assert.ok(second.recipeSession);
+      await expect
+        .poll(async () => (await tail(other, second.recipeSession)).join("\n"))
+        .toContain("Second fixture installer");
+    }
+  });
+}
 
 for (const agent of ["claude", "codex", "agy", "copilot", "opencode", "pi"])
   test(`bundled ${agent} installer receives account environment locally and on registered hosts`, {

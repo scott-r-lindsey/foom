@@ -38,9 +38,10 @@ concurrent terminal exits and shutdown, and all three platforms validate packagi
 The host uses Electron's `utilityProcess.fork`, not a Node child-process fork, so RunAsNode stays disabled. The native node-pty module remains unpacked from ASAR; Windows continues using the ConPTY DLL to avoid its Node helper path. After the native rebuild, packaging restores `conpty.dll` and `OpenConsole.exe` beside the rebuilt addon from node-pty’s matching architecture prebuild; node-gyp clears these postinstall files during rebuild. The three-platform CI matrix runs the packaged executable and tests its PTYs and detached snapshots with the disabled fuse verified.
 
 The stop response includes a validated boolean acknowledging whether the host
-signaled a running process; an already exited PTY returns false. Main-owned
-review automation uses this acknowledgement to distinguish expected stop exits
-from natural failures.
+signaled a running process. The host publishes the exit event after draining the
+final screen output and before acknowledging stop. An already exited PTY returns
+false. Main-owned review automation uses this acknowledgement to distinguish
+expected stop exits from natural failures.
 
 Host requests and responses are validated at runtime and carry terminal IDs; request/reply pairs also carry a monotonic request number. Each attach has a main-generated view generation so late output from a previous view is ignored. Creation IDs are allocated in main. Unknown and duplicate IDs are rejected by the host. Renderer payloads cannot choose executables or working directories. A local request exceeding its 10-second deadline rejects only that operation. Main
 then sends one coalesced `ping {id: "host", request}` liveness probe, answered by a

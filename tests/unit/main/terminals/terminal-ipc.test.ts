@@ -1161,8 +1161,10 @@ test("reports quiet, input, exit and removal for owned terminals and grants main
   }
 });
 
-test("stopping waits for native exit and retains an owned readable terminal", async () => {
+test("stopping publishes the exit before returning and retains an owned readable terminal", async () => {
   const id = await terminalControl.create(spec);
+  const exited = vi.fn();
+  terminalControl.onExit(exited);
   const index = ptys.length - 1;
   output("preserved screen", index);
   pty(index).kill.mockImplementation(() => {});
@@ -1174,6 +1176,7 @@ test("stopping waits for native exit and retains an owned readable terminal", as
   exitPty(index);
   expect(await stopping).toBeUndefined();
   expect(stopped).toHaveBeenCalledWith(true);
+  expect(exited).toHaveBeenCalledExactlyOnceWith(id, 0);
   expect(await terminalControl.stop(id)).toBe(false);
   expect(await terminalControl.tail(id, 1)).toEqual(["preserved screen"]);
   await terminalControl.stop(id);

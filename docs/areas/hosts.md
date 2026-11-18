@@ -835,10 +835,11 @@ the PTY. Stop uses the existing ID-validated terminal kill/removal path, waits f
 it to finish, then closes Settings and disposes the views. Failed termination
 keeps Settings open. Installs still launching are included in the check. Section
 changes retain window ownership and reattach the install when Hosts is reopened.
-Closing a board window drains its Settings terminal views and stops the terminals
-before closing.
-A failed stop keeps the owning window open for retry. App quit uses its existing
-main-owned confirmation. Origin trust, remote plugin installs,
+Closing a board window drains its Settings terminal views, waits for each PTY to
+exit through the terminal stop path, then disposes its session. The exit
+notification completes the recipe and releases any installer reservation.
+A failed stop keeps the session and owning window available for retry. App quit
+uses its existing main-owned confirmation. Origin trust, remote plugin installs,
 and sign-in use the same window ownership and exit guard. On exit, origin trust,
 plugin installs, and agent sign-in collapse their terminal view and keep the
 outcome by the action row. Tool installs retain their screen until dismissed or

@@ -473,11 +473,11 @@ test("native close waits for starting Settings repairs and remains retryable aft
   mock.windowEvents.get("close")?.(event);
   mock.windowEvents.get("close")?.(event);
   expect(event.preventDefault).toHaveBeenCalledTimes(2);
-  expect(mock.terminals.kill).not.toHaveBeenCalled();
+  expect(mock.terminals.stop).not.toHaveBeenCalled();
   await expect(mock.setup.deps?.launchHostRecipe?.(target)).rejects.toThrow(
     "Settings window closing",
   );
-  mock.terminals.kill.mockRejectedValueOnce(new Error("Stop failed"));
+  mock.terminals.stop.mockRejectedValueOnce(new Error("Stop failed"));
   launch.resolve("recipe");
   await starting;
   await vi.waitFor(() => {
@@ -488,11 +488,13 @@ test("native close waits for starting Settings repairs and remains retryable aft
   });
   expect(mock.window.close).not.toHaveBeenCalled();
   expect(mock.workspace.removed).not.toHaveBeenCalled();
+  expect(mock.terminals.kill).not.toHaveBeenCalled();
   mock.windowEvents.get("close")?.(event);
   await vi.waitFor(() => {
     expect(mock.window.close).toHaveBeenCalledOnce();
   });
-  expect(mock.terminals.kill).toHaveBeenCalledTimes(2);
+  expect(mock.terminals.stop).toHaveBeenCalledTimes(2);
+  expect(mock.terminals.kill).toHaveBeenCalledExactlyOnceWith("recipe");
   expect(mock.workspace.removed).toHaveBeenCalledExactlyOnceWith("recipe");
 });
 
