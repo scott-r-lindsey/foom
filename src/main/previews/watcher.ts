@@ -1,6 +1,5 @@
 import fs from "node:fs";
-import path from "node:path";
-import { inside } from "./policy";
+import { walkPreviewPath } from "./contained-files";
 
 /** Watches directory entries, so rename-over saves do not invalidate a watch. */
 export class PreviewWatcher {
@@ -27,48 +26,38 @@ export class PreviewWatcher {
     this.directories.clear();
   }
   /** Bind asynchronous resource observations to the load that requested them. */
-  recorder(): (file: string) => void {
+  recorder(): (file: string) => Promise<void> {
     const generation = this.generation;
-    return (file) => {
-      if (this.generation === generation) this.record(file);
+    return async (file) => {
+      if (this.generation === generation) await this.record(file);
     };
   }
-  record(file: string): void {
-    if (this.closed || !inside(this.root, file, path.sep)) return;
-    let directory = path.dirname(file);
-    let name = path.basename(file);
-    // Missing nested directories: watch the nearest existing contained ancestor.
-    let real: string;
-    for (;;) {
-      try {
-        real = fs.realpathSync.native(directory);
-        break;
-      } catch {
-        if (directory === this.root) return;
-        name = path.basename(directory);
-        directory = path.dirname(directory);
-      }
-    }
-    if (real !== this.root && !inside(this.root, real, path.sep)) return;
-    // Also observe a symlink/junction in the requested parent path.
-    if (real !== directory) this.record(directory);
-    const existing = this.directories.get(real);
+  async record(file: string): Promise<void> {
+    if (this.closed) return;
+    const generation = this.generation;
+    const route = await walkPreviewPath(this.root, file);
+    if (this.generation !== generation || "status" in route) return;
+    for (const { directory, name } of route.watches) this.subscribe(directory, name);
+  }
+  private subscribe(directory: string, name: string): void {
+    const existing = this.directories.get(directory);
     if (existing) {
       existing.names.add(name);
       return;
     }
     if (this.count >= 64) return;
     try {
+      if (fs.realpathSync.native(directory) !== directory) return;
       const names = new Set([name]);
-      const watch = fs.watch(real, { recursive: false }, (_event, filename) => {
-        if (this.directories.get(real)?.names !== names) return;
+      const watch = fs.watch(directory, { recursive: false }, (_event, filename) => {
+        if (this.directories.get(directory)?.names !== names) return;
         if (filename === null || names.has(filename)) this.schedule();
       });
-      this.directories.set(real, { names, watch });
+      this.directories.set(directory, { names, watch });
       watch.on("error", () => {
-        if (this.directories.get(real)?.names !== names) return;
+        if (this.directories.get(directory)?.names !== names) return;
         watch.close();
-        this.directories.delete(real);
+        this.directories.delete(directory);
         this.schedule();
       });
     } catch {

@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test, vi } from "vitest";
 import { fake, partition, fixture } from "./host-fixture";
@@ -38,10 +38,29 @@ test("restores only validated worktrees lazily, closes removed worktrees and pre
   expect(fresh.registry.records.size).toBe(0);
   await fresh.host.dispose(false);
 });
+test("standalone picker entries persist and removal closes nested roots by document location", async () => {
+  const f = await fixture();
+  const checkout = join(f.root, "checkout");
+  const subdir = join(checkout, "docs");
+  await mkdir(subdir, { recursive: true });
+  const document = join(subdir, "nested.html");
+  await expect(f.host.openFile(document)).rejects.toThrow("preview-file-unreadable");
+  await writeFile(document, "<p>Nested root</p>");
+  const nested = await f.host.openFile(document);
+  const unrelated = await f.host.openFile(join(f.root, "a.html"));
+  expect(f.registry.records.get(nested)).toMatchObject({
+    worktree: subdir,
+    relativePath: "nested.html",
+    network: false,
+  });
+  await f.host.closeWorktree(checkout);
+  expect([...f.registry.records.keys()]).toEqual([unrelated]);
+  await f.host.dispose(false);
+});
 test("invalid files, revoked inventory, failed saves and shutdown during open leave no view", async () => {
   const f = await fixture();
   await expect(f.host.open(f.root, "../a.html")).rejects.toThrow("path");
-  await expect(f.host.open(f.root, "missing.html")).rejects.toThrow("unavailable");
+  await expect(f.host.open(f.root, "missing.html")).rejects.toThrow("preview-file-unreadable");
   f.validate.mockRejectedValueOnce(new Error("unregistered"));
   await expect(f.host.open(f.root, "a.html")).rejects.toThrow("unregistered");
   const save = vi.spyOn(f.registry, "save").mockRejectedValueOnce(new Error("disk"));
@@ -309,7 +328,7 @@ test("closing an unshown destination returns the same ID and fresh contents to i
   await target.host.dispose(false);
   expect(target.registry.records.has(id)).toBe(false);
   expect(source.registry.records.has(id)).toBe(true);
-  expect(source.validate).toHaveBeenCalledWith(source.root);
+  expect(source.validate).toHaveBeenCalledWith(source.root, "a.html");
   expect(source.placeMoved).toHaveBeenCalledWith(id);
   const restored = fake.views.at(-1);
   expect(restored).not.toBe(view);

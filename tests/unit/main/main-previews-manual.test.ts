@@ -1,10 +1,17 @@
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { previewMock, mock, start, invokeWindow, newWindow } from "./main-fixture";
 import type { ShortcutInput } from "./main-fixture";
 import { DEFAULT_SETTINGS } from "../../../src/main/setup/settings";
 
 import { expect, test, vi } from "vitest";
 
-test("preview hosts validate registered worktrees, notify the board, reconcile and close", async () => {
+test("preview hosts accept standalone roots, notify the board, reconcile and close", async ({
+  onTestFinished,
+}) => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "foom-preview-root-")));
+  onTestFinished(() => rm(root, { recursive: true, force: true }));
   previewMock.hosts.length = 0;
   const launchIdentity = vi.fn(async () => {});
   mock.openWorktrees.mockResolvedValue({
@@ -24,9 +31,12 @@ test("preview hosts validate registered worktrees, notify the board, reconcile a
   const previews = mock.attachWorkspace.mock.calls[0]?.[5];
   if (!previews) throw new Error("Missing preview inventory");
   expect(previews()).toEqual([]);
-  await expect(host.validate("/tree")).resolves.toBeUndefined();
-  expect(launchIdentity).toHaveBeenCalledWith("/repo", "/tree");
-  await expect(host.validate("/elsewhere")).rejects.toThrow("Unknown preview worktree");
+  await expect(host.validate(root, "plan.md")).resolves.toBeUndefined();
+  expect(launchIdentity).not.toHaveBeenCalled();
+  await expect(host.validate(join(root, "missing"), "plan.md")).rejects.toThrow();
+  const file = join(root, "not-a-directory");
+  await writeFile(file, "");
+  await expect(host.validate(file, "plan.md")).rejects.toThrow("Preview directory unavailable");
   host.changed();
   expect(mock.window.webContents.send).toHaveBeenCalledWith("workspace:changed");
   mock.window.webContents.isDestroyed.mockReturnValueOnce(true);
@@ -47,6 +57,11 @@ test("preview hosts validate registered worktrees, notify the board, reconcile a
     expect.any(Function),
     "/tree",
   );
+  const validatePicker = previewMock.pickFile.mock.lastCall?.[2];
+  if (!validatePicker) throw new Error("Missing picker validation");
+  await expect(validatePicker("/tree")).resolves.toBeUndefined();
+  expect(launchIdentity).toHaveBeenCalledWith("/repo", "/tree");
+  await expect(validatePicker("/elsewhere")).rejects.toThrow("Unknown preview worktree");
   vi.mocked(host.reconcile).mockRejectedValueOnce(new Error("gone"));
   mock.workspace.deps?.onChange?.();
   await vi.waitFor(() => {
@@ -62,7 +77,6 @@ test("preview hosts validate registered worktrees, notify the board, reconcile a
 });
 
 test("main preview composition targets the opener's board and releases human-closed ownership", async () => {
-  const { mkdtemp, rm } = await import("node:fs/promises");
   const path = await import("node:path");
   const os = await import("node:os");
   const { ControlRuntime } = await import("../../../src/main/control/runtime");
@@ -127,12 +141,18 @@ test("main preview composition targets the opener's board and releases human-clo
   }
 });
 
-test("worktree removal blocks preview opens and closes every window's previews before Git", async () => {
+test("worktree removal blocks preview opens and closes every window's previews before Git", async ({
+  onTestFinished,
+}) => {
+  const sandbox = await realpath(await mkdtemp(join(tmpdir(), "foom-preview-removal-")));
+  onTestFinished(() => rm(sandbox, { recursive: true, force: true }));
+  const root = join(sandbox, "checkout");
+  await mkdir(root);
   previewMock.hosts.length = 0;
-  const launchIdentity = vi.fn(() => Promise.resolve());
+  const launchIdentity = vi.fn(async () => {});
   mock.openWorktrees.mockResolvedValue({
-    listRepositories: () => [{ path: "/repo", name: "repo" }],
-    listWorktrees: () => Promise.resolve([{ path: "/tree" }]),
+    listRepositories: () => [{ path: sandbox, name: "repo" }],
+    listWorktrees: () => Promise.resolve([{ path: root }]),
     launchIdentity,
   });
   await start();
@@ -141,33 +161,38 @@ test("worktree removal blocks preview opens and closes every window's previews b
   const deps = mock.workspace.deps;
   if (!first || !second || !deps?.prepareWorktreeRemoval)
     throw new Error("Missing preview lifecycle");
-  const prepare = (worktree: string) => {
+  const prepare = () => {
     if (!deps.prepareWorktreeRemoval) throw new Error("Missing removal lifecycle");
-    return deps.prepareWorktreeRemoval(worktree);
+    return deps.prepareWorktreeRemoval(root);
   };
-  await first.validate("/tree");
-  let finish: () => void = () => {};
+  await first.validate(root, "page.html");
+  await previewMock.pick?.(root);
+  const validatePicker = previewMock.pickFile.mock.lastCall?.[2];
+  if (!validatePicker) throw new Error("Missing picker validation");
+  let finishIdentity: () => void = () => {};
   launchIdentity.mockImplementationOnce(
     () =>
       new Promise<void>((resolve) => {
-        finish = resolve;
+        finishIdentity = resolve;
       }),
   );
-  const pending = first.validate("/tree");
+  const pending = validatePicker(root);
   await vi.waitFor(() => {
-    expect(launchIdentity).toHaveBeenCalledTimes(2);
+    expect(launchIdentity).toHaveBeenCalledOnce();
   });
-  const release = await prepare("/tree");
-  expect(first.closeWorktree).toHaveBeenCalledWith("/tree");
-  expect(second.closeWorktree).toHaveBeenCalledWith("/tree");
-  await expect(first.validate("/tree")).rejects.toThrow("being removed");
-  finish();
+  const release = await prepare();
+  expect(first.closeWorktree).toHaveBeenCalledWith(root);
+  expect(second.closeWorktree).toHaveBeenCalledWith(root);
+  await expect(first.validate(root, "page.html")).rejects.toThrow("being removed");
+  await expect(first.validate(sandbox, "standalone.html")).resolves.toBeUndefined();
+  await expect(validatePicker(root)).rejects.toThrow("being removed");
+  finishIdentity();
   await expect(pending).rejects.toThrow("being removed");
   release();
-  await first.validate("/tree");
+  await first.validate(root, "page.html");
   vi.mocked(second.closeWorktree).mockRejectedValueOnce(new Error("cleanup failed"));
-  await expect(prepare("/tree")).rejects.toThrow("cleanup failed");
-  await expect(first.validate("/tree")).resolves.toBeUndefined();
+  await expect(prepare()).rejects.toThrow("cleanup failed");
+  await expect(first.validate(root, "page.html")).resolves.toBeUndefined();
 });
 
 test("preview popout creates a window, transfers the host record and requests placement there", async () => {

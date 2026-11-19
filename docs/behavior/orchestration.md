@@ -4,7 +4,7 @@ Decided user-visible behavior. Implementation owners and security rules: [file m
 
 ## Orchestration and privacy
 
-Foom-launched agents can open Markdown and HTML previews from their own worktree
+Foom-launched agents can open readable local Markdown, HTML, PNG, JPEG and WebP previews
 through MCP or the console. Previews never take focus, and you can close any of
 them. The opener’s session panel and the local action log list “Opened preview
 <path>”, including sidebar-only opens and reopens after a human close. These
@@ -16,7 +16,7 @@ The [control-plane design](../orchestration.md) has an authentication and HTTP
 foundation, read-only MCP tools, a packaged console CLI and repository
 orchestrators. Ordinary agent launches receive a private credential for their own
 identity, with no process or file mutation capabilities. Claude Code 2.1.293+ and Codex 0.161.0+ stable releases with their per-launch MCP
-help flag receive MCP access to read-only session metadata and scoped preview view actions in their own repository,
+help flag receive MCP access to read-only session metadata and preview view actions for readable local documents,
 independently of hooks. These tested releases are the version floors. Older or
 unparseable versions and missing flags do not attach MCP through those CLI flags.
 Antigravity 1.4.2+ attaches through the enabled, intact Foom v4 lifecycle plugin

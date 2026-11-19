@@ -638,6 +638,12 @@ export function useSidebar(props: SidebarProps) {
   const matchingPreviews = tree.flatMap((repo) =>
     repo.worktrees.flatMap((worktree) => worktree.previews),
   );
+  const otherPreviews = previews.filter(
+    (preview) =>
+      !preview.repository &&
+      preview.worktree !== "foom:manual" &&
+      preview.relativePath.toLocaleLowerCase().includes(filter.trim().toLocaleLowerCase()),
+  );
   return {
     filter,
     setFilter,
@@ -685,5 +691,6 @@ export function useSidebar(props: SidebarProps) {
     previewRow,
     panel,
     matchingPreviews,
+    otherPreviews,
   };
 }

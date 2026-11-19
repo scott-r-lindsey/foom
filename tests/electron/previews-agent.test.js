@@ -693,7 +693,7 @@ test("agent reopen is visible with free space and reports sidebar only at protec
 test("agent previews stay visible after window moves while sidebar inventory is pending", {
   skip: process.platform === "win32" && "The fake agent is a POSIX script",
 }, async (context) => {
-  const { app, page, agent, credentials, requestAgent, requestPreview } =
+  const { app, page, repo, agent, credentials, requestAgent, requestPreview } =
     await agentPreviewFixture(context);
   await page.getByRole("button", { name: "Actions for Claude Code in main" }).click();
   await page.getByRole("menuitem", { name: "Make orchestrator…" }).click();
@@ -716,6 +716,28 @@ test("agent previews stay visible after window moves while sidebar inventory is 
       ),
     )
     .toBe(true);
+  isolatedGit(
+    [
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "--allow-empty",
+      "-qm",
+      "fixture",
+    ],
+    { cwd: repo },
+  );
+  const child = path.join(path.dirname(repo), "child-checkout");
+  isolatedGit(["worktree", "add", "-b", "child-checkout", child, "HEAD"], { cwd: repo });
+  await mkdir(path.join(child, "docs"));
+  await writeFile(path.join(child, "title.txt"), "Child checkout asset");
+  await writeFile(
+    path.join(child, "docs", "preview.html"),
+    '<h1>Loading</h1><script>fetch("../title.txt").then(r => r.text()).then(text => {document.querySelector("h1").textContent = text})</script>',
+  );
+  const childDocument = path.join(child, "docs", "preview.html");
   const first = await requestPreview("before-move", "notes.md");
   await movePreviewTile(app, page, first.previewId, async (target) => {
     await target.evaluate(() => window.desktop.appMenu.execute("settings"));
@@ -753,7 +775,7 @@ test("agent previews stay visible after window moves while sidebar inventory is 
       return (await response.json()).result;
     };
     try {
-      const opened = await call("open_preview", { path: "narrow.md" });
+      const opened = await call("open_preview", { path: childDocument });
       assert.notEqual(opened.placement, "sidebar");
       assert.equal(opened.reused, false);
       await expect(page.locator(`[data-preview-id="${opened.previewId}"]`)).toBeVisible();
@@ -763,14 +785,14 @@ test("agent previews stay visible after window moves while sidebar inventory is 
             requireAttached: true,
           }),
         )
-        .toBe("Narrow notes");
+        .toBe("Child checkout asset");
       assert.equal(
         (await call("list_previews", {})).previews.find(
           (preview) => preview.previewId === opened.previewId,
         ).visible,
         true,
       );
-      const reused = await call("open_preview", { path: "narrow.md" });
+      const reused = await call("open_preview", { path: path.relative(repo, childDocument) });
       assert.equal(reused.previewId, opened.previewId);
       assert.equal(reused.placement, "existing");
       assert.equal(reused.reused, true);

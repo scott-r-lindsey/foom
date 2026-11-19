@@ -81,6 +81,7 @@ export function Sidebar(props: SidebarProps) {
     configPanel,
     session,
     previewRow,
+    otherPreviews,
     panel,
     matchingPreviews,
   } = useSidebar(props);
@@ -261,6 +262,7 @@ export function Sidebar(props: SidebarProps) {
             </div>
           )}
           {compact && matchingPreviews.map(previewRow)}
+          {otherPreviews.map(previewRow)}
 
           {(source.getMachines?.() ?? []).length > 0 && (
             <div className="machine-list" role="group" aria-label="Machines">
@@ -453,7 +455,14 @@ export function Sidebar(props: SidebarProps) {
                     {repo.expanded && (
                       <>
                         {" "}
-                        {repo.worktrees.map(({ tree: worktree, expanded, rollup, sessions }) => {
+                        {repo.worktrees.map((section) => {
+                          const {
+                            tree: worktree,
+                            expanded,
+                            rollup,
+                            sessions,
+                            previews: worktreePreviews,
+                          } = section;
                           const wid = worktreeKey(worktree.path);
                           const cleanupItem = cleanup?.items.find(
                             (item) =>
@@ -582,7 +591,7 @@ export function Sidebar(props: SidebarProps) {
                                     ? sessions.map((row) => (
                                         <div key={row.id}>
                                           {session(row)}
-                                          {matchingPreviews
+                                          {worktreePreviews
                                             .filter(
                                               (preview) => preview.openedBy?.terminalId === row.id,
                                             )
@@ -590,17 +599,15 @@ export function Sidebar(props: SidebarProps) {
                                         </div>
                                       ))
                                     : !filter.trim() &&
-                                      !matchingPreviews.some(
-                                        (preview) => preview.worktree === worktree.path,
-                                      ) && <p className="tree-empty">Nothing here yet</p>}
-                                  {matchingPreviews
+                                      !worktreePreviews.length && (
+                                        <p className="tree-empty">Nothing here yet</p>
+                                      )}
+                                  {worktreePreviews
                                     .filter(
                                       (preview) =>
                                         !sessions.some(
                                           (row) => row.id === preview.openedBy?.terminalId,
-                                        ) &&
-                                        preview.worktree === worktree.path &&
-                                        preview.repository === repo.repository.path,
+                                        ),
                                     )
                                     .map(previewRow)}
                                 </>

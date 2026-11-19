@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DialogContent } from "../../../../src/shared/confirmation";
@@ -112,7 +112,7 @@ export async function fixture(
   ),
   bundled = false,
 ) {
-  const root = await mkdtemp(join(tmpdir(), "foom-host-"));
+  const root = await realpath(await mkdtemp(join(tmpdir(), "foom-host-")));
   roots.push(root);
   await writeFile(join(root, "a.html"), "<input autofocus>");
   const window = Object.assign(new EventEmitter(), {

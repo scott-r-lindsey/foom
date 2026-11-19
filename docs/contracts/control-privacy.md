@@ -66,6 +66,17 @@ reads require the live parent and revalidated checkout identity. Neither finding
 nor report contents enter the Action log. As with handoffs, the owning agent's
 model provider may receive them when it reads them.
 
+## Preview files (#1209)
+
+The picker and local agent preview tools use the OS user's read permissions to
+select supported documents, including files outside registered worktrees.
+An HTML preview can read eligible files under the selected document's checkout,
+or its containing directory for standalone documents. Each preview has an
+isolated origin and network starts off. Only the human's preview receives file
+bytes. Open and list return ID, path, kind and placement or visibility metadata.
+Audit stores the root-relative path and fixed action metadata, and list and close
+remain scoped to the opening grant generation. See [root selection](../areas/previews.md#selecting-a-document-and-its-root-1209).
+
 ## Local message board (#973)
 
 Board text and links are deliberately shared among the human and the opening and
