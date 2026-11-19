@@ -91,7 +91,6 @@ export class WorkspaceContext {
   defaultArguments = EMPTY_AGENT_ARGUMENTS;
   readonly resumeStarts = new Map<string, Promise<void>>();
   private localOnlyChange = false;
-  readonly busySessions = new Set<string>();
   readonly busyWorktrees = new Set<string>();
   readonly checkoutHolds = new CheckoutHolds();
   readonly repositoryOperations = new Map<string, Set<symbol>>();
@@ -344,10 +343,6 @@ export class WorkspaceContext {
       },
       failed: (id, error) => {
         this.executionOwner.markExited(id, error instanceof RemoteSessionExit ? error.code : -1);
-      },
-      busy: (id, value) => {
-        if (value) this.busySessions.add(id);
-        else this.busySessions.delete(id);
       },
       closed: () => this.closed,
       identity: (repository) => deps.worktrees.launchIdentity(repository, repository),
@@ -799,7 +794,7 @@ export class WorkspaceContext {
         !entry?.remote ||
         (!entry.dormant && this.executionOwner.view(id).exitCode === undefined) ||
         entry.placement?.kind !== "remote" ||
-        (!reserved && this.busySessions.has(id)) ||
+        (!reserved && this.sessions.isBusy(id)) ||
         this.sessions.isRestoring(id)
       )
         throw new ApplicationError("session-busy");
@@ -831,7 +826,7 @@ export class WorkspaceContext {
     validate();
     if (!(await unavailable())) throw new ApplicationError("session-busy");
     validate();
-    this.busySessions.add(id);
+    const release = this.sessions.reserveManual(id);
     try {
       await this.sessions.forget(id, async () => {
         validate(true);
@@ -839,7 +834,7 @@ export class WorkspaceContext {
         validate(true);
       });
     } finally {
-      this.busySessions.delete(id);
+      release();
     }
   }
 
@@ -850,11 +845,12 @@ export class WorkspaceContext {
     parentHold?: CheckoutHold,
   ): Promise<void> {
     if (this.sessions.isQuitting) throw new Error("Workspace is quitting");
+    if (this.sessions.isBusy(entry.id)) throw new ApplicationError("session-busy");
     const checkout = !entry.home && !entry.config;
     const hold = checkout ? this.checkoutHolds.acquire(entry.worktree, parentHold) : undefined;
     if (checkout && !hold) throw new ApplicationError("session-busy");
+    const release = this.sessions.reserveManual(entry.id);
     try {
-      this.busySessions.add(entry.id);
       entry.closeState = "closing";
       this.deps.terminals.setClosing?.(entry.id, true);
       this.refresh();
@@ -866,7 +862,7 @@ export class WorkspaceContext {
       if (this.launched.get(entry.id) === entry) entry.closeState = "failed";
       throw error;
     } finally {
-      this.busySessions.delete(entry.id);
+      release();
       hold?.release();
       this.deps.terminals.setClosing?.(entry.id, false);
       this.persist();

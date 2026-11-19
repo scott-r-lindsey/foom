@@ -34,7 +34,6 @@ export interface SessionOwnerDependencies {
   terminal: (id: string) => WorkspaceTerminal | undefined;
   restoreRow: (row: WorkspaceTerminal) => void;
   failed: (id: string, error?: unknown) => void;
-  busy: (id: string, value: boolean) => void;
   closed: () => boolean;
   identity: (repository: string) => Promise<string>;
   agents: () => Promise<readonly AgentInstallation[]>;
@@ -48,6 +47,8 @@ export interface SessionOwnerDependencies {
 
 /** Main-owned session metadata, restoration lifecycle and pre-shutdown persistence. */
 export class SessionOwner {
+  private readonly startupReservation = Symbol();
+  private readonly reservations = new Map<string, symbol>();
   private restoreEnabled = true;
   private readonly saved = new Map<string, StoredSession>();
   private readonly remotePlacements = new Map<string, RemoteSavedPlacement>();
@@ -68,7 +69,23 @@ export class SessionOwner {
     this.restoreEnabled = enabled;
   }
   isRestoring(id: string): boolean {
-    return this.restoring.has(id) && (!this.queuedRestoresReleased || this.launching.has(id));
+    return this.reservations.get(id) === this.startupReservation;
+  }
+  isBusy(id: string): boolean {
+    return this.reservations.has(id);
+  }
+  reserveManual(id: string): () => void {
+    if (this.isBusy(id)) throw new ApplicationError("session-busy");
+    const owner = Symbol();
+    this.reservations.set(id, owner);
+    this.restoring.delete(id);
+    this.saved.delete(id);
+    return () => {
+      this.releaseReservation(id, owner);
+    };
+  }
+  private releaseReservation(id: string, owner: symbol): void {
+    if (this.reservations.get(id) === owner) this.reservations.delete(id);
   }
   roleNotRestored(id: string): boolean {
     return !this.restoring.has(id) && this.unrestoredRoles.has(id);
@@ -192,6 +209,7 @@ export class SessionOwner {
           (entry.exited || entry.dormant)
         ) {
           this.restoring.delete(entry.id);
+          this.releaseReservation(entry.id, this.startupReservation);
           this.unrestoredRoles.delete(entry.id);
           this.remotePlacements.delete(entry.id);
           this.deps.removeRow?.(entry.id);
@@ -205,6 +223,7 @@ export class SessionOwner {
   private importEntries(entries: readonly StoredSession[], discovered = false): void {
     for (const entry of this.retained(entries)) {
       if (this.forgettingSessions.has(entry.id)) continue;
+      if (this.isBusy(entry.id) && !this.isRestoring(entry.id)) continue;
       if (discovered) {
         if (this.forgottenSessions.has(entry.id)) continue;
         const previous = this.saved.get(entry.id);
@@ -238,7 +257,7 @@ export class SessionOwner {
         this.remotePlacements.set(entry.id, entry.remoteCheckout);
         this.deps.rememberRemote?.(entry);
       }
-      const row = { ...entry };
+      const row = { ...entry, dormant: true };
       if (row.closeState) row.closeState = "failed";
       delete row.sharedReview;
       delete row.running;
@@ -249,7 +268,10 @@ export class SessionOwner {
       delete row.handoffs;
       this.deps.restoreRow(row);
       // Reserve eligible saved tiles before the first window requests inventory.
-      if (restorePlan([entry], this.restoreEnabled).length) this.restoring.add(entry.id);
+      if (restorePlan([entry], this.restoreEnabled).length) {
+        this.restoring.add(entry.id);
+        if (!this.queuedRestoresReleased) this.reservations.set(entry.id, this.startupReservation);
+      }
     }
   }
 
@@ -319,8 +341,10 @@ export class SessionOwner {
   }
 
   releaseQueuedRestores(): void {
+    if (this.queuedRestoresReleased) return;
     this.queuedRestoresReleased = true;
-    for (const id of this.restoring) if (!this.launching.has(id)) this.deps.busy(id, false);
+    for (const id of this.restoring)
+      if (!this.launching.has(id)) this.releaseReservation(id, this.startupReservation);
     this.deps.onChange?.();
   }
 
@@ -343,16 +367,19 @@ export class SessionOwner {
       ),
       this.restoreEnabled,
     );
+    for (const id of this.restoring) this.releaseReservation(id, this.startupReservation);
     this.restoring.clear();
     for (const entry of plan) {
       this.restoring.add(entry.id);
-      if (!this.queuedRestoresReleased) this.deps.busy(entry.id, true);
+      if (!this.queuedRestoresReleased) this.reservations.set(entry.id, this.startupReservation);
     }
     this.deps.onChange?.();
     return runRestore(plan, async (entry) => {
       for (let pending = pause?.(); pending; pending = pause?.()) {
         if (!(await pending)) return;
       }
+      if (!this.restoring.has(entry.id) || (this.isBusy(entry.id) && !this.isRestoring(entry.id)))
+        return;
       try {
         const row = this.deps.terminal(entry.id);
         if (
@@ -361,24 +388,22 @@ export class SessionOwner {
           !this.restoreEnabled ||
           this.forgettingSessions.has(entry.id) ||
           this.forgottenSessions.has(entry.id) ||
-          !row ||
+          row?.dormant !== true ||
           row.closeState !== undefined
         )
           return;
         this.launching.add(entry.id);
-        if (this.queuedRestoresReleased) {
-          this.deps.busy(entry.id, true);
-          this.deps.onChange?.();
-        }
+        this.reservations.set(entry.id, this.startupReservation);
+        if (this.queuedRestoresReleased) this.deps.onChange?.();
         await this.restartSavedEntry(entry);
       } catch (error) {
         this.deps.failed(entry.id, error);
         this.deps.orchestration.exited(entry.id);
       } finally {
-        if (this.deps.terminal(entry.id)?.dormant) this.deps.orchestration.exited(entry.id);
+        if (this.launching.delete(entry.id) && this.deps.terminal(entry.id)?.dormant)
+          this.deps.orchestration.exited(entry.id);
         this.restoring.delete(entry.id);
-        if (this.launching.delete(entry.id) || !this.queuedRestoresReleased)
-          this.deps.busy(entry.id, false);
+        this.releaseReservation(entry.id, this.startupReservation);
         this.saved.delete(entry.id);
         this.persist();
         this.deps.onChange?.();

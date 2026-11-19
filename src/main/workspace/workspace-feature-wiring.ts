@@ -214,8 +214,8 @@ export function workspaceFeatureWiring(owner: WorkspaceContext): {
       get auditHuman() {
         return owner.auditHuman.bind(owner);
       },
-      get busySessions() {
-        return owner.busySessions;
+      get sessions() {
+        return owner.sessions;
       },
       get checkoutHolds() {
         return owner.checkoutHolds;

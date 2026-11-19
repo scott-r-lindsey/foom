@@ -31,9 +31,10 @@ Startup restoration waits for a pending quit decision. Canceling quit lets
 the restore pass proceed. If restoration is already in flight, quit declines
 its pending launch approvals and waits up to five seconds for it to finish.
 At the deadline it pauses further restore launches before counting terminals
-for confirmation and releases rows still queued for launch. Canceling quit
-resumes restoration. Confirmed quit preserves the saved running state of
-paused rows for the next startup.
+for confirmation and releases startup's reservations on queued rows. A manual
+Restart, Resume or Close claims that row and removes it from startup's plan.
+Canceling quit resumes restoration of unclaimed dormant rows. Confirmed quit
+preserves the saved running state of paused rows for the next startup.
 Screens and scrollback are never persisted.
 
 `src/main/workspace/session-owner.ts` owns session restoration and persistence behind

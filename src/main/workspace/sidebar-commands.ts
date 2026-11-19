@@ -492,7 +492,7 @@ export async function sidebarCommand(
     await this.revokeOrchestrator(command.id);
     return;
   }
-  if ("id" in command && this.busySessions.has(command.id)) {
+  if ("id" in command && this.sessions.isBusy(command.id)) {
     if (command.kind === "close") throw new ApplicationError("session-busy");
     throw new Error("Session is busy");
   }
@@ -515,7 +515,7 @@ export async function sidebarCommand(
     if (this.executionOwner.view(entry.id).exitCode === undefined)
       throw new Error("Session is still running");
     if (command.kind === "resume") resumeArguments(entry.agent, entry.conversationId);
-    this.busySessions.add(entry.id);
+    const release = this.sessions.reserveManual(entry.id);
     try {
       const replacement = {
         id: entry.id,
@@ -562,7 +562,7 @@ export async function sidebarCommand(
           remoteRole?.role === "child" ? { parentId: remoteRole.parentId } : undefined,
         );
     } finally {
-      this.busySessions.delete(entry.id);
+      release();
     }
     return;
   }
@@ -593,127 +593,133 @@ export async function sidebarCommand(
           (row) => row.orchestration?.role === "child" && row.orchestration.parentId === command.id,
         ).length,
       );
-    if (command.kind === "restart") {
-      if (!entry || entry.kind !== "shell") throw new Error("Only shells can restart");
-      if (entry.machine)
-        await this.startMachine(
-          entry.placement?.kind === "remote" ? entry.placement.host : null,
-          "shell",
-        );
-      else if (
-        entry.remote &&
-        entry.placement?.kind === "remote" &&
-        entry.branch === "Main checkout"
-      )
-        await this.startMachine(entry.placement.host, "shell", undefined, {
-          repository: entry.repository,
-          worktree: entry.repository,
-          branch: null,
-        });
-      else if (entry.config) await this.startConfig("shell");
-      else if (entry.home && entry.remote) {
-        const target =
-          entry.placement?.kind === "remote"
-            ? this.deps.hosts?.shellTarget?.(entry.placement.host)
-            : undefined;
-        if (!target) throw new LaunchFailure("remote_host_unreachable");
-        await this.startHomeShell(undefined, target);
-      } else if (entry.home) await this.startHomeShell();
-      else await this.startExisting(entry.repository, entry.worktree, "shell", confirm);
-    }
-    const identity =
-      command.kind === "close" &&
-      entry &&
-      !entry.home &&
-      !entry.config &&
-      (!entry.dormant ||
-        this.deps.worktrees.listRepositories().some((repo) => repo.path === entry.repository))
-        ? this.deps.worktrees.reviewIdentity(entry.repository, entry.worktree)
-        : undefined;
-    const sharedReview =
-      command.kind === "close" ? this.checkoutHolds.review(command.id) : undefined;
-    if (sharedReview) heldCheckout = sharedReview.hold;
-    if (command.kind === "close" && entry) {
-      if (!entry.home && !entry.config && this.checkoutHolds.busy(entry.worktree, heldCheckout))
-        throw new ApplicationError("session-busy");
-      const key = worktreeReservation(entry.repository, entry.worktree, entry.branch);
-      if (
-        [
-          key,
-          `${entry.repository}\0:remote:${entry.worktree}`,
-          `${entry.repository}\0${entry.worktree}`,
-          `remote-main\0${entry.worktree}`,
-        ].some((key) => key !== heldReservation && this.busyWorktrees.has(key))
-      )
-        throw new ApplicationError("session-busy");
-      if (
-        identity !== undefined &&
-        this.snapshot().terminals.some((row) => row.worktree === entry.worktree && !row.exited)
-      )
-        throw new ApplicationError("session-running");
-    }
-    const cleanup = async (hold?: CheckoutHold) => {
-      validateClose?.();
-      if (
+    const release =
+      command.kind === "restart" ? this.sessions.reserveManual(command.id) : undefined;
+    try {
+      if (command.kind === "restart") {
+        if (!entry || entry.kind !== "shell") throw new Error("Only shells can restart");
+        if (entry.machine)
+          await this.startMachine(
+            entry.placement?.kind === "remote" ? entry.placement.host : null,
+            "shell",
+          );
+        else if (
+          entry.remote &&
+          entry.placement?.kind === "remote" &&
+          entry.branch === "Main checkout"
+        )
+          await this.startMachine(entry.placement.host, "shell", undefined, {
+            repository: entry.repository,
+            worktree: entry.repository,
+            branch: null,
+          });
+        else if (entry.config) await this.startConfig("shell");
+        else if (entry.home && entry.remote) {
+          const target =
+            entry.placement?.kind === "remote"
+              ? this.deps.hosts?.shellTarget?.(entry.placement.host)
+              : undefined;
+          if (!target) throw new LaunchFailure("remote_host_unreachable");
+          await this.startHomeShell(undefined, target);
+        } else if (entry.home) await this.startHomeShell();
+        else await this.startExisting(entry.repository, entry.worktree, "shell", confirm);
+      }
+      const identity =
         command.kind === "close" &&
-        (this.closed || (entry && this.launched.get(command.id) !== entry))
-      )
-        throw new Error("Session changed");
-      if (entry && sharedReview) {
-        await this.orchestration.checkSharedReview(
-          entry.id,
-          entry.repository,
-          entry.worktree,
-          sharedReview.baseline,
-        );
+        entry &&
+        !entry.home &&
+        !entry.config &&
+        (!entry.dormant ||
+          this.deps.worktrees.listRepositories().some((repo) => repo.path === entry.repository))
+          ? this.deps.worktrees.reviewIdentity(entry.repository, entry.worktree)
+          : undefined;
+      const sharedReview =
+        command.kind === "close" ? this.checkoutHolds.review(command.id) : undefined;
+      if (sharedReview) heldCheckout = sharedReview.hold;
+      if (command.kind === "close" && entry) {
+        if (!entry.home && !entry.config && this.checkoutHolds.busy(entry.worktree, heldCheckout))
+          throw new ApplicationError("session-busy");
+        const key = worktreeReservation(entry.repository, entry.worktree, entry.branch);
+        if (
+          [
+            key,
+            `${entry.repository}\0:remote:${entry.worktree}`,
+            `${entry.repository}\0${entry.worktree}`,
+            `remote-main\0${entry.worktree}`,
+          ].some((key) => key !== heldReservation && this.busyWorktrees.has(key))
+        )
+          throw new ApplicationError("session-busy");
+        if (
+          identity !== undefined &&
+          this.snapshot().terminals.some((row) => row.worktree === entry.worktree && !row.exited)
+        )
+          throw new ApplicationError("session-running");
+      }
+      const cleanup = async (hold?: CheckoutHold) => {
         validateClose?.();
-      }
-      if (entry && identity !== undefined && !sharedReview) {
-        await this.cleanup.removeOwnedTree(
-          entry.repository,
-          entry.worktree,
-          identity,
-          async (branch, changes, automatic) =>
-            automatic === true ||
-            (await this.deps.dialog?.(
-              {
-                ...(!closeSignal ? { userAction: true as const } : {}),
-                title: "Remove review worktree?",
-                accept: changes ? "Discard changes and remove" : "Remove worktree",
-                removal: {
-                  group: `review-close-${command.id}`,
-                  item: { id: command.id, branch, path: entry.worktree, changes },
-                },
-              },
-              closeSignal ?? new AbortController().signal,
-            )) === true,
-          () => {
-            validateClose?.();
-            if (this.closed || this.launched.get(command.id) !== entry)
-              throw new Error("Session changed");
-          },
-          command.id,
-          onCloseReview,
-          hold,
-        );
-        return;
-      }
-      if (entry?.remote) {
-        const host = entry.placement?.kind === "remote" ? entry.placement.host : undefined;
-        if (!host) throw new Error("Remote host placement is unavailable");
-        try {
-          await this.deps.terminals.kill(command.id, host);
-        } catch {
-          entry.remoteCleanup = "unreachable";
-          this.refresh();
-          console.error("Remote child close failed: remote_host_unreachable");
-          throw new LaunchFailure("remote_host_unreachable");
+        if (
+          command.kind === "close" &&
+          (this.closed || (entry && this.launched.get(command.id) !== entry))
+        )
+          throw new Error("Session changed");
+        if (entry && sharedReview) {
+          await this.orchestration.checkSharedReview(
+            entry.id,
+            entry.repository,
+            entry.worktree,
+            sharedReview.baseline,
+          );
+          validateClose?.();
         }
-      } else if (!entry?.dormant) await this.deps.terminals.kill(command.id);
-      this.removed(command.id);
-    };
-    if (command.kind === "close" && entry) await this.closeSession(entry, cleanup, heldCheckout);
-    else await cleanup();
+        if (entry && identity !== undefined && !sharedReview) {
+          await this.cleanup.removeOwnedTree(
+            entry.repository,
+            entry.worktree,
+            identity,
+            async (branch, changes, automatic) =>
+              automatic === true ||
+              (await this.deps.dialog?.(
+                {
+                  ...(!closeSignal ? { userAction: true as const } : {}),
+                  title: "Remove review worktree?",
+                  accept: changes ? "Discard changes and remove" : "Remove worktree",
+                  removal: {
+                    group: `review-close-${command.id}`,
+                    item: { id: command.id, branch, path: entry.worktree, changes },
+                  },
+                },
+                closeSignal ?? new AbortController().signal,
+              )) === true,
+            () => {
+              validateClose?.();
+              if (this.closed || this.launched.get(command.id) !== entry)
+                throw new Error("Session changed");
+            },
+            command.id,
+            onCloseReview,
+            hold,
+          );
+          return;
+        }
+        if (entry?.remote) {
+          const host = entry.placement?.kind === "remote" ? entry.placement.host : undefined;
+          if (!host) throw new Error("Remote host placement is unavailable");
+          try {
+            await this.deps.terminals.kill(command.id, host);
+          } catch {
+            entry.remoteCleanup = "unreachable";
+            this.refresh();
+            console.error("Remote child close failed: remote_host_unreachable");
+            throw new LaunchFailure("remote_host_unreachable");
+          }
+        } else if (!entry?.dormant) await this.deps.terminals.kill(command.id);
+        this.removed(command.id);
+      };
+      if (command.kind === "close" && entry) await this.closeSession(entry, cleanup, heldCheckout);
+      else await cleanup();
+    } finally {
+      release?.();
+    }
     return;
   }
   this.known(command.repository);

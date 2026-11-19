@@ -621,7 +621,7 @@ async function launchWithDeferredShell(
   context,
   restoreSessions,
   config,
-  { savedCount = 1, copilot = false } = {},
+  { savedCount = 1, copilot = false, queuedAgent = false } = {},
 ) {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-deferred-shell-")));
   removeAfterApps(context, root);
@@ -633,7 +633,7 @@ async function launchWithDeferredShell(
   await mkdir(profile);
   const bin = path.join(root, "bin");
   const marker = path.join(root, "copilot-launched");
-  if (copilot) {
+  if (copilot || queuedAgent) {
     await mkdir(bin);
     await writeFile(
       path.join(bin, "copilot"),
@@ -641,7 +641,10 @@ async function launchWithDeferredShell(
 const option = process.argv[2];
 if (option === "--version") console.log("GitHub Copilot CLI 1.0.103.");
 else if (option === "--help") console.log("--plugin-dir --additional-mcp-config --interactive --session-id --resume");
-else require("node:fs").writeFileSync(${JSON.stringify(marker)}, "started");
+else {
+  require("node:fs").writeFileSync(${JSON.stringify(marker)}, "started");
+  process.stdin.resume();
+}
 `,
       { mode: 0o755 },
     );
@@ -655,7 +658,7 @@ else require("node:fs").writeFileSync(${JSON.stringify(marker)}, "started");
         setupComplete: true,
         checkForUpdates: false,
         restoreSessions,
-        ...(copilot ? { agents: { copilot: true }, hooks: false } : {}),
+        ...(copilot || queuedAgent ? { agents: { copilot: true }, hooks: false } : {}),
       },
     }),
   );
@@ -666,8 +669,10 @@ else require("node:fs").writeFileSync(${JSON.stringify(marker)}, "started");
     JSON.stringify(
       Array.from({ length: savedCount }, (_, index) => ({
         id: index === 0 ? id : `${id}-${index}`,
-        agent: copilot ? "copilot" : "shell",
-        ...(copilot ? { conversationId: "12345678-1234-4234-8234-123456789abc" } : {}),
+        agent: copilot || (queuedAgent && index === 1) ? "copilot" : "shell",
+        ...(copilot || (queuedAgent && index === 1)
+          ? { conversationId: "12345678-1234-4234-8234-123456789abc" }
+          : {}),
         repository: directory,
         worktree: directory,
         branch: null,
@@ -679,7 +684,9 @@ else require("node:fs").writeFileSync(${JSON.stringify(marker)}, "started");
   const app = await launchApp(context, {
     fixture: "restored",
     home,
-    ...(copilot ? { env: { PATH: bin, COPILOT_ALLOW_ALL: "1" } } : {}),
+    ...(copilot || queuedAgent
+      ? { env: { PATH: bin, COPILOT_ALLOW_ALL: copilot ? "1" : "" } }
+      : {}),
     args: [`--user-data-dir=${profile}`],
   });
   const page = await boardPage(app);
@@ -914,6 +921,146 @@ test("canceling quit after a restore timeout resumes all saved shells", {
   await expect
     .poll(async () => (await rows()).filter((row) => !row.dormant && !row.exited).length)
     .toBe(5);
+});
+
+async function pauseStartupForManualAction(
+  context,
+  { queuedAgent = false, holdManual = true } = {},
+) {
+  const { app, page, id, lock, profile } = await launchWithDeferredShell(context, true, true, {
+    savedCount: 3,
+    queuedAgent,
+  });
+  await page.evaluate(() => window.desktop.sidebarCommand({ kind: "home-shell" }));
+  await app.evaluate(({ app }, holdManual) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { SessionOwner } = load("./build/main/workspace/session-owner.js");
+    const { Workspace } = load("./build/main/workspace/workspace.js");
+    const restartSavedEntry = SessionOwner.prototype.restartSavedEntry;
+    const restartSaved = Workspace.prototype.restartSaved;
+    const restore = Promise.withResolvers();
+    const manual = Promise.withResolvers();
+    globalThis.releaseStartup = restore.resolve;
+    globalThis.releaseManual = manual.resolve;
+    SessionOwner.prototype.restartSavedEntry = async function (entry) {
+      if (!globalThis.startupHeld) {
+        globalThis.startupHeld = true;
+        await restore.promise;
+      }
+      return restartSavedEntry.call(this, entry);
+    };
+    Workspace.prototype.restartSaved = function (...args) {
+      const owner = this.owner;
+      const startConfig = owner.startConfig;
+      owner.startConfig = async (...args) => {
+        if (holdManual && !globalThis.manualHeld) {
+          globalThis.manualHeld = true;
+          await manual.promise;
+        }
+        return startConfig(...args);
+      };
+      return restartSaved.apply(this, args).finally(() => {
+        globalThis.startupSettled = true;
+      });
+    };
+  }, holdManual);
+  await unlink(lock);
+  await expect.poll(() => app.evaluate(() => globalThis.startupHeld)).toBe(true);
+  await app.evaluate(({ app }) => app.quit());
+  const confirmation = await confirmationPage(app);
+  const card = confirmation.getByRole("alertdialog");
+  await expect(card).toHaveAccessibleName("Quit with 1 terminal running?");
+  const target = `${id}-1`;
+  const command = (kind) =>
+    page.evaluate(({ kind, id }) => window.desktop.sidebarCommand({ kind, id }), {
+      kind,
+      id: target,
+    });
+  const rows = () => page.evaluate(async () => (await window.desktop.workspace()).terminals);
+  const cancel = async () => {
+    await confirmation.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(card).toBeHidden();
+  };
+  const release = (name) => app.evaluate((_electron, name) => globalThis[name](), name);
+  return { app, card, confirmation, target, command, rows, profile, cancel, release };
+}
+
+test("canceling quit leaves an in-flight manual Restart in charge of its row", {
+  timeout: deadline(45_000),
+}, async (context) => {
+  const { app, card, confirmation, target, command, rows, cancel, release } =
+    await pauseStartupForManualAction(context);
+  const restarting = command("restart");
+  void restarting.catch(() => {});
+  try {
+    await expect.poll(() => app.evaluate(() => globalThis.manualHeld)).toBe(true);
+    await cancel();
+    await release("releaseStartup");
+    await expect.poll(() => app.evaluate(() => globalThis.startupSettled)).toBe(true);
+    assert.equal((await rows()).find((row) => row.id === target)?.dormant, true);
+  } finally {
+    await release("releaseStartup");
+    await release("releaseManual");
+  }
+  await restarting;
+  const running = (await rows()).filter((row) => !row.dormant && !row.exited);
+  assert.equal(running.length, 4);
+  assert.ok(running.every((row) => row.id !== target));
+  await app.evaluate(({ app }) => app.quit());
+  await expect(card).toHaveAccessibleName("Quit with 4 terminals running?");
+  await quitAndWait(app, () =>
+    confirmation.getByRole("button", { name: "Stop all and quit", exact: true }).click(),
+  );
+});
+
+test("canceling quit preserves a queued agent already resumed by hand", {
+  timeout: deadline(45_000),
+  skip: process.platform === "win32" && "The Copilot fixture is a POSIX executable",
+}, async (context) => {
+  const { app, target, command, rows, profile, cancel, release } =
+    await pauseStartupForManualAction(context, { queuedAgent: true, holdManual: false });
+  try {
+    await command("resume");
+    await cancel();
+  } finally {
+    await release("releaseStartup");
+  }
+  await expect.poll(() => app.evaluate(() => globalThis.startupSettled)).toBe(true);
+  assert.equal((await rows()).find((row) => row.id === target)?.exited, false);
+  await expect
+    .poll(async () => {
+      const saved = JSON.parse(await readFile(path.join(profile, "sessions.json"), "utf8"));
+      return saved.find((row) => row.id === target)?.running;
+    })
+    .toBe(true);
+});
+
+test("a second quit timeout preserves the reservation for a pending manual Resume", {
+  timeout: deadline(45_000),
+  skip: process.platform === "win32" && "The Copilot fixture is a POSIX executable",
+}, async (context) => {
+  const { app, card, target, command, rows, cancel, release } = await pauseStartupForManualAction(
+    context,
+    { queuedAgent: true },
+  );
+  const resuming = command("resume");
+  void resuming.catch(() => {});
+  try {
+    await expect.poll(() => app.evaluate(() => globalThis.manualHeld)).toBe(true);
+    await cancel();
+    await app.evaluate(({ app }) => app.quit());
+    await expect(card).toHaveAccessibleName("Quit with 1 terminal running?");
+    await assert.rejects(command("resume"), /foom-error:operation-failed/);
+    await cancel();
+  } finally {
+    await release("releaseManual");
+    await release("releaseStartup");
+  }
+  await resuming;
+  await expect.poll(() => app.evaluate(() => globalThis.startupSettled)).toBe(true);
+  assert.equal((await rows()).find((row) => row.id === target)?.exited, false);
 });
 
 test("quit finishes while a startup restore launch remains stalled", {

@@ -107,7 +107,7 @@ export interface SidebarCommandsContext {
   readonly scanAgents: WorkspaceMethods["scanAgents"];
   readonly enabled: Readonly<Record<AgentId, boolean>>;
   readonly auditHuman: WorkspaceMethods["auditHuman"];
-  readonly busySessions: Set<string>;
+  readonly sessions: Pick<SessionOwner, "isBusy" | "reserveManual">;
   readonly busyWorktrees: Set<string>;
   readonly checkoutHolds: CheckoutHolds;
   readonly cleanup: Pick<

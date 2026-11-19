@@ -57,7 +57,6 @@ function fixture(entries: StoredSession[] = []) {
       rows.set(entry.id, entry);
     },
     failed: vi.fn(),
-    busy: vi.fn(),
     closed: vi.fn(() => false),
     identity: vi.fn(() => Promise.resolve("identity")),
     agents: vi.fn(() =>
@@ -200,8 +199,8 @@ it("marks every planned session busy before launching and preserves saved child 
   expect(f.owner.roleNotRestored("parent")).toBe(false);
   expect(f.owner.isRestoring("child")).toBe(true);
   expect(f.owner.isRestoring("exited")).toBe(false);
-  expect(f.deps.busy).toHaveBeenCalledWith("parent", true);
-  expect(f.deps.busy).toHaveBeenCalledWith("child", true);
+  expect(f.owner.isBusy("parent")).toBe(true);
+  expect(f.owner.isBusy("child")).toBe(true);
   await f.owner.save();
   expect(f.store.save.mock.lastCall?.[0]).toMatchObject([
     { id: "child", running: true, parentId: "parent" },
@@ -217,7 +216,7 @@ it("marks every planned session busy before launching and preserves saved child 
   expect(f.deps.launch).toHaveBeenLastCalledWith(child, { parentId: "parent" }, undefined);
   expect(f.owner.isRestoring("child")).toBe(false);
   expect(f.owner.roleNotRestored("parent")).toBe(false);
-  expect(f.deps.busy).toHaveBeenCalledWith("parent", false);
+  expect(f.owner.isBusy("parent")).toBe(false);
 });
 
 it("releases queued rows during a quit pause and retains their saved running state", async () => {
@@ -238,7 +237,7 @@ it("releases queued rows during a quit pause and retains their saved running sta
   f.owner.releaseQueuedRestores();
   expect(f.owner.isRestoring(first.id)).toBe(true);
   expect(f.owner.isRestoring(queued.id)).toBe(false);
-  expect(f.deps.busy).toHaveBeenLastCalledWith(queued.id, false);
+  expect(f.owner.isBusy(queued.id)).toBe(false);
   await f.owner.prepareQuit(false);
   expect(f.store.save.mock.lastCall?.[0]).toMatchObject([
     { id: first.id, running: true },
@@ -249,6 +248,32 @@ it("releases queued rows during a quit pause and retains their saved running sta
   await restoring;
   expect(f.deps.launch).toHaveBeenCalledOnce();
   expect(f.store.save).toHaveBeenCalledOnce();
+});
+
+it("keeps a manually claimed row out of startup and protects each reservation from stale releases", async () => {
+  const first = row("first");
+  const queued = row("queued", { worktree: first.worktree });
+  const f = fixture([first, queued]);
+  const launch = Promise.withResolvers<string>();
+  vi.mocked(f.deps.launch).mockReturnValueOnce(launch.promise);
+  await f.owner.restore();
+  const restoring = f.owner.restartSaved();
+  await vi.waitFor(() => {
+    expect(f.deps.launch).toHaveBeenCalledOnce();
+  });
+
+  f.owner.releaseQueuedRestores();
+  const finishManual = f.owner.reserveManual(queued.id);
+  f.owner.releaseQueuedRestores();
+  expect(() => f.owner.reserveManual(queued.id)).toThrow("session-busy");
+  finishManual();
+  const finishNext = f.owner.reserveManual(queued.id);
+  finishManual();
+  expect(f.owner.isBusy(queued.id)).toBe(true);
+  finishNext();
+  launch.resolve(first.id);
+  await restoring;
+  expect(f.deps.launch).toHaveBeenCalledOnce();
 });
 
 it.each(["disabled", "closed", "removed", "quitting"] as const)(
@@ -273,7 +298,7 @@ it.each(["disabled", "closed", "removed", "quitting"] as const)(
     await work;
     expect(f.deps.launch).toHaveBeenCalledTimes(mode === "quitting" ? 0 : 1);
     expect(f.owner.isRestoring("two")).toBe(false);
-    expect(f.deps.busy).toHaveBeenCalledWith("two", false);
+    expect(f.owner.isBusy("two")).toBe(false);
   },
 );
 
