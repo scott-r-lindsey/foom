@@ -309,13 +309,13 @@ vi.mock("../../../src/main/terminals/terminal-ipc", () => ({
     copyOnSelect: () => boolean,
     _remoteProfile: string | undefined,
     clipboardWrites: () => boolean,
-    restoreLaunchSignal: () => AbortSignal | undefined,
+    restoreLaunchPause: () => Promise<boolean> | undefined,
   ) => {
     mock.allowView = allow;
     mock.shellEnvironment = shellEnvironment;
     mock.copyOnSelect = copyOnSelect;
     mock.clipboardWrites = clipboardWrites;
-    mock.restoreLaunchSignal = restoreLaunchSignal;
+    mock.restoreLaunchPause = restoreLaunchPause;
     mock.terminalEvents = events;
     return mock.terminals;
   },
@@ -332,6 +332,7 @@ vi.mock("../../../src/main/workspace/workspace", () => ({
   Workspace: class {
     restore = mock.workspace.restore;
     restartSaved = mock.workspace.restartSaved;
+    releaseQueuedRestores = vi.fn();
     prepareQuit = async () => {};
     cancelQuit = () => {};
     snapshot = () => ({
@@ -702,7 +703,7 @@ const mock = vi.hoisted(() => {
     },
     confirmParent: vi.fn(),
     confirmSignal: vi.fn<(signal?: AbortSignal) => void>(),
-    restoreLaunchSignal: (): AbortSignal | undefined => undefined,
+    restoreLaunchPause: (): Promise<boolean> | undefined => undefined,
     message: vi.fn<(content?: unknown) => Promise<{ response: number }>>(),
     errorBox: vi.fn(),
     openDialog: vi.fn<() => Promise<{ canceled: boolean; filePaths: string[] }>>(),

@@ -129,8 +129,11 @@ export class Workspace {
   cancelQuit(): void {
     this.owner.cancelQuit();
   }
-  restartSaved(): Promise<void> {
-    return this.owner.restartSaved();
+  restartSaved(pause?: () => Promise<boolean> | undefined): Promise<void> {
+    return this.owner.restartSaved(pause);
+  }
+  releaseQueuedRestores(): void {
+    this.owner.releaseQueuedRestores();
   }
   mcpConnectionChanged(id: string, state: McpConnection | undefined): void {
     this.owner.mcpConnectionChanged(id, state);

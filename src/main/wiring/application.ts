@@ -180,7 +180,7 @@ export function runApplication() {
   let quitPending = false;
   const restoreScope = new AsyncLocalStorage<{
     approvals: AbortController;
-    launches: AbortController;
+    pause?: { promise: Promise<boolean>; resolve(resume: boolean): void };
   }>();
   let savingWindows = Promise.resolve();
   const windows = new Map<
@@ -313,7 +313,10 @@ export function runApplication() {
   }
   async function requestTrusted(content: DialogContent, signal: AbortSignal): Promise<boolean> {
     const restore = restoreScope.getStore();
-    if (restore) signal = AbortSignal.any([signal, restore.approvals.signal]);
+    if (restore) {
+      while (restore.pause) if (!(await restore.pause.promise)) return false;
+      signal = AbortSignal.any([signal, restore.approvals.signal]);
+    }
     if (content.userAction) {
       const cancelled = () => signal.aborted || quitting || quitPending;
       if (cancelled()) return false;
@@ -388,39 +391,50 @@ export function runApplication() {
   let startupRestore:
     | {
         work: Promise<void>;
-        approvals: AbortController;
-        launches: AbortController;
+        scope: NonNullable<ReturnType<typeof restoreScope.getStore>>;
       }
     | undefined;
   async function restoreSavedSessions(): Promise<void> {
     // A quit request that gets here first owns the terminal inventory until it settles.
     while (quitRequest) await quitRequest;
     if (quitting) return;
-    const scope = { approvals: new AbortController(), launches: new AbortController() };
+    const scope = { approvals: new AbortController() };
     const work = restoreScope.run(scope, () =>
-      Promise.resolve().then(() => workspace.restartSaved()),
+      Promise.resolve().then(() => workspace.restartSaved(restoreLaunchPause)),
     );
-    startupRestore = { ...scope, work };
+    startupRestore = { scope, work };
     try {
       await work;
     } finally {
       startupRestore = undefined;
     }
   }
+  function restoreLaunchPause(): Promise<boolean> | undefined {
+    return restoreScope.getStore()?.pause?.promise;
+  }
   async function settleRestoreForQuit(restore: NonNullable<typeof startupRestore>): Promise<void> {
-    restore.approvals.abort();
-    if (restore.launches.signal.aborted) return;
+    restore.scope.approvals.abort();
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       await Promise.race([
         Promise.allSettled([restore.work]),
         new Promise<void>((resolve) => {
           timer = setTimeout(() => {
-            restore.launches.abort();
+            let decide: (resume: boolean) => void;
+            const promise = new Promise<boolean>((complete) => {
+              decide = complete;
+            });
+            restore.scope.pause = {
+              promise,
+              resolve(resume) {
+                decide(resume);
+              },
+            };
             resolve();
           }, 5_000);
         }),
       ]);
+      if (restore.scope.pause) workspace.releaseQueuedRestores();
     } finally {
       clearTimeout(timer);
     }
@@ -438,6 +452,8 @@ export function runApplication() {
       app.quit();
       return;
     }
+    let restore: typeof startupRestore;
+    let shutdownCompleted = false;
     try {
       let entry =
         [...windows.values()].find(({ window }) => window.isFocused()) ??
@@ -449,7 +465,8 @@ export function runApplication() {
       if (!entry) return;
       const { window, confirmations } = entry;
       quitPending = true;
-      if (startupRestore) await settleRestoreForQuit(startupRestore);
+      restore = startupRestore;
+      if (restore) await settleRestoreForQuit(restore);
       const count = terminals.runningCount;
       if (count > 0) {
         const snapshot = workspace.snapshot();
@@ -490,6 +507,9 @@ export function runApplication() {
         workspace.cancelQuit();
         throw error;
       }
+      // Keep the fence closed after the running records have been saved and PTYs stopped.
+      shutdownCompleted = true;
+      restore?.scope.pause?.resolve(false);
       // Terminals have stopped: revoke every hook credential and stop listening.
       await forgeRuntime.close();
       await workspace.dispose();
@@ -522,6 +542,12 @@ export function runApplication() {
       dialog.showErrorBox("Unable to quit Foom", "Could not stop all terminals. Please try again.");
     } finally {
       quitPending = false;
+      if (restore && !shutdownCompleted) {
+        const { pause } = restore.scope;
+        delete restore.scope.pause;
+        restore.scope.approvals = new AbortController();
+        pause?.resolve(true);
+      }
     }
   }
 
@@ -582,7 +608,7 @@ export function runApplication() {
       return quitPending;
     },
     restoreSavedSessions,
-    restoreLaunchSignal: () => restoreScope.getStore()?.launches.signal,
+    restoreLaunchPause,
     get quitting() {
       return quitting;
     },

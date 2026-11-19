@@ -1,4 +1,5 @@
 import { mock, start, quitting } from "./main-fixture";
+import { AsyncResource } from "node:async_hooks";
 import { expect, test, vi } from "vitest";
 
 test("window close requests the same quit path without destroying the window", async () => {
@@ -35,10 +36,11 @@ test("quit counts terminals after an in-flight startup restore finishes", async 
 
 test("quit aborts a restore approval and bounds a restore that remains stalled", async () => {
   const approval = Promise.withResolvers<{ response: number }>();
-  let launchSignal: AbortSignal | undefined;
-  mock.message.mockReturnValueOnce(approval.promise);
+  const cancel = Promise.withResolvers<{ response: number }>();
+  const readPause = vi.fn<() => Promise<boolean> | undefined>();
+  mock.message.mockReturnValueOnce(approval.promise).mockReturnValueOnce(cancel.promise);
   mock.workspace.restartSaved.mockImplementationOnce(async () => {
-    launchSignal = mock.restoreLaunchSignal();
+    readPause.mockImplementation(AsyncResource.bind(mock.restoreLaunchPause));
     await mock.config.deps?.confirmArguments?.({
       title: "Restore with bypass?",
       accept: "Launch with bypass",
@@ -52,22 +54,24 @@ test("quit aborts a restore approval and bounds a restore that remains stalled",
   });
   const signal = mock.confirmSignal.mock.lastCall?.[0];
   expect(signal?.aborted).toBe(false);
-  expect(launchSignal?.aborted).toBe(false);
-  expect(mock.restoreLaunchSignal()).toBeUndefined();
+  expect(mock.restoreLaunchPause()).toBeUndefined();
 
   vi.useFakeTimers();
   try {
     quitting();
     expect(signal?.aborted).toBe(true);
-    expect(launchSignal?.aborted).toBe(false);
     expect(mock.message).toHaveBeenCalledOnce();
     await vi.advanceTimersByTimeAsync(5_000);
-    expect(launchSignal?.aborted).toBe(true);
     expect(mock.message).toHaveBeenLastCalledWith(
       expect.objectContaining({ title: "Quit with 1 terminal running?" }),
     );
+    const pause = readPause();
+    expect(pause).toBeDefined();
+    cancel.resolve({ response: 0 });
+    await expect(pause).resolves.toBe(true);
+    expect(readPause()).toBeUndefined();
     quitting();
-    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(5_000);
     expect(mock.message).toHaveBeenCalledTimes(3);
   } finally {
     approval.resolve({ response: 0 });

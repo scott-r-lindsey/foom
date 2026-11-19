@@ -220,6 +220,37 @@ it("marks every planned session busy before launching and preserves saved child 
   expect(f.deps.busy).toHaveBeenCalledWith("parent", false);
 });
 
+it("releases queued rows during a quit pause and retains their saved running state", async () => {
+  const first = row("first");
+  const queued = row("queued", { worktree: first.worktree });
+  const f = fixture([first, queued]);
+  const launch = Promise.withResolvers<string>();
+  const decision = Promise.withResolvers<boolean>();
+  const pause = vi.fn<() => Promise<boolean> | undefined>();
+  vi.mocked(f.deps.launch).mockReturnValueOnce(launch.promise);
+  await f.owner.restore();
+  const restoring = f.owner.restartSaved(pause);
+  await vi.waitFor(() => {
+    expect(f.deps.launch).toHaveBeenCalledOnce();
+  });
+
+  pause.mockReturnValue(decision.promise);
+  f.owner.releaseQueuedRestores();
+  expect(f.owner.isRestoring(first.id)).toBe(true);
+  expect(f.owner.isRestoring(queued.id)).toBe(false);
+  expect(f.deps.busy).toHaveBeenLastCalledWith(queued.id, false);
+  await f.owner.prepareQuit(false);
+  expect(f.store.save.mock.lastCall?.[0]).toMatchObject([
+    { id: first.id, running: true },
+    { id: queued.id, running: true },
+  ]);
+  launch.resolve(first.id);
+  decision.resolve(false);
+  await restoring;
+  expect(f.deps.launch).toHaveBeenCalledOnce();
+  expect(f.store.save).toHaveBeenCalledOnce();
+});
+
 it.each(["disabled", "closed", "removed", "quitting"] as const)(
   "skips queued launches when %s and releases markers",
   async (mode) => {

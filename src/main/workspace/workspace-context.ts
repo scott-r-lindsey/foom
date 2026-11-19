@@ -517,8 +517,12 @@ export class WorkspaceContext {
   }
 
   /** Called only after all saved windows have been shown. */
-  restartSaved(): Promise<void> {
-    return this.sessions.restartSaved();
+  restartSaved(pause?: () => Promise<boolean> | undefined): Promise<void> {
+    return this.sessions.restartSaved(pause);
+  }
+
+  releaseQueuedRestores(): void {
+    this.sessions.releaseQueuedRestores();
   }
 
   readonly mcpConnections = new Map<string, McpConnection>();

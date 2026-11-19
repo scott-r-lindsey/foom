@@ -30,8 +30,10 @@ restartable by hand as soon as the board opens, even while Settings is busy.
 Startup restoration waits for a pending quit decision. Canceling quit lets
 the restore pass proceed. If restoration is already in flight, quit declines
 its pending launch approvals and waits up to five seconds for it to finish.
-At the deadline it cancels further restore launches before counting terminals
-for confirmation.
+At the deadline it pauses further restore launches before counting terminals
+for confirmation and releases rows still queued for launch. Canceling quit
+resumes restoration. Confirmed quit preserves the saved running state of
+paused rows for the next startup.
 Screens and scrollback are never persisted.
 
 `src/main/workspace/session-owner.ts` owns session restoration and persistence behind

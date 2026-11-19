@@ -687,7 +687,7 @@ else require("node:fs").writeFileSync(${JSON.stringify(marker)}, "started");
     (await page.evaluate(() => window.desktop.configStatus())).error,
     /Settings are busy/,
   );
-  return { app, page, id, lock, marker };
+  return { app, page, id, lock, marker, profile };
 }
 
 async function deferredRestoreAtQuit(context, savedCount) {
@@ -871,10 +871,57 @@ for (const approvalOpen of [false, true]) {
   });
 }
 
+test("canceling quit after a restore timeout resumes all saved shells", {
+  timeout: deadline(45_000),
+}, async (context) => {
+  const { app, page, id, lock } = await launchWithDeferredShell(context, true, true, {
+    savedCount: 4,
+  });
+  await page.evaluate(() => window.desktop.sidebarCommand({ kind: "home-shell" }));
+  await app.evaluate(({ app }) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { SessionOwner } = load("./build/main/workspace/session-owner.js");
+    const restartSavedEntry = SessionOwner.prototype.restartSavedEntry;
+    const gate = new Promise((resolve) => {
+      globalThis.releaseRestore = resolve;
+    });
+    SessionOwner.prototype.restartSavedEntry = async function (entry) {
+      if (!globalThis.restoreLaunchStalled) {
+        globalThis.restoreLaunchStalled = true;
+        await gate;
+      }
+      return restartSavedEntry.call(this, entry);
+    };
+  });
+  const rows = () => page.evaluate(async () => (await window.desktop.workspace()).terminals);
+  try {
+    await unlink(lock);
+    await expect.poll(() => app.evaluate(() => globalThis.restoreLaunchStalled)).toBe(true);
+    await app.evaluate(({ app }) => app.quit());
+    const confirmation = await confirmationPage(app);
+    const card = confirmation.getByRole("alertdialog");
+    await expect(card).toHaveAccessibleName("Quit with 1 terminal running?");
+    const queued = (await rows()).filter((row) => row.id.startsWith(`${id}-`));
+    assert.equal(queued.length, 3);
+    assert.ok(queued.every((row) => row.dormant && row.exited));
+    await confirmation.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(card).toBeHidden();
+  } finally {
+    await app.evaluate(() => globalThis.releaseRestore());
+  }
+  await expect
+    .poll(async () => (await rows()).filter((row) => !row.dormant && !row.exited).length)
+    .toBe(5);
+});
+
 test("quit finishes while a startup restore launch remains stalled", {
   timeout: deadline(45_000),
 }, async (context) => {
-  const { app, page, lock } = await launchWithDeferredShell(context, true, true);
+  const { app, page, id, lock, profile } = await launchWithDeferredShell(context, true, true, {
+    savedCount: 4,
+  });
   await page.evaluate(() => window.desktop.sidebarCommand({ kind: "home-shell" }));
   await app.evaluate(({ app }) => {
     const load = process
@@ -893,9 +940,15 @@ test("quit finishes while a startup restore launch remains stalled", {
   await expect(confirmation.getByRole("alertdialog")).toHaveAccessibleName(
     "Quit with 1 terminal running?",
   );
+  await page.evaluate((id) => window.desktop.sidebarCommand({ kind: "close", id }), `${id}-3`);
   await quitAndWait(app, () =>
     confirmation.getByRole("button", { name: "Stop all and quit", exact: true }).click(),
   );
+  const saved = JSON.parse(await readFile(path.join(profile, "sessions.json"), "utf8")).filter(
+    (row) => row.id.startsWith(id),
+  );
+  assert.equal(saved.length, 3);
+  assert.ok(saved.every((row) => row.running === true));
 });
 
 test("start:fresh state isolation keeps config and worktrees inside its temporary profile", async (context) => {

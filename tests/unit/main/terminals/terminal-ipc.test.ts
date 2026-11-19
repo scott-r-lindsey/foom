@@ -1306,7 +1306,8 @@ test("renderer loss releases an in-flight flush and a crashed board needs no ack
 });
 
 test("quit can inventory admitted restore launches and fence further ones", async () => {
-  const restore = new AbortController();
+  const restore = Promise.withResolvers<boolean>();
+  const pause = vi.fn<() => Promise<boolean> | undefined>();
   terminalControl = attachTerminal(
     window as unknown as BrowserWindow,
     undefined,
@@ -1315,7 +1316,7 @@ test("quit can inventory admitted restore launches and fence further ones", asyn
     undefined,
     undefined,
     undefined,
-    () => restore.signal,
+    pause,
   );
   const creating = terminalControl.create({
     ...spec,
@@ -1332,8 +1333,11 @@ test("quit can inventory admitted restore launches and fence further ones", asyn
   });
   await expect(terminalControl.create({ ...spec, id: "failed" })).rejects.toThrow("spawn failed");
   expect(terminalControl.runningSessions().map(({ id }) => id)).toEqual(["saved"]);
-  restore.abort();
-  await expect(terminalControl.create(spec)).rejects.toMatchObject({ name: "AbortError" });
+  pause.mockReturnValue(restore.promise);
+  const refused = terminalControl.create(spec);
+  expect(terminalControl.runningCount).toBe(1);
+  restore.resolve(false);
+  await expect(refused).rejects.toMatchObject({ name: "AbortError" });
   expect(terminalControl.runningCount).toBe(1);
 });
 test("a crashed board is skipped until a completed reload", async () => {

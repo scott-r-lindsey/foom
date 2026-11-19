@@ -65,7 +65,7 @@ export async function initializeWorkspace(
       () => wiring.settings.get().copyOnSelect,
       wiring.settings.profileTag(),
       () => wiring.settings.get().terminalClipboardWrites,
-      wiring.restoreLaunchSignal,
+      wiring.restoreLaunchPause,
     );
   else wiring.terminals.addWindow(window);
   if (!wiring.initialized) {

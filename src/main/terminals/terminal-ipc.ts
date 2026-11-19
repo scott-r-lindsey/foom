@@ -56,7 +56,7 @@ export function attachTerminal(
   copyOnSelect: () => boolean = () => false,
   remoteProfile?: string,
   clipboardWrites: () => boolean = () => false,
-  restoreLaunchSignal?: () => AbortSignal | undefined,
+  restoreLaunchPause?: () => Promise<boolean> | undefined,
 ) {
   const windows = new Map<
     WebContents,
@@ -539,10 +539,10 @@ export function attachTerminal(
     dispose,
     runningSessions: () => [...running.values()],
     async create(spec: TerminalSpec) {
-      const restore = restoreLaunchSignal?.();
-      const signal =
-        restore && spec.signal ? AbortSignal.any([restore, spec.signal]) : (restore ?? spec.signal);
-      signal?.throwIfAborted();
+      for (let pause = restoreLaunchPause?.(); pause; pause = restoreLaunchPause?.()) {
+        if (!(await pause)) throw new DOMException("Quit completed", "AbortError");
+      }
+      spec.signal?.throwIfAborted();
       const id = spec.id ?? randomUUID();
       if (running.has(id)) throw new Error("Invalid or occupied terminal ID");
       // Keep an admitted launch in the quit inventory even while the host acknowledges it.
@@ -551,7 +551,6 @@ export function attachTerminal(
         await manager.create({
           ...spec,
           id,
-          ...(signal ? { signal } : {}),
           ...(spec.remote && remoteProfile
             ? { remote: { ...spec.remote, profile: remoteProfile } }
             : {}),
