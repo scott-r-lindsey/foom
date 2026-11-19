@@ -822,11 +822,7 @@ test("Cancelling app quit clears Stopping after an overlapping installer window 
   await other.evaluate((id) => window.desktop.tail(id, 1), shell.id);
 });
 
-test("Confirmed app quit takes over after an overlapping owner stop rejects", {
-  skip: process.platform === "win32",
-  timeout: deadline(60000),
-}, async (context) => {
-  const { app, cleanup } = await slowVendorFixture(context, 2500);
+async function holdFixtureOwnerStop(app) {
   await app.evaluate(({ dialog }, path) => {
     const { TerminalHostClient } = process.getBuiltinModule("node:module").createRequire(path)(
       path,
@@ -843,15 +839,27 @@ test("Confirmed app quit takes over after an overlapping owner stop rejects", {
       globalThis.fixtureNativeErrors.push(title);
     };
   }, path.resolve("build/main/terminals/terminal-host-client.js"));
+}
+
+async function quitWhileOwnerStopIsHeld(app, page, closeOwner) {
+  await closeOwner();
+  await expect(stoppingDialog(page)).toBeVisible();
+  await expect.poll(() => app.evaluate(() => !!globalThis.rejectFixtureOwnerStop)).toBe(true);
+  await app.evaluate(({ app }) => app.quit());
+  return confirmationPage(app, /^Quit with /u);
+}
+
+test("Confirmed app quit takes over after an overlapping owner stop rejects", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, cleanup } = await slowVendorFixture(context, 2500);
+  await holdFixtureOwnerStop(app);
   const { page, other, closeOwner } = await openInstallerBoards(app);
   await startSlowVendorInstaller(page);
   await quitAndWait(app, async () => {
     try {
-      await closeOwner();
-      await expect(stoppingDialog(page)).toBeVisible();
-      await expect.poll(() => app.evaluate(() => !!globalThis.rejectFixtureOwnerStop)).toBe(true);
-      await app.evaluate(({ app }) => app.quit());
-      const dialog = await confirmationPage(app, /^Quit with /u);
+      const dialog = await quitWhileOwnerStopIsHeld(app, page, closeOwner);
       await dialog.getByRole("button", { name: "Stop all and quit" }).click();
       await expect(stoppingDialog(other)).toBeVisible();
     } finally {
@@ -862,6 +870,54 @@ test("Confirmed app quit takes over after an overlapping owner stop rejects", {
   });
   await assert.rejects(access(await readFile(cleanup, "utf8")), { code: "ENOENT" });
 });
+
+for (const confirm of [false, true]) {
+  test(confirm
+    ? "Confirming app quit discards the deferred owner close error"
+    : "Cancelling app quit reports the deferred owner close error and allows retry", {
+    skip: process.platform === "win32",
+    timeout: deadline(60000),
+  }, async (context) => {
+    const { app, cleanup } = await slowVendorFixture(context, 2500);
+    await holdFixtureOwnerStop(app);
+    const { page, closeOwner } = await openInstallerBoards(app);
+    await startSlowVendorInstaller(page);
+    const failWhilePromptIsOpen = async () => {
+      let prompt;
+      try {
+        prompt = await quitWhileOwnerStopIsHeld(app, page, closeOwner);
+      } finally {
+        await app.evaluate(() => globalThis.rejectFixtureOwnerStop?.());
+      }
+      await expect(stoppingDialog(page)).toHaveCount(0);
+      await expect(prompt.getByRole("alertdialog")).toBeVisible();
+      assert.deepEqual(await app.evaluate(() => globalThis.fixtureNativeErrors), []);
+      return prompt;
+    };
+    if (confirm) {
+      await quitAndWait(app, async () => {
+        const prompt = await failWhilePromptIsOpen();
+        await prompt.getByRole("button", { name: "Stop all and quit" }).click();
+        await expect(stoppingDialog(page)).toBeVisible();
+        await stagingDuringCleanup(cleanup);
+        assert.deepEqual(await app.evaluate(() => globalThis.fixtureNativeErrors), []);
+      });
+    } else {
+      const prompt = await failWhilePromptIsOpen();
+      await prompt.getByRole("button", { name: "Cancel", exact: true }).click();
+      await expect
+        .poll(() => app.evaluate(() => globalThis.fixtureNativeErrors))
+        .toEqual(["Unable to close window"]);
+      assert.equal(page.isClosed(), false);
+      const closed = page.waitForEvent("close");
+      await closeOwner();
+      await expect(stoppingDialog(page)).toBeVisible();
+      await stagingDuringCleanup(cleanup);
+      await closed;
+    }
+    await assert.rejects(access(await readFile(cleanup, "utf8")), { code: "ENOENT" });
+  });
+}
 
 test("Confirmed app quit shows Stopping for an installer awaiting its terminal create reply", {
   skip: process.platform === "win32",

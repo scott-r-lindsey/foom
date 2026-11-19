@@ -381,11 +381,25 @@ export function runApplication() {
     requestQuit,
   });
   let quitRequest: Promise<void> | undefined;
+  let quitConfirmation: Promise<boolean> | undefined;
   function requestQuit(): Promise<void> {
     quitRequest ??= performQuit().finally(() => {
       quitRequest = undefined;
     });
     return quitRequest;
+  }
+  function reportOwnerCloseFailure(report: () => void): void {
+    if (!quitPending) {
+      report();
+      return;
+    }
+    // A confirmed shutdown owns the terminals. A cancelled prompt returns them to the owner.
+    void quitConfirmation?.then(
+      (accepted) => {
+        if (!accepted) report();
+      },
+      () => {},
+    );
   }
   async function performQuit() {
     if (!initialized) {
@@ -408,7 +422,7 @@ export function runApplication() {
       const count = terminals.runningCount;
       if (count > 0) {
         const snapshot = workspace.snapshot();
-        const accepted = await confirmations.request(
+        quitConfirmation = confirmations.request(
           {
             title: `Quit with ${String(count)} ${count === 1 ? "terminal" : "terminals"} running?`,
             accept: "Stop all and quit",
@@ -432,6 +446,8 @@ export function runApplication() {
           // A person asked Foom to quit, possibly from the Dock while another app is frontmost.
           { activate: true },
         );
+        const accepted = await quitConfirmation;
+        quitConfirmation = undefined;
         if (!accepted) return;
       }
       await saveWindows().catch((error: unknown) => {
@@ -487,6 +503,7 @@ export function runApplication() {
       console.error("Unable to quit the application:", error);
       dialog.showErrorBox("Unable to quit Foom", "Could not stop all terminals. Please try again.");
     } finally {
+      quitConfirmation = undefined;
       quitPending = false;
     }
   }
@@ -553,6 +570,7 @@ export function runApplication() {
     approvals,
     openApprovals: () => approvalDialog?.openApprovals(),
     refreshApprovals: () => approvalDialog?.refresh(),
+    reportOwnerCloseFailure,
     requestApprovalOutcome,
     removingPreviewWorktrees,
     removalPresentations,
