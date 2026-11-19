@@ -449,7 +449,8 @@ Disconnect detaches only the view, so hidden/disconnected shells keep consuming
 output. After an established SSH stream drops, the hub makes up to five reconnect
 attempts, opening the same terminal ID and replaying a fresh screen with reset,
 then live output. Every `open` requires a runtime-validated boolean `reattach`:
-first creation sends false, restoration sends true. Both `open` and `agent-open`
+first creation sends false, restoration sends true. Both launch envelopes reject
+unknown fields. `open` and `agent-open`
 carry optional `dark` (boolean) and `theme` (the complete resolved terminal palette),
 validated by the existing host theme validator. The daemon passes `theme`, falling
 back to `dark` then light for older hubs, to terminal creation. Agent preparation

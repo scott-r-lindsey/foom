@@ -2186,27 +2186,6 @@ test("approvals expose only a validated count and opening capability, with stale
   offInitial?.();
 });
 
-test("repository refusal events copy bounded details and explicitly clear stale launch context", async () => {
-  const api = await bridge();
-  const callback = vi.fn();
-  const off = api.onRepositorySetupRefused(callback);
-  const listener = mock.on.mock.calls.find(([name]) => name === "setup:launch-refused")?.[1];
-  if (!listener) throw new Error("Missing refusal listener");
-  const value = { repository: "/repo", host: null, missing: [{ id: "node", version: "24.x" }] };
-  listener({}, value);
-  expect(callback).toHaveBeenCalledExactlyOnceWith(value);
-  expect(callback.mock.calls[0]?.[0]).not.toBe(value);
-  value.missing[0] = { id: "changed", version: "26.x" };
-  expect(callback.mock.calls[0]?.[0]).toMatchObject({ missing: [{ id: "node" }] });
-  listener({}, null);
-  listener({}, { repository: "/repo", host: null, missing: "raw text" });
-  expect(callback).toHaveBeenCalledTimes(1);
-  listener({}, undefined);
-  expect(callback).toHaveBeenLastCalledWith(undefined);
-  off();
-  expect(mock.removeListener).toHaveBeenCalledWith("setup:launch-refused", listener);
-});
-
 test("readiness view snapshots cross the projected bridge with bounded fixed facts", async () => {
   const api = await bridge();
   const receive = vi.fn<(snapshot: ViewSnapshot<"readiness">) => void>();

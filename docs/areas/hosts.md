@@ -716,11 +716,6 @@ run repository scripts, plugins or package-manager probes. Preparing a host to
 build a repository is left to an agent the user runs on that host
 ([#1024](https://github.com/scott-r-lindsey/foom/issues/1024)).
 
-**Proposed, unimplemented (#1080):** the
-[repository setup design](../design/1080-repository-setup.md) adds a separately
-approved profile-only requirements list. It does not change the shipped checks
-above until the user approves the design and implementation follows.
-
 ## Checklist refresh scope (#1061)
 
 A full check runs only for **Check capabilities** and the first check on Add
@@ -1009,9 +1004,7 @@ Declining preserves the failed observation. Changed keys require manual repair.
 The human reviews light/dark row and dialog screenshots and merges; a real new
 host must be verified manually before merge because automated tests use fixtures.
 
-## Repository setup (#1080)
+## Repository setup list retirement (#1262)
 
-Optional repository prerequisites are separate from host Ready and checkout
-presence. See [repository setup](repository-setup.md) for the profile owner,
-source policy, catalog and execution/admission boundaries. Settings reads saved
-observations; opening a panel never runs setup or a repository probe.
+[#1262](https://github.com/scott-r-lindsey/foom/issues/1262) removed the #1080 setup list and its approvals, checks and recipes.
+Host capability checks and repository checkout controls continue to operate independently.

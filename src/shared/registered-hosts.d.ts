@@ -1,4 +1,3 @@
-import type { RepositorySetupList, SetupCheck, SetupSources } from "./repository-setup.d";
 import type { RemoteReviewSnapshot } from "./remote-agent";
 export interface RegisteredHost {
   host: string;
@@ -108,15 +107,6 @@ export type HostManagement = {
       agentDetails?: true;
     }
   | { operation: "create-folder" }
-  | {
-      operation: "repository-setup";
-      catalog: string;
-      directory: string;
-      origin: string;
-      list: RepositorySetupList;
-      evidence: readonly string[];
-      path?: string;
-    }
   | { operation: "list-worktrees"; profile: string }
   | { operation: "repository" | "clone" | "origin"; directory: string; origin: string }
   | {
@@ -142,7 +132,6 @@ export type HostResult = { connection?: HostConnectionChecks } & (
   | {
       ok: true;
       facts: HostFacts;
-      setup?: { check: SetupCheck; sources?: SetupSources; checkout?: string; head?: string };
       checkout?: { path: string; state: "clean" | "changed" | "absent" };
       inventory?: { own: readonly RemoteWorktree[]; other: number };
       worktree?: {

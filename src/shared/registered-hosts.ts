@@ -1,4 +1,3 @@
-import { validSetupList, setupSourcePath, setupCheck, setupSources } from "./repository-setup";
 import { record, keys, remotePath, remoteReviewEvidence } from "./remote-agent-protocol";
 import type {
   RegisteredHost,
@@ -244,35 +243,6 @@ export function hostManagement(value: unknown): value is HostManagement {
       ))
   )
     return false;
-  if (value["operation"] === "repository-setup")
-    return (
-      keys(value, [
-        "type",
-        "operation",
-        "codeFolder",
-        "agents",
-        "catalog",
-        "directory",
-        "origin",
-        "list",
-        "evidence",
-        "path",
-      ]) &&
-      typeof value["catalog"] === "string" &&
-      /^[a-f0-9]{64}$/u.test(value["catalog"]) &&
-      validSetupList(value["list"]) &&
-      Array.isArray(value["evidence"]) &&
-      value["evidence"].length <= 64 &&
-      value["evidence"].every(setupSourcePath) &&
-      (value["path"] === undefined || remotePath(value["path"])) &&
-      hostManagement({
-        type: "manage",
-        operation: "repository",
-        codeFolder: value["codeFolder"],
-        directory: value["directory"],
-        origin: value["origin"],
-      })
-    );
   if (value["operation"] === "list-worktrees")
     return (
       keys(value, ["type", "operation", "codeFolder", "agents", "profile"]) &&
@@ -429,16 +399,7 @@ export function hostResult(value: unknown): value is HostResult {
   const checkout = value["checkout"];
   return (
     value["ok"] === true &&
-    keys(value, ["ok", "facts", "checkout", "worktree", "inventory", "connection", "setup"]) &&
-    (value["setup"] === undefined ||
-      (record(value["setup"]) &&
-        keys(value["setup"], ["check", "sources", "checkout", "head"]) &&
-        setupCheck(value["setup"]["check"]) &&
-        (value["setup"]["sources"] === undefined || setupSources(value["setup"]["sources"])) &&
-        (value["setup"]["checkout"] === undefined || remotePath(value["setup"]["checkout"])) &&
-        (value["setup"]["head"] === undefined ||
-          (typeof value["setup"]["head"] === "string" &&
-            /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/u.test(value["setup"]["head"]))))) &&
+    keys(value, ["ok", "facts", "checkout", "worktree", "inventory", "connection"]) &&
     (value["inventory"] === undefined ||
       (record(value["inventory"]) &&
         keys(value["inventory"], ["own", "other"]) &&

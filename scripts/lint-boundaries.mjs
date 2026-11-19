@@ -55,14 +55,7 @@ export const processBoundaries = {
         !(
           from === "terminal-host" &&
           local &&
-          [
-            "vendor-install",
-            "repository-setup-sources",
-            "repository-setup-check",
-            "repository-setup-digest",
-            "repository-setup-run",
-            "repository-setup-admission",
-          ].some(
+          ["vendor-install"].some(
             (helper) =>
               resolve(dirname(filename), name) === resolve(sourceRoot, `node-common/${helper}`),
           )

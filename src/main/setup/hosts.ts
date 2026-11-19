@@ -1,5 +1,3 @@
-import type { RepositorySetupList } from "../../shared/repository-setup.d";
-import { setupCatalogDigest, setupDigest } from "../../node-common/repository-setup-digest";
 import { HostObservations } from "../data/host-observations";
 import { viewChanges } from "../data/view-changes";
 import { askpassSupported, trustHostKey } from "./ssh-host-key";
@@ -776,41 +774,6 @@ export class Hosts {
           origin,
         },
       },
-    };
-  }
-  async repositorySetup(
-    host: string,
-    repository: string,
-    list: RepositorySetupList,
-    evidence: readonly string[],
-    path?: string,
-  ) {
-    const registration = this.registered(host);
-    const origin = await this.origin(repository);
-    const directory = `repository-${createHash("sha256").update(origin).digest("hex").slice(0, 24)}`;
-    const result = await this.run(host, {
-      type: "manage",
-      operation: "repository-setup",
-      codeFolder: registration.codeFolder,
-      directory,
-      origin,
-      list,
-      evidence,
-      catalog: setupCatalogDigest,
-      ...(path ? { path } : {}),
-    });
-    this.registered(host, registration.codeFolder);
-    if (
-      !result.ok ||
-      !result.setup ||
-      (result.setup.sources &&
-        result.setup.sources.fingerprint !== setupDigest(result.setup.sources.files))
-    )
-      throw new LaunchFailure("repository_setup_unavailable");
-    return {
-      ...result.setup,
-      root: result.facts.codeFolder,
-      sourcePath: result.setup.checkout ?? `${result.facts.codeFolder}/${directory}`,
     };
   }
   shellTarget(host: string): RemoteTarget {
@@ -1886,12 +1849,10 @@ export class Hosts {
       const revision = providerRevision();
       const enabled = JSON.stringify(this.store.get().agents);
       const changed = () =>
-        request.operation !== "repository-setup" &&
-        (providerRevision() !== revision || JSON.stringify(this.store.get().agents) !== enabled);
-      const providers =
-        request.operation === "repository-setup"
-          ? []
-          : agentProviders().filter((provider) => this.store.get().agents[provider.id] === true);
+        providerRevision() !== revision || JSON.stringify(this.store.get().agents) !== enabled;
+      const providers = agentProviders().filter(
+        (provider) => this.store.get().agents[provider.id] === true,
+      );
       try {
         for (const provider of providers) await provider.validate?.();
       } catch {

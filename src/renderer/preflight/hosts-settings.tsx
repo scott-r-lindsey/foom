@@ -1,6 +1,4 @@
 import { GithubSignInPanel } from "./github-sign-in";
-import type { SetupRefusal } from "../../shared/repository-setup.d";
-import { RepositorySetupPanel } from "./repository-setup";
 import { useHostsView, useViewState } from "../data/view-hooks";
 import { HostTerminal } from "./host-terminal";
 import { hostDisplayName, hostNicknameError } from "../../shared/registered-hosts";
@@ -709,13 +707,11 @@ function HostName({
   );
 }
 export function HostsSettings({
-  setupRefusal,
   agents,
   openAgents,
   source,
   headingRef,
 }: {
-  setupRefusal?: SetupRefusal;
   agents?: Readonly<Record<string, boolean>>;
   openAgents?: (host: string) => void;
   source: Pick<
@@ -725,8 +721,6 @@ export function HostsSettings({
     | "views"
     | "hostTerminal"
     | "installs"
-    | "repositorySetup"
-    | "draftSetupAgent"
     | "githubSignIn"
     | "githubSignInSessions"
   >;
@@ -865,9 +859,7 @@ export function HostsSettings({
     [api, setState],
   );
   const changedRef = useRef(false);
-  const [expanded, setExpanded] = useState<ReadonlyMap<string, boolean>>(() =>
-    setupRefusal?.host ? new Map([[setupRefusal.host, true]]) : new Map(),
-  );
+  const [expanded, setExpanded] = useState<ReadonlyMap<string, boolean>>(() => new Map());
   const applyState = (next: HostsState, host: string, startedRename?: { nickname: string }) => {
     if (next.output) setOutputOverride(next.output);
     setState((previous) => ({
@@ -1193,18 +1185,6 @@ export function HostsSettings({
         </form>
       )}
       {!state.hosts.length && !adding && <p>No hosts</p>}
-      {source.repositorySetup && (
-        <section className="host-card">
-          <header className="hosts-heading">
-            <h3>This computer</h3>
-          </header>
-          <RepositorySetupPanel
-            source={source}
-            host={null}
-            {...(setupRefusal?.host === null ? { targetRepository: setupRefusal.repository } : {})}
-          />
-        </section>
-      )}
       {hostsQuery.data !== undefined &&
         [...recipes.values()].map((recipe) =>
           recipe.repository &&
@@ -1364,16 +1344,6 @@ export function HostsSettings({
                   output={output}
                   dismiss={dismissOutput}
                   awaitingTrust={awaitingTrust}
-                />
-              )}
-              {!awaitingTrust && (
-                <RepositorySetupPanel
-                  source={source}
-                  host={entry.host}
-                  refreshVersion={entry.observation?.checkedAt}
-                  {...(setupRefusal?.host === entry.host
-                    ? { targetRepository: setupRefusal.repository }
-                    : {})}
                 />
               )}
               {!awaitingTrust &&
@@ -1604,10 +1574,7 @@ export function RepositoryHosts({
   repositories,
   headingRef,
 }: {
-  source: Pick<
-    SetupSource,
-    "hosts" | "copyHost" | "views" | "hostTerminal" | "repositorySetup" | "draftSetupAgent"
-  >;
+  source: Pick<SetupSource, "hosts" | "copyHost" | "views" | "hostTerminal">;
   repositories: readonly Repository[];
   headingRef?: RefObject<HTMLHeadingElement | null>;
 }) {
@@ -1702,9 +1669,6 @@ export function RepositoryHosts({
               return (
                 <div className="host-repository-row" key={repo.path}>
                   <span>{repo.name}</span>
-                  {host.host === null && (
-                    <RepositorySetupPanel source={source} host={null} repository={repo.path} />
-                  )}
                   <code>
                     {path && (
                       <CopyValue

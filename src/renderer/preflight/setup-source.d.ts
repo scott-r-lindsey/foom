@@ -1,8 +1,3 @@
-import type {
-  RepositorySetupAction,
-  RepositorySetupState,
-  SetupRefusal,
-} from "../../shared/repository-setup.d";
 import type { DataViewApi } from "../../shared/data-views";
 import type { TerminalViewSource } from "../terminal/terminal-view-source.d";
 import type { HostsAction, HostsApi } from "../../shared/registered-hosts.d";
@@ -26,9 +21,6 @@ export type HostTerminalAction = Extract<HostsAction, { action: "recipe" | "trus
 
 /** What preflight needs from main. Components use this, never the bridge directly. */
 export interface SetupSource {
-  onRepositorySetupRefused?: (callback: (refusal: SetupRefusal | undefined) => void) => () => void;
-  draftSetupAgent?: (repository: string) => Promise<void>;
-  repositorySetup?: (action: RepositorySetupAction) => Promise<RepositorySetupState>;
   views?: DataViewApi;
   /** Embedded recipes started in this Settings window. */
   installs?: {

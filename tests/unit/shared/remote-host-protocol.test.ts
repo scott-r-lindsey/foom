@@ -52,6 +52,7 @@ test("only shell operations and runtime-validated responses cross the remote bou
     { ...base, type: "shutdown" },
     { ...base, type: "child-input" },
     { ...base, type: "open", reattach: false, cols: 0, rows: 24 },
+    { ...base, type: "open", reattach: false, cols: 80, rows: 24, repositorySetup: {} },
     { ...base, id: "../x", type: "detach" },
   ])
     expect(remoteRequest(value)).toBe(false);
