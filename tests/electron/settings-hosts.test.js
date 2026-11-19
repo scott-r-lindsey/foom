@@ -2547,7 +2547,9 @@ test("Hosts orders SSH checks across two open Settings windows", {
   const other = app
     .windows()
     .find((window) => window !== page && window.url() === "app://bundle/index.html");
-  await openSettingsScreen(other);
+  await other.locator(".config-gear").click();
+  await other.getByRole("menuitem", { name: /^Settings/u }).click();
+  await expect(other.getByRole("region", { name: "Settings" })).toBeVisible();
   await other
     .getByRole("navigation", { name: "Settings sections" })
     .getByRole("button", { name: "Hosts", exact: true })
