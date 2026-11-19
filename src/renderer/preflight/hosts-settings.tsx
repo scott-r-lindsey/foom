@@ -380,7 +380,13 @@ function Checklist({
         </Fragment>
       );
     });
-  const repositories = progress?.repositories ?? preflight?.repositories ?? [];
+  const repositories = awaitingTrust
+    ? []
+    : (progress?.repositories ?? preflight?.repositories ?? []);
+  const repositoryPaths = new Set(repositories.map(({ repository }) => repository));
+  const uncheckedRepositories = [...originTerminals]
+    .filter(([repository, terminal]) => terminal.running && !repositoryPaths.has(repository))
+    .map(([repository]): (typeof repositories)[number] => ({ repository }));
   const readyRepositories = repositories.filter(
     (repo) =>
       facts &&
@@ -499,81 +505,81 @@ function Checklist({
           ) : (
             <Row name="Agents" tone="neutral" text="Not checked" />
           )}
-          {repositories.length > 0 && (
-            <button
-              type="button"
-              className="host-repositories"
-              aria-expanded={showReady}
-              onClick={() => {
-                setShowReady(!showReady);
-              }}
-            >
-              <span aria-hidden="true">{showReady ? "⌄" : "›"}</span> Git access ·{" "}
-              {readyRepositories.length} ready
-            </button>
-          )}
-          {repositories
-            .filter(
-              (repo) =>
-                showReady ||
-                originTerminals.has(repo.repository) ||
-                !readyRepositories.includes(repo),
-            )
-            .map((repo) => (
-              <Fragment key={repo.repository}>
-                <Group>Repository · {repo.repository.split(/[\\/]/u).at(-1)}</Group>
-                <Row
-                  target={{ kind: "origin", repository: repo.repository }}
-                  name="Git access to origin"
-                  {...(checking && !repo.origin
-                    ? { tone: "work" as const, text: "Checking…" }
-                    : checkPresentation(facts ? repo.origin : undefined, "Reachable"))}
-                  action={
-                    facts &&
-                    repo.origin?.state === "fail" &&
-                    repo.origin.reason === "origin-host-key" ? (
-                      <button
-                        type="button"
-                        disabled={disabled || originTerminals.get(repo.repository)?.running}
-                        onClick={() => {
-                          act({
-                            action: "trust-origin",
-                            host: entry.host,
-                            repository: repo.repository,
-                          });
-                        }}
-                      >
-                        Trust host key…
-                      </button>
-                    ) : undefined
-                  }
-                />
-                {originTerminals.get(repo.repository)?.panel}
-                {facts && repo.origin?.state === "fail" && repo.origin.reason === "origin-auth" && (
-                  <div className="host-origin-fixes" aria-label="Git access fixes">
-                    <span title={"Configure the host's Git to use HTTPS through gh"}>
-                      Use HTTPS through gh
-                    </span>
-                    <span title="Add a passphrase-less deploy key on this host">deploy key</span>
-                    <span title="Load the key in a persistent ssh-agent visible to the host login environment">
-                      ssh-agent
-                    </span>
-                  </div>
-                )}
-              </Fragment>
-            ))}
-          {mac && (
-            <>
-              <Group>Power</Group>
-              <Row
-                target={{ kind: "power" }}
-                name="Stays awake"
-                tone={mac.staysAwake ? "pass" : "neutral"}
-                text={mac.staysAwake ? "Pass · Stays awake" : "Warning · Sleeps when idle"}
-                action={!mac.staysAwake ? "On the Mac · Battery → Options" : undefined}
-              />
-            </>
-          )}
+        </>
+      )}
+      {repositories.length > 0 && (
+        <button
+          type="button"
+          className="host-repositories"
+          aria-expanded={showReady}
+          onClick={() => {
+            setShowReady(!showReady);
+          }}
+        >
+          <span aria-hidden="true">{showReady ? "⌄" : "›"}</span> Git access ·{" "}
+          {readyRepositories.length} ready
+        </button>
+      )}
+      {[...repositories, ...uncheckedRepositories]
+        .filter(
+          (repo) =>
+            showReady || originTerminals.has(repo.repository) || !readyRepositories.includes(repo),
+        )
+        .map((repo) => (
+          <Fragment key={repo.repository}>
+            <Group>Repository · {repo.repository.split(/[\\/]/u).at(-1)}</Group>
+            <Row
+              {...(repositoryPaths.has(repo.repository)
+                ? { target: { kind: "origin" as const, repository: repo.repository } }
+                : {})}
+              name="Git access to origin"
+              {...(checking && !repo.origin
+                ? { tone: "work" as const, text: "Checking…" }
+                : checkPresentation(facts ? repo.origin : undefined, "Reachable"))}
+              action={
+                facts &&
+                repo.origin?.state === "fail" &&
+                repo.origin.reason === "origin-host-key" ? (
+                  <button
+                    type="button"
+                    disabled={disabled || originTerminals.get(repo.repository)?.running}
+                    onClick={() => {
+                      act({
+                        action: "trust-origin",
+                        host: entry.host,
+                        repository: repo.repository,
+                      });
+                    }}
+                  >
+                    Trust host key…
+                  </button>
+                ) : undefined
+              }
+            />
+            {originTerminals.get(repo.repository)?.panel}
+            {facts && repo.origin?.state === "fail" && repo.origin.reason === "origin-auth" && (
+              <div className="host-origin-fixes" aria-label="Git access fixes">
+                <span title={"Configure the host's Git to use HTTPS through gh"}>
+                  Use HTTPS through gh
+                </span>
+                <span title="Add a passphrase-less deploy key on this host">deploy key</span>
+                <span title="Load the key in a persistent ssh-agent visible to the host login environment">
+                  ssh-agent
+                </span>
+              </div>
+            )}
+          </Fragment>
+        ))}
+      {!awaitingTrust && mac && (
+        <>
+          <Group>Power</Group>
+          <Row
+            target={{ kind: "power" }}
+            name="Stays awake"
+            tone={mac.staysAwake ? "pass" : "neutral"}
+            text={mac.staysAwake ? "Pass · Stays awake" : "Warning · Sleeps when idle"}
+            action={!mac.staysAwake ? "On the Mac · Battery → Options" : undefined}
+          />
         </>
       )}
     </div>
@@ -1228,11 +1234,15 @@ export function HostsSettings({
         );
         const ssh = preflight?.ssh ?? (source.views ? undefined : entry.result?.connection?.ssh);
         const awaitingTrust = ssh?.state === "fail" && ssh.reason === "host-key-unknown";
-        if (!awaitingTrust && source.hostTerminal) {
-          for (const repo of preflight?.repositories ?? []) {
-            const origin = recipes.get(originRecipeKey(entry.host, repo.repository));
-            if (!origin) continue;
-            originTerminals.set(repo.repository, {
+        if (source.hostTerminal) {
+          for (const origin of recipes.values()) {
+            if (
+              origin.host !== entry.host ||
+              !origin.repository ||
+              (awaitingTrust && origin.finished)
+            )
+              continue;
+            originTerminals.set(origin.repository, {
               running: !origin.finished,
               panel: originPanel(origin.id),
             });

@@ -9,6 +9,9 @@ Decided implementation and security rules for this area. Read the [file map](../
 
 ## Settings and setup
 
+The main settings store copies incoming values and exposes immutable snapshots
+of committed settings and legacy migration values.
+
 ### Agent-editable settings format (#206)
 
 `~/.foom/config/settings.json` is a JSON object with `"kind": "settings"` and any

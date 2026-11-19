@@ -95,6 +95,58 @@ test.each(["guarded", "unguarded"] as const)(
   },
 );
 
+test.each(["update", "attachConfig", "setConfig"] as const)(
+  "%s takes ownership of nested settings before returning",
+  async (method) => {
+    const root = await directory();
+    const store = await SettingsStore.open(root);
+    const sound = structuredClone(DEFAULT_SETTINGS.sound);
+    sound.volume = 0.7;
+    const expected = structuredClone(sound);
+    const values = { sound };
+    const pending =
+      method === "attachConfig"
+        ? store.attachConfig(async () => {}, values, null)
+        : store[method](values);
+    sound.choices.done.file = "changed.ogg";
+    await pending;
+    sound.volume = 0.2;
+    expect(store.get().sound).toEqual(expected);
+
+    await store.update({ setupComplete: true });
+    const reopened = await SettingsStore.open(root);
+    // Attached config values are restored separately by the config service.
+    expect(reopened.get().sound).toEqual(
+      method === "attachConfig" ? DEFAULT_SETTINGS.sound : expected,
+    );
+  },
+);
+
+test("settings snapshots and legacy arguments cannot be changed through returned values", async () => {
+  const root = await directory();
+  let store = await SettingsStore.open(root);
+  const written = await store.update({ agentArguments: { codex: ["--oss"] } });
+  const expected = structuredClone(written);
+  expect(Reflect.set(written.sound.choices.done, "file", "changed.ogg")).toBe(false);
+  expect(Reflect.set(written.agentArguments, "codex", [])).toBe(false);
+  expect(store.get()).toEqual(expected);
+
+  store = await SettingsStore.open(root);
+  const current = store.get();
+  const legacy = store.legacyConfig();
+  expect(legacy).toMatchObject({ sound: expected.sound, agentArguments: { codex: ["--oss"] } });
+  if (!legacy?.agentArguments?.["codex"]) throw new Error("Missing legacy Codex arguments");
+  expect(Reflect.set(current, "setupComplete", true)).toBe(false);
+  expect(Reflect.set(current.sound.choices.done, "file", "changed.ogg")).toBe(false);
+  expect(Reflect.set(legacy, "agentArguments", {})).toBe(false);
+  expect(Reflect.set(legacy.agentArguments, "codex", [])).toBe(false);
+  expect(Reflect.set(legacy.agentArguments["codex"], "0", "--changed")).toBe(false);
+  expect(store.get()).toEqual(expected);
+
+  await store.update({ checkForUpdates: false });
+  expect((await SettingsStore.open(root)).get()).toEqual({ ...expected, checkForUpdates: false });
+});
+
 test.each(["hidden host property", "mutating getter"] as const)(
   "guarded writes reject a %s before invoking the config writer",
   async (shape) => {

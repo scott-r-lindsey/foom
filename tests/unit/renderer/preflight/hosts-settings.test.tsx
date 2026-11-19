@@ -1027,6 +1027,98 @@ test.each([false, true])(
   },
 );
 
+test("a pending origin probe keeps the same origin terminal attached and stoppable", async () => {
+  const repository = "/local/project";
+  const state = {
+    ...preflight,
+    repositories: [
+      {
+        repository,
+        origin: { state: "fail" as const, reason: "origin-host-key" as const },
+        checkout: {
+          ...host.result,
+          checkout: { path: "/remote/project", state: "clean" as const },
+        },
+      },
+    ],
+  };
+  const probe = Promise.withResolvers<HostsState>();
+  const stream = viewStream();
+  stream.data.hosts = saved({ ...initial, preflight: state });
+  const api = vi.fn((action: HostsAction): Promise<HostsState> => {
+    if (action.action === "preflight") {
+      stream.data.hosts = saved({ ...initial, preflight: { ...state, repositories: [] } });
+      stream.push("hosts");
+      return probe.promise;
+    }
+    return Promise.resolve(
+      action.action === "trust-origin"
+        ? { ...stream.data.hosts, recipeSession: "trust" }
+        : stream.data.hosts,
+    );
+  });
+  const stop = vi.fn(() => Promise.resolve());
+  const open = vi.fn(() => Promise.resolve());
+  render(
+    <HostsSettings
+      source={{
+        hosts: api,
+        views: stream.api,
+        hostTerminal: {
+          createView: () => ({
+            mount: () => () => {},
+            open,
+            hide: async () => {},
+            focus: () => {},
+            subscribe: () => () => {},
+            getSnapshot: () => ({
+              status: "",
+              state: "quiet_ok",
+              visible: true,
+              attaching: false,
+              toggleLabel: "",
+              toggleDisabled: false,
+              restartDisabled: false,
+            }),
+          }),
+          observe: (_id, listener) => {
+            listener({ exited: false });
+            return () => {};
+          },
+          stop,
+        },
+      }}
+      headingRef={createRef()}
+    />,
+  );
+  const trust = await screen.findByRole("button", { name: "Trust host key…" });
+  await waitFor(() => {
+    expect(trust).toHaveProperty("disabled", false);
+  });
+  fireEvent.click(trust);
+  const terminal = await screen.findByRole("region", { name: "Origin host key terminal" });
+  await waitFor(() => {
+    expect(terminal.getAttribute("aria-busy")).toBe("false");
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Check capabilities" }));
+  await waitFor(() => {
+    expect(screen.queryByRole("button", { name: /Git access ·/u })).toBeNull();
+  });
+  expect(screen.getByRole("region", { name: "Origin host key terminal" })).toBe(terminal);
+  expect(open).toHaveBeenCalledExactlyOnceWith("trust");
+  fireEvent.click(within(terminal).getByRole("button", { name: "Stop" }));
+  await waitFor(() => {
+    expect(stop).toHaveBeenCalledExactlyOnceWith("trust");
+  });
+
+  await act(async () => {
+    stream.data.hosts = saved({ ...initial, preflight: state });
+    stream.push("hosts");
+    probe.resolve(stream.data.hosts);
+    await probe.promise;
+  });
+});
+
 test("reopening Hosts restores each origin terminal independently of other recipes", async () => {
   const repositories = ["/local/one", "/local/two"].map(
     (repository) =>
