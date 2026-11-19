@@ -693,7 +693,7 @@ require(${JSON.stringify(path.resolve("build/node-common/local-agent-install.js"
   return { app, cleanup };
 }
 
-async function startSlowVendorInstaller(page) {
+async function clickSlowVendorInstaller(page) {
   await page.evaluate(() =>
     window.desktop.saveSetup({ agents: { claude: true }, interfaceTheme: "eclipse-light" }),
   );
@@ -705,6 +705,11 @@ async function startSlowVendorInstaller(page) {
   await page.getByRole("tab", { name: "Machines", exact: true }).click();
   const card = page.getByRole("region", { name: "Claude Code", exact: true });
   await card.getByRole("button", { name: "Install", exact: true }).click();
+  return card;
+}
+
+async function startSlowVendorInstaller(page) {
+  const card = await clickSlowVendorInstaller(page);
   await expect(card.locator(".xterm-screen")).toContainText("Fixture installer ready");
 }
 
@@ -815,6 +820,97 @@ test("Cancelling app quit clears Stopping after an overlapping installer window 
     "true",
   );
   await other.evaluate((id) => window.desktop.tail(id, 1), shell.id);
+});
+
+test("Confirmed app quit takes over after an overlapping owner stop rejects", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, cleanup } = await slowVendorFixture(context, 2500);
+  await app.evaluate(({ dialog }, path) => {
+    const { TerminalHostClient } = process.getBuiltinModule("node:module").createRequire(path)(
+      path,
+    );
+    const stop = TerminalHostClient.prototype.stop;
+    TerminalHostClient.prototype.stop = function () {
+      TerminalHostClient.prototype.stop = stop;
+      return new Promise((_resolve, reject) => {
+        globalThis.rejectFixtureOwnerStop = () => reject(new Error("Fixture stop failed"));
+      });
+    };
+    globalThis.fixtureNativeErrors = [];
+    dialog.showErrorBox = (title) => {
+      globalThis.fixtureNativeErrors.push(title);
+    };
+  }, path.resolve("build/main/terminals/terminal-host-client.js"));
+  const { page, other, closeOwner } = await openInstallerBoards(app);
+  await startSlowVendorInstaller(page);
+  await quitAndWait(app, async () => {
+    try {
+      await closeOwner();
+      await expect(stoppingDialog(page)).toBeVisible();
+      await expect.poll(() => app.evaluate(() => !!globalThis.rejectFixtureOwnerStop)).toBe(true);
+      await app.evaluate(({ app }) => app.quit());
+      const dialog = await confirmationPage(app, /^Quit with /u);
+      await dialog.getByRole("button", { name: "Stop all and quit" }).click();
+      await expect(stoppingDialog(other)).toBeVisible();
+    } finally {
+      await app.evaluate(() => globalThis.rejectFixtureOwnerStop?.());
+    }
+    await stagingDuringCleanup(cleanup);
+    assert.deepEqual(await app.evaluate(() => globalThis.fixtureNativeErrors), []);
+  });
+  await assert.rejects(access(await readFile(cleanup, "utf8")), { code: "ENOENT" });
+});
+
+test("Confirmed app quit shows Stopping for an installer awaiting its terminal create reply", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, cleanup } = await slowVendorFixture(context, 3800);
+  await app.evaluate((_electron, path) => {
+    const { TerminalHostClient } = process.getBuiltinModule("node:module").createRequire(path)(
+      path,
+    );
+    const request = TerminalHostClient.prototype.request;
+    TerminalHostClient.prototype.request = async function (command) {
+      const reply = await request.call(this, command);
+      if (command.type === "create" && command.spec.settingsRecipe) {
+        await new Promise((resolve) => {
+          globalThis.fixtureCreate = {
+            release: resolve,
+            async ready() {
+              return (await this.client.tail(command.id, 10))
+                .join("\n")
+                .includes("Fixture installer ready");
+            },
+            client: this,
+          };
+        });
+      }
+      return reply;
+    };
+  }, path.resolve("build/main/terminals/terminal-host-client.js"));
+  const page = await boardPage(app);
+  await clickSlowVendorInstaller(page);
+  await expect
+    .poll(() => app.evaluate(() => globalThis.fixtureCreate?.ready() ?? false))
+    .toBe(true);
+  assert.equal((await page.evaluate(() => window.desktop.workspace())).terminals.length, 0);
+  await quitAndWait(app, async () => {
+    try {
+      await app.evaluate(({ app }) => app.quit());
+      const dialog = await confirmationPage(app, "Quit with 1 terminal running?");
+      await dialog.getByRole("button", { name: "Stop all and quit" }).click();
+      await expect(stoppingDialog(page)).toBeVisible();
+      await stagingDuringCleanup(cleanup);
+    } finally {
+      await app.evaluate(() => {
+        globalThis.fixtureCreate?.release();
+      });
+    }
+  });
+  await assert.rejects(access(await readFile(cleanup, "utf8")), { code: "ENOENT" });
 });
 
 for (const agent of ["claude", "codex", "agy", "copilot", "opencode", "pi"])

@@ -30,10 +30,13 @@ export interface TerminalEvents {
   onRemoved?(id: string): void;
 }
 
-type RunningTerminal = { id: string; command: string; cwd: string; settingsRecipe?: boolean };
+type RunningTerminal = { id: string; command: string; cwd: string };
 
 export interface TerminalControl
-  extends Pick<TerminalHostClient, "runningCount" | "shutdown" | "stop" | "setTheme"> {
+  extends Pick<
+    TerminalHostClient,
+    "runningCount" | "hasRunningSettingsRecipe" | "shutdown" | "stop" | "setTheme"
+  > {
   runningSessions(): readonly RunningTerminal[];
   /** Main-only launch: the window may use the new terminal like one it created. */
   create(spec: TerminalSpec): Promise<string>;
@@ -553,6 +556,9 @@ export function attachTerminal(
     },
     dispose,
     runningSessions: () => [...running.values()],
+    get hasRunningSettingsRecipe() {
+      return manager.hasRunningSettingsRecipe;
+    },
     async create(spec: TerminalSpec) {
       const id = await manager.create(
         spec.remote && remoteProfile
@@ -564,12 +570,7 @@ export function attachTerminal(
         pasteRecipients.add(id);
         imageSessions.set(id, randomUUID());
       }
-      running.set(id, {
-        id,
-        command: spec.command,
-        cwd: spec.cwd,
-        ...(spec.settingsRecipe ? { settingsRecipe: true } : {}),
-      });
+      running.set(id, { id, command: spec.command, cwd: spec.cwd });
       broadcast("terminal:availability", [id], true, true);
       return id;
     },

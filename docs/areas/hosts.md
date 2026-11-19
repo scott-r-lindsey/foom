@@ -841,10 +841,12 @@ shows **Stopping…** while it waits. On Unix, the terminal host gives Settings
 recipes five seconds to finish after SIGHUP before escalating to SIGKILL. This
 lets responding helpers remove their private staging files. The exit
 notification completes the recipe and releases any installer reservation.
-A failed stop keeps the session and owning window available for retry. App quit
-uses its existing main-owned confirmation and the same grace for local Settings
-recipes. After confirmation, all board windows show **Stopping…** during recipe
-cleanup. Progress clears when the stop settles, including if a pending quit
+A failed stop keeps the session and owning window available for retry. An owner
+stop failure leaves a pending app quit free to proceed. If quit is confirmed,
+app shutdown stops the remaining recipe. App quit uses the same grace for local
+Settings recipes. After confirmation, all board windows show **Stopping…**
+during recipe cleanup, including for a recipe still awaiting its create reply.
+Progress clears when the stop settles, including if a pending quit
 intercepts an owner-window close. Origin trust, remote plugin installs,
 and sign-in use the same window ownership and exit guard. On exit, origin trust,
 plugin installs, and agent sign-in collapse their terminal view and keep the

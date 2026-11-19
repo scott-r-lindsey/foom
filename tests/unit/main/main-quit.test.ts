@@ -83,9 +83,7 @@ test.each(["success", "failure"])(
   "quit clears Settings progress after shutdown %s",
   async (outcome) => {
     mock.terminals.runningCount = 1;
-    vi.spyOn(mock.terminals, "runningSessions").mockReturnValue([
-      { id: "recipe", command: "foom", cwd: "/home", settingsRecipe: true },
-    ]);
+    mock.terminals.hasRunningSettingsRecipe = true;
     mock.message.mockResolvedValue({ response: 1 });
     const shutdown = Promise.withResolvers<undefined>();
     mock.terminals.shutdown.mockReturnValue(shutdown.promise);

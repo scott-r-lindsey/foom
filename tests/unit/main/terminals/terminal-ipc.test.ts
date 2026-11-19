@@ -1168,13 +1168,7 @@ test("reports quiet, input, exit and removal for owned terminals and grants main
 });
 
 test("stopping publishes the exit before returning and retains an owned readable terminal", async () => {
-  const id = await terminalControl.create({ ...spec, settingsRecipe: true });
-  expect(terminalControl.runningSessions()).toContainEqual({
-    id,
-    command: spec.command,
-    cwd: spec.cwd,
-    settingsRecipe: true,
-  });
+  const id = await terminalControl.create(spec);
   const exited = vi.fn();
   terminalControl.onExit(exited);
   const index = ptys.length - 1;

@@ -285,6 +285,25 @@ test("a killed session's outstanding barrier response still resolves", async () 
   expect(vi.getTimerCount()).toBe(0);
 });
 
+test("reports a Settings recipe from admission through exit even before create is acknowledged", async () => {
+  const regular = await create();
+  expect(client.hasRunningSettingsRecipe).toBe(false);
+  const creating = client.create({ ...spec, settingsRecipe: true });
+  expect(client.runningCount).toBe(2);
+  expect(client.hasRunningSettingsRecipe).toBe(true);
+  child.reply();
+  const id = await creating;
+  child.emit("message", { type: "exit", id, code: 129 });
+  expect(client.hasRunningSettingsRecipe).toBe(false);
+  expect(client.runningCount).toBe(1);
+  const failing = client.create({ ...spec, settingsRecipe: true });
+  expect(client.hasRunningSettingsRecipe).toBe(true);
+  child.reply(undefined, { type: "error" });
+  await expect(failing).rejects.toThrow("operation failed");
+  expect(client.hasRunningSettingsRecipe).toBe(false);
+  child.emit("message", { type: "exit", id: regular, code: 0 });
+});
+
 test("confirmed shutdown blocks new terminals, waits for the host and permits retry after failure", async () => {
   const id = await create();
   expect(client.runningCount).toBe(1);

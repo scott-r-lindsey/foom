@@ -443,8 +443,7 @@ export function runApplication() {
         settingsStop ? [settingsStop] : [],
       );
       const finishProgress =
-        settingsStops.length ||
-        terminals.runningSessions().some(({ settingsRecipe }) => settingsRecipe)
+        settingsStops.length || terminals.hasRunningSettingsRecipe
           ? boards.map((board) => board.beginSettingsStopping())
           : [];
       try {

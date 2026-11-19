@@ -608,6 +608,7 @@ const mock = vi.hoisted(() => {
       ],
       setTheme: vi.fn(),
       runningCount: 0,
+      hasRunningSettingsRecipe: false,
       shutdown: vi.fn<() => Promise<void>>(),
       owns: vi.fn<(id: string) => boolean>(),
     },
@@ -840,6 +841,7 @@ beforeEach(() => {
   mock.window.isFocused.mockReturnValue(true);
   mock.window.webContents.isCrashed.mockReturnValue(false);
   mock.terminals.runningCount = 0;
+  mock.terminals.hasRunningSettingsRecipe = false;
   mock.terminals.shutdown.mockResolvedValue();
   mock.workspace.dispose.mockResolvedValue();
   mock.attachWorkspace.mockImplementation(() => mock.ipc);

@@ -813,7 +813,8 @@ export async function buildWindow(
       },
       () => {
         settingsStop = undefined;
-        if (window.isDestroyed()) return;
+        // App quit can still stop this session. Keep its confirmation and shutdown unblocked.
+        if (wiring.quitPending || window.isDestroyed()) return;
         dialog.showErrorBox(
           "Unable to close window",
           "Could not stop a Settings repair. Please try again.",
