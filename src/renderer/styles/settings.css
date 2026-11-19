@@ -637,7 +637,11 @@
   column-gap: 9px;
   padding: 0 20px;
 }
-.host-checks > * {
+.host-controls {
+  display: contents;
+}
+.host-checks > :not(.host-controls),
+.host-checks > .host-controls > * {
   grid-column: 1 / -1;
 }
 .host-check-group {
@@ -647,7 +651,7 @@
   color: var(--muted);
   padding: 16px 0 6px;
 }
-.host-check-group:first-child {
+.host-checks > .host-controls:first-child > .host-check-group:first-child {
   padding-top: 2px;
 }
 .host-check-row {
@@ -1003,7 +1007,7 @@
   padding: 0;
   min-width: 0;
 }
-.host-body > .host-meta {
+.host-body > .host-controls > .host-meta {
   padding-top: 16px;
 }
 .host-body[hidden] {

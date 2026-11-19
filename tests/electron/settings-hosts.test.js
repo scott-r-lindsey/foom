@@ -2085,6 +2085,80 @@ test("Agents scopes use saved host observations and Global enablement without ch
   assert.ok(app);
 });
 
+test("Origin trust accepts input and can stop while a capability check is held", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { page, card, calls, updateScenario } = await hostsFixture(context);
+  const failedOrigin = {
+    origin: "origin-host-key",
+    facts: { tools: [{ id: "git", state: "ready", signIn: "unknown" }] },
+  };
+  const messages = async () =>
+    (await readFile(calls, "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+  const check = card.getByRole("button", { name: "Check capabilities", exact: true });
+  const terminal = card.getByRole("region", { name: "Origin host key terminal", exact: true });
+
+  for (const action of ["answer", "stop"]) {
+    await updateScenario(failedOrigin);
+    await check.click();
+    const trust = card.getByRole("button", { name: "Trust host key…", exact: true });
+    await expect(trust).toBeEnabled();
+    await expect(check).toBeEnabled();
+    await trust.click();
+    await expect(terminal.locator(".xterm-screen")).toContainText("continue connecting");
+    const id = await page.evaluate(async () => {
+      const snapshot = await window.desktop.workspace();
+      return snapshot.terminals.find((row) => row.recipe && !row.exited)?.id;
+    });
+    assert.ok(id);
+    const offset = (await messages()).length;
+    const during = async () => (await messages()).slice(offset);
+    await updateScenario({ ...failedOrigin, hold: "inspect" });
+    await check.click();
+    await expect
+      .poll(async () =>
+        (await during()).some(
+          ({ message, phase }) =>
+            phase === "held" && message.operation === "inspect" && message.agentDetails === true,
+        ),
+      )
+      .toBe(true);
+    await expect(check).toBeDisabled();
+    await expect(card.getByRole("button", { name: "Remove", exact: true })).toBeDisabled();
+    await expect(card.getByRole("button", { name: "Reload SSH", exact: true })).toBeDisabled();
+    const stop = terminal.getByRole("button", { name: "Stop", exact: true });
+    await expect(stop).toBeEnabled();
+    if (action === "answer") {
+      const input = terminal.locator(".xterm-helper-textarea");
+      await expect(input).toBeEnabled();
+      await input.focus();
+      await expect(input).toBeFocused();
+      await page.keyboard.type("yes");
+      await page.keyboard.press("Enter");
+      await expect
+        .poll(async () =>
+          (await during())
+            .map(({ message }) => message)
+            .find(({ type }) => type === "origin-answer"),
+        )
+        .toEqual({ type: "origin-answer", answer: "yes" });
+    } else {
+      await stop.click();
+      await expect
+        .poll(async () => (await during()).some(({ closed }) => closed === id))
+        .toBe(true);
+    }
+    await expect(check).toBeDisabled();
+    await expect(terminal).toHaveCount(0);
+    await updateScenario(failedOrigin);
+    await expect(check).toBeEnabled();
+  }
+});
+
 test("Origin trust stays off both boards and remains stoppable after host removal", {
   skip: process.platform === "win32",
   timeout: deadline(60000),
@@ -2240,7 +2314,12 @@ test("Agents scopes use trusted consent and fixed recipes for host plugin instal
   });
   await card.getByRole("button", { name: "Open", exact: true }).click();
   await page.getByRole("tab", { name: "Global", exact: true }).click();
-  await page.getByRole("checkbox", { name: "Enable Antigravity", exact: true }).check();
+  const enableAntigravity = page.getByRole("checkbox", { name: "Enable Antigravity", exact: true });
+  await enableAntigravity.click();
+  await expect
+    .poll(() => page.evaluate(async () => (await window.desktop.setupState()).settings.agents.agy))
+    .toBe(true);
+  await expect(enableAntigravity).toBeChecked();
   await page.getByRole("tab", { name: "Machines", exact: true }).click();
   await page
     .getByRole("combobox", { name: "Machine", exact: true })
