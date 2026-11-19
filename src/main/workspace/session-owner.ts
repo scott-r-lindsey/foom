@@ -34,6 +34,7 @@ export interface SessionOwnerDependencies {
   terminal: (id: string) => WorkspaceTerminal | undefined;
   restoreRow: (row: WorkspaceTerminal) => void;
   failed: (id: string, error?: unknown) => void;
+  busy: (id: string, value: boolean) => void;
   closed: () => boolean;
   identity: (repository: string) => Promise<string>;
   agents: () => Promise<readonly AgentInstallation[]>;
@@ -47,14 +48,10 @@ export interface SessionOwnerDependencies {
 
 /** Main-owned session metadata, restoration lifecycle and pre-shutdown persistence. */
 export class SessionOwner {
-  private readonly startupReservation = Symbol();
-  private readonly reservations = new Map<string, symbol>();
   private restoreEnabled = true;
   private readonly saved = new Map<string, StoredSession>();
   private readonly remotePlacements = new Map<string, RemoteSavedPlacement>();
   private readonly restoring = new Set<string>();
-  private readonly launching = new Set<string>();
-  private queuedRestoresReleased = false;
   private readonly unrestoredRoles = new Set<string>();
   private restoreWork: Promise<void> | undefined;
   private discovery: Promise<readonly StoredSession[]> | undefined;
@@ -69,23 +66,7 @@ export class SessionOwner {
     this.restoreEnabled = enabled;
   }
   isRestoring(id: string): boolean {
-    return this.reservations.get(id) === this.startupReservation;
-  }
-  isBusy(id: string): boolean {
-    return this.reservations.has(id);
-  }
-  reserveManual(id: string): () => void {
-    if (this.isBusy(id)) throw new ApplicationError("session-busy");
-    const owner = Symbol();
-    this.reservations.set(id, owner);
-    this.restoring.delete(id);
-    this.saved.delete(id);
-    return () => {
-      this.releaseReservation(id, owner);
-    };
-  }
-  private releaseReservation(id: string, owner: symbol): void {
-    if (this.reservations.get(id) === owner) this.reservations.delete(id);
+    return this.restoring.has(id);
   }
   roleNotRestored(id: string): boolean {
     return !this.restoring.has(id) && this.unrestoredRoles.has(id);
@@ -162,7 +143,7 @@ export class SessionOwner {
         !entry ||
         this.deps.terminal(id) !== entry ||
         (!current?.dormant && !current?.exited) ||
-        this.isRestoring(id)
+        this.restoring.has(id)
       )
         throw new ApplicationError("session-busy");
     };
@@ -209,7 +190,6 @@ export class SessionOwner {
           (entry.exited || entry.dormant)
         ) {
           this.restoring.delete(entry.id);
-          this.releaseReservation(entry.id, this.startupReservation);
           this.unrestoredRoles.delete(entry.id);
           this.remotePlacements.delete(entry.id);
           this.deps.removeRow?.(entry.id);
@@ -223,7 +203,6 @@ export class SessionOwner {
   private importEntries(entries: readonly StoredSession[], discovered = false): void {
     for (const entry of this.retained(entries)) {
       if (this.forgettingSessions.has(entry.id)) continue;
-      if (this.isBusy(entry.id) && !this.isRestoring(entry.id)) continue;
       if (discovered) {
         if (this.forgottenSessions.has(entry.id)) continue;
         const previous = this.saved.get(entry.id);
@@ -257,7 +236,7 @@ export class SessionOwner {
         this.remotePlacements.set(entry.id, entry.remoteCheckout);
         this.deps.rememberRemote?.(entry);
       }
-      const row = { ...entry, dormant: true };
+      const row = { ...entry };
       if (row.closeState) row.closeState = "failed";
       delete row.sharedReview;
       delete row.running;
@@ -268,10 +247,7 @@ export class SessionOwner {
       delete row.handoffs;
       this.deps.restoreRow(row);
       // Reserve eligible saved tiles before the first window requests inventory.
-      if (restorePlan([entry], this.restoreEnabled).length) {
-        this.restoring.add(entry.id);
-        if (!this.queuedRestoresReleased) this.reservations.set(entry.id, this.startupReservation);
-      }
+      if (restorePlan([entry], this.restoreEnabled).length) this.restoring.add(entry.id);
     }
   }
 
@@ -323,8 +299,8 @@ export class SessionOwner {
   }
 
   /** Freeze the pre-shutdown state, before stopping PTYs reports their exits. */
-  async prepareQuit(waitForRestore = true): Promise<void> {
-    if (waitForRestore) await this.restoreWork;
+  async prepareQuit(): Promise<void> {
+    await this.restoreWork;
     this.quitting = true;
     try {
       await this.deps.store?.save(this.records());
@@ -340,70 +316,50 @@ export class SessionOwner {
     this.persist();
   }
 
-  releaseQueuedRestores(): void {
-    if (this.queuedRestoresReleased) return;
-    this.queuedRestoresReleased = true;
-    for (const id of this.restoring)
-      if (!this.launching.has(id)) this.releaseReservation(id, this.startupReservation);
-    this.deps.onChange?.();
-  }
-
   /** Called only after all saved windows have been shown. */
-  restartSaved(pause?: () => Promise<boolean> | undefined): Promise<void> {
+  restartSaved(): Promise<void> {
     if (this.restoreWork) return this.restoreWork;
     this.restoreWork = this.discovery
       ? this.discovery.then((entries) => {
           this.importEntries(entries, true);
-          return this.restartEntries(pause);
+          return this.restartEntries();
         })
-      : this.restartEntries(pause);
+      : this.restartEntries();
     return this.restoreWork;
   }
 
-  private restartEntries(pause?: () => Promise<boolean> | undefined): Promise<void> {
+  private restartEntries(): Promise<void> {
     const plan = restorePlan(
       [...this.saved.values()].filter(
         (entry) => !this.forgettingSessions.has(entry.id) && !this.forgottenSessions.has(entry.id),
       ),
       this.restoreEnabled,
     );
-    for (const id of this.restoring) this.releaseReservation(id, this.startupReservation);
     this.restoring.clear();
     for (const entry of plan) {
       this.restoring.add(entry.id);
-      if (!this.queuedRestoresReleased) this.reservations.set(entry.id, this.startupReservation);
+      this.deps.busy(entry.id, true);
     }
     this.deps.onChange?.();
     return runRestore(plan, async (entry) => {
-      for (let pending = pause?.(); pending; pending = pause?.()) {
-        if (!(await pending)) return;
-      }
-      if (!this.restoring.has(entry.id) || (this.isBusy(entry.id) && !this.isRestoring(entry.id)))
-        return;
       try {
-        const row = this.deps.terminal(entry.id);
         if (
           this.quitting ||
           this.deps.closed() ||
           !this.restoreEnabled ||
           this.forgettingSessions.has(entry.id) ||
           this.forgottenSessions.has(entry.id) ||
-          row?.dormant !== true ||
-          row.closeState !== undefined
+          this.deps.terminal(entry.id) === undefined
         )
           return;
-        this.launching.add(entry.id);
-        this.reservations.set(entry.id, this.startupReservation);
-        if (this.queuedRestoresReleased) this.deps.onChange?.();
         await this.restartSavedEntry(entry);
       } catch (error) {
         this.deps.failed(entry.id, error);
         this.deps.orchestration.exited(entry.id);
       } finally {
-        if (this.launching.delete(entry.id) && this.deps.terminal(entry.id)?.dormant)
-          this.deps.orchestration.exited(entry.id);
+        if (this.deps.terminal(entry.id)?.dormant) this.deps.orchestration.exited(entry.id);
         this.restoring.delete(entry.id);
-        this.releaseReservation(entry.id, this.startupReservation);
+        this.deps.busy(entry.id, false);
         this.saved.delete(entry.id);
         this.persist();
         this.deps.onChange?.();

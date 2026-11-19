@@ -65,8 +65,7 @@ vi.mock("../../../../src/main/terminals/terminal-host-client", async () => {
       }
       imagePath = mock.imagePath;
       create(spec: TerminalSpec) {
-        spec.signal?.throwIfAborted();
-        return this.manager.create(spec, spec.id);
+        return this.manager.create(spec);
       }
       attach(id: string, send: (token: string, data: string) => void) {
         return this.manager.attach(id, send);
@@ -1303,42 +1302,6 @@ test("renderer loss releases an in-flight flush and a crashed board needs no ack
   contents.on.mock.calls.find(([name]) => name === "render-process-gone")?.[1]();
   await closing;
   expect(terminalControl.runningSessions()).toEqual([]);
-});
-
-test("quit can inventory admitted restore launches and fence further ones", async () => {
-  const restore = Promise.withResolvers<boolean>();
-  const pause = vi.fn<() => Promise<boolean> | undefined>();
-  terminalControl = attachTerminal(
-    window as unknown as BrowserWindow,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    pause,
-  );
-  const creating = terminalControl.create({
-    ...spec,
-    id: "saved",
-    signal: new AbortController().signal,
-  });
-  expect(terminalControl.runningSessions()).toEqual([
-    { id: "saved", command: spec.command, cwd: spec.cwd },
-  ]);
-  await expect(creating).resolves.toBe("saved");
-  await expect(terminalControl.create({ ...spec, id: "saved" })).rejects.toThrow("occupied");
-  mock.spawn.mockImplementationOnce(() => {
-    throw new Error("spawn failed");
-  });
-  await expect(terminalControl.create({ ...spec, id: "failed" })).rejects.toThrow("spawn failed");
-  expect(terminalControl.runningSessions().map(({ id }) => id)).toEqual(["saved"]);
-  pause.mockReturnValue(restore.promise);
-  const refused = terminalControl.create(spec);
-  expect(terminalControl.runningCount).toBe(1);
-  restore.resolve(false);
-  await expect(refused).rejects.toMatchObject({ name: "AbortError" });
-  expect(terminalControl.runningCount).toBe(1);
 });
 test("a crashed board is skipped until a completed reload", async () => {
   await create();

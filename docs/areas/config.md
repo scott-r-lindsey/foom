@@ -95,9 +95,7 @@ ESRCH or a mismatching start identity proves death or PID reuse. Recovery uses a
 exclusive recovery lock and rechecks the stale record before removing it; crashed
 recovery locks use the same protocol (up to four nested recovery locks, then fail
 closed). Release removes only a matching token. Live owners and foreign-host
-records never expire. A foreign-host record stays busy until the owner releases
-it or an operator verifies the owner is gone, stops all sharing Foom instances,
-and removes the record. Unreadable, linked and nonregular locks fail closed.
+records never expire. Unreadable, linked and nonregular locks fail closed.
 Readable corrupt records also fail closed at any age: atomic publication means
 a crash while writing the record leaves only an unpublished temporary file.
 There is no longer a need for the 24-hour corrupt-record recovery rule, which
@@ -116,19 +114,9 @@ Safe external edits are adopted through the approval gate. With a verified
 baseline, a save applies safe preferences from the current file and the Settings
 patch. Unrelated held changes remain on disk and pending. Without a trusted baseline (including rejected profile loads),
 a held file refuses Settings saves until reviewed. Missing, unreadable or invalid
-files also refuse saves without replacing external bytes. If the initial lock
-attempt is busy, startup opens the window after that bounded attempt. Foom config
-shows the busy status and config saves return `settings-busy` until the background
-scan succeeds and attaches the writer. While deferred, the app uses the verified
-profile baseline or defaults, with built-in Default palettes. Profile-only
-settings can still be saved without replacing legacy config values. A failed
-profile write is reported alongside the busy status, separately from shared
-folder errors. After attachment, Foom loads the reviewed palettes and runs
-the startup session restore pass once.
-A migrated profile with no attached writer refuses config saves. Allow and Keep it
-on use the same lock to verify the proposal
-before applying or replacing it. Settings writes use compact JSON when the
-pretty-printed form would exceed 64 KiB.
+files also refuse saves without replacing external bytes. Allow and Keep it on
+use the same lock to verify the proposal before applying or replacing it.
+Settings writes use compact JSON when pretty printing would exceed 64 KiB.
 The [#1234 investigation](../research/settings-reset-1234.md) records both
 reproduced races and recovery limits; it does not establish the historical
 incident trigger. On Windows only, atomic
@@ -140,9 +128,9 @@ file, and retains the existing file, applied values and pending approval.
 `config/service.ts` keeps approval baselines, held settings and theme changes, trusted argument disclosure, and decision revalidation together. `config/files.ts` owns bounded reads, directory containment and atomic replacement; `config/catalog.ts` owns theme path discovery and agent and forge manifest discovery, validation and reload.
 
 **Live reload.** Main watches `settings.json`, `themes/` and `terminal-themes/`,
-waits 250 ms after the last event and scans serially. A scan blocked by a busy
-Settings lock retries, including when the lock changes, without requiring
-another Settings edit. When `themes` or
+waits 250 ms after the last event and scans serially. The initial Settings
+review reads a snapshot before attaching the writer. Live Settings reviews
+use the shared lock. When `themes` or
 `terminal-themes` is replaced, the root watcher resubscribes to it. The config
 scanner (`config/files.ts`) refuses file links, nonregular files and files over
 64 KiB; [offline validation](console.md) also rejects in-folder links. The separate

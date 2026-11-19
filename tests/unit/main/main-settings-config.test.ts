@@ -198,41 +198,6 @@ test("Foom config migrates profile values, applies file changes live and broadca
   await expect(config.check()).rejects.toThrow("inside a repository");
 });
 
-test("deferred config boots the board and restores once after successful writer attachment", async () => {
-  const verified = { restoreSessions: false, interfaceTheme: "follow" };
-  mock.config.ready = false;
-  mock.config.initialize.mockResolvedValueOnce(verified);
-  await start();
-  expect(mock.window.loadURL).toHaveBeenCalled();
-  expect(mock.settingsStore.deferConfig).toHaveBeenCalledExactlyOnceWith(verified);
-  expect(mock.themeInitialize).not.toHaveBeenCalled();
-  expect(mock.workspace.restartSaved).not.toHaveBeenCalled();
-
-  const deps = mock.config.deps;
-  if (!deps?.onDeferredReady || !deps.onStatus)
-    throw new Error("Missing deferred config callbacks");
-  const status = { folder: "/home/.foom/config", available: true, pending: null, rejected: [] };
-  deps.onStatus(status);
-  expect(mock.workspace.restartSaved).not.toHaveBeenCalled();
-  await deps.onDeferredReady({ restoreSessions: true });
-  expect(mock.settingsStore.attachConfig).toHaveBeenCalledExactlyOnceWith(
-    expect.any(Function),
-    { restoreSessions: true },
-    null,
-  );
-
-  mock.config.ready = true;
-  deps.onStatus(status);
-  deps.onStatus(status);
-  await vi.waitFor(() => {
-    expect(mock.themeInitialize).toHaveBeenCalledOnce();
-    expect(mock.workspace.restartSaved).toHaveBeenCalledOnce();
-  });
-  expect(mock.themeInitialize.mock.invocationCallOrder[0]).toBeLessThan(
-    mock.workspace.restartSaved.mock.invocationCallOrder[0] ?? 0,
-  );
-});
-
 test("an unusable Foom config folder keeps settings in the profile", async () => {
   const error = vi.spyOn(console, "error").mockImplementation(() => {});
   mock.config.initialize.mockRejectedValueOnce(new Error("not a folder"));

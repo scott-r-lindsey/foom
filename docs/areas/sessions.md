@@ -22,20 +22,7 @@ current defaults and shared-checkout confirmation. Hook events pin against that 
 rejection exits the row normally and keeps the ID; no agent transcript or runtime file is read.
 
 
-`restoreSessions` defaults to `true`; disabling it keeps saved rows dormant for manual resume. If the shared Settings lock delays startup, saved rows remain dormant
-until Foom can load the applied Settings and attach the writer. The single
-startup restore pass then uses the applied `restoreSessions` value, including
-for saved Foom config shells. A verified disabled preference makes saved rows
-restartable by hand as soon as the board opens, even while Settings is busy.
-Startup restoration waits for a pending quit decision. Canceling quit lets
-the restore pass proceed. If restoration is already in flight, quit declines
-its pending launch approvals and waits up to five seconds for it to finish.
-At the deadline it pauses further restore launches before counting terminals
-for confirmation and releases startup's reservations on queued rows. A manual
-Restart, Resume or Close claims that row and removes it from startup's plan.
-Canceling quit resumes restoration of unclaimed dormant rows. Confirmed quit
-preserves the saved running state of paused rows for the next startup.
-Screens and scrollback are never persisted.
+`restoreSessions` defaults to `true`; disabling it keeps saved rows dormant for manual resume. Screens and scrollback are never persisted.
 
 `src/main/workspace/session-owner.ts` owns session restoration and persistence behind
 `SessionOwner` and its typed capability dependencies. It holds saved records,
@@ -49,9 +36,8 @@ and config path in `sidebar-commands.ts`; launch/removal locks, terminal queues
 and cancellation remain in `workspace-context.ts`. Execution and
 verdict state belong to `ExecutionOwner`. No owner receives the facade or coordinator object
 or owns PTYs or terminal views.
-After the bounded restore wait, quit preparation freezes and flushes the
-running records before PTYs stop. Failed preparation or cancelled quit re-enables
-persistence.
+Quit preparation waits for restoration, freezes and flushes the running records
+before PTYs stop; failed preparation or cancelled quit re-enables persistence.
 The coordinator still releases agents and control/hook services after terminals stop,
 then asks the owner to drain session writes.
 

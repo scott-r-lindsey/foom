@@ -123,17 +123,14 @@ export class Workspace {
   ownsSession(id: string): boolean {
     return this.owner.ownsSession(id);
   }
-  async prepareQuit(waitForRestore = true): Promise<void> {
-    return this.owner.prepareQuit(waitForRestore);
+  async prepareQuit(): Promise<void> {
+    return this.owner.prepareQuit();
   }
   cancelQuit(): void {
     this.owner.cancelQuit();
   }
-  restartSaved(pause?: () => Promise<boolean> | undefined): Promise<void> {
-    return this.owner.restartSaved(pause);
-  }
-  releaseQueuedRestores(): void {
-    this.owner.releaseQueuedRestores();
+  restartSaved(): Promise<void> {
+    return this.owner.restartSaved();
   }
   mcpConnectionChanged(id: string, state: McpConnection | undefined): void {
     this.owner.mcpConnectionChanged(id, state);

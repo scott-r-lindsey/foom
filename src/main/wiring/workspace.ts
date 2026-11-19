@@ -65,7 +65,6 @@ export async function initializeWorkspace(
       () => wiring.settings.get().copyOnSelect,
       wiring.settings.profileTag(),
       () => wiring.settings.get().terminalClipboardWrites,
-      wiring.restoreLaunchPause,
     );
   else wiring.terminals.addWindow(window);
   if (!wiring.initialized) {
@@ -309,8 +308,6 @@ export async function initializeWorkspace(
         wiring.attention();
       },
     });
-    // The restore owner uses this preference when it imports and reserves saved rows.
-    wiring.workspace.configure(wiring.settings.get());
     await wiring.workspace.restore();
     wiring.initialized = true;
   }

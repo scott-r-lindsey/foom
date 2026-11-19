@@ -1,7 +1,5 @@
-import type { ConfigSettings } from "../../shared/config";
 import { viewChanges } from "../data/view-changes";
 import { readFileSync } from "node:fs";
-import { AsyncLocalStorage } from "node:async_hooks";
 import { autoUpdater } from "electron";
 import { UpdateActivity } from "../update-activity";
 import { Updates } from "../updates";
@@ -178,10 +176,6 @@ export function runApplication() {
   let windowQueue: Promise<unknown> = Promise.resolve();
   let quitting = false;
   let quitPending = false;
-  const restoreScope = new AsyncLocalStorage<{
-    approvals: AbortController;
-    pause?: { promise: Promise<boolean>; resolve(resume: boolean): void };
-  }>();
   let savingWindows = Promise.resolve();
   const windows = new Map<
     number,
@@ -312,11 +306,6 @@ export function runApplication() {
     return approvals.requestOutcome({ ...content, approval: origin }, signal);
   }
   async function requestTrusted(content: DialogContent, signal: AbortSignal): Promise<boolean> {
-    const restore = restoreScope.getStore();
-    if (restore) {
-      while (restore.pause) if (!(await restore.pause.promise)) return false;
-      signal = AbortSignal.any([signal, restore.approvals.signal]);
-    }
     if (content.userAction) {
       const cancelled = () => signal.aborted || quitting || quitPending;
       if (cancelled()) return false;
@@ -388,57 +377,6 @@ export function runApplication() {
     requestQuit,
   });
   let quitRequest: Promise<void> | undefined;
-  let startupRestore:
-    | {
-        work: Promise<void>;
-        scope: NonNullable<ReturnType<typeof restoreScope.getStore>>;
-      }
-    | undefined;
-  async function restoreSavedSessions(): Promise<void> {
-    // A quit request that gets here first owns the terminal inventory until it settles.
-    while (quitRequest) await quitRequest;
-    if (quitting) return;
-    const scope = { approvals: new AbortController() };
-    const work = restoreScope.run(scope, () =>
-      Promise.resolve().then(() => workspace.restartSaved(restoreLaunchPause)),
-    );
-    startupRestore = { scope, work };
-    try {
-      await work;
-    } finally {
-      startupRestore = undefined;
-    }
-  }
-  function restoreLaunchPause(): Promise<boolean> | undefined {
-    return restoreScope.getStore()?.pause?.promise;
-  }
-  async function settleRestoreForQuit(restore: NonNullable<typeof startupRestore>): Promise<void> {
-    restore.scope.approvals.abort();
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-      await Promise.race([
-        Promise.allSettled([restore.work]),
-        new Promise<void>((resolve) => {
-          timer = setTimeout(() => {
-            let decide: (resume: boolean) => void;
-            const promise = new Promise<boolean>((complete) => {
-              decide = complete;
-            });
-            restore.scope.pause = {
-              promise,
-              resolve(resume) {
-                decide(resume);
-              },
-            };
-            resolve();
-          }, 5_000);
-        }),
-      ]);
-      if (restore.scope.pause) workspace.releaseQueuedRestores();
-    } finally {
-      clearTimeout(timer);
-    }
-  }
   function requestQuit(): Promise<void> {
     quitRequest ??= performQuit().finally(() => {
       quitRequest = undefined;
@@ -452,8 +390,6 @@ export function runApplication() {
       app.quit();
       return;
     }
-    let restore: typeof startupRestore;
-    let shutdownCompleted = false;
     try {
       let entry =
         [...windows.values()].find(({ window }) => window.isFocused()) ??
@@ -465,8 +401,6 @@ export function runApplication() {
       if (!entry) return;
       const { window, confirmations } = entry;
       quitPending = true;
-      restore = startupRestore;
-      if (restore) await settleRestoreForQuit(restore);
       const count = terminals.runningCount;
       if (count > 0) {
         const snapshot = workspace.snapshot();
@@ -499,17 +433,13 @@ export function runApplication() {
       await saveWindows().catch((error: unknown) => {
         console.error("Unable to save windows:", error);
       });
-      // The bounded restore wait above already settled or fenced further launches.
-      await workspace.prepareQuit(false);
+      await workspace.prepareQuit();
       try {
         await terminals.shutdown();
       } catch (error) {
         workspace.cancelQuit();
         throw error;
       }
-      // Keep the fence closed after the running records have been saved and PTYs stopped.
-      shutdownCompleted = true;
-      restore?.scope.pause?.resolve(false);
       // Terminals have stopped: revoke every hook credential and stop listening.
       await forgeRuntime.close();
       await workspace.dispose();
@@ -542,12 +472,6 @@ export function runApplication() {
       dialog.showErrorBox("Unable to quit Foom", "Could not stop all terminals. Please try again.");
     } finally {
       quitPending = false;
-      if (restore && !shutdownCompleted) {
-        const { pause } = restore.scope;
-        delete restore.scope.pause;
-        restore.scope.approvals = new AbortController();
-        pause?.resolve(true);
-      }
     }
   }
 
@@ -607,8 +531,6 @@ export function runApplication() {
     get quitPending() {
       return quitPending;
     },
-    restoreSavedSessions,
-    restoreLaunchPause,
     get quitting() {
       return quitting;
     },
@@ -723,16 +645,6 @@ async function startApplication(wiring: ApplicationWiring): Promise<void> {
     safeStorageCipher(safeStorage),
   );
   addTailSecrets(wiring.environment.redactions());
-  let resolveConfigReady = () => {};
-  const configReady = new Promise<void>((resolve) => {
-    resolveConfigReady = resolve;
-  });
-  const attachConfigWriter = (values: ConfigSettings) =>
-    wiring.settings.attachConfig(
-      (patch) => wiring.config.write(patch),
-      values,
-      wiring.settings.configDigest(),
-    );
   wiring.config = new ConfigService({
     root: wiring.configRoot,
     defaults: configPart(DEFAULT_SETTINGS),
@@ -783,11 +695,7 @@ async function startApplication(wiring: ApplicationWiring): Promise<void> {
         agentBypassIdentities: identities,
       });
     },
-    onStatus: () => {
-      wiring.configStatusChanged();
-      if (wiring.config.ready) resolveConfigReady();
-    },
-    onDeferredReady: attachConfigWriter,
+    onStatus: wiring.configStatusChanged,
     onThemeDecision: () => {
       void wiring.themes.reload();
     },
@@ -801,7 +709,6 @@ async function startApplication(wiring: ApplicationWiring): Promise<void> {
   wiring.disposeThemes = () => {
     wiring.themes.dispose();
   };
-  let configDeferred = false;
   try {
     // Include the old window scale only in no-clobber initial creation. Never
     // follow initialization with a Settings save: another profile may replace
@@ -809,35 +716,24 @@ async function startApplication(wiring: ApplicationWiring): Promise<void> {
     const values = await wiring.config.initialize(
       migratedScale === undefined ? legacy : { ...legacy, interfaceScale: migratedScale },
     );
-    configDeferred = !wiring.config.ready;
-    if (configDeferred) wiring.settings.deferConfig(values);
-    else await attachConfigWriter(values);
+    await wiring.settings.attachConfig(
+      (patch) => wiring.config.write(patch),
+      values,
+      wiring.settings.configDigest(),
+    );
   } catch (error) {
     // Settings stay in the profile until the folder is usable.
     console.error("Foom config is unavailable:", error);
   }
-  if (!configDeferred) await wiring.themes.initialize();
+  await wiring.themes.initialize();
   wiring.applyThemeSettings();
   attachAssetSecurity();
   if (placements.length)
     for (const placement of placements) await wiring.createWindow(undefined, placement);
   else await wiring.createWindow(await loadWindowSize(app.getPath("userData")));
   wiring.workspace.configure(wiring.settings.get());
-  const isQuitting = () => wiring.quitting;
-  const restore = async () => {
-    if (configDeferred) {
-      await configReady;
-      if (isQuitting()) return;
-      await wiring.themes.initialize().catch((error: unknown) => {
-        console.error("Unable to initialize themes:", error);
-      });
-      if (isQuitting()) return;
-      wiring.applyThemeSettings();
-      wiring.configApplied();
-    }
-    await wiring.restoreSavedSessions();
-  };
-  void restore()
+  void wiring.workspace
+    .restartSaved()
     .then(() => wiring.worktrees.reconcileRemovals(() => wiring.quitPending || wiring.quitting))
     .then(() => {
       if (!wiring.quitPending && !wiring.quitting) wiring.workspace.refresh();

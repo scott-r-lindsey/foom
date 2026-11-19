@@ -1,12 +1,5 @@
 import { ConfigCatalog } from "./catalog";
-import {
-  ConfigFiles,
-  decode,
-  ignore,
-  MAX_CONFIG_FILE_BYTES,
-  SETTINGS_LOCK_FILE,
-  settle,
-} from "./files";
+import { ConfigFiles, decode, ignore, MAX_CONFIG_FILE_BYTES, settle } from "./files";
 import { bundledForgeManifests } from "../control/forge-manifests";
 import type { LoadedForgeManifest } from "./plugins";
 import type { AgentProvider } from "../agents/providers/registry";
@@ -19,7 +12,6 @@ import {
   parseAgentDefaults,
   recoverAgentDefaults,
 } from "../agents/default-arguments";
-import { ApplicationError, errorMessage } from "../../shared/application-errors";
 import type { DialogContent } from "../../shared/confirmation";
 import type { ConfigSettings } from "../../shared/config";
 import { parseSettingsFile } from "../../shared/config-files";
@@ -61,8 +53,6 @@ export interface ConfigServiceDependencies {
   confirmArguments?(content: DialogContent): Promise<boolean>;
   acknowledgeBypass?(agents: readonly string[]): Promise<void>;
   onStatus?(status: ConfigStatus): void;
-  /** Attaches the Settings writer after a busy startup finishes in the background. */
-  onDeferredReady?(values: ConfigSettings): Promise<void>;
   onThemeDecision?(): void;
   watch?: (directory: string, listener: (file: string | null) => void) => { close(): void };
   delay?: number;
@@ -109,12 +99,6 @@ const watchFolder = (directory: string, listener: (file: string | null) => void)
   return watcher;
 };
 
-const SETTINGS_BUSY_MESSAGE = errorMessage(new ApplicationError("settings-busy"));
-
-function settingsBusy(error: unknown): boolean {
-  return error instanceof ApplicationError && error.code === "settings-busy";
-}
-
 function invalid(error: unknown): string {
   return error instanceof ThemeValidationError
     ? `${error.path}: ${error.reason}${error.detail ? `: ${error.detail}` : ""}`
@@ -149,9 +133,6 @@ export class ConfigService {
   private queue: Promise<unknown> = Promise.resolve();
   private watchers = new Map<string, { close(): void }>();
   private timer: ReturnType<typeof setTimeout> | undefined;
-  private retryingScan = false;
-  private deferredStartup = false;
-  private profileWriteFailed = false;
   private available = true;
   private error: string | undefined;
   private closed = false;
@@ -248,18 +229,11 @@ export class ConfigService {
       await this.recordBaseline(this.applied.text);
     }
     if (migrated && this.applied === migrated) await this.recordBaseline(migrated.text);
-    try {
-      await this.scan(true);
-      this.started = true;
-    } catch (error) {
-      if (!settingsBusy(error)) throw error;
-      this.deferredStartup = true;
-      this.retryScan(error);
-      this.publish();
-    }
+    this.applyLive(this.applied.values);
+    // Startup reviews a read-only snapshot before attaching the config writer.
+    await this.scan(false);
     this.startWatching();
-    if (this.deferredStartup)
-      return { ...this.applied.values, interfaceTheme: "follow", terminalTheme: "follow" };
+    this.started = true;
     return this.liveValues ?? this.applied.values;
   }
 
@@ -301,12 +275,7 @@ export class ConfigService {
       );
       // A theme folder that was removed and recreated needs a new subscription.
       if (replaced) this.watchFolder(replaced);
-      return (
-        file === null ||
-        file === SETTINGS_FILE ||
-        (file === SETTINGS_LOCK_FILE && this.retryingScan) ||
-        replaced !== undefined
-      );
+      return file === null || file === SETTINGS_FILE || replaced !== undefined;
     });
     for (const folder of [...Object.values(THEME_FOLDERS), "agents", "forges"])
       this.watchFolder(folder);
@@ -333,32 +302,8 @@ export class ConfigService {
     if (this.closed) return;
     clearTimeout(this.timer);
     this.timer = setTimeout(() => {
-      void this.serial(async () => {
-        // Ignore our own lock events while acquiring and scanning.
-        this.retryingScan = false;
-        try {
-          await this.scan();
-        } catch (error) {
-          if (!settingsBusy(error) && !this.deferredStartup) throw error;
-          this.retryScan(error);
-        }
-      }).catch(ignore);
+      void this.serial(() => this.scan()).catch(ignore);
     }, this.deps.delay ?? 250);
-  }
-
-  private retryScan(error?: unknown): void {
-    if (this.deferredStartup) {
-      const message =
-        error === undefined || settingsBusy(error)
-          ? undefined
-          : errorMessage(error, "The Foom config folder is unavailable.");
-      if (this.error !== message) {
-        this.error = message;
-        this.publish();
-      }
-    }
-    this.retryingScan = true;
-    this.schedule();
   }
 
   /** Runs one scan now; tests and IPC use it instead of waiting for the watcher. */
@@ -373,13 +318,10 @@ export class ConfigService {
     this.rejected.set(file, { object, reason });
   }
 
-  private async scan(initial = false): Promise<void> {
+  private async scan(lockSettings = true): Promise<void> {
     if (this.closed) return;
-    await this.files.withSettingsLock(async () => {
-      // Keep legacy profile values in use if startup has to defer the scan.
-      if (initial) this.applyLive(this.applied.values);
-      await this.scanSettings();
-    });
+    if (lockSettings) await this.files.withSettingsLock(() => this.scanSettings());
+    else await this.scanSettings();
     await this.scanPlugins();
     // Known names too, so a removed theme clears its applied, held or rejected state.
     const themes = new Set([
@@ -389,23 +331,7 @@ export class ConfigService {
       ...[...this.rejected.keys()].filter((path) => themeKind(path) !== undefined),
     ]);
     for (const relative of [...themes].sort()) await this.scanTheme(relative);
-    await this.finishDeferredStartup();
     this.publish();
-  }
-
-  private async finishDeferredStartup(): Promise<void> {
-    if (!this.deferredStartup || this.closed) return;
-    try {
-      await this.deps.onDeferredReady?.(this.liveValues ?? this.applied.values);
-    } catch {
-      this.profileWriteFailed = true;
-      this.retryScan();
-      return;
-    }
-    this.profileWriteFailed = false;
-    this.deferredStartup = false;
-    this.started = true;
-    this.error = undefined;
   }
 
   private async scanPlugins(): Promise<void> {
@@ -521,7 +447,6 @@ export class ConfigService {
     parsed: ParsedThemeFile,
   ): Promise<ParsedThemeFile | undefined> {
     return this.serial(async () => {
-      if (this.deferredStartup) return undefined;
       // The library reads before joining this queue. A config scan may already
       // have reviewed a newer edit, so an old snapshot must not clear its hold
       // or replace the profile's approval baseline.
@@ -670,13 +595,6 @@ export class ConfigService {
   }
 
   status(): ConfigStatus {
-    const error = [
-      this.deferredStartup && SETTINGS_BUSY_MESSAGE,
-      this.error,
-      this.profileWriteFailed && "Unable to save profile settings.",
-    ]
-      .filter(Boolean)
-      .join(" ");
     const pending = this.pending;
     const held = this.heldThemes.entries().next().value;
     const rejected = [...this.rejected]
@@ -743,7 +661,7 @@ export class ConfigService {
             }
           : null,
       rejected,
-      ...(error ? { error } : {}),
+      ...(this.error ? { error: this.error } : {}),
     };
   }
 

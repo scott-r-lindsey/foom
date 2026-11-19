@@ -1,5 +1,4 @@
 import { mock, start, quitting } from "./main-fixture";
-import { AsyncResource } from "node:async_hooks";
 import { expect, test, vi } from "vitest";
 
 test("window close requests the same quit path without destroying the window", async () => {
@@ -11,72 +10,6 @@ test("window close requests the same quit path without destroying the window", a
   await vi.waitFor(() => {
     expect(mock.quit).toHaveBeenCalledOnce();
   });
-});
-
-test("quit counts terminals after an in-flight startup restore finishes", async () => {
-  const restore = Promise.withResolvers<undefined>();
-  mock.workspace.restartSaved.mockReturnValueOnce(restore.promise);
-  mock.terminals.runningCount = 1;
-  await start();
-  await vi.waitFor(() => {
-    expect(mock.workspace.restartSaved).toHaveBeenCalledOnce();
-  });
-
-  quitting();
-  expect(mock.message).not.toHaveBeenCalled();
-  mock.terminals.runningCount = 3;
-  restore.resolve(undefined);
-
-  await vi.waitFor(() => {
-    expect(mock.message).toHaveBeenCalledExactlyOnceWith(
-      expect.objectContaining({ title: "Quit with 3 terminals running?" }),
-    );
-  });
-});
-
-test("quit aborts a restore approval and bounds a restore that remains stalled", async () => {
-  const approval = Promise.withResolvers<{ response: number }>();
-  const cancel = Promise.withResolvers<{ response: number }>();
-  const readPause = vi.fn<() => Promise<boolean> | undefined>();
-  mock.message.mockReturnValueOnce(approval.promise).mockReturnValueOnce(cancel.promise);
-  mock.workspace.restartSaved.mockImplementationOnce(async () => {
-    readPause.mockImplementation(AsyncResource.bind(mock.restoreLaunchPause));
-    await mock.config.deps?.confirmArguments?.({
-      title: "Restore with bypass?",
-      accept: "Launch with bypass",
-      glyph: "shield",
-    });
-  });
-  mock.terminals.runningCount = 1;
-  await start();
-  await vi.waitFor(() => {
-    expect(mock.message).toHaveBeenCalledOnce();
-  });
-  const signal = mock.confirmSignal.mock.lastCall?.[0];
-  expect(signal?.aborted).toBe(false);
-  expect(mock.restoreLaunchPause()).toBeUndefined();
-
-  vi.useFakeTimers();
-  try {
-    quitting();
-    expect(signal?.aborted).toBe(true);
-    expect(mock.message).toHaveBeenCalledOnce();
-    await vi.advanceTimersByTimeAsync(5_000);
-    expect(mock.message).toHaveBeenLastCalledWith(
-      expect.objectContaining({ title: "Quit with 1 terminal running?" }),
-    );
-    const pause = readPause();
-    expect(pause).toBeDefined();
-    cancel.resolve({ response: 0 });
-    await expect(pause).resolves.toBe(true);
-    expect(readPause()).toBeUndefined();
-    quitting();
-    await vi.advanceTimersByTimeAsync(5_000);
-    expect(mock.message).toHaveBeenCalledTimes(3);
-  } finally {
-    approval.resolve({ response: 0 });
-    vi.useRealTimers();
-  }
 });
 
 test.each([1, 3])(

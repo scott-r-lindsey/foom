@@ -20,7 +20,6 @@ import { ThemeValidationError } from "../../shared/theme-validation";
 import type { ConfigServiceDependencies } from "./service";
 
 export const MAX_CONFIG_FILE_BYTES = 65536;
-export const SETTINGS_LOCK_FILE = ".foom-settings.lock";
 
 /** Rejections that only mean "unavailable"; the caller falls back. */
 export const ignore = (): undefined => undefined;
@@ -124,7 +123,7 @@ export class ConfigFiles {
 
   /** All cooperating profiles hold this lock from the settings read through rename. */
   async withSettingsLock<T>(work: () => Promise<T>): Promise<T> {
-    return withSettingsLock(this.path(SETTINGS_LOCK_FILE), work);
+    return withSettingsLock(this.path(".foom-settings.lock"), work);
   }
 
   /** Atomic replacement inside the folder; the temporary name is hidden from the catalogs. */
