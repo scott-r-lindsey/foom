@@ -155,7 +155,7 @@ export function createSetupSource(
     openThemesFolder: (kind) => desktop.openThemesFolder(kind),
     restartToUpdate: () => desktop.restartToUpdate(),
     state: () => desktop.setupState(),
-    save: (patch) => desktop.saveSetup(patch),
+    save: (patch, themeDigest) => desktop.saveSetup(patch, ...(themeDigest ? [themeDigest] : [])),
     changeAgentSetup: (id, action) => desktop.changeAgentSetup(id, action),
     changeAgyPlugin: (action) => desktop.changeAgyPlugin(action),
     scanAgents: (refresh, agent) =>

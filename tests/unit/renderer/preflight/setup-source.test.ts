@@ -55,6 +55,12 @@ test("preflight reaches main only through the setup bridge", async () => {
   await expect(source.scanAgents(true)).resolves.toBe("scan");
   await expect(source.repositories()).resolves.toEqual([repository]);
   expect(desktop.saveSetup).toHaveBeenCalledWith({ hooks: false });
+  const digest = "a".repeat(64);
+  await expect(source.save({ interfaceTheme: "user:custom.json" }, digest)).resolves.toBe("saved");
+  expect(desktop.saveSetup).toHaveBeenLastCalledWith(
+    { interfaceTheme: "user:custom.json" },
+    digest,
+  );
   expect(desktop.scanAgents).toHaveBeenCalledWith(true);
   await expect(source.scanAgents(true, "claude")).resolves.toBe("scan");
   expect(desktop.scanAgents).toHaveBeenLastCalledWith(true, "claude");

@@ -503,15 +503,14 @@ test("attaching Foom config moves agent-editable values out of the profile exact
   });
   await store.update({ panelColor: "plain" });
   expect(writes).toHaveLength(2);
-  await store.setConfigDigest("b".repeat(64));
-  await store.setConfigDigest("b".repeat(64));
-  expect((await SettingsStore.open(dir)).configDigest()).toBe("b".repeat(64));
-  // The applied settings copy persists for Keep it on after a restart, within the file limit.
   expect(store.configText()).toBeNull();
-  await store.setConfigText('{"kind":"settings"}');
-  await store.setConfigText('{"kind":"settings"}');
-  await store.setConfigText("x".repeat(65537));
-  expect((await SettingsStore.open(dir)).configText()).toBe('{"kind":"settings"}');
+  const text = '{"kind":"settings"}';
+  await store.setConfigBaseline("b".repeat(64), text);
+  await store.setConfigBaseline("b".repeat(64), text);
+  await store.setConfigBaseline("d".repeat(64), "x".repeat(65537));
+  const persisted = await SettingsStore.open(dir);
+  expect(persisted.configDigest()).toBe("b".repeat(64));
+  expect(persisted.configText()).toBe(text);
   store.setConfig({});
   expect(store.get().terminalFontSize).toBe(14);
 });
@@ -580,7 +579,7 @@ test.each([1, 2])(
     );
     const store = await SettingsStore.open(dir);
     expect(store.legacyConfig()?.agentArguments).toEqual(recovered);
-    await store.setConfigDigest("a".repeat(64));
+    await store.setConfigBaseline("a".repeat(64), '{"kind":"settings"}');
     // Baseline persistence during config initialization must not drop the arguments.
     const reopened = await SettingsStore.open(dir);
     expect(reopened.get().agentArguments).toEqual(recovered);

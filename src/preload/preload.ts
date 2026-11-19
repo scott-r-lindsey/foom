@@ -373,6 +373,7 @@ const validThemeCatalog: Validator<ThemeCatalog> = shape({
     shape({
       id: userThemeId,
       theme: validInterfaceTheme,
+      digest: either(absent, text),
     }),
   ),
   terminal: array(
@@ -764,6 +765,7 @@ const validConfigStatus: Validator<ConfigStatus> = shape({
   pending: either(nil, validConfigPending),
   rejected: array(validConfigRejection),
   error: either(absent, text),
+  notice: either(absent, text),
 } satisfies Contract<ConfigStatus>);
 
 const validRepository: Validator<Repository> = shape({
@@ -2289,8 +2291,12 @@ const desktop: DesktopApi = {
     if (!validSetupState(clean)) throw new Error("Invalid setup response");
     return clean;
   },
-  saveSetup: async (patch) => {
-    const value: unknown = await ipcRenderer.invoke("setup:save", patch);
+  saveSetup: async (patch, themeDigest) => {
+    const value: unknown = await ipcRenderer.invoke(
+      "setup:save",
+      patch,
+      ...(themeDigest ? [themeDigest] : []),
+    );
     if (!validSetupState(value)) throw new Error("Invalid setup response");
     const clean = project(validSetupState, value);
     if (!validSetupState(clean)) throw new Error("Invalid setup response");

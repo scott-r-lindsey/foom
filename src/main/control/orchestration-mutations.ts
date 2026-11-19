@@ -813,6 +813,7 @@ export class OrchestrationMutations extends OrchestrationAuthority {
                       "remote-host-unavailable": "git_failed",
                       "prune-unsafe": "git_failed",
                       "session-has-children": "git_failed",
+                      "theme-selection-changed": "git_failed",
                       "settings-busy": "git_failed",
                       "settings-lock-corrupt": "git_failed",
                       "settings-lock-unsupported": "git_failed",

@@ -56,7 +56,7 @@ Every channel checks the sender (a registered app window, its main frame, `app:/
 | `setup:github-sign-in` | renderer → main (invoke) | requesting window’s gh recipe ID and `read` / `copy` / `open` / `cancel`; main derives a strict device code and opens only the fixed GitHub device URL; returns validated ephemeral state, never clipboard reads |
 | `setup:hosts` | renderer → main (invoke) | one closed host action; main owns registration, approved folders, origin and destination selection; fixed typed host/repository states only; see [Hosts](hosts.md) |
 | `setup:state` | renderer → main (invoke) | → `{ settings, themes?, worktreeRoot }` |
-| `setup:save` | renderer → main (invoke) | settings patch (known fields only) → state |
+| `setup:save` | renderer → main (invoke) | settings patch (known fields only), optional offered custom interface palette digest → state |
 | `setup:changed` | main → renderer | setup state after a successful settings save or zoom shortcut |
 | `environment:state` | renderer → main (invoke) | → `{ lists, windows, secrets }`; saved secrets have a null value |
 | `environment:save` | renderer → main (invoke) | exactly `{ scope, previous, name, value, secret }`; a null value keeps a saved secret → state |
@@ -237,7 +237,10 @@ it exposes no reads or query replies. See [terminal policy](terminals.md#osc-52-
 Settings uses `data:subscribe`, `data:snapshot`, `data:ack` and
 `data:unsubscribe` with the closed [phase-B view schemas and limits](data.md#phase-b-channel-over-json-1161).
 All write commands keep their existing domain validation and trusted confirmations.
-`setup:state` takes no arguments and `setup:save` exactly one validated patch.
+`setup:state` takes no arguments. `setup:save` takes a validated patch and, when
+selecting a custom interface palette, the SHA-256 digest of the catalog entry
+shown to the user. Main checks it against the offered palette and the file bytes
+before writing the selection.
 The sandboxed preload reuses its inline response validators; no new runtime
 imports or sandbox-loader exceptions are introduced.
 

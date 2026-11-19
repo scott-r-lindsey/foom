@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { expect, test, vi } from "vitest";
 import { configPart } from "../../../../src/main/config/approval";
 import { ConfigFiles } from "../../../../src/main/config/files";
+import { digest } from "../../../../src/main/config/layout";
 import { DEFAULT_SETTINGS, SettingsStore } from "../../../../src/main/setup/settings";
 import { fixture } from "./service-fixture";
 
@@ -81,6 +82,92 @@ test("a second profile's stale Settings save preserves the child limit and zoom 
   await first.service.refresh();
   expect(first.applied.at(-1)).toEqual(second.applied.at(-1));
   expect(first.applied.at(-1)).toMatchObject(preferences);
+});
+
+test.each(["write", "refresh"])(
+  "Keep preserves safe shared settings after the stale profile runs %s",
+  async (action) => {
+    const first = await fixture({ defaults });
+    await first.service.initialize();
+    const agentArguments = { claude: ["--verbose"] };
+    await first.service.write({ interfaceScale: 100, agents: { claude: true }, agentArguments });
+    const second = await fixture({
+      defaults,
+      root: first.folder,
+      baseline: digest(await first.read("settings.json")),
+    });
+    await second.service.initialize();
+    await first.settings({
+      hooks: false,
+      interfaceScale: 100,
+      agents: { claude: false, codex: true },
+      agentArguments: { claude: ["--debug"] },
+    });
+    await first.service.write({ interfaceScale: 110 });
+    expect(second.applied.at(-1)?.interfaceScale).toBe(100);
+    const agents =
+      action === "write" ? { claude: true, codex: true, agy: true } : { claude: true, codex: true };
+    if (action === "write") {
+      await second.service.write({ agents });
+      expect(second.applied.at(-1)).toEqual({ interfaceScale: 110, agents, agentArguments });
+      expect(JSON.parse(second.copy() ?? "")).toEqual({
+        kind: "settings",
+        ...second.applied.at(-1),
+      });
+    } else {
+      await second.service.refresh();
+    }
+    expect(second.service.status().pending?.detail).toBe(
+      action === "write"
+        ? "hooks: on → off, agentArguments.claude"
+        : "hooks: on → off, agents.claude: on → off, agentArguments.claude",
+    );
+    expect(JSON.parse(await first.read("settings.json"))).toMatchObject({
+      hooks: false,
+      interfaceScale: 110,
+      agents: action === "write" ? agents : { claude: false, codex: true },
+      agentArguments: { claude: ["--debug"] },
+    });
+
+    await second.decide("keep");
+    const bytes = await first.read("settings.json");
+    expect(JSON.parse(bytes)).toEqual({
+      kind: "settings",
+      interfaceScale: 110,
+      agents,
+      agentArguments,
+    });
+    expect(second.copy()).toBe(bytes);
+    expect(second.service.status().pending).toBeNull();
+    expect((await first.service.refresh()).pending).toBeNull();
+    expect(first.applied.at(-1)).toEqual(second.applied.at(-1));
+  },
+);
+
+test("a disjoint full provider map keeps its approved entries through Settings save and Keep", async () => {
+  const f = await fixture({ defaults });
+  const approvedAgents = Object.fromEntries(
+    Array.from({ length: 100 }, (_, index) => [`approved-${String(index)}`, true]),
+  );
+  const proposedAgents = Object.fromEntries(
+    Array.from({ length: 100 }, (_, index) => [`proposed-${String(index)}`, true]),
+  );
+  await f.service.initialize({ agents: approvedAgents });
+  await f.settings({ agents: proposedAgents, hooks: false, interfaceScale: 110 });
+  expect((await f.service.refresh()).pending?.detail).toContain("agents.approved-0: on → off");
+
+  await f.service.write({ interfaceScale: 120 });
+  const approved = { kind: "settings", agents: approvedAgents, interfaceScale: 120 };
+  expect(JSON.parse(f.copy() ?? "")).toEqual(approved);
+  expect(JSON.parse(await f.read("settings.json"))).toEqual({
+    ...approved,
+    agents: proposedAgents,
+    hooks: false,
+  });
+  expect(f.applied.at(-1)).toEqual({ agents: approvedAgents, interfaceScale: 120 });
+  expect((await f.decide("keep")).pending).toBeNull();
+  expect(JSON.parse(await f.read("settings.json"))).toEqual(approved);
+  expect(f.copy()).toBe(await f.read("settings.json"));
 });
 
 test.each(["partial JSON", "read failure"])(

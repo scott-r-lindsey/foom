@@ -7,6 +7,8 @@ import type { DialogContent, DialogOutcome, PlainDialogContent } from "../../sha
 import type { Hosts } from "./hosts";
 import type { UpdateState } from "../../shared/updates";
 import type { ReadinessReport } from "../../shared/readiness";
+import { ApplicationError } from "../../shared/application-errors";
+import { isUserThemeId } from "../../shared/theme-validation";
 import type { ThemeCatalog } from "../../shared/theme-file";
 import { bypassConsentIdentity, hasBypassArgument } from "../agents/default-arguments";
 import type { AgentId } from "../../shared/agents";
@@ -221,7 +223,7 @@ export class Setup {
     });
   }
 
-  async save(value: unknown): Promise<SetupState> {
+  async save(value: unknown, themeDigest?: unknown): Promise<SetupState> {
     const patch = parseSettingsPatch(value);
     if (
       patch.registeredHosts !== undefined ||
@@ -229,13 +231,20 @@ export class Setup {
       patch.agentBypassIdentities !== undefined
     )
       throw new Error("Bypass acknowledgement belongs to Foom's confirmation dialog.");
-    const saving = this.saving.catch(() => undefined).then(() => this.savePatch(patch));
+    const saving = this.saving
+      .catch(() => undefined)
+      .then(() => this.savePatch(patch, themeDigest));
     this.saving = saving;
     return saving;
   }
 
-  private async savePatch(patch: SettingsPatch): Promise<SetupState> {
+  private async savePatch(patch: SettingsPatch, themeDigest: unknown): Promise<SetupState> {
     const before = this.deps.store.get();
+    if (isUserThemeId(patch.interfaceTheme) && patch.interfaceTheme !== before.interfaceTheme) {
+      const offered = this.deps.themes?.().interface.find(({ id }) => id === patch.interfaceTheme);
+      if (typeof themeDigest !== "string" || offered?.digest !== themeDigest)
+        throw new ApplicationError("theme-selection-changed");
+    }
     if (
       patch.setupComplete === true &&
       this.deps.gitReadiness &&
@@ -266,7 +275,10 @@ export class Setup {
       patch.agentBypassAcknowledged = acknowledged;
       patch.agentBypassIdentities = identities;
     }
-    const settings = await this.deps.store.update(patch);
+    const settings = await this.deps.store.update(
+      patch,
+      ...(typeof themeDigest === "string" ? [themeDigest] : []),
+    );
     this.deps.apply(settings);
     return this.state();
   }

@@ -1,3 +1,4 @@
+import { digest } from "../../../../src/main/config/layout";
 import type * as FsPromises from "node:fs/promises";
 import type * as Fs from "node:fs";
 import { writeFileSync } from "node:fs";
@@ -149,7 +150,7 @@ test("an edit after the palette read survives publication and watcher reconcilia
   const library = new ThemeLibrary(
     root,
     () => {},
-    (_file, _text, parsed) => {
+    (_file, text, parsed) => {
       if (editAfterRead) {
         editAfterRead = false;
         // An editor changes the file after the current read. Its native watcher
@@ -159,7 +160,7 @@ test("an edit after the palette read survives publication and watcher reconcilia
           (entry) => !entry.closed && entry.directory === dirname(file),
         );
       }
-      return Promise.resolve(parsed);
+      return Promise.resolve({ parsed, digest: digest(text) });
     },
   );
   libraries.push(library);

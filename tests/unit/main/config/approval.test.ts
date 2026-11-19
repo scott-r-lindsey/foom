@@ -129,7 +129,11 @@ test("owned files refresh only when missing or matching an earlier Foom version"
 test("enabling automatic restore requires approval, disabling it does not", () => {
   const off = effective(base, { restoreSessions: false });
   expect(weakenings(off, base)).toEqual([
-    { action: "restore sessions on launch", detail: "restoreSessions: off → on" },
+    {
+      field: ["restoreSessions"],
+      action: "restore sessions on launch",
+      detail: "restoreSessions: off → on",
+    },
   ]);
   expect(weakenings(base, off)).toEqual([]);
 });
@@ -280,11 +284,16 @@ test("config plugin arguments and disabling require review, including removal of
   expect(
     weakenings(effective(base, { agents: { ...base.agents, fixture: true } }), plugin),
   ).toContainEqual({
+    field: ["agents", "fixture"],
     action: "turn off fixture",
     detail: "agents.fixture: on → off",
   });
   expect(argumentChanges(base, plugin)).toEqual([
-    { action: "change fixture launch arguments", detail: "agentArguments.fixture" },
+    {
+      field: ["agentArguments"],
+      action: "change fixture launch arguments",
+      detail: "agentArguments.fixture",
+    },
   ]);
   expect(argumentDisclosure(base, plugin).sections).toEqual([
     { label: "fixture before", arguments: true, items: ["(no arguments)"] },
@@ -321,7 +330,11 @@ test("closing finished agents applies in either direction", () => {
 test("removing an enabled key requires Allow; absent and false keys are both off", () => {
   const before = effective(base, { agents: { opencode: true } });
   expect(weakenings(before, effective(base, { agents: {} }))).toEqual([
-    { action: "turn off opencode", detail: "agents.opencode: on → off" },
+    {
+      field: ["agents", "opencode"],
+      action: "turn off opencode",
+      detail: "agents.opencode: on → off",
+    },
   ]);
   expect(
     weakenings(effective(base, { agents: {} }), effective(base, { agents: { opencode: false } })),

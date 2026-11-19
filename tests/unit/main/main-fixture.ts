@@ -641,6 +641,7 @@ const mock = vi.hoisted(() => {
     config: {
       deps: undefined as ConfigServiceDependencies | undefined,
       initialize: vi.fn<(legacy: unknown) => Promise<unknown>>(),
+      activePalette: vi.fn(() => undefined),
       write: vi.fn<(patch: unknown) => Promise<void>>(() => Promise.resolve()),
       status: { folder: "/home/.foom/config", available: true, changes: [] },
     },
@@ -656,9 +657,8 @@ const mock = vi.hoisted(() => {
       setConfig: vi.fn(),
       themeDigest: vi.fn<(_file: string) => string | null>(() => null),
       setThemeDigest: vi.fn((_file: string, _digest: string | null) => Promise.resolve()),
-      setConfigDigest: vi.fn(() => Promise.resolve()),
+      setConfigBaseline: vi.fn(() => Promise.resolve()),
       configText: vi.fn(() => null),
-      setConfigText: vi.fn(() => Promise.resolve()),
       update: vi.fn(() => Promise.resolve()),
       get: (): Pick<
         Settings,
