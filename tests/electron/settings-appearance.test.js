@@ -5,6 +5,7 @@ const assert = require("node:assert/strict");
 const path = require("node:path");
 const { mkdtemp, readFile, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
+const { afterEach } = require("node:test");
 const { deadline, expect } = require("./test-policy.js");
 const {
   assertAccessible,
@@ -16,6 +17,11 @@ const {
   quitAndWait,
   removeAfterApps,
 } = require("./harness.js");
+
+let previousTest;
+afterEach((context) => {
+  previousTest = context.name;
+});
 
 async function chooseTheme(page, name, label = "Theme") {
   await page.getByRole("button", { name: new RegExp(`^${label} `) }).click();
@@ -1132,24 +1138,36 @@ test("sample user themes paint visible sidebar and board gradients in light and 
     await page.getByRole("button", { name: "Appearance", exact: true }).click();
     await chooseTheme(page, sample.name);
     await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
-    const expected =
-      base === "dark"
-        ? ["rgb(0, 60, 82)", "rgb(71, 22, 79)"]
-        : ["rgb(144, 233, 242)", "rgb(229, 181, 252)"];
-    for (const [selector, angle] of [
-      [".sidebar-shell", 160],
-      [".tile-area", 125],
-    ]) {
-      await expect(page.locator(selector)).toHaveCSS(
-        "background-image",
-        new RegExp(`linear-gradient\\(${angle}deg`),
+    const [first, second] =
+      base === "dark" ? ["0, 60, 82", "71, 22, 79"] : ["144, 233, 242", "229, 181, 252"];
+    const gradient = (angle, start, end) =>
+      expect.stringMatching(
+        new RegExp(
+          String.raw`^linear-gradient\(${angle}deg(?: in srgb)?, rgb\(${start}\) 0%, rgb\(${end}\) 100%\)$`,
+        ),
       );
-      const paint = await page
-        .locator(selector)
-        .evaluate((element) => getComputedStyle(element).backgroundImage);
-      for (const color of expected)
-        assert.ok(paint.includes(color), `${selector} paints the sample's distinct stops`);
-    }
+    // Both palettes use the same angles. Wait for the selected colors to reach both surfaces.
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() => {
+            const backgroundImage = (selector) => {
+              const element = document.querySelector(selector);
+              return element ? getComputedStyle(element).backgroundImage : null;
+            };
+            return {
+              palette: document.documentElement.style.colorScheme,
+              sidebar: backgroundImage(".sidebar-shell"),
+              board: backgroundImage(".tile-area"),
+            };
+          }),
+        { message: `${sample.name} after ${previousTest ?? "no earlier test in this worker"}` },
+      )
+      .toEqual({
+        palette: base,
+        sidebar: gradient(160, first, second),
+        board: gradient(125, second, first),
+      });
     await expect(page.locator(".tile-area")).toBeVisible();
     await expect(page.locator(".xterm:visible")).toHaveCount(0);
     await assertAccessible(page);
