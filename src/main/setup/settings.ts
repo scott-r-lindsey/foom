@@ -17,6 +17,7 @@ import {
 import type { ConfigSettings } from "../../shared/config";
 import { DEFAULT_SOUND, migrateSoundSettings } from "../../shared/sounds";
 import { randomUUID } from "node:crypto";
+import { renameSync } from "node:fs";
 import { link, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
 import { validAgentId } from "../../shared/providers/catalog";
@@ -24,6 +25,7 @@ import type { Settings, SettingsPatch } from "../../shared/setup";
 
 /** Twice the theme folder limit, so renames settle before old entries are removed. */
 const MAX_THEME_DIGESTS = 100;
+const SUPERSEDED_PROFILE_WRITE = new Error("Superseded profile write");
 
 export const DEFAULT_SETTINGS: Settings = Object.freeze({
   setupComplete: false,
@@ -426,8 +428,8 @@ export class SettingsStore {
     });
   }
 
-  /** Resolves once the new settings are on disk; a failed write leaves them unchanged. */
-  async update(patch: SettingsPatch): Promise<Settings> {
+  /** A profile write can be cancelled at replacement if its observation was superseded. */
+  async update(patch: SettingsPatch, canCommit?: () => boolean): Promise<Settings> {
     const config: ConfigSettings = {};
     const profile: SettingsPatch = {};
     for (const [key, value] of Object.entries(patch))
@@ -440,11 +442,11 @@ export class SettingsStore {
         this.argumentsToMove = Object.values(profile.agentArguments).some((args) => args.length)
           ? profile.agentArguments
           : undefined;
-    });
+    }, canCommit);
     return this.committedSettings;
   }
 
-  private async write(change: () => void): Promise<void> {
+  private async write(change: () => void, canCommit?: () => boolean): Promise<void> {
     const write = this.pending
       .catch(() => undefined)
       .then(async () => {
@@ -484,7 +486,13 @@ export class SettingsStore {
               ),
               { flag: "wx", mode: 0o600 },
             );
-            await rename(temporary, this.file);
+            if (canCommit) {
+              if (!canCommit()) throw SUPERSEDED_PROFILE_WRITE;
+              // Keep the revision check and replacement in the same JS turn.
+              renameSync(temporary, this.file);
+            } else {
+              await rename(temporary, this.file);
+            }
           } finally {
             await rm(temporary, { force: true });
           }
@@ -500,7 +508,8 @@ export class SettingsStore {
           this.writer = snapshot.writer;
           this.legacy = snapshot.legacy;
           this.argumentsToMove = snapshot.argumentsToMove;
-          throw error;
+          if (error !== SUPERSEDED_PROFILE_WRITE) throw error;
+          return;
         }
         this.committedSettings = this.settings;
         settingsChanged(snapshot.settings, this.settings);

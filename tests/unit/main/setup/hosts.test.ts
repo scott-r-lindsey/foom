@@ -772,6 +772,86 @@ test("a folder reload updates the unsaved first checklist at the same SSH revisi
   });
 });
 
+test("a staged trusted retry cannot replace the saved changed key when the newest save fails", async () => {
+  const root = await mkdtemp(join(tmpdir(), "host-ssh-commit-"));
+  const persisted = await SettingsStore.open(root);
+  const owner = new Hosts(persisted, () => [], "0.1.0", run);
+  const check = { action: "preflight", host: "worker", codeFolder: facts.codeFolder } as const;
+  const reload = { action: "reload", host: "worker", target: { kind: "ssh" } } as const;
+  const changed: HostResult = {
+    ok: false,
+    reason: "host-key-changed",
+    connection: {
+      ssh: { state: "fail", reason: "host-key-changed" },
+      platform: { state: "not-checked" },
+      artifact: { state: "not-checked" },
+    },
+  };
+  const release = Promise.withResolvers<undefined>();
+  try {
+    await persisted.update({ registeredHosts: [{ host: "worker", codeFolder: facts.codeFolder }] });
+    run.mockResolvedValueOnce(changed);
+    const before = await owner.action(check);
+    const save = persisted.update.bind(persisted);
+    const entered = Promise.withResolvers<undefined>();
+    vi.spyOn(persisted, "update")
+      .mockRejectedValueOnce(new Error("trusted row write failed"))
+      .mockImplementationOnce(async (patch, canCommit) => {
+        entered.resolve(undefined);
+        await release.promise;
+        return save(patch, canCommit);
+      })
+      .mockRejectedValueOnce(new Error("new changed-key write failed"));
+    await owner.action(reload);
+    const retrying = owner.action({ action: "list" });
+    await entered.promise;
+    run.mockResolvedValueOnce(changed);
+    const checking = owner.action(check);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(owner.state().hosts[0]?.checklist?.preflight.ssh).toEqual(changed.connection?.ssh);
+    release.resolve(undefined);
+    await retrying;
+    expect((await checking).hosts[0]?.checklist?.saveFailed).toBe(true);
+    const reopened = await SettingsStore.open(root);
+    expect(reopened.get().registeredHosts?.[0]?.observation).toEqual(before.hosts[0]?.observation);
+  } finally {
+    release.resolve(undefined);
+    owner.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("reopening Hosts reports repeated SSH row write failures without an SSH classification", async () => {
+  repositories = [];
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  await hosts.action({ action: "preflight", host: "worker", codeFolder: facts.codeFolder });
+  const before = settings.registeredHosts[0]?.observation;
+  const reload = { action: "reload", host: "worker", target: { kind: "ssh" } } as const;
+  run.mockResolvedValue({ ok: false, reason: "invalid-reply" });
+  store.update.mockRejectedValueOnce(new Error("row write failed"));
+  await expect(hosts.action(reload)).rejects.toThrow("Unable to save host row");
+  store.update.mockRejectedValueOnce(new Error("recheck write failed"));
+  const listed = await hosts.action({ action: "list" });
+  expect(listed.hosts[0]?.observation).toEqual(before);
+  expect(listed.hosts[0]?.rowFailures).toEqual([{ target: reload.target, reason: "save-failed" }]);
+});
+
+test("an SSH-only reload without a durable checklist keeps the save warning", async () => {
+  repositories = [];
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  const check = { action: "preflight", host: "worker", codeFolder: facts.codeFolder } as const;
+  store.update.mockRejectedValueOnce(new Error("first checklist write failed"));
+  await hosts.action(check);
+  store.update.mockClear();
+  const reload = await hosts.action({ action: "reload", host: "worker", target: { kind: "ssh" } });
+  expect(reload.hosts[0]?.checklist?.saveFailed).toBe(true);
+  expect(reload.hosts[0]?.observation).toBeUndefined();
+  expect(store.update).not.toHaveBeenCalled();
+  const saved = await hosts.action(check);
+  expect(saved.hosts[0]?.checklist?.saveFailed).toBeUndefined();
+  expect(saved.hosts[0]?.observation?.preflight.sshRevision).toBe(saved.preflight?.sshRevision);
+});
+
 test("a full check held on repository work cannot replace a newer SSH observation", async () => {
   settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
   const check = { action: "preflight", host: "worker", codeFolder: facts.codeFolder } as const;

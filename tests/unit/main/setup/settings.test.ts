@@ -14,7 +14,7 @@ import {
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof Fs>();
-  return { ...actual, link: vi.fn(actual.link) };
+  return { ...actual, link: vi.fn(actual.link), writeFile: vi.fn(actual.writeFile) };
 });
 
 const dirs: string[] = [];
@@ -25,6 +25,25 @@ async function directory(): Promise<string> {
 }
 afterEach(async () => {
   await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+});
+
+test("a profile write can be superseded after its temporary file is staged", async () => {
+  const root = await directory();
+  const store = await SettingsStore.open(root);
+  const before = store.get();
+  const file = path.join(root, "settings.json");
+  const oldContents = await readFile(file, "utf8");
+  const write = (await vi.importActual<typeof Fs>("node:fs/promises")).writeFile;
+  let current = true;
+  vi.mocked(writeFile).mockImplementationOnce(async (...args) => {
+    await write(...args);
+    current = false;
+  });
+  await expect(store.update({ setupComplete: true }, () => current)).resolves.toEqual(before);
+  expect(await readFile(file, "utf8")).toBe(oldContents);
+  expect(await readdir(root)).toEqual(["settings.json"]);
+  await store.update({ setupComplete: true }, () => true);
+  expect((await SettingsStore.open(root)).get().setupComplete).toBe(true);
 });
 
 test("patches copy only known, well-formed fields", () => {

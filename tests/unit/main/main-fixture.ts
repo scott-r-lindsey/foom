@@ -1,8 +1,3 @@
-vi.mock("../../../src/main/setup/repository-setup-service", () => ({
-  openRepositorySetup: vi.fn(() => Promise.resolve({})),
-  repositorySetupFor: vi.fn(() => ({})),
-  repositoryToolchainPrefix: vi.fn(() => "/test/user-data/repository-setup/toolchains"),
-}));
 // Vitest isolates this module per test file. Keep hoisted mocks and registration
 // together, before start() dynamically imports the application; never cache it globally.
 import type * as UpdatePackageModule from "../../../src/main/update-package";
@@ -351,7 +346,6 @@ vi.mock("../../../src/main/workspace/workspace", () => ({
       ],
     });
     startHostRecipe = mock.workspace.startHostRecipe;
-    startRepositorySetup = mock.workspace.startRepositorySetup;
     startLocalAgentInstall = mock.workspace.startLocalAgentInstall;
     output = mock.workspace.output;
     evidence = mock.workspace.evidence;
@@ -534,7 +528,6 @@ const mock = vi.hoisted(() => {
   const workspace = {
     restore: vi.fn<() => Promise<void>>(() => Promise.resolve()),
     deps: undefined as WorkspaceDependencies | undefined,
-    startRepositorySetup: vi.fn<() => Promise<string>>(() => Promise.resolve("repository-setup")),
     startLocalAgentInstall: vi.fn<(_id: string) => Promise<string>>(() =>
       Promise.resolve("local-install"),
     ),

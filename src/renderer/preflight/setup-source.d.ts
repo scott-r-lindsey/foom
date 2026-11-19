@@ -1,8 +1,3 @@
-import type {
-  RepositorySetupAction,
-  RepositorySetupState,
-  SetupRefusal,
-} from "../../shared/repository-setup.d";
 import type { DataViewApi } from "../../shared/data-views";
 import type { TerminalViewSource } from "../terminal/terminal-view-source.d";
 import type { HostsApi } from "../../shared/registered-hosts.d";
@@ -24,9 +19,6 @@ import type { ConfigStatus } from "../../shared/foom-config";
 
 /** What preflight needs from main. Components use this, never the bridge directly. */
 export interface SetupSource {
-  onRepositorySetupRefused?: (callback: (refusal: SetupRefusal | undefined) => void) => () => void;
-  draftSetupAgent?: (repository: string) => Promise<void>;
-  repositorySetup?: (action: RepositorySetupAction) => Promise<RepositorySetupState>;
   views?: DataViewApi;
   /** Embedded recipes started in this Settings window; other agent sign-in tiles are separate. */
   installs?: {

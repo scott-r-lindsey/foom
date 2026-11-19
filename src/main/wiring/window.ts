@@ -1,7 +1,4 @@
 import { GithubSignIn } from "../setup/github-sign-in";
-import { repositorySetupFor, repositoryToolchainPrefix } from "../setup/repository-setup-service";
-import type { SetupRun } from "../../shared/repository-setup.d";
-import { setupRunDigest } from "../../node-common/repository-setup-run";
 import { createViewReader } from "../data/view-readers";
 import { listTerminalFonts } from "../fonts/terminal-fonts";
 import { attachViews } from "../data/view-ipc";
@@ -344,10 +341,7 @@ export async function buildWindow(
     githubSignIn.dispose();
   });
   const launchRecipe = async (
-    target:
-      | RemoteTarget
-      | { localAgent: string }
-      | { localSetup: SetupRun; prefix: string; validate: () => Promise<void> },
+    target: RemoteTarget | { localAgent: string },
     finished?: () => void,
   ) => {
     let id: string | undefined;
@@ -370,15 +364,9 @@ export async function buildWindow(
       : undefined;
     try {
       id =
-        "localSetup" in target
-          ? await wiring.workspace.startRepositorySetup(
-              target.localSetup,
-              target.prefix,
-              target.validate,
-            )
-          : "localAgent" in target
-            ? await wiring.workspace.startLocalAgentInstall(target.localAgent)
-            : await wiring.workspace.startHostRecipe(target);
+        "localAgent" in target
+          ? await wiring.workspace.startLocalAgentInstall(target.localAgent)
+          : await wiring.workspace.startHostRecipe(target);
       const gh =
         "recipe" in target &&
         target.recipe.tool === "gh" &&
@@ -406,14 +394,7 @@ export async function buildWindow(
         );
         finished();
       }
-      if (
-        "localSetup" in target ||
-        "localAgent" in target ||
-        target.repositorySetup ||
-        gh ||
-        target.recipe?.action === "install"
-      )
-        return id;
+      if ("localAgent" in target || gh || target.recipe?.action === "install") return id;
       wiring.revealSession(id);
       return id;
     } catch (error) {
@@ -422,70 +403,6 @@ export async function buildWindow(
     }
   };
   const setup = new Setup({
-    repositorySetup: repositorySetupFor(wiring.settings),
-    launchRepositorySetup: async (host, approval, row, finished, signal, validate) => {
-      if (!row.plan || !row.location) throw new Error("Setup plan unavailable");
-      const binding = {
-        location: row.location,
-        list: approval.list,
-        catalog: approval.catalog,
-        revision: approval.revision,
-        repository: approval.repository,
-        registration: JSON.stringify([
-          approval.identity,
-          host === null
-            ? "local"
-            : wiring.settings.get().registeredHosts?.find((entry) => entry.host === host)
-                ?.codeFolder,
-        ]),
-        host: host ?? "local",
-        sources: approval.sources.fingerprint,
-        check: {
-          platform: row.plan.platform,
-          items: approval.list.requirements.map((item) => ({
-            id: item.id,
-            state: row.missing.includes(item.id) ? ("missing" as const) : ("met" as const),
-          })),
-        },
-      };
-      const run = { ...binding, digest: setupRunDigest(binding) };
-      signal.throwIfAborted();
-      if (host === null) {
-        if (localHostMutations.has(wiring.settings))
-          throw new Error("Host mutation already running");
-        localHostMutations.add(wiring.settings);
-      }
-      let id: string | undefined;
-      const stop = () => {
-        if (id) void wiring.terminals.kill(id).catch(() => undefined);
-      };
-      try {
-        id = await launchRecipe(
-          host === null
-            ? { localSetup: run, prefix: repositoryToolchainPrefix(wiring.settings), validate }
-            : {
-                ...hostsForStore(
-                  wiring.settings,
-                  wiring.worktrees.listRepositories.bind(wiring.worktrees),
-                  app.getVersion(),
-                ).shellTarget(host),
-                repositorySetup: run,
-                beforeOpen: validate,
-              },
-          () => {
-            if (host === null) localHostMutations.delete(wiring.settings);
-            signal.removeEventListener("abort", stop);
-            finished();
-          },
-        );
-      } catch (error) {
-        if (host === null) localHostMutations.delete(wiring.settings);
-        throw error;
-      }
-      signal.addEventListener("abort", stop, { once: true });
-      if (signal.aborted) stop();
-      return id;
-    },
     hostSessions: () => wiring.workspace.snapshot().terminals,
     hostsChanged: () => {
       wiring.workspace.refresh();

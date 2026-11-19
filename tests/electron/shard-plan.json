@@ -241,9 +241,6 @@
         "removal reviews serialize orchestrator before review on one board": [4.426, 26.034, 7.335],
         "removal reviews serialize review before cleanup across boards": [3.988, 16.041, 8.935],
         "removal reviews serialize review before orchestrator on one board": [4.409, 19.594, 8.952],
-        "repository setup IPC refuses source edits during launch preparation before creating a terminal": [
-          6.45, 0, 4.746
-        ],
         "restores running claude in a linked worktree with a replaced checkout, shell and orchestrator children across windows": [
           11.26, 0, 15.284
         ],
@@ -375,9 +372,6 @@
         ],
         "bundled agy installer receives account environment locally and on registered hosts": [
           1.494, 0, 3.157
-        ],
-        "catalog-v1 setup approvals preserve the launch block and open an editable review after restart": [
-          5.599, 20.398, 11.287
         ],
         "checkout shell closes from the sidebar without a session error": [2.125, 8.84, 4.683],
         "checkout shell closes from the tile without a session error": [2.502, 9.712, 5.088],
@@ -513,10 +507,6 @@
         "removal reviews serialize review before cleanup on one board": [4.248, 21.773, 8.444],
         "renderer bundle contains production React without a Node process dependency": [
           0.807, 0.887, 0.883
-        ],
-        "repository setup pins env-selected pnpm interpreters across ABI awaits": [1.943, 0, 5.684],
-        "repository setup separates approval from human execution and rechecks failure, success and stale sources": [
-          12.496, 0, 18.353
         ],
         "restores running claude in a linked worktree, shell and orchestrator children across windows": [
           14.448, 0, 28.713
@@ -707,9 +697,6 @@
         "interface zoom follows the shared setting in every window": [1.904, 8.133, 3.483],
         "large repository scans remain readable and filter without changing scale": [
           1.882, 9.055, 4.907
-        ],
-        "local linked-worktree launch admission never probes tools in the registered main checkout": [
-          3.895, 0, 12.895
         ],
         "moved HTML preview survives closed before showing destination placement": [
           2.274, 10.796, 9.189
@@ -1279,7 +1266,6 @@
         ],
         "removal reviews serialize cleanup before review on one board": [6.592, 20.528, 12.977],
         "removal reviews serialize review before cleanup across boards": [3.988, 16.041, 8.935],
-        "repository setup pins env-selected pnpm interpreters across ABI awaits": [1.943, 0, 5.684],
         "restores running claude, shell and orchestrator children across windows": [
           15.218, 0, 27.834
         ],
@@ -1476,12 +1462,6 @@
         ],
         "removal reviews serialize cleanup before orchestrator on one board": [
           6.497, 22.603, 9.836
-        ],
-        "repository setup IPC refuses source edits during launch preparation before creating a terminal": [
-          6.45, 0, 4.746
-        ],
-        "repository setup separates approval from human execution and rechecks failure, success and stale sources": [
-          12.496, 0, 18.353
         ],
         "restores running claude in a linked worktree, shell and orchestrator children across windows": [
           14.448, 0, 28.713
@@ -1782,9 +1762,6 @@
         "bundled opencode installer receives account environment locally and on registered hosts": [
           1.489, 0, 3.942
         ],
-        "catalog-v1 setup approvals preserve the launch block and open an editable review after restart": [
-          5.599, 20.398, 11.287
-        ],
         "checkout shell closes from the sidebar without a session error": [2.125, 8.84, 4.683],
         "config file agent arguments require trusted Allow before a fake Codex launch": [
           6.484, 14.228, 10.767
@@ -2080,9 +2057,6 @@
         "local and registered-host vendor helpers clean private files and descendants after exit and default PTY hangup": [
           3.122, 0, 8.079
         ],
-        "local linked-worktree launch admission never probes tools in the registered main checkout": [
-          3.895, 0, 12.895
-        ],
         "merged cleanup deletes external worktrees and branches while preserving a skipped checkout": [
           8.47, 22.332, 11.709
         ],
@@ -2363,9 +2337,6 @@
         "bundled pi installer receives account environment locally and on registered hosts": [
           1.557, 0, 4.151
         ],
-        "catalog-v1 setup approvals preserve the launch block and open an editable review after restart": [
-          5.599, 20.398, 11.287
-        ],
         "closing a board declines its queued cleanup and releases its repository before another board answers": [
           3.089, 22.732, 9.537
         ],
@@ -2592,9 +2563,6 @@
         ],
         "removal reviews serialize cleanup before review on one board": [6.592, 20.528, 12.977],
         "removal reviews serialize review before orchestrator on one board": [4.409, 19.594, 8.952],
-        "repository setup IPC refuses source edits during launch preparation before creating a terminal": [
-          6.45, 0, 4.746
-        ],
         "restores running claude in a linked worktree with a replaced checkout, shell and orchestrator children across windows": [
           11.26, 0, 15.284
         ],
@@ -2759,9 +2727,6 @@
           6.497, 22.603, 9.836
         ],
         "removal reviews serialize orchestrator before cleanup on one board": [2.77, 15.762, 9.129],
-        "repository setup separates approval from human execution and rechecks failure, success and stale sources": [
-          12.496, 0, 18.353
-        ],
         "scrolled shell launcher hovered creates and focuses on the first click": [3.354, 0, 5.415],
         "secondary window forwards Refusal through windows:refuse to the audio owner": [
           2.054, 14.095, 4.527
@@ -2888,9 +2853,6 @@
         ],
         "footer config gear opens Settings and launches two independent docked Shells": [
           2.854, 9.766, 5.481
-        ],
-        "local linked-worktree launch admission never probes tools in the registered main checkout": [
-          3.895, 0, 12.895
         ],
         "moved HTML preview survives never arriving destination placement": [7.919, 18.269, 11.788],
         "neutral identity badges keep labels and geometry across themes and interface scales": [
@@ -3218,7 +3180,6 @@
         ],
         "removal reviews serialize review before cleanup across boards": [3.988, 16.041, 8.935],
         "removal reviews serialize review before cleanup on one board": [4.248, 21.773, 8.444],
-        "repository setup pins env-selected pnpm interpreters across ABI awaits": [1.943, 0, 5.684],
         "restored exited sessions hide the unattached terminal until restarted": [
           4.059, 20.467, 8.416
         ],

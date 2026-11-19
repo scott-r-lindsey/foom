@@ -60,7 +60,7 @@ async function captureHosts(app, page, name) {
         .toBe(mode === "dark");
       await area.screenshot({
         path: evidencePath(
-          `${/^(?:1059|1061|1062|1067|1074|1131|1259)\//u.test(name) ? name : `1074/${name}`}-${mode}.png`,
+          `${/^(?:1059|1061|1062|1067|1074|1131|1259|1262)\//u.test(name) ? name : `1074/${name}`}-${mode}.png`,
         ),
       });
     }
@@ -291,12 +291,12 @@ process.stdin.on('data', bytes => {
         .createRequire(app.getAppPath() + "/package.json");
       const { SettingsStore } = load("./build/main/setup/settings.js");
       const update = SettingsStore.prototype.update;
-      SettingsStore.prototype.update = function (patch) {
+      SettingsStore.prototype.update = function (patch, canCommit) {
         if (patch.registeredHosts?.some((host) => host.observation)) {
           SettingsStore.prototype.update = update;
           return Promise.reject(new Error("Fixture refused the first checklist write"));
         }
-        return update.call(this, patch);
+        return update.call(this, patch, canCommit);
       };
     });
   }
@@ -1216,6 +1216,20 @@ test("Hosts opens saved checks without SSH and keeps ready repositories compact"
       },
     }),
   );
+  const retiredSetup = path.join(root, "repository-setup");
+  const retiredState = path.join(retiredSetup, "state.json");
+  await mkdir(retiredSetup, { mode: 0o700 });
+  const retiredContents = JSON.stringify({
+    version: 1,
+    approvals: [
+      {
+        repository: "/local/project-0",
+        list: { requirements: [{ kind: "toolchain", tool: "node", version: "24.x" }] },
+      },
+    ],
+    rows: [{ state: "needs-setup" }],
+  });
+  await writeFile(retiredState, retiredContents, { mode: 0o600 });
   const app = await launchApp(context, {
     fixture: "empty-board",
     args: [`--user-data-dir=${root}`],
@@ -1246,6 +1260,8 @@ test("Hosts opens saved checks without SSH and keeps ready repositories compact"
   await expect(card.getByText("Repository · project-0", { exact: true })).toHaveCount(0);
   await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
   await assertHostColumns(card);
+  await expect(page.getByRole("region", { name: "Repository setup" })).toHaveCount(0);
+  await captureHosts(app, page, "1262/hosts");
   await capture("expanded");
   await card.getByRole("button", { name: /Git access · 6 ready/ }).click();
   await expect(card.getByText("Repository · project-0", { exact: true })).toBeVisible();
@@ -1285,6 +1301,7 @@ test("Hosts opens saved checks without SSH and keeps ready repositories compact"
   await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
   await expect(card.getByText("Ready", { exact: true })).toBeVisible();
   assert.equal(await readFile(calls, "utf8"), before);
+  assert.equal(await readFile(retiredState, "utf8"), retiredContents);
 });
 
 test("Hosts reloads individual rows and actions never trigger full capability checks", {
@@ -2656,6 +2673,109 @@ test("Hosts reloads the folder row after the first checklist write fails", {
   await expect(folder.getByText("Code folder does not exist", { exact: true })).toBeVisible();
   await expect(card.getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
   await expect(card.locator(".host-footer time")).toHaveCount(0);
+  const reloadSSH = card.getByRole("button", { name: "Reload SSH", exact: true });
+  await reloadSSH.click();
+  await expect(reloadSSH).toBeEnabled();
+  await expect(page.getByText("Unable to update hosts", { exact: true })).toBeVisible();
+  await expect(card.locator(".host-footer time")).toHaveCount(0);
+});
+
+test("Hosts reopening shows a failed SSH row write without a key classification", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card } = await hostsFixture(context);
+  const profile = await app.evaluate(({ app }) => app.getPath("userData"));
+  const ssh = card.locator(".host-check-row").filter({
+    has: page.getByRole("button", { name: "Reload SSH", exact: true }),
+  });
+  try {
+    await chmod(profile, 0o555);
+    await app.evaluate(({ app }) => {
+      const load = process
+        .getBuiltinModule("node:module")
+        .createRequire(app.getAppPath() + "/package.json");
+      const transport = load("./build/main/terminals/remote-transport.js");
+      const manage = transport.remoteManagement;
+      transport.remoteManagement = (...args) =>
+        args[2].target?.kind === "ssh"
+          ? Promise.resolve({ ok: false, reason: "invalid-reply" })
+          : manage(...args);
+    });
+    await ssh.getByRole("button", { name: "Reload SSH", exact: true }).click();
+    await expect(ssh.getByText("Unable to check", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
+    await expect(page.getByRole("region", { name: "Settings", exact: true })).toHaveCount(0);
+    await openSettingsScreen(page);
+    await page
+      .getByRole("navigation", { name: "Settings sections" })
+      .getByRole("button", { name: "Hosts", exact: true })
+      .click();
+    await expect(ssh.getByText("Unable to save", { exact: true })).toBeVisible();
+  } finally {
+    await chmod(profile, 0o700);
+  }
+});
+
+test("Hosts fences a trusted retry already inside the profile writer", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, updateScenario } = await hostsFixture(context);
+  const profile = await app.evaluate(({ app }) => app.getPath("userData"));
+  const check = card.getByRole("button", { name: "Check capabilities", exact: true });
+  const ssh = card.locator(".host-check-row").filter({
+    has: page.getByRole("button", { name: "Reload SSH", exact: true }),
+  });
+  const saved = async () =>
+    JSON.parse(await readFile(path.join(profile, "settings.json"), "utf8")).settings
+      .registeredHosts[0].observation;
+  const before = await saved();
+  await updateScenario({ sshFailure: "changed" });
+  await check.click();
+  await expect.poll(async () => (await saved()).preflight.ssh.reason).toBe("host-key-changed");
+  await expect(check).toBeEnabled();
+  const durable = await saved();
+  assert.notEqual(durable.checkedAt, before.checkedAt);
+  await app.evaluate(({ app }) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { SettingsStore } = load("./build/main/setup/settings.js");
+    const update = SettingsStore.prototype.update;
+    let rowAttempts = 0;
+    SettingsStore.prototype.update = async function (patch, canCommit) {
+      const ssh = patch.registeredHosts?.[0]?.observation?.preflight.ssh;
+      if (ssh?.state === "pass") {
+        if (++rowAttempts === 1) throw new Error("Fixture refused trusted row");
+        await new Promise((resolve) => {
+          globalThis.releaseFixtureTrustedRetry = resolve;
+        });
+      } else if (ssh?.reason === "host-key-changed") {
+        SettingsStore.prototype.update = update;
+        throw new Error("Fixture refused newer changed-key write");
+      }
+      return update.call(this, patch, canCommit);
+    };
+  });
+  await updateScenario({});
+  await ssh.getByRole("button", { name: "Reload SSH", exact: true }).click();
+  const warning = page.getByText("Unable to update hosts", { exact: true });
+  await expect(warning).toBeVisible();
+  await expect(ssh.getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
+  const retry = page.evaluate(() => window.desktop.hosts({ action: "list" }));
+  try {
+    await expect.poll(() => app.evaluate(() => !!globalThis.releaseFixtureTrustedRetry)).toBe(true);
+    await updateScenario({ sshFailure: "changed" });
+    await check.click();
+    await expect(ssh.getByText("Host key changed", { exact: true })).toBeVisible();
+  } finally {
+    await app.evaluate(() => globalThis.releaseFixtureTrustedRetry?.());
+  }
+  await retry;
+  await expect(check).toBeEnabled();
+  await expect(warning).toBeVisible();
+  assert.deepEqual(await saved(), durable);
 });
 
 test("Hosts list cannot save an older SSH retry over a pending changed-key check", {
@@ -2683,7 +2803,7 @@ test("Hosts list cannot save an older SSH retry over a pending changed-key check
       .createRequire(app.getAppPath() + "/package.json");
     const { SettingsStore } = load("./build/main/setup/settings.js");
     const update = SettingsStore.prototype.update;
-    SettingsStore.prototype.update = async function (patch) {
+    SettingsStore.prototype.update = async function (patch, canCommit) {
       if (
         patch.registeredHosts?.some(
           (host) => host.observation?.preflight.ssh.reason === "host-key-changed",
@@ -2694,7 +2814,7 @@ test("Hosts list cannot save an older SSH retry over a pending changed-key check
           globalThis.releaseFixtureSshWrite = resolve;
         });
       }
-      return update.call(this, patch);
+      return update.call(this, patch, canCommit);
     };
   });
   await updateScenario({ sshFailure: "changed" });

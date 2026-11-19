@@ -1,5 +1,3 @@
-import type { RepositorySetupList } from "../../shared/repository-setup.d";
-import { setupCatalogDigest, setupDigest } from "../../node-common/repository-setup-digest";
 import { HostObservations } from "../data/host-observations";
 import { viewChanges } from "../data/view-changes";
 import { askpassSupported, trustHostKey } from "./ssh-host-key";
@@ -765,41 +763,6 @@ export class Hosts {
       },
     };
   }
-  async repositorySetup(
-    host: string,
-    repository: string,
-    list: RepositorySetupList,
-    evidence: readonly string[],
-    path?: string,
-  ) {
-    const registration = this.registered(host);
-    const origin = await this.origin(repository);
-    const directory = `repository-${createHash("sha256").update(origin).digest("hex").slice(0, 24)}`;
-    const result = await this.run(host, {
-      type: "manage",
-      operation: "repository-setup",
-      codeFolder: registration.codeFolder,
-      directory,
-      origin,
-      list,
-      evidence,
-      catalog: setupCatalogDigest,
-      ...(path ? { path } : {}),
-    });
-    this.registered(host, registration.codeFolder);
-    if (
-      !result.ok ||
-      !result.setup ||
-      (result.setup.sources &&
-        result.setup.sources.fingerprint !== setupDigest(result.setup.sources.files))
-    )
-      throw new LaunchFailure("repository_setup_unavailable");
-    return {
-      ...result.setup,
-      root: result.facts.codeFolder,
-      sourcePath: result.setup.checkout ?? `${result.facts.codeFolder}/${directory}`,
-    };
-  }
   shellTarget(host: string): RemoteTarget {
     this.registered(host);
     if (!this.profile) throw new ControlError("not_found");
@@ -838,7 +801,7 @@ export class Hosts {
         const checklist = this.checklists.get(host.host);
         const rowFailures = (this.pendingRows.get(host.host) ?? []).flatMap((row) => {
           if (!this.currentRow(host.host, row) || !row.reason) return [];
-          if (row.target.kind === "ssh" && row.retry && checklist) return [];
+          if (row.target.kind === "ssh" && row.retry && checklist?.saveFailed) return [];
           return [{ target: row.target, reason: row.reason }];
         });
         // Saved facts provide presentation only; actions select from a fresh inspection below.
@@ -933,15 +896,21 @@ export class Hosts {
     const next = { ...preflight, sshRevision };
     this.checklists.set(host, {
       preflight: next,
-      ...(current?.saveFailed && sshRevision === current.preflight.sshRevision
-        ? { saveFailed: true }
-        : {}),
+      ...(current?.saveFailed ? { saveFailed: true } : {}),
     });
     return next;
   }
-  private checklistSaved(host: string, sshRevision: number, saveFailed: boolean): void {
+  private checklistSaved(host: string, sshRevision: number, failed: boolean): void {
     const current = this.checklists.get(host);
-    if (current?.preflight.sshRevision === sshRevision && !!current.saveFailed !== saveFailed)
+    if (current?.preflight.sshRevision !== sshRevision) return;
+    const persisted = this.store
+      .get()
+      .registeredHosts?.find((entry) => entry.host === host)?.observation;
+    const saveFailed =
+      failed ||
+      (!!current.saveFailed &&
+        (!persisted || (persisted.preflight.sshRevision ?? 0) < sshRevision));
+    if (!!current.saveFailed !== saveFailed)
       this.checklists.set(host, {
         preflight: current.preflight,
         ...(saveFailed ? { saveFailed: true } : {}),
@@ -988,29 +957,32 @@ export class Hosts {
     const superseded = () =>
       sshRevision !== undefined && sshRevision < this.checklistRevision(host);
     if (registration.observation)
-      await this.updateRegistrations((hosts) => {
-        if (superseded()) return hosts;
-        return hosts.map((entry) => {
-          if (entry.host !== host || !entry.observation) return entry;
-          const observation = entry.observation;
-          const saved = change(observation.preflight);
-          return {
-            ...entry,
-            observation: {
-              ...observation,
-              ...(!saved.result.ok && observation.preflight.result.ok
-                ? {
-                    lastAgents: observation.lastAgents ?? {
-                      checkedAt: observation.checkedAt,
-                      result: observation.preflight.result,
-                    },
-                  }
-                : {}),
-              preflight: saved,
-            },
-          };
-        });
-      });
+      await this.updateRegistrations(
+        (hosts) => {
+          if (superseded()) return hosts;
+          return hosts.map((entry) => {
+            if (entry.host !== host || !entry.observation) return entry;
+            const observation = entry.observation;
+            const saved = change(observation.preflight);
+            return {
+              ...entry,
+              observation: {
+                ...observation,
+                ...(!saved.result.ok && observation.preflight.result.ok
+                  ? {
+                      lastAgents: observation.lastAgents ?? {
+                        checkedAt: observation.checkedAt,
+                        result: observation.preflight.result,
+                      },
+                    }
+                  : {}),
+                preflight: saved,
+              },
+            };
+          });
+        },
+        sshRevision === undefined ? undefined : () => !superseded(),
+      );
     const live = this.checklists.get(host)?.preflight;
     if (superseded()) return live;
     // Update only the changed fields of an existing live inventory. Saved facts
@@ -1239,13 +1211,14 @@ export class Hosts {
   /** Re-read registrations after earlier profile writes, independently of remote checks. */
   private updateRegistrations(
     change: (hosts: readonly RegisteredHost[]) => readonly RegisteredHost[],
+    canCommit?: () => boolean,
   ): Promise<void> {
     const work = this.profilePending
       .catch(() => undefined)
       .then(async () => {
         const current = this.store.get().registeredHosts ?? [];
         const registeredHosts = change(current);
-        if (registeredHosts !== current) await this.store.update({ registeredHosts });
+        if (registeredHosts !== current) await this.store.update({ registeredHosts }, canCommit);
       });
     this.profilePending = work;
     return work;
@@ -1586,38 +1559,43 @@ export class Hosts {
                 await this.readWorktrees(input.host, true, connection);
               }
               const row = this.state().hosts.find((entry) => entry.host === input.host);
-              preflightSaveFailed = await this.updateRegistrations((hosts) =>
-                !current()
-                  ? hosts
-                  : hosts.map((entry) =>
-                      entry.host === input.host
-                        ? {
-                            ...entry,
-                            observation: {
-                              ...(!preflight.result.ok && entry.observation
-                                ? entry.observation.lastAgents
-                                  ? { lastAgents: entry.observation.lastAgents }
-                                  : entry.observation.preflight.result.ok
-                                    ? {
-                                        lastAgents: {
-                                          checkedAt: entry.observation.checkedAt,
-                                          result: entry.observation.preflight.result,
-                                        },
-                                      }
-                                    : {}
-                                : {}),
-                              checkedAt: Date.now(),
-                              preflight: { ...preflight, result: row?.result ?? preflight.result },
-                              ...(row?.foreignSessions !== undefined
-                                ? { foreignSessions: row.foreignSessions }
-                                : {}),
-                              ...(row?.foreignWorktrees !== undefined
-                                ? { foreignWorktrees: row.foreignWorktrees }
-                                : {}),
-                            },
-                          }
-                        : entry,
-                    ),
+              preflightSaveFailed = await this.updateRegistrations(
+                (hosts) =>
+                  !current()
+                    ? hosts
+                    : hosts.map((entry) =>
+                        entry.host === input.host
+                          ? {
+                              ...entry,
+                              observation: {
+                                ...(!preflight.result.ok && entry.observation
+                                  ? entry.observation.lastAgents
+                                    ? { lastAgents: entry.observation.lastAgents }
+                                    : entry.observation.preflight.result.ok
+                                      ? {
+                                          lastAgents: {
+                                            checkedAt: entry.observation.checkedAt,
+                                            result: entry.observation.preflight.result,
+                                          },
+                                        }
+                                      : {}
+                                  : {}),
+                                checkedAt: Date.now(),
+                                preflight: {
+                                  ...preflight,
+                                  result: row?.result ?? preflight.result,
+                                },
+                                ...(row?.foreignSessions !== undefined
+                                  ? { foreignSessions: row.foreignSessions }
+                                  : {}),
+                                ...(row?.foreignWorktrees !== undefined
+                                  ? { foreignWorktrees: row.foreignWorktrees }
+                                  : {}),
+                              },
+                            }
+                          : entry,
+                      ),
+                current,
               ).then(
                 () => false,
                 () => true,
@@ -1930,12 +1908,10 @@ export class Hosts {
       const revision = providerRevision();
       const enabled = JSON.stringify(this.store.get().agents);
       const changed = () =>
-        request.operation !== "repository-setup" &&
-        (providerRevision() !== revision || JSON.stringify(this.store.get().agents) !== enabled);
-      const providers =
-        request.operation === "repository-setup"
-          ? []
-          : agentProviders().filter((provider) => this.store.get().agents[provider.id] === true);
+        providerRevision() !== revision || JSON.stringify(this.store.get().agents) !== enabled;
+      const providers = agentProviders().filter(
+        (provider) => this.store.get().agents[provider.id] === true,
+      );
       try {
         for (const provider of providers) await provider.validate?.();
       } catch {

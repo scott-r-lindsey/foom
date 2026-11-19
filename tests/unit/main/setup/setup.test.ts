@@ -668,34 +668,6 @@ test("host removal lists dormant sessions, cancels safely and sends no remote re
   hosts.dispose();
 });
 
-test("repository setup owns its board scope, cancellation and fixed draft brief", async () => {
-  const { RepositorySetup } = await import("../../../../src/main/setup/repository-setup");
-  const service = new RepositorySetup({
-    repositories: () => [],
-    identity: () => "fixture",
-    hosts: () => [],
-    sources: () => Promise.resolve(undefined),
-    check: () => Promise.reject(new Error("unused")),
-    save: () => Promise.resolve(),
-  });
-  const action = vi.spyOn(service, "action");
-  const cancel = vi.spyOn(service, "cancelScope");
-  const copy = vi.fn();
-  deps.repositorySetup = service;
-  deps.launchRepositorySetup = vi.fn(() => Promise.resolve("setup-1"));
-  deps.copyText = copy;
-  const setup = new Setup(deps);
-  await setup.repositorySetup({ action: "copy-brief" });
-  expect(copy).toHaveBeenCalledWith(expect.stringContaining("Do not install anything"));
-  expect(action.mock.calls[0]?.[0]).toMatch(/^[a-f0-9-]{36}$/u);
-  setup.cancelHostTrust();
-  expect(cancel).toHaveBeenCalledWith(action.mock.calls[0]?.[0]);
-  const withoutService = { ...deps };
-  delete withoutService.repositorySetup;
-  const unavailable = new Setup(withoutService);
-  expect(() => unavailable.repositorySetup({ action: "list" })).toThrow("unavailable");
-});
-
 test("readiness views share a lazy probe and its self-publication; commands and invalidations recheck", async () => {
   const { viewChanges } = await import("../../../../src/main/data/view-changes");
   const report = { git: "ready", platform: "linux", forges: [] } as const;

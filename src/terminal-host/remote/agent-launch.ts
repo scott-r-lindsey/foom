@@ -1,6 +1,3 @@
-import { validateSetupAdmission } from "../../node-common/repository-setup-admission";
-import { remoteToolchainPrefix } from "../../node-common/repository-setup-run";
-import { hostLoginEnvironment } from "./agent-discovery";
 import { remoteReviewSnapshot } from "./review-snapshot";
 import { readWorktreeProvenance } from "./worktree-provenance";
 import { eventModule } from "../../shared/agent-event-module";
@@ -140,19 +137,7 @@ export async function prepareRemoteAgent(
     )
       throw new LaunchFailure("remote_worktree_unavailable");
   };
-  const setupEnv = request.repositorySetup
-    ? await validateSetupAdmission(
-        request.repositorySetup,
-        request.worktree,
-        remoteToolchainPrefix(home),
-        await hostLoginEnvironment(shell, home, cancellation),
-        home,
-        cancellation,
-      )
-    : undefined;
-  const found = setupEnv
-    ? await hostDiscovery(model, shell, home, cancellation, setupEnv)
-    : await hostDiscovery(model, shell, home, cancellation);
+  const found = await hostDiscovery(model, shell, home, cancellation);
   if (bypassEnvironment(model, found.env, false).length)
     throw new Error("Remote child environment bypass is unavailable");
   const endpoint = new AgentEndpoint(model.id, signal, call, true);
@@ -408,14 +393,6 @@ export async function prepareRemoteAgent(
     };
     return {
       validate: async () => {
-        await validateSetupAdmission(
-          request.repositorySetup,
-          request.worktree,
-          remoteToolchainPrefix(home),
-          found.env,
-          home,
-          cancellation,
-        );
         await validateReview(found.env);
         await validateOwner();
         if ((await checkout()) !== identity) throw new LaunchFailure("remote_worktree_unavailable");

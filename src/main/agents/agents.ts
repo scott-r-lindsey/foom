@@ -418,7 +418,7 @@ export class AgentService {
         layers: [...(request.environment ?? []), prepared.environment ?? []],
         base: baseEnvironment,
         path: scan.path,
-        pathFirst: [config ?? control?.env["FOOM_CLI_DIRECTORY"], ...(request.repositoryPath ?? [])]
+        pathFirst: [config ?? control?.env["FOOM_CLI_DIRECTORY"]]
           .filter((value): value is string => typeof value === "string" && value.length > 0)
           .join(process.platform === "win32" ? ";" : ":"),
         foom: {

@@ -1,4 +1,3 @@
-import type { RepositorySetupState, SetupRefusal } from "../shared/repository-setup.d";
 import type { DataView, DataViews, ViewParams, ViewSnapshot } from "../shared/data-views";
 import type {
   BoardRead,
@@ -613,121 +612,6 @@ const validHostCheckTarget: Validator<HostCheckTarget> = either(
   shape({ kind: literal("tool", "sign-in"), tool: hostAgentId }),
   shape({ kind: literal("origin", "checkout"), repository: text }),
 );
-function setupArray<T>(check: Validator<T>, limit: number): Validator<T[]> {
-  const inner = array(check);
-  return copying(
-    (value): value is T[] => Array.isArray(value) && value.length <= limit && inner(value),
-    (value) => project(inner, value),
-  );
-}
-const setupText: Validator<string> = (value): value is string =>
-  typeof value === "string" && value.length <= 4096 && !/[\p{Cc}]/u.test(value);
-const setupHash: Validator<string> = (value): value is string =>
-  typeof value === "string" && /^[a-f0-9]{64}$/u.test(value);
-const setupPaths = setupArray(setupText, 64);
-const setupMapping = either(literal("unsupported"), setupArray(setupText, 128));
-const setupRequirementBase = { id: setupText, purpose: setupText, sources: setupPaths };
-const setupList = shape({
-  evidence: setupPaths,
-  requirements: setupArray(
-    either(
-      shape({
-        ...setupRequirementBase,
-        kind: literal("package"),
-        packages: shape({
-          debian: setupMapping,
-          rhel: setupMapping,
-          arch: setupMapping,
-          darwin: setupMapping,
-        }),
-      }),
-      shape({
-        ...setupRequirementBase,
-        kind: literal("toolchain"),
-        tool: literal("node", "pnpm"),
-        version: setupText,
-      }),
-    ),
-    128,
-  ),
-});
-const setupSourcesReply = shape({
-  fingerprint: setupHash,
-  files: setupArray(shape({ path: setupText, digest: setupHash }), 64),
-});
-const setupRefusalReply: Validator<SetupRefusal> = shape({
-  repository: setupText,
-  host: either(nil, setupText),
-  missing: setupArray(shape({ id: setupText, version: either(absent, setupText) }), 128),
-});
-const validRepositorySetupState: Validator<RepositorySetupState> = shape({
-  rows: setupArray(
-    shape({
-      repository: setupText,
-      host: either(nil, setupText),
-      state: literal(
-        "no-list",
-        "not-checked",
-        "met",
-        "needs-setup",
-        "review-needed",
-        "unable",
-        "manual",
-      ),
-      revision: count,
-      checkedAt: either(absent, count),
-      noRequirements: either(absent, boolean),
-      missing: setupArray(setupText, 128),
-      changed: setupPaths,
-      sourcesAtLaunch: boolean,
-      token: either(absent, setupText),
-      running: either(absent, setupText),
-      failure: either(absent, literal("save-failed", "check-failed", "superseded")),
-      plan: either(
-        absent,
-        shape({
-          platform: shape({
-            distro: literal("debian", "rhel", "arch", "darwin", "unsupported"),
-            os: literal("linux", "darwin", "win32"),
-            arch: literal("x64", "arm64", "unsupported"),
-            nodeAbi: boolean,
-          }),
-          packages: setupArray(setupText, 16384),
-          toolchains: setupArray(shape({ tool: literal("node", "pnpm"), version: setupText }), 2),
-          steps: setupArray(setupArray(setupText, 16390), 132),
-        }),
-      ),
-    }),
-    4096,
-  ),
-  review: either(
-    absent,
-    shape({
-      token: setupText,
-      repository: setupText,
-      revision: count,
-      list: setupList,
-      previous: either(absent, setupList),
-      catalog: setupHash,
-      sources: setupSourcesReply,
-      changed: setupPaths,
-      unresolved: either(
-        absent,
-        setupArray(
-          shape({
-            ...setupRequirementBase,
-            kind: literal("toolchain"),
-            tool: setupText,
-            version: setupText,
-          }),
-          128,
-        ),
-      ),
-      removed: either(absent, setupArray(setupText, 128)),
-    }),
-  ),
-  recipeSession: either(absent, setupText),
-});
 const validHostsState: Validator<HostsState> = shape({
   progress: either(
     absent,
@@ -2401,23 +2285,6 @@ const desktop: DesktopApi = {
       action,
     ),
   hosts: (action) => reply("setup:hosts", validHostsState, action),
-  repositorySetup: (action) => reply("setup:repository-setup", validRepositorySetupState, action),
-  onRepositorySetupRefused(callback) {
-    const listener = (_event: IpcRendererEvent, value: unknown) => {
-      if (value === undefined) {
-        callback(undefined);
-        return;
-      }
-      if (setupRefusalReply(value)) {
-        const projected = project(setupRefusalReply, value);
-        if (setupRefusalReply(projected)) callback(projected);
-      }
-    };
-    ipcRenderer.on("setup:launch-refused", listener);
-    return () => {
-      ipcRenderer.removeListener("setup:launch-refused", listener);
-    };
-  },
   listTerminalFonts: (refresh = false) => reply("setup:terminal-fonts", array(text), refresh),
   listThemes: () => reply("theme:list", validThemeCatalog),
   openThemesFolder: (kind) => invokeVoid("theme:open-folder", kind),

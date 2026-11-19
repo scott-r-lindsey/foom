@@ -55,23 +55,6 @@ checks the live and on-disk arguments afterward. Config unit tests queue a
 scan and another Settings write behind a paused rename and verify that both
 zoom and arguments survive while an unrelated proposal remains held.
 
-## Repository setup linked-checkout identity (#1080)
-
-The linked-checkout setup-admission case creates its Git worktree through a
-symlinked parent on every supported POSIX platform. This reproduces macOS
-`/var` versus `/private/var` temporary paths on Linux too. Git registers the
-canonical checkout path; the test asserts that main's worktree inventory returns
-that path, then sends it through public launch IPC as the renderer does. Sending
-the original alias would correctly fail checkout identity before setup admission.
-The setup refusal and no-repository-tool/no-agent-execution assertions remain
-unchanged. Probe PATH pinning happens after checkout identity and cannot affect
-this membership lookup.
-
-The setup-terminal retry waits for the replacement pane's Installing status
-before checking its prompt/readiness or typing. The previous failed pane has the
-same prompt and ready attribute until the asynchronous setup reply replaces it;
-those conditions alone do not acknowledge the new terminal.
-
 ## Merged cleanup completion (#1221)
 
 The external-worktree cleanup case waits for the real checked-ref transaction
