@@ -1109,7 +1109,7 @@ test("a pending origin probe keeps the same origin terminal attached and stoppab
   });
   expect(screen.getByRole("region", { name: "Origin host key terminal" })).toBe(terminal);
   expect(open).toHaveBeenCalledExactlyOnceWith("trust");
-  expect(scrollIntoView).toHaveBeenCalledExactlyOnceWith({ block: "nearest" });
+  expect(scrollIntoView).toHaveBeenCalledExactlyOnceWith({ block: "start" });
   fireEvent.click(within(terminal).getByRole("button", { name: "Stop" }));
   await waitFor(() => {
     expect(stop).toHaveBeenCalledExactlyOnceWith("trust");

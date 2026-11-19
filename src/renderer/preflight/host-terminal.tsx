@@ -33,9 +33,6 @@ export function HostTerminal({
   const [stopping, setStopping] = useState(false);
   const [stopFailed, setStopFailed] = useState(false);
   const panelRef = useRef<HTMLElement | null>(null);
-  useEffect(() => {
-    if (reveal) panelRef.current?.scrollIntoView({ block: "nearest" });
-  }, [reveal]);
   const mount = useCallback(
     (element: HTMLDivElement | null) => (element ? view.mount(element) : undefined),
     [view],
@@ -45,13 +42,16 @@ export function HostTerminal({
     let current = true;
     if (visible && observed)
       void view.open(id).then(() => {
-        if (current) setReady(!view.getSnapshot().toggleDisabled);
+        if (!current) return;
+        const attached = !view.getSnapshot().toggleDisabled;
+        setReady(attached);
+        if (attached && reveal) panelRef.current?.scrollIntoView({ block: "start" });
       });
     return () => {
       current = false;
       void view.hide();
     };
-  }, [view, id, visible, observed]);
+  }, [view, id, visible, observed, reveal]);
   const completedRef = useRef<string | undefined>(undefined);
   const observeExit = useCallback(
     (next: { exited: boolean; code?: number }) => {

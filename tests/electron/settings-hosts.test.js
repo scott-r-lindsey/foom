@@ -2293,8 +2293,15 @@ test("Closing the owner window stops a removed host's origin repair", {
     .find((window) => window !== page && window.url() === "app://bundle/index.html");
   assert.ok(other);
   await app.evaluate(({ BrowserWindow }, id) => {
-    BrowserWindow.fromId(id).setContentSize(1100, 560);
+    const window = BrowserWindow.fromId(id);
+    window.setContentSize(1100, 560);
+    window.focus();
   }, owner);
+  await expect
+    .poll(() =>
+      app.evaluate(({ BrowserWindow }, id) => BrowserWindow.fromId(id).isFocused(), owner),
+    )
+    .toBe(true);
   const failedOrigin = {
     origin: "origin-host-key",
     facts: { tools: [{ id: "git", state: "ready", signIn: "unknown" }] },
