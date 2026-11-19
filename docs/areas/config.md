@@ -130,7 +130,8 @@ file, and retains the existing file, applied values and pending approval.
 **Live reload.** Main watches `settings.json`, `themes/` and `terminal-themes/`,
 waits 250 ms after the last event and scans serially. The initial Settings
 review reads a snapshot before attaching the writer. Live Settings reviews
-use the shared lock. When `themes` or
+use the shared lock. If a live scan times out waiting for that lock, the watcher
+retries it in the background. When `themes` or
 `terminal-themes` is replaced, the root watcher resubscribes to it. The config
 scanner (`config/files.ts`) refuses file links, nonregular files and files over
 64 KiB; [offline validation](console.md) also rejects in-folder links. The separate
@@ -155,7 +156,8 @@ input changes, the decision is refused and main refreshes the review.
 **Allow** applies the verified snapshot. **Keep it on** restores only held
 fields, preserving safe changes from the shared file. If restoring held provider
 toggles would exceed the provider map limit, Keep it on retains the approved
-provider map. At startup the working file is trusted only if its digest
+provider map. If the merge exceeds 64 KiB even as compact JSON, Keep it on
+restores the full approved file and reports that the other edits were dropped. At startup the working file is trusted only if its digest
 matches `configDigest`; otherwise the profile's `configText` is trusted if its
 digest matches; otherwise the baseline is the defaults (`{ "kind": "settings" }`),
 so an off switch written while Foom was closed is held and Keep it on restores a

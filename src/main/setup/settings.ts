@@ -160,7 +160,7 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
 }
 
 /** Writes the agent-editable part to `~/.foom/config/settings.json` once attached. */
-export type ConfigWriter = (patch: ConfigSettings) => Promise<void>;
+export type ConfigWriter = (patch: ConfigSettings, themeDigest?: string) => Promise<void>;
 
 const CONFIG_DEFAULTS: ConfigSettings = Object.fromEntries(
   CONFIG_SETTINGS.map((key) => [key, DEFAULT_SETTINGS[key]]),
@@ -431,12 +431,13 @@ export class SettingsStore {
   }
 
   /** Resolves once the new settings are on disk; a failed write leaves them unchanged. */
-  async update(patch: SettingsPatch): Promise<Settings> {
+  async update(patch: SettingsPatch, themeDigest?: string): Promise<Settings> {
     const config: ConfigSettings = {};
     const profile: SettingsPatch = {};
     for (const [key, value] of Object.entries(patch))
       Object.assign(this.writer && isConfigSetting(key) ? config : profile, { [key]: value });
-    if (this.writer && Object.keys(config).length) await this.writer(config);
+    if (this.writer && Object.keys(config).length)
+      await this.writer(config, ...(themeDigest ? [themeDigest] : []));
     if (Object.keys(config).length && !Object.keys(profile).length) return this.committedSettings;
     await this.write(() => {
       const argumentsPatch = profile.agentArguments;

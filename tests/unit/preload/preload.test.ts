@@ -209,6 +209,8 @@ test("setup requests use their own channels and never read a key back", async ()
     worktreeRoot: "/fixture",
   });
   await api.saveSetup({ hooks: false });
+  const digest = "a".repeat(64);
+  await api.saveSetup({ interfaceTheme: "user:custom.json" }, digest);
   expect(mock.invoke.mock.calls).toEqual([
     ["setup:terminal-fonts", false],
     ["setup:terminal-fonts", true],
@@ -216,6 +218,7 @@ test("setup requests use their own channels and never read a key back", async ()
     ["theme:open-folder", "theme"],
     ["setup:state"],
     ["setup:save", { hooks: false }],
+    ["setup:save", { interfaceTheme: "user:custom.json" }, digest],
   ]);
   expect(Object.keys(api).some((key) => /get.*key|read.*key/i.test(key))).toBe(false);
 });

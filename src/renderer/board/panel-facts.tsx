@@ -245,6 +245,11 @@ export function PanelFacts({
               <Chip tone="failed">{subject.status?.rejected.length} rejected</Chip>
             </Fact>
           )}
+          {subject.status?.notice && (
+            <Fact label="Keep it on">
+              <span role="status">{subject.status.notice}</span>
+            </Fact>
+          )}
           {subject.status?.error && <Fact label="Problem">{subject.status.error}</Fact>}
           <Fact label="Sessions">
             <Chip tone="working">{subject.rows.filter((row) => !row.exited).length} running</Chip>

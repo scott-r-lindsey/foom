@@ -2,6 +2,7 @@ import { mkdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, test, vi } from "vitest";
 import { ConfigFiles } from "../../../../src/main/config/files";
+import { ApplicationError } from "../../../../src/shared/application-errors";
 import { configPart } from "../../../../src/main/config/approval";
 import { SettingsStore } from "../../../../src/main/setup/settings";
 import { ConfigService } from "../../../../src/main/config/service";
@@ -59,7 +60,7 @@ test("active theme edits are held before display, Keep restores and Allow accept
   const original = theme("Personal");
   await f.write("themes/personal.json", original);
   await f.service.refresh();
-  await f.service.write({ interfaceTheme: "user:personal.json" });
+  await f.selectTheme("personal.json");
   const proposed = theme("Personal", { ...palette.colors, attention: palette.colors.ink });
   await f.write("themes/personal.json", proposed);
   await f.service.refresh();
@@ -69,11 +70,13 @@ test("active theme edits are held before display, Keep restores and Allow accept
   });
   const { parseThemeFile } = await import("../../../../src/shared/theme-files");
   expect(
-    await f.service.reviewTheme(
-      "themes/personal.json",
-      proposed,
-      parseThemeFile(proposed, "theme"),
-    ),
+    (
+      await f.service.reviewTheme(
+        "themes/personal.json",
+        proposed,
+        parseThemeFile(proposed, "theme"),
+      )
+    )?.parsed,
   ).toEqual(parseThemeFile(original, "theme"));
   await expect(f.service.decide("allow", "old")).rejects.toThrow("replaced");
   await f.decide("keep");
@@ -83,11 +86,13 @@ test("active theme edits are held before display, Keep restores and Allow accept
   await f.decide("allow");
   expect(f.service.status().pending).toBeNull();
   expect(
-    await f.service.reviewTheme(
-      "themes/personal.json",
-      proposed,
-      parseThemeFile(proposed, "theme"),
-    ),
+    (
+      await f.service.reviewTheme(
+        "themes/personal.json",
+        proposed,
+        parseThemeFile(proposed, "theme"),
+      )
+    )?.parsed,
   ).toEqual(parseThemeFile(proposed, "theme"));
 });
 
@@ -98,7 +103,7 @@ test("a delayed library review cannot clear a newer held theme edit", async () =
   const original = theme("Personal");
   await f.write(file, original);
   await f.service.refresh();
-  await f.service.write({ interfaceTheme: "user:personal.json" });
+  await f.selectTheme("personal.json");
   const proposed = theme("Personal", { ...palette.colors, attention: palette.colors.ink });
   await f.write(file, proposed);
   await f.service.refresh();
@@ -106,9 +111,9 @@ test("a delayed library review cannot clear a newer held theme edit", async () =
   expect(pending?.file).toBe(file);
   // The library read the safe version before the edit, but its review was queued
   // behind the config scan that held the newer proposal.
-  expect(await f.service.reviewTheme(file, original, parseThemeFile(original, "theme"))).toEqual(
-    parseThemeFile(original, "theme"),
-  );
+  expect(
+    (await f.service.reviewTheme(file, original, parseThemeFile(original, "theme")))?.parsed,
+  ).toEqual(parseThemeFile(original, "theme"));
   expect(f.service.status().pending).toEqual(pending);
   await f.decide("keep");
   expect(await f.read(file)).toBe(original);
@@ -143,7 +148,7 @@ test("inactive themes and hue-only warnings apply; file selection is held and UI
   await f.service.refresh();
   expect(f.service.status().pending?.detail).toBe("interfaceTheme: attention-distinctness");
   await f.decide("keep");
-  await f.service.write({ interfaceTheme: "user:personal.json" });
+  await f.selectTheme("personal.json");
   expect(f.service.status().pending).toBeNull();
   await f.write(
     "themes/personal.json",
@@ -167,7 +172,10 @@ test("Keep rechecks a proposed theme weakened by an independent library review",
   await f.write(file, warned);
   const parsed = parseThemeFile(warned, "theme");
   // The independent library callback runs before the settings watcher rescans.
-  expect(await f.service.reviewTheme(file, warned, parsed)).toEqual(parsed);
+  expect(await f.service.reviewTheme(file, warned, parsed)).toEqual({
+    parsed,
+    digest: digest(warned),
+  });
   expect(f.service.status().pending).toEqual(pending);
   await expect(f.service.decide("keep", pending?.id)).rejects.toThrow("file changed");
   expect(f.service.status().pending?.detail).toContain("interfaceTheme: attention-distinctness");
@@ -261,7 +269,7 @@ test("a replaced theme proposal cannot be approved, and invalid replacements cle
   await f.service.initialize();
   await f.write("themes/personal.json", theme("Personal"));
   await f.service.refresh();
-  await f.service.write({ interfaceTheme: "user:personal.json" });
+  await f.selectTheme("personal.json");
   await f.write(
     "themes/personal.json",
     theme("Personal", { ...palette.colors, attention: palette.colors.ink }),
@@ -335,16 +343,18 @@ test("an accepted area warning does not approve a newly weakened area", async ()
   });
   await f.write("themes/personal.json", original);
   await f.service.refresh();
-  await f.service.write({ interfaceTheme: "user:personal.json" });
+  await f.selectTheme("personal.json");
   await f.service.refresh();
   await f.write("themes/personal.json", proposed);
   expect((await f.service.refresh()).pending?.file).toBe("themes/personal.json");
   expect(
-    await f.service.reviewTheme(
-      "themes/personal.json",
-      proposed,
-      parseThemeFile(proposed, "theme"),
-    ),
+    (
+      await f.service.reviewTheme(
+        "themes/personal.json",
+        proposed,
+        parseThemeFile(proposed, "theme"),
+      )
+    )?.parsed,
   ).toEqual(parseThemeFile(original, "theme"));
   await f.decide("keep");
   expect(await f.read("themes/personal.json")).toBe(original);
@@ -353,11 +363,13 @@ test("an accepted area warning does not approve a newly weakened area", async ()
   await f.decide("allow");
   expect((await f.service.refresh()).pending).toBeNull();
   expect(
-    await f.service.reviewTheme(
-      "themes/personal.json",
-      proposed,
-      parseThemeFile(proposed, "theme"),
-    ),
+    (
+      await f.service.reviewTheme(
+        "themes/personal.json",
+        proposed,
+        parseThemeFile(proposed, "theme"),
+      )
+    )?.parsed,
   ).toEqual(parseThemeFile(proposed, "theme"));
 });
 
@@ -367,7 +379,7 @@ test("a theme an agent weakened while Foom was closed is held after a restart", 
   const original = theme("Personal");
   await f.write("themes/personal.json", original);
   await f.service.refresh();
-  await f.service.write({ interfaceTheme: "user:personal.json" });
+  await f.selectTheme("personal.json");
   expect(f.themeBaselines.get("themes/personal.json")).toBe(digest(original));
   // While Foom is closed, an agent weakens the active theme.
   await f.service.dispose();
@@ -393,7 +405,7 @@ test("a theme this profile approved stays approved after a restart", async () =>
   await f.service.initialize();
   await f.write("themes/personal.json", theme("Personal"));
   await f.service.refresh();
-  await f.service.write({ interfaceTheme: "user:personal.json" });
+  await f.selectTheme("personal.json");
   const weak = theme("Personal", { ...palette.colors, attention: palette.colors.ink });
   await f.write("themes/personal.json", weak);
   await f.service.refresh();
@@ -402,7 +414,7 @@ test("a theme this profile approved stays approved after a restart", async () =>
   const again = await restart(f);
   expect(again.status().pending).toBeNull();
   expect(
-    await again.reviewTheme("themes/personal.json", weak, parseThemeFile(weak, "theme")),
+    (await again.reviewTheme("themes/personal.json", weak, parseThemeFile(weak, "theme")))?.parsed,
   ).toEqual(parseThemeFile(weak, "theme"));
   // Removing the file forgets its baseline.
   await rm(path.join(f.folder, "themes/personal.json"));
@@ -422,7 +434,7 @@ test("an approved attention conflict does not approve a new one on the same colo
   });
   await f.write("themes/personal.json", original);
   await f.service.refresh();
-  await f.service.write({ interfaceTheme: "user:personal.json" });
+  await f.selectTheme("personal.json");
   await f.write("themes/personal.json", proposed);
   expect((await f.service.refresh()).pending?.file).toBe("themes/personal.json");
   await f.decide("keep");
@@ -457,7 +469,7 @@ test("new area, gradient-stop and scrollbar attention conflicts use the existing
     });
     await f.write(file, original);
     await f.service.refresh();
-    await f.service.write({ interfaceTheme: "user:extended.json" });
+    await f.selectTheme("extended.json");
     const proposed = JSON.stringify({
       ...palette,
       version: 2,
@@ -466,9 +478,9 @@ test("new area, gradient-stop and scrollbar attention conflicts use the existing
     });
     await f.write(file, proposed);
     expect((await f.service.refresh()).pending?.detail).toBe("attention-distinctness");
-    expect(await f.service.reviewTheme(file, proposed, parseThemeFile(proposed, "theme"))).toEqual(
-      parseThemeFile(original, "theme"),
-    );
+    expect(
+      (await f.service.reviewTheme(file, proposed, parseThemeFile(proposed, "theme")))?.parsed,
+    ).toEqual(parseThemeFile(original, "theme"));
     await f.decide("keep");
     expect(await f.read(file)).toBe(original);
   }
@@ -564,7 +576,7 @@ test("theme Revert without a cached palette preserves another profile's new sele
   await owner.service.initialize();
   const file = "themes/personal.json";
   await owner.write(file, theme("Personal"));
-  await owner.service.write({ interfaceTheme: "user:personal.json" });
+  await owner.selectTheme("personal.json");
   await other.service.initialize();
   await owner.write(file, theme("Personal", { ...palette.colors, attention: palette.colors.ink }));
   const restarted = await restart(owner);
@@ -658,6 +670,70 @@ test("the library exposes an approved active palette before its first catalog re
   await f.settings({ interfaceTheme: "user:new.json" });
   await f.service.refresh();
   expect(library.snapshot().interface).toEqual([
-    { id: "user:new.json", theme: { ...palette, name: "New palette" } },
+    {
+      id: "user:new.json",
+      theme: { ...palette, name: "New palette" },
+      digest: digest(theme("New palette")),
+    },
   ]);
+});
+
+test("Appearance refuses palette bytes that differ from the offered catalog snapshot", async () => {
+  const f = await fixture();
+  await f.service.initialize();
+  const file = "themes/personal.json";
+  const interfaceTheme = "user:personal.json";
+  const original = theme("Personal");
+  const weakened = theme("Personal", { ...palette.colors, attention: palette.colors.ink });
+  const library = new ThemeLibrary(f.folder, undefined, (file, text, parsed) =>
+    f.service.reviewTheme(file, text, parsed),
+  );
+  await f.write(file, original);
+  try {
+    await library.initialize();
+  } finally {
+    library.dispose();
+  }
+  const offered = library.snapshot().interface[0];
+  expect(offered?.digest).toBe(digest(original));
+  const before = await f.read("settings.json");
+  await f.write(file, weakened);
+  await expect(f.service.write({ interfaceTheme }, offered?.digest)).rejects.toThrow(
+    "theme-selection-changed",
+  );
+  expect(await f.read("settings.json")).toBe(before);
+  expect(f.themeBaselines.has(file)).toBe(false);
+  expect(f.service.activePalette()).toBeUndefined();
+  await f.write(file, original);
+  await expect(f.service.write({ interfaceTheme })).rejects.toThrow("theme-selection-changed");
+  await f.service.write({ interfaceTheme }, offered?.digest);
+  expect(f.themeBaselines.get(file)).toBe(offered?.digest);
+});
+
+test("theme Keep succeeds when the reconciliation scan finds Settings busy", async () => {
+  const replace = vi.fn(rename);
+  const f = await fixture({ rename: replace });
+  await f.service.initialize();
+  const file = "themes/personal.json";
+  const original = theme("Personal");
+  await f.write(file, original);
+  await f.selectTheme("personal.json");
+  await f.write(file, theme("Personal", { ...palette.colors, attention: palette.colors.ink }));
+  expect((await f.service.refresh()).pending?.file).toBe(file);
+  const lock = vi.spyOn(ConfigFiles.prototype, "withSettingsLock");
+  replace.mockImplementationOnce(async (from, to) => {
+    await rename(from, to);
+    await f.settings({ interfaceTheme: "user:personal.json", hooks: false });
+    lock.mockRejectedValueOnce(new ApplicationError("settings-busy"));
+  });
+  try {
+    await expect(f.decide("keep")).resolves.toMatchObject({ pending: null });
+    expect(await f.read(file)).toBe(original);
+    await vi.waitFor(() => {
+      expect(f.service.status().pending?.file).toBe("settings.json");
+    });
+    expect(lock).toHaveBeenCalledTimes(3);
+  } finally {
+    lock.mockRestore();
+  }
 });

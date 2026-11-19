@@ -54,7 +54,7 @@ export interface SetupSource {
   listTerminalFonts?(refresh?: boolean): Promise<readonly string[]>;
   openThemesFolder(kind: ThemeKind): Promise<void>;
   state(): Promise<SetupState>;
-  save(patch: SettingsPatch): Promise<SetupState>;
+  save(patch: SettingsPatch, themeDigest?: string): Promise<SetupState>;
   scanAgents(refresh: boolean, agent?: string): Promise<AgentReport>;
   changeAgentSetup?(id: string, action: string): Promise<AgentReport>;
   changeAgyPlugin(action: AgyPluginAction): Promise<AgentReport>;

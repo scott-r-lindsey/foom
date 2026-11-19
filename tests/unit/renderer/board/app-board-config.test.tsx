@@ -38,6 +38,17 @@ test("the Foom config dock contains its sessions, shows chips, launches there an
   const panel = screen.getByRole("dialog", { name: "Foom config details and commands" });
   expect(panel.textContent).toContain("1 rejected");
   expect(panel.textContent).toContain("hooks: on → off");
+  const notice = "Restored the last approved settings. Other edits were dropped.";
+  act(() => {
+    mock.configListener?.({
+      folder: "/home/.foom/config",
+      available: true,
+      pending: null,
+      rejected: [],
+      notice,
+    });
+  });
+  expect(panel.textContent).toContain(notice);
   fireEvent.click(screen.getByRole("button", { name: "Copy path" }));
   await settle();
   expect(mock.sidebarCommand).toHaveBeenCalledWith({ kind: "copy-config-path" });

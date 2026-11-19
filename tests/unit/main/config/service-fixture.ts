@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, vi } from "vitest";
+import { digest } from "../../../../src/main/config/layout";
 import { configPart } from "../../../../src/main/config/approval";
 import { ConfigService } from "../../../../src/main/config/service";
 import type { ConfigServiceDependencies } from "../../../../src/main/config/service";
@@ -86,6 +87,8 @@ export async function fixture({
     root,
     folder,
     service,
+    selectTheme: async (file: string) =>
+      service.write({ interfaceTheme: `user:${file}` }, digest(await read(`themes/${file}`))),
     applied,
     listeners,
     statuses,

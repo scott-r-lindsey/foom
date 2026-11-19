@@ -90,7 +90,9 @@ an attention conflict: a color pair within ΔE 40 of attention, globally or in a
 area, that the approved version lacks. Pairs are compared individually, so an
 approved pair never approves a new one on the same color. Selecting a warned
 theme through settings.json also holds. Inactive themes, hue-only warnings and
-direct Appearance selections do not hold. Attention distinctness includes
+direct Appearance selections of the exact offered version do not hold. If the
+file changed since it was offered, Appearance refuses the save and asks the user
+to choose again after the list refreshes. Attention distinctness includes
 separation from readable ink as well as failure, accent, highlight and done.
 
 The approved version is the one this profile last applied, recorded as a

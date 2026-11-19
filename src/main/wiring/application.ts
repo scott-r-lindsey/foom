@@ -717,7 +717,7 @@ async function startApplication(wiring: ApplicationWiring): Promise<void> {
       migratedScale === undefined ? legacy : { ...legacy, interfaceScale: migratedScale },
     );
     await wiring.settings.attachConfig(
-      (patch) => wiring.config.write(patch),
+      (...args) => wiring.config.write(...args),
       values,
       wiring.settings.configDigest(),
     );

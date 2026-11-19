@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { constants, watch } from "node:fs";
 import type { FSWatcher } from "node:fs";
 import { lstat, mkdir, open, readdir, realpath } from "node:fs/promises";
@@ -7,6 +8,7 @@ import type {
   ThemeCatalog,
   ThemeDiagnostic,
   ThemeKind,
+  ThemeSnapshot,
   UserThemeId,
 } from "../../shared/theme-file";
 import { parseThemeFile } from "../../shared/theme-files";
@@ -23,7 +25,7 @@ function catalogTheme(theme: ThemeCatalog["interface"][number]["theme"]) {
 /** Owns bounded reads and session-only last-good versions. No raw contents escape main. */
 export class ThemeLibrary {
   private catalog: ThemeCatalog = { interface: [], terminal: [], errors: [] };
-  private good = new Map<string, ParsedThemeFile>();
+  private good = new Map<string, ThemeSnapshot>();
   private queue: Promise<void> = Promise.resolve();
   private watchers: FSWatcher[] = [];
   private timer: ReturnType<typeof setTimeout> | undefined;
@@ -35,10 +37,11 @@ export class ThemeLibrary {
       file: string,
       text: string,
       theme: ParsedThemeFile,
-    ) => Promise<ParsedThemeFile | undefined>,
+    ) => Promise<ThemeSnapshot | undefined>,
     private readonly activePalette?: () =>
       | {
           id: UserThemeId;
+          digest?: string;
           theme: ThemeCatalog["interface"][number]["theme"] | undefined;
         }
       | undefined,
@@ -54,7 +57,11 @@ export class ThemeLibrary {
     const entries = [...this.catalog.interface];
     const index = entries.findIndex(({ id }) => id === active.id);
     if (active.theme) {
-      const entry = { id: active.id, theme: catalogTheme(active.theme) };
+      const entry = {
+        id: active.id,
+        theme: catalogTheme(active.theme),
+        ...(active.digest && { digest: active.digest }),
+      };
       if (index === -1) entries.push(entry);
       else entries[index] = entry;
     } else if (index !== -1) entries.splice(index, 1);
@@ -111,7 +118,7 @@ export class ThemeLibrary {
         terminal: ThemeCatalog["terminal"][number][];
         errors: ThemeCatalog["errors"][number][];
       } = { interface: [], terminal: [], errors: [] };
-      const retained = new Map<string, ParsedThemeFile>();
+      const retained = new Map<string, ThemeSnapshot>();
       for (const kind of kinds) {
         let names: string[];
         const nonFiles = new Set<string>();
@@ -137,7 +144,7 @@ export class ThemeLibrary {
         let count = 0;
         for (const file of names) {
           const key = `${kind}/${file}`;
-          let theme: ParsedThemeFile | undefined;
+          let snapshot: ThemeSnapshot | undefined;
           let diagnostic: ThemeDiagnostic | undefined;
           if (!validThemeFile(file) || nonFiles.has(file)) {
             // Retained versions still occupy a slot even when their file became a directory.
@@ -146,7 +153,7 @@ export class ThemeLibrary {
           } else if (++count > 50) diagnostic = { file, path: "$", reason: "too-many-files" };
           else {
             try {
-              theme = await this.read(kind, file);
+              snapshot = await this.read(kind, file);
             } catch (error) {
               diagnostic = {
                 file,
@@ -163,10 +170,11 @@ export class ThemeLibrary {
                 file: file.replace(/[\p{Cc}\p{Cf}]/gu, "�").slice(0, 100),
                 kind,
               });
-            theme = this.good.get(key);
+            snapshot = this.good.get(key);
           }
-          if (!theme) continue;
-          retained.set(key, theme);
+          if (!snapshot) continue;
+          retained.set(key, snapshot);
+          const { parsed: theme, digest } = snapshot;
           if (theme.kind === "theme")
             next.errors.push(
               ...(theme.warnings ?? [])
@@ -177,7 +185,7 @@ export class ThemeLibrary {
                 .map((warning) => ({ ...warning, file, kind })),
             );
           if (theme.kind === "theme") {
-            next.interface.push({ id: `user:${file}`, theme: catalogTheme(theme.theme) });
+            next.interface.push({ id: `user:${file}`, theme: catalogTheme(theme.theme), digest });
           } else {
             const collision = terminalThemeOptions.some(
               (builtin) => builtin.name.toLowerCase() === theme.name.toLowerCase(),
@@ -198,7 +206,7 @@ export class ThemeLibrary {
     });
     return this.queue;
   }
-  private async read(kind: ThemeKind, name: string): Promise<ParsedThemeFile | undefined> {
+  private async read(kind: ThemeKind, name: string): Promise<ThemeSnapshot | undefined> {
     const directory = this.folder(kind);
     if (!(await lstat(directory)).isDirectory()) throw new ThemeValidationError("$", "unsafe-file");
     const root = await realpath(directory);
@@ -242,7 +250,7 @@ export class ThemeLibrary {
     const parsed = parseThemeFile(text, kind);
     return this.review
       ? this.review(`${kind === "theme" ? "themes" : "terminal-themes"}/${name}`, text, parsed)
-      : parsed;
+      : { parsed, digest: createHash("sha256").update(text).digest("hex") };
   }
 
   dispose(): void {

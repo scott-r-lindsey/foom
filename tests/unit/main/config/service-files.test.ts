@@ -12,7 +12,7 @@ for (const code of ["EPERM", "EBUSY"]) {
     const proposed = theme("Personal", { ...palette.colors, ink: "#ffb23e" });
     await f.write("themes/personal.json", original);
     await f.service.refresh();
-    await f.service.write({ interfaceTheme: "user:personal.json" });
+    await f.selectTheme("personal.json");
     await f.write("themes/personal.json", proposed);
     await f.service.refresh();
     const pending = f.service.status().pending;
@@ -77,7 +77,7 @@ test("persistent Windows theme lock preserves the held palette and can be decide
   const proposed = theme("Personal", { ...palette.colors, ink: "#ffb23e" });
   await f.write("themes/personal.json", original);
   await f.service.refresh();
-  await f.service.write({ interfaceTheme: "user:personal.json" });
+  await f.selectTheme("personal.json");
   await f.write("themes/personal.json", proposed);
   await f.service.refresh();
   const status = f.service.status();

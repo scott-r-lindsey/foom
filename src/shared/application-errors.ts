@@ -16,6 +16,7 @@ const messages = {
   "launch-cancel-incomplete": "Terminal may still be running.",
   "remote-host-unavailable": "Remote host artifact unavailable in this local build.",
   "session-has-children": "Close its children first.",
+  "theme-selection-changed": "The theme changed. Choose it again after the theme list refreshes.",
   "settings-busy": "Settings are busy; try again.",
   "settings-lock-corrupt":
     "Quit other Foom windows, then remove .foom-settings.lock and its recovery locks.",

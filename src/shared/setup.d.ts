@@ -136,7 +136,7 @@ export interface SetupApi extends HostsApi {
   listThemes(): Promise<ThemeCatalog>;
   openThemesFolder(kind: ThemeKind): Promise<void>;
   setupState(): Promise<SetupState>;
-  saveSetup(patch: SettingsPatch): Promise<SetupState>;
+  saveSetup(patch: SettingsPatch, themeDigest?: string): Promise<SetupState>;
   /** Persisted settings after a save or a main-process zoom shortcut. */
   onSetupChange(callback: (state: SetupState) => void): () => void;
   /** Common code folders under the home folder, such as ~/code, that hold repositories. */

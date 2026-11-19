@@ -15,6 +15,7 @@ export type ApplicationErrorCode =
   | "preview-image-invalid"
   | "operation-failed"
   | "session-has-children"
+  | "theme-selection-changed"
   | "settings-busy"
   | "settings-lock-corrupt"
   | "settings-lock-unsupported"

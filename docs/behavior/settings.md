@@ -303,7 +303,9 @@ wait in an amber banner, such as "An agent wants to turn off the needs-you sound
 with **Allow** and **Keep it on** in both the Foom config panel and Settings →
 Foom config. Selecting the dock's Needs you opens that decision, even after the
 config session closes. A decision on either surface clears it everywhere.
-Keep it on restores the file. Config agents read `foom config status --json` after
+Keep it on restores the held fields. If the restored fields and other edits
+would exceed 64 KiB, Foom restores the full approved file and shows that the
+other edits were dropped. Config agents read `foom config status --json` after
 settings edits and tell the human when a write is held; validation alone does not
 mean the settings applied.
 
