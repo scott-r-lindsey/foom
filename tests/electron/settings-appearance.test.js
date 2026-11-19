@@ -438,6 +438,11 @@ test("custom theme files appear live, update selected colors and retain rejected
   await writeFile(file, JSON.stringify(theme));
   await chooseTheme(page, "Live custom");
   await expect
+    .poll(() =>
+      page.evaluate(async () => (await window.desktop.setupState()).settings.interfaceTheme),
+    )
+    .toBe("user:custom.json");
+  await expect
     .poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue("--bg")))
     .toBe(palette.colors.bg);
   theme.colors = interfaceThemes.graphite.colors;

@@ -515,3 +515,42 @@ test("Keep restores the whole baseline when restored arguments and safe edits ca
   expect(f.copy()).toBe(approved);
   expect(f.applied.at(-1)).toEqual({ agentArguments });
 });
+
+test("Keep restores the exact baseline when the defensive palette fallback cannot fit", async () => {
+  const oldFile = `${"p".repeat(85)}x.json`;
+  const baseline = {
+    kind: "settings",
+    interfaceTheme: `user:${oldFile}`,
+    agentArguments: { fixture: Array.from({ length: 64 }, () => "é".repeat(508)) },
+  };
+  const approved = JSON.stringify(baseline);
+  const f = await fixture({ baseline: digest(approved), appliedText: approved });
+  await mkdir(path.join(f.folder, "themes"), { recursive: true });
+  await f.write("settings.json", approved);
+  await f.write(`themes/${oldFile}`, theme("Original palette"));
+  await f.write("themes/x.json", theme("Proposed palette"));
+  await f.service.initialize();
+
+  const agents = Object.fromEntries(Array.from({ length: 8 }, (_, i) => [`new${String(i)}`, true]));
+  const safe = {
+    ...baseline,
+    interfaceTheme: "user:x.json",
+    agents: { ...agents, claude: true, codex: true, agy: true },
+    interfaceScale: 120,
+  };
+  const proposal = JSON.stringify({ ...safe, hooks: false });
+  expect(Buffer.byteLength(proposal)).toBeLessThanOrEqual(65536);
+  expect(Buffer.byteLength(JSON.stringify(safe))).toBeLessThanOrEqual(65536);
+  expect(
+    Buffer.byteLength(JSON.stringify({ ...safe, interfaceTheme: baseline.interfaceTheme })),
+  ).toBeGreaterThan(65536);
+  await f.write("settings.json", proposal);
+  expect((await f.service.refresh()).pending?.detail).toBe("hooks: on → off");
+
+  const result = await f.decide("keep");
+  expect(result.pending).toBeNull();
+  expect(result.notice).toContain("Other edits were dropped");
+  expect(await f.read("settings.json")).toBe(approved);
+  expect(f.copy()).toBe(approved);
+  expect(f.service.activePalette()?.id).toBe(baseline.interfaceTheme);
+});

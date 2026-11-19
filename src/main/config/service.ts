@@ -851,19 +851,17 @@ export class ConfigService {
   }
 
   private async keepSettings(current: Pending): Promise<void> {
-    let approved: Applied;
-    let tooLarge = false;
     try {
-      approved = this.approvedSettings(current);
+      const approved = this.approvedSettings(current);
+      // commitSettings serializes any defensive palette fallback before replacing the file.
+      await this.commitSettings(approved, approved);
+      return;
     } catch (error) {
       if (!(error instanceof ThemeValidationError) || error.reason !== "too-large") throw error;
-      approved = this.applied;
-      tooLarge = true;
     }
-    await this.commitSettings(approved, approved);
-    if (tooLarge)
-      this.notice =
-        "Restored the last approved settings. Other edits were dropped because they exceeded 64 KiB when combined.";
+    await this.commitSettings(this.applied, this.applied);
+    this.notice =
+      "Restored the last approved settings. Other edits were dropped because they exceeded 64 KiB when combined.";
   }
 
   private async matchSettings(pending: Pending): Promise<Pending | undefined> {
