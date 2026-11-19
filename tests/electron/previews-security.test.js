@@ -11,7 +11,12 @@ const {
   quitAndWait,
   removeAfterApps,
 } = require("./harness.js");
-const { pickPreviewFile, previewContents, previewViewState } = require("./preview-fixture.js");
+const {
+  pickPreviewFile,
+  previewContents,
+  pollPreviewContents,
+  previewViewState,
+} = require("./preview-fixture.js");
 
 test("preview host isolates hostile pages, blocks network and navigation, scales bounds and clears closed partitions", async (context) => {
   const app = await launchApp(context, { fixture: "repository" });
@@ -73,8 +78,8 @@ test("preview host isolates hostile pages, blocks network and navigation, scales
   });
   assert.equal(await previewContents(app, id, "window.popup"), true);
   assert.equal(await previewContents(app, clean, "window.privateValue"), null);
-  await expect.poll(() => previewContents(app, id, "window.networkFinished")).toBe(true);
-  await expect.poll(() => previewContents(app, id, "window.geo")).toBe(1);
+  await pollPreviewContents(app, id, "window.networkFinished").toBe(true);
+  await pollPreviewContents(app, id, "window.geo").toBe(1);
   assert.equal(connections, 0);
   // Observe actual navigation prevention, rather than waiting an arbitrary interval.
   for (const link of ["external", "blocked"]) {
@@ -283,9 +288,7 @@ test("preview network permission allows local HTTPS only and resets after restar
     bounds,
   });
   await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
-  await expect
-    .poll(() => previewContents(app, id, "window.results"))
-    .toEqual(["blocked", "blocked"]);
+  await pollPreviewContents(app, id, "window.results").toEqual(["blocked", "blocked"]);
   assert.equal(secureConnections, 0);
   assert.equal(plainConnections, 0);
   const dialog = await confirmationPage(app);
@@ -314,9 +317,7 @@ test("preview network permission allows local HTTPS only and resets after restar
   await dialog.getByRole("button", { name: "Allow network", exact: true }).click();
   await page.evaluate(() => window.previewNetworkChange);
   await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
-  await expect
-    .poll(() => previewContents(app, id, "window.results"))
-    .toEqual(["secure", "blocked"]);
+  await pollPreviewContents(app, id, "window.results").toEqual(["secure", "blocked"]);
   assert.ok(secureConnections > 0);
   assert.equal(plainConnections, 0);
   assert.equal(
@@ -347,9 +348,7 @@ test("preview network permission allows local HTTPS only and resets after restar
     bounds,
   });
   await expect.poll(async () => (await previewViewState(restored, id)).attached).toBe(true);
-  await expect
-    .poll(() => previewContents(restored, id, "window.results"))
-    .toEqual(["blocked", "blocked"]);
+  await pollPreviewContents(restored, id, "window.results").toEqual(["blocked", "blocked"]);
   assert.equal(secureConnections, before);
   assert.equal(plainConnections, 0);
 });

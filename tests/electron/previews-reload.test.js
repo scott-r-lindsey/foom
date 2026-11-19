@@ -4,7 +4,12 @@ const path = require("node:path");
 const { mkdir, writeFile } = require("node:fs/promises");
 const { expect } = require("./test-policy.js");
 const { boardPage, launchApp } = require("./harness.js");
-const { pickPreviewFile, previewContents, previewViewState } = require("./preview-fixture.js");
+const {
+  pickPreviewFile,
+  previewContents,
+  pollPreviewContents,
+  previewViewState,
+} = require("./preview-fixture.js");
 
 test("preview live reload handles saves, assets, missing files, scroll and closes watchers", async (context) => {
   const { rename, unlink } = require("node:fs/promises");
@@ -72,11 +77,7 @@ test("preview live reload handles saves, assets, missing files, scroll and close
     id,
   );
   const loaded = async (text) => {
-    await expect
-      .poll(async () => {
-        return previewContents(app, id, "document.body.textContent", { requireAttached: true });
-      })
-      .toContain(text);
+    await pollPreviewContents(app, id, "document.body.textContent").toContain(text);
     assert.equal((await previewViewState(app, id)).focused, false);
   };
   await loaded("first");
@@ -125,7 +126,7 @@ test("preview live reload handles saves, assets, missing files, scroll and close
     /Script failed to execute/,
   );
   await previewContents(app, id, "window.scrollTo(0, 1200)");
-  await expect.poll(() => previewContents(app, id, "window.scrollY")).toBe(1200);
+  await pollPreviewContents(app, id, "window.scrollY").toBe(1200);
   // Page-world overrides cannot spoof the isolated-world scroll capture.
   await previewContents(
     app,
@@ -181,13 +182,7 @@ test("preview live reload handles saves, assets, missing files, scroll and close
     globalThis.liveStats.burst = undefined;
   });
   await writeFile(path.join(root, "live.css"), "body { color: rgb(4, 5, 6); }");
-  await expect
-    .poll(async () => {
-      return previewContents(app, id, "getComputedStyle(document.body).color", {
-        requireAttached: true,
-      });
-    })
-    .toBe("rgb(4, 5, 6)");
+  await pollPreviewContents(app, id, "getComputedStyle(document.body).color").toBe("rgb(4, 5, 6)");
   await unlink(path.join(root, "live.html"));
   await loaded("File not found. Waiting for it to appear.");
   await writeFile(path.join(root, "live.html"), document("recreated"));
@@ -222,17 +217,16 @@ test("preview live reload follows retargeted symlinks and junctions", async (con
       }),
     id,
   );
-  const text = async () =>
-    previewContents(app, id, "document.body.textContent", { requireAttached: true });
-  await expect.poll(text).toContain("one");
+  const text = () => pollPreviewContents(app, id, "document.body.textContent");
+  await text().toContain("one");
   await symlink(path.join(root, "two"), path.join(root, "next-alias"), kind);
   // Windows does not rename over an existing directory junction. Move the old
   // entry aside, then rename the replacement, within the debounce window.
   await rename(path.join(root, "alias"), path.join(root, "old-alias"));
   await rename(path.join(root, "next-alias"), path.join(root, "alias"));
-  await expect.poll(text).toContain("two");
+  await text().toContain("two");
   await writeFile(path.join(root, "two", "index.html"), "<p>new target changed</p>");
-  await expect.poll(text).toContain("new target changed");
+  await text().toContain("new target changed");
   await page.evaluate((id) => window.desktop.previews.close(id), id);
 });
 
@@ -245,11 +239,10 @@ test("preview manual reload controls preserve focus and shortcut targets only th
     window.keys = []; addEventListener('keydown', event => window.keys.push(event.key));
   </script>`;
   const { app, page, id, tile } = await composedPreview(context, 1, content, "manual-reload.html");
-  const counter = (target = id) =>
-    previewContents(app, target, "Number(document.getElementById('count').textContent)", {
-      requireAttached: true,
-    });
-  await expect.poll(() => counter()).toBeGreaterThan(0);
+  const count = "Number(document.getElementById('count').textContent)";
+  const counter = (target = id) => previewContents(app, target, count, { requireAttached: true });
+  const pollCounter = (target = id) => pollPreviewContents(app, target, count);
+  await pollCounter().toBeGreaterThan(0);
   const first = await counter();
   const boardLoads = await page.evaluate(() => {
     window.reloadSentinel = "board survived";
@@ -318,13 +311,13 @@ test("preview manual reload controls preserve focus and shortcut targets only th
     .poll(() => reload.evaluate((element) => getComputedStyle(element).opacity))
     .toBe("1");
   await reload.press("Enter");
-  await expect.poll(() => counter()).toBeGreaterThan(first);
+  await pollCounter().toBeGreaterThan(first);
   await expect(reload).toBeFocused();
   assert.equal((await previewViewState(app, id)).focused, false);
   const second = await counter();
   await tile.getByRole("button", { name: /Tile \d+ menu/ }).click();
   await page.getByRole("menuitem", { name: "Reload", exact: true }).click();
-  await expect.poll(() => counter()).toBeGreaterThan(second);
+  await pollCounter().toBeGreaterThan(second);
   assert.equal((await previewViewState(app, id)).focused, false);
 
   // Keep a second native preview loaded to detect accidental all-preview reloads.
@@ -342,7 +335,7 @@ test("preview manual reload controls preserve focus and shortcut targets only th
       }),
     other,
   );
-  await expect.poll(() => counter(other)).toBeGreaterThan(0);
+  await pollCounter(other).toBeGreaterThan(0);
   const otherCount = await counter(other);
   await app.evaluate(({ webContents }, id) => {
     const contents = webContents
@@ -361,7 +354,7 @@ test("preview manual reload controls preserve focus and shortcut targets only th
     });
   const beforeShortcut = await counter();
   await shortcut();
-  await expect.poll(() => counter()).toBeGreaterThan(beforeShortcut);
+  await pollCounter().toBeGreaterThan(beforeShortcut);
   await expect.poll(async () => (await previewViewState(app, id)).focused).toBe(true);
   assert.equal(await counter(other), otherCount);
   assert.equal(await page.evaluate(() => window.reloadSentinel), boardLoads);
@@ -395,7 +388,7 @@ test("preview manual reload controls preserve focus and shortcut targets only th
   assert.equal(await counter(), beforeTerminal);
   assert.equal(await counter(other), otherCount);
   await page.evaluate((id) => window.desktop.previews.reload(id), id);
-  await expect.poll(() => counter()).toBeGreaterThan(beforeTerminal);
+  await pollCounter().toBeGreaterThan(beforeTerminal);
   await expect(terminal).toBeFocused();
   assert.equal((await previewViewState(app, id)).focused, false);
   assert.equal(await page.evaluate(() => window.reloadSentinel), boardLoads);

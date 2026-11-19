@@ -18,6 +18,7 @@ const {
 } = require("./harness.js");
 const {
   previewContents,
+  pollPreviewContents,
   previewViewState,
   typeIntoFocusedContents,
   movePreviewTile,
@@ -161,15 +162,11 @@ test("agent previews split a blank window into terminal-width columns", {
         (mode) => document.documentElement.style.colorScheme === mode,
         mode,
       );
-      await expect
-        .poll(() =>
-          previewContents(
-            app,
-            blankPreview.previewId,
-            "getComputedStyle(document.documentElement).backgroundColor",
-          ),
-        )
-        .toBe(mode === "dark" ? "rgb(5, 4, 10)" : "rgb(243, 240, 250)");
+      await pollPreviewContents(
+        app,
+        blankPreview.previewId,
+        "getComputedStyle(document.documentElement).backgroundColor",
+      ).toBe(mode === "dark" ? "rgb(5, 4, 10)" : "rgb(243, 240, 250)");
       await previewContents(
         app,
         blankPreview.previewId,
@@ -270,11 +267,11 @@ test("an agent fixture opens full-board previews in columns, retains focus and r
   await expect
     .poll(async () => (await previewViewState(app, columnResult.previewId)).attached)
     .toBe(true);
-  await expect
-    .poll(() =>
-      previewContents(app, columnResult.previewId, "document.querySelector('h1')?.textContent"),
-    )
-    .toBe("Agent notes");
+  await pollPreviewContents(
+    app,
+    columnResult.previewId,
+    "document.querySelector('h1')?.textContent",
+  ).toBe("Agent notes");
   await expect(page.locator('[data-tile="terminal"] .xterm-helper-textarea')).toBeFocused();
   const notesTile = page.locator(`[data-preview-id="${columnResult.previewId}"]`);
   await expect(notesTile).toHaveAttribute("data-arrived", "true");
@@ -320,9 +317,7 @@ test("an agent fixture opens full-board previews in columns, retains focus and r
   await expect
     .poll(async () => (await previewViewState(app, result.previewId)).attached)
     .toBe(true);
-  await expect
-    .poll(() => previewContents(app, result.previewId, "window.attempts"))
-    .toBeGreaterThan(0);
+  await pollPreviewContents(app, result.previewId, "window.attempts").toBeGreaterThan(0);
   const keys = "a".repeat(100);
   await typeIntoFocusedContents(app, keys);
   await expect
@@ -401,9 +396,11 @@ test("an agent fixture opens full-board previews in columns, retains focus and r
   await expect
     .poll(async () => (await previewViewState(app, narrow.previewId)).attached)
     .toBe(true);
-  await expect
-    .poll(() => previewContents(app, narrow.previewId, "document.querySelector('h1')?.textContent"))
-    .toBe("Narrow notes");
+  await pollPreviewContents(
+    app,
+    narrow.previewId,
+    "document.querySelector('h1')?.textContent",
+  ).toBe("Narrow notes");
   await expect(page.locator('[data-tile="terminal"] .xterm-helper-textarea')).toBeFocused();
   await page
     .locator(`[data-preview-id="${narrow.previewId}"]`)
@@ -436,13 +433,11 @@ test("an agent fixture opens full-board previews in columns, retains focus and r
       ),
     );
     await writeFile(path.join(repo, "grabby.html"), "<h1>Moved agent preview reloaded</h1>");
-    await expect
-      .poll(() =>
-        previewContents(app, reopened.previewId, "document.querySelector('h1')?.textContent", {
-          requireAttached: true,
-        }),
-      )
-      .toBe("Moved agent preview reloaded");
+    await pollPreviewContents(
+      app,
+      reopened.previewId,
+      "document.querySelector('h1')?.textContent",
+    ).toBe("Moved agent preview reloaded");
     assert.equal((await call("close_preview", { previewId: reopened.previewId })).closed, true);
     await expect(target.locator(`[data-preview-id="${reopened.previewId}"]`)).toHaveCount(0);
   });
@@ -497,15 +492,11 @@ test("agent reopen is visible with free space and reports sidebar only at protec
         (mode) => document.documentElement.style.colorScheme === mode,
         mode,
       );
-      await expect
-        .poll(() =>
-          previewContents(
-            app,
-            reopened.previewId,
-            "getComputedStyle(document.documentElement).backgroundColor",
-          ),
-        )
-        .toBe(mode === "dark" ? "rgb(5, 4, 10)" : "rgb(243, 240, 250)");
+      await pollPreviewContents(
+        app,
+        reopened.previewId,
+        "getComputedStyle(document.documentElement).backgroundColor",
+      ).toBe(mode === "dark" ? "rgb(5, 4, 10)" : "rgb(243, 240, 250)");
       await previewContents(
         app,
         reopened.previewId,
@@ -779,13 +770,11 @@ test("agent previews stay visible after window moves while sidebar inventory is 
       assert.notEqual(opened.placement, "sidebar");
       assert.equal(opened.reused, false);
       await expect(page.locator(`[data-preview-id="${opened.previewId}"]`)).toBeVisible();
-      await expect
-        .poll(() =>
-          previewContents(app, opened.previewId, "document.querySelector('h1')?.textContent", {
-            requireAttached: true,
-          }),
-        )
-        .toBe("Child checkout asset");
+      await pollPreviewContents(
+        app,
+        opened.previewId,
+        "document.querySelector('h1')?.textContent",
+      ).toBe("Child checkout asset");
       assert.equal(
         (await call("list_previews", {})).previews.find(
           (preview) => preview.previewId === opened.previewId,
@@ -973,13 +962,11 @@ test("an older human inventory cannot remove an agent preview in a new worktree"
       page.getByRole("button", { name: "inventory-preview", exact: true }),
     ).toBeVisible();
     await expect(tile).toBeVisible();
-    await expect
-      .poll(() =>
-        previewContents(app, opened.previewId, "document.querySelector('h1')?.textContent", {
-          requireAttached: true,
-        }),
-      )
-      .toBe("Agent notes");
+    await pollPreviewContents(
+      app,
+      opened.previewId,
+      "document.querySelector('h1')?.textContent",
+    ).toBe("Agent notes");
     await expect
       .poll(async () => (await previewViewState(app, opened.previewId)).visible)
       .toBe(true);
@@ -1112,13 +1099,9 @@ test("a human-picked preview survives inventory reads started before and after i
       "After all reads: previewTiles=" + (await tile.count()) + ", recordOpen=true",
     );
     await expect(tile).toBeVisible();
-    await expect
-      .poll(() =>
-        previewContents(app, id, "document.querySelector('h1')?.textContent", {
-          requireAttached: true,
-        }),
-      )
-      .toBe("Agent notes");
+    await pollPreviewContents(app, id, "document.querySelector('h1')?.textContent").toBe(
+      "Agent notes",
+    );
     await expect.poll(async () => (await previewViewState(app, id)).visible).toBe(true);
     await expect(page.getByRole("alertdialog")).not.toBeVisible();
   } finally {

@@ -18,6 +18,7 @@ const {
   pickPreviewFile,
   previewStep,
   previewContents,
+  pollPreviewContents,
   previewViewState,
 } = require("./preview-fixture.js");
 
@@ -81,10 +82,9 @@ test("worktree panel previews pick contained Markdown and HTML, persist v2 tiles
     ids.push(preview.id);
     assert.equal(await app.evaluate(() => globalThis.previewPickerOptions.defaultPath), checkout);
     await expect(page.locator(".row-menu")).toHaveCount(0);
-    await expect.poll(async () => (await previewViewState(app, preview.id)).attached).toBe(true);
-    await expect
-      .poll(() => previewContents(app, preview.id, "document.body.innerText"))
-      .toContain(file === "guide.md" ? "Panel Markdown" : "Panel HTML");
+    await pollPreviewContents(app, preview.id, "document.body.innerText").toContain(
+      file === "guide.md" ? "Panel Markdown" : "Panel HTML",
+    );
     assert.equal((await previewViewState(app, preview.id)).focused, false);
   }
   const saved = await page.evaluate(() =>
@@ -112,9 +112,9 @@ test("worktree panel previews pick contained Markdown and HTML, persist v2 tiles
   assert.ok(external);
   assert.equal(external.repository, "");
   assert.equal(external.worktree, standalone);
-  await expect
-    .poll(() => previewContents(app, external.id, "document.body.innerText"))
-    .toContain("Outside checkout");
+  await pollPreviewContents(app, external.id, "document.body.innerText").toContain(
+    "Outside checkout",
+  );
   for (const file of [
     path.join(root, "missing.html"),
     path.join(checkout, ".hidden.html"),
@@ -241,9 +241,11 @@ test("Markdown previews render hostile documents safely, follow native theme and
         }),
       mode,
     );
-    await expect
-      .poll(() => read("getComputedStyle(document.documentElement).backgroundColor"))
-      .toBe(background);
+    await pollPreviewContents(
+      app,
+      id,
+      "getComputedStyle(document.documentElement).backgroundColor",
+    ).toBe(background);
   }
   const oldContents = (await previewViewState(app, id)).contentsId;
   await read(`document.querySelector('a[href="sibling.md"]').click()`);
@@ -292,13 +294,7 @@ test("raster image previews validate content, fit, show actual size and preserve
     const id = inventory.previews.find((preview) => preview.relativePath === file)?.id;
     assert.ok(id);
     ids.push(id);
-    await expect
-      .poll(() =>
-        previewContents(app, id, 'document.querySelector("img")?.naturalWidth', {
-          requireAttached: true,
-        }),
-      )
-      .toBe(1600);
+    await pollPreviewContents(app, id, 'document.querySelector("img")?.naturalWidth').toBe(1600);
     const read = (code) => previewContents(app, id, code, { requireAttached: true });
     assert.equal(
       (await page.evaluate((id) => window.desktop.previews.describe(id), id)).kind,
@@ -312,9 +308,11 @@ test("raster image previews validate content, fit, show actual size and preserve
       true,
     );
     await read('document.querySelector("#foom-actual-size").click()');
-    await expect
-      .poll(() => read('document.querySelector("img").getBoundingClientRect().width'))
-      .toBe(1600);
+    await pollPreviewContents(
+      app,
+      id,
+      'document.querySelector("img").getBoundingClientRect().width',
+    ).toBe(1600);
     assert.equal(await read("document.documentElement.scrollWidth > innerWidth"), true);
     await read('document.querySelector("#fit").click()');
   }
@@ -329,16 +327,11 @@ test("raster image previews validate content, fit, show actual size and preserve
       mode,
     );
     for (const imageId of ids) {
-      await expect
-        .poll(() =>
-          previewContents(
-            app,
-            imageId,
-            "getComputedStyle(document.documentElement).backgroundColor",
-            { requireAttached: true },
-          ),
-        )
-        .toBe(background);
+      await pollPreviewContents(
+        app,
+        imageId,
+        "getComputedStyle(document.documentElement).backgroundColor",
+      ).toBe(background);
       await previewContents(
         app,
         imageId,
