@@ -240,7 +240,7 @@ test("preview manual reload controls preserve focus and shortcut targets only th
   </script>`;
   const { app, page, id, tile } = await composedPreview(context, 1, content, "manual-reload.html");
   const count = "Number(document.getElementById('count').textContent)";
-  const counter = (target = id) => previewContents(app, target, count);
+  const counter = (target = id) => previewContents(app, target, count, { requireAttached: true });
   const pollCounter = (target = id) => pollPreviewContents(app, target, count);
   await pollCounter().toBeGreaterThan(0);
   const first = await counter();

@@ -57,7 +57,9 @@ for (const kind of ["md", "html"]) {
     await loaded("Next chapter");
     await clickLink("Missing chapter");
     await loaded("File not found. Waiting for it to appear.");
-    assert.ok((await previewContents(app, id, text)).includes(`missing.${kind}`));
+    assert.ok(
+      (await previewContents(app, id, text, { requireAttached: true })).includes(`missing.${kind}`),
+    );
     await expect(back).toBeEnabled();
     await expect(forward).toBeDisabled();
     if (process.env.FOOM_SCREENSHOTS === "1") {
@@ -182,7 +184,7 @@ test("preview history restores raster image mode and pan, and revalidates image 
       .png()
       .toBuffer();
   const pixels = await png(1600, 1200);
-  const read = (code) => previewContents(app, id, code);
+  const read = (code) => previewContents(app, id, code, { requireAttached: true });
   const poll = (code) => pollPreviewContents(app, id, code);
   const expectGallery = async () => {
     await poll('document.querySelector("img[alt=Sample]")?.naturalWidth').toBe(23);

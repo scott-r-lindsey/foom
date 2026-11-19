@@ -186,7 +186,7 @@ test("Markdown previews render hostile documents safely, follow native theme and
   const id = await previewStep("open Markdown document", () =>
     pickPreviewFile(app, page, root, "document.md"),
   );
-  const read = (code) => previewContents(app, id, code);
+  const read = (code) => previewContents(app, id, code, { requireAttached: true });
   await page.evaluate(
     (id) =>
       window.desktop.previews.bounds(id, {
@@ -295,7 +295,7 @@ test("raster image previews validate content, fit, show actual size and preserve
     assert.ok(id);
     ids.push(id);
     await pollPreviewContents(app, id, 'document.querySelector("img")?.naturalWidth').toBe(1600);
-    const read = (code) => previewContents(app, id, code);
+    const read = (code) => previewContents(app, id, code, { requireAttached: true });
     assert.equal(
       (await page.evaluate((id) => window.desktop.previews.describe(id), id)).kind,
       "image",
