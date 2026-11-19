@@ -207,21 +207,55 @@ const nativeRealpath = promisify(fs.realpath.native);
 type WatchEntry = { directory: string; name: string };
 type WalkResult = { watches: WatchEntry[]; missing: boolean } | { status: 403; reason: string };
 
+async function sameCanonicalDirectory(left: string, right: string): Promise<boolean> {
+  const [resolvedLeft, resolvedRight] = await Promise.all([
+    fs.promises.realpath(left),
+    fs.promises.realpath(right),
+  ]);
+  return resolvedLeft === resolvedRight;
+}
+
+async function posixLinkSuffix(
+  root: string,
+  rootSegments: string[],
+  segments: string[],
+): Promise<string[] | undefined> {
+  // A system path such as /var may point directly to a canonical ancestor.
+  // Inspect the link itself so a route through an unrelated directory cannot
+  // qualify just because it eventually resolves back to the preview root.
+  const mismatch = rootSegments.findIndex((name, index) => name !== segments[index]);
+  const name = segments[mismatch];
+  if (!name || name === "..") return undefined;
+  const alias = path.join(path.sep, ...segments.slice(0, mismatch + 1));
+  if (!(await statEntry(alias))?.isSymbolicLink()) return undefined;
+  const target = await fs.promises.readlink(alias);
+  if (pathSegments(target).includes("..")) return undefined;
+  const ancestor = path.resolve(path.dirname(alias), target);
+  if (ancestor === root || !inside(ancestor, root, path.sep)) return undefined;
+  const tail = rootSegments.slice(pathSegments(ancestor).filter(Boolean).length);
+  if (!tail.every((segment, index) => segment === segments[mismatch + 1 + index])) return undefined;
+  const depth = mismatch + 1 + tail.length;
+  const prefix = path.join(path.sep, ...segments.slice(0, depth));
+  if (await sameCanonicalDirectory(prefix, root)) return segments.slice(depth);
+  return undefined;
+}
+
 async function absoluteLinkPath(root: string, target: string): Promise<string[] | undefined> {
   const absolute =
     process.platform === "win32"
       ? target.replace(/^\\\\\?\\UNC\\/i, "\\\\").replace(/^\\\\\?\\/, "")
       : target;
   const segments = pathSegments(absolute).filter((name) => name !== "" && name !== ".");
-  const depth = pathSegments(root).filter(Boolean).length;
+  const rootSegments = pathSegments(root).filter(Boolean);
+  const depth = rootSegments.length;
   const prefixSegments = segments.slice(0, depth);
-  if (segments.length < depth || prefixSegments.includes("..")) return undefined;
   // Preserve the suffix's ".." components for the same walk used by relative
   // links. Resolving them here would skip directories and links on the route.
   const remaining = segments.slice(depth);
   const prefix = path.join(path.parse(absolute).root, ...prefixSegments);
-  if (root === prefix) return remaining;
-  if (process.platform !== "win32") return undefined;
+  if (root === prefix && !prefixSegments.includes("..")) return remaining;
+  if (process.platform !== "win32") return posixLinkSuffix(root, rootSegments, segments);
+  if (segments.length < depth || prefixSegments.includes("..")) return undefined;
 
   // Short Windows spellings change the name of a directory at the same depth.
   // Check the prefix itself even when the junction points straight to the root.
@@ -230,7 +264,7 @@ async function absoluteLinkPath(root: string, target: string): Promise<string[] 
     if (directory === path.dirname(directory)) break;
   }
   // A case-sensitive Windows directory may have a distinct case-variant sibling.
-  if ((await fs.promises.realpath(prefix)) === root) return remaining;
+  if (await sameCanonicalDirectory(prefix, root)) return remaining;
   return undefined;
 }
 

@@ -137,8 +137,10 @@ A symlink passed as an entry selects the target's root. The picker preserves a
 safe alias inside that root, even when the user reaches the checkout through an
 alternate spelling or the alias points back to the root. Aliases that leave the
 root or pass through Git metadata use the canonical entry when it is readable
-under the same rules. Agent reuse uses the canonical entry. Main rechecks routes
-on every request, including after a symlink retarget.
+under the same rules. Absolute link targets may use a direct alias of a
+canonical ancestor, such as `/var` on macOS, when the prefix still resolves to
+the same preview root. Agent reuse uses the canonical entry. Main rechecks
+routes on every request, including after a symlink retarget.
 
 An HTML page's scripts can read readable non-hidden files under that root, including
 files unrelated to the entry. Resource routes under the root exclude Git metadata.

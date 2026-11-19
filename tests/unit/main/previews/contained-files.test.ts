@@ -8,6 +8,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
   canonicalRoot,
   type CanonicalRoot,
+  openDocument,
   openFlags,
   openInside,
   readInside,
@@ -986,6 +987,48 @@ test.runIf(links && process.platform === "linux")(
     );
     expect(await readInside(capturedCheckout, "/docs/page.html")).toMatchObject({ status: 200 });
     expect(await readInside(capturedCheckout, "/alias/page.html")).toEqual({
+      status: 403,
+      reason: "escape",
+    });
+  },
+);
+
+test.skipIf(!links || process.platform === "win32")(
+  "absolute preview links accept a symlinked temp ancestor such as macOS /var",
+  async () => {
+    const physical = path.join(base, "private", "var", "preview");
+    fs.mkdirSync(physical, { recursive: true });
+    fs.symlinkSync("private/var", path.join(base, "var"), "dir");
+    fs.writeFileSync(path.join(physical, "plain.html"), "<p>Preview</p>");
+    const temporary = path.join(base, "var", "preview");
+    fs.symlinkSync(path.join(temporary, "plain.html"), path.join(physical, "alias.html"));
+    fs.symlinkSync(path.join(temporary, "plain.html"), path.join(physical, "alias.png"));
+    const capturedPreview = canonicalRoot(temporary);
+    expect(capturedPreview.path).toBe(physical);
+    expect(await readInside(capturedPreview, "/alias.html")).toMatchObject({
+      status: 200,
+      body: Buffer.from("<p>Preview</p>"),
+    });
+    expect(await openDocument(capturedPreview, "/alias.png")).toEqual({
+      status: 400,
+      reason: "invalid-image",
+    });
+
+    fs.symlinkSync(`${temporary}/../preview/plain.html`, path.join(physical, "escape.html"));
+    expect(await readInside(capturedPreview, "/escape.html")).toEqual({
+      status: 403,
+      reason: "escape",
+    });
+
+    const bare = path.join(base, "metadata.git");
+    gitSync(["init", "-q", "--bare", bare], { cwd: base });
+    fs.symlinkSync(path.dirname(physical), path.join(bare, "var"), "dir");
+    fs.symlinkSync("metadata.git/var", path.join(base, "via-metadata"), "dir");
+    fs.symlinkSync(
+      path.join(base, "via-metadata", "preview", "plain.html"),
+      path.join(physical, "via-metadata.html"),
+    );
+    expect(await readInside(capturedPreview, "/via-metadata.html")).toEqual({
       status: 403,
       reason: "escape",
     });
