@@ -667,7 +667,7 @@ test("Forget removes an unavailable host session locally and recovers its live d
   const restored = await restart();
   // Observe every read before creating the superseded-read regression. Joining
   // only the current sidebar promise cannot drain a read invalidated by refresh.
-  await restored.app.evaluate(({ app }) => {
+  await restored.app.evaluate(({ app, BrowserWindow }) => {
     const load = process
       .getBuiltinModule("node:module")
       .createRequire(app.getAppPath() + "/package.json");
@@ -675,6 +675,9 @@ test("Forget removes an unavailable host session locally and recovers its live d
     const { Hosts } = load("./build/main/setup/hosts.js");
     const sidebar = Workspace.prototype.sidebarInventory;
     const inventory = Hosts.prototype.inventory;
+    const watched = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://bundle/index.html",
+    );
     const pending = new Set();
     const state = { held: false, armed: false, draining: false, drained: false };
     let workspace;
@@ -700,6 +703,7 @@ test("Forget removes an unavailable host session locally and recovers its live d
       return inventory.apply(this, args);
     };
     globalThis.forgetSidebar = {
+      boardFocused: () => watched.isFocused(),
       state,
       pending: () => pending.size,
       arm: () => {
@@ -765,7 +769,6 @@ test("Forget removes an unavailable host session locally and recovers its live d
   await settling;
   await restored.page.evaluate(() => window.forgetSupersededSidebar);
   assert.notEqual(await readFile(fixture.sshLog, "utf8"), beforeRelease);
-  await restored.app.evaluate(() => globalThis.forgetSidebar.restore());
   const before = await readFile(fixture.sshLog, "utf8");
   await dialog.getByRole("button", { name: "Forget", exact: true }).click();
   await expect
@@ -775,7 +778,14 @@ test("Forget removes an unavailable host session locally and recovers its live d
       ),
     )
     .toBe(false);
+  // Returning from the trusted dialog also focuses the board. Drain any
+  // inventory started by that native event before checking the SSH log.
+  await expect
+    .poll(() => restored.app.evaluate(() => globalThis.forgetSidebar.boardFocused()))
+    .toBe(true);
+  await restored.app.evaluate(() => globalThis.forgetSidebar.drain());
   assert.equal(await readFile(fixture.sshLog, "utf8"), before);
+  await restored.app.evaluate(() => globalThis.forgetSidebar.restore());
   const saved = JSON.parse(await readFile(path.join(profilePath, "sessions.json"), "utf8"));
   assert.ok(!JSON.stringify(saved).includes(id));
   await quitAndWait(restored.app, () => restored.app.evaluate(({ app }) => app.quit()));

@@ -301,7 +301,8 @@ export async function buildWindow(
   );
   window.on("focus", () => {
     // A trusted dialog can return focus to a crashed board during quit.
-    if (!window.webContents.isCrashed()) wiring.workspace.refresh();
+    if (!confirmations.consumeLocalFocusReturn() && !window.webContents.isCrashed())
+      wiring.workspace.refresh();
   });
   const windowScale = attachWindowScale(
     window,

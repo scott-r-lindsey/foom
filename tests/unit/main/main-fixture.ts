@@ -275,6 +275,7 @@ vi.mock("../../../src/main/confirmations/approvals", () => ({
 vi.mock("../../../src/main/confirmations/trusted-dialog", () => ({
   TrustedDialog: class {
     refresh = vi.fn();
+    consumeLocalFocusReturn = mock.confirmLocalFocusReturn;
     openApprovals = vi.fn();
     request: (content: unknown, signal?: AbortSignal) => Promise<boolean>;
     requestOutcome = async (content: unknown, signal?: AbortSignal): Promise<DialogOutcome> =>
@@ -699,6 +700,7 @@ const mock = vi.hoisted(() => {
     },
     confirmParent: vi.fn(),
     confirmSignal: vi.fn(),
+    confirmLocalFocusReturn: vi.fn(() => false),
     message: vi.fn<(content?: unknown) => Promise<{ response: number }>>(),
     errorBox: vi.fn(),
     openDialog: vi.fn<() => Promise<{ canceled: boolean; filePaths: string[] }>>(),
