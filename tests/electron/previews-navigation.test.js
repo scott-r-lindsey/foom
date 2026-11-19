@@ -3,7 +3,12 @@ const assert = require("node:assert/strict");
 const path = require("node:path");
 const { writeFile } = require("node:fs/promises");
 const { expect } = require("./test-policy.js");
-const { composedPreview, previewContents, previewViewState } = require("./preview-fixture.js");
+const {
+  composedPreview,
+  previewContents,
+  pollPreviewContents,
+  previewViewState,
+} = require("./preview-fixture.js");
 const { evidencePath } = require("../helpers/evidence.js");
 
 for (const kind of ["md", "html"]) {
@@ -22,9 +27,8 @@ for (const kind of ["md", "html"]) {
         ? `# Next chapter\n\n${link("Missing chapter", `missing.${kind}`)}`
         : `<h1>Next chapter</h1>${link("Missing chapter", `missing.${kind}`)}`,
     );
-    const text = () =>
-      previewContents(app, id, "document.body.textContent", { requireAttached: true });
-    const loaded = (value) => expect.poll(text).toContain(value);
+    const text = "document.body.textContent";
+    const loaded = (value) => pollPreviewContents(app, id, text).toContain(value);
     const clickLink = async (label) => {
       await previewContents(
         app,
@@ -35,7 +39,7 @@ for (const kind of ["md", "html"]) {
     await loaded("Original document");
     await expect(tile.getByRole("button", { name: "Back", exact: true })).toHaveCount(0);
     await previewContents(app, id, "window.scrollTo(0, 1200)");
-    await expect.poll(() => previewContents(app, id, "window.scrollY")).toBe(1200);
+    await pollPreviewContents(app, id, "window.scrollY").toBe(1200);
     await clickLink("Next chapter");
     await loaded("Next chapter");
     assert.equal(await previewContents(app, id, "window.scrollY"), 0);
@@ -45,7 +49,7 @@ for (const kind of ["md", "html"]) {
     await expect(forward).toBeDisabled();
     await back.click();
     await loaded("Original document");
-    await expect.poll(() => previewContents(app, id, "window.scrollY")).toBe(1200);
+    await pollPreviewContents(app, id, "window.scrollY").toBe(1200);
     await expect(back).toBeDisabled();
     await forward.click();
     await loaded("Next chapter");
@@ -53,7 +57,7 @@ for (const kind of ["md", "html"]) {
     await loaded("Next chapter");
     await clickLink("Missing chapter");
     await loaded("File not found. Waiting for it to appear.");
-    assert.ok((await text()).includes(`missing.${kind}`));
+    assert.ok((await previewContents(app, id, text)).includes(`missing.${kind}`));
     await expect(back).toBeEnabled();
     await expect(forward).toBeDisabled();
     if (process.env.FOOM_SCREENSHOTS === "1") {
@@ -80,11 +84,11 @@ for (const kind of ["md", "html"]) {
         }, id);
         await loaded("File not found");
         await page.evaluate(() => window.previewScreenshotReady);
-        await expect
-          .poll(() =>
-            previewContents(app, id, "matchMedia('(prefers-color-scheme: dark)').matches"),
-          )
-          .toBe(theme === "dark");
+        await pollPreviewContents(
+          app,
+          id,
+          "matchMedia('(prefers-color-scheme: dark)').matches",
+        ).toBe(theme === "dark");
         await previewContents(
           app,
           id,
@@ -178,22 +182,21 @@ test("preview history restores raster image mode and pan, and revalidates image 
       .png()
       .toBuffer();
   const pixels = await png(1600, 1200);
-  const read = (code) => previewContents(app, id, code, { requireAttached: true });
+  const read = (code) => previewContents(app, id, code);
+  const poll = (code) => pollPreviewContents(app, id, code);
   const expectGallery = async () => {
-    await expect
-      .poll(() => read('document.querySelector("img[alt=Sample]")?.naturalWidth'))
-      .toBe(23);
+    await poll('document.querySelector("img[alt=Sample]")?.naturalWidth').toBe(23);
   };
   const expectImage = async () => {
-    await expect.poll(() => read('document.querySelector("main img")?.naturalWidth')).toBe(1600);
+    await poll('document.querySelector("main img")?.naturalWidth').toBe(1600);
     assert.equal(await read("document.scripts.length"), 0);
     assert.equal(
       await read('document.querySelector("img").src.startsWith("data:image/png;")'),
       true,
     );
   };
-  const mode = () => read('document.querySelector("header a:target")?.textContent ?? "Fit"');
-  const scroll = () => read("[window.scrollX, window.scrollY]");
+  const mode = 'document.querySelector("header a:target")?.textContent ?? "Fit"';
+  const scroll = "[window.scrollX, window.scrollY]";
   await writeFile(image, pixels);
   await writeFile(path.join(root, "thumbnail.png"), await png(23, 11));
   await expectGallery();
@@ -203,33 +206,33 @@ test("preview history restores raster image mode and pan, and revalidates image 
   const forward = tile.getByRole("button", { name: "Forward", exact: true });
   await expect(back).toBeEnabled();
   await expect(forward).toBeDisabled();
-  assert.equal(await mode(), "Fit");
+  assert.equal(await read(mode), "Fit");
   await read('document.querySelector("#foom-actual-size").click()');
-  await expect.poll(mode).toBe("Actual size");
+  await poll(mode).toBe("Actual size");
   await read("window.scrollTo(150, 200)");
-  await expect.poll(scroll).toEqual([150, 200]);
+  await poll(scroll).toEqual([150, 200]);
   await back.click();
   await expectGallery();
   await expect(back).toBeDisabled();
   await forward.click();
   await expectImage();
-  assert.equal(await mode(), "Actual size");
-  assert.deepEqual(await scroll(), [150, 200]);
+  assert.equal(await read(mode), "Actual size");
+  assert.deepEqual(await read(scroll), [150, 200]);
 
   await read('document.querySelector("#fit").click()');
-  await expect.poll(mode).toBe("Fit");
+  await poll(mode).toBe("Fit");
   for (const replacement of [pixels.subarray(0, 16), await png(4001, 4000)]) {
     await back.click();
     await expectGallery();
     await expect(forward).toBeEnabled();
     await writeFile(image, replacement);
     await forward.click();
-    await expect
-      .poll(() => read("document.body.textContent"))
-      .toBe("Invalid or oversized image. PNG, JPEG and WebP only (16 MiB, 16 million pixels).");
+    await poll("document.body.textContent").toBe(
+      "Invalid or oversized image. PNG, JPEG and WebP only (16 MiB, 16 million pixels).",
+    );
     await expect(back).toBeEnabled();
     await writeFile(image, pixels);
     await expectImage();
-    assert.equal(await mode(), "Fit");
+    assert.equal(await read(mode), "Fit");
   }
 });

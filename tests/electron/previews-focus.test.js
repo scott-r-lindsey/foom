@@ -8,6 +8,7 @@ const { withPreviewFocusTrace } = require("./preview-focus-trace.js");
 const {
   pickPreviewFile,
   previewContents,
+  pollPreviewContents,
   previewViewState,
   typeIntoFocusedContents,
   composedPreview,
@@ -127,7 +128,9 @@ test("preview host loads and reloads detached, never steals terminal keystrokes,
   await expect.poll(() => app.evaluate(() => globalThis.previewGateRequested)).toBe(true);
   assert.equal((await previewViewState(app, id)).attached, false);
 
-  await expect.poll(() => previewContents(app, id, "window.attempts")).toBeGreaterThan(0);
+  await pollPreviewContents(app, id, "window.attempts", { requireAttached: false }).toBeGreaterThan(
+    0,
+  );
   const keys = "a".repeat(100);
   await typeIntoFocusedContents(app, keys);
   await expect
@@ -155,7 +158,7 @@ test("preview host loads and reloads detached, never steals terminal keystrokes,
   }, id);
   await expect.poll(async () => (await previewViewState(app, id)).focused).toBe(true);
   await typeIntoFocusedContents(app, "human");
-  await expect.poll(() => previewContents(app, id, "window.stolen")).toBe("human");
+  await pollPreviewContents(app, id, "window.stolen").toBe("human");
   // Return native focus to the board first, then the terminal input inside it. macOS
   // moves native focus asynchronously, and the page may not restore its own focus.
   await app.evaluate(({ BrowserWindow }) => {
@@ -283,7 +286,7 @@ test("preview host keeps keyboard focus after a user-clicked link navigation", a
       'window.received=""; addEventListener("keydown", event => { window.received+=event.key; });',
     );
     await typeIntoFocusedContents(app, "preview");
-    await expect.poll(() => previewContents(app, id, "window.received")).toBe("preview");
+    await pollPreviewContents(app, id, "window.received").toBe("preview");
     assert.deepEqual(await input(), Buffer.alloc(0));
     // A deliberate terminal click during another handoff restores ordinary input.
     await app.evaluate(({ webContents }, id) => {
@@ -438,7 +441,7 @@ test("preview focused native input reaches board shortcuts including the tile le
   }, id);
   await expect.poll(async () => (await previewViewState(app, id)).focused).toBe(true);
   await typeIntoFocusedContents(app, "x");
-  await expect.poll(() => previewContents(app, id, "window.keys")).toEqual(["x"]);
+  await pollPreviewContents(app, id, "window.keys").toEqual(["x"]);
   const send = async (keyCode, modifiers) =>
     app.evaluate(
       ({ webContents }, { keyCode, modifiers }) => {
