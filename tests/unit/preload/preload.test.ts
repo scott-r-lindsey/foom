@@ -1713,7 +1713,17 @@ test("preflight bridge validates and rebuilds every partial observation", async 
   await expect(
     api.hosts({ action: "preflight", host: "worker", codeFolder: "~/code" }),
   ).resolves.toEqual(value);
+  const legacy = { ...value.preflight, sshRevision: undefined };
+  const saved = { ...value.hosts[0], observation: { checkedAt: 1, preflight: legacy } };
+  mock.invoke.mockResolvedValue({ hosts: [saved], locations: [] });
+  await expect(api.hosts({ action: "list" })).resolves.toMatchObject({ hosts: [saved] });
+  mock.invoke.mockResolvedValue({
+    hosts: [{ ...saved, checklist: { preflight: legacy } }],
+    locations: [],
+  });
+  await expect(api.hosts({ action: "list" })).rejects.toThrow();
   for (const bad of [
+    legacy,
     { ...value.preflight, ssh: { state: "raw" } },
     { ...value.preflight, sshRevision: -1 },
     { ...value.preflight, artifact: { state: "fail", reason: "secret" } },

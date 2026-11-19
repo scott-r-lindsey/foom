@@ -581,16 +581,17 @@ const validHostResult: Validator<HostResult> = either(
     ),
   }),
 );
-const validHostPreflight = shape({
+const hostPreflightFields = {
   ssh: validHostCheck,
-  sshRevision: either(absent, count),
   platform: validHostCheck,
   artifact: validHostCheck,
   result: validHostResult,
   repositories: array(
     shape({ repository: text, origin: validHostCheck, checkout: validHostResult }),
   ),
-});
+};
+const validHostPreflight = shape({ ...hostPreflightFields, sshRevision: either(absent, count) });
+const validLiveHostPreflight = shape({ ...hostPreflightFields, sshRevision: count });
 const validHostObservation = shape({
   lastAgents: either(
     absent,
@@ -746,7 +747,7 @@ const validHostsState: Validator<HostsState> = shape({
       }),
     ),
   ),
-  preflight: either(absent, validHostPreflight),
+  preflight: either(absent, validLiveHostPreflight),
   preflightSaveFailed: either(absent, literal(true)),
   recipeSession: either(absent, (value): value is string => nonempty(value) && value.length <= 200),
   recipeFailure: either(absent, literal("recipe-unavailable")),
@@ -756,6 +757,10 @@ const validHostsState: Validator<HostsState> = shape({
       nickname: either(absent, hostNickname),
       codeFolder: hostRequestedFolder,
       observation: either(absent, validHostObservation),
+      checklist: either(
+        absent,
+        shape({ preflight: validLiveHostPreflight, saveFailed: either(absent, literal(true)) }),
+      ),
       rowFailures: either(
         absent,
         array(

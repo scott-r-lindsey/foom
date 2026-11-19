@@ -54,10 +54,14 @@ export interface HostConnectionChecks {
   artifact: HostCheck;
 }
 export interface HostPreflight extends HostConnectionChecks {
-  /** Main-assigned order of the SSH check, independent of Last checked. */
+  /** Absent in legacy saved checklists. */
   sshRevision?: number;
   result: HostResult;
   repositories: readonly { repository: string; origin: HostCheck; checkout: HostResult }[];
+}
+export interface LiveHostChecklist {
+  preflight: HostPreflight & { sshRevision: number };
+  saveFailed?: true;
 }
 export interface HostObservation {
   lastAgents?: { checkedAt: number; result: HostResult };
@@ -173,6 +177,7 @@ export type HostKeyTrustFailure =
   | "trust-unavailable";
 
 export interface HostRow extends RegisteredHost {
+  checklist?: LiveHostChecklist;
   hostKeyTrustFailure?: HostKeyTrustFailure;
   /** Failure from the latest explicit facts refresh. */
   factsRefreshFailure?: HostFailure;

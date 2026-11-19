@@ -611,9 +611,9 @@ including session and worktree inventory. Returning after an explicit foreground
 recipe refreshes only its affected rows as described under [refresh scope](#checklist-refresh-scope-1061). Each host's Check capabilities runs the
 full preflight, repositories and session/worktree inventory, saving a Last checked
 timestamp and the closed observations in its profile registration. If saving
-the checklist fails, the card shows the completed checks and Settings reports
-the write failure. A completed SSH check supersedes an older SSH row reload
-error even if saving the checklist fails. Never-checked hosts say Not checked.
+the checklist fails, main publishes the completed checks and the save failure to
+every open Hosts view. A completed SSH check supersedes older SSH row errors
+even if saving the checklist fails. Never-checked hosts say Not checked.
 Saved observations contain no secrets, terminal output, session identities or
 worktree authority; removal deletes them. They remain
 visible across restarts even when stale and never populate authorization caches.
@@ -738,8 +738,9 @@ hosts remain visible, and failed profile writes show Unable to save in the affec
 row's existing failure state. Known row results are retained for persistence-only
 retry without another remote inspection; one row's failure never blocks another.
 An explicit row reload invalidates that target's older queued observation before
-checking it. If saving the reload fails, reopening Hosts inspects that row again
-rather than persisting the superseded result.
+checking it. If saving an SSH observation fails, main publishes the observed
+result with its save failure and retries that save only while the observation
+is current. Other explicit reloads retain their existing row recheck on reopen.
 Recipes on the same host merge and deduplicate pending targets, including recipes
 launched from already-open Hosts views in different windows.
 A refused replacement folder leaves the registered
@@ -756,9 +757,9 @@ sign-in and origin checks can contact the network. Read-only partial inspection
 accepts a closed `target` selector. Hello advertises `hostRowCheck: 1`; compatible
 older daemons without it refuse scoped inspection and folder creation with `facts-unavailable`,
 without falling back to a full check. Scoped results update saved presentation
-without granting launch authority or advancing the full-check timestamp. Transient
-checklists are replaced or cleared by each newer action reply; they never mask
-newer live folder state.
+without granting launch authority or advancing the full-check timestamp. Main
+applies scoped folder and other row updates independently of the current SSH
+revision, including on an unsaved checklist.
 Scoped reload replies do not publish a broad board inventory refresh. Folder and
 clone replies may seed the sidebar's location view from the action's own observations
 only when every registered host/repository pair is represented, including the acting
@@ -771,10 +772,11 @@ A partial seed never stands in for the full location inventory. Scoped
 observations may update only the corresponding fields of an existing live
 inventory, without renewing its freshness; saved observations never populate it.
 Resource refresh replies remain separate from the launch inventory when no live
-inventory exists or a full read is pending. Main assigns an increasing revision
-to each checklist observation of SSH independently of Last checked. Settings
-uses the newest checklist even when it came from another window or could not be
-saved. Refresh facts preserves this ordering. A resource refresh failure
+inventory exists or a full read is pending. Main owns the latest SSH checklist
+observation per host and advances its revision independently of Last checked.
+Profile writes and pending retries drop superseded SSH results. Preload requires
+a revision on live checklist replies and accepts older saved profiles without
+one. Refresh facts preserves the checklist. A resource refresh failure
 appears under Host facts, including when the checklist shows the same reason.
 Refresh facts inspects resources before reading session and worktree
 inventories. If scoped facts require a daemon

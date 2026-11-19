@@ -209,6 +209,7 @@ const agentNames = new Map<string, string>([
 ]);
 function Checklist({
   awaitingTrust,
+  ssh,
   entry,
   preflight,
   checking,
@@ -225,6 +226,7 @@ function Checklist({
   ghPanel?: ReactNode;
   ghRunning?: boolean;
   awaitingTrust: boolean;
+  ssh: HostCheck | undefined;
   copySsh: () => Promise<unknown>;
   openAgents?: ((host: string) => void) | undefined;
   enabledAgents?: Readonly<Record<string, boolean>> | undefined;
@@ -247,8 +249,8 @@ function Checklist({
   const unmatchedFailure =
     result &&
     !result.ok &&
-    !(result.reason === "unreachable" && connection?.ssh.state === "fail") &&
-    ![connection?.ssh, connection?.platform, connection?.artifact].some(
+    !(result.reason === "unreachable" && ssh?.state === "fail") &&
+    ![ssh, connection?.platform, connection?.artifact].some(
       (check) => check?.state === "fail" && check.reason === result.reason,
     )
       ? result.reason
@@ -260,7 +262,7 @@ function Checklist({
   const folder = folderFailure
     ? { state: "fail" as const, reason: unmatchedFailure }
     : facts?.folder;
-  const sshStatus = checkPresentation(connection?.ssh, "Host key trusted");
+  const sshStatus = checkPresentation(ssh, "Host key trusted");
   const trustFailure =
     entry.hostKeyTrustFailure && "Unable to trust host key · " + entry.hostKeyTrustFailure;
   const daemon =
@@ -392,7 +394,7 @@ function Checklist({
           )
         }
         action={
-          connection?.ssh.state === "fail" && connection.ssh.reason === "host-key-unknown" ? (
+          ssh?.state === "fail" && ssh.reason === "host-key-unknown" ? (
             entry.hostKeyTrust === "askpass" ? (
               <button
                 className="primary"
@@ -692,17 +694,16 @@ export function HostsSettings({
     () => new Map<string, HostPreflight>(),
   );
   const rememberChecklist = useCallback(
-    (host: string, preflight: HostPreflight | undefined, removed = false) => {
+    (host: string, preflight: HostPreflight | undefined) => {
+      if (source.views) return;
       setChecks((previous) => {
-        if (!removed && (preflight?.sshRevision ?? 0) < (previous.get(host)?.sshRevision ?? 0))
-          return previous;
         const updated = new Map(previous);
         if (preflight) updated.set(host, preflight);
         else updated.delete(host);
         return updated;
       });
     },
-    [],
+    [source.views],
   );
   const [adding, setAdding] = useState(false);
   const [host, setHost] = useState("");
@@ -775,10 +776,7 @@ export function HostsSettings({
       await api?.({ action: "list" })
         .then((next) => {
           setState(next);
-          setChecks(
-            (previous) =>
-              new Map([...previous].filter(([, check]) => check.sshRevision !== undefined)),
-          );
+          setChecks(new Map());
         })
         .catch(() => {
           setError("Unable to refresh tool");
@@ -966,7 +964,7 @@ export function HostsSettings({
         const observed =
           next.preflight ??
           next.hosts.find((entry) => entry.host === action.host)?.observation?.preflight;
-        rememberChecklist(action.host, observed, action.action === "remove");
+        rememberChecklist(action.host, observed);
       }
       if (action.action === "add") {
         const entry = next.hosts.find((entry) => entry.host === action.host);
@@ -978,7 +976,7 @@ export function HostsSettings({
           }
         }
       }
-      if (next?.preflightSaveFailed) setError("Unable to update hosts");
+      if (next?.preflightSaveFailed && !source.views) setError("Unable to update hosts");
     } catch {
       if (enrolling) setAddError("Unable to add host");
       else setError("Unable to update hosts");
@@ -1019,6 +1017,9 @@ export function HostsSettings({
       });
     }
   };
+  const hostError =
+    error ||
+    (state.hosts.some((entry) => entry.checklist?.saveFailed) ? "Unable to update hosts" : "");
   return (
     <div className="hosts-page">
       <header className="hosts-heading">
@@ -1039,9 +1040,9 @@ export function HostsSettings({
         )}
       </header>
       {state.remoteHostsAvailable === false && <p>This build has no remote host support</p>}
-      {!!(error || hostsQuery.isError) && (
-        <p role="alert" className={typeof error === "string" ? "hosts-failure" : undefined}>
-          {error || "Unable to load hosts"}
+      {!!(hostError || hostsQuery.isError) && (
+        <p role="alert" className={typeof hostError === "string" ? "hosts-failure" : undefined}>
+          {hostError || "Unable to load hosts"}
         </p>
       )}
       {adding && (
@@ -1140,12 +1141,8 @@ export function HostsSettings({
       )}
       {state.hosts.map((entry) => {
         const recipe = recipes.get(entry.host);
-        const local = checks.get(entry.host);
-        const saved = entry.observation?.preflight;
         const latest =
-          saved?.sshRevision !== undefined && saved.sshRevision >= (local?.sshRevision ?? 0)
-            ? saved
-            : (local ?? saved);
+          entry.checklist?.preflight ?? checks.get(entry.host) ?? entry.observation?.preflight;
         const sshRevision = latest?.sshRevision ?? 0;
         const preflight = buildPreflight(latest, state.remoteHostsAvailable);
         const hostProgress = progress?.find((item) => item.host === entry.host);
@@ -1155,11 +1152,8 @@ export function HostsSettings({
               ? [{ repository, path: result.checkout.path }]
               : [],
         );
-        const connection = hostProgress?.result
-          ? hostProgress.result.connection
-          : (preflight ?? entry.result?.connection);
-        const awaitingTrust =
-          connection?.ssh.state === "fail" && connection.ssh.reason === "host-key-unknown";
+        const ssh = preflight?.ssh ?? (source.views ? undefined : entry.result?.connection?.ssh);
+        const awaitingTrust = ssh?.state === "fail" && ssh.reason === "host-key-unknown";
         const summary = hostSummary(preflight);
         const distro = entry.result?.ok ? entry.result.facts.requirements?.distro : undefined;
         const os = distro === "darwin" ? "macOS" : distro;
@@ -1322,6 +1316,7 @@ export function HostsSettings({
                     ) : undefined
                   }
                   awaitingTrust={awaitingTrust}
+                  ssh={ssh}
                   copySsh={() =>
                     source.copyHost?.({ kind: "copy-host-ssh-command", host: entry.host }) ??
                     Promise.reject(new Error("Copy unavailable"))

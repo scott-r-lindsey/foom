@@ -81,7 +81,7 @@ async function hostsFixture(
   context,
   captureEnrollment = false,
   initialScenario = {},
-  { trackSidebar = false } = {},
+  { trackSidebar = false, failFirstChecklistSave = false } = {},
 ) {
   const root = await mkdtemp(path.join(tmpdir(), "hosts-settings-"));
   removeAfterApps(context, root);
@@ -284,6 +284,22 @@ process.stdin.on('data', bytes => {
     { mode: 0o700 },
   );
   const app = await launchApp(context, { fixture: "repository", env: { PATH: bin } });
+  if (failFirstChecklistSave) {
+    await app.evaluate(({ app }) => {
+      const load = process
+        .getBuiltinModule("node:module")
+        .createRequire(app.getAppPath() + "/package.json");
+      const { SettingsStore } = load("./build/main/setup/settings.js");
+      const update = SettingsStore.prototype.update;
+      SettingsStore.prototype.update = function (patch) {
+        if (patch.registeredHosts?.some((host) => host.observation)) {
+          SettingsStore.prototype.update = update;
+          return Promise.reject(new Error("Fixture refused the first checklist write"));
+        }
+        return update.call(this, patch);
+      };
+    });
+  }
   if (trackSidebar) {
     // Observe real work, including reads superseded by a later invalidation.
     await app.evaluate(({ app }) => {
@@ -2512,8 +2528,13 @@ test("Hosts shows a changed SSH key when saving the checklist fails", {
   try {
     await chmod(profile, 0o555);
     await ssh.getByRole("button", { name: "Reload SSH", exact: true }).click();
-    await expect(ssh.getByText("Unable to check", { exact: true })).toBeVisible();
-    await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
+    await expect(page.getByText("Unable to update hosts", { exact: true })).toBeVisible();
+    await expect(ssh.getByText("Host key changed", { exact: true })).toBeVisible();
+    assert.deepEqual(await savedObservation(), saved);
+    await page.evaluate(() => window.desktop.hosts({ action: "list" }));
+    const check = card.getByRole("button", { name: "Check capabilities", exact: true });
+    await check.click();
+    await expect(check).toBeEnabled();
     await expect(page.getByText("Unable to update hosts", { exact: true })).toBeVisible();
     await expect(ssh.getByText("Host key changed", { exact: true })).toBeVisible();
     await expect(ssh.getByText("Pass · Host key trusted", { exact: true })).toHaveCount(0);
@@ -2578,13 +2599,25 @@ test("Hosts orders SSH checks across two open Settings windows", {
   await expect(panel.getByText("Host key changed", { exact: true })).toBeVisible();
   await expect(ssh(card).getByText("Host key changed", { exact: true })).toBeVisible();
 
+  await updateScenario({});
+  await check(otherCard).click();
+  await expect(ssh(card).getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
+  const trustedAt = await checkedAt(otherCard);
   const profile = await app.evaluate(({ app }) => app.getPath("userData"));
   try {
     await chmod(profile, 0o555);
+    await updateScenario({ sshFailure: "changed" });
     await check(card).click();
     await expect(page.getByText("Unable to update hosts", { exact: true })).toBeVisible();
     await expect(ssh(card).getByText("Host key changed", { exact: true })).toBeVisible();
-    await expect(card.locator(".host-footer time")).toHaveAttribute("datetime", changedAt);
+    await expect(other.getByText("Unable to update hosts", { exact: true })).toBeVisible();
+    await expect(ssh(otherCard).getByText("Host key changed", { exact: true })).toBeVisible();
+    await expect(card.locator(".host-footer time")).toHaveAttribute("datetime", trustedAt);
+    await otherCard.getByText("Host facts", { exact: true }).click();
+    const otherFacts = otherCard.locator(".host-details");
+    await otherFacts.getByRole("button", { name: "Refresh facts", exact: true }).click();
+    await expect(otherFacts.getByText("Host key changed", { exact: true })).toBeVisible();
+    await expect(ssh(otherCard).getByText("Host key changed", { exact: true })).toBeVisible();
   } finally {
     await chmod(profile, 0o700);
   }
@@ -2597,6 +2630,128 @@ test("Hosts orders SSH checks across two open Settings windows", {
   await refresh.click();
   await expect(panel.getByText("CPU cores", { exact: true })).toBeVisible();
   await expect(ssh(card).getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
+});
+
+test("Hosts reloads the folder row after the first checklist write fails", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { page, card, updateScenario } = await hostsFixture(
+    context,
+    false,
+    {},
+    {
+      failFirstChecklistSave: true,
+    },
+  );
+  await expect(page.getByText("Unable to update hosts", { exact: true })).toBeVisible();
+  const reload = card.getByRole("button", { name: "Reload Code folder", exact: true });
+  const folder = card.locator(".host-check-row").filter({
+    has: page.getByRole("button", { name: "Reload Code folder", exact: true }),
+  });
+  await expect(folder.getByText("Pass · Valid", { exact: true })).toBeVisible();
+  await updateScenario({ facts: { folder: { state: "fail", reason: "folder-missing" } } });
+  await reload.click();
+  await expect(folder.getByText("Code folder does not exist", { exact: true })).toBeVisible();
+  await expect(card.getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
+  await expect(card.locator(".host-footer time")).toHaveCount(0);
+});
+
+test("Hosts list cannot save an older SSH retry over a pending changed-key check", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, updateScenario } = await hostsFixture(context);
+  const profile = await app.evaluate(({ app }) => app.getPath("userData"));
+  const before = await page.evaluate(async () => {
+    const state = await window.desktop.setupState();
+    return state.settings.registeredHosts[0].observation;
+  });
+  try {
+    await chmod(profile, 0o555);
+    await card.getByRole("button", { name: "Reload SSH", exact: true }).click();
+    await expect(page.getByText("Unable to update hosts", { exact: true })).toBeVisible();
+    await expect(card.getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
+  } finally {
+    await chmod(profile, 0o700);
+  }
+
+  await app.evaluate(({ app }) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { SettingsStore } = load("./build/main/setup/settings.js");
+    const update = SettingsStore.prototype.update;
+    SettingsStore.prototype.update = async function (patch) {
+      if (
+        patch.registeredHosts?.some(
+          (host) => host.observation?.preflight.ssh.reason === "host-key-changed",
+        )
+      ) {
+        SettingsStore.prototype.update = update;
+        await new Promise((resolve) => {
+          globalThis.releaseFixtureSshWrite = resolve;
+        });
+      }
+      return update.call(this, patch);
+    };
+  });
+  await updateScenario({ sshFailure: "changed" });
+  await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
+  try {
+    await expect.poll(() => app.evaluate(() => !!globalThis.releaseFixtureSshWrite)).toBe(true);
+    const listed = await page.evaluate(() => window.desktop.hosts({ action: "list" }));
+    assert.deepEqual(listed.hosts[0].observation, before);
+    assert.deepEqual(listed.hosts[0].checklist.preflight.ssh, {
+      state: "fail",
+      reason: "host-key-changed",
+    });
+    assert.equal(listed.hosts[0].rowFailures, undefined);
+    await expect(card.getByText("Host key changed", { exact: true })).toBeVisible();
+  } finally {
+    await app.evaluate(() => globalThis.releaseFixtureSshWrite?.());
+  }
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const state = await window.desktop.setupState();
+        return state.settings.registeredHosts[0].observation.preflight.ssh;
+      }),
+    )
+    .toEqual({ state: "fail", reason: "host-key-changed" });
+});
+
+test("Hosts preload rejects an unversioned live SSH pass", {
+  timeout: deadline(60000),
+}, async (context) => {
+  const app = await launchApp(context, { fixture: "repository" });
+  const page = await boardPage(app);
+  await app.evaluate(({ ipcMain }) => {
+    const preflight = {
+      ssh: { state: "pass" },
+      platform: { state: "not-checked" },
+      artifact: { state: "fail", reason: "artifact-unavailable" },
+      result: { ok: false, reason: "artifact-unavailable" },
+      repositories: [],
+    };
+    const state = {
+      hosts: [{ host: "worker", codeFolder: "/code", observation: { checkedAt: 1, preflight } }],
+      locations: [],
+    };
+    ipcMain.removeHandler("setup:hosts");
+    ipcMain.handle("setup:hosts", (_event, input) =>
+      input.action === "preflight" ? { ...state, preflight } : state,
+    );
+  });
+  const listed = await page.evaluate(() => window.desktop.hosts({ action: "list" }));
+  assert.equal(listed.hosts[0].observation.preflight.ssh.state, "pass");
+  await assert.rejects(
+    () =>
+      page.evaluate(() =>
+        window.desktop.hosts({ action: "preflight", host: "worker", codeFolder: "/code" }),
+      ),
+    /Invalid setup:hosts response/u,
+  );
 });
 
 test("Hosts preserves a changed SSH key warning when a queued trust attempt is refused", {

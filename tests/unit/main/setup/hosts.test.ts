@@ -594,12 +594,131 @@ test("refresh updates both inventories when scoped facts require a daemon update
   ]);
 });
 
-test("a failed checklist write returns the actual SSH result and retains the saved observation", async () => {
+test.each(["preflight", "reload"] as const)(
+  "a failed %s write publishes the actual SSH result and retains the saved observation",
+  async (action) => {
+    settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+    const check = { action: "preflight", host: "worker", codeFolder: facts.codeFolder } as const;
+    await hosts.action(check);
+    const saved = settings.registeredHosts[0]?.observation;
+    expect(saved?.preflight.ssh.state).toBe("pass");
+    run.mockResolvedValueOnce({
+      ok: false,
+      reason: "host-key-changed",
+      connection: {
+        ssh: { state: "fail", reason: "host-key-changed" },
+        platform: { state: "not-checked" },
+        artifact: { state: "not-checked" },
+      },
+    });
+    store.update.mockRejectedValueOnce(new Error("fixture settings write failure"));
+
+    const checked = await hosts.action(
+      action === "preflight"
+        ? check
+        : {
+            action: "reload",
+            host: "worker",
+            target: { kind: "ssh" },
+          },
+    );
+    if (action === "preflight") expect(checked.preflightSaveFailed).toBe(true);
+    expect(checked.preflight?.ssh).toEqual({ state: "fail", reason: "host-key-changed" });
+    expect(checked.preflight?.sshRevision).toBeGreaterThan(saved?.preflight.sshRevision ?? 0);
+    expect(checked.hosts[0]?.observation).toEqual(saved);
+    expect(settings.registeredHosts[0]?.observation).toEqual(saved);
+    expect(hosts.state(undefined, true, true).hosts[0]).toMatchObject({
+      observation: saved,
+      checklist: { preflight: checked.preflight, saveFailed: true },
+    });
+    expect(checked.hosts[0]?.rowFailures).toBeUndefined();
+    const refreshed = await hosts.action({ action: "refresh", host: "worker" });
+    expect(refreshed.hosts[0]?.checklist).toEqual(checked.hosts[0]?.checklist);
+
+    const recovered = await hosts.action({
+      action: "reload",
+      host: "worker",
+      target: { kind: "ssh" },
+    });
+    expect(recovered.preflight?.ssh).toEqual({ state: "pass" });
+    expect(recovered.preflight?.sshRevision).toBeGreaterThan(checked.preflight?.sshRevision ?? 0);
+    expect(recovered.hosts[0]?.observation?.preflight.sshRevision).toBe(
+      recovered.preflight?.sshRevision,
+    );
+    expect(recovered.hosts[0]?.observation?.checkedAt).toBe(saved?.checkedAt);
+    expect(recovered.hosts[0]?.checklist?.saveFailed).toBeUndefined();
+  },
+);
+
+test("list drops an older SSH retry while a newer changed key is being saved", async () => {
+  repositories = [];
   settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
   const check = { action: "preflight", host: "worker", codeFolder: facts.codeFolder } as const;
   await hosts.action(check);
-  const saved = settings.registeredHosts[0]?.observation;
-  expect(saved?.preflight.ssh.state).toBe("pass");
+  store.update.mockRejectedValueOnce(new Error("fixture SSH row write failed"));
+  const trusted = await hosts.action({ action: "reload", host: "worker", target: { kind: "ssh" } });
+  expect(trusted.hosts[0]?.checklist?.saveFailed).toBe(true);
+
+  const failed: HostResult = {
+    ok: false,
+    reason: "host-key-changed",
+    connection: {
+      ssh: { state: "fail", reason: "host-key-changed" },
+      platform: { state: "not-checked" },
+      artifact: { state: "not-checked" },
+    },
+  };
+  run.mockResolvedValueOnce(failed);
+  const writing = Promise.withResolvers<undefined>();
+  const release = Promise.withResolvers<undefined>();
+  store.update.mockImplementationOnce(async (patch) => {
+    writing.resolve(undefined);
+    await release.promise;
+    settings = { ...settings, ...patch };
+    return settings;
+  });
+  const checking = hosts.action(check);
+  await writing.promise;
+  const listing = hosts.action({ action: "list" });
+  const waiting = Symbol("waiting on the older retry");
+  const listed = await Promise.race([
+    listing,
+    new Promise<typeof waiting>((resolve) => setImmediate(resolve, waiting)),
+  ]);
+  release.resolve(undefined);
+  const checked = await checking;
+  await listing;
+  if (typeof listed === "symbol") throw new Error("List waited for the obsolete SSH write");
+  expect(listed.hosts[0]?.checklist?.preflight.ssh).toEqual(failed.connection?.ssh);
+  expect(listed.hosts[0]?.rowFailures).toBeUndefined();
+  const reopened = new Hosts(store, () => [], "0.1.0", run);
+  expect((await reopened.action({ action: "list" })).hosts[0]?.observation?.preflight).toEqual(
+    checked.preflight,
+  );
+});
+
+test("an SSH retry already in the profile write queue cannot save after a newer observation", async () => {
+  repositories = [];
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  const check = { action: "preflight", host: "worker", codeFolder: facts.codeFolder } as const;
+  await hosts.action(check);
+  store.update.mockRejectedValueOnce(new Error("fixture SSH row write failed"));
+  const old = await hosts.action({ action: "reload", host: "worker", target: { kind: "ssh" } });
+  expect(old.hosts[0]?.checklist?.saveFailed).toBe(true);
+  store.update.mockClear();
+
+  const writing = Promise.withResolvers<undefined>();
+  const release = Promise.withResolvers<undefined>();
+  store.update.mockImplementationOnce(async (patch) => {
+    writing.resolve(undefined);
+    await release.promise;
+    settings = { ...settings, ...patch };
+    return settings;
+  });
+  const renaming = hosts.action({ action: "rename", host: "worker", nickname: "Build host" });
+  await writing.promise;
+  const listing = hosts.action({ action: "list" });
+  await new Promise<void>((resolve) => setImmediate(resolve));
   run.mockResolvedValueOnce({
     ok: false,
     reason: "host-key-changed",
@@ -609,26 +728,97 @@ test("a failed checklist write returns the actual SSH result and retains the sav
       artifact: { state: "not-checked" },
     },
   });
-  store.update.mockRejectedValueOnce(new Error("fixture settings write failure"));
+  const checking = hosts.action(check);
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  const newest = hosts.state().hosts[0]?.checklist?.preflight;
+  release.resolve(undefined);
+  await Promise.all([renaming, listing, checking]);
 
-  const checked = await hosts.action(check);
-  expect(checked.preflightSaveFailed).toBe(true);
-  expect(checked.preflight?.ssh).toEqual({ state: "fail", reason: "host-key-changed" });
-  expect(checked.preflight?.sshRevision).toBeGreaterThan(saved?.preflight.sshRevision ?? 0);
-  expect(checked.hosts[0]?.observation).toEqual(saved);
-  expect(settings.registeredHosts[0]?.observation).toEqual(saved);
+  expect(newest?.ssh).toEqual({ state: "fail", reason: "host-key-changed" });
+  expect(
+    store.update.mock.calls.some(
+      ([patch]) =>
+        patch.registeredHosts?.[0]?.observation?.preflight.sshRevision ===
+        old.preflight?.sshRevision,
+    ),
+  ).toBe(false);
+  const reopened = new Hosts(store, () => [], "0.1.0", run);
+  expect(reopened.state(undefined, true).hosts[0]?.observation?.preflight).toEqual(newest);
+});
 
-  const recovered = await hosts.action({
+test("a folder reload updates the unsaved first checklist at the same SSH revision", async () => {
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  store.update.mockRejectedValueOnce(new Error("fixture first checklist write failed"));
+  const check = await hosts.action({
+    action: "preflight",
+    host: "worker",
+    codeFolder: facts.codeFolder,
+  });
+  run.mockResolvedValueOnce({ ok: false, reason: "folder-missing" });
+  const scoped = await hosts.action({
     action: "reload",
     host: "worker",
-    target: { kind: "ssh" },
+    target: { kind: "folder" },
   });
-  expect(recovered.preflight?.ssh).toEqual({ state: "pass" });
-  expect(recovered.preflight?.sshRevision).toBeGreaterThan(checked.preflight?.sshRevision ?? 0);
-  expect(recovered.hosts[0]?.observation?.preflight.sshRevision).toBe(
-    recovered.preflight?.sshRevision,
-  );
-  expect(recovered.hosts[0]?.observation?.checkedAt).toBe(saved?.checkedAt);
+  expect(scoped.preflight?.result).toMatchObject({
+    ok: true,
+    facts: { folder: { state: "fail", reason: "folder-missing" } },
+  });
+  expect(scoped.preflight?.sshRevision).toBe(check.preflight?.sshRevision);
+  expect(scoped.hosts[0]?.observation).toBeUndefined();
+  expect(hosts.state(undefined, true).hosts[0]?.checklist).toEqual({
+    preflight: scoped.preflight,
+    saveFailed: true,
+  });
+});
+
+test("a full check held on repository work cannot replace a newer SSH observation", async () => {
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  const check = { action: "preflight", host: "worker", codeFolder: facts.codeFolder } as const;
+  await hosts.action(check);
+  store.update.mockRejectedValueOnce(new Error("fixture folder write failed"));
+  await expect(
+    hosts.action({ action: "reload", host: "worker", target: { kind: "folder" } }),
+  ).rejects.toThrow("Unable to save host row");
+  const folderStarted = Promise.withResolvers<undefined>();
+  const folder = Promise.withResolvers<HostResult>();
+  const originStarted = Promise.withResolvers<undefined>();
+  const origin = Promise.withResolvers<HostResult>();
+  run.mockImplementation((_host, request) => {
+    if (request.operation === "inspect" && request.target?.kind === "folder") {
+      folderStarted.resolve(undefined);
+      return folder.promise;
+    }
+    if (request.operation === "origin") {
+      originStarted.resolve(undefined);
+      return origin.promise;
+    }
+    return Promise.resolve({ ok: true, facts });
+  });
+  const listing = hosts.action({ action: "list" });
+  await folderStarted.promise;
+  const checking = hosts.action(check);
+  await originStarted.promise;
+  const trusted = hosts.state().hosts[0]?.checklist?.preflight;
+  folder.resolve({
+    ok: false,
+    reason: "host-key-changed",
+    connection: {
+      ssh: { state: "fail", reason: "host-key-changed" },
+      platform: { state: "not-checked" },
+      artifact: { state: "not-checked" },
+    },
+  });
+  const changed = await listing;
+  origin.resolve({ ok: true, facts });
+  const checked = await checking;
+  const newest = changed.hosts[0]?.observation?.preflight;
+  expect(trusted?.ssh.state).toBe("pass");
+  expect(newest?.sshRevision).toBeGreaterThan(trusted?.sshRevision ?? 0);
+  expect(newest?.ssh).toEqual({ state: "fail", reason: "host-key-changed" });
+  expect(checked.preflight?.sshRevision).toBe(newest?.sshRevision);
+  expect(checked.preflight?.ssh).toEqual(newest?.ssh);
+  expect(settings.registeredHosts[0]?.observation?.preflight).toEqual(newest);
 });
 
 test("recovery placements are profile-owned, registered, and bound to the hashed host/path checkout key", async () => {
