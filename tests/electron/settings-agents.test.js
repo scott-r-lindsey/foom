@@ -14,6 +14,7 @@ const {
   confirmationPage,
   launchApp,
   openSettingsScreen,
+  quitAndWait,
   removeAfterApps,
   stopSession,
 } = require("./harness.js");
@@ -763,23 +764,23 @@ for (const route of ["app quit", "last board close"]) {
       boards.push(page, other);
     } else boards.push(await boardPage(app));
     await startSlowVendorInstaller(boards[0]);
-    await app.evaluate(({ app, BrowserWindow }, route) => {
-      if (route === "app quit") app.quit();
-      else
-        BrowserWindow.getAllWindows()
-          .find((window) => window.webContents.getURL() === "app://bundle/index.html")
-          .close();
-    }, route);
-    const dialog = await confirmationPage(app, /^Quit with /u);
-    for (const board of boards) await expect(stoppingDialog(board)).toHaveCount(0);
-    const closed = Promise.all(boards.map((board) => board.waitForEvent("close")));
-    await dialog.getByRole("button", { name: "Stop all and quit" }).click();
-    for (const board of boards)
-      await expect(stoppingDialog(board).getByRole("status")).toHaveText("Stopping…");
-    const staging = await stagingDuringCleanup(cleanup);
-    if (route === "app quit") await captureStopping(boards[0], "quit-stopping");
-    await closed;
-    await assert.rejects(access(staging), { code: "ENOENT" });
+    await quitAndWait(app, async () => {
+      await app.evaluate(({ app, BrowserWindow }, route) => {
+        if (route === "app quit") app.quit();
+        else
+          BrowserWindow.getAllWindows()
+            .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+            .close();
+      }, route);
+      const dialog = await confirmationPage(app, /^Quit with /u);
+      for (const board of boards) await expect(stoppingDialog(board)).toHaveCount(0);
+      await dialog.getByRole("button", { name: "Stop all and quit" }).click();
+      for (const board of boards)
+        await expect(stoppingDialog(board).getByRole("status")).toHaveText("Stopping…");
+      await stagingDuringCleanup(cleanup);
+      if (route === "app quit") await captureStopping(boards[0], "quit-stopping");
+    });
+    await assert.rejects(access(await readFile(cleanup, "utf8")), { code: "ENOENT" });
   });
 }
 
