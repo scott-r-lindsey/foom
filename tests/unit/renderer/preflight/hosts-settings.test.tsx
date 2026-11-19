@@ -97,6 +97,8 @@ async function mount(
   expandHosts();
   return { api, ...view };
 }
+const scrollIntoView = vi.fn();
+Element.prototype.scrollIntoView = scrollIntoView;
 afterEach(cleanup);
 test.each([false, true])(
   "live saved host controls wait for owner-held row retries (failed=%s)",
@@ -1028,6 +1030,7 @@ test.each([false, true])(
 );
 
 test("a pending origin probe keeps the same origin terminal attached and stoppable", async () => {
+  scrollIntoView.mockClear();
   const repository = "/local/project";
   const state = {
     ...preflight,
@@ -1106,6 +1109,7 @@ test("a pending origin probe keeps the same origin terminal attached and stoppab
   });
   expect(screen.getByRole("region", { name: "Origin host key terminal" })).toBe(terminal);
   expect(open).toHaveBeenCalledExactlyOnceWith("trust");
+  expect(scrollIntoView).toHaveBeenCalledExactlyOnceWith({ block: "nearest" });
   fireEvent.click(within(terminal).getByRole("button", { name: "Stop" }));
   await waitFor(() => {
     expect(stop).toHaveBeenCalledExactlyOnceWith("trust");

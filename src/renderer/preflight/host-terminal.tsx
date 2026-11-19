@@ -12,11 +12,13 @@ export function HostTerminal({
   activeLabel = "Installing…",
   collapseOnExit = false,
   showExitStatus = true,
+  reveal = false,
 }: {
   label?: string;
   activeLabel?: string;
   collapseOnExit?: boolean;
   showExitStatus?: boolean;
+  reveal?: boolean;
   id: string;
   source: NonNullable<SetupSource["hostTerminal"]>;
   finished: (id: string) => void | Promise<void>;
@@ -30,6 +32,10 @@ export function HostTerminal({
   const [dismissed, setDismissed] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [stopFailed, setStopFailed] = useState(false);
+  const panelRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (reveal) panelRef.current?.scrollIntoView({ block: "nearest" });
+  }, [reveal]);
   const mount = useCallback(
     (element: HTMLDivElement | null) => (element ? view.mount(element) : undefined),
     [view],
@@ -62,7 +68,12 @@ export function HostTerminal({
   useEffect(() => source.observe(id, observeExit), [source, id, observeExit]);
   if (dismissed || (exit.exited && !showExitStatus)) return null;
   return (
-    <section className="host-terminal" aria-label={label} aria-busy={visible && !ready}>
+    <section
+      ref={panelRef}
+      className="host-terminal"
+      aria-label={label}
+      aria-busy={visible && !ready}
+    >
       <header>
         <span
           role="status"

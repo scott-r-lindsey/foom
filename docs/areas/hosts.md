@@ -707,10 +707,10 @@ its Git access to origin row in Settings (#1260). The fixed command is ssh -T wi
 disabled, and the origin's account/host and optional port. HTTPS cannot select this
 action. Compatible older daemons must advertise originTrust=1; otherwise the
 launch refuses until the host daemon is updated. The user verifies the fingerprint
-and answers SSH; Foom never supplies an answer or accepts a key. The terminal
-stays attached during a capability check. The user can answer the prompt or use
-Stop while the check runs. On exit the terminal collapses and the card
-automatically rechecks that origin and checkout.
+and answers SSH; Foom never supplies an answer or accepts a key. Starting origin
+trust brings the terminal into view. It stays attached during a capability check.
+The user can answer the prompt or use Stop while the check runs. On exit the
+terminal collapses and the card automatically rechecks that origin and checkout.
 The Git access row shows the scoped check result. SSH may exit 1 after
 successful authentication, so its process exit status does not determine the
 trust outcome.

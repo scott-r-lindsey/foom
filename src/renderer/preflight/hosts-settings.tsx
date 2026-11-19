@@ -22,6 +22,7 @@ type RecipeView = {
   id: string;
   finished: boolean;
   repository?: string;
+  reveal?: true;
   gh?: "install" | "sign-in";
 };
 const originRecipeKey = (host: string, repository: string) => JSON.stringify([host, repository]);
@@ -819,7 +820,7 @@ export function HostsSettings({
     },
     [api, setState],
   );
-  const originPanel = (id: string) =>
+  const originPanel = (id: string, reveal = false) =>
     source.hostTerminal && (
       <HostTerminal
         key={id}
@@ -830,6 +831,7 @@ export function HostsSettings({
         activeLabel="Verify the fingerprint in SSH"
         collapseOnExit
         showExitStatus={false}
+        reveal={reveal}
       />
     );
   const refreshGithubTool = useCallback(
@@ -984,7 +986,9 @@ export function HostsSettings({
               host: action.host,
               id,
               finished: false,
-              ...(action.action === "trust-origin" ? { repository: action.repository } : {}),
+              ...(action.action === "trust-origin"
+                ? { repository: action.repository, reveal: true as const }
+                : {}),
               ...(action.action === "recipe" && action.tool === "gh"
                 ? {
                     gh:
@@ -1249,7 +1253,7 @@ export function HostsSettings({
               continue;
             originTerminals.set(origin.repository, {
               running: !origin.finished,
-              panel: originPanel(origin.id),
+              panel: originPanel(origin.id, origin.reveal),
             });
           }
         }

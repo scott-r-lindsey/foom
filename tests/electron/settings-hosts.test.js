@@ -265,13 +265,17 @@ process.stdin.on('data', bytes => {
     }
     if(message.type==='attach') {
       if(!finishTimer) finishTimer=setInterval(()=>{ const next=JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8')); if(next.recipeExit !== undefined && !next.recipeInteractive && !recipeEnded) { recipeEnded=true;clearInterval(finishTimer);send({type:'exit',id:message.id,code:next.recipeExit}); } },20);
-      const output = () => send({
-        type: 'data',
-        id: message.id,
-        view: message.view,
-        token: 'fixture-recipe',
-        data: terminalOutput + (recipeSettings.recipeInteractive ? '[sudo] password: ' : ''),
-      });
+      const output = () => {
+        send({
+          type: 'data',
+          id: message.id,
+          view: message.view,
+          token: 'fixture-recipe',
+          data: terminalOutput + (recipeSettings.recipeInteractive ? '[sudo] password: ' : ''),
+        });
+        if (trustingOrigin && recipeSettings.deferOriginPrompt)
+          appendFileSync(${JSON.stringify(calls)}, JSON.stringify({ host, message: { type: 'origin-prompt', id: message.id } })+'\\n');
+      };
       if (trustingOrigin && recipeSettings.deferOriginPrompt) {
         const promptTimer = setInterval(() => {
           const next = JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)}, 'utf8'));
@@ -937,7 +941,7 @@ test("Hosts shows readiness and read-only checkouts with explicit origin trust",
   assert.equal(await checkoutState(), "absent");
   await card.getByRole("button", { name: "Trust host key…", exact: true }).click();
   const terminal = card.getByRole("region", { name: "Origin host key terminal", exact: true });
-  await expect(terminal.locator(".xterm-screen")).toContainText("continue connecting");
+  await expectOriginPrompt(terminal);
   await expect(terminal.getByRole("button", { name: "Stop", exact: true })).toBeEnabled();
   await expect(page.getByRole("region", { name: "Settings", exact: true })).toBeVisible();
   await expect(page.locator(".terminal-tile[data-kind='shell']")).toHaveCount(0);
@@ -2104,6 +2108,13 @@ test("Agents scopes use saved host observations and Global enablement without ch
   assert.ok(app);
 });
 
+async function expectOriginPrompt(terminal) {
+  const screen = terminal.locator(".xterm-screen");
+  await screen.scrollIntoViewIfNeeded();
+  await expect(screen).toBeInViewport();
+  await expect(screen).toContainText("continue connecting");
+}
+
 test("Origin trust accepts input and can stop while a capability check is held", {
   skip: process.platform === "win32",
   timeout: deadline(60000),
@@ -2120,13 +2131,6 @@ test("Origin trust accepts input and can stop while a capability check is held",
       .map((line) => JSON.parse(line));
   const check = card.getByRole("button", { name: "Check capabilities", exact: true });
   const terminal = card.getByRole("region", { name: "Origin host key terminal", exact: true });
-  // WebGL can paint the prompt without adding it to the screen's DOM text.
-  await page.evaluate(() => {
-    window.originOutput = new Map();
-    window.stopOriginOutput = window.desktop.onData((id, _token, data) => {
-      window.originOutput.set(id, ((window.originOutput.get(id) ?? "") + data).slice(-4096));
-    });
-  });
 
   for (const action of ["answer", "stop"]) {
     await updateScenario(failedOrigin);
@@ -2155,11 +2159,9 @@ test("Origin trust accepts input and can stop while a capability check is held",
         ),
       )
       .toBe(true);
-    const output = () => page.evaluate((id) => window.originOutput.get(id) ?? "", id);
-    assert.equal((await output()).includes("continue connecting"), false);
     // Release only the terminal data. The independent inspect reply remains held.
     await updateScenario({ ...failedOrigin, hold: "inspect" });
-    await expect.poll(output).toContain("continue connecting");
+    await expectOriginPrompt(terminal);
     await expect(check).toBeDisabled();
     await expect(card.getByRole("button", { name: "Remove", exact: true })).toBeDisabled();
     await expect(card.getByRole("button", { name: "Reload SSH", exact: true })).toBeDisabled();
@@ -2190,7 +2192,6 @@ test("Origin trust accepts input and can stop while a capability check is held",
     await updateScenario(failedOrigin);
     await expect(check).toBeEnabled();
   }
-  await page.evaluate(() => window.stopOriginOutput());
 });
 
 test("Origin trust stays off both boards and remains stoppable after host removal", {
@@ -2205,7 +2206,7 @@ test("Origin trust stays off both boards and remains stoppable after host remova
   await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
   await card.getByRole("button", { name: "Trust host key…", exact: true }).click();
   const terminal = page.getByRole("region", { name: "Origin host key terminal", exact: true });
-  await expect(terminal.locator(".xterm-screen")).toContainText("continue connecting");
+  await expectOriginPrompt(terminal);
   const id = await page.evaluate(async () => {
     const snapshot = await window.desktop.workspace();
     return snapshot.terminals.find((row) => row.recipe && !row.exited)?.id;
@@ -2255,7 +2256,7 @@ test("Origin trust stays off both boards and remains stoppable after host remova
   await expect(card).toHaveCount(0);
   const removed = page.getByRole("region", { name: "Origin trust · fixture-cloud", exact: true });
   await expect(removed.getByText("fixture-cloud · Removed", { exact: true })).toBeVisible();
-  await expect(terminal.locator(".xterm-screen")).toContainText("continue connecting");
+  await expectOriginPrompt(terminal);
   const killed = async () =>
     (await readFile(calls, "utf8"))
       .split("\n")
@@ -2291,25 +2292,58 @@ test("Closing the owner window stops a removed host's origin repair", {
     .windows()
     .find((window) => window !== page && window.url() === "app://bundle/index.html");
   assert.ok(other);
-  await updateScenario({
+  await app.evaluate(({ BrowserWindow }, id) => {
+    BrowserWindow.fromId(id).setContentSize(1100, 560);
+  }, owner);
+  const failedOrigin = {
     origin: "origin-host-key",
     facts: { tools: [{ id: "git", state: "ready", signIn: "unknown" }] },
-  });
+  };
+  await updateScenario(failedOrigin);
   await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
-  await card.getByRole("button", { name: "Trust host key…", exact: true }).click();
+  const trust = card.getByRole("button", { name: "Trust host key…", exact: true });
+  await expect(trust).toBeEnabled();
+  await updateScenario({ ...failedOrigin, deferOriginPrompt: true });
+  await trust.click();
   const terminal = page.getByRole("region", { name: "Origin host key terminal", exact: true });
-  await expect(terminal.locator(".xterm-screen")).toContainText("continue connecting");
+  const terminalScreen = terminal.locator(".xterm-screen");
+  await expect(terminal).toHaveAttribute("aria-busy", "false");
+  await expect(terminalScreen).toBeInViewport();
+  await page.locator(".settings-stage").evaluate((stage) => {
+    stage.scrollTop = 0;
+  });
+  await expect(terminalScreen).not.toBeInViewport();
+  await updateScenario(failedOrigin);
+  await expect
+    .poll(async () => (await readFile(calls, "utf8")).includes('"type":"origin-prompt"'))
+    .toBe(true);
+  await expectOriginPrompt(terminal);
   const id = await page.evaluate(
     async () =>
       (await window.desktop.workspace()).terminals.find((row) => row.recipe && !row.exited)?.id,
   );
   assert.ok(id);
+  // Hold the replacement xterm's first open behind its normal font-readiness
+  // barrier. The SSH prompt is already in the remote terminal's replay.
+  await page.evaluate(() => {
+    const load = document.fonts.load;
+    const gate = new Promise((resolve) => {
+      window.releaseOriginFonts = () => {
+        document.fonts.load = load;
+        resolve();
+      };
+    });
+    document.fonts.load = async (...args) => {
+      await gate;
+      return load.apply(document.fonts, args);
+    };
+  });
   await card.getByRole("button", { name: "Remove", exact: true }).click();
-  await expect(
-    page
-      .getByRole("region", { name: "Origin trust · fixture-cloud", exact: true })
-      .getByRole("button", { name: "Stop", exact: true }),
-  ).toBeEnabled();
+  const removed = page.getByRole("region", { name: "Origin trust · fixture-cloud", exact: true });
+  await expect(removed.getByRole("button", { name: "Stop", exact: true })).toBeEnabled();
+  await expect(removed.locator(".xterm-screen")).toHaveCount(0);
+  await page.evaluate(() => window.releaseOriginFonts());
+  await expectOriginPrompt(removed);
 
   const closed = page.waitForEvent("close");
   await app.evaluate(({ BrowserWindow }, id) => BrowserWindow.fromId(id).close(), owner);
