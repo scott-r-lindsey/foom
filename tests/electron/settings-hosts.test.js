@@ -2583,26 +2583,28 @@ test("Hosts orders SSH checks across two open Settings windows", {
       has: hostCard.page().getByRole("button", { name: "Reload SSH", exact: true }),
     });
   const checkedAt = (hostCard) => hostCard.locator(".host-footer time").getAttribute("datetime");
-  const previous = await checkedAt(card);
-  await check(card).click();
-  await expect.poll(() => checkedAt(card)).not.toBe(previous);
+  const saveCheck = async (hostCard) => {
+    const previous = await checkedAt(hostCard);
+    await check(hostCard).click();
+    await expect.poll(() => checkedAt(hostCard)).not.toBe(previous);
+    return checkedAt(hostCard);
+  };
+  await saveCheck(card);
   await card.getByText("Host facts", { exact: true }).click();
   const panel = card.locator(".host-details");
   const refresh = panel.getByRole("button", { name: "Refresh facts", exact: true });
 
   await updateScenario({ sshFailure: "changed" });
-  await check(otherCard).click();
+  const changedAt = await saveCheck(otherCard);
   await expect(ssh(otherCard).getByText("Host key changed", { exact: true })).toBeVisible();
-  const changedAt = await checkedAt(otherCard);
   await expect(card.locator(".host-footer time")).toHaveAttribute("datetime", changedAt);
   await refresh.click();
   await expect(panel.getByText("Host key changed", { exact: true })).toBeVisible();
   await expect(ssh(card).getByText("Host key changed", { exact: true })).toBeVisible();
 
   await updateScenario({});
-  await check(otherCard).click();
+  const trustedAt = await saveCheck(otherCard);
   await expect(ssh(card).getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
-  const trustedAt = await checkedAt(otherCard);
   const profile = await app.evaluate(({ app }) => app.getPath("userData"));
   try {
     await chmod(profile, 0o555);
@@ -2623,9 +2625,8 @@ test("Hosts orders SSH checks across two open Settings windows", {
   }
 
   await updateScenario({});
-  await check(otherCard).click();
+  const restoredAt = await saveCheck(otherCard);
   await expect(ssh(otherCard).getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
-  const restoredAt = await checkedAt(otherCard);
   await expect(card.locator(".host-footer time")).toHaveAttribute("datetime", restoredAt);
   await refresh.click();
   await expect(panel.getByText("CPU cores", { exact: true })).toBeVisible();
