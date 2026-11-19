@@ -4,10 +4,19 @@ import { PreviewViewLifecycle } from "./preview-view-lifecycle";
 import { PreviewFocus } from "./preview-focus";
 import { PreviewSnapshots } from "./preview-snapshots";
 import type { HostedPreview } from "./hosted-preview";
+import { join } from "node:path";
 import { shell } from "electron";
 import type { BrowserWindow, WebContents } from "electron";
 import type { PreviewBounds, PreviewRecord } from "../../shared/previews";
-import { canonicalRoot, openDocument, openInside, type CanonicalRoot } from "./contained-files";
+import {
+  canonicalRoot,
+  documentWithin,
+  documentPathname,
+  openDocument,
+  openInside,
+  resolveDocument,
+  type CanonicalRoot,
+} from "./contained-files";
 import type { DialogContent } from "../../shared/confirmation";
 import { externalLink } from "./policy";
 import type { PreviewRegistry } from "./registry";
@@ -32,7 +41,7 @@ export class PreviewHost {
   constructor(
     private readonly window: BrowserWindow,
     readonly registry: PreviewRegistry,
-    private readonly validateWorktree: (worktree: string) => Promise<void>,
+    private readonly validateRoot: (root: string, relativePath: string) => Promise<void>,
     private readonly changed: () => void,
     private readonly confirm: (
       content: DialogContent,
@@ -116,34 +125,50 @@ export class PreviewHost {
     }
     await this.registry.save();
   }
+  async openFile(chosen: string): Promise<string> {
+    const target = await resolveDocument(chosen, true);
+    if (target.status !== 200) this.refuseOpen(target, chosen);
+    return this.register(target.root, target.relative);
+  }
+
+  private refuseOpen(file: { status: number; reason: string }, name: string): never {
+    if (
+      file.reason === "invalid-image" ||
+      (file.status === 413 && /\.(png|jpe?g|webp)$/i.test(name))
+    )
+      throw new ApplicationError("preview-image-invalid");
+    if (file.status === 404) throw new ApplicationError("preview-file-unreadable");
+    throw new Error("Preview file unavailable");
+  }
+
   async open(
     worktree: string,
     relativePath: string,
     agent?: { id: string; openedBy?: PreviewRecord["openedBy"] },
   ): Promise<string> {
     if (!previewPath(relativePath)) throw new Error("Invalid preview path");
-    await this.validateWorktree(worktree);
     if (this.closed()) throw new Error("Preview host closed");
     const root = canonicalRoot(worktree);
-    const pathname = `/${relativePath.split("/").map(encodeURIComponent).join("/")}`;
-    const file = await openDocument(root, pathname);
-    if (file.status !== 200) {
-      if (
-        file.reason === "invalid-image" ||
-        (file.status === 413 && /\.(png|jpe?g|webp)$/i.test(relativePath))
-      )
-        throw new ApplicationError("preview-image-invalid");
-      throw new Error("Preview file unavailable");
-    }
+    const file = await openDocument(root, documentPathname(relativePath));
+    if (file.status !== 200) this.refuseOpen(file, relativePath);
+    return this.register(root, relativePath, agent);
+  }
+
+  private async register(
+    root: CanonicalRoot,
+    relativePath: string,
+    agent?: { id: string; openedBy?: PreviewRecord["openedBy"] },
+  ): Promise<string> {
+    await this.validateRoot(root.path, relativePath);
     if (this.closed()) throw new Error("Preview host closed");
-    const record = this.registry.add(worktree, relativePath, agent?.id);
+    const record = this.registry.add(root.path, relativePath, agent?.id);
     if (agent) {
       record.agentOpened = true;
       if (agent.openedBy) record.openedBy = agent.openedBy;
     }
     try {
       await this.registry.save();
-      await this.validateWorktree(worktree);
+      await this.validateRoot(root.path, relativePath);
       if (this.closed() || !this.registry.records.has(record.id))
         throw new Error("Preview host closed");
       if (!agent) this.lifecycle.create(record, root);
@@ -193,7 +218,7 @@ export class PreviewHost {
   private validateRecord(record: PreviewRecord): Promise<void> {
     return record.bundled === "manual" && this.bundledRoot
       ? Promise.resolve()
-      : this.validateWorktree(record.worktree);
+      : this.validateRoot(record.worktree, record.relativePath);
   }
   private detach(entry: HostedPreview) {
     if (entry.attached && !this.window.isDestroyed())
@@ -354,7 +379,7 @@ export class PreviewHost {
         accept: "Allow network",
         glyph: "shield",
         subject: record.relativePath,
-        detail: "This page can send files from this worktree to the internet",
+        detail: "This page can send files from its preview root to the internet",
       }))
     )
       return;
@@ -390,7 +415,11 @@ export class PreviewHost {
   }
   async closeWorktree(worktree: string): Promise<void> {
     for (const record of [...this.registry.records.values()]) {
-      if (record.worktree === worktree && this.registry.records.has(record.id))
+      if (record.bundled) continue;
+      if (
+        this.registry.records.has(record.id) &&
+        documentWithin(worktree, join(record.worktree, record.relativePath))
+      )
         await this.close(record.id);
     }
   }

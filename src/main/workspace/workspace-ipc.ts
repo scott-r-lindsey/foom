@@ -443,11 +443,10 @@ export function attachWorkspace(
         const open = new Set(records.map((record) => record.id));
         for (const id of previewRepositories.keys())
           if (!open.has(id)) previewRepositories.delete(id);
-        const partial = inventory.repositories.some((entry) => entry.unavailable);
         return {
           ...inventory,
           previewActions: previewActions(),
-          previews: records.flatMap((record) => {
+          previews: records.map((record) => {
             const previous = previewRepositories.get(record.id);
             const repository =
               inventory.repositories.find((entry) =>
@@ -455,25 +454,20 @@ export function attachWorkspace(
               ) ??
               inventory.repositories.find((entry) => entry.unavailable && entry.path === previous);
             if (repository) previewRepositories.set(record.id, repository.path);
-            // A new window may not yet know which unavailable repository owns a
-            // restored preview. Keep its ID without guessing a repository path.
-            return repository || record.bundled === "manual" || (partial && previous === undefined)
-              ? [
-                  {
-                    ...(record.openedBy ? { openedBy: record.openedBy } : {}),
-                    id: record.id,
-                    repository: repository?.path ?? "",
-                    worktree: record.worktree,
-                    relativePath: record.relativePath,
-                    network: record.network,
-                    kind: /\.(md|markdown)$/i.test(record.relativePath)
-                      ? "markdown"
-                      : /\.(png|jpe?g|webp)$/i.test(record.relativePath)
-                        ? "image"
-                        : "html",
-                  },
-                ]
-              : [];
+            else previewRepositories.delete(record.id);
+            return {
+              ...(record.openedBy ? { openedBy: record.openedBy } : {}),
+              id: record.id,
+              repository: repository?.path ?? "",
+              worktree: record.worktree,
+              relativePath: record.relativePath,
+              network: record.network,
+              kind: /\.(md|markdown)$/i.test(record.relativePath)
+                ? "markdown"
+                : /\.(png|jpe?g|webp)$/i.test(record.relativePath)
+                  ? "image"
+                  : "html",
+            };
           }),
         };
       },

@@ -976,6 +976,7 @@ export function serveHost(
                       ...(message.recipe?.action === "install"
                         ? { env: { FOOM_SETTINGS_INSTALL: "1" } }
                         : {}),
+                      ...(message.recipe || message.trustOrigin ? { settingsRecipe: true } : {}),
                       cwd: message.checkout?.path ?? home,
                       cols: message.cols,
                       rows: message.rows,

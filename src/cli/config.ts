@@ -32,6 +32,9 @@ const FOOM_OWNED = [
   "schemas",
   "examples",
 ];
+// Transient root files from the config writer and its Settings lock protocol.
+const SETTINGS_LOCK = /^\.foom-settings\.lock(?:\.recovery){0,4}$/u;
+const CONFIG_TEMPORARY = /^\.foom-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\.tmp$/u;
 const fail = (reason: ThemeDiagnostic["reason"]): never => {
   throw new ThemeValidationError("$", reason);
 };
@@ -214,6 +217,16 @@ export async function validateConfig(
         if (kind === "config") {
           // Foom writes these itself; validation covers only the agent-editable formats.
           if (FOOM_OWNED.includes(entry.name)) continue;
+          if (SETTINGS_LOCK.test(entry.name) || CONFIG_TEMPORARY.test(entry.name)) {
+            try {
+              if (!(await lstat(file)).isFile()) fail("unsafe-file");
+            } catch (error) {
+              // A live writer can remove the transient entry after enumeration.
+              if (!(error instanceof Error && "code" in error && error.code === "ENOENT"))
+                report(name, error);
+            }
+            continue;
+          }
           if (entry.name === "captures") {
             const captures = await directoryIdentity(file);
             if (dirname(captures.canonical) !== identity.canonical) fail("unsafe-file");

@@ -55,7 +55,7 @@ export function useSetupSaves(
   };
 
   /** Shows the change at once; if main refuses it, shows main's settings again. */
-  const save = (patch: Parameters<SetupSource["save"]>[0]) => {
+  const save = (patch: Parameters<SetupSource["save"]>[0], themeDigest?: string) => {
     const soundOnly = patch.sound && Object.keys(patch).length === 1;
     const complete = source.views && !soundOnly ? previewSettings(patch) : undefined;
     if (!complete)
@@ -64,7 +64,7 @@ export function useSetupSaves(
       void saveSound(patch.sound);
       return;
     }
-    source.save(patch).then(
+    source.save(patch, ...(themeDigest ? [themeDigest] : [])).then(
       (next) => {
         complete?.();
         receiveState(next);
@@ -80,12 +80,7 @@ export function useSetupSaves(
     const saving = argumentSaveRef.current
       .catch(() => undefined)
       .then(async () => {
-        const latest = await source.state();
-        receiveState(
-          await source.save({
-            agentArguments: { ...latest.settings.agentArguments, [id]: args },
-          }),
-        );
+        receiveState(await source.save({ agentArguments: { [id]: args } }));
       });
     argumentSaveRef.current = saving;
     return saving;

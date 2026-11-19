@@ -145,7 +145,7 @@ it("replaces a provider with an edited v2 manifest under the same ID and keeps i
   expect(agentProvider(manifest.id).model.version).toBe(2);
   expect(restarted.status().agentPlugins).toEqual([]);
 });
-it("drops only a newly protected provider default list on load and rejects invalid saves", async () => {
+it("preserves a newly reserved argument list through zoom and another provider’s argument save", async () => {
   const f = await fixture();
   const argumentsBefore = {
     claude: ["--model", "safe"],
@@ -157,7 +157,8 @@ it("drops only a newly protected provider default list on load and rejects inval
   await f.service.write({ agentArguments: argumentsBefore });
   const settingsFile = join(f.folder, "settings.json");
   const settingsBytes = await readFile(settingsFile, "utf8");
-  await writeFile(join(f.folder, "agents", `${v2Fixture.id}.json`), JSON.stringify(v2Fixture));
+  const pluginFile = join(f.folder, "agents", `${v2Fixture.id}.json`);
+  await writeFile(pluginFile, JSON.stringify(v2Fixture));
   await f.service.refresh();
   expect(agentProvider(v2Fixture.id).model.version).toBe(2);
   expect(f.dependencies.apply.mock.calls.at(-1)?.[0].agentArguments).toEqual({
@@ -169,6 +170,29 @@ it("drops only a newly protected provider default list on load and rejects inval
     "cannot be stored",
   );
   expect(await readFile(settingsFile, "utf8")).toBe(settingsBytes);
+
+  await f.service.write({ interfaceScale: 110 });
+  expect(JSON.parse(await readFile(settingsFile, "utf8"))).toEqual({
+    kind: "settings",
+    interfaceScale: 110,
+    agentArguments: argumentsBefore,
+  });
+  expect(f.dependencies.apply.mock.calls.at(-1)?.[0].agentArguments?.[v2Fixture.id]).toEqual([]);
+
+  const claude = ["--model", "new"];
+  await f.service.write({ agentArguments: { claude } });
+  expect(f.dependencies.apply.mock.calls.at(-1)?.[0].agentArguments?.[v2Fixture.id]).toEqual([]);
+
+  await rm(pluginFile);
+  const restored = { ...argumentsBefore, claude };
+  expect((await f.service.refresh()).pending).toBeNull();
+  expect(f.dependencies.apply.mock.calls.at(-1)?.[0].agentArguments).toEqual(restored);
+  await f.service.write({ interfaceScale: 120 });
+  expect(JSON.parse(await readFile(settingsFile, "utf8"))).toEqual({
+    kind: "settings",
+    interfaceScale: 120,
+    agentArguments: restored,
+  });
 });
 
 it.each(["claude", "codex", "agy"])(

@@ -1,3 +1,4 @@
+import { digest } from "../../../../src/main/config/layout";
 import { afterEach, expect, test, vi } from "vitest";
 import type * as FileSystem from "node:fs/promises";
 import { mkdir, mkdtemp, open, rename, rm, symlink, writeFile } from "node:fs/promises";
@@ -243,14 +244,14 @@ test("closes the theme descriptor before waiting for config approval", async () 
   await writeFile(join(folder, "personal.json"), JSON.stringify(valid()));
   const opened = vi.mocked(open);
   opened.mockClear();
-  const review = vi.fn(async (_file: string, _text: string, parsed: ParsedThemeFile) => {
+  const review = vi.fn(async (_file: string, text: string, parsed: ParsedThemeFile) => {
     expect(opened.mock.results).toHaveLength(1);
     for (const result of opened.mock.results) {
       if (result.type !== "return") throw new Error("open failed");
       const handle = await result.value;
       expect(handle.fd).toBe(-1);
     }
-    return parsed;
+    return { parsed, digest: digest(text) };
   });
   const library = new ThemeLibrary(join(folder, ".."), () => {}, review);
   libraries.push(library);

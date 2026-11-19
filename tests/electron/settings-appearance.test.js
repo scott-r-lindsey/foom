@@ -369,6 +369,64 @@ test("neutral identity badges keep labels and geometry across themes and interfa
   await assertAccessible(page);
 });
 
+test("Appearance refuses a custom palette changed after it was offered", async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "foom-theme-selection-"));
+  removeAfterApps(context, root);
+  const app = await launchApp(context, { fixture: "empty-board", home: root });
+  const page = await boardPage(app);
+  await openSettingsScreen(page);
+  await page.getByRole("button", { name: "Appearance", exact: true }).click();
+  const { interfaceThemes } = require("../../build/shared/interface-themes.js");
+  const { base, colors } = interfaceThemes["eclipse-dark"];
+  const file = path.join(root, ".foom/config/themes/review.json");
+  const original = { kind: "theme", name: "Review palette", base, colors };
+  await writeFile(file, JSON.stringify(original));
+  await page.getByRole("button", { name: /^Theme / }).click();
+  const choice = page.getByRole("menuitemradio", { name: original.name, exact: true });
+  await expect(choice).toBeVisible();
+  const before = await page.evaluate(
+    async () => (await window.desktop.setupState()).settings.interfaceTheme,
+  );
+  // Change the bytes inside the save, after the renderer has chosen the offered palette.
+  await app.evaluate(
+    ({ app }, { file, weakened }) => {
+      const load = process
+        .getBuiltinModule("node:module")
+        .createRequire(app.getAppPath() + "/package.json");
+      const { writeFile } = process.getBuiltinModule("node:fs/promises");
+      const { ConfigService } = load("./build/main/config/service.js");
+      const write = ConfigService.prototype.write;
+      ConfigService.prototype.write = async function (patch, ...args) {
+        if (patch.interfaceTheme === "user:review.json") {
+          ConfigService.prototype.write = write;
+          await writeFile(file, weakened);
+        }
+        return write.call(this, patch, ...args);
+      };
+    },
+    {
+      file,
+      weakened: JSON.stringify({ ...original, colors: { ...colors, attention: colors.ink } }),
+    },
+  );
+  await choice.click();
+  await expect(
+    page
+      .getByText("The theme changed. Choose it again after the theme list refreshes.", {
+        exact: true,
+      })
+      .first(),
+  ).toBeVisible();
+  assert.equal(
+    await page.evaluate(async () => (await window.desktop.setupState()).settings.interfaceTheme),
+    before,
+  );
+  const settings = JSON.parse(
+    await readFile(path.join(root, ".foom/config/settings.json"), "utf8"),
+  );
+  assert.notEqual(settings.interfaceTheme, "user:review.json");
+});
+
 test("custom theme files appear live, update selected colors and retain rejected edits", {
   timeout: deadline(45000),
 }, async (context) => {
@@ -385,6 +443,11 @@ test("custom theme files appear live, update selected colors and retain rejected
   const theme = { kind: "theme", name: "Live custom", base: palette.base, colors: palette.colors };
   await writeFile(file, JSON.stringify(theme));
   await chooseTheme(page, "Live custom");
+  await expect
+    .poll(() =>
+      page.evaluate(async () => (await window.desktop.setupState()).settings.interfaceTheme),
+    )
+    .toBe("user:custom.json");
   await expect
     .poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue("--bg")))
     .toBe(palette.colors.bg);

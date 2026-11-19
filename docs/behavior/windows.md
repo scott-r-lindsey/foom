@@ -20,10 +20,15 @@ forward and focuses its tile. Sidebar tile numbers always refer to the current
 window. The longest-waiting shortcut starts from the current window and focuses
 another window when that session is already shown there.
 
-Closing a window hides its sessions without stopping their PTYs. On macOS, closing
+Closing a window hides its board sessions. Foom stops Settings repairs owned by
+that window before it closes and shows **Stopping…** while it waits. A failed
+stop leaves the window open for retry. On macOS, closing
 the last window leaves Foom running; Dock activation opens another window. On
 Windows and Linux, closing the last window requests quit. Quit from any window
-stops the entire app and uses the focused window's trusted confirmation. Other
+stops the entire app and uses the focused window's trusted confirmation.
+After confirmation, every board shows **Stopping…** while app quit waits for
+Settings recipe cleanup. If a pending quit interrupts an owner close, the
+owner's progress clears when its stop completes. Other
 trusted dialogs attach to the window that requested them.
 
 Each window saves its display, normal bounds, maximized state, tile tree and sidebar collapse choice. Interface size is saved once for the app. At launch Foom restores those windows. Missing displays fall back to the
@@ -32,6 +37,6 @@ window set. Interface size is shared app-wide; each window retains its own remem
 The attention badge counts sessions once for the app. One window plays app sounds,
 with attention suppression following the focused terminal in any window.
 
-If any terminal is running, quit asks for confirmation; Cancel keeps everything
-running. Quitting stops every PTY before the app exits. Terminals live exactly as
-long as the app.
+If any terminal is running, quit asks for confirmation. Cancel leaves the app and
+its other sessions running. A Settings stop already requested by a window close
+continues independently. Quitting stops every PTY before the app exits.

@@ -20,6 +20,7 @@ test("only the closed codes select fixed messages, with or without Electron's wr
       "session-remote-unreachable",
       "Remote host unreachable. Reconnect before closing this session.",
     ],
+    ["preview-file-unreadable", "Preview file is missing or unreadable."],
     [
       "preview-image-invalid",
       "Invalid or oversized image. Use PNG, JPEG or WebP, at most 16 MiB and 16 million pixels.",

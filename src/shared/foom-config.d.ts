@@ -42,6 +42,7 @@ export interface ConfigStatus {
   /** Sorted by file. */
   rejected: readonly ConfigRejection[];
   error?: string;
+  notice?: string;
 }
 
 export interface ConfigApi {

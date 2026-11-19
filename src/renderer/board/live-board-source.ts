@@ -31,6 +31,7 @@ export function createAppSource(): BoardSource {
     tail: [],
   };
   const owners = new Map<string, ReturnType<typeof createShell>>();
+  const hostOwners = new Map<string, ReturnType<typeof createShell>>();
   // Capabilities can be revoked before a launch reply or workspace refresh
   // mounts its view. Keep that fact outside individual controller lifetimes;
   // neither stale rows nor a new controller may restore a revoked capability.
@@ -286,7 +287,9 @@ export function createAppSource(): BoardSource {
     loaded = true;
     repositories = next.repositories.map((repo) => repo.name);
     const known = new Map(rows.map((row) => [row.id, row]));
-    const visible = next.terminals.filter((entry) => entry.closeState !== "closing");
+    const visible = next.terminals.filter(
+      (entry) => !entry.recipe && entry.closeState !== "closing",
+    );
     const live = visible.map((entry): BoardRow => {
       const previous = known.get(entry.id);
       const version = entry.launchVersion ?? 0;
@@ -357,7 +360,6 @@ export function createAppSource(): BoardSource {
         startedAt: entry.startedAt,
         exitCode: entry.exitCode,
         foregroundProgram: entry.foregroundProgram ?? "",
-        ...(entry.recipe ? { recipe: true } : {}),
         launchFlags: entry.launchFlags,
         environment: entry.environment,
         orchestration: entry.orchestration,
@@ -645,7 +647,7 @@ export function createAppSource(): BoardSource {
         : {}),
     },
     connect,
-    createHostView: () => createTerminalView(scheduleView, owners, available),
+    createHostView: () => createTerminalView(scheduleView, hostOwners, available),
     closeHostSession: async (id) => {
       await window.desktop.kill(id);
       forget(id);

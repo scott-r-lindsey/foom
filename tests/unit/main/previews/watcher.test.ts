@@ -1,16 +1,17 @@
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { afterEach, expect, test, vi } from "vitest";
 import { PreviewWatcher, scrollPosition } from "../../../../src/main/previews/watcher";
-const root = path.resolve("preview-fixture");
+let root: string;
 const watches: {
   event: (event: fs.WatchEventType, name: string | null) => void;
   handle: EventEmitter & { close: ReturnType<typeof vi.fn> };
 }[] = [];
 function fixture() {
   vi.useFakeTimers();
-  vi.spyOn(fs.realpathSync, "native").mockImplementation((name) => String(name));
+  root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "foom-watcher-")));
   vi.spyOn(fs, "watch").mockImplementation(
     (_name: fs.PathLike, _options: unknown, callback?: fs.WatchListener<string>) => {
       const handle = Object.assign(new EventEmitter(), {
@@ -31,14 +32,15 @@ function fixture() {
   return { changed, watcher: new PreviewWatcher(root, changed) };
 }
 afterEach(() => {
+  if (root) fs.rmSync(root, { recursive: true, force: true });
   watches.splice(0);
   vi.restoreAllMocks();
   vi.useRealTimers();
 });
-test("filters names, shares directories, debounces 20 writes, and closes pending work", () => {
+test("filters names, shares directories, debounces 20 writes, and closes pending work", async () => {
   const { watcher, changed } = fixture();
-  watcher.record(path.join(root, "a.html"));
-  watcher.record(path.join(root, "style.css"));
+  await watcher.record(path.join(root, "a.html"));
+  await watcher.record(path.join(root, "style.css"));
   expect(watcher.count).toBe(1);
   const watch = watches[0];
   if (!watch) throw new Error("Missing watch");
@@ -62,13 +64,13 @@ test("filters names, shares directories, debounces 20 writes, and closes pending
   expect(changed).toHaveBeenCalledOnce();
   expect(watcher.count).toBe(0);
   expect(watch.handle.close).toHaveBeenCalledOnce();
-  watcher.record(path.join(root, "a.html"));
+  await watcher.record(path.join(root, "a.html"));
   watch.event("change", null);
   expect(watcher.count).toBe(0);
 });
-test("unknown names reload and continuous writes cannot starve the maximum wait", () => {
+test("unknown names reload and continuous writes cannot starve the maximum wait", async () => {
   const { watcher, changed } = fixture();
-  watcher.record(path.join(root, "a"));
+  await watcher.record(path.join(root, "a"));
   for (let i = 0; i < 10; i++) {
     watches[0]?.event("change", null);
     vi.advanceTimersByTime(100);
@@ -79,16 +81,22 @@ test("unknown names reload and continuous writes cannot starve the maximum wait"
   expect(changed).toHaveBeenCalledTimes(2);
   watcher.close();
 });
-test("caps directory handles, refuses escaped parents, handles subscription errors", () => {
+test("caps directory handles, refuses escaped parents, handles subscription errors", async () => {
   const { watcher, changed } = fixture();
-  watcher.record(path.resolve(root, "..", "outside"));
-  vi.mocked(fs.realpathSync.native).mockReturnValueOnce(path.resolve(root, "..", "outside"));
-  watcher.record(path.join(root, "link", "a"));
+  await watcher.record(path.resolve(root, "..", "outside"));
+  const kind = process.platform === "win32" ? "junction" : "dir";
+  fs.symlinkSync(path.dirname(root), path.join(root, "link"), kind);
+  await watcher.record(path.join(root, "link", "a"));
+  expect(watcher.count).toBe(0);
   vi.mocked(fs.watch).mockImplementationOnce(() => {
     throw new Error("gone");
   });
-  watcher.record(path.join(root, "gone", "a"));
-  for (let i = 0; i < 65; i++) watcher.record(path.join(root, String(i), "a"));
+  await watcher.record(path.join(root, "gone", "a"));
+  for (let i = 0; i < 65; i++) {
+    const directory = path.join(root, String(i));
+    fs.mkdirSync(directory);
+    await watcher.record(path.join(directory, "a"));
+  }
   expect(watcher.count).toBe(64);
   watches[0]?.handle.emit("error", new Error("deleted directory"));
   vi.advanceTimersByTime(120);
@@ -96,20 +104,14 @@ test("caps directory handles, refuses escaped parents, handles subscription erro
   expect(watcher.count).toBe(63);
   watcher.close();
 });
-test("watches the nearest existing parent of a missing nested file", () => {
+test("watches the nearest existing parent of a missing nested file", async () => {
   const { watcher } = fixture();
-  vi.mocked(fs.realpathSync.native).mockImplementation((name) => {
-    if (String(name) !== root) throw new Error("missing");
-    return root;
-  });
-  watcher.record(path.join(root, "missing", "nested", "a"));
+  await watcher.record(path.join(root, "missing", "nested", "a"));
   expect(watcher.count).toBe(1);
   watcher.close();
   const other = new PreviewWatcher(root, vi.fn());
-  vi.mocked(fs.realpathSync.native).mockImplementation(() => {
-    throw new Error("missing root");
-  });
-  other.record(path.join(root, "a"));
+  fs.rmSync(root, { recursive: true });
+  await other.record(path.join(root, "a"));
   expect(other.count).toBe(0);
   other.close();
 });
@@ -120,12 +122,16 @@ test("validates isolated-world scroll coordinates", () => {
     expect(scrollPosition(value)).toBeUndefined();
 });
 
-test("watches requested directory symlinks as well as their targets", () => {
+test("watches requested directory symlinks as well as their targets", async () => {
   const { watcher, changed } = fixture();
-  vi.mocked(fs.realpathSync.native).mockImplementation((name) =>
-    String(name) === path.join(root, "alias") ? path.join(root, "target") : String(name),
+  const target = path.join(root, "target");
+  fs.mkdirSync(target);
+  fs.symlinkSync(
+    target,
+    path.join(root, "alias"),
+    process.platform === "win32" ? "junction" : "dir",
   );
-  watcher.record(path.join(root, "alias", "a.html"));
+  await watcher.record(path.join(root, "alias", "a.html"));
   expect(watcher.count).toBe(2);
   watches[0]?.event("rename", "alias");
   vi.advanceTimersByTime(120);
@@ -133,13 +139,13 @@ test("watches requested directory symlinks as well as their targets", () => {
   watcher.close();
 });
 
-test("new generations cancel pending events and ignore retired handles, including errors", () => {
+test("new generations cancel pending events and ignore retired handles, including errors", async () => {
   const { watcher, changed } = fixture();
-  watcher.record(path.join(root, "old.css"));
+  await watcher.record(path.join(root, "old.css"));
   const old = watches[0];
   old?.event("change", "old.css");
   watcher.beginGeneration();
-  watcher.record(path.join(root, "new.css"));
+  await watcher.record(path.join(root, "new.css"));
   old?.event("change", null);
   old?.handle.emit("error", new Error("late error"));
   vi.advanceTimersByTime(1000);
@@ -154,22 +160,22 @@ test("new generations cancel pending events and ignore retired handles, includin
   expect(changed).toHaveBeenCalledOnce();
   watcher.close();
   watcher.beginGeneration();
-  watcher.record(path.join(root, "closed.css"));
+  await watcher.record(path.join(root, "closed.css"));
   expect(watcher.count).toBe(0);
 });
 
-test("resource recorders expire on generation replacement and close", () => {
+test("resource recorders expire on generation replacement and close", async () => {
   const { watcher } = fixture();
   const retired = watcher.recorder();
-  retired(path.join(root, "old.css"));
+  await retired(path.join(root, "old.css"));
   expect(watcher.count).toBe(1);
   watcher.beginGeneration();
-  retired(path.join(root, "old.css"));
+  await retired(path.join(root, "old.css"));
   expect(watcher.count).toBe(0);
   const current = watcher.recorder();
-  current(path.join(root, "new.css"));
+  await current(path.join(root, "new.css"));
   expect(watcher.count).toBe(1);
   watcher.close();
-  current(path.join(root, "late.css"));
+  await current(path.join(root, "late.css"));
   expect(watcher.count).toBe(0);
 });

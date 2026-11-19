@@ -131,13 +131,13 @@ export function attachSetup(
     [
       "setup:save",
       (...args) => {
-        if (args.length !== 1) throw new Error("Invalid settings command");
+        if (args.length < 1 || args.length > 2) throw new Error("Invalid settings command");
         const patch = args[0];
         const zooming = typeof patch === "object" && patch !== null && "interfaceScale" in patch;
         return serial(async () => {
           if (zooming) pointerZoom(true);
           try {
-            const state = await setup.save(patch);
+            const state = await setup.save(patch, ...args.slice(1));
             if (zooming) ensureZoom(state.settings.interfaceScale);
             send("setup:changed", state);
             return state;

@@ -595,6 +595,67 @@ test("tile drag drops replace, split every edge, swap and move without reattachm
   await page.screenshot({ path: evidencePath("foom-133-tiles.png") });
 });
 
+test("local terminal startup overlay is accessible in light and dark", async (context) => {
+  const app = await launchApp(context, { fixture: "empty-board" });
+  const page = await boardPage(app);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const launch = async () => {
+    const actions = page.getByRole("button", { name: "Actions for Home shell", exact: true });
+    await actions.press("Enter");
+    await page.getByRole("menuitem", { name: "New shell", exact: true }).press("Enter");
+  };
+  await launch();
+  const firstTileMenu = page.getByRole("button", { name: "Tile 1 menu", exact: true });
+  const firstTile = page.locator(".terminal-tile").filter({ has: firstTileMenu });
+  await expect(firstTile.locator(".xterm-helper-textarea")).toBeFocused();
+  await expect(page.locator(".tile-startup")).toHaveCount(0);
+  await firstTileMenu.press("Enter");
+  await page.getByRole("menuitem", { name: "Split terminal right", exact: true }).press("Enter");
+  await expect(page.locator('.terminal-tile[data-empty="true"]')).toHaveCount(1);
+  const firstSession = await page.locator(".board-row").getAttribute("data-drag-session");
+
+  // Hold the next local shell's first frame so the overlay survives both scans.
+  await app.evaluate(({ ipcMain }) => {
+    const channel = "terminal:attach";
+    const attach = ipcMain._invokeHandlers.get(channel);
+    const { promise, resolve } = Promise.withResolvers();
+    globalThis.releaseStartupAttach = () => {
+      ipcMain.removeHandler(channel);
+      ipcMain.handle(channel, attach);
+      resolve();
+    };
+    ipcMain.removeHandler(channel);
+    ipcMain.handle(channel, async (...args) => {
+      await promise;
+      return attach(...args);
+    });
+  });
+  try {
+    await launch();
+    const overlay = page.locator('.tile-shell .tile-startup[data-remote="false"]');
+    await expect(overlay).toHaveText("Starting on Local…");
+    await expect(overlay).toBeVisible();
+    // The shell wrapper is dimmed once focus moves to another tile.
+    await page.locator(`.board-row[data-drag-session="${firstSession}"]`).press("Enter");
+    await expect(overlay.locator("..")).toHaveCSS("opacity", "0.8");
+    await assertAccessible(page);
+    const startingTile = page.locator(".terminal-tile").filter({ has: overlay });
+    for (const [colorScheme, surface] of [
+      ["light", "rgb(233, 228, 245)"],
+      ["dark", "rgb(13, 10, 23)"],
+    ]) {
+      await page.emulateMedia({ colorScheme });
+      await expect(overlay).toHaveCSS("background-color", surface);
+      await startingTile.screenshot({
+        path: evidencePath(`screenshots-1283/startup-${colorScheme}.png`),
+      });
+    }
+  } finally {
+    await app.evaluate(() => globalThis.releaseStartupAttach());
+  }
+  await expect(page.locator(".tile-startup")).toHaveCount(0);
+});
+
 test("wide blank tiles start as columns, full boards grow right, and hide refills without moving siblings", async (context) => {
   const app = await launchApp(context, { fixture: "empty-board" });
   const page = await boardPage(app);

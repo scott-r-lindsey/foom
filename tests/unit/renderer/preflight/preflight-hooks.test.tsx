@@ -31,7 +31,15 @@ function fixture(initial = setupState()) {
   const source = {
     state: vi.fn(() => Promise.resolve(main)),
     save: vi.fn((patch: SettingsPatch) => {
-      main = { ...main, settings: { ...main.settings, ...patch } };
+      const { agentArguments, ...settings } = patch;
+      main = {
+        ...main,
+        settings: {
+          ...main.settings,
+          ...settings,
+          agentArguments: { ...main.settings.agentArguments, ...agentArguments },
+        },
+      };
       return Promise.resolve(main);
     }),
     subscribe: vi.fn((next: (state: SetupState) => void) => {
@@ -146,8 +154,8 @@ test("failed saves restore main state and permit later writes even when refresh 
   expect(result.current.state.settings.sound.workingVolume).toBe(0.6);
 });
 
-test("argument writes read main in sequence, preserve other agents, and recover after rejection", async () => {
-  const f = fixture();
+test("argument writes send only the edited provider in sequence, including when another list is masked", async () => {
+  const f = fixture(setupState({ agentArguments: { fixture: [] } }));
   const first = deferred<SetupState>();
   const persist = f.source.save.getMockImplementation();
   if (!persist) throw Error("Missing fixture persistence");
@@ -162,20 +170,20 @@ test("argument writes read main in sequence, preserve other agents, and recover 
   await waitFor(() => {
     expect(f.source.save).toHaveBeenCalledTimes(1);
   });
-  expect(f.source.state).toHaveBeenCalledTimes(1);
+  expect(f.source.save).toHaveBeenCalledWith({ agentArguments: { claude: ["--verbose"] } });
   await act(async () => {
     await Promise.resolve();
     first.resolve(committed);
     await Promise.all([a, b]);
   });
   expect(f.source.save).toHaveBeenLastCalledWith({
-    agentArguments: { claude: ["--verbose"], codex: ["--search"], agy: [] },
+    agentArguments: { codex: ["--search"] },
   });
-  f.source.state.mockRejectedValueOnce(Error("Offline"));
+  f.source.save.mockRejectedValueOnce(Error("Offline"));
   await expect(result.current.saveArguments("claude", [])).rejects.toThrow("Offline");
   await act(async () => result.current.saveArguments("agy", ["--verbose"]));
   expect(f.source.save).toHaveBeenLastCalledWith({
-    agentArguments: { claude: ["--verbose"], codex: ["--search"], agy: ["--verbose"] },
+    agentArguments: { agy: ["--verbose"] },
   });
 });
 

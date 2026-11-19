@@ -44,7 +44,7 @@ export function InterfaceThemePicker({
   catalog?: ThemeCatalog | undefined;
   openFolder?: (() => Promise<void>) | undefined;
   settings: Settings;
-  onChange: (patch: SettingsPatch) => void;
+  onChange: (patch: SettingsPatch, themeDigest?: string) => void;
 }) {
   const systemDark = useDarkAppearance();
   const selected = settings.interfaceTheme;
@@ -80,7 +80,11 @@ export function InterfaceThemePicker({
             })),
           ]}
           onChange={(id) => {
-            onChange({ interfaceTheme: parseInterfaceTheme(id) });
+            const offered = catalog?.interface.find((entry) => entry.id === id);
+            onChange(
+              { interfaceTheme: parseInterfaceTheme(id) },
+              ...(offered?.digest ? [offered.digest] : []),
+            );
           }}
         />
         {!compact && <CustomThemeHint />}

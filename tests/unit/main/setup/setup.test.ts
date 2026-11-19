@@ -9,6 +9,7 @@ import { agentProvider } from "../../../../src/main/agents/providers/registry";
 import { v2Provider } from "../../../../src/main/agents/providers/v2";
 import { legacyBypassIdentities } from "../../../../src/main/agents/providers/bundled";
 import type { ReadinessReport } from "../../../../src/shared/readiness";
+import { interfaceThemes } from "../../../../src/shared/interface-themes";
 import type { SetupDependencies } from "../../../../src/main/setup/setup";
 import type { ScanProgress, Settings, SettingsPatch } from "../../../../src/shared/setup";
 
@@ -769,4 +770,22 @@ test("windows share a profile's readiness probe and changed explicit recheck res
   await expect(a.readinessView()).resolves.toEqual(next);
   await expect(b.readinessView()).resolves.toEqual(next);
   expect(probe).toHaveBeenCalledTimes(2);
+});
+
+test("custom theme saves require a digest for the offered palette", async () => {
+  const interfaceTheme = "user:personal.json";
+  const digest = "a".repeat(64);
+  deps.themes = () => ({
+    interface: [{ id: interfaceTheme, theme: interfaceThemes["eclipse-dark"], digest }],
+    terminal: [],
+    errors: [],
+  });
+  const setup = new Setup(deps);
+  await expect(setup.save({ interfaceTheme })).rejects.toThrow("theme-selection-changed");
+  await expect(setup.save({ interfaceTheme }, "b".repeat(64))).rejects.toThrow(
+    "theme-selection-changed",
+  );
+  expect(deps.store.update).not.toHaveBeenCalled();
+  await setup.save({ interfaceTheme }, digest);
+  expect(deps.store.update).toHaveBeenCalledWith({ interfaceTheme }, digest);
 });

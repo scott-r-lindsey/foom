@@ -1,6 +1,7 @@
 // Vitest isolates this module per test file. Keep hoisted mocks and registration
 // together, before start() dynamically imports the application; never cache it globally.
 import type * as UpdatePackageModule from "../../../src/main/update-package";
+import type { TerminalControl } from "../../../src/main/terminals/terminal-ipc";
 
 const updateMock = vi.hoisted(() => ({
   updater: {
@@ -110,9 +111,16 @@ const previewMock = vi.hoisted(() => ({
   popout: undefined as ((id: string) => Promise<void>) | undefined,
   humanClose: undefined as ((id: string) => void) | undefined,
   pick: undefined as ((worktree: string) => Promise<string | null>) | undefined,
-  pickFile: vi.fn(() => Promise.resolve("a".repeat(32))),
+  pickFile: vi.fn(
+    (
+      _window: unknown,
+      _host: unknown,
+      _validate: (worktree: string) => Promise<void>,
+      _worktree: string,
+    ) => Promise.resolve("a".repeat(32)),
+  ),
   hosts: [] as {
-    validate: (worktree: string) => Promise<void>;
+    validate: (root: string, relativePath: string) => Promise<void>;
     changed: () => void;
     confirm: (content: unknown, signal: AbortSignal) => Promise<boolean>;
     reconcile: () => Promise<void>;
@@ -154,7 +162,7 @@ vi.mock("../../../src/main/previews/host", () => ({
     constructor(
       _window: unknown,
       _registry: unknown,
-      validate: (worktree: string) => Promise<void>,
+      validate: (root: string, relativePath: string) => Promise<void>,
       changed: () => void,
       confirm: (content: unknown, signal: AbortSignal) => Promise<boolean>,
       _bundledRoot: string | undefined,
@@ -353,6 +361,7 @@ vi.mock("../../../src/main/workspace/workspace", () => ({
     shellState = mock.workspace.shellState;
     mcpConnectionChanged = mock.workspace.mcpConnectionChanged;
     ownsSession = mock.workspace.ownsSession;
+    isSettingsTerminal = mock.workspace.isSettingsTerminal;
     initializeControl = mock.workspace.initializeControl;
     refresh = mock.workspace.refresh;
     focusOrchestrator = mock.workspace.focusOrchestrator;
@@ -540,6 +549,7 @@ const mock = vi.hoisted(() => {
     shellState: vi.fn(),
     mcpConnectionChanged: vi.fn(),
     ownsSession: vi.fn(() => true),
+    isSettingsTerminal: vi.fn((_id: string) => false),
     scanAgents: vi.fn((_refresh?: boolean) =>
       Promise.resolve({
         agents: [
@@ -590,13 +600,15 @@ const mock = vi.hoisted(() => {
           ) => void
         >(),
       detachView: vi.fn(),
-      runningSessions: () => [
+      suspendViews: vi.fn(() => Promise.resolve(() => {})),
+      runningSessions: (): ReturnType<TerminalControl["runningSessions"]> => [
         { id: "t1", command: "claude", cwd: "/tree" },
         { id: "t2", command: "bash", cwd: "/tree2" },
         { id: "t3", command: "bash", cwd: "/home" },
       ],
       setTheme: vi.fn(),
       runningCount: 0,
+      hasRunningSettingsRecipe: false,
       shutdown: vi.fn<() => Promise<void>>(),
       owns: vi.fn<(id: string) => boolean>(),
     },
@@ -634,6 +646,7 @@ const mock = vi.hoisted(() => {
     config: {
       deps: undefined as ConfigServiceDependencies | undefined,
       initialize: vi.fn<(legacy: unknown) => Promise<unknown>>(),
+      activePalette: vi.fn(() => undefined),
       write: vi.fn<(patch: unknown) => Promise<void>>(() => Promise.resolve()),
       status: { folder: "/home/.foom/config", available: true, changes: [] },
     },
@@ -649,9 +662,8 @@ const mock = vi.hoisted(() => {
       setConfig: vi.fn(),
       themeDigest: vi.fn<(_file: string) => string | null>(() => null),
       setThemeDigest: vi.fn((_file: string, _digest: string | null) => Promise.resolve()),
-      setConfigDigest: vi.fn(() => Promise.resolve()),
+      setConfigBaseline: vi.fn(() => Promise.resolve()),
       configText: vi.fn(() => null),
-      setConfigText: vi.fn(() => Promise.resolve()),
       update: vi.fn(() => Promise.resolve()),
       get: (): Pick<
         Settings,
@@ -829,6 +841,7 @@ beforeEach(() => {
   mock.window.isFocused.mockReturnValue(true);
   mock.window.webContents.isCrashed.mockReturnValue(false);
   mock.terminals.runningCount = 0;
+  mock.terminals.hasRunningSettingsRecipe = false;
   mock.terminals.shutdown.mockResolvedValue();
   mock.workspace.dispose.mockResolvedValue();
   mock.attachWorkspace.mockImplementation(() => mock.ipc);

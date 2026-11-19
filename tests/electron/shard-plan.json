@@ -26,12 +26,23 @@
         "About rocket replays launch by mouse and keyboard without changing setup": [
           6.023, 14.083, 9.366
         ],
+        "Agents keeps fixed Codex device sign-in in Settings and refreshes sign-in on exit": [
+          5.214, 0, 9.675
+        ],
         "Antigravity plugin first run disclosure installs and removes an observer that reports lifecycle": [
           12.121, 0, 20.234
         ],
         "Chromium fixture storage survives restore, stays separate from Foom data and is cleaned after quit": [
           2.068, 10.604, 4.646
         ],
+        "Closing an installer window retries a one-time PTY termination exception": [
+          6.542, 0, 9.562
+        ],
+        "Closing an installer window shows Stopping while the vendor helper cleans its staging directory": [
+          4.192, 0, 6.246
+        ],
+        "Closing the owner window stops a removed host's origin repair": [4.242, 0, 8.754],
+        "Confirmed app quit takes over after an overlapping owner stop rejects": [4.664, 0, 0],
         "General close finished agents defaults on and saves immediately": [2.742, 11.489, 4.762],
         "Hosts authorizes SSH hosts and validates nicknames without remote calls": [
           13.174, 0, 15.258
@@ -288,8 +299,14 @@
         "Agents scopes use trusted consent and fixed recipes for host plugin installation": [
           10.487, 0, 13.922
         ],
+        "Cancelling app quit clears Stopping after an overlapping installer window close": [
+          7.336, 0, 11.011
+        ],
         "Close hides a review session before slow worktree removal finishes": [
           3.773, 15.817, 7.824
+        ],
+        "Confirmed app quit shows Stopping for an installer awaiting its terminal create reply": [
+          5.894, 0, 0
         ],
         "Default themes follow native appearance live and Settings theme menus share the config launcher": [
           9.363, 16.253, 14.904
@@ -329,6 +346,9 @@
         "Linux launch forces X11 despite inherited Wayland settings": [1.388, 0, 0],
         "Markdown previews render hostile documents safely, follow native theme and navigate to a sibling": [
           6.597, 14.132, 5.447
+        ],
+        "Origin trust stays off both boards and remains stoppable after host removal": [
+          6.807, 0, 8.641
         ],
         "Pi Settings card discloses project trust bypass and keeps MCP roles unavailable": [
           2.156, 7.925, 4.507
@@ -572,6 +592,12 @@
         ],
         "Close removes a restored session after its repository registration is dropped": [
           2.684, 11.207, 5.783
+        ],
+        "Closing an installer window escalates past SIGHUP and releases the next installer": [
+          6.603, 0, 9.727
+        ],
+        "Confirmed app quit shows Stopping while the vendor helper cleans its staging directory": [
+          6.915, 0, 10.669
         ],
         "Dismiss clears agent attention after focusing click consumed its feedback": [
           6.696, 0, 7.838
@@ -829,6 +855,9 @@
         "Bash command status reaches the sidebar without closing the shell": [10.784, 0, 0],
         "Close removes the tile and sidebar before slow cleanup and restores a failed row": [
           2.86, 10.236, 5.463
+        ],
+        "Confirmed last board close shows Stopping while the vendor helper cleans its staging directory": [
+          6.304, 0, 0
         ],
         "Forget removes an unavailable host session locally and recovers its live daemon session as human-owned": [
           13.148, 0, 22.478
@@ -1133,6 +1162,9 @@
         "Hosts shows readiness and read-only checkouts with explicit origin trust": [
           20.021, 0, 19.06
         ],
+        "Origin trust stays off both boards and remains stoppable after host removal": [
+          6.807, 0, 8.641
+        ],
         "Pi Settings card discloses project trust bypass and keeps MCP roles unavailable": [
           2.156, 7.925, 4.507
         ],
@@ -1303,11 +1335,21 @@
         ]
       },
       {
+        "Agents keeps fixed Codex device sign-in in Settings and refreshes sign-in on exit": [
+          5.214, 0, 9.675
+        ],
+        "Cancelling app quit clears Stopping after an overlapping installer window close": [
+          7.336, 0, 11.011
+        ],
         "Chromium fixture storage survives restore, stays separate from Foom data and is cleaned after quit": [
           2.068, 10.604, 4.646
         ],
         "Close removes the tile and sidebar before slow cleanup and restores a failed row": [
           2.86, 10.236, 5.463
+        ],
+        "Closing the owner window stops a removed host's origin repair": [4.242, 0, 8.754],
+        "Confirmed last board close shows Stopping while the vendor helper cleans its staging directory": [
+          6.304, 0, 0
         ],
         "Default themes follow native appearance live and Settings theme menus share the config launcher": [
           9.363, 16.253, 14.904
@@ -1508,6 +1550,18 @@
         ],
         "Agents scopes use trusted consent and fixed recipes for host plugin installation": [
           10.487, 0, 13.922
+        ],
+        "Closing an installer window escalates past SIGHUP and releases the next installer": [
+          6.603, 0, 9.727
+        ],
+        "Closing an installer window shows Stopping while the vendor helper cleans its staging directory": [
+          4.192, 0, 6.246
+        ],
+        "Confirmed app quit shows Stopping for an installer awaiting its terminal create reply": [
+          5.894, 0, 0
+        ],
+        "Confirmed app quit shows Stopping while the vendor helper cleans its staging directory": [
+          6.915, 0, 10.669
         ],
         "General update opt-out persists; update notices and restart counts remain quiet": [
           2.964, 9.33, 4.189
@@ -1925,6 +1979,10 @@
         "Chromium session storage falls back when shared memory is unavailable": [
           0.007, 0.012, 0.006
         ],
+        "Closing an installer window retries a one-time PTY termination exception": [
+          6.542, 0, 9.562
+        ],
+        "Confirmed app quit takes over after an overlapping owner stop rejects": [4.664, 0, 0],
         "Environment settings reach a launched shell; main refuses reserved names": [
           1.909, 8.622, 3.212
         ],
@@ -2154,6 +2212,10 @@
         "Close hides a review session before slow worktree removal finishes": [
           3.773, 15.817, 7.824
         ],
+        "Closing an installer window shows Stopping while the vendor helper cleans its staging directory": [
+          4.192, 0, 6.246
+        ],
+        "Confirmed app quit takes over after an overlapping owner stop rejects": [4.664, 0, 0],
         "General update opt-out persists; update notices and restart counts remain quiet": [
           2.964, 9.33, 4.189
         ],
@@ -2445,8 +2507,17 @@
         "Agents scopes use trusted consent and fixed recipes for host plugin installation": [
           10.487, 0, 13.922
         ],
+        "Cancelling app quit clears Stopping after an overlapping installer window close": [
+          7.336, 0, 11.011
+        ],
         "Close removes the tile and sidebar before slow cleanup and restores a failed row": [
           2.86, 10.236, 5.463
+        ],
+        "Closing an installer window escalates past SIGHUP and releases the next installer": [
+          6.603, 0, 9.727
+        ],
+        "Closing an installer window retries a one-time PTY termination exception": [
+          6.542, 0, 9.562
         ],
         "Dismiss clears agent attention after focusing click consumed its feedback": [
           6.696, 0, 7.838
@@ -2916,11 +2987,23 @@
       },
       {
         "About command opens the in-board art dialog and its anchored note": [6.186, 7.522, 3.381],
+        "Agents keeps fixed Codex device sign-in in Settings and refreshes sign-in on exit": [
+          5.214, 0, 9.675
+        ],
         "Antigravity plugin MCP inherits an owned child's read-only role": [6.244, 0, 10.064],
         "Antigravity plugin Settings disclosure installs and removes an observer that reports lifecycle": [
           21.161, 0, 25.128
         ],
         "Antigravity plugin progress and partial Reinstall failure in light": [5.054, 0, 10.941],
+        "Confirmed app quit shows Stopping for an installer awaiting its terminal create reply": [
+          5.894, 0, 0
+        ],
+        "Confirmed app quit shows Stopping while the vendor helper cleans its staging directory": [
+          6.915, 0, 10.669
+        ],
+        "Confirmed last board close shows Stopping while the vendor helper cleans its staging directory": [
+          6.304, 0, 0
+        ],
         "Environment settings reach a launched shell; main refuses reserved names": [
           1.909, 8.622, 3.212
         ],
@@ -2942,6 +3025,9 @@
         ],
         "Markdown previews render hostile documents safely, follow native theme and navigate to a sibling": [
           6.597, 14.132, 5.447
+        ],
+        "Origin trust stays off both boards and remains stoppable after host removal": [
+          6.807, 0, 8.641
         ],
         "Pi Settings card discloses project trust bypass and keeps MCP roles unavailable": [
           2.156, 7.925, 4.507
@@ -3068,6 +3154,7 @@
         "Close removes a restored session after its repository registration is dropped": [
           2.684, 11.207, 5.783
         ],
+        "Closing the owner window stops a removed host's origin repair": [4.242, 0, 8.754],
         "Help Manual opens a contained offline guide and focuses the existing tile": [
           2.395, 9.756, 5.789
         ],

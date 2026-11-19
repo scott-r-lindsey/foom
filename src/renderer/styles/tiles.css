@@ -607,7 +607,7 @@
   align-items: center;
   justify-content: center;
   gap: 12px;
-  color: var(--muted);
+  color: var(--ink);
   background: var(--surface);
   font-family: var(--font-mono);
 }

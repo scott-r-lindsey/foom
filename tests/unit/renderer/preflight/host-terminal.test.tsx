@@ -7,9 +7,15 @@ import type { TerminalContextMenu } from "../../../../src/renderer/terminal/term
 import type { TerminalViewSource } from "../../../../src/renderer/terminal/terminal-view-source.d";
 afterEach(cleanup);
 
-test.each([0, 17, undefined])(
-  "recipe keeps its terminal until dismissed and reports exit %s outside output",
-  async (code) => {
+test.each([
+  [0, false],
+  [17, false],
+  [undefined, false],
+  [0, true],
+  [17, true],
+] as const)(
+  "recipe reports exit %s outside output (collapse: %s)",
+  async (code, collapseOnExit) => {
     const dispose = vi.fn();
     const off = vi.fn();
     const open = vi.fn(async () => {});
@@ -47,7 +53,14 @@ test.each([0, 17, undefined])(
       },
     };
     const finished = vi.fn();
-    const result = render(<HostTerminal id="recipe-1" source={source} finished={finished} />);
+    const result = render(
+      <HostTerminal
+        id="recipe-1"
+        source={source}
+        finished={finished}
+        collapseOnExit={collapseOnExit}
+      />,
+    );
     expect(screen.getByRole("status").textContent).toBe("Installing…");
     expect(open).not.toHaveBeenCalled();
     act(() => {
@@ -89,6 +102,8 @@ test.each([0, 17, undefined])(
       observe({ exited: true });
     });
     expect(finished).toHaveBeenCalledOnce();
+    expect(result.container.querySelector(".host-terminal-view") === null).toBe(collapseOnExit);
+    if (collapseOnExit) expect(dispose).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
     expect(screen.queryByRole("region")).toBeNull();
     expect(dispose).toHaveBeenCalledOnce();

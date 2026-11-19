@@ -2,6 +2,7 @@ import type { PreviewSummary } from "./workspace";
 
 export interface PreviewRecord {
   id: string;
+  /** Captured preview root. The field name is retained for legacy registries. */
   worktree: string;
   relativePath: string;
   network: boolean;

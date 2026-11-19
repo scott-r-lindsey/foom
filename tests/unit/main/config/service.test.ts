@@ -5,6 +5,7 @@ import { expect, test, vi } from "vitest";
 import { configPart } from "../../../../src/main/config/approval";
 import { OWNED_FILES, digest } from "../../../../src/main/config/layout";
 import { ConfigFiles } from "../../../../src/main/config/files";
+import { ApplicationError } from "../../../../src/shared/application-errors";
 import { ConfigService } from "../../../../src/main/config/service";
 import { DEFAULT_SETTINGS } from "../../../../src/main/setup/settings";
 import { services, roots, fixture, palette, theme } from "./service-fixture";
@@ -395,7 +396,7 @@ test("Settings patches preserve safe external preferences before the watcher run
   });
 });
 
-test("Settings patches never adopt unapproved external bytes", async () => {
+test("Settings patches apply safe file values and leave weakening bytes held", async () => {
   const f = await fixture();
   await f.service.initialize({ interfaceScale: 120, terminalFontSize: 19 });
   await f.settings({ hooks: false });
@@ -406,11 +407,8 @@ test("Settings patches never adopt unapproved external bytes", async () => {
     agents: { claude: true },
   });
   expect(f.service.status().pending?.detail).toBe("hooks: on → off");
-  expect(f.applied.at(-1)).toEqual({
-    interfaceScale: 120,
-    terminalFontSize: 19,
-    agents: { claude: true },
-  });
+  // The file omitted both size settings, so their defaults apply.
+  expect(f.applied.at(-1)).toEqual({ agents: { claude: true } });
   expect(f.applied.every((values) => values.hooks !== false)).toBe(true);
 });
 
@@ -454,3 +452,105 @@ test.each(["partial JSON", "read failure"])(
     expect(f.service.status().rejected).toEqual([]);
   },
 );
+
+test("Keep writes compact settings when pretty printing would exceed the byte limit", async () => {
+  const agentArguments = { fixture: Array.from({ length: 64 }, () => "é".repeat(509)) };
+  const approved = JSON.stringify({ kind: "settings", agentArguments });
+  const f = await fixture({ baseline: digest(approved), appliedText: approved });
+  await mkdir(f.folder);
+  await f.write("settings.json", approved);
+  await f.service.initialize();
+  const proposal = { kind: "settings", agentArguments, interfaceScale: 120, hooks: false };
+  expect(Buffer.byteLength(JSON.stringify(proposal))).toBeLessThanOrEqual(65536);
+  expect(Buffer.byteLength(JSON.stringify(proposal, null, 2))).toBeGreaterThan(65536);
+  await f.write("settings.json", JSON.stringify(proposal));
+  expect((await f.service.refresh()).pending?.detail).toBe("hooks: on → off");
+  await f.decide("keep");
+  const expected = JSON.stringify({ kind: "settings", agentArguments, interfaceScale: 120 });
+  expect(await f.read("settings.json")).toBe(expected);
+  expect(f.copy()).toBe(expected);
+  expect(f.service.status().pending).toBeNull();
+});
+
+test("a live watcher scan retries after Settings lock contention without another file event", async () => {
+  const f = await fixture();
+  await f.service.initialize();
+  await f.settings({ hooks: false });
+  const lock = vi.spyOn(ConfigFiles.prototype, "withSettingsLock");
+  lock.mockRejectedValueOnce(new ApplicationError("settings-busy"));
+  try {
+    f.listeners[0]?.("settings.json");
+    await vi.waitFor(() => {
+      expect(f.service.status().pending?.detail).toBe("hooks: on → off");
+    });
+    expect(lock).toHaveBeenCalledTimes(2);
+  } finally {
+    lock.mockRestore();
+  }
+});
+
+test("Keep restores the whole baseline when restored arguments and safe edits cannot fit", async () => {
+  const agentArguments = { fixture: Array.from({ length: 64 }, () => "é".repeat(509)) };
+  const approved = JSON.stringify({ kind: "settings", agentArguments });
+  const f = await fixture({ baseline: digest(approved), appliedText: approved });
+  await mkdir(f.folder);
+  await f.write("settings.json", approved);
+  await f.service.initialize();
+  const agents = Object.fromEntries(
+    Array.from({ length: 32 }, (_, i) => [`fixture-${String(i)}`, true]),
+  );
+  const proposal = {
+    kind: "settings",
+    agents: { ...agents, claude: true, codex: true, agy: true },
+    interfaceScale: 120,
+  };
+  expect(Buffer.byteLength(approved)).toBeLessThanOrEqual(65536);
+  expect(Buffer.byteLength(JSON.stringify({ ...proposal, agentArguments }))).toBeGreaterThan(65536);
+  await f.write("settings.json", JSON.stringify(proposal));
+  expect((await f.service.refresh()).pending?.detail).toBe("agentArguments.fixture");
+  const result = await f.decide("keep");
+  expect(result.pending).toBeNull();
+  expect(result.notice).toContain("Other edits were dropped");
+  expect(await f.read("settings.json")).toBe(approved);
+  expect(f.copy()).toBe(approved);
+  expect(f.applied.at(-1)).toEqual({ agentArguments });
+});
+
+test("Keep restores the exact baseline when the defensive palette fallback cannot fit", async () => {
+  const oldFile = `${"p".repeat(85)}x.json`;
+  const baseline = {
+    kind: "settings",
+    interfaceTheme: `user:${oldFile}`,
+    agentArguments: { fixture: Array.from({ length: 64 }, () => "é".repeat(508)) },
+  };
+  const approved = JSON.stringify(baseline);
+  const f = await fixture({ baseline: digest(approved), appliedText: approved });
+  await mkdir(path.join(f.folder, "themes"), { recursive: true });
+  await f.write("settings.json", approved);
+  await f.write(`themes/${oldFile}`, theme("Original palette"));
+  await f.write("themes/x.json", theme("Proposed palette"));
+  await f.service.initialize();
+
+  const agents = Object.fromEntries(Array.from({ length: 8 }, (_, i) => [`new${String(i)}`, true]));
+  const safe = {
+    ...baseline,
+    interfaceTheme: "user:x.json",
+    agents: { ...agents, claude: true, codex: true, agy: true },
+    interfaceScale: 120,
+  };
+  const proposal = JSON.stringify({ ...safe, hooks: false });
+  expect(Buffer.byteLength(proposal)).toBeLessThanOrEqual(65536);
+  expect(Buffer.byteLength(JSON.stringify(safe))).toBeLessThanOrEqual(65536);
+  expect(
+    Buffer.byteLength(JSON.stringify({ ...safe, interfaceTheme: baseline.interfaceTheme })),
+  ).toBeGreaterThan(65536);
+  await f.write("settings.json", proposal);
+  expect((await f.service.refresh()).pending?.detail).toBe("hooks: on → off");
+
+  const result = await f.decide("keep");
+  expect(result.pending).toBeNull();
+  expect(result.notice).toContain("Other edits were dropped");
+  expect(await f.read("settings.json")).toBe(approved);
+  expect(f.copy()).toBe(approved);
+  expect(f.service.activePalette()?.id).toBe(baseline.interfaceTheme);
+});

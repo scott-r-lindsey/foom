@@ -373,6 +373,7 @@ const validThemeCatalog: Validator<ThemeCatalog> = shape({
     shape({
       id: userThemeId,
       theme: validInterfaceTheme,
+      digest: either(absent, text),
     }),
   ),
   terminal: array(
@@ -780,6 +781,7 @@ const validConfigStatus: Validator<ConfigStatus> = shape({
   pending: either(nil, validConfigPending),
   rejected: array(validConfigRejection),
   error: either(absent, text),
+  notice: either(absent, text),
 } satisfies Contract<ConfigStatus>);
 
 const validRepository: Validator<Repository> = shape({
@@ -1877,6 +1879,15 @@ const desktop: DesktopApi = {
       },
     },
     id: windowArgument("window-id") ?? "main",
+    onSettingsStopping: (callback) => {
+      const listener = (_event: IpcRendererEvent, stopping: unknown) => {
+        if (typeof stopping === "boolean") callback(stopping);
+      };
+      ipcRenderer.on("windows:settings-stopping", listener);
+      return () => {
+        ipcRenderer.removeListener("windows:settings-stopping", listener);
+      };
+    },
     restored: windowArgument("window-restored") === "true",
     number: Number(windowArgument("window-number") ?? 0),
     initialSession: windowArgument("initial-session"),
@@ -2305,8 +2316,12 @@ const desktop: DesktopApi = {
     if (!validSetupState(clean)) throw new Error("Invalid setup response");
     return clean;
   },
-  saveSetup: async (patch) => {
-    const value: unknown = await ipcRenderer.invoke("setup:save", patch);
+  saveSetup: async (patch, themeDigest) => {
+    const value: unknown = await ipcRenderer.invoke(
+      "setup:save",
+      patch,
+      ...(themeDigest ? [themeDigest] : []),
+    );
     if (!validSetupState(value)) throw new Error("Invalid setup response");
     const clean = project(validSetupState, value);
     if (!validSetupState(clean)) throw new Error("Invalid setup response");

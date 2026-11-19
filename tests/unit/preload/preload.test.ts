@@ -209,6 +209,8 @@ test("setup requests use their own channels and never read a key back", async ()
     worktreeRoot: "/fixture",
   });
   await api.saveSetup({ hooks: false });
+  const digest = "a".repeat(64);
+  await api.saveSetup({ interfaceTheme: "user:custom.json" }, digest);
   expect(mock.invoke.mock.calls).toEqual([
     ["setup:terminal-fonts", false],
     ["setup:terminal-fonts", true],
@@ -216,6 +218,7 @@ test("setup requests use their own channels and never read a key back", async ()
     ["theme:open-folder", "theme"],
     ["setup:state"],
     ["setup:save", { hooks: false }],
+    ["setup:save", { interfaceTheme: "user:custom.json" }, digest],
   ]);
   expect(Object.keys(api).some((key) => /get.*key|read.*key/i.test(key))).toBe(false);
 });
@@ -604,7 +607,7 @@ test("preload accepts menu board commands and rejects unknown values", async () 
 
 test("window capabilities forward IDs and validate view and audio notifications", async () => {
   const api = (await bridge()).windows;
-  if (!api?.audio) throw new Error("Missing window capabilities");
+  if (!api?.audio || !api.onSettingsStopping) throw new Error("Missing window capabilities");
   mock.invoke.mockResolvedValue([]);
   await api.sync(["a"]);
   mock.invoke.mockResolvedValueOnce(true);
@@ -623,12 +626,14 @@ test("window capabilities forward IDs and validate view and audio notifications"
   const changed = vi.fn(),
     removed = vi.fn(),
     audio = vi.fn(),
+    stopping = vi.fn(),
     refuse = vi.fn();
   const offs = [
     api.onChanged(changed),
     api.onRemoved(removed),
     api.audio.onChanged(audio),
     api.audio.onRefuse(refuse),
+    api.onSettingsStopping(stopping),
   ];
   const emit = (channel: string, value?: unknown) =>
     mock.on.mock.calls.find(([name]) => name === channel)?.[1]({}, value);
@@ -645,6 +650,8 @@ test("window capabilities forward IDs and validate view and audio notifications"
   ])
     emit("windows:changed", value);
   emit("windows:removed", "a");
+  for (const value of [true, "true", {}, false]) emit("windows:settings-stopping", value);
+  expect(stopping.mock.calls).toEqual([[true], [false]]);
   for (const value of [null, "", "a".repeat(201)]) emit("windows:removed", value);
   expect(changed.mock.calls).toEqual([[valid]]);
   expect(removed.mock.calls).toEqual([["a"]]);
@@ -672,7 +679,7 @@ test("window capabilities forward IDs and validate view and audio notifications"
   emit("windows:refuse");
   expect(refuse).toHaveBeenCalledOnce();
   for (const off of offs) off();
-  expect(mock.removeListener).toHaveBeenCalledTimes(4);
+  expect(mock.removeListener).toHaveBeenCalledTimes(5);
 });
 test("main-generated window arguments scope metadata without exposing paths", async () => {
   const original = process.argv;

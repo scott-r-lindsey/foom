@@ -1,3 +1,4 @@
+import { interfaceThemes } from "../../../../src/shared/interface-themes";
 import { useState } from "react";
 import { BUILTIN_AGENTS } from "../../../../src/shared/providers/catalog";
 import type { ReadinessReport } from "../../../../src/shared/readiness";
@@ -72,8 +73,15 @@ function fake(initial: SetupState, scan: AgentReport = all) {
     ),
     openThemesFolder: vi.fn(async () => {}),
     state: vi.fn(() => Promise.resolve(state)),
-    save: vi.fn((patch: SettingsPatch) =>
-      update({ ...state, settings: { ...state.settings, ...patch } }),
+    save: vi.fn(({ agentArguments, ...patch }: SettingsPatch) =>
+      update({
+        ...state,
+        settings: {
+          ...state.settings,
+          ...patch,
+          agentArguments: { ...state.settings.agentArguments, ...agentArguments },
+        },
+      }),
     ),
     changeAgyPlugin: vi.fn(() => Promise.resolve(scan)),
     scanAgents: vi.fn((_refresh: boolean) => Promise.resolve(scan)),
@@ -434,18 +442,30 @@ test("a failed launch save keeps preflight open with the error", async () => {
 });
 
 test("appearance applies at once, follows shortcuts from main, and stays within its steps", async () => {
-  const source = fake(setupState({ interfaceScale: 250 }));
-  render(
-    <Preflight
-      source={source}
-      initial={setupState({ interfaceScale: 250 })}
-      onLaunched={vi.fn()}
-    />,
-  );
+  const digest = "a".repeat(64);
+  const initial = {
+    ...setupState({ interfaceScale: 250 }),
+    themes: {
+      interface: [
+        {
+          id: "user:personal.json" as const,
+          theme: { ...interfaceThemes["eclipse-dark"], name: "Personal" },
+          digest,
+        },
+      ],
+      terminal: [],
+      errors: [],
+    },
+  };
+  const source = fake(initial);
+  render(<Preflight source={source} initial={initial} onLaunched={vi.fn()} />);
   fireEvent.click(screen.getByRole("button", { name: /^Theme / }));
   fireEvent.click(screen.getByRole("menuitemradio", { name: "Eclipse Dark" }));
   expect(screen.getByRole("button", { name: "Theme Eclipse Dark" })).toBeTruthy();
   expect(source.save).toHaveBeenCalledWith({ interfaceTheme: "eclipse-dark" });
+  fireEvent.click(screen.getByRole("button", { name: /^Theme / }));
+  fireEvent.click(screen.getByRole("menuitemradio", { name: "Personal" }));
+  expect(source.save).toHaveBeenLastCalledWith({ interfaceTheme: "user:personal.json" }, digest);
   fireEvent.click(button("Larger"));
   expect(source.save).toHaveBeenLastCalledWith({ interfaceScale: 300 });
   expect(screen.getByText("300%")).toBeTruthy();
@@ -816,7 +836,7 @@ test("Settings saves agent defaults through its source and retains the saved sta
   fireEvent.blur(screen.getByLabelText("Codex default arguments"));
   await waitFor(() => {
     expect(source.save).toHaveBeenCalledWith({
-      agentArguments: { claude: [], codex: ["--model", "example"], agy: [] },
+      agentArguments: { codex: ["--model", "example"] },
     });
   });
   expect(screen.getByLabelText("Codex default arguments")).toHaveProperty(
@@ -961,14 +981,14 @@ test("concurrent card saves preserve other agents' defaults and continue after a
   await screen.findByText("Unable to update settings.");
   await waitFor(() => {
     expect(source.save).toHaveBeenLastCalledWith({
-      agentArguments: { claude: [], codex: ["--model", "two"], agy: [] },
+      agentArguments: { codex: ["--model", "two"] },
     });
   });
   fireEvent.change(claude, { target: { value: "--model\nthree" } });
   fireEvent.blur(claude);
   await waitFor(() => {
     expect(source.save).toHaveBeenLastCalledWith({
-      agentArguments: { claude: ["--model", "three"], codex: ["--model", "two"], agy: [] },
+      agentArguments: { claude: ["--model", "three"] },
     });
   });
 });
@@ -1196,7 +1216,8 @@ test("Settings defaults to General and saves the optional nested repository name
 
 test("explicit Settings sections retain their targeted route", async () => {
   const initial = setupState();
-  const status = { folder: "/config", available: true, pending: null, rejected: [] };
+  const notice = "Restored the last approved settings. Other edits were dropped.";
+  const status = { folder: "/config", available: true, pending: null, rejected: [], notice };
   const source: SetupSource = {
     ...fake(initial),
     config: {
@@ -1217,6 +1238,7 @@ test("explicit Settings sections retain their targeted route", async () => {
   );
   expect(screen.getByRole("heading", { name: "Foom config" })).toBeTruthy();
   await screen.findByText("/config");
+  await screen.findByText(notice);
 });
 
 test("General saves update opt-out and renders fixed notice/error/restart states", async () => {

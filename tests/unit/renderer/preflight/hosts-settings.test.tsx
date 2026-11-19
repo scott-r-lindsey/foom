@@ -948,6 +948,166 @@ test("host-key fix identifies only the repository", async () => {
     });
   });
 });
+test.each([false, true])(
+  "host removal keeps a live origin repair stoppable (approved: %s)",
+  async (approved) => {
+    const repository = "/local/project";
+    const state = saved({
+      ...initial,
+      preflight: {
+        ...preflight,
+        repositories: [
+          {
+            repository,
+            origin: { state: "fail", reason: "origin-host-key" },
+            checkout: { ...host.result, checkout: { path: "/remote/project", state: "clean" } },
+          },
+        ],
+      },
+    });
+    const stop = vi.fn(() => Promise.resolve());
+    const { api } = await mount(state, {
+      hostTerminal: {
+        stop,
+        createView: () => ({
+          mount: () => () => {},
+          open: async () => {},
+          hide: async () => {},
+          focus: () => {},
+          subscribe: () => () => {},
+          getSnapshot: () => ({
+            status: "",
+            state: "quiet_ok",
+            visible: true,
+            attaching: false,
+            toggleLabel: "",
+            toggleDisabled: false,
+            restartDisabled: false,
+          }),
+        }),
+        observe: (_id, listener) => {
+          listener({ exited: false });
+          return () => {};
+        },
+      },
+    });
+    const removal = Promise.withResolvers<HostsState>();
+    api.mockImplementation((action) => {
+      if (action.action === "remove") return removal.promise;
+      return Promise.resolve(
+        action.action === "trust-origin" ? { ...state, recipeSession: "trust" } : state,
+      );
+    });
+    const trust = screen.getByRole("button", { name: "Trust host key…" });
+    fireEvent.click(trust);
+    const terminal = await screen.findByRole("region", { name: "Origin host key terminal" });
+    const stopButton = within(terminal).getByRole("button", { name: "Stop" });
+    const remove = screen.getByRole("button", { name: "Remove" });
+    fireEvent.click(remove);
+    expect(api).toHaveBeenCalledWith({ action: "remove", host: "worker" });
+    const next = approved ? { hosts: [], locations: [] } : state;
+    api.mockImplementation((action) => Promise.resolve(action.action === "list" ? next : state));
+    await act(async () => {
+      removal.resolve(next);
+      await removal.promise;
+    });
+    expect(stop).not.toHaveBeenCalled();
+    if (approved) {
+      const removed = screen.getByRole("region", { name: "Origin trust · worker" });
+      fireEvent.click(within(removed).getByRole("button", { name: "Stop" }));
+      await waitFor(() => {
+        expect(screen.queryByRole("region", { name: "Origin trust · worker" })).toBeNull();
+      });
+      expect(stop).toHaveBeenCalledExactlyOnceWith("trust");
+    } else {
+      expect(screen.getByRole("region", { name: "Origin host key terminal" })).toBe(terminal);
+      expect(stopButton).toHaveProperty("disabled", false);
+      expect(trust).toHaveProperty("disabled", true);
+    }
+  },
+);
+
+test("reopening Hosts restores each origin terminal independently of other recipes", async () => {
+  const repositories = ["/local/one", "/local/two"].map(
+    (repository) =>
+      ({
+        repository,
+        origin: { state: "fail", reason: "origin-host-key" },
+        checkout: {
+          ...host.result,
+          checkout: { path: "/remote/project", state: "clean" },
+        },
+      }) as const,
+  );
+  const exit = new Map<string, (state: { exited: boolean; code?: number }) => void>();
+  const open = vi.fn(() => Promise.resolve());
+  const { api } = await mount(
+    { ...initial, preflight: { ...preflight, repositories } },
+    {
+      installs: {
+        sessions: () => new Map([["worker", "install"]]),
+        hostActions: () =>
+          new Map(
+            repositories.map(({ repository }) => [
+              repository,
+              { action: "trust-origin", host: "worker", repository },
+            ]),
+          ),
+        hasSessions: () => true,
+        running: () => Promise.resolve(true),
+        close: () => Promise.resolve(),
+        dispose: () => {},
+      },
+      hostTerminal: {
+        createView: () => ({
+          mount: () => () => {},
+          open,
+          hide: async () => {},
+          focus: () => {},
+          subscribe: () => () => {},
+          getSnapshot: () => ({
+            status: "",
+            state: "quiet_ok",
+            visible: true,
+            attaching: false,
+            toggleLabel: "",
+            toggleDisabled: false,
+            restartDisabled: false,
+          }),
+        }),
+        observe: (id, listener) => {
+          exit.set(id, listener);
+          listener({ exited: false });
+          return () => {};
+        },
+      },
+    },
+  );
+  expect(screen.getAllByRole("region", { name: "Origin host key terminal" })).toHaveLength(2);
+  expect(screen.getByRole("region", { name: "Install terminal" })).toBeTruthy();
+  await waitFor(() => {
+    expect(open.mock.calls).toHaveLength(3);
+  });
+  const refreshed = saved({
+    ...initial,
+    preflight: {
+      ...preflight,
+      repositories: repositories.map((row, index) =>
+        index === 0 ? { ...row, origin: { state: "pass" } } : row,
+      ),
+    },
+  });
+  api.mockResolvedValue(refreshed);
+  await act(async () => {
+    exit.get("/local/one")?.({ exited: true, code: 1 });
+    await Promise.resolve();
+  });
+  expect(screen.getByText("Pass · Reachable")).toBeTruthy();
+  expect(screen.queryByText(/exit code 1/u)).toBeNull();
+  expect(screen.getByText("Verify the fingerprint in SSH")).toBeTruthy();
+  expect(screen.getAllByRole("region", { name: "Origin host key terminal" })).toHaveLength(1);
+});
+
 test("opening uses saved checks, keeps ready hosts compact and exposes every ready repository", async () => {
   const state = saved({
     ...initial,

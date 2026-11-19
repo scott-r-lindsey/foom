@@ -30,8 +30,12 @@ export interface ThemeDiagnostic {
 export type ParsedThemeFile =
   | { kind: "theme"; theme: InterfaceTheme; warnings?: readonly ThemeDiagnostic[] }
   | { kind: "terminal-theme"; name: string; theme: TerminalTheme };
+export interface ThemeSnapshot {
+  parsed: ParsedThemeFile;
+  digest: string;
+}
 export interface ThemeCatalog {
-  interface: readonly { id: UserThemeId; theme: InterfaceTheme }[];
+  interface: readonly { id: UserThemeId; theme: InterfaceTheme; digest?: string }[];
   terminal: readonly { id: UserThemeId; name: string; theme: TerminalTheme }[];
   errors: readonly (ThemeDiagnostic & { kind: ThemeKind })[];
 }

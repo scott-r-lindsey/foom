@@ -10,12 +10,12 @@ View actions change only Foom's presentation and need no trusted confirmation.
 `open_preview`, `list_previews` and `close_preview` are listed and granted to
 ordinary agents and orchestrators, never paired `cli` principals, through both
 MCP and `/control/v1`. Main's instance-wide broker resolves documents in the
-principal's launch-bound worktree using the contained-file protocol. Markdown, HTML, PNG, JPEG and WebP files are allowed; SVG entries are refused; unknown fields and caller-supplied roots are refused.
+filesystem using OS read permissions and the [preview-root policy](previews.md#selecting-a-document-and-its-root-1209). Relative paths start in the principal's launch checkout. Markdown, HTML, PNG, JPEG and WebP files are allowed; SVG entries are refused; unknown fields and caller-supplied roots are refused.
 
 Ownership follows the grant generation. Canonical-path reuse returns `existing`
 and leaves a tiled preview in place; an existing sidebar preview is placed on the
 board when placement is available. Exit, takeover and orchestrator revocation hand existing
-previews to the human; worktree removal closes them. Opening fills the landing
+previews to the human; worktree removal closes previews of documents inside that checkout. Opening fills the landing
 spot, then the first empty tile in tree order. On a full board it reuses terminal
 `placeContent` placement: add a far-right column with proportional shrinkage, or
 use the minimum-width replacement fallback, excluding the focused tile. Keyboard
@@ -32,7 +32,7 @@ open. Closing never creates a persistent minimization preference. If the board
 cannot place it (including protected tiles at layout resource limits), the result
 reports `placement: "sidebar"` and `list_previews` reports `visible: false`.
 A later open retries placement with the same ID while that sidebar entry exists.
-Fixed session/action/preview/relative-path/outcome audit metadata
+Fixed session/action/preview/root-relative-path/outcome audit metadata
 is written before creation or closure; storage failure refuses the action. Grants
 are rechecked after asynchronous work. View actions have no operation record or
 idempotency key; recover a lost result with `list_previews` or canonical-path reuse.

@@ -1,3 +1,4 @@
+import { parseAgentDefaults as parseStoredAgentDefaults } from "../../shared/providers/arguments";
 import { settingsChanged } from "../data/settings-changes";
 import { registeredHosts } from "../../shared/registered-hosts";
 import { parseForgeEnablement, parseForgeHosts } from "./forge-settings";
@@ -165,7 +166,7 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
 }
 
 /** Writes the agent-editable part to `~/.foom/config/settings.json` once attached. */
-export type ConfigWriter = (patch: ConfigSettings) => Promise<void>;
+export type ConfigWriter = (patch: ConfigSettings, themeDigest?: string) => Promise<void>;
 
 const CONFIG_DEFAULTS: ConfigSettings = Object.fromEntries(
   CONFIG_SETTINGS.map((key) => [key, DEFAULT_SETTINGS[key]]),
@@ -418,24 +419,32 @@ export class SettingsStore {
     return this.text;
   }
 
-  async setConfigText(text: string): Promise<void> {
-    if (text === this.text || text.length > 65536) return;
-    await this.write(() => {
-      this.text = text;
-    });
-  }
-
-  async setConfigDigest(digest: string): Promise<void> {
-    if (digest === this.digest) return;
+  async setConfigBaseline(
+    digest: string,
+    text: string,
+    theme?: { file: string; digest: string },
+  ): Promise<void> {
+    if (Buffer.byteLength(text) > 65536) return;
+    if (digest === this.digest && text === this.text && !theme) return;
     await this.write(() => {
       this.digest = digest;
+      this.text = text;
+      if (theme) {
+        const next = { ...this.themeDigests, [theme.file]: theme.digest };
+        if (Object.keys(next).length <= MAX_THEME_DIGESTS) this.themeDigests = next;
+      }
     });
   }
 
   /** Only registered-host updates may be cancelled when their observation is superseded. */
-  update(patch: SettingsPatch): Promise<Settings>;
+  update(patch: SettingsPatch, themeDigest?: string): Promise<Settings>;
   update(patch: RegisteredHostsPatch, canCommit: (() => boolean) | undefined): Promise<Settings>;
-  async update(patch: SettingsPatch, canCommit?: () => boolean): Promise<Settings> {
+  async update(
+    patch: SettingsPatch,
+    themeDigestOrGuard?: string | (() => boolean),
+  ): Promise<Settings> {
+    const canCommit = typeof themeDigestOrGuard === "function" ? themeDigestOrGuard : undefined;
+    const themeDigest = typeof themeDigestOrGuard === "string" ? themeDigestOrGuard : undefined;
     let snapshot = patch;
     if (canCommit) {
       const keys = Reflect.ownKeys(patch);
@@ -444,19 +453,26 @@ export class SettingsStore {
         descriptor && Object.hasOwn(descriptor, "value") ? descriptor.value : undefined;
       if (keys.length !== 1 || keys[0] !== "registeredHosts" || !Array.isArray(value))
         throw new Error("A commit guard requires a registeredHosts-only patch");
-      snapshot = { registeredHosts: value };
+      snapshot = { registeredHosts: structuredClone(value) };
     }
     const config: ConfigSettings = {};
     const profile: SettingsPatch = {};
     for (const [key, value] of Object.entries(snapshot))
-      Object.assign(this.writer && isConfigSetting(key) ? config : profile, { [key]: value });
-    if (this.writer && Object.keys(config).length) await this.writer(config);
+      Object.assign(this.writer && isConfigSetting(key) ? config : profile, {
+        [key]: key === "registeredHosts" && !canCommit ? structuredClone(value) : value,
+      });
+    if (this.writer && Object.keys(config).length)
+      await this.writer(config, ...(themeDigest ? [themeDigest] : []));
     if (Object.keys(config).length && !Object.keys(profile).length) return this.committedSettings;
     await this.write(() => {
-      this.settings = { ...this.settings, ...profile };
-      if (profile.agentArguments)
-        this.argumentsToMove = Object.values(profile.agentArguments).some((args) => args.length)
-          ? profile.agentArguments
+      const argumentsPatch = profile.agentArguments;
+      const agentArguments = argumentsPatch
+        ? parseStoredAgentDefaults({ ...this.settings.agentArguments, ...argumentsPatch })
+        : this.settings.agentArguments;
+      this.settings = { ...this.settings, ...profile, agentArguments };
+      if (argumentsPatch)
+        this.argumentsToMove = Object.values(agentArguments).some((args) => args.length)
+          ? agentArguments
           : undefined;
     }, canCommit);
     return this.committedSettings;

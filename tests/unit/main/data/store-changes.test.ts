@@ -49,8 +49,6 @@ test("every Settings write boundary publishes only after successful persistence"
   };
   await published(() => store.update({ hooks: false }));
   await published(() => store.setThemeDigest("themes/example.json", "a".repeat(64)));
-  await published(() => store.setConfigText("{}"));
-  await published(() => store.setConfigDigest("b".repeat(64)));
   await published(() =>
     store.attachConfig(
       (patch) => {
@@ -159,4 +157,26 @@ test("worktree metadata commits retain the repository revision, including after 
   expect(viewChanges.current("repositories")).toBe(revision);
   await reopened.save(() => ({ ...state, repositories: [] }));
   expect(viewChanges.current("repositories")).toBeGreaterThan(revision);
+});
+
+test("the approved config copy, its digest and selected palette publish as one profile write", async () => {
+  const directory = await root();
+  const store = await SettingsStore.open(directory);
+  await store.attachConfig(async () => {}, {}, null);
+  const file = "themes/example.json";
+  const publications: (string | null)[][] = [];
+  disposers.push(
+    viewChanges.subscribe(() => {
+      publications.push([store.configDigest(), store.configText(), store.themeDigest(file)]);
+    }),
+  );
+  const digest = "b".repeat(64);
+  const text = '{"kind":"settings","interfaceTheme":"user:example.json"}';
+  const themeDigest = "c".repeat(64);
+  await store.setConfigBaseline(digest, text, { file, digest: themeDigest });
+  expect(publications).toEqual([[digest, text, themeDigest]]);
+  const restarted = await SettingsStore.open(directory);
+  expect(restarted.configDigest()).toBe(digest);
+  expect(restarted.configText()).toBe(text);
+  expect(restarted.themeDigest(file)).toBe(themeDigest);
 });

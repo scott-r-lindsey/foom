@@ -44,6 +44,11 @@ export function ConfigControls({ config }: { config: ConfigSource }) {
           Open folder
         </button>
       </div>
+      {status?.notice && (
+        <p className="config-note" role="status">
+          {status.notice}
+        </p>
+      )}
       {status?.error && <p className="config-note">{status.error}</p>}
       {pending && <ConfigDecision pending={pending} decide={config.decide} onDecided={setStatus} />}
       {status?.rejected.length ? (

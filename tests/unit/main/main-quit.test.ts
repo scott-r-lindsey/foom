@@ -56,6 +56,7 @@ test("confirmed quit waits for termination, suppresses duplicate requests, then 
   await vi.waitFor(() => {
     expect(mock.terminals.shutdown).toHaveBeenCalledOnce();
   });
+  expect(mock.window.webContents.send).not.toHaveBeenCalledWith("windows:settings-stopping", true);
   quitting();
   expect(mock.message).toHaveBeenCalledOnce();
   expect(mock.quit).not.toHaveBeenCalled();
@@ -77,6 +78,154 @@ test("quits without a confirmation when no PTYs are running", async () => {
   });
   expect(mock.message).not.toHaveBeenCalled();
   expect(mock.terminals.shutdown).toHaveBeenCalledOnce();
+});
+
+test.each(["success", "failure"])(
+  "quit shows progress for a recipe awaiting registration and clears it after shutdown %s",
+  async (outcome) => {
+    mock.terminals.runningCount = 1;
+    mock.terminals.hasRunningSettingsRecipe = true;
+    vi.spyOn(mock.terminals, "runningSessions").mockReturnValue([]);
+    mock.message.mockResolvedValue({ response: 1 });
+    const shutdown = Promise.withResolvers<undefined>();
+    mock.terminals.shutdown.mockReturnValue(shutdown.promise);
+    await start();
+    quitting();
+    expect(mock.message).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Quit with 1 terminal running?", sessions: [] }),
+    );
+    await vi.waitFor(() => {
+      expect(mock.terminals.shutdown).toHaveBeenCalledOnce();
+    });
+    const status = (stopping: boolean) =>
+      mock.window.webContents.send.mock.calls.filter(
+        ([channel, value]) => channel === "windows:settings-stopping" && value === stopping,
+      );
+    expect(status(true)).toHaveLength(1);
+    expect(status(false)).toHaveLength(0);
+    if (outcome === "failure") {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      shutdown.reject(new Error("cleanup did not exit"));
+    } else shutdown.resolve(undefined);
+    await vi.waitFor(() => {
+      expect(status(false)).toHaveLength(1);
+      if (outcome === "failure") expect(mock.errorBox).toHaveBeenCalledOnce();
+      else expect(mock.quit).toHaveBeenCalledOnce();
+    });
+  },
+);
+
+test.each(["cancelled", "confirmed", "failed"] as const)(
+  "an owner stop that fails while the quit prompt is open follows the %s decision",
+  async (decision) => {
+    vi.spyOn(process, "platform", "get").mockReturnValue("darwin");
+    mock.terminals.runningCount = 1;
+    const prompt = Promise.withResolvers<{ response: number }>();
+    const stop = Promise.withResolvers<boolean>();
+    mock.message.mockReturnValueOnce(prompt.promise);
+    mock.terminals.stop.mockReturnValueOnce(stop.promise);
+    await start();
+    const id = await mock.setup.deps?.launchHostRecipe?.({
+      host: "worker",
+      human: true,
+      trustOrigin: "git@forge.test:team/project.git",
+    });
+    const close = { preventDefault: vi.fn() };
+    mock.windowEvents.get("close")?.(close);
+    await vi.waitFor(() => {
+      expect(mock.terminals.stop).toHaveBeenCalledExactlyOnceWith(id);
+    });
+    quitting();
+    expect(mock.message).toHaveBeenCalledOnce();
+    stop.reject(new Error("owner stop failed"));
+    await vi.waitFor(() => {
+      expect(mock.window.webContents.send).toHaveBeenCalledWith("windows:settings-stopping", false);
+    });
+    expect(mock.errorBox).not.toHaveBeenCalled();
+    expect(mock.terminals.shutdown).not.toHaveBeenCalled();
+    expect(mock.terminals.kill).not.toHaveBeenCalled();
+
+    if (decision === "confirmed") {
+      prompt.resolve({ response: 1 });
+      await vi.waitFor(() => {
+        expect(mock.quit).toHaveBeenCalledOnce();
+      });
+      expect(mock.terminals.shutdown).toHaveBeenCalledOnce();
+      expect(mock.errorBox).not.toHaveBeenCalled();
+      return;
+    }
+    if (decision === "failed") {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      prompt.reject(new Error("quit prompt failed"));
+      await vi.waitFor(() => {
+        expect(mock.errorBox).toHaveBeenCalledExactlyOnceWith(
+          "Unable to quit Foom",
+          "Could not stop all terminals. Please try again.",
+        );
+      });
+      expect(mock.terminals.shutdown).not.toHaveBeenCalled();
+      return;
+    }
+
+    prompt.resolve({ response: 0 });
+    await vi.waitFor(() => {
+      expect(mock.errorBox).toHaveBeenCalledExactlyOnceWith(
+        "Unable to close window",
+        "Could not stop a Settings repair. Please try again.",
+      );
+    });
+    expect(mock.quit).not.toHaveBeenCalled();
+    expect(mock.terminals.shutdown).not.toHaveBeenCalled();
+    mock.windowEvents.get("close")?.(close);
+    await vi.waitFor(() => {
+      expect(mock.window.close).toHaveBeenCalledOnce();
+    });
+    expect(mock.terminals.kill).toHaveBeenCalledExactlyOnceWith(id);
+  },
+);
+
+test("confirmed quit joins an owner close and keeps progress until shutdown settles", async () => {
+  vi.spyOn(process, "platform", "get").mockReturnValue("darwin");
+  mock.terminals.runningCount = 1;
+  mock.message.mockResolvedValue({ response: 1 });
+  const stop = Promise.withResolvers<boolean>();
+  const shutdown = Promise.withResolvers<undefined>();
+  mock.terminals.stop.mockReturnValue(stop.promise);
+  mock.terminals.shutdown.mockReturnValue(shutdown.promise);
+  await start();
+  const id = await mock.setup.deps?.launchHostRecipe?.({
+    host: "worker",
+    human: true,
+    trustOrigin: "git@forge.test:team/project.git",
+  });
+  mock.windowEvents.get("close")?.({ preventDefault: vi.fn() });
+  await vi.waitFor(() => {
+    expect(mock.terminals.stop).toHaveBeenCalledExactlyOnceWith(id);
+  });
+  quitting();
+  await vi.waitFor(() => {
+    expect(mock.message).toHaveResolved();
+  });
+  expect(mock.terminals.shutdown).not.toHaveBeenCalled();
+  stop.resolve(true);
+  await vi.waitFor(() => {
+    expect(mock.terminals.kill).toHaveBeenCalledExactlyOnceWith(id);
+    expect(mock.terminals.shutdown).toHaveBeenCalledOnce();
+  });
+  const progressEvents = () =>
+    mock.window.webContents.send.mock.calls.filter(
+      ([channel]) => channel === "windows:settings-stopping",
+    );
+  expect(progressEvents()).toEqual([["windows:settings-stopping", true]]);
+  expect(mock.window.close).not.toHaveBeenCalled();
+  shutdown.resolve(undefined);
+  await vi.waitFor(() => {
+    expect(mock.quit).toHaveBeenCalledOnce();
+  });
+  expect(progressEvents()).toEqual([
+    ["windows:settings-stopping", true],
+    ["windows:settings-stopping", false],
+  ]);
 });
 
 test.each(["dialog", "shutdown"])(

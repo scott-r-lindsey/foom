@@ -189,14 +189,14 @@ test("a resource read finishing after reload cannot restore the retired load's d
   if (!handler) throw new Error("Missing protocol");
   await mkdir(path.join(f.root, "retired"));
   await writeFile(path.join(f.root, "retired", "asset.css"), "body {}");
-  const realpath = fs.promises.realpath;
+  const lstat = fs.promises.lstat;
   let release: () => void = () => {};
   const gate = new Promise<void>((resolve) => {
     release = resolve;
   });
-  vi.spyOn(fs.promises, "realpath").mockImplementationOnce(async (file) => {
+  vi.spyOn(fs.promises, "lstat").mockImplementationOnce(async (...args) => {
     await gate;
-    return realpath(file);
+    return lstat(...args);
   });
   const retired = handler({ url: `foom-preview://${id}/retired/asset.css` });
   try {

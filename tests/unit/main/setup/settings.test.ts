@@ -65,6 +65,36 @@ test("guarded writes reject mixed patches before applying any settings", async (
   expect((await SettingsStore.open(root)).get()).toMatchObject(patch);
 });
 
+test.each(["guarded", "unguarded"] as const)(
+  "%s writes own a deep copy of registered hosts",
+  async (mode) => {
+    const root = await directory();
+    const store = await SettingsStore.open(root);
+    const preflight = {
+      ssh: { state: "pass" as const },
+      sshRevision: 1,
+      platform: { state: "not-checked" as const },
+      artifact: { state: "fail" as const, reason: "artifact-unavailable" as const },
+      result: { ok: false as const, reason: "artifact-unavailable" as const },
+      repositories: [],
+    };
+    const host = { host: "worker", codeFolder: "/code", observation: { checkedAt: 1, preflight } };
+    const patch = { registeredHosts: [host] };
+    const expected = structuredClone(patch.registeredHosts);
+
+    if (mode === "guarded") await store.update(patch, () => true);
+    else await store.update(patch);
+    patch.registeredHosts.pop();
+    host.codeFolder = "/changed";
+    preflight.sshRevision = 2;
+    expect(store.get().registeredHosts).toEqual(expected);
+
+    // Another profile write must not pick up the caller's mutations.
+    await store.update({ setupComplete: true });
+    expect((await SettingsStore.open(root)).get().registeredHosts).toEqual(expected);
+  },
+);
+
 test.each(["hidden host property", "mutating getter"] as const)(
   "guarded writes reject a %s before invoking the config writer",
   async (shape) => {
@@ -573,15 +603,14 @@ test("attaching Foom config moves agent-editable values out of the profile exact
   });
   await store.update({ panelColor: "plain" });
   expect(writes).toHaveLength(2);
-  await store.setConfigDigest("b".repeat(64));
-  await store.setConfigDigest("b".repeat(64));
-  expect((await SettingsStore.open(dir)).configDigest()).toBe("b".repeat(64));
-  // The applied settings copy persists for Keep it on after a restart, within the file limit.
   expect(store.configText()).toBeNull();
-  await store.setConfigText('{"kind":"settings"}');
-  await store.setConfigText('{"kind":"settings"}');
-  await store.setConfigText("x".repeat(65537));
-  expect((await SettingsStore.open(dir)).configText()).toBe('{"kind":"settings"}');
+  const text = '{"kind":"settings"}';
+  await store.setConfigBaseline("b".repeat(64), text);
+  await store.setConfigBaseline("b".repeat(64), text);
+  await store.setConfigBaseline("d".repeat(64), "x".repeat(65537));
+  const persisted = await SettingsStore.open(dir);
+  expect(persisted.configDigest()).toBe("b".repeat(64));
+  expect(persisted.configText()).toBe(text);
   store.setConfig({});
   expect(store.get().terminalFontSize).toBe(14);
 });
@@ -650,7 +679,7 @@ test.each([1, 2])(
     );
     const store = await SettingsStore.open(dir);
     expect(store.legacyConfig()?.agentArguments).toEqual(recovered);
-    await store.setConfigDigest("a".repeat(64));
+    await store.setConfigBaseline("a".repeat(64), '{"kind":"settings"}');
     // Baseline persistence during config initialization must not drop the arguments.
     const reopened = await SettingsStore.open(dir);
     expect(reopened.get().agentArguments).toEqual(recovered);

@@ -167,7 +167,7 @@ it("returns canonical reuse, ownership and fixed errors through both adapters", 
   });
   for (const [method, args, code, status] of [
     ["open_preview", { path: "missing.md" }, "not_found", 404],
-    ["open_preview", { path: "../escape.md" }, "forbidden", 403],
+    ["open_preview", { path: "../escape.md" }, "not_found", 404],
     ["open_preview", { path: "plan.md", worktree: "/" }, "invalid_request", 400],
     ["list_previews", { extra: true }, "invalid_request", 400],
     ["close_preview", { previewId: "unknown" }, "not_found", 404],

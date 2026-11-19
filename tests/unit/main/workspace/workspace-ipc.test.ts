@@ -600,7 +600,7 @@ test("action log capabilities reject extra arguments and keep queries behind mai
   expect(() => invoke("workspace:clear-action-log", ["path"])).toThrow();
 });
 
-test("sidebar inventory reports previews only for worktrees it lists", async () => {
+test("sidebar inventory reports previews with or without repository associations", async () => {
   mock.handle.mockClear();
   attachWorkspace(window, workspace as unknown as Workspace, owns, requestDialog, undefined, () => [
     {
@@ -651,6 +651,14 @@ test("sidebar inventory reports previews only for worktrees it lists", async () 
         kind: "html",
       },
       {
+        id: "c".repeat(32),
+        repository: "",
+        worktree: "/gone",
+        relativePath: "a.md",
+        network: false,
+        kind: "markdown",
+      },
+      {
         id: "d".repeat(32),
         repository: "",
         worktree: "foom:manual",
@@ -662,7 +670,7 @@ test("sidebar inventory reports previews only for worktrees it lists", async () 
   });
 });
 
-test("unavailable membership preserves open preview IDs but not closed or confirmed removed previews", async () => {
+test("preview inventory retains open records when checkout membership is unavailable or disappears", async () => {
   const preview = {
     id: "a".repeat(32),
     worktree: "/tree",
@@ -715,12 +723,9 @@ test("unavailable membership preserves open preview IDs but not closed or confir
       { path: "/other", name: "other", unavailable: true, worktrees: [] },
     ],
   });
-  await expect(invoke("workspace:sidebar")).resolves.toMatchObject({ previews: [] });
-  inventory.mockResolvedValue({
-    shell: "bash",
-    repositories: [{ path: "/repo", name: "repo", unavailable: true, worktrees: [] }],
+  await expect(invoke("workspace:sidebar")).resolves.toMatchObject({
+    previews: [{ ...expected, repository: "" }],
   });
-  await expect(invoke("workspace:sidebar")).resolves.toMatchObject({ previews: [expected] });
   records = [];
   await expect(invoke("workspace:sidebar")).resolves.toMatchObject({ previews: [] });
   records = [preview];
@@ -728,7 +733,9 @@ test("unavailable membership preserves open preview IDs but not closed or confir
     shell: "bash",
     repositories: [{ path: "/repo", name: "repo", worktrees: [] }],
   });
-  await expect(invoke("workspace:sidebar")).resolves.toMatchObject({ previews: [] });
+  await expect(invoke("workspace:sidebar")).resolves.toMatchObject({
+    previews: [{ repository: "" }],
+  });
 });
 
 test("a first partial inventory cannot claim an owned preview is removed", async () => {
@@ -750,7 +757,9 @@ test("a first partial inventory cannot claim an owned preview is removed", async
     previews: [{ id: "b".repeat(32), repository: "", worktree: "/linked-outside-repo" }],
   });
   inventory.mockResolvedValue({ shell: "bash", repositories: [] });
-  await expect(invoke("workspace:sidebar")).resolves.toMatchObject({ previews: [] });
+  await expect(invoke("workspace:sidebar")).resolves.toMatchObject({
+    previews: [{ repository: "" }],
+  });
 });
 
 test.each(["install", "update", "enable", "remove"])(

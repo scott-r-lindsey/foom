@@ -92,6 +92,9 @@ test("passes payloads to Setup, which validates them, and never offers a key rea
     settings: { interfaceScale: 100 },
   });
   expect(setup.save).toHaveBeenCalledWith({ hooks: false });
+  const digest = "a".repeat(64);
+  await invoke("setup:save", [{ interfaceTheme: "user:custom.json" }, digest]);
+  expect(setup.save).toHaveBeenCalledWith({ interfaceTheme: "user:custom.json" }, digest);
   expect(contents.send).toHaveBeenCalledWith("setup:changed", {
     settings: { interfaceScale: 100 },
   });

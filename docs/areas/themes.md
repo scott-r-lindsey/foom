@@ -90,15 +90,19 @@ an attention conflict: a color pair within ΔE 40 of attention, globally or in a
 area, that the approved version lacks. Pairs are compared individually, so an
 approved pair never approves a new one on the same color. Selecting a warned
 theme through settings.json also holds. Inactive themes, hue-only warnings and
-direct Appearance selections do not hold. Attention distinctness includes
+direct Appearance selections of the exact offered version do not hold. If the
+file changed since it was offered, Appearance refuses the save and asks the user
+to choose again after the list refreshes. Attention distinctness includes
 separation from readable ink as well as failure, accent, highlight and done.
 
 The approved version is the one this profile last applied, recorded as a
-per-file digest in the profile like the settings baseline. After a restart the
-file counts as approved only if its digest matches. Allow verifies the proposal
-digest and current bytes and records the new digest. Keep it on restores the
-approved version applied in this session; when there is none it switches
-`interfaceTheme` back to the default and leaves the file in place.
+per-file digest in the profile. Active selections display the palette snapshot
+accepted by the approval gate, even while the independent catalog is still
+publishing an older version or has yet to publish that palette. After a restart the file counts as approved only
+if its digest matches. Allow verifies the proposal digest and current bytes and
+records the new digest. Keep it on restores the approved version applied in
+this session. When there is none, it switches `interfaceTheme` back to the default
+only if the reviewed selection is still current in the shared Settings file.
 
 ## Additional areas, typography and gradients (#1188)
 

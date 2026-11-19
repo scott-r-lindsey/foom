@@ -1,6 +1,8 @@
 import { Board } from "../../../../src/renderer/board/board-view";
 import { createSampleSource } from "../../../../src/renderer/board/sample-board-source";
-import { load } from "./sidebar-view-fixtures";
+import { load, repository } from "./sidebar-view-fixtures";
+import { Sidebar } from "../../../../src/renderer/board/sidebar-view";
+import { boardRows } from "../../../fixtures/board";
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test } from "vitest";
@@ -12,6 +14,49 @@ beforeEach(() => {
   };
 });
 afterEach(cleanup);
+
+test("a preview opened from another checkout appears only in its document checkout", () => {
+  const row = boardRows(0)[0];
+  if (!row) throw new Error("Missing session fixture");
+  const rows = [{ ...row, repositoryPath: "/foom", worktree: "/foom", branch: "main" }];
+  const view = render(
+    <Sidebar
+      source={{ ...createSampleSource(rows), getSidebar: () => [repository] }}
+      inactive={false}
+      revealRef={{ current: undefined }}
+      rows={rows}
+      preferences={{ pins: [], expanded: {}, names: {} }}
+      save={() => {}}
+      selected={undefined}
+      buttons={{ current: new Map() }}
+      sidebar={{ current: null }}
+      open={() => {}}
+      focus={() => {}}
+      command={() => Promise.resolve()}
+      options={undefined}
+      footer={null}
+      previews={[
+        {
+          id: "a".repeat(32),
+          kind: "html",
+          network: false,
+          repository: "/foom",
+          worktree: "/tree",
+          relativePath: "docs/report.html",
+          openedBy: { terminalId: row.id, agent: "claude" },
+        },
+      ]}
+    />,
+  );
+  const preview = { name: /HTML preview: docs\/report.html/ };
+  expect(view.getAllByRole("treeitem", preview)).toHaveLength(1);
+  expect(
+    within(view.getByRole("treeitem", { name: "feature" })).getByRole("treeitem", preview),
+  ).toBeTruthy();
+  expect(
+    within(view.getByRole("treeitem", { name: "Main checkout" })).queryByRole("treeitem", preview),
+  ).toBeNull();
+});
 
 test("expanded empty Home, repository and worktrees explain that they are empty", async () => {
   const view = await emptySections();
