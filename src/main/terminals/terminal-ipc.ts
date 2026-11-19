@@ -30,9 +30,11 @@ export interface TerminalEvents {
   onRemoved?(id: string): void;
 }
 
+type RunningTerminal = { id: string; command: string; cwd: string; settingsRecipe?: boolean };
+
 export interface TerminalControl
   extends Pick<TerminalHostClient, "runningCount" | "shutdown" | "stop" | "setTheme"> {
-  runningSessions(): readonly { id: string; command: string; cwd: string }[];
+  runningSessions(): readonly RunningTerminal[];
   /** Main-only launch: the window may use the new terminal like one it created. */
   create(spec: TerminalSpec): Promise<string>;
   kill(id: string, remoteHost?: string): Promise<void>;
@@ -109,7 +111,7 @@ export function attachTerminal(
   // Capture before BrowserWindow is destroyed; its getter throws during closed.
   const owned = new Set<string>();
   const closing = new Set<string>();
-  const running = new Map<string, { id: string; command: string; cwd: string }>();
+  const running = new Map<string, RunningTerminal>();
   const trusted = (event: IpcMainEvent | IpcMainInvokeEvent) =>
     windows.has(event.sender) &&
     event.senderFrame !== null &&
@@ -562,7 +564,12 @@ export function attachTerminal(
         pasteRecipients.add(id);
         imageSessions.set(id, randomUUID());
       }
-      running.set(id, { id, command: spec.command, cwd: spec.cwd });
+      running.set(id, {
+        id,
+        command: spec.command,
+        cwd: spec.cwd,
+        ...(spec.settingsRecipe ? { settingsRecipe: true } : {}),
+      });
       broadcast("terminal:availability", [id], true, true);
       return id;
     },

@@ -185,6 +185,8 @@ export function runApplication() {
       confirmations: TrustedDialog;
       workspaceIpc: ReturnType<typeof attachWorkspace>;
       setup: Setup;
+      beginSettingsStopping(): () => void;
+      readonly settingsStop: Promise<void> | undefined;
       updateBackground(): void;
       applySettings(next: Settings): void;
       appMenu: ReturnType<typeof attachAppMenu>;
@@ -436,11 +438,24 @@ export function runApplication() {
         console.error("Unable to save windows:", error);
       });
       await workspace.prepareQuit();
+      const boards = [...windows.values()];
+      const settingsStops = boards.flatMap(({ settingsStop }) =>
+        settingsStop ? [settingsStop] : [],
+      );
+      const finishProgress =
+        settingsStops.length ||
+        terminals.runningSessions().some(({ settingsRecipe }) => settingsRecipe)
+          ? boards.map((board) => board.beginSettingsStopping())
+          : [];
       try {
+        // A native close may already be stopping and disposing its own recipes.
+        await Promise.allSettled(settingsStops);
         await terminals.shutdown();
       } catch (error) {
         workspace.cancelQuit();
         throw error;
+      } finally {
+        for (const finish of finishProgress) finish();
       }
       // Terminals have stopped: revoke every hook credential and stop listening.
       await forgeRuntime.close();

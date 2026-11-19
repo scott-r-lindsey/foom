@@ -843,7 +843,9 @@ lets responding helpers remove their private staging files. The exit
 notification completes the recipe and releases any installer reservation.
 A failed stop keeps the session and owning window available for retry. App quit
 uses its existing main-owned confirmation and the same grace for local Settings
-recipes. Origin trust, remote plugin installs,
+recipes. After confirmation, all board windows show **Stopping…** during recipe
+cleanup. Progress clears when the stop settles, including if a pending quit
+intercepts an owner-window close. Origin trust, remote plugin installs,
 and sign-in use the same window ownership and exit guard. On exit, origin trust,
 plugin installs, and agent sign-in collapse their terminal view and keep the
 outcome by the action row. Tool installs retain their screen until dismissed or

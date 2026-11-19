@@ -662,10 +662,7 @@ load(${JSON.stringify(terminalHost)});
   });
 }
 
-test("Closing an installer window shows Stopping while the vendor helper cleans its staging directory", {
-  skip: process.platform === "win32",
-  timeout: deadline(60000),
-}, async (context) => {
+async function slowVendorFixture(context, cleanupMs) {
   const root = await mkdtemp(path.join(tmpdir(), "foom-install-close-cleanup-"));
   removeAfterApps(context, root);
   const cleanup = path.join(root, "cleanup-started");
@@ -681,7 +678,7 @@ process.env.TMPDIR = ${JSON.stringify(root)};
 globalThis.fetch = async () => new Response("echo Fixture installer ready\\nread answer\\n");
 fs.rm = async (directory, options) => {
   await fs.writeFile(${JSON.stringify(cleanup)}, directory);
-  await delay(2500);
+  await delay(${cleanupMs});
   return remove(directory, options);
 };
 require(${JSON.stringify(path.resolve("build/node-common/local-agent-install.js"))})
@@ -692,7 +689,10 @@ require(${JSON.stringify(path.resolve("build/node-common/local-agent-install.js"
   );
   const app = await launchApp(context, { fixture: "empty-board" });
   await useLocalInstallerFixture(app, root);
-  const { page, other, closeOwner } = await openInstallerBoards(app);
+  return { app, cleanup };
+}
+
+async function startSlowVendorInstaller(page) {
   await page.evaluate(() =>
     window.desktop.saveSetup({ agents: { claude: true }, interfaceTheme: "eclipse-light" }),
   );
@@ -705,14 +705,20 @@ require(${JSON.stringify(path.resolve("build/node-common/local-agent-install.js"
   const card = page.getByRole("region", { name: "Claude Code", exact: true });
   await card.getByRole("button", { name: "Install", exact: true }).click();
   await expect(card.locator(".xterm-screen")).toContainText("Fixture installer ready");
-  const closed = page.waitForEvent("close");
-  await closeOwner();
-  const stopping = page.getByRole("dialog", { name: "Stopping Settings repairs" });
-  await expect(stopping.getByRole("status")).toHaveText("Stopping…");
-  await expect(other.getByRole("dialog", { name: "Stopping Settings repairs" })).toHaveCount(0);
+}
+
+function stoppingDialog(page) {
+  return page.getByRole("dialog", { name: "Stopping Settings repairs" });
+}
+
+async function stagingDuringCleanup(cleanup) {
   await expect.poll(() => readFile(cleanup, "utf8").catch(() => "")).not.toBe("");
   const staging = await readFile(cleanup, "utf8");
   await access(path.join(staging, "install.sh"));
+  return staging;
+}
+
+async function captureStopping(page, name) {
   for (const mode of ["light", "dark"]) {
     await page.evaluate(
       (mode) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${mode}` }),
@@ -721,11 +727,93 @@ require(${JSON.stringify(path.resolve("build/node-common/local-agent-install.js"
     await expect
       .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
       .toBe(mode === "dark");
-    await page.screenshot({ path: evidencePath(`1260/stopping-${mode}.png`) });
+    await page.screenshot({ path: evidencePath(`1260/${name}-${mode}.png`) });
   }
+}
+
+test("Closing an installer window shows Stopping while the vendor helper cleans its staging directory", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, cleanup } = await slowVendorFixture(context, 2500);
+  const { page, other, closeOwner } = await openInstallerBoards(app);
+  await startSlowVendorInstaller(page);
+  const closed = page.waitForEvent("close");
+  await closeOwner();
+  await expect(stoppingDialog(page).getByRole("status")).toHaveText("Stopping…");
+  await expect(stoppingDialog(other)).toHaveCount(0);
+  const staging = await stagingDuringCleanup(cleanup);
+  await captureStopping(page, "stopping");
   await closed;
   await assert.rejects(access(staging), { code: "ENOENT" });
   assert.equal((await other.evaluate(() => window.desktop.workspace())).terminals.length, 0);
+});
+
+for (const route of ["app quit", "last board close"]) {
+  test(`Confirmed ${route} shows Stopping while the vendor helper cleans its staging directory`, {
+    skip:
+      process.platform === "win32" ||
+      (route === "last board close" && process.platform === "darwin"),
+    timeout: deadline(60000),
+  }, async (context) => {
+    const { app, cleanup } = await slowVendorFixture(context, 4000);
+    const boards = [];
+    if (route === "app quit") {
+      const { page, other } = await openInstallerBoards(app);
+      boards.push(page, other);
+    } else boards.push(await boardPage(app));
+    await startSlowVendorInstaller(boards[0]);
+    await app.evaluate(({ app, BrowserWindow }, route) => {
+      if (route === "app quit") app.quit();
+      else
+        BrowserWindow.getAllWindows()
+          .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+          .close();
+    }, route);
+    const dialog = await confirmationPage(app, /^Quit with /u);
+    for (const board of boards) await expect(stoppingDialog(board)).toHaveCount(0);
+    const closed = Promise.all(boards.map((board) => board.waitForEvent("close")));
+    await dialog.getByRole("button", { name: "Stop all and quit" }).click();
+    for (const board of boards)
+      await expect(stoppingDialog(board).getByRole("status")).toHaveText("Stopping…");
+    const staging = await stagingDuringCleanup(cleanup);
+    if (route === "app quit") await captureStopping(boards[0], "quit-stopping");
+    await closed;
+    await assert.rejects(access(staging), { code: "ENOENT" });
+  });
+}
+
+test("Cancelling app quit clears Stopping after an overlapping installer window close", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, cleanup } = await slowVendorFixture(context, 4000);
+  const { page, other, closeOwner } = await openInstallerBoards(app);
+  const shell = await other.evaluate(() => window.desktop.create(80, 24));
+  await startSlowVendorInstaller(page);
+  await closeOwner();
+  await expect(stoppingDialog(page).getByRole("status")).toHaveText("Stopping…");
+  await app.evaluate(({ app }) => app.quit());
+  const dialog = await confirmationPage(app, /^Quit with /u);
+  const staging = await stagingDuringCleanup(cleanup);
+  await expect
+    .poll(async () =>
+      (await other.evaluate(() => window.desktop.workspace())).terminals.some((row) => row.recipe),
+    )
+    .toBe(false);
+  await assert.rejects(access(staging), { code: "ENOENT" });
+  await expect(stoppingDialog(page)).toHaveCount(0);
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(dialog.getByRole("alertdialog")).toHaveCount(0);
+  assert.equal(page.isClosed(), false);
+  await expect(stoppingDialog(page)).toHaveCount(0);
+  await expect(page.getByRole("tab", { name: "Global", exact: true })).toBeEnabled();
+  await page.getByRole("tab", { name: "Global", exact: true }).click();
+  await expect(page.getByRole("tab", { name: "Global", exact: true })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await other.evaluate((id) => window.desktop.tail(id, 1), shell.id);
 });
 
 for (const agent of ["claude", "codex", "agy", "copilot", "opencode", "pi"])

@@ -6,6 +6,7 @@ vi.mock("../../../src/main/setup/repository-setup-service", () => ({
 // Vitest isolates this module per test file. Keep hoisted mocks and registration
 // together, before start() dynamically imports the application; never cache it globally.
 import type * as UpdatePackageModule from "../../../src/main/update-package";
+import type { TerminalControl } from "../../../src/main/terminals/terminal-ipc";
 
 const updateMock = vi.hoisted(() => ({
   updater: {
@@ -600,7 +601,7 @@ const mock = vi.hoisted(() => {
         >(),
       detachView: vi.fn(),
       suspendViews: vi.fn(() => Promise.resolve(() => {})),
-      runningSessions: () => [
+      runningSessions: (): ReturnType<TerminalControl["runningSessions"]> => [
         { id: "t1", command: "claude", cwd: "/tree" },
         { id: "t2", command: "bash", cwd: "/tree2" },
         { id: "t3", command: "bash", cwd: "/home" },

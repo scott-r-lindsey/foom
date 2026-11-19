@@ -344,7 +344,19 @@ export async function buildWindow(
     githubSignIn.dispose();
   });
   const settingsLaunches = new Set<Promise<string>>();
-  let closingSettings = false;
+  let settingsStop: Promise<void> | undefined;
+  let settingsStopping = 0;
+  // An owner close and a confirmed app quit can both be waiting on this board.
+  const beginSettingsStopping = () => {
+    settingsStopping++;
+    if (settingsStopping === 1 && !window.isDestroyed())
+      window.webContents.send("windows:settings-stopping", true);
+    return () => {
+      settingsStopping--;
+      if (settingsStopping === 0 && !window.isDestroyed())
+        window.webContents.send("windows:settings-stopping", false);
+    };
+  };
   const startRecipe = async (
     target:
       | RemoteTarget
@@ -421,7 +433,7 @@ export async function buildWindow(
     }
   };
   const launchRecipe: typeof startRecipe = (target, finished) => {
-    if (closingSettings) return Promise.reject(new Error("Settings window closing"));
+    if (settingsStop) return Promise.reject(new Error("Settings window closing"));
     const launch = startRecipe(target, finished).finally(() => {
       settingsLaunches.delete(launch);
     });
@@ -652,6 +664,10 @@ export async function buildWindow(
     confirmations,
     workspaceIpc,
     setup,
+    beginSettingsStopping,
+    get settingsStop() {
+      return settingsStop;
+    },
     updateBackground,
     applySettings,
     appMenu,
@@ -761,16 +777,15 @@ export async function buildWindow(
       void wiring.requestQuit();
       return;
     }
-    if (closingSettings) {
+    if (settingsStop) {
       event.preventDefault();
       return;
     }
     const settingsSessions = wiring.views.settingsSessions(window.id);
     if (!settingsSessions.length && !settingsLaunches.size) return;
     event.preventDefault();
-    closingSettings = true;
-    void (async () => {
-      window.webContents.send("windows:settings-stopping", true);
+    const finishProgress = beginSettingsStopping();
+    settingsStop = (async () => {
       await Promise.allSettled(settingsLaunches);
       const ids = wiring.views.settingsSessions(window.id);
       if (ids.length) {
@@ -787,20 +802,24 @@ export async function buildWindow(
           resume();
         }
       }
-      // Let the intercepted native close unwind before closing again.
-      setImmediate(() => {
-        closingSettings = false;
-        if (!window.isDestroyed()) window.close();
-      });
-    })().catch(() => {
-      closingSettings = false;
-      if (window.isDestroyed()) return;
-      window.webContents.send("windows:settings-stopping", false);
-      dialog.showErrorBox(
-        "Unable to close window",
-        "Could not stop a Settings repair. Please try again.",
-      );
-    });
+    })().finally(finishProgress);
+    void settingsStop.then(
+      () => {
+        // Let the intercepted native close unwind. A pending quit owns the outcome.
+        setImmediate(() => {
+          settingsStop = undefined;
+          if (!wiring.quitPending && !window.isDestroyed()) window.close();
+        });
+      },
+      () => {
+        settingsStop = undefined;
+        if (window.isDestroyed()) return;
+        dialog.showErrorBox(
+          "Unable to close window",
+          "Could not stop a Settings repair. Please try again.",
+        );
+      },
+    );
   });
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event) => {

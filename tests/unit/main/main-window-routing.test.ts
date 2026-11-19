@@ -495,6 +495,11 @@ test("native close waits for starting Settings repairs and remains retryable aft
   await vi.waitFor(() => {
     expect(mock.window.close).toHaveBeenCalledOnce();
   });
+  expect(
+    mock.window.webContents.send.mock.calls.filter(
+      ([channel, value]) => channel === "windows:settings-stopping" && value === false,
+    ),
+  ).toHaveLength(2);
   expect(mock.terminals.stop).toHaveBeenCalledTimes(2);
   expect(mock.terminals.kill).toHaveBeenCalledExactlyOnceWith("recipe");
   expect(mock.workspace.removed).toHaveBeenCalledExactlyOnceWith("recipe");
