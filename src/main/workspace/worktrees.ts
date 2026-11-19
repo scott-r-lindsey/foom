@@ -49,23 +49,12 @@ import { WorktreeBranchCleanup } from "./worktree-branch-cleanup";
 /** Main-process service. Git membership authorizes management; managed records creation history. */
 export class WorktreeService {
   private readonly repositories = new Map<string, Repository>();
-  private readonly removalListeners = new Set<(repository: string) => Promise<void>>();
-  onRemoved(listener: (repository: string) => Promise<void>): () => void {
-    this.removalListeners.add(listener);
-    return () => {
-      this.removalListeners.delete(listener);
-    };
-  }
   private readonly registrations = new Map<string, string>();
   registrationIdentity(path: string): string {
     this.repository(path);
     const id = this.registrations.get(path);
     if (!id) throw new Error("Repository registration unavailable");
     return id;
-  }
-  /** Make legacy registration incarnations durable before binding profile approvals. */
-  persistRegistrationIdentities(): Promise<void> {
-    return this.save();
   }
   // Saved paths that could not be validated still have unknown Git membership.
   private readonly unavailableRepositories = new Set<string>();
@@ -310,7 +299,6 @@ export class WorktreeService {
   /** Forget registration and creation history, leaving every checkout on disk. */
   async removeRepository(path: string): Promise<void> {
     await this.saveRegistration(path);
-    for (const listener of this.removalListeners) await listener(path);
   }
 
   private async saveRegistration(path: string, repository?: Repository): Promise<void> {

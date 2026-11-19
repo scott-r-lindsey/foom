@@ -10,13 +10,6 @@ import { record } from "../../shared/remote-agent-protocol";
 import { identifier, object } from "../../shared/control-validation";
 import { gitOrigin } from "../../shared/registered-hosts";
 import { verifyPrivate } from "../../node-common/private-files";
-import {
-  parseSetupList,
-  parseSetupListV1,
-  setupSources,
-  setupSourcePath,
-} from "../../shared/repository-setup";
-import { setupDigest, setupCatalogV1Digest } from "../../node-common/repository-setup-digest";
 import { prepareTail } from "../evaluator/terminal-tail";
 import { importBoardRows, pruneBoardRows } from "./board";
 import { importLegacyGroup } from "./importer";
@@ -73,11 +66,6 @@ function numeric(value: unknown, minimum = 0): number {
 function parsed(text: string): unknown {
   const result: unknown = JSON.parse(text);
   return result;
-}
-function list(value: unknown, maximum: number): unknown[] {
-  if (!Array.isArray(value) || value.length > maximum) throw new Error("Invalid history list");
-  const rows: unknown[] = value;
-  return rows;
 }
 function knownRepository(db: DataTransaction, value: unknown) {
   const name = text(value);
@@ -155,12 +143,6 @@ export function forgetDatabaseRepository(database: ProfileDatabase, path: string
     if (db.select().from(tables.sessions).where(eq(tables.sessions.repository, owner.path)).get())
       throw new Error("Repository still has saved sessions");
     db.delete(tables.boardBindings).where(eq(tables.boardBindings.repository, owner.path)).run();
-    db.delete(tables.repositoryApprovals)
-      .where(eq(tables.repositoryApprovals.repository, owner.path))
-      .run();
-    db.delete(tables.repositoryObservations)
-      .where(eq(tables.repositoryObservations.repository, owner.path))
-      .run();
     db.delete(tables.forgeObservations)
       .where(eq(tables.forgeObservations.repository, owner.path))
       .run();
@@ -495,93 +477,6 @@ export function forgetDatabaseVerdict(database: ProfileDatabase, id: string) {
     db.delete(tables.verdictRecords).where(eq(tables.verdictRecords.id, id)).run();
   });
 }
-function approval(db: DataTransaction, input: unknown) {
-  const raw = object(input);
-  const owner = knownRepository(db, raw["repository"]);
-  if (!owner.registration || raw["identity"] !== owner.registration) throw new RelationshipError();
-  const catalog = digest(raw["catalog"]);
-  const requirements = (catalog === setupCatalogV1Digest ? parseSetupListV1 : parseSetupList)(
-    JSON.stringify(raw["list"]),
-  );
-  if (
-    digest(raw["digest"]) !== setupDigest(requirements) ||
-    !setupSources(raw["sources"]) ||
-    raw["sources"].fingerprint !== setupDigest(raw["sources"].files)
-  )
-    throw new Error("Invalid approval evidence");
-  const data = {
-    repository: text(raw["repository"]),
-    identity: owner.registration,
-    revision: numeric(raw["revision"], 1),
-    digest: raw["digest"],
-    catalog,
-    sources: raw["sources"],
-    checkout: text(raw["checkout"]),
-    head: text(raw["head"], 64),
-    approvedAt: numeric(raw["approvedAt"]),
-    list: requirements,
-  };
-  return { repository: owner.path, registration: owner.registration, data: JSON.stringify(data) };
-}
-function observation(db: DataTransaction, input: unknown) {
-  const raw = object(input);
-  const owner = knownRepository(db, raw["repository"]);
-  const host = raw["host"] === null ? null : text(raw["host"], 253);
-  const state = text(raw["state"], 32);
-  if (
-    !["no-list", "not-checked", "met", "needs-setup", "review-needed", "unable", "manual"].includes(
-      state,
-    ) ||
-    typeof raw["sourcesAtLaunch"] !== "boolean"
-  )
-    throw new Error("Invalid setup observation");
-  const missing = list(raw["missing"], 128).map((id) => {
-    const value = text(id, 64);
-    if (!/^[a-z][a-z0-9-]{0,63}$/u.test(value)) throw new Error("Invalid setup requirement");
-    return value;
-  });
-  const changed = list(raw["changed"], 64).map((path) => {
-    if (!setupSourcePath(path)) throw new Error("Invalid setup source");
-    return path;
-  });
-  return {
-    repository: owner.path,
-    machine: host === null ? "local" : `host:${host}`,
-    host,
-    state,
-    data: JSON.stringify({
-      repository: raw["repository"],
-      host,
-      state,
-      revision: numeric(raw["revision"]),
-      missing,
-      changed,
-      sourcesAtLaunch: raw["sourcesAtLaunch"],
-      ...(raw["checkedAt"] === undefined ? {} : { checkedAt: numeric(raw["checkedAt"], 1) }),
-    }),
-  };
-}
-export function saveDatabaseApproval(database: ProfileDatabase, input: unknown) {
-  return database.write((db) => {
-    const row = approval(db, input);
-    db.insert(tables.repositoryApprovals)
-      .values(row)
-      .onConflictDoUpdate({ target: tables.repositoryApprovals.repository, set: row })
-      .run();
-  });
-}
-export function saveDatabaseSetupObservation(database: ProfileDatabase, input: unknown) {
-  return database.write((db) => {
-    const row = observation(db, input);
-    db.insert(tables.repositoryObservations)
-      .values(row)
-      .onConflictDoUpdate({
-        target: [tables.repositoryObservations.repository, tables.repositoryObservations.machine],
-        set: row,
-      })
-      .run();
-  });
-}
 function metadataDiagnostic(input: unknown, kind: string) {
   const row = object(input);
   const time = stamp(row["time"]);
@@ -828,37 +723,6 @@ export function importControlRows(db: DataTransaction, input: LegacyOriginals) {
         },
       );
   }
-  const setup = parse("repository-setup/state.json", input["repository-setup/state.json"] ?? null);
-  if (setup !== undefined) {
-    if (!record(setup) || setup["version"] !== 1)
-      throw new Error("Unsupported legacy repository setup version");
-    for (const name of ["approvals", "rows"] as const) {
-      const entries = setup[name];
-      if (!Array.isArray(entries) || entries.length > (name === "approvals" ? 256 : 4096)) {
-        batch.reject(`repository-setup/state.json#${name}`, -1);
-        continue;
-      }
-      for (const [position, entry] of entries.entries())
-        if (name === "approvals")
-          batch.row(
-            "repository-setup/state.json#approvals",
-            position,
-            () => approval(db, entry),
-            (row) => {
-              db.insert(tables.repositoryApprovals).values(row).run();
-            },
-          );
-        else
-          batch.row(
-            "repository-setup/state.json#rows",
-            position,
-            () => observation(db, entry),
-            (row) => {
-              db.insert(tables.repositoryObservations).values(row).run();
-            },
-          );
-    }
-  }
   for (const [source, content] of files.filter(([source]) =>
     /(?:^|\/)[a-z][a-z0-9-]*-(?:hook-)?health\.json$/u.test(source),
   )) {
@@ -931,7 +795,6 @@ export function importDatabaseControl(database: ProfileDatabase, profile: string
     "control/forge.json",
     "agent-setup/offers.json",
     "probe-notices/seen.json",
-    "repository-setup/state.json",
     "verdicts.jsonl",
     "terminal-host-diagnostics/exits.json",
     ...Array.from({ length: 5 }, (_, index) => `control/actions-${String(index)}.jsonl`),

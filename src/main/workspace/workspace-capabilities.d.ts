@@ -62,7 +62,6 @@ export interface WorktreeLaunchContext {
   readonly withRepository: <T>(repository: string, work: () => Promise<T>) => Promise<T>;
   readonly worktrees: WorkspaceMethods["worktrees"];
   readonly deps: {
-    readonly repositorySetup?: WorkspaceDependencies["repositorySetup"];
     readonly hosts: WorkspaceDependencies["hosts"];
     readonly worktrees: Pick<
       WorkspaceDependencies["worktrees"],

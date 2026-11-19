@@ -419,43 +419,6 @@ export const verdictActions = sqliteTable(
   },
   (t) => [check("verdict_action", sql`${t.action} IN ('replied','dismissed','ignored')`)],
 );
-export const repositoryApprovals = sqliteTable(
-  "repository_approvals",
-  {
-    repository: text().primaryKey().notNull(),
-    registration: text().notNull(),
-    data: text().notNull(),
-  },
-  (t) => [
-    foreignKey({
-      columns: [t.repository, t.registration],
-      foreignColumns: [repositories.path, repositories.registration],
-    }).onDelete("restrict"),
-    index("approval_registration").on(t.registration),
-    check("repository_approval_json", sql`json_valid(${t.data})`),
-  ],
-);
-export const repositoryObservations = sqliteTable(
-  "repository_observations",
-  {
-    repository: text()
-      .notNull()
-      .references(() => repositories.path, { onDelete: "restrict" }),
-    machine: text().notNull(),
-    host: text().references(() => hosts.alias, { onDelete: "restrict" }),
-    state: text().notNull(),
-    data: text().notNull(),
-  },
-  (t) => [
-    primaryKey({ columns: [t.repository, t.machine] }),
-    index("repository_observations_host").on(t.host),
-    check(
-      "repository_observation_state",
-      sql`${t.state} IN ('no-list','not-checked','met','needs-setup','review-needed','unable','manual')`,
-    ),
-    check("repository_observation_json", sql`json_valid(${t.data})`),
-  ],
-);
 export const terminalDiagnostics = sqliteTable(
   "terminal_diagnostics",
   {
