@@ -34,16 +34,34 @@ test("a profile write can be superseded after its temporary file is staged", asy
   const file = path.join(root, "settings.json");
   const oldContents = await readFile(file, "utf8");
   const write = (await vi.importActual<typeof Fs>("node:fs/promises")).writeFile;
+  const patch = { registeredHosts: [{ host: "worker", codeFolder: "/code" }] };
   let current = true;
   vi.mocked(writeFile).mockImplementationOnce(async (...args) => {
     await write(...args);
     current = false;
   });
-  await expect(store.update({ setupComplete: true }, () => current)).resolves.toEqual(before);
+  await expect(store.update(patch, () => current)).resolves.toEqual(before);
   expect(await readFile(file, "utf8")).toBe(oldContents);
   expect(await readdir(root)).toEqual(["settings.json"]);
-  await store.update({ setupComplete: true }, () => true);
-  expect((await SettingsStore.open(root)).get().setupComplete).toBe(true);
+  await store.update(patch, () => true);
+  expect((await SettingsStore.open(root)).get().registeredHosts).toEqual(patch.registeredHosts);
+});
+
+test("guarded writes reject mixed patches before applying any settings", async () => {
+  const root = await directory();
+  const store = await SettingsStore.open(root);
+  const patch = {
+    registeredHosts: [{ host: "worker", codeFolder: "/code" }],
+    setupComplete: true,
+  };
+  const guard = vi.fn(() => false);
+  // @ts-expect-error Mixed patches cannot use a commit guard.
+  const rejected = store.update(patch, guard);
+  await expect(rejected).rejects.toThrow("A commit guard requires a registeredHosts-only patch");
+  expect(guard).not.toHaveBeenCalled();
+  expect((await SettingsStore.open(root)).get()).toEqual(DEFAULT_SETTINGS);
+  await store.update(patch);
+  expect((await SettingsStore.open(root)).get()).toMatchObject(patch);
 });
 
 test("patches copy only known, well-formed fields", () => {

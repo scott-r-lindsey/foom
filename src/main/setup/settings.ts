@@ -27,6 +27,10 @@ import type { Settings, SettingsPatch } from "../../shared/setup";
 const MAX_THEME_DIGESTS = 100;
 const SUPERSEDED_PROFILE_WRITE = new Error("Superseded profile write");
 
+type RegisteredHostsPatch = {
+  registeredHosts: NonNullable<Settings["registeredHosts"]>;
+} & { [Key in Exclude<keyof SettingsPatch, "registeredHosts">]?: never };
+
 export const DEFAULT_SETTINGS: Settings = Object.freeze({
   setupComplete: false,
   checkForUpdates: true,
@@ -428,8 +432,17 @@ export class SettingsStore {
     });
   }
 
-  /** A profile write can be cancelled at replacement if its observation was superseded. */
+  /** Only registered-host updates may be cancelled when their observation is superseded. */
+  update(patch: SettingsPatch): Promise<Settings>;
+  update(patch: RegisteredHostsPatch, canCommit: (() => boolean) | undefined): Promise<Settings>;
   async update(patch: SettingsPatch, canCommit?: () => boolean): Promise<Settings> {
+    if (
+      canCommit &&
+      (Object.keys(patch).length !== 1 ||
+        !Object.hasOwn(patch, "registeredHosts") ||
+        !Array.isArray(patch.registeredHosts))
+    )
+      throw new Error("A commit guard requires a registeredHosts-only patch");
     const config: ConfigSettings = {};
     const profile: SettingsPatch = {};
     for (const [key, value] of Object.entries(patch))

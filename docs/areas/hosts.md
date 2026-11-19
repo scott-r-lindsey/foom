@@ -769,7 +769,8 @@ inventory, without renewing its freshness; saved observations never populate it.
 Resource refresh replies remain separate from the launch inventory when no live
 inventory exists or a full read is pending. Main owns the latest SSH checklist
 observation per host and advances its revision independently of Last checked.
-Profile writes recheck the revision at atomic replacement, and pending retries
+Guarded profile patches contain only registered hosts. They recheck the revision
+at atomic replacement, and pending retries
 drop superseded SSH results. An unsaved checklist retains its save warning until
 that revision or a newer one is committed. SSH row write failures without a
 key observation remain visible as row errors. Preload requires
