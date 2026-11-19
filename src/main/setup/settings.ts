@@ -436,16 +436,19 @@ export class SettingsStore {
   update(patch: SettingsPatch): Promise<Settings>;
   update(patch: RegisteredHostsPatch, canCommit: (() => boolean) | undefined): Promise<Settings>;
   async update(patch: SettingsPatch, canCommit?: () => boolean): Promise<Settings> {
-    if (
-      canCommit &&
-      (Object.keys(patch).length !== 1 ||
-        !Object.hasOwn(patch, "registeredHosts") ||
-        !Array.isArray(patch.registeredHosts))
-    )
-      throw new Error("A commit guard requires a registeredHosts-only patch");
+    let snapshot = patch;
+    if (canCommit) {
+      const keys = Reflect.ownKeys(patch);
+      const descriptor = Object.getOwnPropertyDescriptor(patch, "registeredHosts");
+      const value: unknown =
+        descriptor && Object.hasOwn(descriptor, "value") ? descriptor.value : undefined;
+      if (keys.length !== 1 || keys[0] !== "registeredHosts" || !Array.isArray(value))
+        throw new Error("A commit guard requires a registeredHosts-only patch");
+      snapshot = { registeredHosts: value };
+    }
     const config: ConfigSettings = {};
     const profile: SettingsPatch = {};
-    for (const [key, value] of Object.entries(patch))
+    for (const [key, value] of Object.entries(snapshot))
       Object.assign(this.writer && isConfigSetting(key) ? config : profile, { [key]: value });
     if (this.writer && Object.keys(config).length) await this.writer(config);
     if (Object.keys(config).length && !Object.keys(profile).length) return this.committedSettings;

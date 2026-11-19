@@ -35,6 +35,7 @@ test("a profile write can be superseded after its temporary file is staged", asy
   const oldContents = await readFile(file, "utf8");
   const write = (await vi.importActual<typeof Fs>("node:fs/promises")).writeFile;
   const patch = { registeredHosts: [{ host: "worker", codeFolder: "/code" }] };
+  Object.defineProperty(patch, "registeredHosts", { enumerable: false });
   let current = true;
   vi.mocked(writeFile).mockImplementationOnce(async (...args) => {
     await write(...args);
@@ -63,6 +64,38 @@ test("guarded writes reject mixed patches before applying any settings", async (
   await store.update(patch);
   expect((await SettingsStore.open(root)).get()).toMatchObject(patch);
 });
+
+test.each(["hidden host property", "mutating getter"] as const)(
+  "guarded writes reject a %s before invoking the config writer",
+  async (shape) => {
+    const root = await directory();
+    const store = await SettingsStore.open(root);
+    const writer = vi.fn(() => Promise.resolve());
+    await store.attachConfig(writer, { hooks: true }, null);
+    const before = await readFile(path.join(root, "settings.json"), "utf8");
+    const patch = { registeredHosts: [] };
+    const getter = vi.fn(() => {
+      Object.assign(patch, { hooks: false });
+      return [];
+    });
+    if (shape === "hidden host property") {
+      Object.defineProperty(patch, "registeredHosts", { enumerable: false });
+      Object.assign(patch, { hooks: false });
+    } else {
+      Object.defineProperty(patch, "registeredHosts", { get: getter });
+    }
+
+    const guard = vi.fn(() => false);
+    await expect(store.update(patch, guard)).rejects.toThrow(
+      "A commit guard requires a registeredHosts-only patch",
+    );
+    expect(getter).not.toHaveBeenCalled();
+    expect(guard).not.toHaveBeenCalled();
+    expect(writer).not.toHaveBeenCalled();
+    expect(store.get().hooks).toBe(true);
+    expect(await readFile(path.join(root, "settings.json"), "utf8")).toBe(before);
+  },
+);
 
 test("patches copy only known, well-formed fields", () => {
   expect(
