@@ -872,3 +872,58 @@ can add time. Actual macOS CI step timings must validate the added headroom.
 The fourteen-minute step limits, individual deadlines, watchdog, process audit
 and fixture isolation remain unchanged. The registration integration test audits
 all configured counts, including seven, for exactly-once execution.
+
+## Three-platform refresh after repeated step exhaustion (#1245)
+
+The existing generator uses 64 complete passing Electron JUnit reports from
+main runs [44037904482](https://github.com/scott-r-lindsey/foom/actions/runs/44037904482),
+[44119885508](https://github.com/scott-r-lindsey/foom/actions/runs/44119885508),
+[44141637064](https://github.com/scott-r-lindsey/foom/actions/runs/44141637064)
+and [44213383357](https://github.com/scott-r-lindsey/foom/actions/runs/44213383357).
+All sixteen Electron jobs passed in each source. The runs measure 408, 419,
+421 and 423 current cases respectively and together cover all 423 registrations
+on every platform. Interrupted or failing Electron reports were excluded.
+
+```sh
+for run in 44037904482 44119885508 44141637064 44213383357; do
+  gh run download "$run" --pattern 'electron-results-*' \
+    --dir "test-results/rebalance/sources/$run"
+done
+node scripts/rebalance-electron-shards.mjs test-results/rebalance/sources/{44037904482,44119885508,44141637064,44213383357}
+node scripts/rebalance-electron-shards.mjs test-results/rebalance/sources/{44037904482,44119885508,44141637064,44213383357} --write
+pnpm run format
+node --require ./tests/helpers/setup.js --test scripts/electron-shard.test.mjs
+```
+
+Both assignments use the same per-platform maximum for each case. The before
+projection includes the existing hash fallback. All values are seconds in shard
+order. Headroom is 840 seconds minus the projected named-case sum, before
+build and runner overhead.
+
+| Platform | Assignment | Named-case sums | Headroom |
+| --- | --- | --- | --- |
+| Linux / 4 | Before | 792.8 / 781.2 / 812.9 / 699.0 | 47.2 / 58.8 / 27.1 / 141.0 |
+| Linux / 4 | After | 777.6 / 766.9 / 763.8 / 777.6 | 62.4 / 73.1 / 76.2 / 62.4 |
+| Windows / 5 | Before | 803.7 / 684.8 / 683.9 / 810.6 / 771.6 | 36.3 / 155.2 / 156.1 / 29.4 / 68.4 |
+| Windows / 5 | After | 752.4 / 752.9 / 751.1 / 750.5 / 747.8 | 87.6 / 87.1 / 88.9 / 89.5 / 92.2 |
+| macOS / 7 | Before | 672.0 / 579.2 / 703.1 / 664.9 / 653.2 / 669.3 / 646.4 | 168.0 / 260.8 / 136.9 / 175.1 / 186.8 / 170.7 / 193.6 |
+| macOS / 7 | After | 660.1 / 657.9 / 635.1 / 658.5 / 660.1 / 658.9 / 657.4 | 179.9 / 182.1 / 204.9 / 181.5 / 179.9 / 181.1 / 182.6 |
+
+The largest observed difference between a successful Electron step's wall time
+and its JUnit named-case sum was 65.5 seconds on Linux, 78.9 on Windows and
+140.6 on macOS. Adding those residuals to the conservative post-refresh peaks
+models 843.1 / 831.8 / 800.7 seconds respectively. Replaying each source run
+through the new assignment and adding its own largest residual gives worst
+modeled steps of 741.5 / 789.2 / 740.3 seconds. The models use fixed historical
+durations. New CI step timings will show how the reassignment behaves in practice.
+
+Even an ideal partition of the conservative case sums would require at least
+771.5 / 750.9 / 655.4 seconds at the current shard counts, before overhead. To
+target 660 seconds including the largest observed residual, one follow-up
+option is six Linux, seven Windows and nine macOS shards. The existing generator
+models peaks of 586.4 / 617.5 / 654.9 seconds at those counts. That option adds
+two jobs per platform per full run (22 Electron jobs instead of 16), each with
+its own checkout, dependency and Electron preparation, build and reporting.
+At the measured maximum residuals, the six jobs add about 9.5 runner-minutes
+inside the Electron steps alone, plus job setup and upload. This refresh keeps
+the current matrix and validation budgets.
