@@ -905,12 +905,17 @@ test("Hosts shows readiness and read-only checkouts with explicit origin trust",
   await updateScenario({ ...optional, origin: "origin-host-key" });
   await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
   await expect(card.getByRole("button", { name: "Trust host key…", exact: true })).toBeEnabled();
+  await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
   await capture("origin-host-key");
   const beforeTrust = (await readFile(calls, "utf8")).trim().split("\n").length;
-  const checkedAt = await page.evaluate(
-    async () =>
-      (await window.desktop.setupState()).settings.registeredHosts[0].observation.checkedAt,
-  );
+  const observation = () =>
+    page.evaluate(
+      async () => (await window.desktop.setupState()).settings.registeredHosts[0].observation,
+    );
+  const checkoutState = async () =>
+    (await observation()).preflight.repositories[0].checkout.checkout.state;
+  const { checkedAt } = await observation();
+  assert.equal(await checkoutState(), "absent");
   await card.getByRole("button", { name: "Trust host key…", exact: true }).click();
   const terminal = card.getByRole("region", { name: "Origin host key terminal", exact: true });
   await expect(terminal.locator(".xterm-screen")).toContainText("continue connecting");
@@ -933,19 +938,16 @@ test("Hosts shows readiness and read-only checkouts with explicit origin trust",
     ),
     false,
   );
+  await updateScenario({ ...optional, origin: "origin-host-key", checkout: "clean" });
   await terminal.locator(".xterm-helper-textarea").focus();
   await page.keyboard.type("yes");
   await page.keyboard.press("Enter");
   await expect(terminal).toHaveCount(0);
   await expect(card.getByText("Pass · Reachable", { exact: true })).toBeVisible();
   await expect(card.getByText(/exit code 1/u)).toHaveCount(0);
-  assert.equal(
-    await page.evaluate(
-      async () =>
-        (await window.desktop.setupState()).settings.registeredHosts[0].observation.checkedAt,
-    ),
-    checkedAt,
-  );
+  // Origin success is published before the separate checkout probe finishes.
+  await expect.poll(checkoutState).toBe("clean");
+  assert.equal((await observation()).checkedAt, checkedAt);
   const trustChecks = (await readFile(calls, "utf8"))
     .trim()
     .split("\n")
