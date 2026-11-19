@@ -114,3 +114,34 @@ function StopInstallDialog({ stop, keep }: { stop: () => void; keep: () => void 
     document.body,
   );
 }
+
+export function SettingsStoppingDialog() {
+  const [stopping, setStopping] = useState(false);
+  useEffect(() => window.desktop.windows?.onSettingsStopping?.(setStopping), []);
+  const show = useCallback((element: HTMLDialogElement | null) => {
+    if (!element) return;
+    const previous = document.activeElement;
+    element.showModal();
+    return () => {
+      element.close();
+      restoreBoardFocus(previous);
+    };
+  }, []);
+  if (!stopping) return null;
+  return createPortal(
+    <dialog
+      ref={show}
+      className="stop-install-dialog"
+      aria-label="Stopping Settings repairs"
+      onCancel={(event) => {
+        event.preventDefault();
+      }}
+      onKeyDown={(event) => {
+        event.stopPropagation();
+      }}
+    >
+      <div role="status">Stopping…</div>
+    </dialog>,
+    document.body,
+  );
+}

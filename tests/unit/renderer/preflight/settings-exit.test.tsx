@@ -1,7 +1,10 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { useSettingsExit } from "../../../../src/renderer/preflight/use-settings-exit";
+import {
+  SettingsStoppingDialog,
+  useSettingsExit,
+} from "../../../../src/renderer/preflight/use-settings-exit";
 import type { SetupSource } from "../../../../src/renderer/preflight/setup-source.d";
 afterEach(cleanup);
 function Fixture({
@@ -133,4 +136,41 @@ test("unmounting for native window shutdown does not open a second gate or stop 
   view.unmount();
   expect(source.running).not.toHaveBeenCalled();
   expect(source.close).not.toHaveBeenCalled();
+});
+
+test("native window close shows stopping until main clears it after a failure", () => {
+  let notify: ((stopping: boolean) => void) | undefined;
+  const off = vi.fn();
+  vi.stubGlobal("desktop", {
+    windows: {
+      onSettingsStopping: (listener: typeof notify) => {
+        notify = listener;
+        return off;
+      },
+    },
+  });
+  try {
+    const view = render(
+      <>
+        <button type="button">Settings</button>
+        <SettingsStoppingDialog />
+      </>,
+    );
+    const settings = screen.getByRole("button");
+    settings.focus();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    act(() => notify?.(true));
+    const dialog = screen.getByRole("dialog", { name: "Stopping Settings repairs" });
+    expect(screen.getByRole("status").textContent).toBe("Stopping…");
+    expect(fireEvent(dialog, new Event("cancel", { cancelable: true }))).toBe(false);
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBe(dialog);
+    act(() => notify?.(false));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(settings);
+    view.unmount();
+    expect(off).toHaveBeenCalledOnce();
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });

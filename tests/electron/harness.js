@@ -349,12 +349,17 @@ function prepareConfirmationActions(app, page) {
   return ready;
 }
 
-async function confirmationPage(app) {
+async function confirmationPage(app, name) {
   let page;
   await expect
-    .poll(() => {
-      page = app.windows().find((page) => page.url() === "app://confirmation/confirmation.html");
-      return Boolean(page);
+    .poll(async () => {
+      for (const candidate of app.windows()) {
+        if (candidate.url() !== "app://confirmation/confirmation.html") continue;
+        if (name && !(await candidate.getByRole("alertdialog", { name }).count())) continue;
+        page = candidate;
+        return true;
+      }
+      return false;
     })
     .toBe(true);
   await prepareConfirmationActions(app, page);

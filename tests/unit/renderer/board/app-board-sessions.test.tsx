@@ -515,16 +515,24 @@ test("host recipe view can attach before board inventory connects", async () => 
   expect(mock.open).toHaveBeenCalledWith("main-created-recipe");
 });
 
-test("live recipe exit retains the code before the next workspace snapshot", async () => {
+test("the live board excludes Settings repairs and rejects opening a repair as a board view", async () => {
   mock.workspace.mockResolvedValue({
     repositories: [],
-    terminals: [{ ...agent("recipe"), kind: "shell", agent: "shell", recipe: true }],
+    terminals: [
+      agent("normal"),
+      { ...agent("recipe"), kind: "shell", agent: "shell", recipe: true },
+      { ...agent("exited"), kind: "shell", agent: "shell", recipe: true, exited: true },
+    ],
   });
   const source = createAppSource();
   const off = source.connect?.();
   await settle();
-  mock.exit?.("recipe", 0);
-  expect(source.getSnapshot()[0]).toMatchObject({ recipe: true, exited: true, exitCode: 0 });
+  mock.exit?.("recipe", 1);
+  expect(source.getSnapshot().map((row) => row.id)).toEqual(["normal"]);
+  await source.createView?.().open("recipe");
+  expect(mock.open).not.toHaveBeenCalled();
+  await source.createHostView?.().open("recipe");
+  expect(mock.open).toHaveBeenCalledWith("recipe");
   off?.();
 });
 

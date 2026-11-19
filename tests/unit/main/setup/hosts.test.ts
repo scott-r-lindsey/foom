@@ -1510,21 +1510,31 @@ test("local progress reads bypass the mutation queue and retain completed reposi
   expect((await hosts.action({ action: "progress" })).progress).toBeUndefined();
 });
 
-test("Trust host key re-reads registered origin and launches a human tile with no renderer command", async () => {
+test("Trust host key re-reads registered origin and launches a human terminal with no renderer command", async () => {
   hosts = new Hosts(store, () => repositories, "0.1.0", run, "f".repeat(32));
   await hosts.action({ action: "add", host: "worker", codeFolder: "~/code" });
-  const launch = vi.fn(async () => {});
-  await hosts.action(
+  const launch = vi.fn((_target: unknown, _finished?: () => void) => Promise.resolve("trust"));
+  const state = await hosts.action(
     { action: "trust-origin", host: "worker", repository: "/local/repo" },
     undefined,
     launch,
   );
-  expect(launch).toHaveBeenCalledExactlyOnceWith({
-    host: "worker",
-    profile: "f".repeat(32),
-    human: true,
-    trustOrigin: "git@forge.test:me/repo.git",
-  });
+  expect(state.recipeSession).toBe("trust");
+  expect(launch).toHaveBeenCalledExactlyOnceWith(
+    {
+      host: "worker",
+      profile: "f".repeat(32),
+      human: true,
+      trustOrigin: "git@forge.test:me/repo.git",
+    },
+    expect.any(Function),
+  );
+  run.mockClear();
+  await hosts.action({ action: "list" });
+  expect(run).not.toHaveBeenCalled();
+  launch.mock.calls[0]?.[1]?.();
+  await hosts.action({ action: "list" });
+  expect(run.mock.calls.map(([, request]) => request.operation)).toEqual(["origin", "repository"]);
   await expect(
     hosts.action(
       { action: "trust-origin", host: "worker", repository: "/unregistered" },

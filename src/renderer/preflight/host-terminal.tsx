@@ -10,9 +10,13 @@ export function HostTerminal({
   finished,
   label = "Install terminal",
   activeLabel = "Installing…",
+  collapseOnExit = false,
+  showExitStatus = true,
 }: {
   label?: string;
   activeLabel?: string;
+  collapseOnExit?: boolean;
+  showExitStatus?: boolean;
   id: string;
   source: NonNullable<SetupSource["hostTerminal"]>;
   finished: (id: string) => void | Promise<void>;
@@ -30,9 +34,10 @@ export function HostTerminal({
     (element: HTMLDivElement | null) => (element ? view.mount(element) : undefined),
     [view],
   );
+  const visible = !dismissed && !(collapseOnExit && exit.exited);
   useEffect(() => {
     let current = true;
-    if (!dismissed && observed)
+    if (visible && observed)
       void view.open(id).then(() => {
         if (current) setReady(!view.getSnapshot().toggleDisabled);
       });
@@ -40,21 +45,24 @@ export function HostTerminal({
       current = false;
       void view.hide();
     };
-  }, [view, id, dismissed, observed]);
+  }, [view, id, visible, observed]);
   const completedRef = useRef<string | undefined>(undefined);
-  useEffect(() => {
-    return source.observe(id, (next) => {
+  const observeExit = useCallback(
+    (next: { exited: boolean; code?: number }) => {
+      if (completedRef.current === id) return;
       setExit(next);
       setObserved(true);
-      if (next.exited && completedRef.current !== id) {
+      if (next.exited) {
         completedRef.current = id;
         void finished(id);
       }
-    });
-  }, [source, id, finished]);
-  if (dismissed) return null;
+    },
+    [id, finished],
+  );
+  useEffect(() => source.observe(id, observeExit), [source, id, observeExit]);
+  if (dismissed || (exit.exited && !showExitStatus)) return null;
   return (
-    <section className="host-terminal" aria-label={label} aria-busy={!ready}>
+    <section className="host-terminal" aria-label={label} aria-busy={visible && !ready}>
       <header>
         <span
           role="status"
@@ -73,10 +81,19 @@ export function HostTerminal({
             onClick={() => {
               setStopping(true);
               setStopFailed(false);
-              void source.stop?.(id).catch(() => {
-                setStopFailed(true);
-                setStopping(false);
-              });
+              void view
+                .hide()
+                .then(() => source.stop?.(id))
+                .then(
+                  () => {
+                    if (!showExitStatus) observeExit({ exited: true });
+                  },
+                  () => {
+                    setStopFailed(true);
+                    setStopping(false);
+                    void view.open(id);
+                  },
+                );
             }}
           >
             Stop
@@ -94,8 +111,8 @@ export function HostTerminal({
         )}
       </header>
       {stopFailed && <p role="alert">Unable to stop setup. Try again.</p>}
-      <div className="host-terminal-view" ref={mount} />
-      {menu?.id === id && (
+      {visible && <div className="host-terminal-view" ref={mount} />}
+      {visible && menu?.id === id && (
         <TerminalMenu
           menu={menu}
           close={() => {

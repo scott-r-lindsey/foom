@@ -53,6 +53,7 @@ type HostDiagnostics = Partial<Pick<HostExitDiagnostic, "cause" | "snapshot">> &
 type Session = {
   alive: boolean;
   available: boolean;
+  settingsRecipe: boolean;
   view?: string;
   send?: (token: string, data: string) => void;
 };
@@ -440,7 +441,11 @@ export class TerminalHostClient {
       }
       return id;
     }
-    this.sessions.set(id, { alive: true, available: true });
+    this.sessions.set(id, {
+      alive: true,
+      available: true,
+      settingsRecipe: spec.settingsRecipe ?? false,
+    });
     try {
       await this.request({
         type: "create",
@@ -638,6 +643,9 @@ export class TerminalHostClient {
       0,
     );
     return remoteCount + [...this.sessions.values()].filter((session) => session.alive).length;
+  }
+  get hasRunningSettingsRecipe(): boolean {
+    return [...this.sessions.values()].some((session) => session.alive && session.settingsRecipe);
   }
   get hasPendingExits(): boolean {
     if ([...this.remotes.values()].some((client) => client.hasPendingExits)) return true;

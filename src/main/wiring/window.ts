@@ -340,7 +340,21 @@ export async function buildWindow(
   window.once("closed", () => {
     githubSignIn.dispose();
   });
-  const launchRecipe = async (
+  const settingsLaunches = new Set<Promise<string>>();
+  let settingsStop: Promise<void> | undefined;
+  let settingsStopping = 0;
+  // An owner close and a confirmed app quit can both be waiting on this board.
+  const beginSettingsStopping = () => {
+    settingsStopping++;
+    if (settingsStopping === 1 && !window.isDestroyed())
+      window.webContents.send("windows:settings-stopping", true);
+    return () => {
+      settingsStopping--;
+      if (settingsStopping === 0 && !window.isDestroyed())
+        window.webContents.send("windows:settings-stopping", false);
+    };
+  };
+  const startRecipe = async (
     target: RemoteTarget | { localAgent: string },
     finished?: () => void,
   ) => {
@@ -367,6 +381,12 @@ export async function buildWindow(
         "localAgent" in target
           ? await wiring.workspace.startLocalAgentInstall(target.localAgent)
           : await wiring.workspace.startHostRecipe(target);
+      if (window.isDestroyed()) {
+        await wiring.terminals.kill(id);
+        wiring.workspace.removed(id);
+        throw new Error("Settings window closed");
+      }
+      wiring.views.reserveSettings(id, window.id);
       const gh =
         "recipe" in target &&
         target.recipe.tool === "gh" &&
@@ -394,13 +414,19 @@ export async function buildWindow(
         );
         finished();
       }
-      if ("localAgent" in target || gh || target.recipe?.action === "install") return id;
-      wiring.revealSession(id);
       return id;
     } catch (error) {
       off?.();
       throw error;
     }
+  };
+  const launchRecipe: typeof startRecipe = (target, finished) => {
+    if (settingsStop) return Promise.reject(new Error("Settings window closing"));
+    const launch = startRecipe(target, finished).finally(() => {
+      settingsLaunches.delete(launch);
+    });
+    settingsLaunches.add(launch);
+    return launch;
   };
   const setup = new Setup({
     hostSessions: () => wiring.workspace.snapshot().terminals,
@@ -562,6 +588,10 @@ export async function buildWindow(
     confirmations,
     workspaceIpc,
     setup,
+    beginSettingsStopping,
+    get settingsStop() {
+      return settingsStop;
+    },
     updateBackground,
     applySettings,
     appMenu,
@@ -585,7 +615,8 @@ export async function buildWindow(
     owns: (content) =>
       content.kind === "preview"
         ? previewHost.registry.records.has(content.id)
-        : (wiring.terminals.owns(content.id) || wiring.workspace.ownsSession(content.id)) &&
+        : !wiring.workspace.isSettingsTerminal(content.id) &&
+          (wiring.terminals.owns(content.id) || wiring.workspace.ownsSession(content.id)) &&
           !wiring.workspace
             .snapshot()
             .terminals.some((row) => row.id === content.id && row.dormant && row.exited) &&
@@ -619,7 +650,9 @@ export async function buildWindow(
     },
   });
   const disposeViews = attachWindowViews(window, ipc, wiring.views, {
-    knows: (id) => wiring.terminals.owns(id) || wiring.workspace.ownsSession(id),
+    knows: (id) =>
+      !wiring.workspace.isSettingsTerminal(id) &&
+      (wiring.terminals.owns(id) || wiring.workspace.ownsSession(id)),
     find: (id) => wiring.windows.get(id)?.window,
     detach: (id) => {
       wiring.terminals.detachView(id, window.webContents);
@@ -666,7 +699,53 @@ export async function buildWindow(
     if (wiring.quitPending || (wiring.windows.size === 1 && process.platform !== "darwin")) {
       event.preventDefault();
       void wiring.requestQuit();
+      return;
     }
+    if (settingsStop) {
+      event.preventDefault();
+      return;
+    }
+    const settingsSessions = wiring.views.settingsSessions(window.id);
+    if (!settingsSessions.length && !settingsLaunches.size) return;
+    event.preventDefault();
+    const finishProgress = beginSettingsStopping();
+    settingsStop = (async () => {
+      await Promise.allSettled(settingsLaunches);
+      const ids = wiring.views.settingsSessions(window.id);
+      if (ids.length) {
+        const resume = await wiring.terminals.suspendViews(window.webContents, ids);
+        try {
+          for (const id of ids) {
+            // Keep the PTY and its exit listener until Stop confirms process exit.
+            await wiring.terminals.stop(id);
+            await wiring.terminals.kill(id);
+            wiring.workspace.removed(id);
+            wiring.views.forgetSettings(id);
+          }
+        } finally {
+          resume();
+        }
+      }
+    })().finally(finishProgress);
+    void settingsStop.then(
+      () => {
+        // Let the intercepted native close unwind. A pending quit owns the outcome.
+        setImmediate(() => {
+          settingsStop = undefined;
+          if (!wiring.quitPending && !window.isDestroyed()) window.close();
+        });
+      },
+      () => {
+        settingsStop = undefined;
+        wiring.reportOwnerCloseFailure(() => {
+          if (window.isDestroyed()) return;
+          dialog.showErrorBox(
+            "Unable to close window",
+            "Could not stop a Settings repair. Please try again.",
+          );
+        });
+      },
+    );
   });
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event) => {

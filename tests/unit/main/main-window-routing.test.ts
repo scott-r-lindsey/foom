@@ -421,6 +421,8 @@ test("install recipes stay in Settings and native exit refreshes their rows once
   );
   expect(id).toBe("recipe");
   expect(mock.window.webContents.send).not.toHaveBeenCalledWith("app-menu:session", "recipe");
+  mock.workspace.isSettingsTerminal.mockImplementation((id) => id === "recipe");
+  expect(mock.allowView(mock.window.webContents, "recipe")).toBe(true);
   const listener = mock.terminals.onExit.mock.calls[0]?.[0];
   listener?.("other", 0);
   expect(finished).not.toHaveBeenCalled();
@@ -429,16 +431,78 @@ test("install recipes stay in Settings and native exit refreshes their rows once
   expect(off).toHaveBeenCalledOnce();
 });
 
-test("other agents’ sign-in recipes keep the human foreground tile", async () => {
+test.each([
+  { trustOrigin: "git@forge.test:team/project.git" },
+  { recipe: { tool: "agy", action: "install-plugin", distro: "debian", digest: "a".repeat(64) } },
+  { recipe: { tool: "codex", action: "sign-in", distro: "debian", digest: "a".repeat(64) } },
+] as const)("returns the owning Settings window’s terminal ID for %j", async (action) => {
   await start();
-  await mock.setup.deps?.launchHostRecipe?.({
+  const target = { host: "worker", human: true, ...action } as const;
+  const id = await mock.setup.deps?.launchHostRecipe?.(target);
+  expect(id).toBe("recipe");
+  expect(mock.workspace.startHostRecipe).toHaveBeenCalledExactlyOnceWith(target);
+  expect(mock.window.webContents.send).not.toHaveBeenCalledWith("app-menu:session", "recipe");
+});
+
+test("a Settings recipe launched during window closure is stopped before it can be reserved", async () => {
+  await start();
+  mock.window.isDestroyed.mockReturnValueOnce(true);
+  await expect(
+    mock.setup.deps?.launchHostRecipe?.({
+      host: "worker",
+      human: true,
+      trustOrigin: "git@forge.test:team/project.git",
+    }),
+  ).rejects.toThrow("Settings window closed");
+  expect(mock.terminals.kill).toHaveBeenCalledWith("recipe");
+  expect(mock.workspace.removed).toHaveBeenCalledWith("recipe");
+});
+
+test("native close waits for starting Settings repairs and remains retryable after a failed stop", async () => {
+  vi.spyOn(process, "platform", "get").mockReturnValue("darwin");
+  await start();
+  const launch = Promise.withResolvers<string>();
+  mock.workspace.startHostRecipe.mockReturnValueOnce(launch.promise);
+  const target = {
     host: "worker",
     human: true,
-    recipe: { tool: "codex", action: "sign-in", distro: "debian", digest: "a".repeat(64) },
-  });
+    trustOrigin: "git@forge.test:team/project.git",
+  } as const;
+  const starting = mock.setup.deps?.launchHostRecipe?.(target);
+  const event = { preventDefault: vi.fn() };
+  mock.windowEvents.get("close")?.(event);
+  mock.windowEvents.get("close")?.(event);
+  expect(event.preventDefault).toHaveBeenCalledTimes(2);
+  expect(mock.window.webContents.send).toHaveBeenCalledWith("windows:settings-stopping", true);
+  expect(mock.terminals.stop).not.toHaveBeenCalled();
+  await expect(mock.setup.deps?.launchHostRecipe?.(target)).rejects.toThrow(
+    "Settings window closing",
+  );
+  mock.terminals.stop.mockRejectedValueOnce(new Error("Stop failed"));
+  launch.resolve("recipe");
+  await starting;
   await vi.waitFor(() => {
-    expect(mock.window.webContents.send).toHaveBeenCalledWith("app-menu:session", "recipe");
+    expect(mock.errorBox).toHaveBeenCalledWith(
+      "Unable to close window",
+      "Could not stop a Settings repair. Please try again.",
+    );
   });
+  expect(mock.window.close).not.toHaveBeenCalled();
+  expect(mock.window.webContents.send).toHaveBeenCalledWith("windows:settings-stopping", false);
+  expect(mock.workspace.removed).not.toHaveBeenCalled();
+  expect(mock.terminals.kill).not.toHaveBeenCalled();
+  mock.windowEvents.get("close")?.(event);
+  await vi.waitFor(() => {
+    expect(mock.window.close).toHaveBeenCalledOnce();
+  });
+  expect(
+    mock.window.webContents.send.mock.calls.filter(
+      ([channel, value]) => channel === "windows:settings-stopping" && value === false,
+    ),
+  ).toHaveLength(2);
+  expect(mock.terminals.stop).toHaveBeenCalledTimes(2);
+  expect(mock.terminals.kill).toHaveBeenCalledExactlyOnceWith("recipe");
+  expect(mock.workspace.removed).toHaveBeenCalledExactlyOnceWith("recipe");
 });
 
 test("a recipe that exits during startup still refreshes its rows", async () => {

@@ -5,7 +5,7 @@ const { AxeBuilder } = require("@axe-core/playwright");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const path = require("node:path");
-const { mkdir, mkdtemp, readFile, realpath, writeFile } = require("node:fs/promises");
+const { access, mkdir, mkdtemp, readFile, realpath, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const { deadline, expect } = require("./test-policy.js");
 const {
@@ -14,6 +14,7 @@ const {
   confirmationPage,
   launchApp,
   openSettingsScreen,
+  quitAndWait,
   removeAfterApps,
   stopSession,
 } = require("./harness.js");
@@ -410,20 +411,7 @@ test("Pi Settings card discloses project trust bypass and keeps MCP roles unavai
   await page.screenshot({ path: "test-results/pi-agent-settings.png", animations: "disabled" });
 });
 
-test("one-click local agent installers stay in Settings and refuse untrusted selectors", {
-  timeout: deadline(45_000),
-  skip: process.platform === "win32",
-}, async (context) => {
-  const { writeFile } = require("node:fs/promises");
-  const root = await mkdtemp(path.join(tmpdir(), "foom-install-1071-"));
-  removeAfterApps(context, root);
-  // The production click/IPC/session path runs a fixture helper, never a vendor download.
-  await writeFile(
-    path.join(root, "foom"),
-    '#!/bin/sh\nset -u\n: "$HOME" "$USER" "$LOGNAME" "$SHELL" "$PATH" "$TMPDIR" "$LANG"\n[ "$FOOM_SETTINGS_INSTALL" = "1" ] || exit 98\n[ -z "${INSTALL_FIXTURE_SECRET_1071-}" ] || exit 99\nprintf "Download https://claude.ai/install.sh\\nFixture installer: waiting for input\\n"\nread answer\nexit 7\n',
-    { mode: 0o755 },
-  );
-  const app = await launchApp(context, { fixture: "empty-board" });
+async function useLocalInstallerFixture(app, root) {
   await app.evaluate(
     (_electron, { modulePath, directory }) => {
       const load = process.getBuiltinModule("node:module").createRequire(modulePath);
@@ -442,6 +430,44 @@ test("one-click local agent installers stay in Settings and refuse untrusted sel
     },
     { modulePath: path.resolve("build/main/workspace/workspace.js"), directory: root },
   );
+}
+
+async function openInstallerBoards(app) {
+  const page = await boardPage(app);
+  const owner = await app.evaluate(
+    ({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows().find(
+        (window) => window.webContents.getURL() === "app://bundle/index.html",
+      ).id,
+  );
+  await page.evaluate(() => window.desktop.appMenu.execute("new-window"));
+  await expect
+    .poll(() => app.windows().filter((window) => window.url() === "app://bundle/index.html").length)
+    .toBe(2);
+  const other = app
+    .windows()
+    .find((window) => window !== page && window.url() === "app://bundle/index.html");
+  assert.ok(other);
+  const closeOwner = () =>
+    app.evaluate(({ BrowserWindow }, owner) => BrowserWindow.fromId(owner).close(), owner);
+  return { page, other, closeOwner };
+}
+
+test("one-click local agent installers stay in Settings and refuse untrusted selectors", {
+  timeout: deadline(45_000),
+  skip: process.platform === "win32",
+}, async (context) => {
+  const { writeFile } = require("node:fs/promises");
+  const root = await mkdtemp(path.join(tmpdir(), "foom-install-1071-"));
+  removeAfterApps(context, root);
+  // The production click/IPC/session path runs a fixture helper, never a vendor download.
+  await writeFile(
+    path.join(root, "foom"),
+    '#!/bin/sh\nset -u\n: "$HOME" "$USER" "$LOGNAME" "$SHELL" "$PATH" "$TMPDIR" "$LANG"\n[ "$FOOM_SETTINGS_INSTALL" = "1" ] || exit 98\n[ -z "${INSTALL_FIXTURE_SECRET_1071-}" ] || exit 99\nprintf "Download https://claude.ai/install.sh\\nFixture installer: waiting for input\\n"\nread answer\nexit 7\n',
+    { mode: 0o755 },
+  );
+  const app = await launchApp(context, { fixture: "empty-board" });
+  await useLocalInstallerFixture(app, root);
   const page = await boardPage(app);
   await page.evaluate(() =>
     window.desktop.saveEnvironment({
@@ -516,6 +542,431 @@ test("one-click local agent installers stay in Settings and refuse untrusted sel
   await expect
     .poll(async () => (await page.evaluate(() => window.desktop.workspace())).terminals.length)
     .toBe(0);
+});
+
+for (const throwFirst of [false, true]) {
+  test(throwFirst
+    ? "Closing an installer window retries a one-time PTY termination exception"
+    : "Closing an installer window escalates past SIGHUP and releases the next installer", {
+    skip: process.platform === "win32",
+    timeout: deadline(60000),
+  }, async (context) => {
+    const root = await mkdtemp(path.join(tmpdir(), "foom-install-owner-close-"));
+    removeAfterApps(context, root);
+    const hangup = path.join(root, "hangup");
+    const throwMarker = path.join(root, "throw");
+    const installer = path.join(root, "foom");
+    await writeFile(
+      installer,
+      `#!${process.execPath}
+const fs = require("node:fs");
+if (process.argv.at(-1) === "codex") {
+  console.log("Second fixture installer");
+  process.exit(0);
+}
+process.on("SIGHUP", () => fs.writeFileSync(${JSON.stringify(hangup)}, "ignored"));
+console.log("Fixture installer PID: " + process.pid);
+setInterval(() => {}, 1000);
+`,
+      { mode: 0o755 },
+    );
+    const app = await launchApp(context, { fixture: "empty-board" });
+    await useLocalInstallerFixture(app, root);
+    if (throwFirst) {
+      const terminalHost = path.resolve("build/terminal-host/terminal-host.js");
+      const entry = path.join(root, "terminal-host.cjs");
+      await writeFile(
+        entry,
+        `const { createRequire } = require("node:module");
+const load = createRequire(${JSON.stringify(terminalHost)});
+const pty = load("node-pty");
+const spawn = pty.spawn;
+let threw = false;
+pty.spawn = (command, ...args) => {
+  const terminal = spawn(command, ...args);
+  if (command !== ${JSON.stringify(installer)}) return terminal;
+  const kill = terminal.kill.bind(terminal);
+  terminal.kill = (...signals) => {
+    if (!threw) {
+      threw = true;
+      require("node:fs").writeFileSync(${JSON.stringify(throwMarker)}, "threw");
+      throw Error("Fixture termination failed");
+    }
+    return kill(...signals);
+  };
+  return terminal;
+};
+load(${JSON.stringify(terminalHost)});
+`,
+      );
+      await app.evaluate(
+        ({ utilityProcess, dialog }, { entry, terminalHost }) => {
+          const fork = utilityProcess.fork.bind(utilityProcess);
+          utilityProcess.fork = (file, ...args) =>
+            fork(file === terminalHost ? entry : file, ...args);
+          dialog.showErrorBox = (title, detail) => {
+            globalThis.fixtureCloseError = { title, detail };
+          };
+        },
+        { entry, terminalHost },
+      );
+    }
+    const { page, other, closeOwner } = await openInstallerBoards(app);
+    await page.evaluate(() => window.desktop.saveSetup({ agents: { claude: true, codex: true } }));
+    const { recipeSession: id } = await page.evaluate(() =>
+      window.desktop.localAgentInstall("claude"),
+    );
+    assert.ok(id);
+    const tail = (board, id) => board.evaluate((id) => window.desktop.tail(id, 10), id);
+    let pid;
+    await expect
+      .poll(async () => {
+        const text = (await tail(page, id)).join("\n");
+        pid = Number(/Fixture installer PID: (\d+)/u.exec(text)?.[1]);
+        return Number.isSafeInteger(pid) && pid > 0;
+      })
+      .toBe(true);
+    const running = (board) =>
+      board.evaluate(
+        async (id) =>
+          (await window.desktop.workspace()).terminals.some((row) => row.id === id && !row.exited),
+        id,
+      );
+    if (throwFirst) {
+      await closeOwner();
+      await expect
+        .poll(() => app.evaluate(() => globalThis.fixtureCloseError?.title))
+        .toBe("Unable to close window");
+      assert.equal(await readFile(throwMarker, "utf8"), "threw");
+      assert.equal(page.isClosed(), false);
+      await expect(page.getByRole("dialog", { name: "Stopping Settings repairs" })).toHaveCount(0);
+      assert.equal(await running(page), true);
+      process.kill(pid, 0);
+    }
+    const closed = page.waitForEvent("close");
+    await closeOwner();
+    await closed;
+    assert.equal(await readFile(hangup, "utf8"), "ignored");
+    assert.throws(() => process.kill(pid, 0), { code: "ESRCH" });
+    const survivors = await other.evaluate(() => window.desktop.workspace());
+    assert.equal(
+      survivors.terminals.some((row) => row.id === id),
+      false,
+    );
+    if (!throwFirst) {
+      const second = await other.evaluate(() => window.desktop.localAgentInstall("codex"));
+      assert.ok(second.recipeSession);
+      await expect
+        .poll(async () => (await tail(other, second.recipeSession)).join("\n"))
+        .toContain("Second fixture installer");
+    }
+  });
+}
+
+async function slowVendorFixture(context, cleanupMs) {
+  const root = await mkdtemp(path.join(tmpdir(), "foom-install-close-cleanup-"));
+  removeAfterApps(context, root);
+  const cleanup = path.join(root, "cleanup-started");
+  // Preserve the real vendor helper, its SIGHUP handler and its private staging.
+  // Delay the removal at the filesystem boundary to model slow cleanup with one file.
+  await writeFile(
+    path.join(root, "foom"),
+    `#!${process.execPath}
+const fs = require("node:fs/promises");
+const { setTimeout: delay } = require("node:timers/promises");
+const remove = fs.rm;
+process.env.TMPDIR = ${JSON.stringify(root)};
+globalThis.fetch = async () => new Response("echo Fixture installer ready\\nread answer\\n");
+fs.rm = async (directory, options) => {
+  await fs.writeFile(${JSON.stringify(cleanup)}, directory);
+  await delay(${cleanupMs});
+  return remove(directory, options);
+};
+require(${JSON.stringify(path.resolve("build/node-common/local-agent-install.js"))})
+  .installLocalAgent("claude")
+  .then((code) => { process.exitCode = code; });
+`,
+    { mode: 0o755 },
+  );
+  const app = await launchApp(context, { fixture: "empty-board" });
+  await useLocalInstallerFixture(app, root);
+  return { app, cleanup };
+}
+
+async function clickSlowVendorInstaller(page) {
+  await page.evaluate(() =>
+    window.desktop.saveSetup({ agents: { claude: true }, interfaceTheme: "eclipse-light" }),
+  );
+  await openSettingsScreen(page);
+  await page
+    .getByRole("navigation", { name: "Settings sections" })
+    .getByRole("button", { name: "Agents", exact: true })
+    .click();
+  await page.getByRole("tab", { name: "Machines", exact: true }).click();
+  const card = page.getByRole("region", { name: "Claude Code", exact: true });
+  await card.getByRole("button", { name: "Install", exact: true }).click();
+  return card;
+}
+
+async function startSlowVendorInstaller(page) {
+  const card = await clickSlowVendorInstaller(page);
+  await expect(card.locator(".xterm-screen")).toContainText("Fixture installer ready");
+}
+
+function stoppingDialog(page) {
+  return page.getByRole("dialog", { name: "Stopping Settings repairs" });
+}
+
+async function stagingDuringCleanup(cleanup) {
+  await expect.poll(() => readFile(cleanup, "utf8").catch(() => "")).not.toBe("");
+  const staging = await readFile(cleanup, "utf8");
+  await access(path.join(staging, "install.sh"));
+  return staging;
+}
+
+async function captureStopping(page, name) {
+  for (const mode of ["light", "dark"]) {
+    await page.evaluate(
+      (mode) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${mode}` }),
+      mode,
+    );
+    await expect
+      .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
+      .toBe(mode === "dark");
+    await page.screenshot({ path: evidencePath(`1260/${name}-${mode}.png`) });
+  }
+}
+
+test("Closing an installer window shows Stopping while the vendor helper cleans its staging directory", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, cleanup } = await slowVendorFixture(context, 2500);
+  const { page, other, closeOwner } = await openInstallerBoards(app);
+  await startSlowVendorInstaller(page);
+  const closed = page.waitForEvent("close");
+  await closeOwner();
+  await expect(stoppingDialog(page).getByRole("status")).toHaveText("Stopping…");
+  await expect(stoppingDialog(other)).toHaveCount(0);
+  const staging = await stagingDuringCleanup(cleanup);
+  await captureStopping(page, "stopping");
+  await closed;
+  await assert.rejects(access(staging), { code: "ENOENT" });
+  assert.equal((await other.evaluate(() => window.desktop.workspace())).terminals.length, 0);
+});
+
+for (const route of ["app quit", "last board close"]) {
+  test(`Confirmed ${route} shows Stopping while the vendor helper cleans its staging directory`, {
+    skip:
+      process.platform === "win32" ||
+      (route === "last board close" && process.platform === "darwin"),
+    timeout: deadline(60000),
+  }, async (context) => {
+    const { app, cleanup } = await slowVendorFixture(context, 4000);
+    const boards = [];
+    if (route === "app quit") {
+      const { page, other } = await openInstallerBoards(app);
+      boards.push(page, other);
+    } else boards.push(await boardPage(app));
+    await startSlowVendorInstaller(boards[0]);
+    await quitAndWait(app, async () => {
+      await app.evaluate(({ app, BrowserWindow }, route) => {
+        if (route === "app quit") app.quit();
+        else
+          BrowserWindow.getAllWindows()
+            .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+            .close();
+      }, route);
+      const dialog = await confirmationPage(app, /^Quit with /u);
+      for (const board of boards) await expect(stoppingDialog(board)).toHaveCount(0);
+      await dialog.getByRole("button", { name: "Stop all and quit" }).click();
+      for (const board of boards)
+        await expect(stoppingDialog(board).getByRole("status")).toHaveText("Stopping…");
+      await stagingDuringCleanup(cleanup);
+      if (route === "app quit") await captureStopping(boards[0], "quit-stopping");
+    });
+    await assert.rejects(access(await readFile(cleanup, "utf8")), { code: "ENOENT" });
+  });
+}
+
+test("Cancelling app quit clears Stopping after an overlapping installer window close", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, cleanup } = await slowVendorFixture(context, 4000);
+  const { page, other, closeOwner } = await openInstallerBoards(app);
+  const shell = await other.evaluate(() => window.desktop.create(80, 24));
+  await startSlowVendorInstaller(page);
+  await closeOwner();
+  await expect(stoppingDialog(page).getByRole("status")).toHaveText("Stopping…");
+  await app.evaluate(({ app }) => app.quit());
+  const dialog = await confirmationPage(app, /^Quit with /u);
+  const staging = await stagingDuringCleanup(cleanup);
+  await expect
+    .poll(async () =>
+      (await other.evaluate(() => window.desktop.workspace())).terminals.some((row) => row.recipe),
+    )
+    .toBe(false);
+  await assert.rejects(access(staging), { code: "ENOENT" });
+  await expect(stoppingDialog(page)).toHaveCount(0);
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(dialog.getByRole("alertdialog")).toHaveCount(0);
+  assert.equal(page.isClosed(), false);
+  await expect(stoppingDialog(page)).toHaveCount(0);
+  await expect(page.getByRole("tab", { name: "Global", exact: true })).toBeEnabled();
+  await page.getByRole("tab", { name: "Global", exact: true }).click();
+  await expect(page.getByRole("tab", { name: "Global", exact: true })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await other.evaluate((id) => window.desktop.tail(id, 1), shell.id);
+});
+
+async function holdFixtureOwnerStop(app) {
+  await app.evaluate(({ dialog }, path) => {
+    const { TerminalHostClient } = process.getBuiltinModule("node:module").createRequire(path)(
+      path,
+    );
+    const stop = TerminalHostClient.prototype.stop;
+    TerminalHostClient.prototype.stop = function () {
+      TerminalHostClient.prototype.stop = stop;
+      return new Promise((_resolve, reject) => {
+        globalThis.rejectFixtureOwnerStop = () => reject(new Error("Fixture stop failed"));
+      });
+    };
+    globalThis.fixtureNativeErrors = [];
+    dialog.showErrorBox = (title) => {
+      globalThis.fixtureNativeErrors.push(title);
+    };
+  }, path.resolve("build/main/terminals/terminal-host-client.js"));
+}
+
+async function quitWhileOwnerStopIsHeld(app, page, closeOwner) {
+  await closeOwner();
+  await expect(stoppingDialog(page)).toBeVisible();
+  await expect.poll(() => app.evaluate(() => !!globalThis.rejectFixtureOwnerStop)).toBe(true);
+  await app.evaluate(({ app }) => app.quit());
+  return confirmationPage(app, /^Quit with /u);
+}
+
+test("Confirmed app quit takes over after an overlapping owner stop rejects", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, cleanup } = await slowVendorFixture(context, 2500);
+  await holdFixtureOwnerStop(app);
+  const { page, other, closeOwner } = await openInstallerBoards(app);
+  await startSlowVendorInstaller(page);
+  await quitAndWait(app, async () => {
+    try {
+      const dialog = await quitWhileOwnerStopIsHeld(app, page, closeOwner);
+      await dialog.getByRole("button", { name: "Stop all and quit" }).click();
+      await expect(stoppingDialog(other)).toBeVisible();
+    } finally {
+      await app.evaluate(() => globalThis.rejectFixtureOwnerStop?.());
+    }
+    await stagingDuringCleanup(cleanup);
+    assert.deepEqual(await app.evaluate(() => globalThis.fixtureNativeErrors), []);
+  });
+  await assert.rejects(access(await readFile(cleanup, "utf8")), { code: "ENOENT" });
+});
+
+for (const confirm of [false, true]) {
+  test(confirm
+    ? "Confirming app quit discards the deferred owner close error"
+    : "Cancelling app quit reports the deferred owner close error and allows retry", {
+    skip: process.platform === "win32",
+    timeout: deadline(60000),
+  }, async (context) => {
+    const { app, cleanup } = await slowVendorFixture(context, 2500);
+    await holdFixtureOwnerStop(app);
+    const { page, closeOwner } = await openInstallerBoards(app);
+    await startSlowVendorInstaller(page);
+    const failWhilePromptIsOpen = async () => {
+      let prompt;
+      try {
+        prompt = await quitWhileOwnerStopIsHeld(app, page, closeOwner);
+      } finally {
+        await app.evaluate(() => globalThis.rejectFixtureOwnerStop?.());
+      }
+      await expect(stoppingDialog(page)).toHaveCount(0);
+      await expect(prompt.getByRole("alertdialog")).toBeVisible();
+      assert.deepEqual(await app.evaluate(() => globalThis.fixtureNativeErrors), []);
+      return prompt;
+    };
+    if (confirm) {
+      await quitAndWait(app, async () => {
+        const prompt = await failWhilePromptIsOpen();
+        await prompt.getByRole("button", { name: "Stop all and quit" }).click();
+        await expect(stoppingDialog(page)).toBeVisible();
+        await stagingDuringCleanup(cleanup);
+        assert.deepEqual(await app.evaluate(() => globalThis.fixtureNativeErrors), []);
+      });
+    } else {
+      const prompt = await failWhilePromptIsOpen();
+      await prompt.getByRole("button", { name: "Cancel", exact: true }).click();
+      await expect
+        .poll(() => app.evaluate(() => globalThis.fixtureNativeErrors))
+        .toEqual(["Unable to close window"]);
+      assert.equal(page.isClosed(), false);
+      const closed = page.waitForEvent("close");
+      await closeOwner();
+      await expect(stoppingDialog(page)).toBeVisible();
+      await stagingDuringCleanup(cleanup);
+      await closed;
+    }
+    await assert.rejects(access(await readFile(cleanup, "utf8")), { code: "ENOENT" });
+  });
+}
+
+test("Confirmed app quit shows Stopping for an installer awaiting its terminal create reply", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, cleanup } = await slowVendorFixture(context, 3800);
+  await app.evaluate((_electron, path) => {
+    const { TerminalHostClient } = process.getBuiltinModule("node:module").createRequire(path)(
+      path,
+    );
+    const request = TerminalHostClient.prototype.request;
+    TerminalHostClient.prototype.request = async function (command) {
+      const reply = await request.call(this, command);
+      if (command.type === "create" && command.spec.settingsRecipe) {
+        await new Promise((resolve) => {
+          globalThis.fixtureCreate = {
+            release: resolve,
+            async ready() {
+              return (await this.client.tail(command.id, 10))
+                .join("\n")
+                .includes("Fixture installer ready");
+            },
+            client: this,
+          };
+        });
+      }
+      return reply;
+    };
+  }, path.resolve("build/main/terminals/terminal-host-client.js"));
+  const page = await boardPage(app);
+  await clickSlowVendorInstaller(page);
+  await expect
+    .poll(() => app.evaluate(() => globalThis.fixtureCreate?.ready() ?? false))
+    .toBe(true);
+  assert.equal((await page.evaluate(() => window.desktop.workspace())).terminals.length, 0);
+  await quitAndWait(app, async () => {
+    try {
+      await app.evaluate(({ app }) => app.quit());
+      const dialog = await confirmationPage(app, "Quit with 1 terminal running?");
+      await dialog.getByRole("button", { name: "Stop all and quit" }).click();
+      await expect(stoppingDialog(page)).toBeVisible();
+      await stagingDuringCleanup(cleanup);
+    } finally {
+      await app.evaluate(() => {
+        globalThis.fixtureCreate?.release();
+      });
+    }
+  });
+  await assert.rejects(access(await readFile(cleanup, "utf8")), { code: "ENOENT" });
 });
 
 for (const agent of ["claude", "codex", "agy", "copilot", "opencode", "pi"])

@@ -46,4 +46,5 @@ export interface WindowsApi {
   snapshot(): Promise<WindowView[]>;
   onChanged(callback: (views: WindowView[]) => void): () => void;
   onRemoved(callback: (id: string) => void): () => void;
+  onSettingsStopping?(callback: (stopping: boolean) => void): () => void;
 }

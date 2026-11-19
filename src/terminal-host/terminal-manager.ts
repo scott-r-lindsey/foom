@@ -32,6 +32,8 @@ type Session = {
   parserBlocked: boolean;
   viewBlocked: boolean;
   exited: boolean;
+  exitSettled: Promise<void>;
+  stopGraceMs: number;
   terminationRequested: boolean;
   generation: number;
 };
@@ -99,6 +101,10 @@ export class TerminalManager {
     const colors = new TerminalColors(screen.parser, dark, (data) => {
       if (this.nativeAvailable(session)) pty.write(data);
     });
+    let settleExit: () => void;
+    const exitSettled = new Promise<void>((resolve) => {
+      settleExit = resolve;
+    });
     const session: Session = {
       evidence: { title: "", progress: null },
       evidenceChanged: false,
@@ -113,6 +119,8 @@ export class TerminalManager {
       parserBlocked: false,
       viewBlocked: false,
       exited: false,
+      exitSettled,
+      stopGraceMs: process.platform !== "win32" && spec.settingsRecipe ? 5000 : 1000,
       terminationRequested: false,
       generation: 0,
     };
@@ -207,12 +215,16 @@ export class TerminalManager {
       this.pendingExits.delete(session);
       exitSubscription.dispose();
       resolveExit();
-      if (!this.sessions.has(id)) return;
+      if (!this.sessions.has(id)) {
+        settleExit();
+        return;
+      }
       // No program can redraw now. Preserve retained cursor-row output on resize.
       screen.options.reflowCursorLine = true;
       // Preserve the final screen, and report exit after queued output has parsed.
       screen.write("", () => {
         if (this.sessions.has(id)) this.onExit(id, exitCode);
+        settleExit();
       });
     });
     return id;
@@ -489,9 +501,11 @@ export class TerminalManager {
   /** Stop one process while retaining its screen and capability for recovery. */
   async stop(id: string): Promise<boolean> {
     const session = this.get(id);
-    if (session.exited) return false;
-    await this.stopSession(session);
-    return true;
+    const signaled = !session.exited;
+    if (signaled) await this.stopSession(session);
+    // A caller can dispose the session after Stop. Deliver its exit first.
+    await session.exitSettled;
+    return signaled;
   }
 
   private async stopSession(session: Session): Promise<void> {
@@ -517,10 +531,10 @@ export class TerminalManager {
         } catch (error) {
           finish(new Error("Unable to stop terminal", { cause: error }));
         }
-      }, 1000);
+      }, session.stopGraceMs);
       const deadline = setTimeout(() => {
         finish(new Error("A terminal did not exit; try quitting again."));
-      }, 5000);
+      }, session.stopGraceMs + 4000);
       try {
         this.terminate(session);
       } catch (error) {

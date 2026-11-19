@@ -193,6 +193,8 @@ export function runApplication() {
       confirmations: TrustedDialog;
       workspaceIpc: ReturnType<typeof attachWorkspace>;
       setup: Setup;
+      beginSettingsStopping(): () => void;
+      readonly settingsStop: Promise<void> | undefined;
       updateBackground(): void;
       applySettings(next: Settings): void;
       appMenu: ReturnType<typeof attachAppMenu>;
@@ -219,6 +221,7 @@ export function runApplication() {
   };
   /** Shows a session in the window that owns its view, or the focused board. */
   const revealSession = (id: string) => {
+    if (workspace.isSettingsTerminal(id)) return;
     const entry =
       [...windows.values()].find(({ window }) => window.isFocused()) ??
       windows.values().next().value;
@@ -245,9 +248,10 @@ export function runApplication() {
     if (!newWindowCommand) return;
     const targets = process.platform === "win32" ? [...windows.values()] : [entry];
     const snapshot = workspace.snapshot();
+    const board = { ...snapshot, terminals: snapshot.terminals.filter((row) => !row.recipe) };
     if (updates.state(0).status === "downloaded") publishSettings();
     for (const current of targets)
-      updateAttention(current?.window, snapshot, newWindowCommand, revealSession);
+      updateAttention(current?.window, board, newWindowCommand, revealSession);
   };
   /** Keep an actor's pending removals on one board even while its dialog owns focus. */
   const removalPresentations = new RemovalPresentations();
@@ -385,11 +389,25 @@ export function runApplication() {
     requestQuit,
   });
   let quitRequest: Promise<void> | undefined;
+  let quitConfirmation: Promise<boolean> | undefined;
   function requestQuit(): Promise<void> {
     quitRequest ??= performQuit().finally(() => {
       quitRequest = undefined;
     });
     return quitRequest;
+  }
+  function reportOwnerCloseFailure(report: () => void): void {
+    if (!quitPending) {
+      report();
+      return;
+    }
+    // A confirmed shutdown owns the terminals. A cancelled prompt returns them to the owner.
+    void quitConfirmation?.then(
+      (accepted) => {
+        if (!accepted) report();
+      },
+      () => {},
+    );
   }
   async function performQuit() {
     if (!initialized) {
@@ -412,7 +430,7 @@ export function runApplication() {
       const count = terminals.runningCount;
       if (count > 0) {
         const snapshot = workspace.snapshot();
-        const accepted = await confirmations.request(
+        quitConfirmation = confirmations.request(
           {
             title: `Quit with ${String(count)} ${count === 1 ? "terminal" : "terminals"} running?`,
             accept: "Stop all and quit",
@@ -436,17 +454,31 @@ export function runApplication() {
           // A person asked Foom to quit, possibly from the Dock while another app is frontmost.
           { activate: true },
         );
+        const accepted = await quitConfirmation;
+        quitConfirmation = undefined;
         if (!accepted) return;
       }
       await saveWindows().catch((error: unknown) => {
         console.error("Unable to save windows:", error);
       });
       await workspace.prepareQuit();
+      const boards = [...windows.values()];
+      const settingsStops = boards.flatMap(({ settingsStop }) =>
+        settingsStop ? [settingsStop] : [],
+      );
+      const finishProgress =
+        settingsStops.length || terminals.hasRunningSettingsRecipe
+          ? boards.map((board) => board.beginSettingsStopping())
+          : [];
       try {
+        // A native close may already be stopping and disposing its own recipes.
+        await Promise.allSettled(settingsStops);
         await terminals.shutdown();
       } catch (error) {
         workspace.cancelQuit();
         throw error;
+      } finally {
+        for (const finish of finishProgress) finish();
       }
       // Terminals have stopped: revoke every hook credential and stop listening.
       await forgeRuntime.close();
@@ -479,6 +511,7 @@ export function runApplication() {
       console.error("Unable to quit the application:", error);
       dialog.showErrorBox("Unable to quit Foom", "Could not stop all terminals. Please try again.");
     } finally {
+      quitConfirmation = undefined;
       quitPending = false;
     }
   }
@@ -545,6 +578,7 @@ export function runApplication() {
     approvals,
     openApprovals: () => approvalDialog?.openApprovals(),
     refreshApprovals: () => approvalDialog?.refresh(),
+    reportOwnerCloseFailure,
     requestApprovalOutcome,
     removingPreviewWorktrees,
     removalPresentations,

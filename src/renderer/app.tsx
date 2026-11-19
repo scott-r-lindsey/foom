@@ -13,7 +13,7 @@ import { Board } from "./board/board-view";
 import { createSampleSource } from "./board/sample-board-source";
 import { createAppSource } from "./board/live-board-source";
 import { Preflight } from "./preflight/preflight-view";
-import { useSettingsExit } from "./preflight/use-settings-exit";
+import { SettingsStoppingDialog, useSettingsExit } from "./preflight/use-settings-exit";
 import { createSetupSource } from "./preflight/setup-source";
 
 function showConfirmationScrim(element: HTMLDivElement | null): void {
@@ -198,6 +198,7 @@ function AppContents({ source }: { source: BoardSource }) {
         />
       )}
       {settingsExit.dialog}
+      <SettingsStoppingDialog />
       {scrim.visible && (
         <div
           className="board-confirmation-scrim"

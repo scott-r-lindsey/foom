@@ -1,6 +1,6 @@
 import type { DataViewApi } from "../../shared/data-views";
 import type { TerminalViewSource } from "../terminal/terminal-view-source.d";
-import type { HostsApi } from "../../shared/registered-hosts.d";
+import type { HostsAction, HostsApi } from "../../shared/registered-hosts.d";
 import type { ReadinessReport } from "../../shared/readiness";
 import type { ThemeKind } from "../../shared/theme-file";
 import type { EnvironmentApi } from "../../shared/environment";
@@ -17,12 +17,15 @@ import type { AgentReport } from "../../shared/workspace";
 import type { Repository } from "../../shared/worktrees";
 import type { ConfigStatus } from "../../shared/foom-config";
 
+export type HostTerminalAction = Extract<HostsAction, { action: "recipe" | "trust-origin" }>;
+
 /** What preflight needs from main. Components use this, never the bridge directly. */
 export interface SetupSource {
   views?: DataViewApi;
-  /** Embedded recipes started in this Settings window; other agent sign-in tiles are separate. */
+  /** Embedded recipes started in this Settings window. */
   installs?: {
     sessions(): ReadonlyMap<string, string>;
+    hostActions?(): ReadonlyMap<string, HostTerminalAction>;
     hasSessions(): boolean;
     running(): Promise<boolean>;
     close(): Promise<void>;

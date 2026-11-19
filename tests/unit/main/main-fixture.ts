@@ -1,6 +1,7 @@
 // Vitest isolates this module per test file. Keep hoisted mocks and registration
 // together, before start() dynamically imports the application; never cache it globally.
 import type * as UpdatePackageModule from "../../../src/main/update-package";
+import type { TerminalControl } from "../../../src/main/terminals/terminal-ipc";
 
 const updateMock = vi.hoisted(() => ({
   updater: {
@@ -360,6 +361,7 @@ vi.mock("../../../src/main/workspace/workspace", () => ({
     shellState = mock.workspace.shellState;
     mcpConnectionChanged = mock.workspace.mcpConnectionChanged;
     ownsSession = mock.workspace.ownsSession;
+    isSettingsTerminal = mock.workspace.isSettingsTerminal;
     initializeControl = mock.workspace.initializeControl;
     refresh = mock.workspace.refresh;
     focusOrchestrator = mock.workspace.focusOrchestrator;
@@ -547,6 +549,7 @@ const mock = vi.hoisted(() => {
     shellState: vi.fn(),
     mcpConnectionChanged: vi.fn(),
     ownsSession: vi.fn(() => true),
+    isSettingsTerminal: vi.fn((_id: string) => false),
     scanAgents: vi.fn((_refresh?: boolean) =>
       Promise.resolve({
         agents: [
@@ -597,13 +600,15 @@ const mock = vi.hoisted(() => {
           ) => void
         >(),
       detachView: vi.fn(),
-      runningSessions: () => [
+      suspendViews: vi.fn(() => Promise.resolve(() => {})),
+      runningSessions: (): ReturnType<TerminalControl["runningSessions"]> => [
         { id: "t1", command: "claude", cwd: "/tree" },
         { id: "t2", command: "bash", cwd: "/tree2" },
         { id: "t3", command: "bash", cwd: "/home" },
       ],
       setTheme: vi.fn(),
       runningCount: 0,
+      hasRunningSettingsRecipe: false,
       shutdown: vi.fn<() => Promise<void>>(),
       owns: vi.fn<(id: string) => boolean>(),
     },
@@ -836,6 +841,7 @@ beforeEach(() => {
   mock.window.isFocused.mockReturnValue(true);
   mock.window.webContents.isCrashed.mockReturnValue(false);
   mock.terminals.runningCount = 0;
+  mock.terminals.hasRunningSettingsRecipe = false;
   mock.terminals.shutdown.mockResolvedValue();
   mock.workspace.dispose.mockResolvedValue();
   mock.attachWorkspace.mockImplementation(() => mock.ipc);

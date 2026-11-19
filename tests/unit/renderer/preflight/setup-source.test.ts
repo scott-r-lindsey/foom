@@ -171,7 +171,7 @@ test("recipe exit events win over earlier workspace reads", async () => {
   expect(off).toHaveBeenCalledOnce();
 });
 
-test("Settings tracks only its installs, waits for launch and disposes running or exited sessions", async () => {
+test("Settings waits for its own host actions and disposes running or exited sessions", async () => {
   let resolve = (_value: { hosts: []; locations: []; recipeSession: string }) => {};
   const hosts = vi.fn(
     () =>
@@ -204,15 +204,48 @@ test("Settings tracks only its installs, waits for launch and disposes running o
   await installs.close();
   expect(kill).toHaveBeenCalledExactlyOnceWith("install");
   expect(installs.hasSessions()).toBe(false);
-  const signIn = source.hosts({
-    action: "recipe",
-    host: "cloud",
-    tool: "codex",
-    operation: "sign-in",
+  const trust = { action: "trust-origin", host: "cloud", repository: "/repo" } as const;
+  const trusting = source.hosts(trust);
+  resolve({ hosts: [], locations: [], recipeSession: "trust" });
+  await trusting;
+  expect(installs.sessions().size).toBe(0);
+  expect(installs.hostActions?.().get("trust")).toEqual(trust);
+  await installs.close();
+  expect(installs.hostActions?.().get("trust")).toBeUndefined();
+});
+
+test("origin trust metadata disappears on exit or successful Stop and survives a failed Stop", async () => {
+  let exit = (_id: string, _code: number) => {};
+  const hosts = vi
+    .fn()
+    .mockResolvedValueOnce({ hosts: [], locations: [], recipeSession: "exits" })
+    .mockResolvedValueOnce({ hosts: [], locations: [], recipeSession: "stopped" });
+  const close = vi
+    .fn((_id: string) => Promise.resolve())
+    .mockRejectedValueOnce(new Error("Stop failed"));
+  Object.defineProperty(window, "desktop", {
+    configurable: true,
+    value: {
+      hosts,
+      onExit: (listener: typeof exit) => {
+        exit = listener;
+        return () => {};
+      },
+    },
   });
-  resolve({ hosts: [], locations: [], recipeSession: "sign-in" });
-  await signIn;
-  expect(installs.hasSessions()).toBe(false);
+  const source = createSetupSource(undefined, close);
+  const trust = { action: "trust-origin", host: "cloud", repository: "/repo" } as const;
+  if (!source.hosts || !source.hostTerminal?.stop || !source.installs?.hostActions)
+    throw new Error("Missing Settings repair owner");
+  await source.hosts(trust);
+  exit("exits", 1);
+  expect(source.installs.hostActions().has("exits")).toBe(false);
+  await source.hosts(trust);
+  await expect(source.hostTerminal.stop("stopped")).rejects.toThrow("Stop failed");
+  expect(source.installs.hostActions().get("stopped")).toEqual(trust);
+  await source.hostTerminal.stop("stopped");
+  expect(source.installs.hostActions().size).toBe(0);
+  expect(source.installs.sessions().size).toBe(0);
 });
 
 test("Settings close waits for pending installs, refuses a new install while closing and retries failures", async () => {

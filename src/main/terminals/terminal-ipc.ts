@@ -30,13 +30,19 @@ export interface TerminalEvents {
   onRemoved?(id: string): void;
 }
 
+type RunningTerminal = { id: string; command: string; cwd: string };
+
 export interface TerminalControl
-  extends Pick<TerminalHostClient, "runningCount" | "shutdown" | "stop" | "setTheme"> {
-  runningSessions(): readonly { id: string; command: string; cwd: string }[];
+  extends Pick<
+    TerminalHostClient,
+    "runningCount" | "hasRunningSettingsRecipe" | "shutdown" | "stop" | "setTheme"
+  > {
+  runningSessions(): readonly RunningTerminal[];
   /** Main-only launch: the window may use the new terminal like one it created. */
   create(spec: TerminalSpec): Promise<string>;
   kill(id: string, remoteHost?: string): Promise<void>;
   setClosing(id: string, closing: boolean): void;
+  suspendViews(contents: WebContents, ids: string[]): Promise<() => void>;
   tail(id: string, lines: number): Promise<string[]>;
   screen(id: string): Promise<{ lines: string[]; title: string; cols?: number; rows?: number }>;
   owns(id: string): boolean;
@@ -108,7 +114,7 @@ export function attachTerminal(
   // Capture before BrowserWindow is destroyed; its getter throws during closed.
   const owned = new Set<string>();
   const closing = new Set<string>();
-  const running = new Map<string, { id: string; command: string; cwd: string }>();
+  const running = new Map<string, RunningTerminal>();
   const trusted = (event: IpcMainEvent | IpcMainInvokeEvent) =>
     windows.has(event.sender) &&
     event.senderFrame !== null &&
@@ -405,6 +411,7 @@ export function attachTerminal(
     const contents = window.webContents;
     if (windows.has(contents)) throw new Error("Window already registered");
     let flushToken = 0;
+    let flushQueue: Promise<void> | undefined;
     let pendingFlush: { token: number; ids: string[]; resolve(): void } | undefined;
     const detachViews = () => {
       for (const [id, owner] of attached)
@@ -442,17 +449,29 @@ export function attachTerminal(
     };
     const state = {
       alive: true,
-      flush: (ids: string[]) =>
-        new Promise<void>((resolve) => {
-          const done = () => {
-            clearTimeout(timer);
-            pendingFlush = undefined;
-            resolve();
-          };
-          const timer = setTimeout(done, 3000);
-          pendingFlush = { token: ++flushToken, ids, resolve: done };
-          contents.send("terminal:flush-views", ids, flushToken);
-        }),
+      flush: (ids: string[]) => {
+        const flush = () => {
+          if (!state.alive || contents.isDestroyed()) return Promise.resolve();
+          return new Promise<void>((resolve) => {
+            const done = () => {
+              clearTimeout(timer);
+              pendingFlush = undefined;
+              resolve();
+            };
+            const timer = setTimeout(done, 3000);
+            pendingFlush = { token: ++flushToken, ids, resolve: done };
+            contents.send("terminal:flush-views", ids, flushToken);
+          });
+        };
+        const next = flushQueue ? flushQueue.then(flush) : flush();
+        const settled = next
+          .catch(() => undefined)
+          .finally(() => {
+            if (flushQueue === settled) flushQueue = undefined;
+          });
+        flushQueue = settled;
+        return next;
+      },
       dispose: () => {
         windows.delete(contents);
         linkConfirmations.delete(contents);
@@ -537,6 +556,9 @@ export function attachTerminal(
     },
     dispose,
     runningSessions: () => [...running.values()],
+    get hasRunningSettingsRecipe() {
+      return manager.hasRunningSettingsRecipe;
+    },
     async create(spec: TerminalSpec) {
       const id = await manager.create(
         spec.remote && remoteProfile
@@ -558,6 +580,25 @@ export function attachTerminal(
         invalidatePaste(id);
       } else closing.delete(id);
       manager.recheckWake();
+    },
+    async suspendViews(contents: WebContents, ids: string[]) {
+      for (const id of ids) {
+        closing.add(id);
+        invalidatePaste(id);
+      }
+      const resume = () => {
+        for (const id of ids) closing.delete(id);
+        const remaining = ids.filter((id) => owned.has(id));
+        if (remaining.length) broadcast("terminal:availability", remaining, true);
+      };
+      try {
+        broadcast("terminal:availability", ids, false);
+        await windows.get(contents)?.flush(ids);
+        return resume;
+      } catch (error) {
+        resume();
+        throw error;
+      }
     },
     async kill(id: string, remoteHost?: string) {
       if (remoteHost === undefined) await manager.kill(id);
