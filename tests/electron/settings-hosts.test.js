@@ -265,17 +265,13 @@ process.stdin.on('data', bytes => {
     }
     if(message.type==='attach') {
       if(!finishTimer) finishTimer=setInterval(()=>{ const next=JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8')); if(next.recipeExit !== undefined && !next.recipeInteractive && !recipeEnded) { recipeEnded=true;clearInterval(finishTimer);send({type:'exit',id:message.id,code:next.recipeExit}); } },20);
-      const output = () => {
-        send({
+      const output = () => send({
           type: 'data',
           id: message.id,
           view: message.view,
           token: 'fixture-recipe',
           data: terminalOutput + (recipeSettings.recipeInteractive ? '[sudo] password: ' : ''),
-        });
-        if (trustingOrigin && recipeSettings.deferOriginPrompt)
-          appendFileSync(${JSON.stringify(calls)}, JSON.stringify({ host, message: { type: 'origin-prompt', id: message.id } })+'\\n');
-      };
+      });
       if (trustingOrigin && recipeSettings.deferOriginPrompt) {
         const promptTimer = setInterval(() => {
           const next = JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)}, 'utf8'));
@@ -2294,6 +2290,7 @@ test("Closing the owner window stops a removed host's origin repair", {
   assert.ok(other);
   await app.evaluate(({ BrowserWindow }, id) => {
     const window = BrowserWindow.fromId(id);
+    window.setMinimumSize(1100, 560);
     window.setContentSize(1100, 560);
     window.focus();
   }, owner);
@@ -2310,21 +2307,40 @@ test("Closing the owner window stops a removed host's origin repair", {
   await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
   const trust = card.getByRole("button", { name: "Trust host key…", exact: true });
   await expect(trust).toBeEnabled();
+  const holdFonts = () =>
+    page.evaluate(() => {
+      const load = document.fonts.load;
+      const gate = new Promise((resolve) => {
+        window.releaseOriginFonts = () => {
+          document.fonts.load = load;
+          resolve();
+        };
+      });
+      document.fonts.load = async (...args) => {
+        await gate;
+        return load.apply(document.fonts, args);
+      };
+    });
+  const releaseFonts = () => page.evaluate(() => window.releaseOriginFonts());
+  await holdFonts();
   await updateScenario({ ...failedOrigin, deferOriginPrompt: true });
   await trust.click();
   const terminal = page.getByRole("region", { name: "Origin host key terminal", exact: true });
+  const terminalView = terminal.locator(".host-terminal-view");
   const terminalScreen = terminal.locator(".xterm-screen");
-  await expect(terminal).toHaveAttribute("aria-busy", "false");
-  await expect(terminalScreen).toBeInViewport();
+  await expect(terminalView).toHaveCount(1);
+  await expect(terminalScreen).toHaveCount(0);
+  // Playwright can scroll the Trust button into view. Establish the starting
+  // position while font readiness still blocks the terminal attachment.
   await page.locator(".settings-stage").evaluate((stage) => {
     stage.scrollTop = 0;
   });
-  await expect(terminalScreen).not.toBeInViewport();
+  await expect(terminalView).not.toBeInViewport();
+  await releaseFonts();
+  await expect(terminalView).toBeInViewport({ ratio: 1 });
   await updateScenario(failedOrigin);
-  await expect
-    .poll(async () => (await readFile(calls, "utf8")).includes('"type":"origin-prompt"'))
-    .toBe(true);
-  await expectOriginPrompt(terminal);
+  await expect(terminalScreen).toContainText("continue connecting");
+  await expect(terminalView).toBeInViewport({ ratio: 1 });
   const id = await page.evaluate(
     async () =>
       (await window.desktop.workspace()).terminals.find((row) => row.recipe && !row.exited)?.id,
@@ -2332,24 +2348,12 @@ test("Closing the owner window stops a removed host's origin repair", {
   assert.ok(id);
   // Hold the replacement xterm's first open behind its normal font-readiness
   // barrier. The SSH prompt is already in the remote terminal's replay.
-  await page.evaluate(() => {
-    const load = document.fonts.load;
-    const gate = new Promise((resolve) => {
-      window.releaseOriginFonts = () => {
-        document.fonts.load = load;
-        resolve();
-      };
-    });
-    document.fonts.load = async (...args) => {
-      await gate;
-      return load.apply(document.fonts, args);
-    };
-  });
+  await holdFonts();
   await card.getByRole("button", { name: "Remove", exact: true }).click();
   const removed = page.getByRole("region", { name: "Origin trust · fixture-cloud", exact: true });
   await expect(removed.getByRole("button", { name: "Stop", exact: true })).toBeEnabled();
   await expect(removed.locator(".xterm-screen")).toHaveCount(0);
-  await page.evaluate(() => window.releaseOriginFonts());
+  await releaseFonts();
   await expectOriginPrompt(removed);
 
   const closed = page.waitForEvent("close");
