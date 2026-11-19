@@ -2,6 +2,12 @@ const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const { launchApp } = require("./harness.js");
+const {
+  assertMeasurementBudgets,
+  measurementBudgets,
+  measurementReport,
+  workload,
+} = require("./sqlite-measurements.js");
 const { deadline } = require("./test-policy.js");
 
 test("data SQLite: Drizzle, importer and commit publications run in Electron main without changing JSON authority", {
@@ -442,16 +448,18 @@ test("data SQLite: report cold process to first renderer view and write to rende
       const tables = load("./schema.js");
       const fs = load("node:fs/promises");
       const path = load("node:path");
-      const { execFile } = load("node:child_process");
       const { electronLaunch } = load(path.join(path.dirname(fixturePath), "display-isolation.js"));
+      const { runMeasurementChild, workload } = load(
+        path.join(path.dirname(fixturePath), "sqlite-measurements.js"),
+      );
       const cold = [];
       const writes = [];
-      for (let sample = 0; sample < 10; sample++) {
+      for (let sample = 0; sample < workload.coldStartSamples; sample++) {
         const root = await fs.mkdtemp(path.join(app.getPath("userData"), "sqlite-measurement-"));
         const db = await ProfileDatabase.open(root, new ViewChanges());
         try {
           await db.write((tx) => {
-            for (let index = 0; index < 1000; index++)
+            for (let index = 0; index < workload.repositories; index++)
               tx.insert(tables.repositories)
                 .values({ path: path.join(root, `repository-${String(index).padStart(4, "0")}`) })
                 .run();
@@ -473,7 +481,7 @@ test("data SQLite: report cold process to first renderer view and write to rende
         const channel=process.argv.find(arg=>arg.startsWith("--sqlite-measurement-channel=")).slice("--sqlite-measurement-channel=".length);
         contextBridge.exposeInMainWorld("measurement",{receive(callback){
           ipcRenderer.on(channel,(_event,value)=>{
-            if(!value || value.id!=="measurement" || value.view!=="repositories" || !Number.isSafeInteger(value.generation) || !Number.isSafeInteger(value.revision) || !Array.isArray(value.data) || value.data.length!==100 || !value.data.every(row=>row && typeof row.path==="string" && row.path.length<=4096 && typeof row.name==="string" && row.name.length<=4096))throw Error("Invalid fixture snapshot");
+            if(!value || value.id!=="measurement" || value.view!=="repositories" || !Number.isSafeInteger(value.generation) || !Number.isSafeInteger(value.revision) || !Array.isArray(value.data) || value.data.length!==${workload.pageSize} || !value.data.every(row=>row && typeof row.path==="string" && row.path.length<=4096 && typeof row.name==="string" && row.name.length<=4096))throw Error("Invalid fixture snapshot");
             callback(value);ipcRenderer.send(channel, {generation:value.generation,revision:value.revision,first:value.data[0].name});
           });ipcRenderer.send(channel,"ready");
         }});`,
@@ -483,31 +491,17 @@ test("data SQLite: report cold process to first renderer view and write to rende
             env: { ...process.env, HOME: root, USERPROFILE: root },
             args: [fixturePath, modulePath, root],
           });
-          const start = performance.timeOrigin + performance.now();
-          const stdout = await new Promise((resolve, reject) =>
-            execFile(
-              process.execPath,
-              options.args,
-              { env: options.env, cwd: root, maxBuffer: 1024 * 1024, timeout: childTimeoutMs },
-              (error, stdout) => (error ? reject(error) : resolve(stdout)),
-            ),
-          );
-          const line = stdout.split("\n").find((line) => line.startsWith("SQLITE_MEASUREMENT "));
-          if (!line) throw Error("Missing measurement result");
-          const measured = JSON.parse(line.slice("SQLITE_MEASUREMENT ".length));
-          cold.push(measured.firstViewAt - start);
-          writes.push(measured.writeToViewMs);
+          const measured = await runMeasurementChild(process.execPath, options.args, {
+            env: options.env,
+            cwd: root,
+            maxBuffer: 1024 * 1024,
+            timeout: childTimeoutMs,
+          });
+          cold.push(measured.coldStartMs);
+          writes.push(...measured.writeToViewMs);
         } finally {
           await fs.rm(root, { recursive: true, force: true });
         }
-      }
-      function summarize(values) {
-        const sorted = [...values].sort((a, b) => a - b);
-        return {
-          p50Ms: sorted[Math.ceil(sorted.length * 0.5) - 1],
-          p95Ms: sorted[Math.ceil(sorted.length * 0.95) - 1],
-          samplesMs: values,
-        };
       }
       return {
         platform: process.platform,
@@ -517,11 +511,7 @@ test("data SQLite: report cold process to first renderer view and write to rende
           node: process.versions.node,
           sqlite: process.versions.sqlite,
         },
-        workload: { samples: 10, repositories: 1000, pageSize: 100, writesPerSample: 1 },
-        scope:
-          "Cold fixture Electron process spawn through SQLite open and first sandboxed renderer view; OS caches retained. ViewRegistry delivery includes renderer DOM update and receipt acknowledgement. Seed and fixture file creation excluded. Nearest-rank percentiles. Production Foom startup remains JSON-backed.",
-        coldStartToFirstView: summarize(cold),
-        writeToView: summarize(writes),
+        samples: { coldStartToFirstView: cold, writeToView: writes },
       };
     },
     {
@@ -530,36 +520,25 @@ test("data SQLite: report cold process to first renderer view and write to rende
       childTimeoutMs: deadline(30_000),
     },
   );
-  // #1246 budgets are fixed. Only enforce platform/metric pairs within budget
-  // in #1236's latest successful CI run (44105455993); see docs/areas/data.md.
-  const budgets = {
-    coldStartToFirstView: { p95Ms: 500, enforced: result.platform === "linux" },
-    writeToView: {
-      p95Ms: 25,
-      enforced: result.platform === "linux" || result.platform === "darwin",
-    },
+  const { samples, ...metadata } = result;
+  const report = {
+    ...metadata,
+    workload,
+    scope:
+      "Cold fixture Electron process spawn through SQLite open and first sandboxed renderer view; OS caches retained. Sequential repository registrations reuse that process, database and subscription, with warm-up writes excluded. Write timing covers command through ViewRegistry delivery, renderer DOM update and receipt acknowledgement. Seed and fixture file creation excluded. Nearest-rank percentiles. Production Foom startup remains JSON-backed.",
+    ...measurementReport(samples, measurementBudgets(metadata.platform)),
   };
-  context.diagnostic(`SQLite view measurements: ${JSON.stringify({ ...result, budgets })}`);
+  context.diagnostic(`SQLite view measurements: ${JSON.stringify(report)}`);
   const fs = require("node:fs/promises");
   await fs.mkdir("test-results", { recursive: true });
   await fs.writeFile(
     `test-results/data-sqlite-measurements-${process.platform}.json`,
-    JSON.stringify({ ...result, budgets }, null, 2),
+    JSON.stringify(report, null, 2),
   );
-  assert.equal(result.coldStartToFirstView.samplesMs.length, 10);
-  assert.equal(result.writeToView.samplesMs.length, 10);
-  for (const metric of ["coldStartToFirstView", "writeToView"]) {
-    const measured = result[metric].p95Ms;
-    const budget = budgets[metric];
-    if (budget.enforced) {
-      assert.ok(
-        measured <= budget.p95Ms,
-        `SQLite ${metric} on ${result.platform}: measured p95 ${measured} ms exceeds approved p95 budget ${budget.p95Ms} ms`,
-      );
-    } else {
-      context.diagnostic(
-        `SQLite ${metric} on ${result.platform}: reporting only; measured p95 ${measured} ms, approved p95 budget ${budget.p95Ms} ms, gap ${Math.max(0, measured - budget.p95Ms)} ms`,
-      );
-    }
+  for (const [metric, budget] of Object.entries(report.budgets)) {
+    context.diagnostic(
+      `SQLite ${metric} on ${report.platform}: ${budget.enforced ? "enforced" : "reporting only"}; measured p95 ${report[metric].p95Ms} ms, approved p95 budget ${budget.p95Ms} ms, gap ${budget.gapMs} ms`,
+    );
   }
+  assertMeasurementBudgets(report.platform, report);
 });
