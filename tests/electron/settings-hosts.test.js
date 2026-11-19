@@ -140,7 +140,7 @@ async function hostsFixture(
     path.join(bin, "ssh"),
     `#!${process.execPath}
 const assert = require('node:assert/strict');
-const { appendFileSync } = require('node:fs');
+const { appendFileSync, renameSync, writeFileSync } = require('node:fs');
 const args = process.argv.slice(2);
 const clientError = (text) => { const index = args.indexOf('-E'); if (index >= 0) appendFileSync(args[index + 1], text); else process.stderr.write(text); };
 const current = JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8'));
@@ -248,7 +248,10 @@ process.stdin.on('data', bytes => {
         recipeEnded=true;
         assert.equal(recipeInput,'yes'+String.fromCharCode(13));
         appendFileSync(${JSON.stringify(calls)},JSON.stringify({host,message:{type:'origin-answer',answer:'yes'}})+'\\n');
-        require('node:fs').writeFileSync(${JSON.stringify(scenario)},JSON.stringify({...recipeSettings,origin:undefined}));
+        // The separate inspect fixture may be reading this file.
+        const nextScenario=${JSON.stringify(scenario)}+'.origin-'+process.pid;
+        writeFileSync(nextScenario,JSON.stringify({...recipeSettings,origin:undefined}));
+        renameSync(nextScenario,${JSON.stringify(scenario)});
         send({type:'exit',id:message.id,code:1});
       }
     }
@@ -262,7 +265,23 @@ process.stdin.on('data', bytes => {
     }
     if(message.type==='attach') {
       if(!finishTimer) finishTimer=setInterval(()=>{ const next=JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8')); if(next.recipeExit !== undefined && !next.recipeInteractive && !recipeEnded) { recipeEnded=true;clearInterval(finishTimer);send({type:'exit',id:message.id,code:next.recipeExit}); } },20);
-      send({type:'data',id:message.id,view:message.view,token:'fixture-recipe',data:terminalOutput+(recipeSettings.recipeInteractive?'[sudo] password: ':'')});
+      const output = () => send({
+        type: 'data',
+        id: message.id,
+        view: message.view,
+        token: 'fixture-recipe',
+        data: terminalOutput + (recipeSettings.recipeInteractive ? '[sudo] password: ' : ''),
+      });
+      if (trustingOrigin && recipeSettings.deferOriginPrompt) {
+        const promptTimer = setInterval(() => {
+          const next = JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)}, 'utf8'));
+          if (recipeEnded || !next.deferOriginPrompt) {
+            clearInterval(promptTimer);
+            if (!recipeEnded) output();
+          }
+        }, 20);
+        promptTimer.unref();
+      } else output();
       if(recipeSettings.recipeExit !== undefined && !recipeSettings.recipeInteractive && !recipeEnded) {recipeEnded=true;send({type:'exit',id:message.id,code:recipeSettings.recipeExit});}
     }
     send({type:'result',id:message.id,request:message.request,lines:terminalOutput.split('\\r\\n'),cols:80,rows:24,title:'Recipe'});
@@ -2101,6 +2120,13 @@ test("Origin trust accepts input and can stop while a capability check is held",
       .map((line) => JSON.parse(line));
   const check = card.getByRole("button", { name: "Check capabilities", exact: true });
   const terminal = card.getByRole("region", { name: "Origin host key terminal", exact: true });
+  // WebGL can paint the prompt without adding it to the screen's DOM text.
+  await page.evaluate(() => {
+    window.originOutput = new Map();
+    window.stopOriginOutput = window.desktop.onData((id, _token, data) => {
+      window.originOutput.set(id, ((window.originOutput.get(id) ?? "") + data).slice(-4096));
+    });
+  });
 
   for (const action of ["answer", "stop"]) {
     await updateScenario(failedOrigin);
@@ -2108,8 +2134,10 @@ test("Origin trust accepts input and can stop while a capability check is held",
     const trust = card.getByRole("button", { name: "Trust host key…", exact: true });
     await expect(trust).toBeEnabled();
     await expect(check).toBeEnabled();
+    const deferredPrompt = { ...failedOrigin, deferOriginPrompt: true };
+    await updateScenario(deferredPrompt);
     await trust.click();
-    await expect(terminal.locator(".xterm-screen")).toContainText("continue connecting");
+    await expect(terminal).toHaveAttribute("aria-busy", "false");
     const id = await page.evaluate(async () => {
       const snapshot = await window.desktop.workspace();
       return snapshot.terminals.find((row) => row.recipe && !row.exited)?.id;
@@ -2117,7 +2145,7 @@ test("Origin trust accepts input and can stop while a capability check is held",
     assert.ok(id);
     const offset = (await messages()).length;
     const during = async () => (await messages()).slice(offset);
-    await updateScenario({ ...failedOrigin, hold: "inspect" });
+    await updateScenario({ ...deferredPrompt, hold: "inspect" });
     await check.click();
     await expect
       .poll(async () =>
@@ -2127,6 +2155,11 @@ test("Origin trust accepts input and can stop while a capability check is held",
         ),
       )
       .toBe(true);
+    const output = () => page.evaluate((id) => window.originOutput.get(id) ?? "", id);
+    assert.equal((await output()).includes("continue connecting"), false);
+    // Release only the terminal data. The independent inspect reply remains held.
+    await updateScenario({ ...failedOrigin, hold: "inspect" });
+    await expect.poll(output).toContain("continue connecting");
     await expect(check).toBeDisabled();
     await expect(card.getByRole("button", { name: "Remove", exact: true })).toBeDisabled();
     await expect(card.getByRole("button", { name: "Reload SSH", exact: true })).toBeDisabled();
@@ -2157,6 +2190,7 @@ test("Origin trust accepts input and can stop while a capability check is held",
     await updateScenario(failedOrigin);
     await expect(check).toBeEnabled();
   }
+  await page.evaluate(() => window.stopOriginOutput());
 });
 
 test("Origin trust stays off both boards and remains stoppable after host removal", {
