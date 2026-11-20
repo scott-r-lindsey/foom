@@ -14,7 +14,8 @@ import { registerTileAreaFixture, setup } from "./tile-area-fixture";
 
 registerTileAreaFixture();
 
-test("pointer selection focuses terminal space but keeps title buttons and terminal selection in charge of focus", async () => {
+test("tile pointer selection focuses terminal space and middle clicks inside xterm", async () => {
+  vi.stubGlobal("PointerEvent", MouseEvent);
   const { screen, click, views } = setup();
   const empty = screen.container.querySelector<HTMLElement>('[data-empty="true"]') ?? document.body;
   fireEvent.pointerDown(empty);
@@ -31,8 +32,11 @@ test("pointer selection focuses terminal space but keeps title buttons and termi
   const terminal = document.createElement("div");
   terminal.className = "xterm";
   tile.append(terminal);
-  fireEvent.pointerDown(terminal);
+  fireEvent.pointerDown(terminal, { button: 0 });
+  fireEvent.pointerDown(terminal, { button: 2 });
   expect(views[0]?.focus).toHaveBeenCalledTimes(focusCount + 1);
+  expect(fireEvent.pointerDown(terminal, { button: 1 })).toBe(true);
+  expect(views[0]?.focus).toHaveBeenCalledTimes(focusCount + 2);
 });
 
 test("shell restart stays in the sidebar menu and places the replacement in the same tile", async () => {
