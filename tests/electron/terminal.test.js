@@ -803,6 +803,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
           "copyHost",
           "localAgentInstall",
           "githubSignIn",
+          "repositoryRequirements",
           "hosts",
           "listTerminalFonts",
           "listThemes",

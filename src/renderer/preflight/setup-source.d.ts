@@ -1,3 +1,4 @@
+import type { RepositoryRequirementsApi } from "../../shared/repository-requirements";
 import type { DataViewApi } from "../../shared/data-views";
 import type { TerminalViewSource } from "../terminal/terminal-view-source.d";
 import type { HostsAction, HostsApi } from "../../shared/registered-hosts.d";
@@ -41,6 +42,7 @@ export interface SetupSource {
   githubSignIn?: HostsApi["githubSignIn"];
   copyHost?: HostsApi["copyHost"];
   hosts?: HostsApi["hosts"];
+  repositoryRequirements?: RepositoryRequirementsApi["repositoryRequirements"];
   localAgentInstall?: (
     id?: string,
   ) => Promise<{ available: readonly string[]; recipeSession?: string }>;

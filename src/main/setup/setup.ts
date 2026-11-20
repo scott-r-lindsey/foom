@@ -4,6 +4,7 @@ import type { WorkspaceTerminal } from "../../shared/workspace";
 import { hostsAction } from "../../shared/registered-hosts";
 import type { RemoteTarget } from "../../shared/remote-host";
 import type { DialogContent, DialogOutcome, PlainDialogContent } from "../../shared/confirmation";
+import type { RepositoryRequirementsStore } from "./repository-requirements";
 import type { Hosts } from "./hosts";
 import type { UpdateState } from "../../shared/updates";
 import type { ReadinessReport } from "../../shared/readiness";
@@ -26,9 +27,12 @@ import type {
 } from "../../shared/setup";
 import type { WorktreeService } from "../workspace/worktrees";
 
+export { repositoryRequirementsForProfile } from "./repository-requirements";
+
 export interface SetupDependencies {
   githubSignIn?: (id: unknown, action: unknown) => Promise<GithubSignInState>;
   hosts?: Hosts;
+  repositoryRequirements?: RepositoryRequirementsStore;
   hostsChanged?: () => void;
   hostSessions?: () => readonly WorkspaceTerminal[];
   localAgentInstall?: (
@@ -96,6 +100,10 @@ export class Setup {
     if (!this.deps.localAgentInstall) throw new Error("Installer unavailable");
     return this.deps.localAgentInstall(id);
   }
+  repositoryRequirements(input: unknown) {
+    if (!this.deps.repositoryRequirements) throw new Error("Host requirements unavailable");
+    return this.deps.repositoryRequirements.settings(input);
+  }
   async copyHost(input: unknown): Promise<void> {
     if (!this.deps.hosts || !this.deps.copyText) throw new Error("Copy unavailable");
     await this.deps.copyText(this.deps.hosts.copyValue(input));
@@ -162,11 +170,10 @@ export class Setup {
         this.deps.confirmHostKey,
       )
       .then((state) => {
+        if (state.preflightSaveFailed) return state;
         if (hostsAction(input)) {
           if (input.action === "rename") this.refresh();
-          if (
-            !["progress", "dismiss-output", "cancel-trust", "list", "reload"].includes(input.action)
-          )
+          if (!["progress", "cancel-trust", "list", "reload"].includes(input.action))
             this.deps.hostsChanged?.();
         }
         return state;

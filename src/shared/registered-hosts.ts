@@ -119,7 +119,9 @@ export function hostObservation(value: unknown): value is HostObservation {
         record(value["lastAgents"]["result"]) &&
         value["lastAgents"]["result"]["ok"] === true)) &&
     record(preflight) &&
-    keys(preflight, ["ssh", "platform", "artifact", "result", "repositories"]) &&
+    keys(preflight, ["ssh", "sshRevision", "platform", "artifact", "result", "repositories"]) &&
+    (preflight["sshRevision"] === undefined ||
+      (Number.isSafeInteger(preflight["sshRevision"]) && Number(preflight["sshRevision"]) >= 0)) &&
     hostCheck(preflight["ssh"]) &&
     hostCheck(preflight["platform"]) &&
     hostCheck(preflight["artifact"]) &&
@@ -261,9 +263,12 @@ export function hostManagement(value: unknown): value is HostManagement {
         "partial",
         "target",
         "agentDetails",
+        "codexApprovalCheck",
       ]) &&
       (value["agentDetails"] === undefined ||
         (value["agentDetails"] === true && value["readOnly"] === true)) &&
+      (value["codexApprovalCheck"] === undefined ||
+        (value["codexApprovalCheck"] === true && value["agentDetails"] === true)) &&
       (value["target"] === undefined ||
         (((hostCheckTarget(value["target"]) && !("repository" in value["target"])) ||
           (record(value["target"]) &&
@@ -491,7 +496,10 @@ export function hostResult(value: unknown): value is HostResult {
     facts["agents"].every(
       (agent: unknown) =>
         record(agent) &&
-        keys(agent, ["id", "state", "signIn", "details"]) &&
+        keys(agent, ["id", "state", "signIn", "details", "codexApprovals"]) &&
+        (agent["codexApprovals"] === undefined ||
+          (agent["id"] === "codex" &&
+            closed(agent["codexApprovals"], ["may-prompt", "disabled", "unknown"]))) &&
         (agent["details"] === undefined ||
           (record(agent["details"]) &&
             keys(agent["details"], ["path", "version", "capabilities", "plugin"]) &&
@@ -526,7 +534,6 @@ export function hostsAction(value: unknown): value is HostsAction {
     value["action"] === "list" ||
     value["action"] === "locations" ||
     value["action"] === "progress" ||
-    value["action"] === "dismiss-output" ||
     value["action"] === "cancel-trust"
   )
     return keys(value, ["action"]);

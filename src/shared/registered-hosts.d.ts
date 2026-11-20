@@ -36,6 +36,7 @@ export type HostFailure =
   | "clone-failed"
   | "checkout-refused";
 export type HostAgentState = "ready" | "missing" | "unable";
+export type CodexApprovals = "may-prompt" | "disabled" | "unknown";
 export type HostSignIn = "signed-in" | "signed-out" | "unknown";
 export interface HostRequirements {
   distro: "debian" | "rhel" | "arch" | "darwin" | "unknown";
@@ -53,8 +54,14 @@ export interface HostConnectionChecks {
   artifact: HostCheck;
 }
 export interface HostPreflight extends HostConnectionChecks {
+  /** Absent in legacy saved checklists. */
+  sshRevision?: number;
   result: HostResult;
   repositories: readonly { repository: string; origin: HostCheck; checkout: HostResult }[];
+}
+export interface LiveHostChecklist {
+  preflight: HostPreflight & { sshRevision: number };
+  saveFailed?: true;
 }
 export interface HostObservation {
   lastAgents?: { checkedAt: number; result: HostResult };
@@ -79,6 +86,8 @@ export interface HostFacts {
     id: string;
     state: HostAgentState;
     signIn?: HostSignIn;
+    /** Display-only remote account observation. */
+    codexApprovals?: CodexApprovals;
     details?: {
       path: string;
       version: string;
@@ -105,6 +114,7 @@ export type HostManagement = {
       partial?: true;
       target?: HostInspectionTarget;
       agentDetails?: true;
+      codexApprovalCheck?: true;
     }
   | { operation: "create-folder" }
   | { operation: "list-worktrees"; profile: string }
@@ -145,7 +155,25 @@ export type HostResult = { connection?: HostConnectionChecks } & (
       };
     }
 );
+export type HostKeyTrustFailure =
+  | "trust-not-eligible"
+  | "invalid-alias"
+  | "ssh-config-failed"
+  | "ssh-config-invalid"
+  | "socket-path-too-long"
+  | "askpass-prompt-rejected"
+  | "prompt-host-mismatch"
+  | "ssh-exited-without-prompt"
+  | "trust-timeout"
+  | "ssh-start-failed"
+  | "dialog-unavailable"
+  | "trust-unavailable";
+
 export interface HostRow extends RegisteredHost {
+  checklist?: LiveHostChecklist;
+  hostKeyTrustFailure?: HostKeyTrustFailure;
+  /** Failure from the latest explicit facts refresh. */
+  factsRefreshFailure?: HostFailure;
   hostKeyTrust?: "askpass" | "manual";
   rowFailures?: readonly { target: HostCheckTarget; reason: "save-failed" | "check-failed" }[];
   recipes?: readonly {
@@ -176,19 +204,13 @@ export interface HostCheckProgress {
     checkout?: HostResult;
   }[];
 }
-export interface HostOutput {
-  host: string;
-  text: string;
-  running: boolean;
-  failed: boolean;
-}
 export interface HostsState {
   /** Sealed local build capability; independent of host connectivity. */
   remoteHostsAvailable?: boolean;
-  output?: HostOutput;
   recipeSession?: string;
   progress?: readonly HostCheckProgress[];
   preflight?: HostPreflight;
+  preflightSaveFailed?: true;
   recipeFailure?: "recipe-unavailable";
   hosts: readonly HostRow[];
   locations: readonly RepositoryLocation[];
@@ -212,7 +234,6 @@ export type HostsAction =
   | { action: "change-folder"; host: string; codeFolder: string }
   | { action: "list" }
   | { action: "progress" }
-  | { action: "dismiss-output" }
   | { action: "add"; host: string; codeFolder: string; nickname?: string }
   | { action: "test"; host: string; codeFolder: string }
   | { action: "refresh"; host: string }

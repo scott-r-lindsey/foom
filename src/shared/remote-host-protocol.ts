@@ -40,6 +40,7 @@ function hello(value: object): boolean {
     (!("startupTheme" in value) || value.startupTheme === 1) &&
     (!("originTrust" in value) || value.originTrust === 1) &&
     (!("agentSettings" in value) || value.agentSettings === 1) &&
+    (!("codexApprovalCheck" in value) || value.codexApprovalCheck === 1) &&
     (!("hostRowCheck" in value) || value.hostRowCheck === 1) &&
     (!("hostCheckConnection" in value) || value.hostCheckConnection === 1) &&
     (!("hostPreflight" in value) || value.hostPreflight === 1) &&

@@ -1693,4 +1693,13 @@ test("explicit agent details return bounded display facts and remain absent on o
     path: "/bin/codex",
     version: "codex-cli 0.161.0 ",
   });
+  expect(detailed.ok && detailed.facts.agents[0]?.codexApprovals).toBeUndefined();
+  const observed = await manageHost(
+    { ...request, agentDetails: true, codexApprovalCheck: true },
+    0,
+    "/fixture",
+    "0.1.0",
+    home,
+  );
+  expect(observed.ok && observed.facts.agents[0]?.codexApprovals).toBe("may-prompt");
 });

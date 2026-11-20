@@ -138,6 +138,7 @@ export type RemoteResponse =
       hostPreflight?: 1;
       hostCheckConnection?: 1;
       hostRowCheck?: 1;
+      codexApprovalCheck?: 1;
       agentSettings?: 1;
       humanMachines?: 1;
       /** Home cwd semantics for new machine launches; absent on older daemons. */

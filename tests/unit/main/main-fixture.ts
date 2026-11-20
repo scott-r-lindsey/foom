@@ -275,6 +275,7 @@ vi.mock("../../../src/main/confirmations/approvals", () => ({
 vi.mock("../../../src/main/confirmations/trusted-dialog", () => ({
   TrustedDialog: class {
     refresh = vi.fn();
+    consumeLocalFocusReturn = mock.confirmLocalFocusReturn;
     openApprovals = vi.fn();
     request: (content: unknown, signal?: AbortSignal) => Promise<boolean>;
     requestOutcome = async (content: unknown, signal?: AbortSignal): Promise<DialogOutcome> =>
@@ -297,7 +298,7 @@ import type { ConfigSettings } from "../../../src/shared/config";
 
 import type { BrowserWindowConstructorOptions, Input } from "electron";
 
-import type { Setup } from "../../../src/main/setup/setup";
+import type * as setupModule from "../../../src/main/setup/setup";
 
 import { beforeEach, expect, vi } from "vitest";
 
@@ -402,13 +403,14 @@ vi.mock("../../../src/main/window/window-state", () => ({
   saveWindowSize: mock.saveWindowSize,
 }));
 
-vi.mock("../../../src/main/setup/setup", () => ({
+vi.mock("../../../src/main/setup/setup", async (original) => ({
+  ...(await original<typeof setupModule>()),
   Setup: class {
     state = mock.setupState;
     readiness = () => Promise.resolve({ git: "ready", platform: "linux", forges: [] });
     readinessView = this.readiness;
     refresh = mock.setupRefresh;
-    constructor(deps: ConstructorParameters<typeof Setup>[0]) {
+    constructor(deps: ConstructorParameters<typeof setupModule.Setup>[0]) {
       mock.setup.deps = deps;
     }
   },
@@ -578,7 +580,7 @@ const mock = vi.hoisted(() => {
     dispose: vi.fn(),
   };
   const setup = {
-    deps: undefined as ConstructorParameters<typeof Setup>[0] | undefined,
+    deps: undefined as ConstructorParameters<typeof setupModule.Setup>[0] | undefined,
   };
   return {
     terminals: {
@@ -699,6 +701,7 @@ const mock = vi.hoisted(() => {
     },
     confirmParent: vi.fn(),
     confirmSignal: vi.fn(),
+    confirmLocalFocusReturn: vi.fn(() => false),
     message: vi.fn<(content?: unknown) => Promise<{ response: number }>>(),
     errorBox: vi.fn(),
     openDialog: vi.fn<() => Promise<{ canceled: boolean; filePaths: string[] }>>(),

@@ -97,6 +97,8 @@ async function mount(
   expandHosts();
   return { api, ...view };
 }
+const scrollIntoView = vi.fn();
+Element.prototype.scrollIntoView = scrollIntoView;
 afterEach(cleanup);
 test.each([false, true])(
   "live saved host controls wait for owner-held row retries (failed=%s)",
@@ -581,7 +583,12 @@ test("ready hosts list checkout paths without rendering dirty or clone state", a
   });
   await screen.findByText("Ready");
   fireEvent.click(screen.getByText("Git access · 1 ready"));
-  expect(screen.getByText("/remote/project")).toBeTruthy();
+  const details = screen.getByText("Host facts").closest("details");
+  expect(details?.open).toBe(true);
+  expect(screen.getByText("/remote/project").closest("details")).toBe(details);
+  expect(details?.querySelector(".host-checkouts li")?.textContent).toBe(
+    "project · /remote/project",
+  );
   expect(screen.queryByRole("button", { name: "Clone here" })).toBeNull();
 });
 test("unknown distro offers no install recipe and initial preflight failures stay fixed", async () => {
@@ -606,13 +613,34 @@ test("unknown distro offers no install recipe and initial preflight failures sta
   fireEvent.click(screen.getByRole("button", { name: "Check capabilities" }));
   await screen.findByText("Unable to update hosts");
 });
+test("a full check shows its SSH failure alongside a checklist save failure", async () => {
+  const { api } = await mount();
+  await screen.findByText("Pass · Host key trusted");
+  api.mockImplementation((action) =>
+    Promise.resolve(
+      action.action === "preflight"
+        ? {
+            ...saved(initial),
+            preflight: {
+              ...preflight,
+              ssh: { state: "fail", reason: "host-key-changed" },
+              result: { ok: false, reason: "host-key-changed" },
+            },
+            preflightSaveFailed: true,
+          }
+        : saved(initial),
+    ),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Check capabilities" }));
+  await screen.findByText("Unable to update hosts");
+  expect(screen.getByText("Host key changed")).toBeTruthy();
+  expect(screen.queryByText("Pass · Host key trusted")).toBeNull();
+});
 test("absent checkouts have no clone state or clone control in Hosts", async () => {
   await mount();
   expect(screen.queryByText("Not checked out")).toBeNull();
   expect(screen.queryByRole("button", { name: "Clone here" })).toBeNull();
-  expect(
-    screen.getByText("Foom checks out repositories automatically when you use this host."),
-  ).toBeTruthy();
+  expect(screen.queryByText("Checked out repositories")).toBeNull();
 });
 
 test("Mac protected-folder warning never hides a missing-folder failure or its Create action", async () => {
@@ -665,7 +693,9 @@ test("a failed connection row is not repeated as helper copy, and credential tip
     hosts: [{ ...host, result: { ok: false, reason: "version-mismatch" } }],
     locations: [],
   });
-  await screen.findByText("Host version mismatch");
+  expect(
+    (await screen.findByText("Host version mismatch")).closest(".host-check-row")?.textContent,
+  ).toContain("Remote daemon");
 });
 
 test("host aliases and agent IDs are literal data even when they name object prototypes", async () => {
@@ -999,6 +1029,100 @@ test.each([false, true])(
   },
 );
 
+test("a pending origin probe keeps the same origin terminal attached and stoppable", async () => {
+  scrollIntoView.mockClear();
+  const repository = "/local/project";
+  const state = {
+    ...preflight,
+    repositories: [
+      {
+        repository,
+        origin: { state: "fail" as const, reason: "origin-host-key" as const },
+        checkout: {
+          ...host.result,
+          checkout: { path: "/remote/project", state: "clean" as const },
+        },
+      },
+    ],
+  };
+  const probe = Promise.withResolvers<HostsState>();
+  const stream = viewStream();
+  stream.data.hosts = saved({ ...initial, preflight: state });
+  const api = vi.fn((action: HostsAction): Promise<HostsState> => {
+    if (action.action === "preflight") {
+      stream.data.hosts = saved({ ...initial, preflight: { ...state, repositories: [] } });
+      stream.push("hosts");
+      return probe.promise;
+    }
+    return Promise.resolve(
+      action.action === "trust-origin"
+        ? { ...stream.data.hosts, recipeSession: "trust" }
+        : stream.data.hosts,
+    );
+  });
+  const stop = vi.fn(() => Promise.resolve());
+  const open = vi.fn(() => Promise.resolve());
+  render(
+    <HostsSettings
+      source={{
+        hosts: api,
+        views: stream.api,
+        hostTerminal: {
+          createView: () => ({
+            mount: () => () => {},
+            open,
+            hide: async () => {},
+            focus: () => {},
+            subscribe: () => () => {},
+            getSnapshot: () => ({
+              status: "",
+              state: "quiet_ok",
+              visible: true,
+              attaching: false,
+              toggleLabel: "",
+              toggleDisabled: false,
+              restartDisabled: false,
+            }),
+          }),
+          observe: (_id, listener) => {
+            listener({ exited: false });
+            return () => {};
+          },
+          stop,
+        },
+      }}
+      headingRef={createRef()}
+    />,
+  );
+  const trust = await screen.findByRole("button", { name: "Trust host key…" });
+  await waitFor(() => {
+    expect(trust).toHaveProperty("disabled", false);
+  });
+  fireEvent.click(trust);
+  const terminal = await screen.findByRole("region", { name: "Origin host key terminal" });
+  await waitFor(() => {
+    expect(terminal.getAttribute("aria-busy")).toBe("false");
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Check capabilities" }));
+  await waitFor(() => {
+    expect(screen.queryByRole("button", { name: /Git access ·/u })).toBeNull();
+  });
+  expect(screen.getByRole("region", { name: "Origin host key terminal" })).toBe(terminal);
+  expect(open).toHaveBeenCalledExactlyOnceWith("trust");
+  expect(scrollIntoView).toHaveBeenCalledExactlyOnceWith({ block: "start" });
+  fireEvent.click(within(terminal).getByRole("button", { name: "Stop" }));
+  await waitFor(() => {
+    expect(stop).toHaveBeenCalledExactlyOnceWith("trust");
+  });
+
+  await act(async () => {
+    stream.data.hosts = saved({ ...initial, preflight: state });
+    stream.push("hosts");
+    probe.resolve(stream.data.hosts);
+    await probe.promise;
+  });
+});
+
 test("reopening Hosts restores each origin terminal independently of other recipes", async () => {
   const repositories = ["/local/one", "/local/two"].map(
     (repository) =>
@@ -1285,13 +1409,83 @@ test("row reload keeps other rows usable and does not run a full preflight", asy
 test("failed resource refresh reports its failure without replacing checklist results", async () => {
   const { api } = await mount();
   api.mockResolvedValue(
-    saved({ ...initial, hosts: [{ ...host, result: { ok: false, reason: "unreachable" } }] }),
+    saved({
+      ...initial,
+      hosts: [
+        {
+          ...host,
+          result: { ok: false, reason: "unreachable" },
+          factsRefreshFailure: "unreachable",
+        },
+      ],
+    }),
   );
   fireEvent.click(screen.getByRole("button", { name: "Refresh facts" }));
   await screen.findByText("Host unreachable");
   expect(screen.getByText("Pass · Host key trusted")).toBeTruthy();
   expect(api.mock.calls.some(([action]) => action.action === "preflight")).toBe(false);
 });
+
+test.each(["row reload error", "facts refresh"] as const)(
+  "a changed SSH key survives a %s when the full check cannot be saved",
+  async (scenario) => {
+    const { api } = await mount();
+    const reload = screen.getByRole("button", { name: "Reload SSH" });
+    const row = reload.closest(".host-check-row");
+    expect(row?.textContent).toContain("Pass · Host key trusted");
+    if (scenario === "row reload error") {
+      api.mockRejectedValueOnce(new Error("Cannot save SSH row"));
+      fireEvent.click(reload);
+      await screen.findByText("Unable to check");
+    }
+    const changed: HostPreflight = {
+      ssh: { state: "fail", reason: "host-key-changed" },
+      platform: { state: "not-checked" },
+      artifact: { state: "not-checked" },
+      result: { ok: false, reason: "host-key-changed" },
+      repositories: [],
+    };
+    const savedState = saved(initial);
+    api.mockImplementation((action) =>
+      Promise.resolve(
+        action.action === "preflight"
+          ? { ...savedState, preflight: changed, preflightSaveFailed: true }
+          : savedState,
+      ),
+    );
+    const check = screen.getByRole("button", { name: "Check capabilities" });
+    fireEvent.click(check);
+    await screen.findByText("Unable to update hosts");
+    expect(row?.textContent).toContain("Host key changed");
+
+    if (scenario === "facts refresh") {
+      api.mockImplementation((action) =>
+        Promise.resolve(
+          action.action === "refresh"
+            ? {
+                locations: savedState.locations,
+                hosts: savedState.hosts.map((entry) => ({
+                  ...entry,
+                  result: changed.result,
+                  factsRefreshFailure: "host-key-changed",
+                })),
+              }
+            : savedState,
+        ),
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Refresh facts" }));
+      await screen.findByText("Host key changed", {
+        selector: ".host-details span",
+      });
+      expect(row?.textContent).toContain("Host key changed");
+
+      fireEvent.click(check);
+      await waitFor(() => {
+        expect(row?.textContent).toContain("Pass · Host key trusted");
+      });
+    }
+  },
+);
 
 test("Add nickname validates inline, preserves invalid or failed input and submits valid names", async () => {
   const { api } = await mount();
@@ -1310,7 +1504,7 @@ test("Add nickname validates inline, preserves invalid or failed input and submi
   fireEvent.change(input, { target: { value: "Build box" } });
   api.mockRejectedValueOnce(new Error("Failed"));
   fireEvent.click(screen.getByRole("button", { name: "Add host" }));
-  await screen.findByText("Unable to update hosts");
+  await screen.findByText("Unable to add host");
   expect(screen.getByRole<HTMLInputElement>("textbox", { name: "Nickname (optional)" }).value).toBe(
     "Build box",
   );
@@ -1470,23 +1664,6 @@ test.skipIf(process.platform === "win32")(
     }
   },
 );
-
-test("host check output remains inert, readable and dismissible after failure", async () => {
-  const output = {
-    host: "worker",
-    text: "<script>never execute</script>\nSSH refused",
-    running: false,
-    failed: true,
-  };
-  const { api } = await mount({ ...initial, output });
-  const panel = await screen.findByRole("region", { name: "Host check output" });
-  expect(panel.textContent).toContain(output.text);
-  expect(panel.querySelector("script")).toBeNull();
-  expect(within(panel).getByRole("status").textContent).toBe("Failed");
-  fireEvent.click(within(panel).getByRole("button", { name: "Dismiss" }));
-  expect(screen.queryByRole("region", { name: "Host check output" })).toBeNull();
-  expect(api).toHaveBeenCalledWith({ action: "dismiss-output" });
-});
 
 test.each([false, true])(
   "embedded recipe exit reloads its saved rows (read fails: %s)",
@@ -1807,7 +1984,15 @@ test.each(["host-key-unknown", "host-key-changed", "login-rejected", "unreachabl
     const result = { ok: false as const, reason: "unreachable" as const };
     await mount({
       ...initial,
-      hosts: [{ ...host, result }],
+      hosts: [
+        {
+          ...host,
+          result,
+          ...(reason === "host-key-changed"
+            ? { hostKeyTrustFailure: "trust-not-eligible" as const }
+            : {}),
+        },
+      ],
       preflight: {
         ...preflight,
         ssh: check,
@@ -1827,6 +2012,8 @@ test.each(["host-key-unknown", "host-key-changed", "login-rejected", "unreachabl
       expect(
         status?.classList.contains(reason === "host-key-unknown" ? "host-need" : "host-fail"),
       ).toBe(true);
+      if (reason === "host-key-changed")
+        expect(status?.textContent).toContain("Unable to trust host key · trust-not-eligible");
       expect(status?.querySelector(".host-symbol")?.textContent).toBe(
         reason === "host-key-unknown" ? "" : "×",
       );
@@ -1888,10 +2075,17 @@ test("untrusted hosts hide dependent checks and stale failures until acceptance 
         },
       ],
     },
-    output: { host: "worker", text: "Host key verification failed", running: false, failed: true },
   });
+  const failedTrust: HostsState = {
+    ...state,
+    hosts: state.hosts.map((entry) => ({ ...entry, hostKeyTrustFailure: "dialog-unavailable" })),
+  };
+  const trust = vi
+    .fn<() => Promise<HostsState>>()
+    .mockResolvedValueOnce(failedTrust)
+    .mockResolvedValue(saved(initial));
   const api = vi.fn((action: HostsAction) =>
-    Promise.resolve(action.action === "trust-host-key" ? saved(initial) : state),
+    action.action === "trust-host-key" ? trust() : Promise.resolve(state),
   );
   render(<HostsSettings source={{ hosts: api }} headingRef={createRef()} />);
   const card = await screen.findByRole("region", { name: "worker" });
@@ -1912,7 +2106,14 @@ test("untrusted hosts hide dependent checks and stale failures until acceptance 
   }
   expect(card.querySelector(".host-footer")).toBeNull();
   expect(within(card).getByRole("button", { name: "Remove" })).toBeTruthy();
-  expect(within(card).getByRole("region", { name: "Host check output" })).toBeTruthy();
+  expect(within(card).queryByRole("region", { name: "Host check output" })).toBeNull();
+  fireEvent.click(within(card).getByRole("button", { name: "Trust host key…" }));
+  const failure = await within(card).findByText("Unable to trust host key · dialog-unavailable");
+  const ssh = failure.closest(".host-check-row");
+  expect(ssh?.textContent).toContain("Host key not trusted");
+  expect(ssh?.querySelector(".host-status")?.classList.contains("host-need")).toBe(true);
+  expect(failure.classList.contains("host-fail")).toBe(true);
+  expect(card.querySelectorAll(".host-check-row")).toHaveLength(1);
   fireEvent.click(within(card).getByRole("button", { name: "Trust host key…" }));
   await within(card).findByText("Pass · Host key trusted");
   for (const text of [
@@ -1922,44 +2123,12 @@ test("untrusted hosts hide dependent checks and stale failures until acceptance 
     "git",
     "GitHub CLI",
     "Agents",
-    "Checked out repositories",
     "Host facts",
   ]) {
     expect(within(card).getByText(text, { exact: true })).toBeTruthy();
   }
   expect(card.querySelector(".host-footer")).toBeTruthy();
 });
-
-test.each(["host-key-unknown", "host-key-changed", "login-rejected", "unreachable"] as const)(
-  "check output for %s distinguishes waiting from failure and dismissal",
-  async (reason) => {
-    const result = { ok: false as const, reason };
-    const output = {
-      host: "worker",
-      text: "Read-only SSH diagnostic",
-      running: false,
-      failed: true,
-    };
-    await mount({
-      ...initial,
-      hosts: [{ ...host, result, hostKeyTrust: "askpass" }],
-      preflight: { ...preflight, result, ssh: { state: "fail", reason } },
-      output,
-    });
-    const panel = screen.getByRole("region", { name: "Host check output" });
-    const status = within(panel).getByRole("status");
-    expect(status.textContent).toBe(
-      reason === "host-key-unknown" ? "Host key not trusted" : "Failed",
-    );
-    expect(
-      status.classList.contains(reason === "host-key-unknown" ? "host-need" : "hosts-failure"),
-    ).toBe(true);
-    expect(panel.textContent).toContain(output.text);
-    if (reason === "host-key-unknown")
-      expect(within(panel).queryByRole("button", { name: "Dismiss" })).toBeNull();
-    else expect(within(panel).getByRole("button", { name: "Dismiss" })).toBeTruthy();
-  },
-);
 
 test("sealed build omission is announced once on opening Hosts, including saved ready hosts", async () => {
   const { api } = await mount({ ...initial, remoteHostsAvailable: false });

@@ -122,6 +122,16 @@ test("origin and management boundaries accept only closed operations and credent
   ])
     expect(hostManagement(value)).toBe(false);
 });
+test("Codex approval observations accept only the closed Codex fact", () => {
+  const withAgent = (id: string, codexApprovals: unknown) => ({
+    ok: true,
+    facts: { ...facts, agents: [{ id, state: "ready", codexApprovals }] },
+  });
+  expect(hostResult(withAgent("codex", "may-prompt"))).toBe(true);
+  expect(hostResult(withAgent("codex", "raw config"))).toBe(false);
+  expect(hostResult(withAgent("claude", "may-prompt"))).toBe(false);
+});
+
 test("typed results expose bounded facts and fixed states only", () => {
   const valid = { ok: true, facts };
   expect(hostResult(valid)).toBe(true);
@@ -582,7 +592,11 @@ test("saved host observations accept only bounded display facts and closed check
         ...host,
         observation: {
           checkedAt: 0,
-          preflight: { ...preflight, result: { ok: false, reason: "unreachable" } },
+          preflight: {
+            ...preflight,
+            sshRevision: 2,
+            result: { ok: false, reason: "unreachable" },
+          },
         },
       },
     ]),
@@ -599,6 +613,10 @@ test("saved host observations accept only bounded display facts and closed check
     { ...observation, foreignWorktrees: "0" },
     { ...observation, preflight: null },
     { ...observation, preflight: { ...preflight, raw: "secret" } },
+    ...[-1, 1.5, Number.MAX_SAFE_INTEGER + 1].map((sshRevision) => ({
+      ...observation,
+      preflight: { ...preflight, sshRevision },
+    })),
     ...["ssh", "platform", "artifact"].map((key) => ({
       ...observation,
       preflight: { ...preflight, [key]: { state: "invalid" } },

@@ -414,6 +414,7 @@ export function serveHost(
           hostPreflight: 1,
           hostCheckConnection: 1,
           hostRowCheck: 1,
+          codexApprovalCheck: 1,
           agentSettings: 1,
           humanMachines: 1,
           machineHome: home,

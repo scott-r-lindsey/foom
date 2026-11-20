@@ -1,3 +1,4 @@
+import type { RepositoryRequirements } from "../shared/repository-requirements";
 import type { DataView, DataViews, ViewParams, ViewSnapshot } from "../shared/data-views";
 import type {
   BoardRead,
@@ -507,6 +508,29 @@ const validHostConnection = shape({
   platform: validHostCheck,
   artifact: validHostCheck,
 });
+const requirementsLabel: Validator<string> = (value): value is string =>
+  typeof value === "string" &&
+  value.length <= 253 &&
+  value.trim().length > 0 &&
+  !/[\p{Cc}\p{Cf}\p{Cs}]/u.test(value);
+const requirementsDate = range(0, 8_640_000_000_000_000, true);
+const validRepositoryRequirements = either(
+  nil,
+  shape({
+    markdown: (value): value is string =>
+      typeof value === "string" &&
+      value.length <= 16384 &&
+      new TextEncoder().encode(value).length <= 16384 &&
+      value.trim().length > 0 &&
+      !/[^\P{Cc}\t\r\n]|[\p{Cf}\p{Cs}]/u.test(value),
+    revision: (value): value is string =>
+      typeof value === "string" && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u.test(value),
+    agent: requirementsLabel,
+    host: requirementsLabel,
+    recordedAt: requirementsDate,
+    editedAt: either(absent, requirementsDate),
+  } satisfies Contract<RepositoryRequirements>),
+);
 const hostFactsShape = shape({
   folder: either(absent, validHostCheck),
   codeFolder: hostFolder,
@@ -530,6 +554,7 @@ const hostFactsShape = shape({
           plugin: either(absent, literal("present", "not-installed", "unavailable")),
         }),
       ),
+      codexApprovals: either(absent, literal("may-prompt", "disabled", "unknown")),
       signIn: either(absent, literal("signed-in", "signed-out", "unknown")),
     }),
   ),
@@ -562,7 +587,11 @@ const validHostFacts: Validator<HostFacts> = copying(
     value.load.length === 3 &&
     value.memoryAvailable <= value.memoryTotal &&
     value.agents.length <= 100 &&
-    value.agents.every((agent) => !agent.details || agent.details.capabilities.length <= 4),
+    value.agents.every(
+      (agent) =>
+        (!agent.details || agent.details.capabilities.length <= 4) &&
+        (agent.codexApprovals === undefined || agent.id === "codex"),
+    ),
   (value) => project(hostFactsShape, value),
 );
 const validHostResult: Validator<HostResult> = either(
@@ -581,7 +610,7 @@ const validHostResult: Validator<HostResult> = either(
     ),
   }),
 );
-const validHostPreflight = shape({
+const hostPreflightFields = {
   ssh: validHostCheck,
   platform: validHostCheck,
   artifact: validHostCheck,
@@ -589,7 +618,9 @@ const validHostPreflight = shape({
   repositories: array(
     shape({ repository: text, origin: validHostCheck, checkout: validHostResult }),
   ),
-});
+};
+const validHostPreflight = shape({ ...hostPreflightFields, sshRevision: either(absent, count) });
+const validLiveHostPreflight = shape({ ...hostPreflightFields, sshRevision: count });
 const validHostObservation = shape({
   lastAgents: either(
     absent,
@@ -630,17 +661,9 @@ const validHostsState: Validator<HostsState> = shape({
       }),
     ),
   ),
-  preflight: either(absent, validHostPreflight),
+  preflight: either(absent, validLiveHostPreflight),
+  preflightSaveFailed: either(absent, literal(true)),
   recipeSession: either(absent, (value): value is string => nonempty(value) && value.length <= 200),
-  output: either(
-    absent,
-    shape({
-      host: hostAlias,
-      text: (value): value is string => typeof value === "string" && value.length <= 65536,
-      running: boolean,
-      failed: boolean,
-    }),
-  ),
   recipeFailure: either(absent, literal("recipe-unavailable")),
   hosts: array(
     shape({
@@ -648,6 +671,10 @@ const validHostsState: Validator<HostsState> = shape({
       nickname: either(absent, hostNickname),
       codeFolder: hostRequestedFolder,
       observation: either(absent, validHostObservation),
+      checklist: either(
+        absent,
+        shape({ preflight: validLiveHostPreflight, saveFailed: either(absent, literal(true)) }),
+      ),
       rowFailures: either(
         absent,
         array(
@@ -658,6 +685,24 @@ const validHostsState: Validator<HostsState> = shape({
         ),
       ),
       result: either(absent, validHostResult),
+      factsRefreshFailure: either(absent, validHostFailure),
+      hostKeyTrustFailure: either(
+        absent,
+        literal(
+          "trust-not-eligible",
+          "invalid-alias",
+          "ssh-config-failed",
+          "ssh-config-invalid",
+          "socket-path-too-long",
+          "askpass-prompt-rejected",
+          "prompt-host-mismatch",
+          "ssh-exited-without-prompt",
+          "trust-timeout",
+          "ssh-start-failed",
+          "dialog-unavailable",
+          "trust-unavailable",
+        ),
+      ),
       hostKeyTrust: either(absent, literal("askpass", "manual")),
       recipes: either(
         absent,
@@ -2279,6 +2324,8 @@ const desktop: DesktopApi = {
       id,
       action,
     ),
+  repositoryRequirements: (action) =>
+    reply("setup:repository-requirements", validRepositoryRequirements, action),
   hosts: (action) => reply("setup:hosts", validHostsState, action),
   listTerminalFonts: (refresh = false) => reply("setup:terminal-fonts", array(text), refresh),
   listThemes: () => reply("theme:list", validThemeCatalog),

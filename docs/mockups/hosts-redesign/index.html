@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Hosts Redesign</title>
+<style>
+@font-face{font-family:Geist;src:url('../../../src/renderer/fonts/geist.ttf');font-weight:100 900}
+@font-face{font-family:Archivo;src:url('../../../src/renderer/fonts/archivo-black.ttf')}
+@font-face{font-family:Mono;src:url('../../../src/renderer/fonts/geist-mono.ttf');font-weight:100 900}
+:root{--bg:#f3f0fa;--surface:#e9e4f5;--line:#ddd6ee;--ink:#14101f;--muted:#625a7a;--accent:#5b2bd9;--need:#8c5000;--lamp:#d98200;--done:#0e6b3c;--fail:#b0105a;--badge:#d6cfe9;--scrim:rgba(20,16,31,.35);color-scheme:light}
+:root[data-theme=dark]{--bg:#05040a;--surface:#0d0a17;--line:#251d3f;--ink:#f4efff;--muted:#9d93bd;--accent:#9b6bff;--need:#ffb23e;--lamp:#ffb23e;--done:#6fe0a3;--fail:#ff2e88;--badge:#1c1632;--scrim:rgba(0,0,0,.6);color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 Geist,system-ui,sans-serif}
+button,select{font:inherit;color:inherit;border:1px solid var(--line);border-radius:6px;padding:6px 12px;background:var(--bg);cursor:pointer}
+button:hover{border-color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.primary{background:var(--accent);color:var(--bg);border-color:var(--accent);font-weight:600}
+.mono,code,pre{font-family:Mono,ui-monospace,monospace}
+h1{font-family:Archivo,sans-serif;font-weight:400;font-size:26px;letter-spacing:-.5px;margin:0}
+.muted,small{color:var(--muted)}
+.toolbar{border-bottom:1px solid var(--line);padding:10px 24px;display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:12px}
+.toolbar select{font-size:12px;padding:3px 6px}
+.toolbar .end{margin-left:auto}
+.app{display:grid;grid-template-columns:170px minmax(0,1fr);min-height:calc(100vh - 45px)}
+.settings{padding:28px 14px;border-right:1px solid var(--line)}
+.settings strong{display:block;margin-bottom:16px}
+.nav{display:block;width:100%;text-align:left;border:0;background:transparent;color:var(--muted);margin-bottom:2px;padding:6px 10px}
+.nav.active{background:var(--surface);color:var(--ink)}
+main{padding:30px 36px;max-width:1000px;width:100%;min-width:0}
+.head{display:flex;justify-content:space-between;align-items:center;margin-bottom:22px;gap:12px}
+.card{border:1px solid var(--line);border-radius:10px;background:var(--surface);margin:14px 0;overflow:hidden}
+.card-head{display:flex;align-items:center;gap:12px;padding:12px 18px}
+.card-head .name{font-weight:600}
+.card-head .grow{flex:1}
+.chev{color:var(--muted);width:14px}
+.meta{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:10px 18px;border-top:1px solid var(--line);font:12px Mono;color:var(--muted)}
+.meta .grow{flex:1}
+.body{border-top:1px solid var(--line);padding:4px 18px 8px}
+.label{font:11px Mono;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:16px 0 4px}
+.fact>:nth-child(4){justify-self:end}
+.fact{display:grid;grid-template-columns:22px minmax(120px,1fr) minmax(160px,1.6fr) 140px;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line);min-height:44px}
+.fact:last-child{border-bottom:0}
+.fact .name{font-weight:500}
+.fact small{display:block}
+.mark{font-size:13px;text-align:center}
+.pass{color:var(--done)} .fail{color:var(--fail)} .need{color:var(--need)}
+.sq{display:inline-block;width:10px;height:10px;background:var(--fail);border-radius:1px}
+.halo{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--lamp);box-shadow:0 0 0 3px color-mix(in srgb,var(--lamp) 25%,transparent)}
+.work{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 25%,transparent)}
+.status{display:inline-flex;align-items:center;gap:8px;font-size:13px}
+.proto{display:inline-flex;gap:14px;flex-wrap:wrap}
+.proto span{display:inline-flex;gap:5px;align-items:center}
+.foot{display:flex;align-items:center;gap:12px;padding:10px 18px;border-top:1px solid var(--line);font-size:12px;color:var(--muted)}
+.foot .grow{flex:1}
+details.facts{border-top:1px solid var(--line);padding:10px 18px;font-size:12px}
+details.facts summary{cursor:pointer;color:var(--muted)}
+.factgrid{display:grid;grid-template-columns:150px 1fr;gap:6px 14px;margin-top:10px;font:12px Mono}
+.factgrid dt{color:var(--muted)}
+.factgrid dd{margin:0;overflow-wrap:anywhere}
+.term{background:var(--bg);border:1px solid var(--line);border-radius:6px;margin:6px 0 10px}
+.term header{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line);font-size:12px}
+.term header .grow{flex:1}
+.term pre{margin:0;padding:12px;font-size:12px;line-height:1.7;white-space:pre-wrap;overflow-wrap:anywhere}
+.cursor{display:inline-block;width:7px;height:13px;background:var(--ink);vertical-align:-2px}
+.fp{font:12px Mono;overflow-wrap:anywhere}
+.scrim{position:fixed;inset:0;background:var(--scrim);display:flex;align-items:center;justify-content:center;padding:16px}
+.dialog{background:var(--surface);border:1px solid var(--line);border-radius:10px;width:min(440px,100%);padding:20px}
+.dialog h2{font-size:16px;margin:0 0 6px}
+.lede{margin:0 0 4px;font-size:13px;color:var(--muted);line-height:1.55}
+.repos-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:24px 0 8px}
+.repos-head .label{margin:0}
+.filter{width:50%;font:13px Geist,system-ui,sans-serif;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:5px 10px}
+.filter:focus{outline:2px solid var(--accent);outline-offset:0;border-color:transparent}
+.repos .check[hidden]{display:none}
+.repos{max-height:200px;overflow-y:auto;border:1px solid var(--line);border-radius:6px;background:var(--bg);padding:0 12px}
+.repos .check{padding:9px 0}
+.record{margin-top:28px}
+.lede a{color:var(--accent)}
+.lede.sub{font-size:12px;margin:4px 0 0 23px}
+.notes{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:14px 16px;font:12px/1.7 Mono;white-space:pre-wrap;margin:6px 0 10px;overflow-wrap:anywhere}
+.repo-head{display:flex;align-items:center;gap:10px}
+.repo-head .grow{flex:1}
+.check{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
+.check:last-child{border-bottom:0}
+.check .grow{flex:1}
+.badge{background:var(--badge);border-radius:4px;padding:2px 7px;font:11px Mono}
+.drow{display:flex;align-items:center;gap:10px;margin-top:14px}
+.drow select{flex:1}
+.dact{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
+.empty{color:var(--muted);padding:6px 0 4px}
+.add{display:flex;gap:8px;align-items:center;padding:14px 18px}
+.add input{flex:1;min-width:0;font:13px Mono;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:7px 10px}
+.note{font-size:12px;color:var(--muted);border-left:2px solid var(--line);padding:2px 0 2px 12px;margin:24px 0 0;max-width:640px}
+@media(max-width:760px){.app{display:block}.settings{display:none}main{padding:20px 16px}.fact{grid-template-columns:22px 1fr;}.fact>:nth-child(3){grid-column:2}.fact>:nth-child(4){grid-column:2;justify-self:start}.factgrid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="toolbar"><strong>Hosts redesign · proposal</strong>
+<label>Scene <select id="scene">
+<option value="list">Host list</option>
+<option value="ready">Host · ready (dozer)</option>
+<option value="trust">Add host · unknown key</option>
+<option value="install">Inline install</option>
+<option value="configure">Set up with an agent · dialog</option>
+<option value="agent">Setup agent running</option>
+<option value="fix">Git access · Fix</option>
+<option value="notes">Repositories · recorded requirements</option>
+</select></label>
+<span class="muted">Illustrative data.</span>
+<label class="end">Theme <select id="theme"><option>light</option><option>dark</option></select></label></div>
+<div class="app">
+<nav class="settings"><strong>Settings</strong>
+<button class="nav">General</button><button class="nav">Agents</button><button class="nav">Forges</button><button class="nav">Environment</button><button class="nav active">Hosts</button><button class="nav">Repositories</button><button class="nav">Appearance</button><button class="nav">Terminal</button><button class="nav">Sound</button><button class="nav">Foom config</button></nav>
+<main id="main"></main></div>
+<div id="overlay"></div>
+<script>
+const $=s=>document.querySelector(s);
+const ok='<span class="mark pass" aria-label="Pass">✓</span>';
+const bad='<span class="mark" aria-label="Failed"><i class="sq"></i></span>';
+const needs='<span class="mark" aria-label="Needs you"><i class="halo"></i></span>';
+const none='<span class="mark muted">–</span>';
+const fact=(m,name,text,act='')=>`<div class="fact">${m}<span class="name">${name}</span><span>${text}</span><span>${act}</span></div>`;
+const setup=(kind='')=>kind==='none'?'':`<button${kind==='primary'?' class="primary"':''}>Set up with an agent…</button>`;
+const head=(name,os,status,open=true,action='')=>`<div class="card-head"><span class="chev">${open?'⌄':'›'}</span><span class="name">${name}</span><span class="muted mono" style="font-size:12px">${os}</span><span class="grow"></span>${status}${action}</div>`;
+const meta=(addr,folder,extra='')=>`<div class="meta"><span>${addr}</span><span>${folder}</span><span class="grow"></span>${extra}<button>Remove</button></div>`;
+const host=`<div class="label">Host</div>
+${fact(ok,'SSH','<span class="pass">Host key trusted</span>')}
+${fact(ok,'Platform','<span class="pass">Debian 12 · x86_64</span>')}
+${fact(ok,'Remote daemon','<span class="pass">In this build</span>')}
+${fact(ok,'Code folder','<span class="pass">Valid</span>','<button>Change folder</button>')}`;
+const tools=`<div class="label">Tools</div>
+${fact(ok,'git','<span class="pass">Installed</span>')}
+${fact(ok,'GitHub CLI','<span class="pass">Installed · signed in</span>')}`;
+const agents=(text='4 of 6 ready')=>`<div class="label">Agents</div>${fact(none,'Agents',`<span class="muted">${text}</span>`,'<button>Open</button>')}`;
+const git=(gitlab)=>`<div class="label">Git access</div>
+${fact(ok,'GitHub','<span class="proto"><span class="pass">SSH ✓</span><span class="pass">HTTPS ✓</span></span>')}
+${gitlab}`;
+const gitlabFail=fact(bad,'GitLab','<span class="proto"><span class="fail">SSH · key not accepted</span></span>','<button>Fix</button>');
+const gitlabOk=fact(ok,'GitLab','<span class="proto"><span class="pass">SSH ✓</span></span>');
+const facts=(open=false)=>`<details class="facts"${open?' open':''}><summary>Host facts</summary><dl class="factgrid">
+<dt>OS</dt><dd>Debian GNU/Linux 12 (bookworm)</dd><dt>CPU · memory</dt><dd>4 CPUs · 31 GiB</dd><dt>Daemon</dt><dd>foom-host 0.9.0 · ~/.foom-host</dd>
+<dt>Checked out</dt><dd>foom · ~/foom/repository-0025e91dc697515992d325e0</dd>
+<dt>Installation notes</dt><dd>foom · saved 2026-11-18</dd></dl></details>`;
+const foot=`<div class="foot">Last checked 11/18/2026, 8:20 PM<span class="grow"></span><button aria-label="Check again">↻</button></div>`;
+const collapsed=(name,os,status,action='')=>`<div class="card">${head(name,os,status,false,action)}</div>`;
+const ready='<span class="status pass">✓ Ready</span>';
+const scenes={
+list:()=>`${collapsed('dozer','debian','<span class="status pass">✓ Ready</span>',setup())}
+${collapsed('ec2-34-210-18-7','ubuntu','<span class="status"><i class="work"></i>Setting up · Codex</span>')}
+${collapsed('ec2-52-14-201-9','ubuntu','<span class="status need"><i class="halo"></i>Needs you · Git access</span>',setup('primary'))}
+${collapsed('ec2-18-237-44-2','ubuntu','<span class="status muted">Needs setup</span>',setup('primary'))}
+${collapsed('This computer','linux',ready,setup())}`,
+ready:()=>`<div class="card">${head('dozer','debian',ready,true,setup())}${meta('slindsey@dozer.local','/home/slindsey/foom')}<div class="body">${host}${tools}${agents()}${git(gitlabOk)}</div>${foot}${facts(true)}</div>`,
+trust:()=>`<div class="card">${head('ec2-34-210-18-7','',`<span class="status need"><i class="halo"></i>Needs you</span>`)}${meta('ubuntu@ec2-34-210-18-7.compute.amazonaws.com','~/foom')}<div class="body"><div class="label">Host</div>
+${fact(needs,'SSH','<span class="need">Unknown host key</span><small class="fp">ED25519 SHA256:q3Rk9v2Lx8mWfA0sT7nYb1cJ5eHuP4zG6dKiO2lN0QE</small>','<button class="primary">Trust</button>')}
+${fact(none,'Platform','<span class="muted">Waiting for SSH</span>')}</div></div>`,
+install:()=>`<div class="card">${head('dozer','debian','<span class="status"><i class="work"></i>Installing</span>',true,setup())}${meta('slindsey@dozer.local','/home/slindsey/foom')}<div class="body">${host}${tools}<div class="label">Agents</div>
+${fact('<span class="mark"><i class="work"></i></span>','Antigravity plugin','<span>Installing</span>')}
+<div class="term"><header><span>Antigravity plugin · dozer</span><span class="grow"></span><button>Stop</button></header><pre>foom-host --stage-plugin agy
+agy plugin install ~/.foom-host/plugin-bgHNNP
+  [ok]  foom
+        ✓ hooks : 1 installed (foom-observer-v1)
+<span class="cursor"></span></pre></div>
+${git(gitlabOk)}</div>${foot}</div>`,
+configure:()=>scenes.ready(),
+agent:()=>`<div class="card">${head('ec2-34-210-18-7','ubuntu','<span class="status"><i class="work"></i>Setting up · Codex</span>')}${meta('ubuntu@ec2-34-210-18-7.compute.amazonaws.com','~/foom','<button>Show agent</button>')}<div class="body">${host.replace('Debian 12','Ubuntu 24.04')}<div class="label">Tools</div>
+${fact(ok,'git','<span class="pass">Installed</span>')}
+${fact(none,'GitHub CLI','<span class="muted">Not installed</span>')}
+${agents('0 of 6 ready')}${git(fact(none,'GitLab','<span class="muted">SSH · not checked</span>'))}</div>${foot}</div>`,
+notes:()=>`<div class="card"><div class="card-head"><span class="chev">⌄</span><span class="name">foom</span><span class="muted mono" style="font-size:12px">git@github.com:scott-r-lindsey/foom.git</span><span class="grow"></span></div><div class="body"><div class="label">Host requirements</div><div class="repo-head"><small>Recorded by Codex on dozer · 11/18/2026 · edited by you 11/19/2026</small><span class="grow"></span><button>Edit</button><button>Clear</button></div>
+<div class="notes">## System packages (Debian/Ubuntu)\nbuild-essential python3 xvfb libgtk-3-0 libnss3 libasound2t64 libgbm1\n\n## Toolchain\n- Node 24 via nodesource; corepack enable (pnpm from packageManager)\n\n## Git\n- GitHub over SSH: add the host key to the account, or use gh auth login\n\n## Notes\n- Electron tests need xvfb-run -a\n- 4 GiB RAM was not enough for pnpm run make; 8 GiB worked</div></div></div>`,
+fix:()=>`<div class="card">${head('dozer','debian','<span class="status fail"><i class="sq"></i>Git access failed</span>',true,setup('primary'))}${meta('slindsey@dozer.local','/home/slindsey/foom')}<div class="body">${host}${tools}${agents()}${git(gitlabFail)}</div>${foot}${facts()}</div>`
+};
+const dialog=`<div class="scrim"><div class="dialog" role="dialog" aria-label="Set up dozer with an agent"><h2>Set up dozer with an agent</h2>
+<p class="lede">The agent runs on this computer, connects to dozer over SSH, and installs what the selected repositories need. It works in its own tile and will ask you there if it needs a password or a decision.</p>
+<div class="drow"><span class="muted">Agent</span><select><option>Codex</option><option>Claude Code</option><option>Antigravity</option></select></div>
+<div class="repos-head"><span class="label">Repositories</span><input class="filter" type="search" placeholder="Filter" aria-label="Filter repositories"></div>
+<div class="repos">
+<label class="check"><input type="checkbox" checked><span class="grow">foom</span><span class="badge">requirements</span></label>
+<label class="check"><input type="checkbox"><span class="grow">foom-site</span></label>
+<label class="check"><input type="checkbox"><span class="grow">crab-attack-ii</span></label>
+<label class="check"><input type="checkbox"><span class="grow">foom-forge-fixtures</span></label>
+<label class="check"><input type="checkbox"><span class="grow">dotfiles</span></label>
+<label class="check"><input type="checkbox"><span class="grow">tile-bench</span></label>
+<label class="check"><input type="checkbox"><span class="grow">lantern-api</span></label>
+<label class="check"><input type="checkbox"><span class="grow">lantern-web</span></label>
+<label class="check"><input type="checkbox"><span class="grow">pi-notes</span></label>
+</div>
+<label class="drow record"><input type="checkbox" checked>Record discovered requirements</label>
+<p class="lede sub">The agent writes what each repository needed as Markdown notes in <a href="#" class="to-notes">Settings › Repositories</a>. The next setup starts from those notes. Open a repository there to read or edit them.</p>
+<div class="dact"><button>Cancel</button><button class="primary">Start agent</button></div></div></div>`;
+const notes={
+list:'Set up with an agent… sits in every header: primary while a host needs setup, quiet once Ready, absent while an agent is already working. One line per host. Status uses shape and words: ✓ ready, violet solid light working, amber halo needs you, magenta square failed.',
+ready:'No repository rows. Git access is one line per forge, listing only the protocols your registered repositories use. Checkouts and saved installation notes live in Host facts. No check log after success.',
+trust:'Unknown key is answered here. Foom relays the answer to OpenSSH; Settings stays open and later rows wait.',
+install:'Installers run in the card. The terminal closes on success and the row refreshes; no board tile is left behind.',
+configure:'Opened from Set up with an agent… or Fix only. "notes" marks repositories with saved installation notes, which the agent reads first.',
+agent:'The agent runs on this computer in its own tile and SSHes to the box. Questions surface as Needs you on the host and the tile. Foom rechecks the host when it exits.',
+notes:'Recorded requirements live on the repository, not the host. Plain Markdown, written by the setup agent and editable by you. They are suggestions the next agent starts from, never a script Foom runs. A later setup rewrites the note, keeping your edits, so it does not grow without bound.',
+fix:'Primary when the host is not ready. Fix opens the same dialog, scoped to the failing forge.'
+};
+function render(){
+  const s=$('#scene').value;
+  document.documentElement.dataset.theme=$('#theme').value;
+  const repo=s==='notes';document.querySelectorAll('.nav').forEach(n=>n.classList.toggle('active',n.textContent===(repo?'Repositories':'Hosts')));
+  $('#main').innerHTML=`<div class="head"><h1>${repo?'Repositories':'Hosts'}</h1><button>${repo?'Add repository':'Add host'}</button></div>${scenes[s]()}<p class="note">${notes[s]}</p>`;
+  $('#overlay').innerHTML=s==='configure'?dialog:'';if(s==='configure')$('.dialog select').focus();
+}
+const p=new URLSearchParams(location.search);
+if(p.get('scene'))$('#scene').value=p.get('scene');
+$('#theme').value=p.get('theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+const closeDialog=()=>{if($('#scene').value==='configure'){$('#scene').value='ready';render();}else $('#overlay').innerHTML='';};
+const openDialog=()=>{$('#overlay').innerHTML=dialog;$('.dialog select').focus();};
+document.addEventListener('click',e=>{
+  const b=e.target.closest('button');
+  if(e.target.classList.contains('to-notes')){e.preventDefault();$('#scene').value='notes';return render();}
+  if(e.target.classList.contains('scrim'))return closeDialog();
+  if(!b)return;
+  if(b.textContent==='Cancel'||b.textContent==='Start agent')closeDialog();
+  else if(b.textContent==='Set up with an agent…'||b.textContent==='Fix')openDialog();
+});
+document.addEventListener('input',e=>{if(!e.target.classList.contains('filter'))return;const q=e.target.value.toLowerCase();document.querySelectorAll('.repos .check').forEach(c=>{c.hidden=!c.textContent.toLowerCase().includes(q)&&!c.querySelector('input').checked;});});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('#overlay').innerHTML)closeDialog();});
+$('#scene').onchange=render;$('#theme').onchange=render;render();
+</script>
+</body>
+</html>

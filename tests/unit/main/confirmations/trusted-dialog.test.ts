@@ -100,6 +100,7 @@ const parent = Object.assign(new EventEmitter(), {
   setEnabled: vi.fn(),
   isFocusable: vi.fn(() => true),
   isVisible: vi.fn(() => true),
+  isFocused: vi.fn(() => false),
   isMinimized: vi.fn(() => false),
   setFocusable: vi.fn(),
   webContents: Object.assign(new EventEmitter(), {
@@ -525,6 +526,20 @@ test("prewarms an isolated sandbox, rejects foreign frames, forged IDs and malfo
   dialog.dispose();
   expect(mock.ipc.size).toBe(0);
 });
+test("only the board's next focus after a local dialog skips inventory refresh", async () => {
+  const dialog = setup();
+  const local = dialog.request({ ...content, localOnly: true });
+  const id = await shown();
+  expect(window().webContents.send.mock.calls.at(-1)?.[1]).not.toHaveProperty("localOnly");
+  expect(dialog.consumeLocalFocusReturn()).toBe(false);
+  answer(id, true);
+  expect(await local).toBe(true);
+  expect(parent.focus).toHaveBeenCalledOnce();
+  expect(dialog.consumeLocalFocusReturn()).toBe(true);
+  expect(dialog.consumeLocalFocusReturn()).toBe(false);
+  dialog.dispose();
+});
+
 test("serializes requests, denies navigation, cancels close, and disposes queued work", async () => {
   const dialog = setup();
   const first = dialog.request(content);

@@ -78,6 +78,8 @@ export interface ApprovalFeed {
 export interface DialogContent {
   /** Main-only provenance: a confirmation answering the human’s current action. */
   userAction?: true;
+  /** Restoring focus after this local action skips the board's remote refresh. */
+  localOnly?: true;
   approvalFeed?: ApprovalFeed;
   approvals?: readonly ApprovalRow[];
   /** Main-owned attribution and semantic identity, stripped before rendering. */
@@ -122,7 +124,14 @@ export interface DialogContent {
 export interface DialogRequest
   extends Omit<
     DialogContent,
-    "feed" | "removal" | "removalFeed" | "pluginFeed" | "approvalFeed" | "approval" | "userAction"
+    | "feed"
+    | "removal"
+    | "removalFeed"
+    | "pluginFeed"
+    | "approvalFeed"
+    | "approval"
+    | "userAction"
+    | "localOnly"
   > {
   id: string;
   /** Main-owned revision of the queue window’s native bounds. */

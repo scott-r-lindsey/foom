@@ -1707,6 +1707,7 @@ test("preflight bridge validates and rebuilds every partial observation", async 
     locations: [],
     preflight: {
       ssh: { state: "pass" },
+      sshRevision: 2,
       platform: { state: "not-checked" },
       artifact: check,
       result,
@@ -1719,8 +1720,19 @@ test("preflight bridge validates and rebuilds every partial observation", async 
   await expect(
     api.hosts({ action: "preflight", host: "worker", codeFolder: "~/code" }),
   ).resolves.toEqual(value);
+  const legacy = { ...value.preflight, sshRevision: undefined };
+  const saved = { ...value.hosts[0], observation: { checkedAt: 1, preflight: legacy } };
+  mock.invoke.mockResolvedValue({ hosts: [saved], locations: [] });
+  await expect(api.hosts({ action: "list" })).resolves.toMatchObject({ hosts: [saved] });
+  mock.invoke.mockResolvedValue({
+    hosts: [{ ...saved, checklist: { preflight: legacy } }],
+    locations: [],
+  });
+  await expect(api.hosts({ action: "list" })).rejects.toThrow();
   for (const bad of [
+    legacy,
     { ...value.preflight, ssh: { state: "raw" } },
+    { ...value.preflight, sshRevision: -1 },
     { ...value.preflight, artifact: { state: "fail", reason: "secret" } },
     {
       ...value.preflight,
@@ -1994,27 +2006,26 @@ test("agent display details are bounded, copied and never expose undeclared meta
   await expect(api.hosts({ action: "list" })).rejects.toThrow();
 });
 
-test("host setup output and recipe IDs are bounded display-only reply fields", async () => {
+test("host setup validates fixed host failure reasons and bounded recipe IDs", async () => {
   const api = await bridge();
-  const output = {
+  const host = {
     host: "worker",
-    text: "SSH stderr\n<script>inert</script>",
-    running: false,
-    failed: true,
+    codeFolder: "/code",
+    hostKeyTrustFailure: "askpass-prompt-rejected",
+    factsRefreshFailure: "facts-unavailable",
   };
-  mock.invoke.mockResolvedValue({ hosts: [], locations: [], output, recipeSession: "recipe" });
-  await expect(api.hosts({ action: "progress" })).resolves.toMatchObject({
-    output,
+  mock.invoke.mockResolvedValue({ hosts: [host], locations: [], recipeSession: "recipe" });
+  await expect(api.hosts({ action: "list" })).resolves.toMatchObject({
+    hosts: [host],
     recipeSession: "recipe",
   });
   for (const invalid of [
-    { ...output, text: "x".repeat(65537) },
-    { ...output, running: 1 },
-    { ...output, failed: "no" },
-    { ...output, host: "-oCommand" },
+    { ...host, hostKeyTrustFailure: "raw SSH prompt" },
+    { ...host, hostKeyTrustFailure: 1 },
+    { ...host, factsRefreshFailure: "raw refresh error" },
   ]) {
-    mock.invoke.mockResolvedValue({ hosts: [], locations: [], output: invalid });
-    await expect(api.hosts({ action: "progress" })).rejects.toThrow();
+    mock.invoke.mockResolvedValue({ hosts: [invalid], locations: [] });
+    await expect(api.hosts({ action: "list" })).rejects.toThrow();
   }
   for (const recipeSession of ["", "x".repeat(201), 1]) {
     mock.invoke.mockResolvedValue({ hosts: [], locations: [], recipeSession });
@@ -2246,4 +2257,35 @@ test("preview history bridge validates navigation facts and forwards ID-scoped t
   expect(receive).toHaveBeenCalledExactlyOnceWith(state);
   off?.();
   expect(mock.removeListener).toHaveBeenCalledWith("preview:navigation", listener);
+});
+
+test("validates and projects recorded host requirements", async () => {
+  const api = await bridge();
+  const action = { action: "read", repository: "/fixture/repo" } as const;
+  const note = {
+    markdown: "# Requirements",
+    revision: "13d2354c-75d5-4771-8d2a-f0179896e640",
+    agent: "Codex",
+    host: "worker",
+    recordedAt: 1700000000000,
+  };
+  mock.invoke.mockResolvedValue({ ...note, extra: "discarded" });
+  await expect(api.repositoryRequirements(action)).resolves.toEqual(note);
+  expect(mock.invoke).toHaveBeenCalledWith("setup:repository-requirements", action);
+  mock.invoke.mockResolvedValue(null);
+  await expect(api.repositoryRequirements(action)).resolves.toBeNull();
+  for (const patch of [
+    { revision: "/path" },
+    { recordedAt: 0.5 },
+    { editedAt: Infinity },
+    { host: "x\u202e" },
+    { markdown: "  " },
+    { markdown: "é".repeat(8193) },
+    { markdown: "x\u0000" },
+  ]) {
+    mock.invoke.mockResolvedValue({ ...note, ...patch });
+    await expect(api.repositoryRequirements(action)).rejects.toThrow(
+      "Invalid setup:repository-requirements response",
+    );
+  }
 });

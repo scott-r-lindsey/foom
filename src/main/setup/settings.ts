@@ -18,6 +18,7 @@ import {
 import type { ConfigSettings } from "../../shared/config";
 import { DEFAULT_SOUND, migrateSoundSettings } from "../../shared/sounds";
 import { randomUUID } from "node:crypto";
+import { renameSync } from "node:fs";
 import { link, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
 import { validAgentId } from "../../shared/providers/catalog";
@@ -25,8 +26,21 @@ import type { Settings, SettingsPatch } from "../../shared/setup";
 
 /** Twice the theme folder limit, so renames settle before old entries are removed. */
 const MAX_THEME_DIGESTS = 100;
+const SUPERSEDED_PROFILE_WRITE = new Error("Superseded profile write");
 
-export const DEFAULT_SETTINGS: Settings = Object.freeze({
+type RegisteredHostsPatch = {
+  registeredHosts: NonNullable<Settings["registeredHosts"]>;
+} & { [Key in Exclude<keyof SettingsPatch, "registeredHosts">]?: never };
+
+function freezeSettings<T>(value: T): T {
+  if (typeof value === "object" && value !== null && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const child of Object.values(value)) freezeSettings(child);
+  }
+  return value;
+}
+
+export const DEFAULT_SETTINGS: Settings = freezeSettings({
   setupComplete: false,
   checkForUpdates: true,
   agyPluginOfferAnswered: false,
@@ -57,7 +71,7 @@ export const DEFAULT_SETTINGS: Settings = Object.freeze({
   terminalFontSize: 14,
   terminalFont: DEFAULT_TERMINAL_FONT,
   terminalTheme: "follow",
-  sound: DEFAULT_SOUND,
+  sound: structuredClone(DEFAULT_SOUND),
   codeFolder: null,
 });
 
@@ -268,7 +282,10 @@ export class SettingsStore {
         store.settings = {
           ...DEFAULT_SETTINGS,
           ...parsed,
-          sound: sound === undefined || version === 2 ? DEFAULT_SOUND : migrateSoundSettings(sound),
+          sound:
+            sound === undefined || version === 2
+              ? DEFAULT_SETTINGS.sound
+              : migrateSoundSettings(sound),
           agentArguments: recovered,
         };
         // ID-only consent is provable only for historically reserved built-ins.
@@ -342,7 +359,7 @@ export class SettingsStore {
       }
     }
     if (migrated || !hasRemoteProfile) await store.write(() => {});
-    store.committedSettings = store.settings;
+    store.committedSettings = freezeSettings(store.settings);
     return store;
   }
 
@@ -354,9 +371,9 @@ export class SettingsStore {
   legacyConfig(): ConfigSettings | undefined {
     return this.migrated
       ? this.argumentsToMove
-        ? { agentArguments: this.argumentsToMove }
+        ? freezeSettings({ agentArguments: this.argumentsToMove })
         : undefined
-      : (this.legacy ?? {});
+      : freezeSettings(this.legacy ?? {});
   }
 
   /** Digest of the config file this profile last applied: the approval baseline. */
@@ -373,21 +390,23 @@ export class SettingsStore {
     values: ConfigSettings,
     digest: string | null,
   ): Promise<void> {
+    const snapshot = structuredClone(values);
     await this.write(() => {
       this.writer = writer;
       this.migrated = true;
       this.legacy = undefined;
       this.argumentsToMove = undefined;
       this.digest = digest;
-      this.settings = { ...this.settings, ...CONFIG_DEFAULTS, ...values };
+      this.settings = { ...this.settings, ...CONFIG_DEFAULTS, ...snapshot };
     });
   }
 
   /** Values from a validated config file; the file, not the profile, stores them. */
   setConfig(values: ConfigSettings): void {
     const before = this.committedSettings;
-    this.settings = { ...this.settings, ...CONFIG_DEFAULTS, ...values };
-    this.committedSettings = { ...before, ...CONFIG_DEFAULTS, ...values };
+    const snapshot = freezeSettings(structuredClone(values));
+    this.settings = { ...this.settings, ...CONFIG_DEFAULTS, ...snapshot };
+    this.committedSettings = freezeSettings({ ...before, ...CONFIG_DEFAULTS, ...snapshot });
     settingsChanged(before, this.committedSettings);
   }
 
@@ -420,21 +439,39 @@ export class SettingsStore {
   ): Promise<void> {
     if (Buffer.byteLength(text) > 65536) return;
     if (digest === this.digest && text === this.text && !theme) return;
+    const approvedTheme = structuredClone(theme);
     await this.write(() => {
       this.digest = digest;
       this.text = text;
-      if (theme) {
-        const next = { ...this.themeDigests, [theme.file]: theme.digest };
+      if (approvedTheme) {
+        const next = { ...this.themeDigests, [approvedTheme.file]: approvedTheme.digest };
         if (Object.keys(next).length <= MAX_THEME_DIGESTS) this.themeDigests = next;
       }
     });
   }
 
-  /** Resolves once the new settings are on disk; a failed write leaves them unchanged. */
-  async update(patch: SettingsPatch, themeDigest?: string): Promise<Settings> {
+  /** Only registered-host updates may be cancelled when their observation is superseded. */
+  update(patch: SettingsPatch, themeDigest?: string): Promise<Settings>;
+  update(patch: RegisteredHostsPatch, canCommit: (() => boolean) | undefined): Promise<Settings>;
+  async update(
+    patch: SettingsPatch,
+    themeDigestOrGuard?: string | (() => boolean),
+  ): Promise<Settings> {
+    const canCommit = typeof themeDigestOrGuard === "function" ? themeDigestOrGuard : undefined;
+    const themeDigest = typeof themeDigestOrGuard === "string" ? themeDigestOrGuard : undefined;
+    let snapshot = patch;
+    if (canCommit) {
+      const keys = Reflect.ownKeys(patch);
+      const descriptor = Object.getOwnPropertyDescriptor(patch, "registeredHosts");
+      const value: unknown =
+        descriptor && Object.hasOwn(descriptor, "value") ? descriptor.value : undefined;
+      if (keys.length !== 1 || keys[0] !== "registeredHosts" || !Array.isArray(value))
+        throw new Error("A commit guard requires a registeredHosts-only patch");
+      snapshot = { registeredHosts: value };
+    }
     const config: ConfigSettings = {};
     const profile: SettingsPatch = {};
-    for (const [key, value] of Object.entries(patch))
+    for (const [key, value] of Object.entries(structuredClone(snapshot)))
       Object.assign(this.writer && isConfigSetting(key) ? config : profile, { [key]: value });
     if (this.writer && Object.keys(config).length)
       await this.writer(config, ...(themeDigest ? [themeDigest] : []));
@@ -449,11 +486,11 @@ export class SettingsStore {
         this.argumentsToMove = Object.values(agentArguments).some((args) => args.length)
           ? agentArguments
           : undefined;
-    });
+    }, canCommit);
     return this.committedSettings;
   }
 
-  private async write(change: () => void): Promise<void> {
+  private async write(change: () => void, canCommit?: () => boolean): Promise<void> {
     const write = this.pending
       .catch(() => undefined)
       .then(async () => {
@@ -493,7 +530,13 @@ export class SettingsStore {
               ),
               { flag: "wx", mode: 0o600 },
             );
-            await rename(temporary, this.file);
+            if (canCommit) {
+              if (!canCommit()) throw SUPERSEDED_PROFILE_WRITE;
+              // Keep the revision check and replacement in the same JS turn.
+              renameSync(temporary, this.file);
+            } else {
+              await rename(temporary, this.file);
+            }
           } finally {
             await rm(temporary, { force: true });
           }
@@ -509,9 +552,10 @@ export class SettingsStore {
           this.writer = snapshot.writer;
           this.legacy = snapshot.legacy;
           this.argumentsToMove = snapshot.argumentsToMove;
-          throw error;
+          if (error !== SUPERSEDED_PROFILE_WRITE) throw error;
+          return;
         }
-        this.committedSettings = this.settings;
+        this.committedSettings = freezeSettings(this.settings);
         settingsChanged(snapshot.settings, this.settings);
       });
     this.pending = write;

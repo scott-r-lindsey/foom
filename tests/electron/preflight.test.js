@@ -414,13 +414,13 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     timeout: deadline(20000),
   });
   const missingClaude = page.locator("#agent-card-claude");
-  await missingClaude.getByRole("switch").check();
-  await expect(missingClaude.getByRole("switch")).toBeChecked();
+  await missingClaude.getByRole("switch").click();
   await expect
     .poll(() =>
       page.evaluate(async () => (await window.desktop.setupState()).settings.agents.claude),
     )
     .toBe(true);
+  await expect(missingClaude.getByRole("switch")).toBeChecked();
   if (process.platform !== "win32")
     await expect(missingClaude.getByRole("button", { name: "Install", exact: true })).toBeVisible();
   await assertFooter();
@@ -477,16 +477,21 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     await writeFile(path.join(bin, name), source);
     await chmod(path.join(bin, name), 0o755);
   }
-  await page.getByRole("button", { name: "Re-check This computer" }).click();
+  const recheck = page.getByRole("button", { name: "Re-check This computer" });
+  await recheck.click();
+  await expect(recheck).toBeEnabled();
   for (const id of Object.keys(agents)) {
-    await page.locator(`#agent-card-${id}`).getByRole("switch").check();
+    const toggle = page.locator(`#agent-card-${id}`).getByRole("switch");
+    // Controlled state may be repainted while the save and view push cross IPC.
+    if (!(await toggle.isChecked())) await toggle.click();
     await expect
       .poll(() =>
         page.evaluate(async (id) => (await window.desktop.setupState()).settings.agents[id], id),
       )
       .toBe(true);
+    await expect(toggle).toBeChecked();
   }
-  await page.getByRole("button", { name: "Re-check This computer" }).click();
+  await recheck.click();
   for (const [id, version] of Object.entries({
     claude: "2.1.300",
     codex: "0.155.1",

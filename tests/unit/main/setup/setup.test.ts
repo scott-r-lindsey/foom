@@ -523,6 +523,9 @@ test("host authorizations cannot be written through general settings", async () 
     setup.save({ registeredHosts: [{ host: "worker", codeFolder: "/code" }] }),
   ).rejects.toThrow();
   await expect(setup.hosts({ action: "list" })).rejects.toThrow("Hosts unavailable");
+  expect(() =>
+    setup.repositoryRequirements({ action: "read", repository: "/fixture/repo" }),
+  ).toThrow("Host requirements unavailable");
 });
 
 test("host copies require both registered host service and main clipboard capability", async () => {
@@ -566,6 +569,12 @@ test("completed host checks refresh inventory while saved list/progress reads an
   expect(changed).toHaveBeenCalledOnce();
   action.mockRejectedValueOnce(new Error("refused"));
   await expect(setup.hosts({ action: "refresh", host: "worker" })).rejects.toThrow("refused");
+  expect(changed).toHaveBeenCalledOnce();
+  const unsaved = { ...state, preflightSaveFailed: true as const };
+  action.mockResolvedValueOnce(unsaved);
+  await expect(
+    setup.hosts({ action: "preflight", host: "worker", codeFolder: "/code" }),
+  ).resolves.toBe(unsaved);
   expect(changed).toHaveBeenCalledOnce();
   hosts.dispose();
 });

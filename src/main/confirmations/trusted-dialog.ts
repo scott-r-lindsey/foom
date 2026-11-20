@@ -44,6 +44,7 @@ export class TrustedDialog {
         request: DialogRequest;
         resolve: (answer: boolean, outcome: DialogOutcome) => void;
         activate: boolean;
+        localOnly: boolean;
       }
     | undefined;
   private approvalFeed: DialogContent["approvalFeed"];
@@ -70,6 +71,7 @@ export class TrustedDialog {
   private settling: NodeJS.Timeout | undefined;
   private settled = false;
   private bounds: Rectangle | undefined;
+  private localFocusReturn = false;
   constructor(
     private readonly parent: BrowserWindow,
     private readonly session: Session,
@@ -456,7 +458,7 @@ export class TrustedDialog {
       const window = this.window;
       if (!window || this.isCancelled(signal)) return false;
       const id = randomUUID();
-      const { feed, removalFeed, pluginFeed, approvalFeed, ...renderContent } = content;
+      const { feed, removalFeed, pluginFeed, approvalFeed, localOnly, ...renderContent } = content;
       delete renderContent.removal;
       delete renderContent.approval;
       delete renderContent.userAction;
@@ -489,6 +491,7 @@ export class TrustedDialog {
             resolve(answer);
           },
           activate,
+          localOnly: localOnly === true,
         };
       });
       this.unsubscribe = feed?.subscribe(() => {
@@ -807,6 +810,11 @@ export class TrustedDialog {
     this.present();
     this.watchReachability();
   };
+  consumeLocalFocusReturn(): boolean {
+    const local = this.localFocusReturn;
+    this.localFocusReturn = false;
+    return local;
+  }
   private finish(
     accepted: boolean,
     restoreFocus = false,
@@ -824,6 +832,8 @@ export class TrustedDialog {
       !this.parent.isMinimized() &&
       pending.request.presented &&
       this.isReachable();
+    // hide() can restore the board's focus before the explicit focus() call.
+    this.localFocusReturn = restore && pending.localOnly && !this.parent.isFocused();
     const queued = Boolean(this.approvalFeed);
     this.approvalFeed?.presented(false);
     this.approvalFeed = undefined;
