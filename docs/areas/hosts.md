@@ -1036,8 +1036,10 @@ Each registered SSH host card offers **Set up with an agent…** beside its
 status, including while collapsed. The action is secondary on a Ready host
 and primary otherwise. The latest key evidence from host checks or background
 inventory hides the action when the SSH host key is unknown or changed.
-The strict SSH probe records key evidence when it confirms authentication or
-classifies a key failure. Management replies on a shared checklist stream
+The strict SSH probe publishes the same connection outcome to the checklist
+and setup trust when it confirms authentication or classifies a key failure.
+A clean exit without the expected prelude keeps SSH connected and reports an
+invalid reply for the check. Management replies on a shared checklist stream
 retain that evidence without refreshing it. A running setup agent also hides
 the action.
 

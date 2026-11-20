@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import * as fsPromises from "node:fs/promises";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { createHash } from "node:crypto";
@@ -25,6 +26,9 @@ vi.mock("node:fs", async (original) => {
   const actual = await original<typeof fs>();
   return { ...actual, fstatSync: vi.fn(actual.fstatSync) };
 });
+vi.mock("node:fs/promises", async (original) => ({
+  ...(await original<typeof fsPromises>()),
+}));
 vi.mock("node:child_process", () => ({ execFile: mock.execFile, spawn: mock.spawn }));
 import {
   selectHostArtifact,
@@ -587,7 +591,11 @@ test.each(["FOOM-LIBC-OK", "FOOM-LIBC-TOO-OLD", "FOOM-LIBC-UNSUPPORTED", "unexpe
         await expect(selected).resolves.toMatchObject({ platform: "linux" });
       else await expect(selected).rejects.toThrow();
       expect(retain).toHaveBeenCalledWith(child);
-      expect(observeSsh).toHaveBeenCalledExactlyOnceWith({ state: "pass" });
+      expect(observeSsh.mock.calls).toEqual(
+        libc === "unexpected"
+          ? [[{ state: "pass" }], [{ state: "fail", reason: "unreachable" }]]
+          : [[{ state: "pass" }]],
+      );
       expect(output).toHaveBeenCalledWith("Linux\nx86_64\n");
       expect(JSON.stringify(output.mock.calls)).not.toContain("FOOM-PROBED");
       expect(mock.spawn).toHaveBeenCalledTimes(1);
@@ -613,6 +621,8 @@ test.each(["Darwin\narm64\n", "Linux\nx86_64\nFOOM-LIBC-OK\nextra\nFOOM-PROBED\n
       return child;
     });
     const retain = vi.fn();
+    const observe = vi.fn();
+    const observeSsh = vi.fn();
     await expect(
       selectHostArtifact(
         { host: "fixture" },
@@ -620,15 +630,104 @@ test.each(["Darwin\narm64\n", "Linux\nx86_64\nFOOM-LIBC-OK\nextra\nFOOM-PROBED\n
         f.root,
         f.metadata,
         undefined,
-        vi.fn(),
+        observe,
         undefined,
         retain,
+        observeSsh,
       ),
     ).rejects.toThrow("Invalid check prelude");
+    expect(observe).toHaveBeenCalledExactlyOnceWith("ssh", { state: "pass" });
+    expect(observeSsh).toHaveBeenCalledExactlyOnceWith({ state: "pass" });
     expect(retain).not.toHaveBeenCalled();
     expect(mock.spawn).toHaveBeenCalledTimes(1);
   },
 );
+
+test("a clean SSH exit reports trust before diagnostic I/O can lag behind a newer key failure", async () => {
+  const f = await fixture();
+  const cleanup = Promise.withResolvers<undefined>();
+  const connected = Promise.withResolvers<undefined>();
+  const outcomes = vi.fn();
+  const observe = vi.fn();
+  const open = fsPromises.open;
+  let olderDiagnostic: string | undefined;
+  vi.spyOn(fsPromises, "open").mockImplementation(async (path, flags, mode) => {
+    const handle = await open(path, flags, mode);
+    if (typeof path === "string" && path.endsWith("ssh.log")) {
+      if (olderDiagnostic === undefined) {
+        olderDiagnostic = path;
+        const close = handle.close.bind(handle);
+        vi.spyOn(handle, "close").mockImplementationOnce(async () => {
+          await cleanup.promise;
+          await close();
+        });
+      } else if (path === olderDiagnostic) {
+        await cleanup.promise;
+      }
+    }
+    return handle;
+  });
+  mock.spawn
+    .mockImplementationOnce(() => {
+      const child = probeChild();
+      queueMicrotask(() => {
+        child.stdout.write("Linux\nx86_64\n");
+        child.emit("exit", 0);
+        child.emit("close", 0);
+        connected.resolve(undefined);
+      });
+      return child;
+    })
+    .mockImplementationOnce((_file: string, args: string[]) => {
+      const child = probeChild();
+      void (async () => {
+        const diagnostic = args[args.indexOf("-E") + 1] ?? "";
+        await writeFile(
+          diagnostic,
+          "@ WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED! @\nHost key verification failed.\n",
+        );
+        child.emit("exit", 255);
+        child.emit("close", 255);
+      })();
+      return child;
+    });
+  const older = selectHostArtifact(
+    { host: "fixture" },
+    "0.1.0",
+    f.root,
+    f.metadata,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    outcomes,
+  );
+  try {
+    await connected.promise;
+    await expect(
+      selectHostArtifact(
+        { host: "fixture" },
+        "0.1.0",
+        f.root,
+        f.metadata,
+        undefined,
+        observe,
+        undefined,
+        vi.fn(),
+        outcomes,
+      ),
+    ).rejects.toMatchObject({ failure: "host-key-changed" });
+    const failure = { state: "fail", reason: "host-key-changed" };
+    expect(observe).toHaveBeenCalledExactlyOnceWith("ssh", failure);
+    expect(outcomes.mock.calls).toEqual([[{ state: "pass" }], [failure]]);
+    cleanup.resolve(undefined);
+    await older;
+    expect(outcomes.mock.calls).toEqual([[{ state: "pass" }], [failure]]);
+  } finally {
+    cleanup.resolve(undefined);
+    await older.catch(() => undefined);
+  }
+});
 
 test("retained SSH client diagnostics reach output before its exit is observed", async () => {
   const f = await fixture();
