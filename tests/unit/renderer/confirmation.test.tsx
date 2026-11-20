@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, within } from "@testing-library/react";
 import type { DialogRequest, ApprovalKind } from "../../../src/shared/confirmation";
 import { resolveInterfaceTheme } from "../../../src/shared/interface-themes";
 import { ConfirmationPage } from "../../../src/renderer/confirmation";
@@ -262,7 +262,7 @@ test("cleanup checking, ready and run controls follow main state; Escape only hi
               id: "untracked",
               branch: "screenshots",
               state: "queued",
-              changes: "?? proof.png\0!! .env\0",
+              changes: "R  renamed.txt\0\0?? proof.png\0!! .env\0",
               omittedChanges: 7,
             },
           ],
@@ -270,9 +270,12 @@ test("cleanup checking, ready and run controls follow main state; Escape only hi
       },
     });
   });
-  expect(view.getByRole("list", { name: "Uncommitted changes" }).textContent).toContain(
-    "proof.png",
-  );
+  const changes = within(view.getByRole("list", { name: "Uncommitted changes" }));
+  expect(changes.getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+    "renamedrenamed.txt",
+    "untrackedproof.png",
+    "ignored.env",
+  ]);
   expect(view.getByText("ignored", { exact: true })).toBeTruthy();
   expect(view.getByText(".env", { exact: true })).toBeTruthy();
   expect(view.getByText("7 more paths", { exact: true })).toBeTruthy();
@@ -1069,6 +1072,13 @@ test("approval queue preserves focus and keyed rows, guards moved controls and r
       disconnect = vi.fn();
     },
   );
+  vi.stubGlobal(
+    "IntersectionObserver",
+    class {
+      observe = vi.fn();
+      disconnect = vi.fn();
+    },
+  );
   Object.defineProperty(window, "confirmation", {
     configurable: true,
     value: {
@@ -1086,16 +1096,24 @@ test("approval queue preserves focus and keyed rows, guards moved controls and r
   terminal.focus();
   const view = render(<ConfirmationPage />);
   const row = (id: string, kind: ApprovalKind = "Worktree removal", presented = true) => ({
+    // Exercise both an ordinary embedded card and the compact removal projection.
     origin: "Claude · Tile 1 · repo",
     kind,
-    repeats: 1,
+    repeats: id === "a" ? 2 : 1,
     request: {
       id,
       presented,
       theme: resolveInterfaceTheme("follow", false),
       title: `Remove ${id}?`,
       accept: "Remove",
-      detail: "Keep the branch",
+      ...(kind === "Worktree removal"
+        ? {
+            worktreePath: `/fixture/${id}`,
+            changes: id === "c" ? "D  notes.txt\0?? notes.txt\0" : "",
+            discardCount: id === "c" ? 1 : 0,
+            ...(id === "a" ? { facts: [{ label: "PR", value: "#123 · OPEN" }] } : {}),
+          }
+        : {}),
     },
   });
   let request: DialogRequest = {
@@ -1121,12 +1139,18 @@ test("approval queue preserves focus and keyed rows, guards moved controls and r
       header.style.getPropertyValue("--ink"),
     ),
   ).toEqual(["#112233", "#112233"]);
-  const a = view.getByRole("group", { name: "Remove a?" });
+  const a = view.getByRole("group", { name: "/fixture/a" });
+  expect(view.getAllByText("/fixture/a", { exact: true })).toHaveLength(1);
+  expect(view.getByText(/Clean · keeps branch/u)).toBeTruthy();
+  expect(view.getByText(/Repeated 2 times/u)).toBeTruthy();
+  expect(view.getByText(/#123 · OPEN/u)).toBeTruthy();
   await act(async () => {
     await vi.advanceTimersByTimeAsync(900);
   });
-  expect(view.getByRole("button", { name: "Approve all visible removals (1)" })).toBeTruthy();
-  fireEvent.click(view.getByRole("button", { name: "Approve all visible removals (1)" }));
+  expect(view.getByRole("button", { name: "Approve all clean removals (1)" })).toBeTruthy();
+  fireEvent.click(view.getByRole("button", { name: "Approve all clean removals (1)" }));
+  fireEvent.click(within(a).getByRole("button", { name: "Approve · Remove" }));
+  fireEvent.click(within(a).getByRole("button", { name: "Decline" }));
   expect(answer).not.toHaveBeenCalled();
   request = { ...request, geometryRevision: 1, theme: resolveInterfaceTheme("follow", false) };
   act(() => {
@@ -1142,14 +1166,14 @@ test("approval queue preserves focus and keyed rows, guards moved controls and r
   ).toEqual(["", ""]);
   expect(a.querySelector(".confirmation-accept")).toHaveProperty("disabled", true);
   expect(
-    view.getByRole("button", { name: /Approve all visible/ }).getAttribute("aria-disabled"),
+    view.getByRole("button", { name: /Approve all clean/ }).getAttribute("aria-disabled"),
   ).toBe("true");
   await act(async () => {
     await vi.advanceTimersByTimeAsync(900);
   });
   expect(a.querySelector(".confirmation-accept")).toHaveProperty("disabled", false);
   expect(
-    view.getByRole("button", { name: /Approve all visible/ }).getAttribute("aria-disabled"),
+    view.getByRole("button", { name: /Approve all clean/ }).getAttribute("aria-disabled"),
   ).toBe("false");
   await act(async () => {
     receive({
@@ -1158,21 +1182,60 @@ test("approval queue preserves focus and keyed rows, guards moved controls and r
     });
     await document.fonts.ready;
   });
-  expect(view.getByRole("group", { name: "Remove a?" })).toBe(a);
-  const c = view.getByRole("group", { name: "Remove c?" });
-  expect(c.querySelector(".confirmation-accept")).toHaveProperty("disabled", true);
+  expect(view.getByRole("group", { name: "/fixture/a" })).toBe(a);
+  const c = view.getByRole("group", { name: "/fixture/c" });
+  const files = within(c).getByRole("list", { name: "Uncommitted changes" });
+  expect(within(files).getAllByText("notes.txt")).toHaveLength(2);
+  expect(within(files).getByText("deleted")).toBeTruthy();
+  expect(within(files).getByText("untracked")).toBeTruthy();
+  const discard = within(c).getByRole("button", { name: "Discard 1 file and remove" });
+  expect(discard.textContent).toBe("Discard 1 file and remove");
+  expect(discard).toHaveProperty("disabled", true);
+  const summary = within(c).getByText("Discards 1 file").parentElement;
+  if (!summary) throw new Error("Missing discard summary");
+  const viewport = view.getByRole("region", { name: "Pending approvals" });
+  vi.spyOn(viewport, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 500, 500));
+  const buttonBounds = vi
+    .spyOn(discard, "getBoundingClientRect")
+    .mockReturnValue(new DOMRect(20, 470, 100, 25));
+  const summaryBounds = vi
+    .spyOn(summary, "getBoundingClientRect")
+    .mockReturnValue(new DOMRect(20, -1, 400, 20));
+  await act(async () => {
+    receive({ ...request, approvals: [row("a"), row("b", "Authority"), row("c")] });
+    await vi.advanceTimersByTimeAsync(900);
+  });
+  fireEvent.scroll(viewport);
+  expect(discard).toHaveProperty("disabled", true);
+  summaryBounds.mockReturnValue(new DOMRect(20, 440, 400, 20));
+  buttonBounds.mockReturnValue(new DOMRect(20, 490, 100, 25));
+  fireEvent.scroll(viewport);
+  expect(discard).toHaveProperty("disabled", true);
+  buttonBounds.mockReturnValue(new DOMRect(20, 470, 100, 25));
+  fireEvent.scroll(viewport);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(900);
+  });
+  expect(discard).toHaveProperty("disabled", false);
+  fireEvent.click(discard);
+  expect(answer).not.toHaveBeenCalled();
+  summaryBounds.mockReturnValue(new DOMRect(20, -1, 400, 20));
+  fireEvent.click(discard);
+  expect(answer).not.toHaveBeenCalled();
+  fireEvent.scroll(viewport);
+  expect(discard).toHaveProperty("disabled", true);
   fireEvent.keyDown(view.getByRole("dialog"), { key: "Escape" });
   expect(hide).toHaveBeenCalledOnce();
   fireEvent.click(view.getByRole("button", { name: "Hide" }));
   expect(hide).toHaveBeenCalledTimes(2);
   expect(size).toHaveBeenCalledWith({ width: 750, height: 0 });
-  const removed = view.getByRole("group", { name: "Remove a?" });
+  const removed = view.getByRole("group", { name: "/fixture/a" });
   removed.querySelector("button")?.focus();
   act(() => {
     receive({ ...request, approvals: [row("b", "Authority")] });
   });
-  expect(view.queryByRole("group", { name: "Remove a?" })).toBeNull();
-  expect(view.getAllByRole("status").map((element) => element.textContent)).toEqual([
+  expect(view.queryByRole("group", { name: "/fixture/a" })).toBeNull();
+  expect(view.getAllByText("Request ended").map((element) => element.textContent)).toEqual([
     "Request ended",
     "Request ended",
   ]);
@@ -1186,19 +1249,19 @@ test("approval queue preserves focus and keyed rows, guards moved controls and r
   act(() => {
     receive({ ...request, approvals: [row("b", "Authority"), row("d")] });
   });
-  expect(view.getAllByRole("status")).toHaveLength(2);
-  fireEvent.pointerDown(view.getByRole("button", { name: /Approve all visible/ }));
-  fireEvent.keyDown(view.getByRole("button", { name: /Approve all visible/ }), { key: "Enter" });
-  fireEvent.keyDown(view.getByRole("button", { name: /Approve all visible/ }), {
+  expect(view.getAllByText("Request ended")).toHaveLength(2);
+  fireEvent.pointerDown(view.getByRole("button", { name: /Approve all clean/ }));
+  fireEvent.keyDown(view.getByRole("button", { name: /Approve all clean/ }), { key: "Enter" });
+  fireEvent.keyDown(view.getByRole("button", { name: /Approve all clean/ }), {
     key: " ",
     repeat: true,
   });
-  fireEvent.pointerCancel(view.getByRole("button", { name: /Approve all visible/ }));
-  fireEvent.blur(view.getByRole("button", { name: /Approve all visible/ }));
+  fireEvent.pointerCancel(view.getByRole("button", { name: /Approve all clean/ }));
+  fireEvent.blur(view.getByRole("button", { name: /Approve all clean/ }));
   await act(async () => {
     await vi.advanceTimersByTimeAsync(900);
   });
-  expect(view.queryByRole("status")).toBeNull();
+  expect(view.queryByText("Request ended")).toBeNull();
   fireEvent.resize(window);
   fireEvent.scroll(view.getByRole("region", { name: "Pending approvals" }));
   fireEvent.focus(window);

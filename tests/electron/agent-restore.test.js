@@ -372,9 +372,7 @@ req.end(JSON.stringify(payload));
       "pending_confirmation",
     );
     const removal = await approvalPage(restored);
-    await expect(
-      removal.getByRole("heading", { name: "Remove worktree?", exact: true }),
-    ).toBeVisible();
+    await expect(removal.getByRole("heading", { name: /exited-child$/ })).toBeVisible();
     await clickApproval(
       removal,
       removal.getByRole("button", { name: "Approve · Remove worktree", exact: true }),

@@ -348,11 +348,12 @@ Agent/background worktree removals and orchestrator grants appear in one app-wid
 trusted approval queue, with attributed independent rows and an amber labelled
 waiting count in every board. New requests append without focusing the dialog or
 interrupting terminal input. Duplicate requests merge; revocation, withdrawal,
-expiry and external completion remove their own pending rows. Only fully visible
-ready worktree removals can share one bulk decision; authority, plugin trust, host
-trust and credential grants remain individual. Hide/minimize keeps rows pending.
-Main still rechecks the live actor/generation, checkout identity and exact disclosed
-changes after consent and before mutation. Nothing approves, types terminal input
+expiry and external completion remove their own pending rows. All ready clean
+worktree removals can share one bulk decision, including off-screen rows (#1293).
+Removals with tracked changes or untracked files, authority, plugin trust, host
+trust and credential grants require individual approval. Hide/minimize keeps
+rows pending. Main rechecks the live actor/generation, checkout identity and
+exact disclosed status after consent and immediately before removal. Nothing approves, types terminal input
 or grants authority merely by opening, showing or recovering the window.
 
 ## Idle parent wake (#548)

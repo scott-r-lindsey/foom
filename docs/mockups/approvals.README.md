@@ -51,13 +51,14 @@ resolving the last row hides the window. If removal deletes a focused control,
 focus moves to Hide, or to the terminal when no requests remain. A background
 removal does not move focus away from a surviving target.
 
-**Approve all visible removals (N)** captures the IDs of fully visible, ready
-worktree-removal rows when pressed. Partly clipped, off-screen, newly disabled
-and later-arriving rows are excluded. Authority, plugin trust, host trust and
-credential rows are always individual, even when visible. Requests are never
-reordered into kind groups: the kind-specific bulk strip keeps arrival order
-stable. This mockup resolves the captured IDs immediately; production must pin
-the same snapshot through asynchronous processing and revalidate every target.
+The historical HTML still demonstrates **Approve all visible removals (N)**.
+The [production rule](../behavior/confirmations.md) changed in #1293.
+**Approve all clean removals (N)** captures all ready clean removals
+regardless of scroll position. Removals with tracked changes or untracked files
+require individual approval, as do authority, plugin trust, host trust and
+credential rows. Production captures the IDs at the start of the gesture and
+revalidates each checkout before removal. The mockup preserves arrival order
+and illustrates the original visibility rule.
 
 ## Review walkthrough
 
@@ -69,9 +70,9 @@ the same snapshot through asynchronous processing and revalidate every target.
 3. Press **Repeat first request**. The count stays the same and the first row
    gains a repeat label. **Withdraw first request** removes it. **Expire host
    trust** demonstrates a request expiring without an answer.
-4. Reset, then press **Approve all visible removals**. Only fully visible ready
-   removals disappear. Add another removal: it remains pending. Scroll until a
-   removal is partly clipped: it is excluded from the bulk count.
+4. To see the historical behavior, reset and press **Approve all visible removals**.
+   Only fully visible ready removals disappear. Add another removal to see it
+   remain pending. Scroll until a removal is partly clipped to see the count drop.
 5. Hide the queue and reopen it using the amber waiting indicator. Reset, press
    **Arrival while typing (2s)** and keep typing into the mock terminal. The
    request arrives while the queue stays hidden; input and focus stay in the

@@ -300,7 +300,7 @@ export function runApplication() {
         kind: "Worktree removal",
         origin: terminal
           ? `${builtinAgent(terminal.agent)?.name ?? terminal.agent} · Tile/session ${terminal.id} · ${terminal.repository}`
-          : `Foom · background cleanup · no tile · ${content.removal.item.path}`,
+          : "Background cleanup",
       };
     }
     if (!origin)

@@ -1,5 +1,6 @@
 import { LaunchFailure } from "../../shared/launch-failure";
 import { RemovalError } from "./worktree-outcome";
+import { removalStatus } from "./worktree-operations";
 import type { CheckoutHold, CheckoutHolds } from "./worktree-reservations";
 import { basename } from "node:path";
 import { conversationId } from "../agents/conversation";
@@ -42,7 +43,12 @@ export interface CleanupOwnerDependencies {
     repository: string,
     worktree: string,
     branch: string | null,
-    confirm: (branch: string, changes: string, automatic?: boolean) => Promise<boolean>,
+    confirm: (
+      branch: string,
+      changes: string,
+      automatic?: boolean,
+      fileCount?: number,
+    ) => Promise<boolean>,
     revalidate?: () => void | Promise<void>,
     retainBranchLock?: (release: () => void) => void,
     autoApprove?: () => Promise<boolean>,
@@ -155,7 +161,7 @@ export class CleanupOwner {
           repository,
           tree.path,
           tree.branch,
-          async (branch, changes) => {
+          async (branch, changes, _automatic, fileCount) => {
             await validate();
             offered = true;
             return dialog(
@@ -164,7 +170,14 @@ export class CleanupOwner {
                 accept: changes ? "Discard changes and remove" : "Remove worktree",
                 removal: {
                   group: "retained-review-checkouts",
-                  item: { id: key, branch, path: tree.path, changes, pullRequest: pr },
+                  item: {
+                    id: key,
+                    branch,
+                    path: tree.path,
+                    changes,
+                    pullRequest: pr,
+                    ...(fileCount !== undefined ? { fileCount } : {}),
+                  },
                 },
               },
               this.reviewOfferAbort.signal,
@@ -211,7 +224,12 @@ export class CleanupOwner {
     repository: string,
     worktree: string,
     identity: string,
-    confirm: (branch: string, changes: string, automatic?: boolean) => Promise<boolean>,
+    confirm: (
+      branch: string,
+      changes: string,
+      automatic?: boolean,
+      fileCount?: number,
+    ) => Promise<boolean>,
     revalidate: () => void,
     closingId?: string,
     onReview?: (pending: boolean) => Promise<void>,
@@ -243,13 +261,13 @@ export class CleanupOwner {
       repository,
       worktree,
       identity,
-      async (branch, changes, automatic) => {
+      async (branch, changes, automatic, fileCount) => {
         if (!automatic) {
           entry.reviewing = true;
           entry.running = false;
           await Promise.all([...listeners].map((listener) => listener(true)));
         }
-        const accepted = await confirm(branch, changes, automatic);
+        const accepted = await confirm(branch, changes, automatic, fileCount);
         if (accepted) {
           entry.reviewing = false;
           entry.running = true;
@@ -275,7 +293,12 @@ export class CleanupOwner {
     repository: string,
     worktree: string,
     identity: string,
-    confirm: (branch: string, changes: string, automatic?: boolean) => Promise<boolean>,
+    confirm: (
+      branch: string,
+      changes: string,
+      automatic?: boolean,
+      fileCount?: number,
+    ) => Promise<boolean>,
     revalidate: () => void,
     closingId?: string,
     hold?: CheckoutHold,
@@ -297,10 +320,10 @@ export class CleanupOwner {
         repository,
         worktree,
         tree.branch,
-        async (branch, changes, automatic = false) => {
+        async (branch, changes, automatic = false, fileCount) => {
           await available();
           if (!automatic) outcome.reviewed = true;
-          const accepted = await confirm(branch, changes, automatic);
+          const accepted = await confirm(branch, changes, automatic, fileCount);
           if (accepted) await available();
           return accepted;
         },
@@ -419,7 +442,12 @@ export class CleanupOwner {
     repository: string,
     worktree: string,
     branch: string | null,
-    confirm: (branch: string, changes: string, automatic?: boolean) => Promise<boolean>,
+    confirm: (
+      branch: string,
+      changes: string,
+      automatic?: boolean,
+      fileCount?: number,
+    ) => Promise<boolean>,
     revalidate?: () => void | Promise<void>,
     autoApprove?: () => Promise<boolean>,
     readSnapshot?: () => Promise<string>,
@@ -428,13 +456,16 @@ export class CleanupOwner {
     const review = this.deps.worktrees.reviewIdentity(repository, worktree) !== undefined;
     const identity = await this.deps.worktrees.removalIdentity(entry.repository, entry.worktree);
     const readChanges =
-      readSnapshot ?? (() => this.deps.worktrees.changes(repository, worktree, identity));
+      readSnapshot ?? (() => this.deps.worktrees.changes(repository, worktree, identity, "latin1"));
     let changes = await readChanges();
     let automatic = changes === "" && (await autoApprove?.()) === true;
-    const accepted = automatic
-      ? await confirm(entry.branch ?? entry.worktree, changes, true)
-      : await confirm(entry.branch ?? entry.worktree, changes);
-    if (!accepted) return false;
+    const present = (automatic = false) => {
+      const name = entry.branch ?? entry.worktree;
+      if (readSnapshot) return confirm(name, changes);
+      const status = removalStatus(changes);
+      return confirm(name, status.changes, automatic, status.fileCount);
+    };
+    if (!(await present(automatic))) return false;
     await revalidate?.();
     if (!automatic && (await readChanges()) !== changes) throw new RemovalError("changes_changed");
     const entries = this.deps.terminals().filter((item) => item.worktree === entry.worktree);
@@ -464,7 +495,7 @@ export class CleanupOwner {
     if (automatic && !(await autoApprove?.())) {
       automatic = false;
       changes = await readChanges();
-      if (!(await confirm(entry.branch ?? entry.worktree, changes))) return false;
+      if (!(await present())) return false;
       await revalidate?.();
       if ((await readChanges()) !== changes) throw new RemovalError("changes_changed");
     }
@@ -485,8 +516,7 @@ export class CleanupOwner {
           if (automatic && review && !(await autoApprove?.())) {
             automatic = false;
             changes = await readChanges();
-            if (!(await confirm(entry.branch ?? entry.worktree, changes)))
-              throw new RemovalError("changes_changed");
+            if (!(await present())) throw new RemovalError("changes_changed");
             await revalidate?.();
           }
           if ((await readChanges()) !== changes) throw new RemovalError("changes_changed");

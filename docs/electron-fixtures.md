@@ -197,7 +197,7 @@ agent setup and moved-pixel inspection stay in their owning suites.
 
 `approvalPage` explicitly opens the background queue through its waiting indicator.
 `clickApproval` (in `approval-actions.js`, re-exported by the harness) waits for
-withdrawal placeholders to settle, reveals the specific decision, waits for scroll/layout delivery and
+withdrawal placeholders to settle, reveals the decision and any required consequence summary, waits for scroll/layout delivery and
 its enabled state, then uses native Playwright input. A click's implicit scroll can
 move a guarded control immediately before dispatch; tests must reveal it first,
 just as a person scrolls to read it. After the one click, the helper waits for the
@@ -208,7 +208,7 @@ The click's implicit scroll then correctly triggers the movement guard. The help
 changes deadlines, or submits answers through the bridge. Immediate human actions,
 including launch-bypass consent, continue to use `confirmationPage`. The queue
 fixture scales its parent to fit the full 720 CSS-pixel cap on short desktops,
-preserving the assertion that two rows are fully visible. Native screen-point
+so tests can compare compact row heights and exercise a scrollable queue. Native screen-point
 checks convert CSS coordinates using the actual zoom factor. Tooling rejects direct
 clicks on queue-prefixed decisions outside the dedicated security suite, whose raw
 mouse/keyboard/synthetic input intentionally exercises the guard. Ordinary CLI,

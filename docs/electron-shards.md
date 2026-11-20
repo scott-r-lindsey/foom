@@ -927,3 +927,95 @@ its own checkout, dependency and Electron preparation, build and reporting.
 At the measured maximum residuals, the six jobs add about 9.5 runner-minutes
 inside the Electron steps alone, plus job setup and upload. This refresh keeps
 the current matrix and validation budgets.
+
+## Windows 3/5 headroom after the approval queue changes (#1293)
+
+The refresh uses 48 complete passing Electron JUnit reports from
+[main run 44665936702](https://github.com/scott-r-lindsey/foom/actions/runs/44665936702),
+[the passing #1290 run 44666177737](https://github.com/scott-r-lindsey/foom/actions/runs/44666177737)
+and [the passing #1294 run 44691673046](https://github.com/scott-r-lindsey/foom/actions/runs/44691673046).
+They contain 443, 444 and 444 named cases per platform respectively. The #1290
+reports include the new Hosts case with measured timings on Linux and macOS
+and its existing Windows skip. The generator covers all 444 cases on the
+merged tree. Interrupted and failed reports are excluded.
+
+Download the `electron-results-*` artifacts to
+`test-results/rebalance/1293/<run-id>/<artifact-name>/electron.xml`. For
+duplicate artifact names on reruns, use the latest passing copy. The selected
+artifact IDs on run 44665936702 were `14601037935` (Windows 5/5) and
+`14601237294` (macOS 3/7). On run 44666177737 the selected copy was
+`14601264162` (macOS 1/7).
+
+Run the existing JUnit generator, then apply the Windows-only adjustment below.
+It starts with the generated Windows 5/5 assignment on shard 3 and adjusts
+individual cases using the same measured durations. The adjustment targets a
+maximum replay of 688 seconds for shard 3 and a maximum conservative estimate
+of 830 seconds for any Windows shard. It budgets seven extra seconds for the
+approval queue case, based on the local measurement of its consolidated
+scenario. That allowance is used for projection only. The plan stores the
+measured JUnit durations.
+
+```sh
+node scripts/rebalance-electron-shards.mjs test-results/rebalance/1293/{44665936702,44666177737,44691673046} --write
+node --input-type=module <<'JS'
+import { readFileSync } from "node:fs";
+import { writePlan } from "./scripts/rebalance-electron-shards.mjs";
+const path = "tests/electron/shard-plan.json";
+const plan = JSON.parse(readFileSync(path, "utf8"));
+const shards = plan.shards[5];
+[shards[2], shards[4]] = [shards[4], shards[2]];
+for (const [name, from, to] of [
+  ["bundled notices and licenses scroll and dismiss from About and menu commands", 1, 3],
+  ["Hosts preload rejects an unversioned live SSH pass", 2, 3],
+  ["Agents Global list and machine picker scale to twelve agents and twelve saved hosts", 3, 2],
+  ["a user-authored code extension reports external hooks through the CLI and resumes on close", 3, 5],
+  ["native queue recentering re-arms decisions before a stationary screen-point click", 3, 1],
+  ["raster image previews validate content, fit, show actual size and preserve pixels in both themes", 3, 2],
+  ["recorded sounds refresh and preview user files while shell attention and completion stay silent", 3, 1],
+  ["user-started trusted confirmation stays pending during simulated app deactivation", 3, 5],
+  ["quit via shortcut confirms, cancel preserves PTYs, and confirm reaps shells", 5, 3],
+  ["the branch field creates a worktree by keyboard without launching; dirty removal confirms", 5, 3],
+]) {
+  const source = shards[from - 1];
+  const destination = shards[to - 1];
+  if (!Object.hasOwn(source, name) || Object.hasOwn(destination, name))
+    throw new Error(`Unexpected source assignment for ${name}`);
+  destination[name] = source[name];
+  delete source[name];
+}
+plan.shards[5] = shards.map(shard =>
+  Object.fromEntries(Object.entries(shard).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)),
+);
+writePlan(path, plan);
+JS
+pnpm exec biome format --write tests/electron/shard-plan.json
+node --require ./tests/helpers/setup.js --test scripts/electron-shard.test.mjs scripts/rebalance-electron-shards.test.mjs
+```
+
+All values below are seconds in shard order. Named-case sums use the largest
+measured duration per case and platform across the three runs. For the replay,
+add each run's largest observed difference between step wall time and its
+original JUnit sum to that run's reassigned cases, then take the slowest replay
+per shard. The conservative estimate combines the maximum case sums with the
+largest residual across all three runs (Linux 63.0, Windows 78.5, macOS 121.3).
+The after estimates include the Windows allowance.
+
+| Platform | Measure | Before | After |
+| --- | --- | --- | --- |
+| Linux / 4 | Named-case sums | 789.2 / 739.5 / 673.1 / 785.3 | 747.0 / 753.5 / 753.0 / 733.7 |
+| Windows / 5 | Named-case sums | 750.1 / 706.1 / 677.4 / 760.5 / 816.1 | 750.5 / 751.4 / 716.1 / 740.7 / 751.4 |
+| macOS / 7 | Named-case sums | 662.5 / 624.1 / 620.1 / 699.6 / 604.5 / 716.6 / 681.7 | 639.1 / 663.1 / 662.7 / 662.2 / 656.7 / 662.7 / 662.6 |
+| Linux / 4 | Slowest replay | 777.7 / 721.7 / 726.0 / 785.0 | 743.4 / 741.3 / 733.5 / 715.4 |
+| Windows / 5 | Slowest replay | 755.0 / 754.0 / 716.3 / 817.5 / 826.1 | 755.7 / 776.0 / 687.7 / 773.7 / 770.5 |
+| macOS / 7 | Slowest replay | 741.5 / 717.5 / 713.8 / 780.4 / 676.3 / 820.0 / 734.2 | 703.6 / 725.3 / 732.6 / 721.9 / 715.5 / 722.1 / 718.9 |
+
+The conservative estimates after the move are:
+
+- Linux 810.0 / 816.5 / 815.9 / 796.7.
+- Windows 829.0 / 829.9 / 794.6 / 826.2 / 829.9.
+- macOS 760.4 / 784.4 / 784.0 / 783.4 / 778.0 / 784.0 / 783.8.
+
+Windows 3/5 observed 699 seconds on main run 44665936702. Its slowest passing
+replay is now 687.7 seconds. The combined maximum estimate leaves at least
+10 seconds under the existing 840-second limit on every shard. These are
+projections from passing runs. A new CI run measures the reassigned shards.

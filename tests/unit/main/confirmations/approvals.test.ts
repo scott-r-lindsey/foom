@@ -10,12 +10,16 @@ function setup() {
     () => new Promise(() => {}),
   );
   const queue = new Approvals(present, theme, () => Date.now());
-  const content = (id: string): DialogContent => ({
-    title: "Remove?",
-    accept: "Remove",
-    approval: { kind: "Worktree removal", origin: "Claude · Tile 1 · repo" },
-    removal: { group: "generation", item: { id, branch: id, path: `/repo/${id}`, changes: "" } },
-  });
+  const content = (id: string, changes = "") =>
+    ({
+      title: "Remove?",
+      accept: "Remove",
+      approval: { kind: "Worktree removal", origin: "Claude · Tile 1 · repo" },
+      removal: {
+        group: "generation",
+        item: { id, branch: id, path: `/repo/${id}`, changes, fileCount: changes ? 1 : 0 },
+      },
+    }) satisfies DialogContent;
   return { queue, present, content };
 }
 test("one presentation contains ordered independent decisions, including different kinds", async () => {
@@ -84,6 +88,82 @@ test("bulk consumes only the captured removal IDs and refuses mixed, stale, dupl
   queue.feed.answer(row?.request.id ?? "", false);
   expect(await trust).toBe(false);
 });
+test.each([" M tracked.txt\0", "?? untracked.txt\0"])(
+  "bulk rejects a snapshot containing a non-clean removal: %s",
+  async (changes) => {
+    const { queue, content } = setup();
+    const clean = queue.request(content("clean"));
+    const dirty = queue.request(content("dirty", changes));
+    queue.feed.presented(true);
+    await vi.advanceTimersByTimeAsync(900);
+    const rows = queue.feed.current();
+    expect(rows.map((row) => row.request.changes)).toEqual(["", changes]);
+    expect(rows.map((row) => row.request.discardCount)).toEqual([0, 1]);
+    queue.feed.answer(
+      "queue",
+      rows.map((row) => row.request.id),
+    );
+    expect(queue.feed.current()).toEqual(rows);
+    const [cleanId, dirtyId] = rows.map((row) => row.request.id);
+    queue.feed.answer("queue", [cleanId ?? ""]);
+    queue.feed.answer(dirtyId ?? "", true);
+    await expect(clean).resolves.toBe(true);
+    await expect(dirty).resolves.toBe(true);
+  },
+);
+test("a dirty removal requires a main-owned count", async () => {
+  const { queue, content } = setup();
+  const dirty = content("dirty", " M file\0");
+  for (const fileCount of [0, -1, 0.5]) {
+    await expect(
+      queue.requestOutcome({
+        ...dirty,
+        removal: { ...dirty.removal, item: { ...dirty.removal.item, fileCount } },
+      }),
+    ).resolves.toBe("unavailable");
+  }
+  expect(queue.feed.current()).toEqual([]);
+});
+test("removal display preserves whole records and counts omissions without changing bulk eligibility", async () => {
+  const { queue, content } = setup();
+  const first = " M tracked.txt\0";
+  const largeRename = `R  ${"t".repeat(3000)}\0${"s".repeat(3000)}\0`;
+  const partial = content("partial", `${first}${largeRename}?? later.txt\0`);
+  const requests = [
+    queue.request({
+      ...partial,
+      removal: { ...partial.removal, item: { ...partial.removal.item, fileCount: 3 } },
+    }),
+    queue.request(content("empty-display", largeRename)),
+    queue.request(content("clean")),
+  ];
+  const rows = queue.feed.current();
+  expect(rows.map((row) => row.request.changes)).toEqual([first, "", ""]);
+  expect(rows.map((row) => row.request.omittedChanges)).toEqual([2, 1, 0]);
+  expect(rows.map((row) => row.request.discardCount)).toEqual([3, 1, 0]);
+  queue.feed.presented(true);
+  await vi.advanceTimersByTimeAsync(900);
+  const ids = rows.map((row) => row.request.id);
+  queue.feed.answer("queue", ids.slice(1));
+  expect(queue.feed.current()).toHaveLength(3);
+  queue.feed.answer("queue", ids.slice(2));
+  queue.feed.answer(ids[0] ?? "", false);
+  queue.feed.answer(ids[1] ?? "", false);
+  await expect(Promise.all(requests)).resolves.toEqual([false, false, true]);
+});
+test("removal display preserves empty rename sources and counts following records", async () => {
+  const { queue, content } = setup();
+  const visible = "R  renamed.txt\0\0?? next.txt\0";
+  const omitted = `C  ${"x".repeat(4096)}\0\0?? last.txt\0`;
+  const abort = new AbortController();
+  const request = queue.request(content("dirty", visible + omitted), abort.signal);
+  expect(queue.feed.current()[0]?.request).toMatchObject({
+    changes: visible,
+    omittedChanges: 2,
+  });
+  abort.abort();
+  await expect(request).resolves.toBe(false);
+});
 test("duplicates share one row, each withdrawal releases only its caller, expiry removes requests", async () => {
   const { queue, content } = setup();
   const cancel = new AbortController();
@@ -92,7 +172,7 @@ test("duplicates share one row, each withdrawal releases only its caller, expiry
     ...content("a"),
     removal: {
       group: "generation",
-      item: { id: "another-op", branch: "a", path: "/repo/a", changes: "" },
+      item: { id: "another-op", branch: "a", path: "/repo/a", changes: "", fileCount: 0 },
     },
   });
   expect(queue.feed.current()).toHaveLength(1);
@@ -242,11 +322,20 @@ test("bulk cannot consume plugin or credential content even with removal metadat
 test("withdrawal during a captured bulk decision never replays consent to a withdrawn row", async () => {
   const { queue, content } = setup();
   const abort = new AbortController();
-  const first = queue.request({ ...content("a"), detail: "Extra caller disclosure" });
+  const request = content("a");
+  const first = queue.request({
+    ...request,
+    detail: "Extra caller disclosure",
+    removal: {
+      ...request.removal,
+      item: { ...request.removal.item, pullRequest: { number: 42, state: "MERGED" } },
+    },
+  });
   const second = queue.request(content("b"), abort.signal);
-  expect(queue.feed.current()[0]?.request.detail).toContain(
-    "Keep its branch.\n\nExtra caller disclosure",
-  );
+  expect(queue.feed.current()[0]?.request).toMatchObject({
+    detail: "Extra caller disclosure",
+    facts: [{ label: "PR", value: "#42 · MERGED" }],
+  });
   queue.feed.presented(true);
   await vi.advanceTimersByTimeAsync(900);
   let armed = false;

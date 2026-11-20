@@ -533,6 +533,8 @@ test.skipIf(process.platform === "win32")(
       agents: [],
     } as const;
     let changes = "";
+    let readFixtureStatus = false;
+    let statusReads = 0;
     let inspectedHead = "a".repeat(40);
     let inspectedOrigin: string = base.origin;
     let refs = "";
@@ -545,7 +547,16 @@ test.skipIf(process.platform === "win32")(
       if (args.includes("ls-remote")) return Promise.resolve(advertised);
       if (args.includes("symbolic-ref")) return Promise.resolve("feature\n");
       if (args.includes("HEAD^{commit}")) return Promise.resolve(inspectedHead);
-      if (args.includes("status") && cwd !== repository) return Promise.resolve(changes);
+      if (args.includes("status") && cwd !== repository) {
+        if (readFixtureStatus) {
+          if (++statusReads === 2)
+            return writeFile(join(cwd, "tracked.txt"), "changed contents\n").then(() =>
+              gitSync(args, { cwd, encoding: "utf8" }),
+            );
+          return Promise.resolve(gitSync(args, { cwd, encoding: "utf8" }));
+        }
+        return Promise.resolve(changes);
+      }
       return Promise.resolve("");
     });
     const created = await manageHost(
@@ -692,6 +703,54 @@ test.skipIf(process.platform === "win32")(
     expect(
       mock.probe.mock.calls.some(([, args]) => Array.isArray(args) && args.includes("remove")),
     ).toBe(false);
+    // A stale FSMonitor reports no changes. It must not hide an edit between
+    // removal's initial check and the final status read.
+    await mkdir(tree.path, { recursive: true });
+    const git = (...args: string[]) => gitSync(args, { cwd: tree.path, encoding: "utf8" });
+    git("init", "-q");
+    await writeFile(join(tree.path, "tracked.txt"), "initial\n");
+    git("add", "tracked.txt");
+    git("commit", "-qm", "initial");
+    const hook = join(tree.path, ".git", "fixture-fsmonitor");
+    await writeFile(hook, '#!/bin/sh\nprintf "fixture-token\\000"\n', { mode: 0o700 });
+    git("config", "core.fsmonitor", hook);
+    git("config", "core.fsmonitorHookVersion", "2");
+    git("config", "core.untrackedCache", "true");
+    await writeFile(join(tree.path, "new-file"), "untracked\n");
+    git("update-index", "--fsmonitor");
+    expect(git("status", "--porcelain")).toBe(changes);
+    readFixtureStatus = true;
+    mock.probe.mockClear();
+    expect(await manageHost({ ...removal, changes }, 0, "/fixture", "0.1.0", home)).toEqual({
+      ok: false,
+      reason: "checkout-refused",
+    });
+    expect(statusReads).toBe(2);
+    expect(git("--no-optional-locks", "status", "--porcelain", "--untracked-files=all")).toBe(
+      changes,
+    );
+    expect(
+      mock.probe.mock.calls
+        .map(([, args]): unknown => args)
+        .filter((args) => Array.isArray(args) && args.includes("status")),
+    ).toEqual(
+      Array.from({ length: 2 }, () => [
+        "--no-optional-locks",
+        "-c",
+        "core.fsmonitor=false",
+        "-c",
+        "core.untrackedCache=false",
+        "-c",
+        "core.quotePath=true",
+        "status",
+        "--porcelain=v1",
+        "--untracked-files=all",
+      ]),
+    );
+    expect(
+      mock.probe.mock.calls.some(([, args]) => Array.isArray(args) && args.includes("remove")),
+    ).toBe(false);
+    readFixtureStatus = false;
     expect(await manageHost({ ...removal, changes }, 0, "/fixture", "0.1.0", home)).toMatchObject({
       ok: true,
     });
