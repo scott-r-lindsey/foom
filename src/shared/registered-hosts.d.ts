@@ -36,6 +36,7 @@ export type HostFailure =
   | "clone-failed"
   | "checkout-refused";
 export type HostAgentState = "ready" | "missing" | "unable";
+export type CodexApprovals = "may-prompt" | "disabled" | "unknown";
 export type HostSignIn = "signed-in" | "signed-out" | "unknown";
 export interface HostRequirements {
   distro: "debian" | "rhel" | "arch" | "darwin" | "unknown";
@@ -85,6 +86,8 @@ export interface HostFacts {
     id: string;
     state: HostAgentState;
     signIn?: HostSignIn;
+    /** Display-only remote account observation. */
+    codexApprovals?: CodexApprovals;
     details?: {
       path: string;
       version: string;
@@ -111,6 +114,7 @@ export type HostManagement = {
       partial?: true;
       target?: HostInspectionTarget;
       agentDetails?: true;
+      codexApprovalCheck?: true;
     }
   | { operation: "create-folder" }
   | { operation: "list-worktrees"; profile: string }

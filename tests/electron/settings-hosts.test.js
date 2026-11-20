@@ -29,6 +29,16 @@ const {
   assertAccessible,
 } = require("./harness.js");
 
+async function selectTheme(page, mode) {
+  await page.evaluate(
+    (mode) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${mode}` }),
+    mode,
+  );
+  await expect
+    .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
+    .toBe(mode === "dark");
+}
+
 async function captureHosts(
   app,
   page,
@@ -55,16 +65,10 @@ async function captureHosts(
   try {
     if (resizeForCapture) await resize({ ...original, height });
     for (const mode of ["light", "dark"]) {
-      await page.evaluate(
-        (mode) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${mode}` }),
-        mode,
-      );
-      await expect
-        .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
-        .toBe(mode === "dark");
+      await selectTheme(page, mode);
       await area.screenshot({
         path: evidencePath(
-          `${/^(?:1059|1061|1062|1067|1074|1131|1259|1260|1262)\//u.test(name) ? name : `1074/${name}`}-${mode}.png`,
+          `${/^(?:1059|1061|1062|1067|1074|1131|1259|1260|1262|1264)\//u.test(name) ? name : `1074/${name}`}-${mode}.png`,
         ),
       });
     }
@@ -289,7 +293,7 @@ process.stdin.on('data', bytes => {
   }
   assert.equal('id' in message,false); appendFileSync(${JSON.stringify(calls)},JSON.stringify({host,message})+'\\n');
   if(message.type==='hello' && current.transportFailure) { if(current.transportFailure==='protocol') process.stdout.write(Buffer.from([0,0,0,1,255])); else process.exit(1); continue; }
-  if(message.type==='hello') { const settings=JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8')); send({type:'hello',hostCheckConnection:settings.oldCheckConnection?undefined:1,agentSettings:1,...(settings.compatibleBuild?{build:'b'.repeat(64),compatible:2,startupTheme:1,hostFacts:1,hostPreflight:1,hostRowCheck:1}:{build:host==='version-cloud'?'b'.repeat(64):${JSON.stringify(manifest.sha256)}})}); continue; }
+  if(message.type==='hello') { const settings=JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8')); send({type:'hello',hostCheckConnection:settings.oldCheckConnection?undefined:1,agentSettings:1,codexApprovalCheck:1,...(settings.compatibleBuild?{build:'b'.repeat(64),compatible:2,startupTheme:1,hostFacts:1,hostPreflight:1,hostRowCheck:1}:{build:host==='version-cloud'?'b'.repeat(64):${JSON.stringify(manifest.sha256)}})}); continue; }
   if(message.type==='inventory') {send({type:'inventory-result',own:[],foreign:[]}); continue;}
   assert.equal(message.type,'manage');
   const scenario=require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8'); const settings=JSON.parse(scenario);
@@ -305,7 +309,7 @@ process.stdin.on('data', bytes => {
   }
   // Successful empty discovery must populate the same cache as a real daemon reply.
   if(result.ok && message.operation==='list-worktrees') result.inventory={own:[],other:0};
-  if(result.ok) { if(settings.facts) Object.assign(result.facts,settings.facts); if(message.operation==='origin' && settings.origin) result={ok:false,reason:settings.origin}; if(message.operation==='repository' && settings.checkout && result.ok) { result.checkout.state=settings.checkout; } }
+  if(result.ok) { if(settings.facts) Object.assign(result.facts,settings.facts); if(!message.codexApprovalCheck) result.facts.agents = result.facts.agents.map(({codexApprovals, ...agent})=>agent); if(message.operation==='origin' && settings.origin) result={ok:false,reason:settings.origin}; if(message.operation==='repository' && settings.checkout && result.ok) { result.checkout.state=settings.checkout; } }
   if(message.operation==='inspect' && message.target?.kind==='facts' && settings.factsFailure) result={ok:false,reason:settings.factsFailure};
   if(message.operation==='inspect' && !message.target && settings.inspectFailure) result={ok:false,reason:settings.inspectFailure};
   if(host==='invalid-cloud') result={ok:true,facts:{}};
@@ -1057,6 +1061,112 @@ test("Hosts creates missing folders and reports enrollment and artifact failures
   await capture("missing-build-support");
   await writeFile(artifactPath, compressed);
   await updateScenario({});
+});
+
+test("Recorded host requirements are inert, editable and clearable in Settings", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, navigation, updateScenario } = await hostsFixture(context);
+  await updateScenario({
+    facts: {
+      agents: [
+        { id: "claude", state: "ready" },
+        { id: "codex", state: "ready", signIn: "signed-in", codexApprovals: "may-prompt" },
+      ],
+    },
+  });
+  await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
+  const advisory = card.getByText("Codex may prompt for approval", { exact: true });
+  await expect(advisory).toBeVisible();
+  for (const mode of ["light", "dark"]) {
+    await selectTheme(page, mode);
+    const attentionColor = await advisory.evaluate((element) => {
+      const sample = document.createElement("span");
+      sample.style.color = "var(--attention-ink)";
+      element.append(sample);
+      try {
+        return getComputedStyle(sample).color;
+      } finally {
+        sample.remove();
+      }
+    });
+    await expect(advisory).toHaveCSS("color", attentionColor);
+  }
+
+  // Bind the same main-owned recorder that the setup run uses. This fixture
+  // represents the authenticated endpoint without launching a real agent.
+  const repository = await page.evaluate(
+    async () => (await window.desktop.workspace()).repositories[0].path,
+  );
+  const markdown = [
+    "## System packages (Debian/Ubuntu)",
+    "build-essential python3 xvfb libgtk-3-0 libnss3 libgbm1",
+    "",
+    "## Toolchain",
+    "- Node 24 with Corepack",
+    "- Run Electron tests under Xvfb",
+  ].join("\n");
+  await app.evaluate(
+    async ({ app }, { repository, markdown }) => {
+      const load = process
+        .getBuiltinModule("node:module")
+        .createRequire(app.getAppPath() + "/package.json");
+      const { RepositoryRequirementsStore } = load("./build/main/setup/repository-requirements.js");
+      const profile = app.getPath("userData");
+      const saved = JSON.parse(
+        await process
+          .getBuiltinModule("node:fs/promises")
+          .readFile(profile + "/worktrees.json", "utf8"),
+      );
+      const id = saved.registrations.find((entry) => entry.path === repository).id;
+      const store = new RepositoryRequirementsStore(profile, (path) => {
+        if (path !== repository) throw new Error("Unknown fixture repository");
+        return id;
+      });
+      const run = await store.forRun({
+        id: "fixture-run",
+        repositories: [repository],
+        agent: "Codex",
+        host: "fixture-cloud",
+        record: true,
+        signal: new AbortController().signal,
+      });
+      await run.write({ runId: "fixture-run", repository, markdown });
+    },
+    { repository, markdown },
+  );
+
+  await navigation.getByRole("button", { name: "Repositories", exact: true }).click();
+  const requirements = page.locator(".repository-requirements-card");
+  await requirements.locator("summary").click();
+  await expect(requirements.getByText(/Recorded by Codex on fixture-cloud/)).toBeVisible();
+  await expect(requirements.locator("pre")).toHaveText(markdown);
+  await requirements.getByRole("button", { name: "Edit", exact: true }).click();
+  const editor = requirements.getByRole("textbox", { name: "Host requirements Markdown" });
+  await expect(editor).toHaveValue(markdown);
+  const edited = markdown + "\n- Use the fixture login shell";
+  await editor.fill(edited);
+  await requirements.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(requirements.getByText(/edited by you/)).toBeVisible();
+  await expect(requirements.locator("pre")).toHaveText(edited);
+  await assertAccessible(page);
+  await captureHosts(app, page, "1264/recorded-requirements", requirements);
+  await requirements.getByRole("button", { name: "Edit", exact: true }).click();
+  await editor.fill('<a href="https://example.invalid">Inert HTML</a>');
+  await requirements.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(requirements.locator("pre")).toHaveText(
+    '<a href="https://example.invalid">Inert HTML</a>',
+  );
+  await expect(requirements.getByRole("link")).toHaveCount(0);
+  await requirements.getByRole("button", { name: "Clear", exact: true }).click();
+  await expect(requirements.getByText("No recorded requirements")).toBeVisible();
+  await expect(
+    page.evaluate(
+      (repository) => window.desktop.repositoryRequirements({ action: "read", repository }),
+      repository,
+    ),
+  ).resolves.toBeNull();
 });
 
 test("Repositories lists existing checkouts and opens fixed repair recipes without exposing remote output", {

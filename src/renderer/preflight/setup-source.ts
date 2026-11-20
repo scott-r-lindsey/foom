@@ -150,6 +150,7 @@ export function createSetupSource(
     },
     githubSignInSessions: () => new Map(ghSessions),
     githubSignIn: (id, action) => desktop.githubSignIn(id, action),
+    repositoryRequirements: (action) => desktop.repositoryRequirements(action),
     copyHost: (command) => desktop.copyHost(command),
     hosts: (action) => {
       if (action.action !== "recipe" && action.action !== "trust-origin")

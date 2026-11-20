@@ -115,6 +115,13 @@ export function attachSetup(
       },
     ],
     [
+      "setup:repository-requirements",
+      (...args) => {
+        if (args.length !== 1) throw new Error("Invalid host requirements request");
+        return setup.repositoryRequirements(args[0]);
+      },
+    ],
+    [
       "setup:hosts",
       (...args) => {
         if (args.length !== 1) throw new Error("Invalid hosts request");

@@ -1029,3 +1029,24 @@ host must be verified manually before merge because automated tests use fixtures
 
 [#1262](https://github.com/scott-r-lindsey/foom/issues/1262) removed the #1080 setup list and its approvals, checks and recipes.
 Host capability checks and repository checkout controls continue to operate independently.
+
+## Recorded repository requirements (#1264)
+
+Settings → Repositories shows one expandable requirements card per registration.
+Its Markdown source is inert text with recorder, host, recording date and optional
+human edit date. Edit and Clear act on the displayed revision. A setup run starts
+with the current notes for its selected repositories, including human edits.
+When recording is selected, its authenticated endpoint may replace a selected
+note during that run. Main checks the registration and revision again when
+writing. The setup agent folds the existing note into its replacement. A human
+edit, clear, or another run's replacement after the snapshot makes that write
+stale. Foom never runs instructions from notes.
+
+A registered host check can show **Codex may prompt for approval** on the card.
+The remote daemon reads a bounded account-level Codex config using the remote
+login environment and returns a closed observation. The hub requests it only
+after the daemon advertises `codexApprovalCheck: 1`. The card reflects account
+defaults at check time. Profiles, launch arguments, project overrides and
+managed policy can change the effective behavior. Config errors produce an
+unknown observation. Launch permissions and bypass validation remain owned by
+the existing launch policy.
