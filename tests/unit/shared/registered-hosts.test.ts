@@ -123,6 +123,16 @@ test("origin and management boundaries accept only closed operations and credent
   ])
     expect(hostManagement(value)).toBe(false);
 });
+test("Codex approval observations accept only the closed Codex fact", () => {
+  const withAgent = (id: string, codexApprovals: unknown) => ({
+    ok: true,
+    facts: { ...facts, agents: [{ id, state: "ready", codexApprovals }] },
+  });
+  expect(hostResult(withAgent("codex", "may-prompt"))).toBe(true);
+  expect(hostResult(withAgent("codex", "raw config"))).toBe(false);
+  expect(hostResult(withAgent("claude", "may-prompt"))).toBe(false);
+});
+
 test("typed results expose bounded facts and fixed states only", () => {
   const valid = { ok: true, facts };
   expect(hostResult(valid)).toBe(true);

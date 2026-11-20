@@ -700,7 +700,8 @@
 .host-pass {
   color: var(--done-ink);
 }
-.host-need {
+.host-need,
+.host-count.codex-approval-advisory {
   color: var(--attention-ink);
 }
 .host-fail,

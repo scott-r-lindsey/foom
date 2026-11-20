@@ -69,6 +69,18 @@ toolchains, stay in place. Stored lists contribute no approvals or prerequisites
 to a launch. The prepared control importer skips the obsolete store, and a
 forward migration drops its approval and observation tables.
 
+### Recorded repository host requirements (#1264)
+
+Until the data migration, main serializes requirement edits and replacements in
+private profile JSON under `repository-requirements/`, one file keyed by the
+current repository path and registration ID. Removing and re-adding a repository
+creates a different registration, without exposing the previous note. Clearing
+a note replaces it with a tombstone containing a new revision so a run started
+before the clear cannot recreate it. A note carries a Markdown body of up to
+16 KiB, and main-supplied recorder, host and timestamps. Invalid records are
+refused at read. The renderer can read, edit or clear a registered repository's
+note through Settings IPC. Edits and clears require the revision the human saw.
+
 ## Commit-driven changes
 
 Each domain table has INSERT, UPDATE and DELETE triggers appending its table name

@@ -300,9 +300,12 @@ export function hostManagement(value: unknown): value is HostManagement {
         "partial",
         "target",
         "agentDetails",
+        "codexApprovalCheck",
       ]) &&
       (value["agentDetails"] === undefined ||
         (value["agentDetails"] === true && value["readOnly"] === true)) &&
+      (value["codexApprovalCheck"] === undefined ||
+        (value["codexApprovalCheck"] === true && value["agentDetails"] === true)) &&
       (value["target"] === undefined ||
         (((hostCheckTarget(value["target"]) && !("repository" in value["target"])) ||
           (record(value["target"]) &&
@@ -530,7 +533,10 @@ export function hostResult(value: unknown): value is HostResult {
     facts["agents"].every(
       (agent: unknown) =>
         record(agent) &&
-        keys(agent, ["id", "state", "signIn", "details"]) &&
+        keys(agent, ["id", "state", "signIn", "details", "codexApprovals"]) &&
+        (agent["codexApprovals"] === undefined ||
+          (agent["id"] === "codex" &&
+            closed(agent["codexApprovals"], ["may-prompt", "disabled", "unknown"]))) &&
         (agent["details"] === undefined ||
           (record(agent["details"]) &&
             keys(agent["details"], ["path", "version", "capabilities", "plugin"]) &&
