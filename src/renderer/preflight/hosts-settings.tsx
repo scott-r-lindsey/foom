@@ -1309,7 +1309,9 @@ export function HostsSettings({
                 </div>
               )}
               {codexApprovals === "may-prompt" && (
-                <span className="host-count host-need">Codex may prompt for approval</span>
+                <span className="host-count codex-approval-advisory">
+                  Codex may prompt for approval
+                </span>
               )}
               <span className={`host-count ${summary === "Needs you" ? "host-need" : ""}`}>
                 {busy.has(entry.host) ? (

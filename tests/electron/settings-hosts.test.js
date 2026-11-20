@@ -29,6 +29,16 @@ const {
   assertAccessible,
 } = require("./harness.js");
 
+async function selectTheme(page, mode) {
+  await page.evaluate(
+    (mode) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${mode}` }),
+    mode,
+  );
+  await expect
+    .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
+    .toBe(mode === "dark");
+}
+
 async function captureHosts(
   app,
   page,
@@ -55,13 +65,7 @@ async function captureHosts(
   try {
     if (resizeForCapture) await resize({ ...original, height });
     for (const mode of ["light", "dark"]) {
-      await page.evaluate(
-        (mode) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${mode}` }),
-        mode,
-      );
-      await expect
-        .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
-        .toBe(mode === "dark");
+      await selectTheme(page, mode);
       await area.screenshot({
         path: evidencePath(
           `${/^(?:1059|1061|1062|1067|1074|1131|1259|1260|1262|1264)\//u.test(name) ? name : `1074/${name}`}-${mode}.png`,
@@ -1073,7 +1077,22 @@ test("Recorded host requirements are inert, editable and clearable in Settings",
     },
   });
   await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
-  await expect(card.getByText("Codex may prompt for approval", { exact: true })).toBeVisible();
+  const advisory = card.getByText("Codex may prompt for approval", { exact: true });
+  await expect(advisory).toBeVisible();
+  for (const mode of ["light", "dark"]) {
+    await selectTheme(page, mode);
+    const attentionColor = await advisory.evaluate((element) => {
+      const sample = document.createElement("span");
+      sample.style.color = "var(--attention-ink)";
+      element.append(sample);
+      try {
+        return getComputedStyle(sample).color;
+      } finally {
+        sample.remove();
+      }
+    });
+    await expect(advisory).toHaveCSS("color", attentionColor);
+  }
 
   // Bind the same main-owned recorder that the setup run uses. This fixture
   // represents the authenticated endpoint without launching a real agent.
