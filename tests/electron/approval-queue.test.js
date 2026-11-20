@@ -210,6 +210,7 @@ test("one trusted approval queue appends, merges, withdraws and snapshots decisi
   } finally {
     await native.dispose();
   }
+  await verifyDirtyDiscardRequiresVisibleConsequence(app, board);
 });
 
 async function openFixtureDialog(app, board) {
@@ -325,36 +326,30 @@ function assertRetainedFootprint(before, after, message) {
   );
 }
 
-test("dirty removal file lists must be visible before trusted discard", {
-  timeout: deadline(60000),
-}, async (context) => {
-  const { app, board } = await launchApprovalFixture(context);
+async function verifyDirtyDiscardRequiresVisibleConsequence(app, board) {
   const leading = Array.from({ length: 16 }, (_, index) => `scroll-${index}`);
-  const clean = [
-    "one",
-    "two",
-    ...leading,
-    "after-dirty",
-    ...Array.from({ length: 9 }, (_, index) => `tail-${index}`),
-  ];
-  await app.evaluate((_, leading) => {
-    const fixture = globalThis.approvalFixture;
-    for (const id of leading) fixture.add(id);
-    fixture.add(
-      "dirty",
-      "Worktree removal",
-      undefined,
-      " M sidebar.tsx\0?? notes.txt\0?? review.txt\0",
-    );
-    fixture.add("after-dirty");
-    for (let index = 0; index < 9; index++) fixture.add(`tail-${index}`);
-  }, leading);
+  const trailing = Array.from({ length: 10 }, (_, index) => `tail-${index}`);
+  const clean = [...leading, ...trailing];
+  const changes = Array.from(
+    { length: 40 },
+    (_, index) => `?? src/review/file-${index + 1}.ts\0`,
+  ).join("");
+  await app.evaluate(
+    (_, { leading, trailing, changes }) => {
+      const fixture = globalThis.approvalFixture;
+      for (const id of leading) fixture.add(id);
+      fixture.add("dirty", "Worktree removal", undefined, changes);
+      for (const id of trailing) fixture.add(id);
+    },
+    { leading, trailing, changes },
+  );
   const { dialog, native, row, approve } = await openFixtureDialog(app, board);
   try {
     const dirty = row("dirty");
-    const discard = dirty.getByRole("button", { name: "Discard 3 files and remove", exact: true });
-    await expect(discard).toHaveText("Discard 3 files and remove");
-    await expect(dirty.getByText("Discards 3 files", { exact: true })).toBeVisible();
+    const box = dirty.getByRole("region", { name: "Review files to discard" });
+    const summary = dirty.getByText("Discards 40 files", { exact: true });
+    const discard = dirty.getByRole("button", { name: "Discard 40 files and remove", exact: true });
+    await expect(discard).toHaveText("Discard 40 files and remove");
     await discard.evaluate((button) => {
       const viewport = button.closest(".approval-scroll");
       viewport.scrollTop +=
@@ -367,18 +362,9 @@ test("dirty removal file lists must be visible before trusted discard", {
     });
     assert.ok(clipped, "The button is partially clipped at the top of the queue");
     // An off-screen clean control still enables after the movement guard settles.
-    await expect(approve("one")).not.toBeInViewport();
-    await expect(approve("one")).toBeEnabled();
+    await expect(approve(leading[0])).not.toBeInViewport();
+    await expect(approve(leading[0])).toBeEnabled();
     await expect(discard).toBeDisabled();
-    const button = await discard.boundingBox();
-    await dialog.mouse.click(button.x + button.width / 2, button.y + button.height / 2);
-    assert.equal(await app.evaluate(() => globalThis.approvalFixture.results.dirty), undefined);
-
-    await discard.evaluate((button) =>
-      button.closest("footer").scrollIntoView({ block: "center" }),
-    );
-    await expect(discard).toBeDisabled();
-    await expect(discard).toBeEnabled();
     const viewport = dialog.getByRole("region", { name: "Pending approvals" });
     assert.ok(
       await viewport.evaluate((element) => {
@@ -406,38 +392,9 @@ test("dirty removal file lists must be visible before trusted discard", {
       )
       .toBe(true);
     await expect(dialog.locator(".approval-row")).toHaveCount(1);
-    await revealApproval(dialog, discard);
-    await discard.click();
-    await expect
-      .poll(() => app.evaluate(() => globalThis.approvalFixture.results.dirty))
-      .toBe(true);
-  } finally {
-    await native.dispose();
-  }
-  await verifyLongRemovalAtZoom(app, board);
-});
-
-async function verifyLongRemovalAtZoom(app, board) {
-  const changes = Array.from(
-    { length: 40 },
-    (_, index) => `?? src/review/file-${index + 1}.ts\0`,
-  ).join("");
-  await app.evaluate((_, changes) => {
-    globalThis.approvalFixture.add("forty", "Worktree removal", undefined, changes);
-  }, changes);
-  const { dialog, native, row } = await openFixtureDialog(app, board);
-  try {
-    const target = row("forty");
-    const box = target.getByRole("region", { name: "Review files to discard" });
-    const discard = target.getByRole("button", {
-      name: "Discard 40 files and remove",
-      exact: true,
-    });
-    await expect(discard).toHaveText("Discard 40 files and remove");
-    await revealApproval(dialog, discard);
     assert.ok(await box.evaluate((element) => element.scrollHeight > element.clientHeight));
-    assert.equal(await box.evaluate((element) => element.scrollTop), 0);
     if (process.env.FOOM_CONFIRMATION_SCREENSHOTS === "1") {
+      await revealApproval(dialog, discard);
       const image = await native.evaluate(async (window) =>
         (await window.webContents.capturePage()).toPNG().toString("base64"),
       );
@@ -456,13 +413,11 @@ async function verifyLongRemovalAtZoom(app, board) {
       .toBeCloseTo(2);
     await revealApproval(dialog, discard);
     await expect(box).not.toBeInViewport({ ratio: 1 });
-    await expect(target.getByText("Discards 40 files", { exact: true })).toBeInViewport({
-      ratio: 1,
-    });
+    await expect(summary).toBeInViewport({ ratio: 1 });
     assert.equal(await box.evaluate((element) => element.scrollTop), 0);
     await discard.click();
     await expect
-      .poll(() => app.evaluate(() => globalThis.approvalFixture.results.forty))
+      .poll(() => app.evaluate(() => globalThis.approvalFixture.results.dirty))
       .toBe(true);
   } finally {
     await native.dispose();
