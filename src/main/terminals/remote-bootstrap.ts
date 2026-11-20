@@ -281,6 +281,15 @@ test "$size" -le 65536 && test "$size" -gt 0 || exit 1
 script=$(head -c "$size") || exit 1
 exec sh -c "$script"`;
 
+const FRESH_SSH_OPTIONS = [
+  "-o",
+  "ControlMaster=no",
+  "-o",
+  "ControlPath=none",
+  "-o",
+  "ControlPersist=no",
+];
+
 async function platformProbe(
   host: string,
   signal?: AbortSignal,
@@ -319,9 +328,7 @@ async function platformProbe(
           "LogLevel=ERROR",
           "-o",
           "StrictHostKeyChecking=yes",
-          ...(retain || freshConnection
-            ? ["-o", "ControlMaster=no", "-o", "ControlPath=none", "-o", "ControlPersist=no"]
-            : []),
+          ...(retain || freshConnection ? FRESH_SSH_OPTIONS : []),
           ...sshArguments(host),
           ...(retain
             ? ["sh", "-c", `'${CHECK_PRELUDE.replaceAll("'", "'\\''")}'`]
@@ -547,6 +554,7 @@ export async function selectHostArtifact(
     signal,
     output,
     retain,
+    observe !== undefined,
   ).catch((error: unknown) => {
     if (error instanceof InvalidRemoteProbe) {
       observe?.("ssh", { state: "pass" });
@@ -576,6 +584,9 @@ export async function selectHostArtifact(
       : await promisify(execFile)(
           "ssh",
           [
+            "-o",
+            "StrictHostKeyChecking=yes",
+            ...FRESH_SSH_OPTIONS,
             ...sshArguments(target.host),
             "sh",
             "-c",

@@ -186,7 +186,9 @@ if (args.includes('BatchMode=no')) {
  if(helper.status===0 && helper.stdout==='yes\\n') require('node:fs').writeFileSync(${JSON.stringify(knownHosts)},'fixture-cloud fixture-key\\n');
  process.exit(255);
 }
-if (current.sshFailure === 'changed') {
+// An active fixture master bypasses a changed key unless the probe disables multiplexing.
+const reusingMaster = current.controlMasterActive && !args.includes('ControlPath=none');
+if (current.sshFailure === 'changed' && !reusingMaster) {
  const changedKey = () => { clientError('@ WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED! @\\nHost key verification failed.\\n'); process.exit(255); };
  if(current.holdChangedKey) {
   setInterval(() => { if(!JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8')).holdChangedKey) changedKey(); },20);
@@ -194,7 +196,7 @@ if (current.sshFailure === 'changed') {
  }
  changedKey();
 }
-if (current.sshFailure && !require('node:fs').readFileSync(${JSON.stringify(knownHosts)},'utf8')) { clientError('No ED25519 host key is known for fixture-cloud and you have requested strict checking.\\nHost key verification failed.\\n'); process.exit(255); }
+if (current.sshFailure === 'unknown' && !require('node:fs').readFileSync(${JSON.stringify(knownHosts)},'utf8')) { clientError('No ED25519 host key is known for fixture-cloud and you have requested strict checking.\\nHost key verification failed.\\n'); process.exit(255); }
 if (current.loginRejected) { clientError('user@fixture-cloud: Permission denied (publickey).\\n'); process.exit(255); }
 for (const flag of ['BatchMode=yes','ClearAllForwardings=yes','ForwardAgent=no','ForwardX11=no','ConnectTimeout=10']) assert.ok(args.includes(flag));
 const split = args.indexOf('--'); const host = args[split+1];
@@ -687,11 +689,25 @@ test("Hosts setup agent dialog launches locally, keeps Settings open and recheck
   await expect(ssh.getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
   await expect(action).toBeVisible();
 
-  await updateScenario({ sshFailure: "unknown" });
-  await check.click();
-  await expect(ssh.getByText("Host key not trusted", { exact: true })).toBeVisible();
+  await updateScenario({ sshFailure: "changed", controlMasterActive: true });
+  await ssh.getByRole("button", { name: "Reload SSH", exact: true }).click();
+  await expect(ssh.getByText("Host key changed", { exact: true })).toBeVisible();
   await expect(action).toHaveCount(0);
+
+  await updateScenario({});
+  await check.click();
+  await expect(ssh.getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
+  await expect(action).toBeVisible();
+  const refreshed = await page.evaluate(() =>
+    window.desktop.hosts({ action: "refresh", host: "fixture-cloud" }),
+  );
+  assert.equal(refreshed.hosts[0].result.ok, true);
+
+  await updateScenario({ sshFailure: "unknown" });
   await assert.rejects(request(), /foom-error:operation-failed/u);
+  await expect(ssh.getByText("Host key not trusted", { exact: true })).toBeVisible();
+  await expect(ssh.getByRole("button", { name: "Trust host key…", exact: true })).toBeEnabled();
+  await expect(action).toHaveCount(0);
 });
 
 test("first-use repository launch exposes each fixed clone failure and Settings has no clone control", {

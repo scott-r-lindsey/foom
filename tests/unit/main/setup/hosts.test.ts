@@ -1,3 +1,6 @@
+import { EventEmitter } from "node:events";
+import type { BrowserWindow, IpcMainInvokeEvent } from "electron";
+import type { WindowIpc } from "../../../../src/main/window/window-ipc";
 import { ENABLED_AGENTS } from "../../../helpers/enabled-agents";
 import { restartedBrewHost } from "./hosts-saved-fixture";
 import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -23,6 +26,7 @@ const mock = vi.hoisted(() => ({
   inventory: vi.fn<typeof remoteTransport.remoteInventory>(),
   close: vi.fn(),
 }));
+vi.mock("electron", () => ({ ipcMain: {} }));
 vi.mock("../../../../src/main/agents/agents", () => ({
   loginPath: () => Promise.resolve({ path: "/fixture-login" }),
 }));
@@ -54,6 +58,8 @@ vi.mock("../../../../src/main/terminals/remote-transport", () => ({
     }
   },
 }));
+import { Setup } from "../../../../src/main/setup/setup";
+import { attachSetup } from "../../../../src/main/setup/setup-ipc";
 import { Hosts, hostsForStore } from "../../../../src/main/setup/hosts";
 import { UncertainEffect } from "../../../../src/main/workspace/worktree-outcome";
 let settings: Settings;
@@ -272,6 +278,61 @@ test("a restored key reaches the checklist only when the repository checks finis
   );
   origin.resolve({ ok: true, facts });
   await expect(checking).resolves.toMatchObject({ preflight: { ssh: { state: "pass" } } });
+});
+
+test("destroying the IPC sender cancels setup SSH and prevents agent dispatch", async () => {
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  const probing = Promise.withResolvers<AbortSignal>();
+  const ssh = Promise.withResolvers<Awaited<ReturnType<typeof probeHostSsh>>>();
+  checkSetupSsh.mockImplementationOnce((_host, signal) => {
+    probing.resolve(signal);
+    return ssh.promise;
+  });
+  const launch = vi.fn<Parameters<Hosts["startSetupAgent"]>[1]>().mockResolvedValue(undefined);
+  const place = vi.fn();
+  const setup = new Setup({
+    store,
+    hosts,
+    apply: () => undefined,
+    launchHostSetupAgent: launch,
+    placeHostSetupAgent: place,
+    worktreeRoot: "/fixture/worktrees",
+    code: {
+      home: "/fixture",
+      pickFolder: () => Promise.resolve(null),
+      worktrees: {
+        listRepositories: () => repositories,
+        addRepository: vi.fn(),
+        removeRepository: vi.fn(),
+      },
+    },
+  });
+  const frame = { url: "app://bundle/index.html" };
+  const contents = Object.assign(new EventEmitter(), { mainFrame: frame });
+  const window = { webContents: contents } as unknown as BrowserWindow;
+  const event = { sender: contents, senderFrame: frame } as unknown as IpcMainInvokeEvent;
+  const handle = vi.fn<WindowIpc["handle"]>();
+  const attachment = attachSetup(window, setup, undefined, { handle, removeHandler: vi.fn() });
+  try {
+    const invoke = handle.mock.calls.find(([channel]) => channel === "setup:hosts")?.[1];
+    if (!invoke) throw new Error("Missing setup host handler");
+    const launching = invoke(event, {
+      action: "setup-agent",
+      host: "worker",
+      agent: "codex",
+      repositories: ["/local/repo"],
+    });
+    const signal = await probing.promise;
+    contents.emit("destroyed");
+    ssh.resolve({ state: "pass" });
+    await expect(launching).rejects.toThrow("Setup agent unavailable");
+    expect(signal.aborted).toBe(true);
+    expect(launch).not.toHaveBeenCalled();
+    expect(place).not.toHaveBeenCalled();
+    expect(hosts.setupAgentId("worker")).toBeUndefined();
+  } finally {
+    attachment.dispose();
+  }
 });
 
 test("a replacement registration can start setup before the removed host's tile exits", async () => {

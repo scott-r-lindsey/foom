@@ -785,8 +785,9 @@ drop superseded SSH results. An unsaved checklist retains its save warning until
 that revision or a newer one is committed. SSH row write failures without a
 key observation remain visible as row errors. Preload requires
 a revision on live checklist replies and accepts older saved profiles without
-one. Refresh facts preserves the checklist. A resource refresh failure
-appears under Host facts, including when the checklist shows the same reason.
+one. SSH row probes open fresh connections with strict host-key checking and
+multiplexing disabled. Refresh facts preserves the checklist. A resource refresh
+failure appears under Host facts, including when the checklist shows the same reason.
 Refresh facts inspects resources before reading session and worktree
 inventories. If scoped facts require a daemon
 update, Foom shows that reason and still tries both inventory endpoints. Other
@@ -975,8 +976,10 @@ Changed-key and other SSH failures retain their current presentation, but likewi
 skip dependent repository checks because no connection was established.
 
 Only a registered host whose latest SSH observation is host-key-unknown can
-request trust-host-key. Main checks OpenSSH >= 8.4 and the bundled console helper
-using detached, bounded reads that share cancellation with the requesting run;
+request trust-host-key. Settings derives the trust action from the completed SSH
+row, including when a successful facts refresh is still cached.
+Main checks OpenSSH >= 8.4 and the bundled console helper using detached,
+bounded reads that share cancellation with the requesting run;
 Windows and unsupported clients show a copyable `ssh HOST` fallback. No other
 SSH call receives askpass variables or changes its environment allowlist.
 
@@ -1048,9 +1051,10 @@ and badges arrive with #1264.
 
 **Start agent** queues one fresh, strict SSH connection check for the
 registration, with connection reuse disabled. Main opens the local tile only
-if that check connects. A failure updates the checklist's SSH row and the dialog
-shows **Unable to start setup agent**. The tile opens in the background and
-Settings stays open. The card shows **Setting up · AGENT** while the invocation runs.
+if that check connects. Closing the requesting window cancels the pending launch.
+An SSH refusal updates the checklist's SSH row and the dialog shows **Unable to
+start setup agent**. The tile opens in the background and Settings stays open.
+The card shows **Setting up · AGENT** while the invocation runs.
 **Show agent** opens the tile on explicit request. Questions use the tile's
 ordinary **Needs you** state. Main permits one active setup invocation per registration
 across windows and performs a full capability check when that invocation exits,

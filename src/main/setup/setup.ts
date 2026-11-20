@@ -117,7 +117,11 @@ export class Setup {
     if (!this.deps.hosts) throw new Error("Hosts unavailable");
     if (input.action === "setup-agent") {
       if (!this.deps.launchHostSetupAgent) throw new Error("Setup agent unavailable");
-      const id = await this.deps.hosts.startSetupAgent(input, this.deps.launchHostSetupAgent);
+      const id = await this.deps.hosts.startSetupAgent(
+        input,
+        this.deps.launchHostSetupAgent,
+        this.hostTrust.signal,
+      );
       this.deps.placeHostSetupAgent?.(id, true);
       return this.deps.hosts.state();
     }

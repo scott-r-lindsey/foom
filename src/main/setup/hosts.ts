@@ -55,12 +55,14 @@ import {
 } from "../terminals/remote-transport";
 import { probeHostSsh, remoteHostsAvailable, sshEnvironment } from "../terminals/remote-bootstrap";
 
+function unknownSshKey(ssh: HostCheck): boolean {
+  return ssh.state === "fail" && ssh.reason === "host-key-unknown";
+}
+
 /** Background inspections carry the same main-classified failure without a checklist. */
 function unknownHostKey(result: HostResult | undefined): boolean {
   const ssh = result?.connection?.ssh;
-  return ssh
-    ? ssh.state === "fail" && ssh.reason === "host-key-unknown"
-    : result?.ok === false && result.reason === "host-key-unknown";
+  return ssh ? unknownSshKey(ssh) : result?.ok === false && result.reason === "host-key-unknown";
 }
 
 /** The same closed classification serves full checks and individual connection rows. */
@@ -198,7 +200,11 @@ export class Hosts {
   async startSetupAgent(
     input: Extract<HostsAction, { action: "setup-agent" }>,
     launch: (id: string, agent: string, prompt: string, validate: () => void) => Promise<void>,
+    windowSignal?: AbortSignal,
   ): Promise<string> {
+    const signal = windowSignal
+      ? AbortSignal.any([this.cancellation.signal, windowSignal])
+      : this.cancellation.signal;
     const { host, agent, repositories } = input;
     this.registered(host);
     const registrationId = this.registrationId(host);
@@ -216,7 +222,7 @@ export class Hosts {
         if (
           this.setupAgents.get(host) !== run ||
           this.registrationIds.get(host) !== registrationId ||
-          this.cancellation.signal.aborted ||
+          signal.aborted ||
           this.store.get().agents[agent] !== true ||
           repositories.some((path) => !this.repositories().some((repo) => repo.path === path))
         )
@@ -238,7 +244,7 @@ export class Hosts {
         if (Buffer.byteLength(prompt) > 16384) throw new Error("Setup brief is too long");
       }
       validate();
-      const ssh = await this.checkSetupSsh(host, this.cancellation.signal);
+      const ssh = await this.checkSetupSsh(host, signal);
       validate();
       if (ssh.state === "fail") {
         const result = {
@@ -2042,7 +2048,11 @@ export class Hosts {
       ? AbortSignal.any([this.cancellation.signal, signal])
       : this.cancellation.signal;
     const cancelled = () => cancellation.aborted;
-    if (cancelled() || !state.hosts.some((row) => unknownHostKey(row.result))) return state;
+    const needsTrust = state.hosts.some((row) => {
+      const completed = row.checklist?.preflight ?? row.observation?.preflight;
+      return completed ? unknownSshKey(completed.ssh) : unknownHostKey(row.result);
+    });
+    if (cancelled() || !needsTrust) return state;
     const supported = await askpassSupported(undefined, cancellation);
     if (cancelled()) return state;
     this.hostKeyTrust = supported ? "askpass" : "manual";
