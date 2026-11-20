@@ -927,3 +927,100 @@ its own checkout, dependency and Electron preparation, build and reporting.
 At the measured maximum residuals, the six jobs add about 9.5 runner-minutes
 inside the Electron steps alone, plus job setup and upload. This refresh keeps
 the current matrix and validation budgets.
+
+## Windows 3/5 headroom after the approval queue changes (#1293)
+
+The refresh uses 48 complete passing Electron JUnit reports from
+[base main run 44619824134](https://github.com/scott-r-lindsey/foom/actions/runs/44619824134),
+[main run 44665936702](https://github.com/scott-r-lindsey/foom/actions/runs/44665936702)
+and [PR run 44691673046](https://github.com/scott-r-lindsey/foom/actions/runs/44691673046).
+They contain 434, 443 and 444 named cases per platform respectively. The base
+run measures two host tests still registered on this branch whose replacements
+are measured on newer main. The generator uses only the 434 cases registered
+here. Interrupted and failed reports are excluded.
+
+Download the `electron-results-*` artifacts to
+`test-results/rebalance/1293/<run-id>/<artifact-name>/electron.xml`. For
+duplicate artifact names on reruns, use the latest passing copy. The selected
+artifact IDs on run 44619824134 were `14583115720` (Linux 2/4),
+`14587961745` (macOS 4/7) and `14587742254` (macOS 6/7). On run
+44665936702 they were `14601037935` (Windows 5/5) and `14601237294`
+(macOS 3/7).
+
+Run the existing JUnit generator, then apply the Windows-only adjustment below.
+It starts with the generated Windows 5/5 assignment on shard 3 and adjusts
+individual cases using the same measured durations. The adjustment targets a
+maximum replay of 688 seconds for shard 3 and a maximum conservative estimate
+of 830 seconds for any Windows shard. It budgets seven extra seconds for the
+approval queue case, based on the local measurement of its consolidated
+scenario. That allowance is used for projection only. The plan stores the
+measured JUnit durations.
+
+```sh
+node scripts/rebalance-electron-shards.mjs test-results/rebalance/1293/{44619824134,44665936702,44691673046} --write
+node --input-type=module <<'JS'
+import { readFileSync } from "node:fs";
+import { writePlan } from "./scripts/rebalance-electron-shards.mjs";
+const path = "tests/electron/shard-plan.json";
+const plan = JSON.parse(readFileSync(path, "utf8"));
+const shards = plan.shards[5];
+[shards[2], shards[4]] = [shards[4], shards[2]];
+for (const [name, from, to] of [
+  ["a different tile never attaches a revoked ID while workspace refresh is held", 1, 3],
+  ["secondary window forwards Refusal through windows:refuse to the audio owner", 1, 3],
+  ["application menu uses the command registry and supports native keyboard access", 2, 3],
+  ["Close hides a review session before slow worktree removal finishes", 3, 1],
+  ["agent Settings patches preserve shortcut zoom and unrelated preferences", 3, 4],
+  ["appearance switches light and dark, and zoom shortcuts resize the interface", 3, 1],
+  ["broken checkout shows Clean up directly and refuses uninspectable leftover content", 3, 1],
+  ["closing a board declines its queued cleanup and releases its repository before another board answers", 3, 5],
+  ["one trusted approval queue appends, merges, withdraws and snapshots decisions without stealing terminal input", 3, 2],
+  ["preview host isolates hostile pages, blocks network and navigation, scales bounds and clears closed partitions", 3, 5],
+  ["settled automatic orchestrator removals withdraw visible confirmations", 3, 4],
+  ["preview manual reload controls preserve focus and shortcut targets only the focused preview", 4, 3],
+  ["start:fresh state isolation keeps config and worktrees inside its temporary profile", 4, 3],
+  ["volume sliders keep the dragged value while sound saves settle", 5, 3],
+]) {
+  const source = shards[from - 1];
+  const destination = shards[to - 1];
+  if (!Object.hasOwn(source, name) || Object.hasOwn(destination, name))
+    throw new Error(`Unexpected source assignment for ${name}`);
+  destination[name] = source[name];
+  delete source[name];
+}
+plan.shards[5] = shards.map(shard =>
+  Object.fromEntries(Object.entries(shard).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)),
+);
+writePlan(path, plan);
+JS
+pnpm exec biome format --write tests/electron/shard-plan.json
+node --require ./tests/helpers/setup.js --test scripts/electron-shard.test.mjs scripts/rebalance-electron-shards.test.mjs
+```
+
+All values below are seconds in shard order. Named-case sums use the largest
+measured duration per case and platform across the three runs. For the replay,
+add each run's largest observed difference between step wall time and its
+original JUnit sum to that run's reassigned cases, then take the slowest replay
+per shard. The conservative estimate combines the maximum case sums with the
+largest residual across all three runs (Linux 63.0, Windows 79.1, macOS 121.3).
+The after estimates include the Windows allowance.
+
+| Platform | Measure | Before | After |
+| --- | --- | --- | --- |
+| Linux / 4 | Named-case sums | 769.1 / 676.4 / 718.7 / 810.5 | 745.6 / 746.8 / 731.8 / 750.6 |
+| Windows / 5 | Named-case sums | 752.7 / 720.9 / 679.6 / 768.4 / 794.8 | 750.8 / 743.4 / 721.3 / 750.8 / 750.1 |
+| macOS / 7 | Named-case sums | 638.5 / 606.2 / 643.3 / 695.7 / 602.0 / 699.6 / 642.5 | 655.0 / 644.5 / 654.9 / 615.1 / 653.8 / 652.5 / 652.1 |
+| Linux / 4 | Slowest replay | 755.0 / 676.2 / 721.8 / 774.5 | 700.9 / 727.1 / 718.4 / 720.0 |
+| Windows / 5 | Slowest replay | 755.0 / 758.6 / 716.3 / 817.5 / 823.0 | 771.9 / 762.2 / 687.9 / 772.9 / 790.3 |
+| macOS / 7 | Slowest replay | 729.7 / 717.5 / 749.0 / 773.1 / 676.3 / 778.4 / 739.7 | 730.6 / 716.1 / 732.4 / 689.4 / 729.7 / 722.0 / 735.7 |
+
+The conservative estimates after the move are:
+
+- Linux 808.5 / 809.8 / 794.8 / 813.5.
+- Windows 829.9 / 829.5 / 800.3 / 829.9 / 829.2.
+- macOS 776.3 / 765.7 / 776.1 / 736.3 / 775.1 / 773.8 / 773.4.
+
+Windows 3/5 observed 699 seconds on main run 44665936702. Its slowest passing
+replay is now 687.9 seconds. The combined maximum estimate leaves at least
+10 seconds under the existing 840-second limit on every shard. These are
+projections from passing runs. A new CI run measures the reassigned shards.
