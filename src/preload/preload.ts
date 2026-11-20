@@ -638,6 +638,13 @@ const validHostsState: Validator<HostsState> = shape({
   recipeFailure: either(absent, literal("recipe-unavailable")),
   hosts: array(
     shape({
+      setupAgent: either(
+        absent,
+        shape({
+          id: (value): value is string => nonempty(value) && value.length <= 200,
+          name: nonempty,
+        }),
+      ),
       host: hostAlias,
       nickname: either(absent, hostNickname),
       codeFolder: hostRequestedFolder,
@@ -1177,6 +1184,7 @@ const validAgentInstallation: Validator<AgentInstallation> = shape({
   version: either(nil, text),
   hooks: boolean,
   attentionSignal: either(absent, boolean),
+  initialPrompt: either(absent, boolean),
   resume: either(absent, boolean),
   resumePaste: either(
     absent,

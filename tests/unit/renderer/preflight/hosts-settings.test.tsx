@@ -100,6 +100,132 @@ async function mount(
 const scrollIntoView = vi.fn();
 Element.prototype.scrollIntoView = scrollIntoView;
 afterEach(cleanup);
+
+test("host setup filters repositories, keeps selected entries and surfaces launch failures in the dialog", async () => {
+  const launch = Promise.withResolvers<HostsState>();
+  const state = saved(initial);
+  const api = vi.fn((action: HostsAction) =>
+    action.action === "setup-agent" ? launch.promise : Promise.resolve(state),
+  );
+  render(
+    <HostsSettings
+      source={{ hosts: api }}
+      headingRef={createRef()}
+      agents={{ codex: true, claude: true }}
+      defaultAgent="codex"
+      setupAgents={[
+        {
+          id: "codex",
+          name: "Codex",
+          path: "/fake/codex",
+          version: "0.155.1",
+          hooks: false,
+          initialPrompt: true,
+          reason: "Fixture",
+        },
+        {
+          id: "claude",
+          path: "/fake/claude",
+          version: "2.1.285",
+          hooks: false,
+          initialPrompt: true,
+          reason: "Fixture",
+        },
+      ]}
+      repositories={[
+        { path: "/local/project", name: "Project" },
+        { path: "/local/site", name: "Site" },
+      ]}
+    />,
+  );
+  const open = await screen.findByRole("button", { name: "Set up with an agent…" });
+  expect(open.classList.contains("primary")).toBe(false);
+  fireEvent.click(open);
+  const dialog = screen.getByRole("dialog", { name: "Set up worker with an agent" });
+  const agent = within(dialog).getByRole("combobox", { name: "Agent" });
+  expect(agent).toBe(document.activeElement);
+  const filter = within(dialog).getByRole("searchbox", { name: "Filter repositories" });
+  fireEvent.change(filter, { target: { value: "other" } });
+  expect(within(dialog).getByText("No matches")).toBeTruthy();
+  fireEvent.change(filter, { target: { value: "project" } });
+  const project = within(dialog).getByRole("checkbox", { name: "Project" });
+  fireEvent.click(project);
+  fireEvent.change(filter, { target: { value: "site" } });
+  expect(project.isConnected).toBe(true);
+  fireEvent.click(within(dialog).getByRole("button", { name: "Start agent" }));
+  expect(api).toHaveBeenLastCalledWith({
+    action: "setup-agent",
+    host: "worker",
+    agent: "codex",
+    repositories: ["/local/project"],
+  });
+  await act(async () => {
+    launch.reject(new Error("Fixture failure"));
+    await launch.promise.catch(() => undefined);
+  });
+  expect(within(dialog).getByRole("alert").textContent).toBe("Unable to start setup agent");
+  fireEvent.change(agent, { target: { value: "claude" } });
+  fireEvent.click(project);
+  expect(project.isConnected).toBe(false);
+  const site = within(dialog).getByRole("checkbox", { name: "Site" });
+  fireEvent.click(site);
+  api.mockResolvedValueOnce(
+    saved({
+      ...initial,
+      hosts: [{ ...host, setupAgent: { id: "setup-id", name: "Claude Code" } }],
+    }),
+  );
+  fireEvent.click(within(dialog).getByRole("button", { name: "Start agent" }));
+  await screen.findByText("Setting up · Claude Code");
+  expect(api).toHaveBeenLastCalledWith({
+    action: "setup-agent",
+    host: "worker",
+    agent: "claude",
+    repositories: ["/local/site"],
+  });
+  expect(dialog.isConnected).toBe(false);
+});
+
+test("an empty setup dialog stays open on an interior click and closes on backdrop or Escape", async () => {
+  await mount();
+  const open = screen.getByRole("button", { name: "Set up with an agent…" });
+  fireEvent.click(open);
+  const dialog = screen.getByRole("dialog", { name: "Set up worker with an agent" });
+  expect(within(dialog).getByText("No repositories")).toBeTruthy();
+  expect(within(dialog).getByText("No agents available")).toBeTruthy();
+  const start = within(dialog).getByRole("button", { name: "Start agent" });
+  expect(start.matches(":disabled")).toBe(true);
+  const form = start.closest("form");
+  if (!form) throw new Error("Missing setup form");
+  fireEvent.submit(form);
+  fireEvent.click(dialog, { clientX: 0, clientY: 0 });
+  expect(dialog.isConnected).toBe(true);
+  fireEvent.click(dialog, { clientX: 1, clientY: 1 });
+  expect(dialog.isConnected).toBe(false);
+  fireEvent.click(open);
+  const second = screen.getByRole("dialog", { name: "Set up worker with an agent" });
+  fireEvent.keyDown(second, { key: "Escape" });
+  fireEvent(second, new Event("cancel", { cancelable: true }));
+  expect(second.isConnected).toBe(false);
+});
+
+test("running setup is projected from the host view and the explicit reveal handles failure", async () => {
+  const state = saved({
+    ...initial,
+    hosts: [{ ...host, setupAgent: { id: "setup-id", name: "Codex" } }],
+  });
+  const api = vi.fn((action: HostsAction) =>
+    action.action === "show-setup-agent"
+      ? Promise.reject(new Error("Unavailable"))
+      : Promise.resolve(state),
+  );
+  render(<HostsSettings source={{ hosts: api }} headingRef={createRef()} />);
+  expect(await screen.findByText("Setting up · Codex")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Set up with an agent…" })).toBeNull();
+  expandHosts();
+  fireEvent.click(screen.getByRole("button", { name: "Show agent" }));
+  expect(await screen.findByText("Unable to show setup agent")).toBeTruthy();
+});
 test.each([false, true])(
   "live saved host controls wait for owner-held row retries (failed=%s)",
   async (failed) => {

@@ -1029,3 +1029,28 @@ host must be verified manually before merge because automated tests use fixtures
 
 [#1262](https://github.com/scott-r-lindsey/foom/issues/1262) removed the #1080 setup list and its approvals, checks and recipes.
 Host capability checks and repository checkout controls continue to operate independently.
+
+## Set up with an agent (#1263)
+
+Each registered SSH host card offers **Set up with an agent…** beside its
+status, including while collapsed. The action is secondary on a Ready host
+and primary otherwise. An unknown or changed SSH host key and a running setup
+agent hide the action.
+
+The dialog focuses the local Agent picker and preselects the configured default
+when it is enabled, installed and accepts an initial prompt. The user selects
+registered repositories. Checked repositories stay visible while filtering.
+Escape, Cancel and the backdrop dismiss the dialog. The requirements control
+and badges arrive with #1264.
+
+**Start agent** opens an ordinary local tile in the background and leaves
+Settings open. The card shows **Setting up · AGENT** while the invocation runs.
+**Show agent** opens the tile on explicit request. Questions use the tile's
+ordinary **Needs you** state. Main permits one active setup invocation per host
+across windows and performs a full capability check when that invocation exits,
+even if Settings has closed. Removing a host leaves its agent tile running and
+skips the exit recheck for that registration.
+
+The [host setup brief](agent-launch.md#local-host-setup-agent-1263) uses main-owned
+registration and origin data. Agent output and reports have no authority over
+saved facts or the exit recheck.

@@ -1,7 +1,12 @@
 import { GithubSignInPanel } from "./github-sign-in";
 import { useHostsView, useViewState } from "../data/view-hooks";
 import { HostTerminal } from "./host-terminal";
-import { hostDisplayName, hostNicknameError } from "../../shared/registered-hosts";
+import { HostSetupDialog } from "./host-setup-dialog";
+import {
+  hostDisplayName,
+  hostKeyUntrusted,
+  hostNicknameError,
+} from "../../shared/registered-hosts";
 import { Fragment, createContext, use, useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode, RefObject } from "react";
 import { CopyValue } from "../ui/copy-value";
@@ -17,6 +22,7 @@ import type {
 } from "../../shared/registered-hosts.d";
 import type { SetupSource } from "./setup-source.d";
 import type { Repository } from "../../shared/worktrees";
+import type { AgentInstallation } from "../../shared/agents";
 type RecipeView = {
   host: string;
   id: string;
@@ -695,11 +701,17 @@ function HostName({
 }
 export function HostsSettings({
   agents,
+  defaultAgent = null,
+  setupAgents,
+  repositories = [],
   openAgents,
   source,
   headingRef,
 }: {
   agents?: Readonly<Record<string, boolean>>;
+  defaultAgent?: string | null;
+  setupAgents?: readonly AgentInstallation[] | undefined;
+  repositories?: readonly Repository[];
   openAgents?: (host: string) => void;
   source: Pick<
     SetupSource,
@@ -718,6 +730,8 @@ export function HostsSettings({
     () => source.hosts?.({ action: "list" }) ?? Promise.resolve(EMPTY_HOSTS),
   );
   const [state, setState] = useViewState(hostsQuery, EMPTY_HOSTS);
+  const [setupHost, setSetupHost] = useState<string>();
+  const setupEntry = state.hosts.find((entry) => entry.host === setupHost);
   const [checks, setChecks] = useState<ReadonlyMap<string, HostPreflight>>(
     () => new Map<string, HostPreflight>(),
   );
@@ -1242,6 +1256,10 @@ export function HostsSettings({
         );
         const ssh = preflight?.ssh ?? (source.views ? undefined : entry.result?.connection?.ssh);
         const awaitingTrust = ssh?.state === "fail" && ssh.reason === "host-key-unknown";
+        const untrusted =
+          hostKeyUntrusted(ssh) ||
+          entry.factsRefreshFailure === "host-key-unknown" ||
+          entry.factsRefreshFailure === "host-key-changed";
         const controlsDisabled = resuming || busy.has(entry.host);
         if (source.hostTerminal) {
           for (const origin of recipes.values()) {
@@ -1258,6 +1276,7 @@ export function HostsSettings({
           }
         }
         const summary = hostSummary(preflight);
+        const setupAgent = entry.setupAgent;
         const distro = entry.result?.ok ? entry.result.facts.requirements?.distro : undefined;
         const os = distro === "darwin" ? "macOS" : distro;
         const open =
@@ -1304,8 +1323,14 @@ export function HostsSettings({
                   <span className="host-count">{os}</span>
                 </div>
               )}
-              <span className={`host-count ${summary === "Needs you" ? "host-need" : ""}`}>
-                {busy.has(entry.host) ? (
+              <span
+                className={`host-count ${summary === "Needs you" && !setupAgent ? "host-need" : ""}`}
+              >
+                {setupAgent ? (
+                  <span className="host-setup-running" role="status">
+                    <Status tone="work">Setting up · {setupAgent.name}</Status>
+                  </span>
+                ) : busy.has(entry.host) ? (
                   <span className="host-check-progress host-work" role="status">
                     <span className="host-throbber" aria-hidden="true" />
                     {hostProgressText(progress?.find((item) => item.host === entry.host))}
@@ -1314,6 +1339,18 @@ export function HostsSettings({
                   summary
                 )}
               </span>
+              {!setupAgent && !untrusted && (
+                <button
+                  type="button"
+                  className={summary === "Ready" ? undefined : "primary"}
+                  disabled={controlsDisabled}
+                  onClick={() => {
+                    setSetupHost(entry.host);
+                  }}
+                >
+                  Set up with an agent…
+                </button>
+              )}
             </div>
             <div className="host-body" hidden={!open}>
               <fieldset className="host-controls" disabled={controlsDisabled}>
@@ -1336,6 +1373,22 @@ export function HostsSettings({
                       }
                     />
                   </code>
+                  {setupAgent && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void api?.({
+                          action: "show-setup-agent",
+                          host: entry.host,
+                          id: setupAgent.id,
+                        }).catch(() => {
+                          setError("Unable to show setup agent");
+                        });
+                      }}
+                    >
+                      Show agent
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="host-remove"
@@ -1592,6 +1645,28 @@ export function HostsSettings({
           </section>
         );
       })}
+      {api && setupEntry && (
+        <HostSetupDialog
+          host={hostDisplayName(setupEntry)}
+          agents={(setupAgents ?? []).filter(
+            (agent) => agent.path && agent.initialPrompt && agents?.[agent.id] === true,
+          )}
+          defaultAgent={defaultAgent}
+          repositories={repositories}
+          close={() => {
+            setSetupHost(undefined);
+          }}
+          start={async (agent, repositories) => {
+            const next = await api({
+              action: "setup-agent",
+              host: setupEntry.host,
+              agent,
+              repositories,
+            });
+            setState(next);
+          }}
+        />
+      )}
     </div>
   );
 }

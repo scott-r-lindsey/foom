@@ -425,6 +425,7 @@ export async function startMachine(
   signal?: AbortSignal,
   heldReservation?: string,
   parentHold?: CheckoutHold,
+  setup?: { id: string; prompt: string },
 ): Promise<string | undefined> {
   let reservation: string | undefined;
   let hold: CheckoutHold | undefined;
@@ -594,14 +595,18 @@ export async function startMachine(
           repository: homeDirectory,
           worktree: homeDirectory,
           humanHome: true,
-          ...(validateLaunch ? { beforeSpawn: validateLaunch } : {}),
+          ...(setup
+            ? { beforeSpawn: ensureOpen, prompt: setup.prompt }
+            : validateLaunch
+              ? { beforeSpawn: validateLaunch }
+              : {}),
           localOnly: true,
           sharedCheckout: true,
           cols: 80,
           rows: 24,
           defaultArguments: args,
           ...(conversation ? { conversationId: conversation } : {}),
-          ...(restoreId ? { terminalId: restoreId } : {}),
+          ...(setup ? { terminalId: setup.id } : restoreId ? { terminalId: restoreId } : {}),
           ...(this.deps.environment ? { environment: this.deps.environment(run) } : {}),
         });
       }

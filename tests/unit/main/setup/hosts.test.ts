@@ -87,6 +87,87 @@ beforeEach(() => {
   mock.execute.mockReset().mockResolvedValue({ stdout: "git@forge.test:me/repo.git\n" });
   hosts = new Hosts(store, () => repositories, "0.1.0", run);
 });
+
+test("a setup brief uses registered origins and rechecks exactly once even on an immediate exit", async () => {
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  const input = {
+    action: "setup-agent" as const,
+    host: "worker",
+    agent: "codex",
+    repositories: ["/local/repo"],
+  };
+  const start = Promise.withResolvers<undefined>();
+  const spawned = Promise.withResolvers<string>();
+  const launch = vi.fn((id: string, agent: string, prompt: string, validate: () => void) => {
+    expect(agent).toBe("codex");
+    expect(prompt).toContain('"host":"worker"');
+    expect(prompt).toContain('"origin":"git@forge.test:me/repo.git"');
+    expect(prompt).not.toContain("/local/repo");
+    validate();
+    spawned.resolve(id);
+    return start.promise;
+  });
+  const starting = hosts.startSetupAgent(input, launch);
+  await expect(hosts.startSetupAgent(input, launch)).rejects.toThrow("Setup agent unavailable");
+  const id = await spawned.promise;
+  expect(hosts.setupAgentId("worker")).toBeUndefined();
+  expect(run).not.toHaveBeenCalled();
+  await hosts.setupAgentExited(id, true);
+  start.resolve(undefined);
+  await expect(starting).resolves.toBe(id);
+  expect(hosts.state().hosts[0]?.setupAgent).toBeUndefined();
+  expect(settings.registeredHosts[0]?.observation?.checkedAt).toBeGreaterThan(0);
+  const calls = run.mock.calls.length;
+  expect(calls).toBeGreaterThan(0);
+  await hosts.setupAgentExited(id, true);
+  expect(run).toHaveBeenCalledTimes(calls);
+});
+
+test("setup refuses stale selections, untrusted keys and unsafe origins and releases failed starts", async () => {
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  const input = {
+    action: "setup-agent" as const,
+    host: "worker",
+    agent: "codex",
+    repositories: ["/local/repo"],
+  };
+  const launch = vi.fn<Parameters<Hosts["startSetupAgent"]>[1]>().mockResolvedValue(undefined);
+  await expect(
+    hosts.startSetupAgent({ ...input, repositories: ["/other"] }, launch),
+  ).rejects.toThrow("Setup agent unavailable");
+  await expect(hosts.startSetupAgent({ ...input, agent: "no-provider" }, launch)).rejects.toThrow(
+    "Setup agent unavailable",
+  );
+  mock.execute.mockResolvedValueOnce({ stdout: "https://secret@forge.test/me/repo.git\n" });
+  await expect(hosts.startSetupAgent(input, launch)).rejects.toThrow("Origin unavailable");
+  expect(launch).not.toHaveBeenCalled();
+  launch.mockRejectedValueOnce(new Error("Spawn failed"));
+  await expect(hosts.startSetupAgent(input, launch)).rejects.toThrow("Spawn failed");
+  const id = await hosts.startSetupAgent(input, launch);
+  expect(hosts.setupAgentId("worker")).toBe(id);
+  expect(hosts.state().hosts[0]?.setupAgent).toEqual({ id, name: "Codex" });
+  await hosts.setupAgentExited(id, false);
+  expect(run).not.toHaveBeenCalled();
+
+  run.mockResolvedValueOnce({ ok: false, reason: "host-key-changed" });
+  await hosts.action({ action: "refresh", host: "worker" });
+  await expect(hosts.startSetupAgent(input, launch)).rejects.toThrow("Setup agent unavailable");
+  expect(launch).toHaveBeenCalledTimes(2);
+});
+
+test("a removed setup target does not recheck or launch a replacement registration on exit", async () => {
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  const id = await hosts.startSetupAgent(
+    { action: "setup-agent", host: "worker", agent: "codex", repositories: ["/local/repo"] },
+    () => Promise.resolve(),
+  );
+  await hosts.action({ action: "remove", host: "worker" });
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  expect(hosts.setupAgentId("worker")).toBeUndefined();
+  expect(hosts.state().hosts[0]?.setupAgent).toBeUndefined();
+  await hosts.setupAgentExited(id, true);
+  expect(run).not.toHaveBeenCalled();
+});
 test("test does not authorize, add records enrollment, refresh replaces stale facts, removal never kills", async () => {
   expect(await hosts.action({ action: "list" })).toEqual({ hosts: [], locations: [] });
   expect(

@@ -112,6 +112,7 @@ export interface WorkspaceMethods {
     signal?: AbortSignal,
     heldReservation?: string,
     parentHold?: CheckoutHold,
+    setup?: { id: string; prompt: string },
   ): Promise<string | undefined>;
   startHomeShell(
     restoreId?: string,

@@ -370,8 +370,8 @@ absent checkouts do not affect readiness. Host facts lists existing checkouts as
 **repository · path**, one per line.
 Settings has no Clone here control or per-repository clone status.
 Host checks are language neutral and never execute anything from a checkout.
-Preparing a host to build a repository is left to an agent the user runs on that
-host ([#1024](https://github.com/scott-r-lindsey/foom/issues/1024)).
+**Set up with an agent…** starts a local agent that connects to the host over SSH
+and prepares it for the selected repositories. See [host setup](../areas/hosts.md#set-up-with-an-agent-1263).
 Codex hook trust is not inferred from installation or
 sign-in; the first launch may need hook review in Codex's tile.
 
@@ -408,7 +408,7 @@ internal reason codes. Checks blocked by daemon inspection show neutral
 ### Hosts checklist refresh (#1061)
 
 **Check capabilities** checks the whole host; Add performs its first check.
-Accepting a new SSH key may rerun the first check only if the host has never had a successful check. Other Hosts actions never start a full check. Rename is local. Folder actions
+Accepting a new SSH key may rerun the first check only if the host has never had a successful check. A setup agent's exit runs a full check. Rename is local. Folder actions
 refresh the folder from their successful reply and mark affected repositories **Not checked**.
 A failed replacement reports the attempted change and preserves the registered folder's result.
 Clone and Trust origin update that repository. Interactive host actions stay in

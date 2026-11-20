@@ -35,6 +35,8 @@ export interface SetupDependencies {
     id: unknown,
   ) => Promise<{ available: readonly string[]; recipeSession?: string }>;
   launchHostRecipe?: (target: RemoteTarget, finished?: () => void) => Promise<unknown>;
+  launchHostSetupAgent?: Parameters<Hosts["startSetupAgent"]>[1];
+  placeHostSetupAgent?: (id: string, background: boolean) => void;
   copyText?: (value: string) => void | Promise<void>;
   confirmHostKey?: (content: PlainDialogContent, signal: AbortSignal) => Promise<DialogOutcome>;
   confirmRemoteSessions?: (content: DialogContent, signal?: AbortSignal) => Promise<boolean>;
@@ -110,9 +112,21 @@ export class Setup {
     this.hostTrust = new AbortController();
   }
   async hosts(input: unknown) {
-    if (hostsAction(input) && input.action === "cancel-trust") this.cancelHostTrust();
+    if (!hostsAction(input)) throw new Error("Invalid host action");
+    if (input.action === "cancel-trust") this.cancelHostTrust();
     if (!this.deps.hosts) throw new Error("Hosts unavailable");
-    if (hostsAction(input) && input.action === "remove") {
+    if (input.action === "setup-agent") {
+      if (!this.deps.launchHostSetupAgent) throw new Error("Setup agent unavailable");
+      const id = await this.deps.hosts.startSetupAgent(input, this.deps.launchHostSetupAgent);
+      this.deps.placeHostSetupAgent?.(id, true);
+      return this.deps.hosts.state();
+    }
+    if (input.action === "show-setup-agent") {
+      const id = this.deps.hosts.setupAgentId(input.host);
+      if (id === input.id) this.deps.placeHostSetupAgent?.(id, false);
+      return this.deps.hosts.state();
+    }
+    if (input.action === "remove") {
       const sessions = () =>
         (this.deps.hostSessions?.() ?? []).filter(
           (row) =>
@@ -163,11 +177,9 @@ export class Setup {
       )
       .then((state) => {
         if (state.preflightSaveFailed) return state;
-        if (hostsAction(input)) {
-          if (input.action === "rename") this.refresh();
-          if (!["progress", "cancel-trust", "list", "reload"].includes(input.action))
-            this.deps.hostsChanged?.();
-        }
+        if (input.action === "rename") this.refresh();
+        if (!["progress", "cancel-trust", "list", "reload"].includes(input.action))
+          this.deps.hostsChanged?.();
         return state;
       });
   }

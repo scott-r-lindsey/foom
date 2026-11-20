@@ -532,6 +532,30 @@ export function hostsAction(value: unknown): value is HostsAction {
   )
     return keys(value, ["action"]);
   if (!hostAlias(value["host"])) return false;
+  if (value["action"] === "setup-agent") {
+    const repositories: unknown = value["repositories"];
+    return (
+      keys(value, ["action", "host", "agent", "repositories"]) &&
+      agentId(value["agent"]) &&
+      Array.isArray(repositories) &&
+      repositories.length > 0 &&
+      repositories.length <= 1000 &&
+      Array.from(repositories).every(
+        (path: unknown) =>
+          typeof path === "string" &&
+          path.length > 0 &&
+          path.length <= 4096 &&
+          !/\p{Cc}/u.test(path),
+      ) &&
+      new Set(repositories).size === repositories.length
+    );
+  }
+  if (value["action"] === "show-setup-agent")
+    return (
+      keys(value, ["action", "host", "id"]) &&
+      typeof value["id"] === "string" &&
+      /^[a-zA-Z0-9_-]{1,200}$/u.test(value["id"])
+    );
   if (value["action"] === "reload")
     return keys(value, ["action", "host", "target"]) && hostCheckTarget(value["target"]);
   if (value["action"] === "rename")
@@ -576,5 +600,12 @@ export function hostsAction(value: unknown): value is HostsAction {
     keys(value, ["action", "host", "repository"]) &&
     typeof value["repository"] === "string" &&
     value["repository"].length <= 4096
+  );
+}
+
+export function hostKeyUntrusted(ssh: HostCheck | undefined): boolean {
+  return (
+    ssh?.state === "fail" &&
+    (ssh.reason === "host-key-unknown" || ssh.reason === "host-key-changed")
   );
 }

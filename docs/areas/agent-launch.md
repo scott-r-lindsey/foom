@@ -289,6 +289,17 @@ launches reuse ordinary per-launch hooks and bypass consent; the remote plain CL
 launch attaches no MCP or hook assets. Evaluation remains local. Repository placement uses the selected machine's checked main checkout;
 existing remote worktree launches retain profile provenance and identity checks.
 
+### Local host setup agent (#1263)
+
+The explicit **Start agent** action in Settings › Hosts uses the human-owned
+local machine launch with ordinary defaults, hooks, environment and attention.
+Main selects the enabled, installed provider and builds a fixed brief with the
+registered SSH target, code folder and selected repositories' validated origins.
+It passes the brief as one initial-prompt argument through the provider manifest.
+The agent uses the user's SSH client and credentials. Foom adds no credentials,
+forwarding, repository control grant or remote agent dependency. Foom never
+interprets the agent's output as setup instructions or observations.
+
 ### Settings installation on hosts (#1070)
 
 A registered host's Antigravity card may explicitly offer Install plugin. Main's

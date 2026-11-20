@@ -64,7 +64,7 @@ async function captureHosts(
         .toBe(mode === "dark");
       await area.screenshot({
         path: evidencePath(
-          `${/^(?:1059|1061|1062|1067|1074|1131|1259|1260|1262)\//u.test(name) ? name : `1074/${name}`}-${mode}.png`,
+          `${/^(?:1059|1061|1062|1067|1074|1131|1259|1260|1262|1263)\//u.test(name) ? name : `1074/${name}`}-${mode}.png`,
         ),
       });
     }
@@ -85,7 +85,7 @@ async function hostsFixture(
   context,
   captureEnrollment = false,
   initialScenario = {},
-  { trackSidebar = false, failFirstChecklistSave = false } = {},
+  { trackSidebar = false, failFirstChecklistSave = false, setupAgent = false } = {},
 ) {
   const root = await mkdtemp(path.join(tmpdir(), "hosts-settings-"));
   removeAfterApps(context, root);
@@ -96,6 +96,37 @@ async function hostsFixture(
   const recipeCalls = path.join(root, "recipes.jsonl");
   const scenario = path.join(root, "scenario.json");
   await writeFile(scenario, JSON.stringify(initialScenario));
+  const setupArguments = path.join(root, "setup-arguments.json");
+  if (setupAgent) {
+    for (const [agent, version, help] of [
+      ["claude", "2.1.285 (Claude Code)", "--settings"],
+      ["codex", "codex-cli 0.155.1", "-c --no-alt-screen"],
+    ]) {
+      await writeFile(
+        path.join(bin, agent),
+        `#!${process.execPath}
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+if (args.includes('--version')) process.stdout.write(${JSON.stringify(version + "\n")});
+else if (args.includes('--help')) process.stdout.write(${JSON.stringify(help + "\n")});
+else {
+  fs.writeFileSync(${JSON.stringify(setupArguments)}, JSON.stringify({ agent: ${JSON.stringify(agent)}, args }));
+  process.stdout.write('LOCAL_SETUP_AGENT_READY\\r\\n');
+  let asked = false;
+  const timer = setInterval(() => {
+    const scenario = JSON.parse(fs.readFileSync(${JSON.stringify(scenario)}, 'utf8'));
+    if (scenario.askSetup && !asked) {
+      asked = true;
+      process.stdout.write('\\x1b]2;Action Required | codex\\x07Approval requested\\r\\n');
+    }
+    if (scenario.finishSetup) clearInterval(timer);
+  }, 20);
+}
+`,
+        { mode: 0o700 },
+      );
+    }
+  }
   const overflowInfo = path.join(root, "diagnostic-overflow.json");
   const knownHosts = path.join(root, "known_hosts");
   await writeFile(knownHosts, "");
@@ -412,6 +443,18 @@ process.stdin.on('data', bytes => {
       agents: { claude: true, codex: true, agy: false, copilot: false, opencode: false, pi: false },
     }),
   );
+  if (setupAgent) {
+    await page.evaluate(() => window.desktop.saveSetup({ defaultAgent: "codex", hooks: false }));
+    for (const name of ["app", "docs-site", "integration", "release-tools", "ui-library"]) {
+      const directory = path.join(root, name);
+      gitSync(["init", "-q", directory]);
+      gitSync(["remote", "add", "origin", `git@forge.test:team/${name}.git`], { cwd: directory });
+      await app.evaluate(({ dialog }, repository) => {
+        dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repository] });
+      }, directory);
+      assert.equal((await page.evaluate(() => window.desktop.addRepository())).name, name);
+    }
+  }
   await openSettingsScreen(page);
   const navigation = page.getByRole("navigation", { name: "Settings sections" });
   await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
@@ -441,7 +484,7 @@ process.stdin.on('data', bytes => {
   await expect(card.getByRole("button", { name: "Install codex", exact: true })).toHaveCount(0);
   await expect(
     card.locator(".host-check-row").getByText("Not checked", { exact: true }),
-  ).toHaveCount(1);
+  ).toHaveCount(setupAgent ? 6 : 1);
   if (captureEnrollment) await capture("partial-facts");
   return {
     app,
@@ -461,8 +504,168 @@ process.stdin.on('data', bytes => {
     cloneReason,
     settleSidebar,
     recipeCalls,
+    setupArguments,
   };
 }
+
+test("Hosts setup agent dialog launches locally, keeps Settings open and rechecks on exit", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, navigation, setupArguments, updateScenario, calls } = await hostsFixture(
+    context,
+    false,
+    {},
+    { setupAgent: true },
+  );
+  const action = card.getByRole("button", { name: "Set up with an agent…" });
+  const status = card.locator(".host-summary-row").getByRole("status");
+  await card.getByRole("button", { name: "Collapse fixture-cloud" }).click();
+  await expect(action).toBeVisible();
+  await expect(action).toHaveClass("primary");
+  const dialog = page.getByRole("dialog", { name: "Set up fixture-cloud with an agent" });
+  const picker = dialog.getByRole("combobox", { name: "Agent" });
+  await action.click();
+  await expect(picker).toBeFocused();
+  await expect(picker).toHaveValue("codex");
+  await expect(picker.locator("option")).toHaveText(["Claude Code", "Codex"]);
+  await expect(
+    dialog.getByRole("checkbox", { name: "Record discovered requirements" }),
+  ).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await expect(action).toBeFocused();
+  await action.click();
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(dialog).toBeHidden();
+  await action.click();
+  await page.mouse.click(5, 5);
+  await expect(dialog).toBeHidden();
+
+  await action.click();
+  const repo = dialog.getByRole("checkbox", { name: "shell-fixture" });
+  const filter = dialog.getByRole("searchbox", { name: "Filter repositories" });
+  const start = dialog.getByRole("button", { name: "Start agent" });
+  await expect(start).toBeDisabled();
+  await filter.fill("no match");
+  await expect(repo).toBeHidden();
+  await filter.fill("shell");
+  await repo.check();
+  await filter.fill("no match");
+  await expect(repo).toBeVisible();
+  await expect(repo).toBeChecked();
+  await expect(dialog.getByRole("checkbox")).toHaveCount(1);
+  await filter.clear();
+  await expect(dialog.getByRole("checkbox")).toHaveCount(6);
+  assert.ok(
+    await dialog
+      .locator(".host-setup-repositories")
+      .evaluate((list) => list.scrollHeight > list.clientHeight),
+  );
+  await picker.focus();
+  await captureHosts(app, page, "1263/setup-dialog", dialog);
+  const checkedAt = () =>
+    page.evaluate(
+      async () =>
+        (await window.desktop.hosts({ action: "progress" })).hosts[0].observation.checkedAt,
+    );
+  const before = await checkedAt();
+  const beforeCalls = await readFile(calls, "utf8");
+  await start.click();
+  await expect(dialog).toBeHidden();
+  await expect(navigation).toBeVisible();
+  await expect(status).toHaveText("Setting up · Codex");
+  await expect(action).toHaveCount(0);
+  await expect
+    .poll(() => readFile(setupArguments, "utf8").catch(() => ""))
+    .toContain("fixture-cloud");
+  const invocation = JSON.parse(await readFile(setupArguments, "utf8"));
+  assert.equal(invocation.agent, "codex");
+  const [brief] = invocation.args.filter((argument) =>
+    argument.includes("git@forge.test:team/project.git"),
+  );
+  assert.ok(brief.startsWith("Prepare the registered SSH host"));
+  assert.match(brief, /"host":"fixture-cloud","codeFolder":"\/remote\/account\/foom"/u);
+  assert.match(
+    brief,
+    /"repository":"shell-fixture","origin":"git@forge\.test:team\/project\.git"/u,
+  );
+  assert.doesNotMatch(brief, /docs-site|release-tools|ui-library/u);
+  assert.equal(
+    await readFile(calls, "utf8"),
+    beforeCalls,
+    "Launching the local agent makes no SSH request",
+  );
+  const request = async (extra = {}) =>
+    page.evaluate(async (extra) => {
+      const { repositories } = await window.desktop.workspace();
+      return window.desktop.hosts({
+        action: "setup-agent",
+        host: "fixture-cloud",
+        agent: "codex",
+        repositories: [repositories[0].path],
+        ...extra,
+      });
+    }, extra);
+  await assert.rejects(request(), /foom-error:operation-failed/u);
+  await assert.rejects(request({ prompt: "renderer text" }), /foom-error:operation-failed/u);
+  await card.getByRole("button", { name: "Expand fixture-cloud" }).click();
+  const show = card.getByRole("button", { name: "Show agent" });
+  await expect(show).toBeVisible();
+  await captureHosts(app, page, "1263/setup-running", card);
+
+  await show.click();
+  await expect(navigation).toBeHidden();
+  const tile = page
+    .getByRole("group", { name: "Terminal tiles" })
+    .locator('.terminal-tile[data-empty="false"]');
+  await expect(tile).toHaveCount(1);
+  await updateScenario({ askSetup: true });
+  await expect(tile.getByRole("img", { name: "Needs you", exact: true })).toBeVisible();
+  await openSettingsScreen(page);
+  await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
+  await expect(status).toHaveText("Setting up · Codex");
+  await updateScenario({
+    finishSetup: true,
+    facts: { tools: [{ id: "git", state: "ready", signIn: "unknown" }] },
+  });
+  await expect.poll(checkedAt).toBeGreaterThan(before);
+  await expect(card.locator(".host-summary-row").getByText("Ready", { exact: true })).toBeVisible();
+  await expect(action).not.toHaveClass("primary");
+  await expect(navigation).toBeVisible();
+  assert.match((await readFile(calls, "utf8")).slice(beforeCalls.length), /"operation":"inspect"/u);
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const { terminals } = await window.desktop.workspace();
+        return terminals.find((terminal) => terminal.agent === "codex")?.exited;
+      }),
+    )
+    .toBe(true);
+  await page.keyboard.press("Escape");
+  await expect(navigation).toBeHidden();
+  await expect(
+    page
+      .getByRole("group", { name: "Terminal tiles" })
+      .locator('.terminal-tile[data-empty="false"]'),
+  ).toHaveCount(1);
+
+  await openSettingsScreen(page);
+  await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
+  const check = card.getByRole("button", { name: "Check capabilities", exact: true });
+  for (const [sshFailure, label] of [
+    ["changed", "Host key changed"],
+    ["unknown", "Host key not trusted"],
+  ]) {
+    await updateScenario({ sshFailure });
+    const expand = card.getByRole("button", { name: "Expand fixture-cloud" });
+    if (await expand.isVisible()) await expand.click();
+    await check.click();
+    await expect(card.getByText(label, { exact: true }).first()).toBeVisible();
+    await expect(action).toHaveCount(0);
+    await assert.rejects(request(), /foom-error:operation-failed/u);
+  }
+});
 
 test("first-use repository launch exposes each fixed clone failure and Settings has no clone control", {
   skip: process.platform === "win32",

@@ -56,6 +56,29 @@ export class Workspace {
   async startHostRecipe(target: RemoteTarget): Promise<string> {
     return this.owner.startHomeShell(undefined, target);
   }
+  async startHostSetupAgent(
+    id: string,
+    agent: string,
+    prompt: string,
+    validate: () => void,
+  ): Promise<void> {
+    const { agents } = await this.owner.scanAgents(false);
+    if (!agents.some((entry) => entry.id === agent && entry.path && entry.initialPrompt))
+      throw new Error("Agent cannot receive a setup brief");
+    await this.owner.startMachine(
+      null,
+      agent,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      validate,
+      undefined,
+      undefined,
+      undefined,
+      { id, prompt },
+    );
+  }
   async initializeControl(): Promise<void> {
     return this.owner.initializeControl();
   }

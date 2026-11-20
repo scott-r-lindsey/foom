@@ -43,6 +43,110 @@
   outline-offset: 2px;
 }
 
+.host-setup-running .host-symbol {
+  flex-basis: 8px;
+  width: 8px;
+  height: 8px;
+  border: 0;
+  background: var(--accent);
+  animation: none;
+}
+.host-setup-dialog {
+  box-sizing: border-box;
+  width: min(440px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: calc(13px * var(--type-scale, 1));
+}
+.host-setup-dialog::backdrop {
+  background: color-mix(in srgb, var(--hole) 65%, transparent);
+}
+.host-setup-dialog h2 {
+  margin: 0 0 6px;
+  overflow-wrap: anywhere;
+  font: var(--type-strong-weight, 600) calc(16px * var(--type-scale, 1)) var(--font-interface);
+}
+.host-setup-dialog p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+.host-setup-dialog [role="alert"] {
+  margin-top: 12px;
+  color: var(--failed-ink);
+}
+.host-setup-agent-picker,
+.host-setup-repository-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+}
+.host-setup-agent-picker {
+  margin-top: 14px;
+}
+.host-setup-agent-picker select {
+  flex: 1;
+}
+.host-setup-repository-heading {
+  margin: 24px 0 8px;
+  font: var(--type-weight, 400) calc(11px * var(--type-scale, 1)) var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.host-setup-repository-heading input {
+  box-sizing: border-box;
+  width: 50%;
+}
+.host-setup-dialog :is(select, input[type="search"]) {
+  min-width: 0;
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--ink);
+  font: inherit;
+}
+.host-setup-repository-heading input[type="search"] {
+  font: var(--type-weight, 400) calc(13px * var(--type-scale, 1)) var(--font-interface);
+  letter-spacing: normal;
+}
+.host-setup-repositories {
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+}
+.host-setup-repositories label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 0;
+  overflow-wrap: anywhere;
+}
+.host-setup-repositories label + label {
+  border-top: 1px solid var(--line);
+}
+.host-setup-repositories input {
+  accent-color: var(--accent);
+}
+.host-setup-repositories p {
+  padding: 9px 0;
+}
+.host-setup-dialog footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+
 .github-sign-in {
   display: grid;
   grid-template-columns: subgrid;
