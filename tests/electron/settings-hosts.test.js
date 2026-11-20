@@ -1006,6 +1006,10 @@ test("Hosts creates missing folders and reports enrollment and artifact failures
   await card.getByRole("button", { name: "Change folder", exact: true }).click();
   await card.getByLabel("Code folder", { exact: true }).fill("~/new-code");
   await card.getByRole("button", { name: "Save", exact: true }).click();
+  // Save can finish before the subscribed card receives the new registered folder.
+  await expect(
+    card.locator(".host-meta").getByText("/remote/account/new-code", { exact: true }),
+  ).toBeVisible();
   await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
   await updateScenario({ facts: { folder: { state: "fail", reason: "folder-missing" } } });
   await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
