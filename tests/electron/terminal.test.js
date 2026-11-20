@@ -1539,6 +1539,46 @@ test("focus reports reach the shell without counting as a reply", {
   );
 });
 
+test("middle click focuses the inactive terminal and routes typing to its PTY", {
+  timeout: deadline(45000),
+}, async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "foom-middle-focus-"));
+  removeAfterApps(context, root);
+  const app = await launchApp(context, { fixture: "running-shell" });
+  const page = await boardPage(app);
+  await sizeTileBoard(app, page, 1400, 1000);
+  const tiles = page.locator(".terminal-tile[data-kind='shell']");
+  const shellA = tiles.nth(0);
+  const shellB = tiles.nth(1);
+  const markerA = path.join(root, "input-a");
+  const markerB = path.join(root, "input-b");
+  const startProbe = async (tile, marker) => {
+    await writeFile(marker, "");
+    await expect(tile.locator(".xterm-helper-textarea")).toBeFocused();
+    const command = `${process.platform === "win32" ? "& " : ""}"${process.execPath}" "${path.join(__dirname, "input-probe.js")}" "${marker}"`;
+    await page.keyboard.type(command);
+    await page.keyboard.press("Enter");
+    await expect(tile.locator(".xterm-rows")).toContainText("INPUT_READY");
+  };
+  await startProbe(shellA, markerA);
+  await launchCheckoutShell(app, page);
+  await expect(tiles).toHaveCount(2);
+  await startProbe(shellB, markerB);
+
+  // Exercise tile focus when xterm and Chromium leave keyboard focus alone.
+  await shellA.locator(".xterm-screen").dispatchEvent("pointerdown", {
+    button: 1,
+    buttons: 4,
+    pointerType: "mouse",
+    isPrimary: true,
+  });
+  await expect(shellA.locator(".xterm-helper-textarea")).toBeFocused();
+  await page.keyboard.press("KeyB");
+  await expect(shellA.locator(".xterm-rows")).toContainText("INPUT_BARRIER");
+  assert.equal(await readFile(markerA, "utf8"), "62\n");
+  assert.equal(await readFile(markerB, "utf8"), "");
+});
+
 test("middle click reports without pasting while tracking and Shift preserves Linux primary selection", async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), "foom-middle-click-"));
   removeAfterApps(context, root);

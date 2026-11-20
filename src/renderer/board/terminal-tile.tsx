@@ -401,7 +401,7 @@ export function Tile({
           event.button !== 2 &&
           event.target instanceof Element &&
           !event.target.closest("button") &&
-          !event.target.closest(".xterm")
+          (event.button === 1 || !event.target.closest(".xterm"))
         ) {
           if (view && row && (!row.startup || row.startup.pending === false)) view.focus();
           else elementRef.current?.focus();
