@@ -1170,6 +1170,11 @@ export class Hosts {
               : {
                   ...item,
                   state: found?.state ?? "unable",
+                  ...(found?.codexApprovals !== undefined
+                    ? { codexApprovals: found.codexApprovals }
+                    : item.codexApprovals !== undefined
+                      ? { codexApprovals: "unknown" as const }
+                      : {}),
                   ...(found?.details ? { details: found.details } : {}),
                 };
           });
@@ -1982,18 +1987,14 @@ export class Hosts {
           ...result.facts,
           agents: probes.map<HostFacts["agents"][number]>((probe) => {
             const found = result.facts.agents.find((agent) => agent.id === probe.id);
+            const bundled =
+              providers.find((provider) => provider.id === probe.id)?.origin === "bundled";
             return {
               id: probe.id,
               ...(found?.details ? { details: found.details } : {}),
-              signIn:
-                providers.find((provider) => provider.id === probe.id)?.origin === "bundled"
-                  ? (result.facts.agents.find((agent) => agent.id === probe.id)?.signIn ??
-                    "unknown")
-                  : "unknown",
-              state:
-                providers.find((provider) => provider.id === probe.id)?.origin === "bundled"
-                  ? (result.facts.agents.find((agent) => agent.id === probe.id)?.state ?? "unable")
-                  : "unable",
+              ...(bundled && found?.codexApprovals ? { codexApprovals: found.codexApprovals } : {}),
+              signIn: (bundled ? found?.signIn : undefined) ?? "unknown",
+              state: (bundled ? found?.state : undefined) ?? "unable",
             };
           }),
         },

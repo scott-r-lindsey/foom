@@ -63,6 +63,7 @@ export async function atomicPrivate(
   directory: string,
   name: string,
   value: unknown,
+  beforeCommit?: () => void,
 ): Promise<void> {
   await verifyPrivate(directory, true);
   const temporary = join(directory, `${randomUUID()}.tmp`);
@@ -71,6 +72,7 @@ export async function atomicPrivate(
     await file.writeFile(JSON.stringify(value));
     await file.sync();
     await file.close();
+    beforeCommit?.();
     await rename(temporary, join(directory, name));
     if (process.platform !== "win32") {
       const parent = await open(directory, constants.O_RDONLY);

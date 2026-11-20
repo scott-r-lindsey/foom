@@ -50,6 +50,15 @@ import { WorktreeBranchCleanup } from "./worktree-branch-cleanup";
 export class WorktreeService {
   private readonly repositories = new Map<string, Repository>();
   private readonly registrations = new Map<string, string>();
+  private readonly legacyRegistrations = new Set<string>();
+  /** A profile record cannot reference an ID synthesized only for this process. */
+  async preserveRegistrationIdentity(path: string, id: string): Promise<void> {
+    if (this.registrationIdentity(path) !== id) throw new Error("Repository registration changed");
+    if (!this.legacyRegistrations.has(path)) return;
+    await this.save();
+    if (this.registrationIdentity(path) !== id) throw new Error("Repository registration changed");
+    this.legacyRegistrations.delete(path);
+  }
   registrationIdentity(path: string): string {
     this.repository(path);
     const id = this.registrations.get(path);
@@ -188,7 +197,9 @@ export class WorktreeService {
     for (const path of state["repositories"]) {
       try {
         if ((await realpath(path)) !== path) continue;
+        const hasSavedIdentity = this.registrations.has(path);
         await this.addRepository(path);
+        if (!hasSavedIdentity) this.legacyRegistrations.add(path);
       } catch {
         // Omit unusable registrations, but retain their unknown retry membership.
       }
@@ -317,6 +328,7 @@ export class WorktreeService {
         }
         this.repositories.delete(path);
         this.registrations.delete(path);
+        this.legacyRegistrations.delete(path);
       }
     };
     if (!this.store) {

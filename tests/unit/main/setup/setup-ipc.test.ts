@@ -30,6 +30,7 @@ const setup = {
   githubSignIn: vi.fn(() => "device-state"),
   copyHost: vi.fn(),
   hosts: vi.fn(() => "hosts"),
+  repositoryRequirements: vi.fn(() => null),
   restartToUpdate: vi.fn(() => Promise.resolve()),
   readiness: vi.fn(() => "readiness"),
   state: vi.fn(() => ({ settings: { interfaceScale: 100 } })),
@@ -66,6 +67,7 @@ test("every channel rejects untrusted senders", () => {
     "setup:github-sign-in",
     "setup:state",
     "setup:local-agent-install",
+    "setup:repository-requirements",
     "setup:hosts",
     "setup:restart-update",
     "setup:save",
@@ -200,6 +202,15 @@ test("host management requires one payload and the trusted setup sender", () => 
   expect(setup.hosts).toHaveBeenCalledWith({ action: "list" });
   expect(() => invoke("setup:hosts")).toThrow();
   expect(() => invoke("setup:hosts", [{}, {}])).toThrow();
+});
+
+test("host requirements accept one request from the trusted Settings document", () => {
+  const channel = "setup:repository-requirements";
+  const request = { action: "read", repository: "/fixture/repo" };
+  expect(invoke(channel, [request])).toBeNull();
+  expect(setup.repositoryRequirements).toHaveBeenCalledExactlyOnceWith(request);
+  for (const args of [[], [request, request]])
+    expect(() => invoke(channel, args)).toThrow("Invalid host requirements request");
 });
 
 test("host copy accepts exactly one validated command and routes no raw text", () => {

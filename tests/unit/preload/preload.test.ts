@@ -2258,3 +2258,34 @@ test("preview history bridge validates navigation facts and forwards ID-scoped t
   off?.();
   expect(mock.removeListener).toHaveBeenCalledWith("preview:navigation", listener);
 });
+
+test("validates and projects recorded host requirements", async () => {
+  const api = await bridge();
+  const action = { action: "read", repository: "/fixture/repo" } as const;
+  const note = {
+    markdown: "# Requirements",
+    revision: "13d2354c-75d5-4771-8d2a-f0179896e640",
+    agent: "Codex",
+    host: "worker",
+    recordedAt: 1700000000000,
+  };
+  mock.invoke.mockResolvedValue({ ...note, extra: "discarded" });
+  await expect(api.repositoryRequirements(action)).resolves.toEqual(note);
+  expect(mock.invoke).toHaveBeenCalledWith("setup:repository-requirements", action);
+  mock.invoke.mockResolvedValue(null);
+  await expect(api.repositoryRequirements(action)).resolves.toBeNull();
+  for (const patch of [
+    { revision: "/path" },
+    { recordedAt: 0.5 },
+    { editedAt: Infinity },
+    { host: "x\u202e" },
+    { markdown: "  " },
+    { markdown: "é".repeat(8193) },
+    { markdown: "x\u0000" },
+  ]) {
+    mock.invoke.mockResolvedValue({ ...note, ...patch });
+    await expect(api.repositoryRequirements(action)).rejects.toThrow(
+      "Invalid setup:repository-requirements response",
+    );
+  }
+});

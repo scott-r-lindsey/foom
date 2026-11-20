@@ -1,3 +1,4 @@
+import { codexApprovals } from "./codex-approvals";
 import { remotePluginState } from "./plugin-status";
 import { requirements, signInStatus } from "./host-facts";
 import { networkGit } from "./network-git";
@@ -184,6 +185,9 @@ export async function manageHost(
             : undefined);
         agents.push({
           id: model.id,
+          ...(request.operation === "inspect" && request.codexApprovalCheck && model.id === "codex"
+            ? { codexApprovals: await codexApprovals(home, found.env) }
+            : {}),
           ...(request.operation === "inspect" && request.agentDetails
             ? {
                 details: {

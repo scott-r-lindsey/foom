@@ -1,3 +1,4 @@
+import { RepositoryRequirementsCards } from "./repository-requirements";
 import { GithubSignInPanel } from "./github-sign-in";
 import { useHostsView, useViewState } from "../data/view-hooks";
 import { HostTerminal } from "./host-terminal";
@@ -1258,6 +1259,9 @@ export function HostsSettings({
           }
         }
         const summary = hostSummary(preflight);
+        const codexApprovals = preflight?.result.ok
+          ? preflight.result.facts.agents.find((agent) => agent.id === "codex")?.codexApprovals
+          : undefined;
         const distro = entry.result?.ok ? entry.result.facts.requirements?.distro : undefined;
         const os = distro === "darwin" ? "macOS" : distro;
         const open =
@@ -1303,6 +1307,9 @@ export function HostsSettings({
                   />
                   <span className="host-count">{os}</span>
                 </div>
+              )}
+              {codexApprovals === "may-prompt" && (
+                <span className="host-count host-need">Codex may prompt for approval</span>
               )}
               <span className={`host-count ${summary === "Needs you" ? "host-need" : ""}`}>
                 {busy.has(entry.host) ? (
@@ -1600,7 +1607,10 @@ export function RepositoryHosts({
   repositories,
   headingRef,
 }: {
-  source: Pick<SetupSource, "hosts" | "copyHost" | "views" | "hostTerminal">;
+  source: Pick<
+    SetupSource,
+    "hosts" | "copyHost" | "views" | "hostTerminal" | "repositoryRequirements"
+  >;
   repositories: readonly Repository[];
   headingRef?: RefObject<HTMLHeadingElement | null>;
 }) {
@@ -1659,6 +1669,12 @@ export function RepositoryHosts({
         <p role="alert" className="hosts-failure">
           {error || "Unable to check locations"}
         </p>
+      )}
+      {source.repositoryRequirements && (
+        <RepositoryRequirementsCards
+          repositories={repositories}
+          request={source.repositoryRequirements}
+        />
       )}
       {[{ host: null, codeFolder: "" }, ...state.hosts].map((host) => {
         const checked = repositories.filter(

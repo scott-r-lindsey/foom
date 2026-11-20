@@ -253,3 +253,8 @@ host unavailability and asks through the trusted dialog. No renderer-supplied
 cleanup or force field is accepted as authority. A `workspace:changed` notification
 may carry `true` to request a snapshot-only refresh; preload treats every other
 value as an ordinary full refresh. This hint grants no capability.
+
+`setup:repository-requirements` accepts one closed read, edit or clear request
+for a registered repository from the Settings document. Edit and clear carry
+the visible note's revision. The preload validates the bounded note response.
+The setup run's writer is a separate main-owned capability bound to that run.
