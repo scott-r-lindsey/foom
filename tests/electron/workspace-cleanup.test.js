@@ -1305,10 +1305,10 @@ test("detached removals share one review per checkout and approve independently"
   );
   await expect.poll(() => app.evaluate(() => globalThis.detachedAnswers.retry)).toBe(true);
   assert.equal(require("node:fs").existsSync(paths[1]), false);
-  // Distinct branches can all hold independent removal reservations at once.
-  const cleanBranches = Array.from({ length: 16 }, (_, index) => `bulk-${String(index + 1)}`);
+  // Keep the real Git checks small. The approval queue fixture tests scrolling a large batch.
+  const changedLate = "bulk-changed";
+  const cleanBranches = ["bulk-one", "bulk-two", changedLate];
   const untracked = "with-notes";
-  const changedLate = cleanBranches.at(-1);
   for (const branch of [...cleanBranches, untracked])
     git("worktree", "add", "-b", branch, path.join(root, branch));
   await writeFile(path.join(root, untracked, "notes.txt"), "keep me");
@@ -1341,7 +1341,6 @@ test("detached removals share one review per checkout and approve independently"
     { root, branches: [...cleanBranches, untracked], changedLate },
   );
   const queue = await approvalPage(app);
-  const viewport = queue.getByRole("region", { name: "Pending approvals" });
   const bulk = queue.getByRole("button", {
     name: `Approve all clean removals (${cleanBranches.length})`,
     exact: true,
@@ -1352,22 +1351,6 @@ test("detached removals share one review per checkout and approve independently"
   );
   await expect(bulk).toBeEnabled();
   await expect(queue.getByText("notes.txt", { exact: true })).toHaveCount(1);
-  assert.ok(
-    await viewport.evaluate((element) => {
-      element.scrollTop = (element.scrollHeight - element.clientHeight) / 2;
-      const bounds = element.getBoundingClientRect();
-      const rows = Array.from(element.querySelectorAll(".approval-row"));
-      return (
-        element.scrollTop > 0 &&
-        rows.filter((row) => {
-          const rect = row.getBoundingClientRect();
-          return rect.top >= bounds.top && rect.bottom <= bounds.bottom;
-        }).length <
-          rows.length / 2
-      );
-    }),
-    "Most removal rows must be outside the visible queue",
-  );
   await bulk.click();
   await expect(
     queue.getByRole("button", { name: "Approve all clean removals (0)", exact: true }),

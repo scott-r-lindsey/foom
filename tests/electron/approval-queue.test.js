@@ -303,12 +303,14 @@ test("dirty removal file lists must be visible before trusted discard", {
   timeout: deadline(60000),
 }, async (context) => {
   const { app, board } = await launchApprovalFixture(context);
-  await app.evaluate(() => {
+  const leading = Array.from({ length: 16 }, (_, index) => `scroll-${index}`);
+  const clean = ["one", "two", ...leading, "after-dirty"];
+  await app.evaluate((_, leading) => {
     const fixture = globalThis.approvalFixture;
-    for (let index = 0; index < 9; index++) fixture.add(`scroll-${index}`);
+    for (const id of leading) fixture.add(id);
     fixture.add("dirty", "Worktree removal", undefined, " M sidebar.tsx\0?? notes.txt\0");
     fixture.add("after-dirty");
-  });
+  }, leading);
   const { dialog, native, row, approve } = await openFixtureDialog(app, board);
   try {
     const dirty = row("dirty");
@@ -349,6 +351,34 @@ test("dirty removal file lists must be visible before trusted discard", {
     await expect(dirty.getByRole("list", { name: "Uncommitted changes" })).toBeInViewport({
       ratio: 1,
     });
+    const viewport = dialog.getByRole("region", { name: "Pending approvals" });
+    assert.ok(
+      await viewport.evaluate((element) => {
+        const bounds = element.getBoundingClientRect();
+        const rows = Array.from(element.querySelectorAll(".approval-row")).filter(
+          (row) => !row.querySelector("[data-approval-discard]"),
+        );
+        const visible = rows.filter((row) => {
+          const rect = row.getBoundingClientRect();
+          return rect.top >= bounds.top && rect.bottom <= bounds.bottom;
+        });
+        return element.scrollTop > 0 && visible.length < rows.length / 2;
+      }),
+      "Most clean removal rows are outside the visible queue",
+    );
+    await dialog
+      .getByRole("button", { name: `Approve all clean removals (${clean.length})`, exact: true })
+      .click();
+    await expect
+      .poll(() =>
+        app.evaluate((_, ids) => {
+          const results = globalThis.approvalFixture.results;
+          return ids.every((id) => results[id] === true) && results.dirty === undefined;
+        }, clean),
+      )
+      .toBe(true);
+    await expect(dialog.locator(".approval-row")).toHaveCount(1);
+    await revealApproval(dialog, discard);
     await discard.click();
     await expect
       .poll(() => app.evaluate(() => globalThis.approvalFixture.results.dirty))
