@@ -627,13 +627,20 @@ fresh inspection, never from saved observations. Host facts offers a separate
 session/worktree inventory refresh.
 
 Each host is a compact name, OS, status and chevron row, opening by default only
-when it needs attention. Expanding exposes all controls and observations. Ready
-Git-access checks collapse to a count. Failed origin checks remain visible.
+when it needs attention. Expanding exposes all controls and observations. Git access has one row per
+forge hostname used by a registered repository’s origin and shows only SSH or
+HTTPS as used. Hosts reads the origin metadata locally for display. Existing origin
+and checkout probes keep their scope. A check applies only when its saved host,
+protocol and port match the repository’s current origin. An omitted SSH port
+uses the host’s SSH configuration and has a distinct identity. Legacy results without
+an endpoint and results for changed endpoints appear as Not checked. A protocol
+shows a checked failure if one was observed, otherwise one successful check is
+enough to show a pass.
 Checked-out repositories appear with their paths under Host facts. Checking one
 host leaves other hosts' controls available. Add host is enabled during loading and checks and is
 disabled only while an add is running. An added host and its own check cannot be
 replaced by an older check reply. The grouped checklist keeps
-Host, Tools, Agents, each repository and macOS Power observations independent.
+Host, Tools, Agents, Git access and macOS Power observations independent.
 Unrun checks say Not checked, failed checks retain their fixed reason, and
 unknown sign-in probes say Sign-in unknown. The UI never infers Remote Login or
 Keychain state from a connection/authentication failure. Platform details are
@@ -643,8 +650,10 @@ Create explicitly creates the approved folder. Change folder edits its approved
 path and rechecks without creating it. Install uses the existing main-selected
 recipe in the host card. Agent sign-in uses the same Settings-owned terminal.
 No background install, recipe replay or terminal typing is added.
-Missing recipes show no Install button. Git access to origin and explicit Trust host key… remain in each repository’s Git-access group. Origin-auth hints identify HTTPS through gh, a deploy key and ssh-agent as user-configured access options; Foom never applies them or instructs global URL rewrites. Host facts,
-foreign session End and foreign worktree counts remain under Host facts.
+Missing recipes show no Install button. Failed Git access rows use a square and
+protocol-specific failure text. Fix is reserved for the setup dialog (#1263).
+Explicit Trust host key… remains available for a failed SSH host-key check.
+Host facts retains checkout paths, foreign session End and foreign worktree counts.
 
 Repositories → Locations groups existing checkouts beneath Local and each registered host,
 with checkout path copy controls and no clone controls or clone status. Local selection
@@ -702,8 +711,10 @@ their fixed failure rows without making an otherwise usable host unavailable.
 Checkout creation belongs to first-use launch/worktree preparation (#1074), not Settings. The summary says Ready. Existing checkouts are a read-only list in Host facts.
 
 An origin-host-key failure offers **Trust host key…**. Main re-reads the registered
-repository's validated SSH origin and opens a human-owned terminal just below
-its Git access to origin row in Settings (#1260). The fixed command is ssh -T with StrictHostKeyChecking=ask, forwarding
+repository's validated SSH origin and verifies that it matches the selected
+endpoint before opening a human-owned terminal in the Git access section in
+Settings (#1260, #1261). Multiple untrusted SSH ports on a forge each have a
+Trust action labeled with the explicit port or SSH config. The fixed command is ssh -T with StrictHostKeyChecking=ask, forwarding
 disabled, and the origin's account/host and optional port. HTTPS cannot select this
 action. Compatible older daemons must advertise originTrust=1; otherwise the
 launch refuses until the host daemon is updated. The user verifies the fingerprint
@@ -753,8 +764,9 @@ folder's saved and live observations intact and reports only the attempted chang
 Action validation and launch inspection
 still use the fresh inspections required above.
 
-Every checklist row has an accessibly named reload icon, revealed on hover or
-keyboard focus. Reload checks only that row, shows its own spinner and keeps
+Checklist rows have an accessibly named reload icon, revealed on hover or
+keyboard focus. A Git access row with several origins refreshes with
+**Check capabilities**. Reload checks only that row, shows its own spinner and keeps
 other results and controls available. If the existing observations cannot display
 the selected row without a full check, that row shows Check capabilities required, without
 helper copy or a synthetic full-check timestamp. Tool discovery does not run sign-in probes;
@@ -1052,8 +1064,7 @@ The dialog focuses the local Agent picker and preselects the configured default
 when it is enabled, installed and accepts an initial prompt. The user selects
 registered repositories. Checked repositories stay visible while filtering.
 Escape, Cancel and the backdrop dismiss the dialog. Enter in the filter keeps
-the dialog open. The requirements control
-and badges arrive with #1264.
+the dialog open. Recorded requirements are managed in Settings → Repositories.
 
 **Start agent** queues one fresh, strict SSH connection check for the
 registration, with connection reuse disabled. Main opens the local tile only
@@ -1073,3 +1084,24 @@ setup slot and skips the exit recheck for that registration.
 The [host setup brief](agent-launch.md#local-host-setup-agent-1263) uses main-owned
 registration and origin data. Agent output and reports have no authority over
 saved facts or the exit recheck.
+
+## Recorded repository requirements (#1264)
+
+Settings → Repositories shows one expandable requirements card per registration.
+Its Markdown source is inert text with recorder, host, recording date and optional
+human edit date. Edit and Clear act on the displayed revision. A setup run starts
+with the current notes for its selected repositories, including human edits.
+When recording is selected, its authenticated endpoint may replace a selected
+note during that run. Main checks the registration and revision again when
+writing. The setup agent folds the existing note into its replacement. A human
+edit, clear, or another run's replacement after the snapshot makes that write
+stale. Foom never runs instructions from notes.
+
+A registered host check can show **Codex may prompt for approval** on the card.
+The remote daemon reads a bounded account-level Codex config using the remote
+login environment and returns a closed observation. The hub requests it only
+after the daemon advertises `codexApprovalCheck: 1`. The card reflects account
+defaults at check time. Profiles, launch arguments, project overrides and
+managed policy can change the effective behavior. Config errors produce an
+unknown observation. Launch permissions and bypass validation remain owned by
+the existing launch policy.

@@ -523,6 +523,9 @@ test("host authorizations cannot be written through general settings", async () 
     setup.save({ registeredHosts: [{ host: "worker", codeFolder: "/code" }] }),
   ).rejects.toThrow();
   await expect(setup.hosts({ action: "list" })).rejects.toThrow("Hosts unavailable");
+  expect(() =>
+    setup.repositoryRequirements({ action: "read", repository: "/fixture/repo" }),
+  ).toThrow("Host requirements unavailable");
 });
 
 test("host copies require both registered host service and main clipboard capability", async () => {

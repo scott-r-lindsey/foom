@@ -352,19 +352,20 @@ a pencil and can be renamed even while a check runs; collapsed names expand the 
 
 Add host takes an SSH alias or user@host, an optional nickname, and a code folder (default `~/foom`),
 then runs one full checklist. An incomplete host stays enrolled. Host, Tools,
-Agents, each repository and macOS Power rows retain their independent results;
+Agents, Git access and macOS Power rows retain their independent results;
 unrun checks say Not checked. While checking, a throbber and current step identify
 host inspection, Git access or checkout with the repository name and position.
-Pending repository checks stay visible as Checking… rows; completed observations
-appear as each step finishes. Reduced motion keeps the throbber still while the
-step text continues to update. Check capabilities retries without creating directories.
+Git access shows one row per forge hostname with only the protocols used by
+registered origins. The protocol text shows check progress and results.
+Reduced motion keeps the throbber still while the step text continues to update.
+Check capabilities retries without creating directories.
 Missing folders offer Create, and Change folder selects a replacement. Install
 and Sign in appear only for available recipes. Installs and gh Sign in stay in
 the host card. Agent sign-in and Antigravity plugin installation open below
 their rows in the selected machine’s agent card. Origin SSH host-key failures
-offer Trust host key… below Git access to origin in the host card. The user
-verifies the fingerprint and answers SSH in that terminal. Other Git
-access fixes remain user-run instructions. Ready means the host checks and Git
+offer Trust host key… on the forge row in the host card. The user verifies the
+fingerprint and answers SSH in the embedded terminal. Failed protocol checks show
+a square and the failure reason. Ready means the host checks and Git
 pass with at least one installed agent; optional missing agents, gh sign-in and
 absent checkouts do not affect readiness. Host facts lists existing checkouts as
 **repository · path**, one per line.
@@ -383,7 +384,7 @@ session/worktree counts and Refresh facts. Ready tool/agent checks mean installe
 and probeable; Not found and Unable to check are fixed states. Declared bounded
 status probes report sign-in separately; unknown status never becomes a pass.
 
-Repositories lists existing checkouts under Local and each registered host with copyable paths. Choose repositories opens the local selection controls. Foom clones automatically on first repository launch or worktree creation, using only the registered origin and approved code folder. Each missing checkout gets one clone attempt using the host’s own Git routing, with no automatic transport or authentication fallback. Foom changes no Git credentials or configuration. Failures appear where the action started with a fixed reason. Git access to origin and Trust host key… remain in Hosts. Authentication failures show hints for user-configured HTTPS through gh, a deploy key or ssh-agent wherever the action started; Foom does not act on these hints.
+Repositories lists existing checkouts under Local and each registered host with copyable paths. Choose repositories opens the local selection controls. Foom clones automatically on first repository launch or worktree creation, using only the registered origin and approved code folder. Each missing checkout gets one clone attempt using the host’s own Git routing, with no automatic transport or authentication fallback. Foom changes no Git credentials or configuration. Failures appear where the action started with a fixed reason. Git access and Trust host key… remain in Hosts. Launch and checkout authentication failures show hints for user-configured HTTPS through gh, a deploy key or ssh-agent where the action started. Foom does not act on these hints.
 This profile’s live remote sessions survive hub restarts with screen replay.
 Profile-owned worktrees remain in the sidebar without a session, including after
 the last session closes or a create reply is lost. Recovery launches nothing and
@@ -425,9 +426,10 @@ Git access row shows the scoped check result. Tool installs retain
 output until dismissed or replaced. Add host shows progress and enrollment errors
 in the form. The host card shows check progress in its header and fixed failures
 on the affected rows. **Last checked** records full checks only.
-Each checklist row has a reload icon on hover and keyboard focus, with a name
-that identifies the row. Reload shows a spinner only on that row, preserves other
-results and leaves other rows usable. A row that cannot display its result without
+Checklist rows have a reload icon on hover and keyboard focus, with a name
+that identifies the row. Use Check capabilities to refresh a Git access row with
+several origins. Reload shows a spinner only on its row and keeps other
+results and controls available. A row that cannot display its result without
 a full check shows Check capabilities required in that row, with no helper copy. Stale queued
 recipe rows are dropped independently when Hosts reopens. Failed profile writes
 leave saved hosts visible, show Unable to save only in affected rows, and retain

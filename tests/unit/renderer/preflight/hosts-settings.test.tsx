@@ -52,6 +52,7 @@ const host = {
   foreignSessions: 1,
   result: { ok: true as const, facts },
 };
+const projectEndpoint = { host: "github.com", protocol: "ssh", port: null } as const;
 const preflight: HostPreflight = {
   ssh: { state: "pass" },
   platform: { state: "pass" },
@@ -60,12 +61,18 @@ const preflight: HostPreflight = {
   repositories: [
     {
       repository: "/local/project",
+      originEndpoint: projectEndpoint,
       origin: { state: "pass" },
       checkout: { ...host.result, checkout: { path: "/remote/project", state: "absent" } },
     },
   ],
 };
-const initial: HostsState = { hosts: [host], locations: [], preflight };
+const initial: HostsState = {
+  hosts: [host],
+  locations: [],
+  preflight,
+  gitOrigins: [{ repository: "/local/project", ...projectEndpoint }],
+};
 function saved(state: HostsState): HostsState {
   return {
     ...state,
@@ -254,6 +261,54 @@ test.each([false, true])(
     view.unmount();
   },
 );
+test("a saved code folder keeps checks pending until the live registration advances", async () => {
+  const stream = viewStream();
+  const previous = saved(initial);
+  stream.data.hosts = previous;
+  const updatedFolder = "/home/worker/new";
+  const api = vi.fn(
+    (action: HostsAction): Promise<HostsState> =>
+      Promise.resolve(
+        action.action === "change-folder"
+          ? { ...previous, result: { ok: true, facts: { ...facts, codeFolder: updatedFolder } } }
+          : stream.data.hosts,
+      ),
+  );
+  render(<HostsSettings source={{ hosts: api, views: stream.api }} headingRef={createRef()} />);
+  await screen.findByRole("region", { name: host.host });
+  expandHosts();
+  const check = screen.getByRole("button", { name: "Check capabilities" });
+  const setup = screen.getByRole("button", { name: "Set up with an agent…" });
+  await waitFor(() => {
+    expect(check.matches(":disabled")).toBe(false);
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Change folder" }));
+  fireEvent.change(screen.getByLabelText("Code folder"), { target: { value: "~/new" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() => {
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+  });
+  expect(check.matches(":disabled")).toBe(true);
+  expect(setup.matches(":disabled")).toBe(true);
+  // A coalesced publication can skip over the saved path when another edit follows it.
+  act(() => {
+    stream.data.hosts = saved({
+      ...initial,
+      hosts: [{ ...host, codeFolder: "/home/worker/newer" }],
+    });
+    stream.push("hosts");
+  });
+  await waitFor(() => {
+    expect(check.matches(":disabled")).toBe(false);
+  });
+  act(() => {
+    stream.data.hosts = previous;
+    stream.push("hosts");
+  });
+  await screen.findByText(facts.codeFolder);
+  expect(setup.matches(":disabled")).toBe(false);
+  expect(check.matches(":disabled")).toBe(false);
+});
 test("Add host enrolls then runs full preflight, without separate connection/folder tests", async () => {
   let state: HostsState = { hosts: [], locations: [] };
   const api = vi.fn((action: HostsAction) => {
@@ -268,7 +323,7 @@ test("Add host enrolls then runs full preflight, without separate connection/fol
   fireEvent.change(screen.getByLabelText("Code folder"), { target: { value: "~/code" } });
   fireEvent.click(screen.getByRole("button", { name: "Add host" }));
   await screen.findByRole("region", { name: "worker" });
-  await screen.findByText("Pass · Reachable");
+  await screen.findByText("SSH ✓");
   expect(screen.queryByLabelText("SSH host")).toBeNull();
   expect(api).toHaveBeenCalledWith({ action: "add", host: "worker", codeFolder: "~/code" });
   expect(api).toHaveBeenCalledWith({
@@ -285,7 +340,7 @@ test("all independent checks, resource facts, refresh, folder editing, End and r
     "Pass · In this build",
     "Pass · Valid",
     "Claude Code",
-    "Pass · Reachable",
+    "SSH ✓",
     "2 other worktrees",
     "8.0 GiB",
     "4.0 GiB",
@@ -376,6 +431,7 @@ test("partial facts retain passes and expose Create plus available Install and S
       repositories: [
         {
           repository: "/local/project",
+          originEndpoint: projectEndpoint,
           origin: { state: "fail", reason: "origin-auth" },
           checkout: {
             ...host.result,
@@ -387,10 +443,8 @@ test("partial facts retain passes and expose Create plus available Install and S
   });
   await screen.findByText("Pass · Host key trusted");
   expect(screen.getByText(/Code folder does not exist/u)).toBeTruthy();
-  expect(screen.getByLabelText("Git access fixes").textContent).toContain("Use HTTPS through gh");
-  expect(screen.getByText("Use HTTPS through gh").getAttribute("title")).toBe(
-    "Configure the host's Git to use HTTPS through gh",
-  );
+  expect(screen.getByText("SSH · key not accepted").closest(".host-fail")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Fix" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Install codex" })).toBeNull();
   expect(screen.getByText("Unable to check")).toBeTruthy();
   for (const [button, action] of [
@@ -700,6 +754,7 @@ test("ready hosts list checkout paths without rendering dirty or clone state", a
       repositories: [
         {
           repository: "/local/project",
+          originEndpoint: projectEndpoint,
           origin: { state: "pass" },
           checkout: { ...host.result, checkout: { path: "/remote/project", state: "changed" } },
         },
@@ -707,7 +762,6 @@ test("ready hosts list checkout paths without rendering dirty or clone state", a
     },
   });
   await screen.findByText("Ready");
-  fireEvent.click(screen.getByText("Git access · 1 ready"));
   const details = screen.getByText("Host facts").closest("details");
   expect(details?.open).toBe(true);
   expect(screen.getByText("/remote/project").closest("details")).toBe(details);
@@ -800,6 +854,7 @@ test("a failed connection row is not repeated as helper copy, and credential tip
       repositories: [
         {
           repository: "/local/project",
+          originEndpoint: projectEndpoint,
           origin: { state: "fail", reason: "artifact-unavailable" },
           checkout: result,
         },
@@ -807,7 +862,7 @@ test("a failed connection row is not repeated as helper copy, and credential tip
     },
   });
   await screen.findByText("Unavailable in this build", { selector: ".host-status span" });
-  const origin = screen.getByText("Git access to origin").closest(".host-check-row");
+  const origin = screen.getByText("GitHub").closest(".host-check-row");
   expect(origin?.textContent).toContain("Not checked");
   expect(origin?.querySelector(".host-fail")).toBeNull();
   expect(screen.queryByText("Needs you")).toBeNull();
@@ -953,19 +1008,19 @@ test("first check renders pending repository rows and replaces them with observa
   expandHosts();
   fireEvent.click(screen.getByRole("button", { name: "Check capabilities" }));
   await screen.findByText("Checking Git access · project (1 of 2)");
-  expect(screen.getAllByText("Checking…", { exact: true })).toHaveLength(2);
-  expect(screen.getByText("Repository · next")).toBeTruthy();
+  expect(screen.getByText("SSH · Checking…")).toBeTruthy();
+  expect(screen.queryByText("Repository · next")).toBeNull();
   expect(view.container.querySelector(".host-throbber")?.getAttribute("aria-hidden")).toBe("true");
   progress = {
     ...progress,
     phase: "checkout",
     repositories: [
-      { repository: "/local/project", origin: { state: "pass" } },
+      { repository: "/local/project", originEndpoint: projectEndpoint, origin: { state: "pass" } },
       { repository: "/local/next" },
     ],
   };
   await screen.findByText("Checking checkout · project (1 of 2)");
-  expect(screen.getByText("Pass · Reachable")).toBeTruthy();
+  expect(screen.getByText("SSH ✓")).toBeTruthy();
   act(() => {
     finish?.(initial);
   });
@@ -1040,7 +1095,7 @@ test("usable hosts keep optional missing agents, sign-in and checkouts neutral",
   );
   expect(screen.getByRole("button", { name: "Install pi" })).toBeTruthy();
 });
-test("host-key fix identifies only the repository", async () => {
+test("host-key repair selects the repository and its checked endpoint", async () => {
   const state: HostsState = {
     ...initial,
     preflight: {
@@ -1048,6 +1103,7 @@ test("host-key fix identifies only the repository", async () => {
       repositories: [
         {
           repository: "/local/project",
+          originEndpoint: projectEndpoint,
           origin: { state: "fail", reason: "origin-host-key" },
           checkout: {
             ...host.result,
@@ -1072,6 +1128,7 @@ test("host-key fix identifies only the repository", async () => {
       action: "trust-origin",
       host: "worker",
       repository: "/local/project",
+      endpoint: projectEndpoint,
     });
   });
 });
@@ -1086,6 +1143,7 @@ test.each([false, true])(
         repositories: [
           {
             repository,
+            originEndpoint: projectEndpoint,
             origin: { state: "fail", reason: "origin-host-key" },
             checkout: { ...host.result, checkout: { path: "/remote/project", state: "clean" } },
           },
@@ -1162,6 +1220,7 @@ test("a pending origin probe keeps the same origin terminal attached and stoppab
     repositories: [
       {
         repository,
+        originEndpoint: projectEndpoint,
         origin: { state: "fail" as const, reason: "origin-host-key" as const },
         checkout: {
           ...host.result,
@@ -1250,9 +1309,10 @@ test("a pending origin probe keeps the same origin terminal attached and stoppab
 
 test("reopening Hosts restores each origin terminal independently of other recipes", async () => {
   const repositories = ["/local/one", "/local/two"].map(
-    (repository) =>
+    (repository, index) =>
       ({
         repository,
+        originEndpoint: { ...projectEndpoint, port: 2222 + index },
         origin: { state: "fail", reason: "origin-host-key" },
         checkout: {
           ...host.result,
@@ -1263,15 +1323,22 @@ test("reopening Hosts restores each origin terminal independently of other recip
   const exit = new Map<string, (state: { exited: boolean; code?: number }) => void>();
   const open = vi.fn(() => Promise.resolve());
   const { api } = await mount(
-    { ...initial, preflight: { ...preflight, repositories } },
+    {
+      ...initial,
+      gitOrigins: repositories.map(({ repository, originEndpoint }) => ({
+        repository,
+        ...originEndpoint,
+      })),
+      preflight: { ...preflight, repositories },
+    },
     {
       installs: {
         sessions: () => new Map([["worker", "install"]]),
         hostActions: () =>
           new Map(
-            repositories.map(({ repository }) => [
+            repositories.map(({ repository, originEndpoint }) => [
               repository,
-              { action: "trust-origin", host: "worker", repository },
+              { action: "trust-origin", host: "worker", repository, endpoint: originEndpoint },
             ]),
           ),
         hasSessions: () => true,
@@ -1311,6 +1378,10 @@ test("reopening Hosts restores each origin terminal independently of other recip
   });
   const refreshed = saved({
     ...initial,
+    gitOrigins: repositories.map(({ repository, originEndpoint }) => ({
+      repository,
+      ...originEndpoint,
+    })),
     preflight: {
       ...preflight,
       repositories: repositories.map((row, index) =>
@@ -1323,20 +1394,33 @@ test("reopening Hosts restores each origin terminal independently of other recip
     exit.get("/local/one")?.({ exited: true, code: 1 });
     await Promise.resolve();
   });
-  expect(screen.getByText("Pass · Reachable")).toBeTruthy();
+  expect(screen.getByText("SSH · Origin SSH host key is not trusted")).toBeTruthy();
+  expect(
+    screen.getByRole<HTMLButtonElement>("button", { name: "Trust host key for github.com:2223…" })
+      .disabled,
+  ).toBe(true);
   expect(screen.queryByText(/exit code 1/u)).toBeNull();
   expect(screen.getByText("Verify the fingerprint in SSH")).toBeTruthy();
   expect(screen.getAllByRole("region", { name: "Origin host key terminal" })).toHaveLength(1);
 });
 
-test("opening uses saved checks, keeps ready hosts compact and exposes every ready repository", async () => {
+test("Git access groups registered origins by host and displays only the protocols in use", async () => {
+  const gitOrigins = [
+    { repository: "/local/project-0", host: "github.com", protocol: "ssh", port: null },
+    { repository: "/local/project-1", host: "github.com", protocol: "ssh", port: null },
+    { repository: "/local/project-2", host: "github.com", protocol: "https", port: 443 },
+    { repository: "/local/project-3", host: "gitlab.com", protocol: "ssh", port: null },
+    { repository: "/local/project-4", host: "forge.test", protocol: "https", port: 443 },
+  ] as const;
   const state = saved({
     ...initial,
+    gitOrigins,
     preflight: {
       ...preflight,
-      repositories: Array.from({ length: 6 }, (_, index) => ({
-        repository: `/local/project-${String(index)}`,
-        origin: { state: "pass" },
+      repositories: gitOrigins.slice(0, 4).map(({ repository, ...originEndpoint }, index) => ({
+        repository,
+        originEndpoint,
+        origin: index === 3 ? { state: "fail", reason: "origin-auth" } : { state: "pass" },
         checkout: {
           ...host.result,
           checkout: { path: `/remote/project-${String(index)}`, state: "clean" },
@@ -1344,21 +1428,111 @@ test("opening uses saved checks, keeps ready hosts compact and exposes every rea
       })),
     },
   });
-  const api = vi.fn<(action: HostsAction) => Promise<HostsState>>().mockResolvedValue(state);
-  render(<HostsSettings source={{ hosts: api }} headingRef={createRef()} />);
-  await screen.findByText("Ready");
-  expect(api.mock.calls).toEqual([[{ action: "list" }]]);
-  expect(screen.queryByRole("button", { name: "Check capabilities" })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Expand worker" }));
-  expect(screen.getByText(/Last checked/u)).toBeTruthy();
-  expect(screen.queryByText("Repository · project-0")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: /Git access · 6 ready/u }));
-  expect(screen.getAllByText(/^\/remote\/project-/u)).toHaveLength(6);
-  fireEvent.click(screen.getByRole("button", { name: /Git access · 6 ready/u }));
-  expect(screen.queryByText("Repository · project-0")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Collapse worker" }));
-  expect(screen.queryByRole("button", { name: "Check capabilities" })).toBeNull();
+  const { container } = await mount(state);
+  const rows = [...container.querySelectorAll(".host-check-row")].filter((row) =>
+    row.querySelector(".host-git-protocols"),
+  );
+  expect(rows.map((row) => row.querySelector(".host-check-name")?.textContent)).toEqual([
+    "GitHub",
+    "GitLab",
+    "forge.test",
+  ]);
+  expect(
+    rows.map((row) =>
+      [...row.querySelectorAll(".host-git-protocols > span")].map((status) => status.textContent),
+    ),
+  ).toEqual([["SSH ✓", "HTTPS ✓"], ["SSH · key not accepted"], ["HTTPS · Not checked"]]);
+  expect(rows[1]?.querySelector(".host-fail .host-symbol")).toBeTruthy();
+  expect(screen.queryByText(/^Repository ·/u)).toBeNull();
+  expect(screen.queryByRole("button", { name: /^Git access/u })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Fix" })).toBeNull();
+  expect(screen.getByText("/remote/project-0").closest("details")).toBeTruthy();
 });
+
+test.each([
+  [{ host: "new.example", protocol: "https", port: 443 }, { state: "pass" }, "HTTPS"],
+  [
+    { host: "new.example", protocol: "ssh", port: 22 },
+    { state: "fail", reason: "origin-host-key" },
+    "SSH",
+  ],
+  [
+    { host: "old.example", protocol: "ssh", port: 22 },
+    { state: "fail", reason: "origin-host-key" },
+    "SSH",
+  ],
+] as const)(
+  "Git access discards results from a different endpoint (%j)",
+  async (current, origin, label) => {
+    const repository = "/local/project";
+    await mount({
+      ...initial,
+      gitOrigins: [{ repository, ...current }],
+      preflight: {
+        ...preflight,
+        repositories: [
+          {
+            repository,
+            origin,
+            originEndpoint: { host: "old.example", protocol: "ssh", port: null },
+            checkout: host.result,
+          },
+        ],
+      },
+    });
+    expect(screen.getByText(current.host)).toBeTruthy();
+    expect(screen.getByText(`${label} · Not checked`)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Trust host key/u })).toBeNull();
+  },
+);
+
+test.each([
+  [2222, 2223, "Trust host key for forge.test:2222…"],
+  [null, 22, "Trust host key for forge.test using SSH config…"],
+] as const)(
+  "untrusted SSH ports %s and %s in one row can open independent terminals",
+  async (firstPort, secondPort, firstLabel) => {
+    const gitOrigins = [firstPort, firstPort, secondPort].map((port, index) => ({
+      repository: `/local/project-${String(index)}`,
+      host: "forge.test",
+      protocol: "ssh" as const,
+      port,
+    }));
+    const { api } = await mount({
+      ...initial,
+      gitOrigins,
+      preflight: {
+        ...preflight,
+        repositories: gitOrigins.map(({ repository, ...originEndpoint }) => ({
+          repository,
+          originEndpoint,
+          origin: { state: "fail", reason: "origin-host-key" },
+          checkout: host.result,
+        })),
+      },
+    });
+    expect(screen.getAllByText("forge.test")).toHaveLength(1);
+    expect(
+      screen.getAllByRole("button", { name: /^Trust host key for forge\.test/u }),
+    ).toHaveLength(2);
+    for (const [port, repository, name] of [
+      [secondPort, "/local/project-2", `Trust host key for forge.test:${String(secondPort)}…`],
+      [firstPort, "/local/project-0", firstLabel],
+    ] as const) {
+      const button = screen.getByRole<HTMLButtonElement>("button", { name });
+      await waitFor(() => {
+        expect(button.disabled).toBe(false);
+      });
+      fireEvent.click(button);
+      expect(api).toHaveBeenCalledWith({
+        action: "trust-origin",
+        host: "worker",
+        repository,
+        endpoint: { host: "forge.test", protocol: "ssh", port },
+      });
+    }
+  },
+);
 
 test("slow list and independent host checks leave Add enabled and preserve a newly added host", async () => {
   let finishList: ((state: HostsState) => void) | undefined;
@@ -2127,10 +2301,10 @@ test.each(["host-key-unknown", "host-key-changed", "login-rejected", "unreachabl
       },
     });
     const card = screen.getByRole("region", { name: "worker" });
-    for (const name of reason === "host-key-unknown" ? ["SSH"] : ["SSH", "Git access to origin"]) {
+    for (const name of reason === "host-key-unknown" ? ["SSH"] : ["SSH", "GitHub"]) {
       const row = within(card).getByText(name, { exact: true }).closest(".host-check-row");
       const status = row?.querySelector(".host-status");
-      if (name === "Git access to origin") {
+      if (name === "GitHub") {
         expect(status?.classList.contains("host-neutral")).toBe(true);
         expect(status?.textContent).toContain("Not checked");
         continue;
@@ -2196,6 +2370,7 @@ test("untrusted hosts hide dependent checks and stale failures until acceptance 
       repositories: [
         {
           repository: "/local/project",
+          originEndpoint: projectEndpoint,
           origin: { state: "fail", reason: "origin-unavailable" },
           checkout: failed,
         },
@@ -2224,7 +2399,7 @@ test("untrusted hosts hide dependent checks and stale failures until acceptance 
     "git",
     "GitHub CLI",
     "Agents",
-    "Git access to origin",
+    "GitHub",
     "Checked out repositories",
     "Host facts",
   ]) {
@@ -2261,7 +2436,7 @@ test("sealed build omission is announced once on opening Hosts, including saved 
   expect(screen.getAllByText("This build has no remote host support")).toHaveLength(1);
   expect(screen.getAllByText("Unavailable in this build").length).toBeGreaterThan(0);
   expect(screen.queryByText("Needs you")).toBeNull();
-  expect(screen.queryByText("Pass · Reachable")).toBeNull();
+  expect(screen.queryByText("SSH ✓")).toBeNull();
   expect(api.mock.calls.map(([action]) => action.action)).toEqual(["list"]);
 });
 

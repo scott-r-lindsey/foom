@@ -1,3 +1,4 @@
+import type { RepositoryRequirements } from "../shared/repository-requirements";
 import type { DataView, DataViews, ViewParams, ViewSnapshot } from "../shared/data-views";
 import type {
   BoardRead,
@@ -9,6 +10,7 @@ import type {
 } from "../shared/message-board";
 import type {
   HostsState,
+  GitOriginEndpoint,
   HostResult,
   HostFacts,
   HostCheckTarget,
@@ -507,6 +509,29 @@ const validHostConnection = shape({
   platform: validHostCheck,
   artifact: validHostCheck,
 });
+const requirementsLabel: Validator<string> = (value): value is string =>
+  typeof value === "string" &&
+  value.length <= 253 &&
+  value.trim().length > 0 &&
+  !/[\p{Cc}\p{Cf}\p{Cs}]/u.test(value);
+const requirementsDate = range(0, 8_640_000_000_000_000, true);
+const validRepositoryRequirements = either(
+  nil,
+  shape({
+    markdown: (value): value is string =>
+      typeof value === "string" &&
+      value.length <= 16384 &&
+      new TextEncoder().encode(value).length <= 16384 &&
+      value.trim().length > 0 &&
+      !/[^\P{Cc}\t\r\n]|[\p{Cf}\p{Cs}]/u.test(value),
+    revision: (value): value is string =>
+      typeof value === "string" && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u.test(value),
+    agent: requirementsLabel,
+    host: requirementsLabel,
+    recordedAt: requirementsDate,
+    editedAt: either(absent, requirementsDate),
+  } satisfies Contract<RepositoryRequirements>),
+);
 const hostFactsShape = shape({
   folder: either(absent, validHostCheck),
   codeFolder: hostFolder,
@@ -530,6 +555,7 @@ const hostFactsShape = shape({
           plugin: either(absent, literal("present", "not-installed", "unavailable")),
         }),
       ),
+      codexApprovals: either(absent, literal("may-prompt", "disabled", "unknown")),
       signIn: either(absent, literal("signed-in", "signed-out", "unknown")),
     }),
   ),
@@ -562,7 +588,11 @@ const validHostFacts: Validator<HostFacts> = copying(
     value.load.length === 3 &&
     value.memoryAvailable <= value.memoryTotal &&
     value.agents.length <= 100 &&
-    value.agents.every((agent) => !agent.details || agent.details.capabilities.length <= 4),
+    value.agents.every(
+      (agent) =>
+        (!agent.details || agent.details.capabilities.length <= 4) &&
+        (agent.codexApprovals === undefined || agent.id === "codex"),
+    ),
   (value) => project(hostFactsShape, value),
 );
 const validHostResult: Validator<HostResult> = either(
@@ -581,13 +611,25 @@ const validHostResult: Validator<HostResult> = either(
     ),
   }),
 );
+const gitOriginEndpointFields = {
+  host: (value): value is string =>
+    typeof value === "string" && /^[a-z0-9][a-z0-9.-]{0,2047}$/u.test(value),
+  protocol: literal("ssh", "https"),
+  port: either(nil, range(0, 99999, true)),
+} satisfies Contract<GitOriginEndpoint>;
+const optionalGitOriginEndpoint = either(absent, shape(gitOriginEndpointFields));
 const hostPreflightFields = {
   ssh: validHostCheck,
   platform: validHostCheck,
   artifact: validHostCheck,
   result: validHostResult,
   repositories: array(
-    shape({ repository: text, origin: validHostCheck, checkout: validHostResult }),
+    shape({
+      repository: text,
+      origin: validHostCheck,
+      originEndpoint: optionalGitOriginEndpoint,
+      checkout: validHostResult,
+    }),
   ),
 };
 const validHostPreflight = shape({ ...hostPreflightFields, sshRevision: either(absent, count) });
@@ -614,6 +656,7 @@ const validHostCheckTarget: Validator<HostCheckTarget> = either(
   shape({ kind: literal("origin", "checkout"), repository: text }),
 );
 const validHostsState: Validator<HostsState> = shape({
+  gitOrigins: either(absent, array(shape({ repository: text, ...gitOriginEndpointFields }))),
   progress: either(
     absent,
     array(
@@ -626,6 +669,7 @@ const validHostsState: Validator<HostsState> = shape({
           shape({
             repository: text,
             origin: either(absent, validHostCheck),
+            originEndpoint: optionalGitOriginEndpoint,
             checkout: either(absent, validHostResult),
           }),
         ),
@@ -2303,6 +2347,8 @@ const desktop: DesktopApi = {
       id,
       action,
     ),
+  repositoryRequirements: (action) =>
+    reply("setup:repository-requirements", validRepositoryRequirements, action),
   hosts: (action) => reply("setup:hosts", validHostsState, action),
   listTerminalFonts: (refresh = false) => reply("setup:terminal-fonts", array(text), refresh),
   listThemes: () => reply("theme:list", validThemeCatalog),

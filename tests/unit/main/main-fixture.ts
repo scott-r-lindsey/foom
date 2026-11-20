@@ -298,7 +298,7 @@ import type { ConfigSettings } from "../../../src/shared/config";
 
 import type { BrowserWindowConstructorOptions, Input } from "electron";
 
-import type { Setup } from "../../../src/main/setup/setup";
+import type * as setupModule from "../../../src/main/setup/setup";
 
 import { beforeEach, expect, vi } from "vitest";
 
@@ -404,13 +404,14 @@ vi.mock("../../../src/main/window/window-state", () => ({
   saveWindowSize: mock.saveWindowSize,
 }));
 
-vi.mock("../../../src/main/setup/setup", () => ({
+vi.mock("../../../src/main/setup/setup", async (original) => ({
+  ...(await original<typeof setupModule>()),
   Setup: class {
     state = mock.setupState;
     readiness = () => Promise.resolve({ git: "ready", platform: "linux", forges: [] });
     readinessView = this.readiness;
     refresh = mock.setupRefresh;
-    constructor(deps: ConstructorParameters<typeof Setup>[0]) {
+    constructor(deps: ConstructorParameters<typeof setupModule.Setup>[0]) {
       mock.setup.deps = deps;
     }
   },
@@ -583,7 +584,7 @@ const mock = vi.hoisted(() => {
     dispose: vi.fn(),
   };
   const setup = {
-    deps: undefined as ConstructorParameters<typeof Setup>[0] | undefined,
+    deps: undefined as ConstructorParameters<typeof setupModule.Setup>[0] | undefined,
   };
   return {
     terminals: {

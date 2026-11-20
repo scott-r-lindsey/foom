@@ -96,6 +96,13 @@ Opening Hosts must leave the entire fixture request log unchanged. Explicit chec
 retain the separate assertion against daemon and repository requests when the
 catalog is omitted.
 
+The saved-check case starts with registered repositories, so startup sidebar
+inventory can still open SSH after the board compositor is ready. Its launch-time
+observer tracks current and superseded reads. The case waits for the sidebar rows
+and drains those reads before measuring the full SSH log across Hosts navigation,
+resizing and screenshots. It edits a repository origin between app launches so
+the live Git watcher does not overlap that measurement.
+
 ## Forget session request window (#1217)
 
 The unavailable-host Forget case also drains all observed sidebar reads before

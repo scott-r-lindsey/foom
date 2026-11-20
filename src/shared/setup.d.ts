@@ -1,3 +1,4 @@
+import type { RepositoryRequirementsApi } from "./repository-requirements";
 import type { RegisteredHost, HostsApi } from "./registered-hosts.d";
 import type { UpdateState } from "./updates";
 import type { ReadinessReport } from "./readiness";
@@ -121,7 +122,7 @@ export interface SetupState {
   worktreeRoot: string;
 }
 
-export interface SetupApi extends HostsApi {
+export interface SetupApi extends HostsApi, RepositoryRequirementsApi {
   localAgentInstall(id?: string): Promise<{ available: readonly string[]; recipeSession?: string }>;
   restartToUpdate(): Promise<void>;
   checkReadiness(): Promise<ReadinessReport>;

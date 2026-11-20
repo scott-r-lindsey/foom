@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import {
   originSshArgs,
+  gitOriginEndpoint,
   hostAlias,
   codeFolder,
   registeredHosts,
@@ -138,6 +139,16 @@ test("origin and management boundaries accept only closed operations and credent
   ])
     expect(hostManagement(value)).toBe(false);
 });
+test("Codex approval observations accept only the closed Codex fact", () => {
+  const withAgent = (id: string, codexApprovals: unknown) => ({
+    ok: true,
+    facts: { ...facts, agents: [{ id, state: "ready", codexApprovals }] },
+  });
+  expect(hostResult(withAgent("codex", "may-prompt"))).toBe(true);
+  expect(hostResult(withAgent("codex", "raw config"))).toBe(false);
+  expect(hostResult(withAgent("claude", "may-prompt"))).toBe(false);
+});
+
 test("typed results expose bounded facts and fixed states only", () => {
   const valid = { ok: true, facts };
   expect(hostResult(valid)).toBe(true);
@@ -521,6 +532,30 @@ test("local progress action accepts no host or arbitrary payload", () => {
   expect(hostsAction({ action: "progress", host: "worker" })).toBe(false);
 });
 
+test.each([
+  ["git@192.0.2.42:team/repo.git", "192.0.2.42", null, "git@192.0.2.42"],
+  ["ssh://git@Forge.test.:02222/team/repo.git", "forge.test.", 2222, "git@Forge.test."],
+])(
+  "accepted origin %s has a matching display endpoint and SSH destination",
+  (origin, host, port, destination) => {
+    expect(gitOrigin(origin)).toBe(true);
+    expect(gitOriginEndpoint(origin)).toEqual({ host, protocol: "ssh", port });
+    expect(originSshArgs(origin)?.at(-1)).toBe(destination);
+  },
+);
+
+test("an omitted SSH port and an explicit port 22 identify different endpoints", () => {
+  const implicit = "git@fixture.example:org/repo.git";
+  const implicitUrl = "ssh://git@fixture.example/org/repo.git";
+  const explicit = "ssh://git@fixture.example:22/org/repo.git";
+  const endpoint = { host: "fixture.example", protocol: "ssh" };
+  expect(gitOriginEndpoint(implicit)).toEqual({ ...endpoint, port: null });
+  expect(gitOriginEndpoint(implicitUrl)).toEqual({ ...endpoint, port: null });
+  expect(gitOriginEndpoint(explicit)).toEqual({ ...endpoint, port: 22 });
+  expect(originSshArgs(implicit)).not.toContain("-p");
+  expect(originSshArgs(explicit)?.slice(-4)).toEqual(["-p", "22", "--", "git@fixture.example"]);
+});
+
 test("origin trust selects only SSH targets and preserves explicit ports without a command", () => {
   expect(originSshArgs("git@forge.test:team/repo.git")?.slice(-2)).toEqual([
     "--",
@@ -542,9 +577,12 @@ test("origin trust selects only SSH targets and preserves explicit ports without
     null,
   ])
     expect(originSshArgs(origin)).toBeUndefined();
-  expect(hostsAction({ action: "trust-origin", host: "worker", repository: "/local/repo" })).toBe(
-    true,
-  );
+  const endpoint = { host: "forge.test", protocol: "ssh", port: 22 };
+  const trust = { action: "trust-origin", host: "worker", repository: "/local/repo" };
+  expect(hostsAction({ ...trust, endpoint })).toBe(true);
+  expect(hostsAction({ ...trust, endpoint: { ...endpoint, port: null } })).toBe(true);
+  expect(hostsAction(trust)).toBe(false);
+  expect(hostsAction({ ...trust, endpoint: { ...endpoint, port: "22" } })).toBe(false);
   expect(
     hostsAction({
       action: "trust-origin",

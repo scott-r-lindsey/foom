@@ -118,7 +118,7 @@ export class WorktreeStore {
         }
         commit?.();
         this.repositoriesSignature = repositoriesSignature;
-        if (repositoriesChanged) viewChanges.publish("repositories", "worktrees");
+        if (repositoriesChanged) viewChanges.publish("repositories", "worktrees", "hosts");
         else viewChanges.publish("worktrees");
       });
     this.pendingSave = save;

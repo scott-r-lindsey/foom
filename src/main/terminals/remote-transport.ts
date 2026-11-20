@@ -638,7 +638,17 @@ export class RemoteTransport extends EventEmitter {
               }
             }
             this.ready = true;
-            if (this.management) this.send(this.management);
+            if (this.management) {
+              const management = this.management;
+              this.send(
+                management.type === "manage" &&
+                  management.operation === "inspect" &&
+                  management.agentDetails &&
+                  value.codexApprovalCheck === 1
+                  ? { ...management, codexApprovalCheck: true }
+                  : management,
+              );
+            }
             const session = this.session;
             if (session) {
               const request = this.opened ? --this.internal : session.request;

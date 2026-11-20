@@ -36,6 +36,7 @@ export type HostFailure =
   | "clone-failed"
   | "checkout-refused";
 export type HostAgentState = "ready" | "missing" | "unable";
+export type CodexApprovals = "may-prompt" | "disabled" | "unknown";
 export type HostSignIn = "signed-in" | "signed-out" | "unknown";
 export interface HostRequirements {
   distro: "debian" | "rhel" | "arch" | "darwin" | "unknown";
@@ -52,11 +53,23 @@ export interface HostConnectionChecks {
   platform: HostCheck;
   artifact: HostCheck;
 }
+export interface GitOriginEndpoint {
+  host: string;
+  protocol: "ssh" | "https";
+  /** Null preserves SSH port selection by the host’s own configuration. */
+  port: number | null;
+}
 export interface HostPreflight extends HostConnectionChecks {
   /** Absent in legacy saved checklists. */
   sshRevision?: number;
   result: HostResult;
-  repositories: readonly { repository: string; origin: HostCheck; checkout: HostResult }[];
+  repositories: readonly {
+    repository: string;
+    origin: HostCheck;
+    /** Legacy observations without a checked endpoint cannot be attributed to the current origin. */
+    originEndpoint?: GitOriginEndpoint;
+    checkout: HostResult;
+  }[];
 }
 export interface LiveHostChecklist {
   preflight: HostPreflight & { sshRevision: number };
@@ -85,6 +98,8 @@ export interface HostFacts {
     id: string;
     state: HostAgentState;
     signIn?: HostSignIn;
+    /** Display-only remote account observation. */
+    codexApprovals?: CodexApprovals;
     details?: {
       path: string;
       version: string;
@@ -111,6 +126,7 @@ export type HostManagement = {
       partial?: true;
       target?: HostInspectionTarget;
       agentDetails?: true;
+      codexApprovalCheck?: true;
     }
   | { operation: "create-folder" }
   | { operation: "list-worktrees"; profile: string }
@@ -198,10 +214,13 @@ export interface HostCheckProgress {
   repositories: readonly {
     repository: string;
     origin?: HostCheck;
+    originEndpoint?: GitOriginEndpoint;
     checkout?: HostResult;
   }[];
 }
 export interface HostsState {
+  /** Display-only endpoints of registered local origins. */
+  gitOrigins?: readonly (GitOriginEndpoint & { repository: string })[];
   /** Sealed local build capability; independent of host connectivity. */
   remoteHostsAvailable?: boolean;
   recipeSession?: string;
@@ -220,7 +239,7 @@ export type HostsAction =
   | { action: "cancel-trust" }
   | { action: "reload"; host: string; target: HostCheckTarget }
   | { action: "rename"; host: string; nickname: string }
-  | { action: "trust-origin"; host: string; repository: string }
+  | { action: "trust-origin"; host: string; repository: string; endpoint: GitOriginEndpoint }
   | {
       action: "recipe";
       host: string;

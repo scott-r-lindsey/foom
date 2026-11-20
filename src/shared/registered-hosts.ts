@@ -1,6 +1,7 @@
 import { record, keys, remotePath, remoteReviewEvidence } from "./remote-agent-protocol";
 import type {
   RegisteredHost,
+  GitOriginEndpoint,
   HostManagement,
   HostResult,
   HostsAction,
@@ -133,35 +134,82 @@ export function hostObservation(value: unknown): value is HostObservation {
     preflight["repositories"].every(
       (repo: unknown) =>
         record(repo) &&
-        keys(repo, ["repository", "origin", "checkout"]) &&
+        keys(repo, ["repository", "origin", "originEndpoint", "checkout"]) &&
         typeof repo["repository"] === "string" &&
         repo["repository"].length <= 4096 &&
         !/\p{Cc}/u.test(repo["repository"]) &&
         hostCheck(repo["origin"]) &&
+        (repo["originEndpoint"] === undefined || validGitOriginEndpoint(repo["originEndpoint"])) &&
         displayResult(repo["checkout"]),
     )
   );
 }
-export function gitOrigin(value: unknown): value is string {
+function parseGitOrigin(value: unknown) {
   // No local paths, command protocols, URL credentials or control/shell syntax.
+  if (typeof value !== "string" || value.length > 2048 || /\p{Cc}/u.test(value)) return undefined;
+  const url =
+    /^(https|ssh):\/\/(?:(?<account>[a-zA-Z0-9_][a-zA-Z0-9_.-]*)@)?(?<host>[a-zA-Z0-9][a-zA-Z0-9.-]*)(?::(?<port>[0-9]{1,5}))?\/[a-zA-Z0-9_./~-]+$/u.exec(
+      value,
+    );
+  if (url?.groups?.["host"]) {
+    const protocol = url[1] === "https" ? "https" : "ssh";
+    const account = url.groups["account"];
+    if (protocol === "https" && account) return undefined;
+    return { protocol, host: url.groups["host"], account, port: url.groups["port"] } as const;
+  }
+  const scp =
+    /^(?:(?<account>[a-zA-Z0-9_][a-zA-Z0-9_.-]*)@)?(?<host>[a-zA-Z0-9][a-zA-Z0-9.-]*):[a-zA-Z0-9_./~-]+$/u.exec(
+      value,
+    );
+  if (!value.includes("://") && scp?.groups?.["host"])
+    return {
+      protocol: "ssh",
+      host: scp.groups["host"],
+      account: scp.groups["account"],
+      port: undefined,
+    } as const;
+  return undefined;
+}
+export function gitOrigin(value: unknown): value is string {
+  return parseGitOrigin(value) !== undefined;
+}
+export function gitOriginEndpoint(value: unknown): GitOriginEndpoint | undefined {
+  const origin = parseGitOrigin(value);
+  if (!origin) return undefined;
+  return {
+    host: origin.host.toLowerCase(),
+    protocol: origin.protocol,
+    port:
+      origin.port === undefined ? (origin.protocol === "ssh" ? null : 443) : Number(origin.port),
+  };
+}
+export function sameGitOriginEndpoint(
+  left: GitOriginEndpoint | undefined,
+  right: GitOriginEndpoint,
+): boolean {
+  return left?.host === right.host && left.protocol === right.protocol && left.port === right.port;
+}
+function validGitOriginEndpoint(value: unknown): value is GitOriginEndpoint {
   return (
-    typeof value === "string" &&
-    value.length <= 2048 &&
-    !/\p{Cc}/u.test(value) &&
-    (/^https:\/\/[a-zA-Z0-9][a-zA-Z0-9.-]*(?::[0-9]{1,5})?\/[a-zA-Z0-9_./~-]+$/u.test(value) ||
-      (!value.includes("://") &&
-        /^(?:[a-zA-Z0-9_][a-zA-Z0-9_.-]*@)?[a-zA-Z0-9][a-zA-Z0-9.-]*:[a-zA-Z0-9_./~-]+$/u.test(
-          value,
-        )) ||
-      /^ssh:\/\/(?:[a-zA-Z0-9_][a-zA-Z0-9_.-]*@)?[a-zA-Z0-9][a-zA-Z0-9.-]*(?::[0-9]{1,5})?\/[a-zA-Z0-9_./~-]+$/u.test(
-        value,
-      ))
+    record(value) &&
+    keys(value, ["host", "protocol", "port"]) &&
+    typeof value["host"] === "string" &&
+    /^[a-z0-9][a-z0-9.-]{0,2047}$/u.test(value["host"]) &&
+    (value["protocol"] === "ssh" || value["protocol"] === "https") &&
+    (value["port"] === null ||
+      (typeof value["port"] === "number" &&
+        Number.isInteger(value["port"]) &&
+        value["port"] >= 0 &&
+        value["port"] <= 99999))
   );
 }
 /** Only validated SSH origins can select this human-owned command. */
 export function originSshArgs(origin: unknown): string[] | undefined {
-  if (!gitOrigin(origin) || origin.startsWith("https://")) return undefined;
-  const flags = [
+  const parsed = parseGitOrigin(origin);
+  if (parsed?.protocol !== "ssh") return undefined;
+  const port = parsed.port === undefined ? undefined : Number(parsed.port);
+  if (port !== undefined && port > 65535) return undefined;
+  return [
     "-T",
     "-o",
     "StrictHostKeyChecking=ask",
@@ -173,21 +221,10 @@ export function originSshArgs(origin: unknown): string[] | undefined {
     "ForwardX11=no",
     "-o",
     "ClearAllForwardings=yes",
+    ...(port === undefined ? [] : ["-p", String(port)]),
+    "--",
+    `${parsed.account ? `${parsed.account}@` : ""}${parsed.host}`,
   ];
-  if (origin.startsWith("ssh://")) {
-    try {
-      const url = new URL(origin);
-      return [
-        ...flags,
-        ...(url.port ? ["-p", url.port] : []),
-        "--",
-        `${url.username ? `${url.username}@` : ""}${url.hostname}`,
-      ];
-    } catch {
-      return undefined;
-    }
-  }
-  return [...flags, "--", origin.split(":")[0] ?? ""];
 }
 
 export function hostBranch(value: unknown): value is string {
@@ -265,9 +302,12 @@ export function hostManagement(value: unknown): value is HostManagement {
         "partial",
         "target",
         "agentDetails",
+        "codexApprovalCheck",
       ]) &&
       (value["agentDetails"] === undefined ||
         (value["agentDetails"] === true && value["readOnly"] === true)) &&
+      (value["codexApprovalCheck"] === undefined ||
+        (value["codexApprovalCheck"] === true && value["agentDetails"] === true)) &&
       (value["target"] === undefined ||
         (((hostCheckTarget(value["target"]) && !("repository" in value["target"])) ||
           (record(value["target"]) &&
@@ -495,7 +535,10 @@ export function hostResult(value: unknown): value is HostResult {
     facts["agents"].every(
       (agent: unknown) =>
         record(agent) &&
-        keys(agent, ["id", "state", "signIn", "details"]) &&
+        keys(agent, ["id", "state", "signIn", "details", "codexApprovals"]) &&
+        (agent["codexApprovals"] === undefined ||
+          (agent["id"] === "codex" &&
+            closed(agent["codexApprovals"], ["may-prompt", "disabled", "unknown"]))) &&
         (agent["details"] === undefined ||
           (record(agent["details"]) &&
             keys(agent["details"], ["path", "version", "capabilities", "plugin"]) &&
@@ -598,8 +641,11 @@ export function hostsAction(value: unknown): value is HostsAction {
   )
     return keys(value, ["action", "host", "codeFolder"]) && codeFolder(value["codeFolder"]);
   return (
-    (value["action"] === "clone" || value["action"] === "trust-origin") &&
-    keys(value, ["action", "host", "repository"]) &&
+    ((value["action"] === "clone" && keys(value, ["action", "host", "repository"])) ||
+      (value["action"] === "trust-origin" &&
+        keys(value, ["action", "host", "repository", "endpoint"]) &&
+        validGitOriginEndpoint(value["endpoint"]) &&
+        value["endpoint"].protocol === "ssh")) &&
     typeof value["repository"] === "string" &&
     value["repository"].length <= 4096
   );

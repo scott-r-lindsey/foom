@@ -31,7 +31,7 @@ import { pickPreviewFile } from "../previews/pick";
 import { PreviewPlacement } from "../previews/placement";
 import { PreviewRegistry } from "../previews/registry";
 import { attachEnvironment } from "../setup/environment-ipc";
-import { Setup } from "../setup/setup";
+import { Setup, repositoryRequirementsForProfile } from "../setup/setup";
 import { attachSetup } from "../setup/setup-ipc";
 import { attachSounds } from "../sounds/ipc";
 import { SoundLibrary } from "../sounds/library";
@@ -474,6 +474,10 @@ export async function buildWindow(
       confirmations.requestOutcome(content, signal, { activate: true }),
     confirmRemoteSessions: (content, signal) =>
       confirmations.request(content, signal, { activate: true }),
+    repositoryRequirements: repositoryRequirementsForProfile(
+      app.getPath("userData"),
+      wiring.worktrees,
+    ),
     hosts: hostsForStore(
       wiring.settings,
       wiring.worktrees.listRepositories.bind(wiring.worktrees),

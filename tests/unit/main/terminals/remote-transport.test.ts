@@ -1929,6 +1929,33 @@ test.each([false, true])(
   },
 );
 
+test("requests remote Codex approval observation only when the daemon advertises it", async () => {
+  transport.kill();
+  child = new Child();
+  mock.spawn.mockReturnValue(child);
+  const request = {
+    type: "manage",
+    operation: "inspect",
+    codeFolder: "/remote/code",
+    readOnly: true,
+    agentDetails: true,
+  } as const;
+  const pending = remoteManagement({ host: "fixture" }, "0.1.0", request);
+  await Promise.resolve();
+  child.header();
+  child.message({
+    type: "hello",
+    build: "b".repeat(64),
+    compatible: 2,
+    hostFacts: 1,
+    agentSettings: 1,
+    codexApprovalCheck: 1,
+  });
+  expect(child.messages).toContainEqual({ ...request, codexApprovalCheck: true });
+  child.message({ type: "managed", result: { ok: false, reason: "folder-refused" } });
+  await expect(pending).resolves.toMatchObject({ ok: false, reason: "folder-refused" });
+});
+
 test.each(
   (["install-plugin", "sign-in"] as const).flatMap((action) =>
     ["a", "b"].map((build) => ({ action, build })),
