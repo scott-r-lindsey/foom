@@ -701,6 +701,10 @@ li[data-dirty="true"] > .row > .why svg {
   font-size: calc(11px * var(--type-scale, 1));
   overflow-wrap: anywhere;
 }
+.approval-discard-warning {
+  color: var(--attention-ink);
+  font-weight: var(--type-strong-weight, 600);
+}
 .approval-removal footer {
   margin-left: auto;
   padding: 0;

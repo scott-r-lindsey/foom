@@ -1,3 +1,4 @@
+const { revealApproval } = require("./approval-actions.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const { writeFile } = require("node:fs/promises");
@@ -262,17 +263,15 @@ async function captureRemovalQueue(app, dialog, native) {
       " M src/sidebar.tsx\0?? notes.txt\0",
     );
   }, dirty);
-  await dialog.getByText("notes.txt", { exact: true }).scrollIntoViewIfNeeded();
-  await dialog.evaluate(
-    () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+  await revealApproval(
+    dialog,
+    dialog.getByRole("button", { name: "Discard and remove", exact: true }),
   );
-  await expect(
-    dialog.getByRole("button", { name: "Approve · Discard changes and remove" }),
-  ).toBeEnabled();
   await expect(
     dialog.getByRole("button", { name: "Approve all clean removals (6)" }),
   ).toBeEnabled();
   await shot("mixed-light", false);
+  await shot("mixed-dark", true);
   await app.evaluate(
     (_, ids) => {
       for (const id of ids) {
@@ -299,6 +298,65 @@ function assertRetainedFootprint(before, after, message) {
     `${message}. Vertical position changed from ${beforeY} to ${afterY} CSS px`,
   );
 }
+
+test("dirty removal file lists must be visible before trusted discard", {
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, board } = await launchApprovalFixture(context);
+  await app.evaluate(() => {
+    const fixture = globalThis.approvalFixture;
+    for (let index = 0; index < 9; index++) fixture.add(`scroll-${index}`);
+    fixture.add("dirty", "Worktree removal", undefined, " M sidebar.tsx\0?? notes.txt\0");
+    fixture.add("after-dirty");
+  });
+  const { dialog, native, row, approve } = await openFixtureDialog(app, board);
+  try {
+    const dirty = row("dirty");
+    const discard = dirty.getByRole("button", { name: "Discard and remove", exact: true });
+    await expect(discard).toHaveText("Discard and remove");
+    await expect(dirty.getByText("Discards 2 files", { exact: true })).toBeVisible();
+    await discard.evaluate((button) => {
+      const viewport = button.closest(".approval-scroll");
+      viewport.scrollTop +=
+        button.getBoundingClientRect().bottom - viewport.getBoundingClientRect().bottom + 1;
+    });
+    const clipped = await dirty.evaluate((element) => {
+      const viewport = element.closest(".approval-scroll").getBoundingClientRect();
+      const button = element.querySelector("[data-approval-discard]").getBoundingClientRect();
+      const files = element.querySelector("ul").getBoundingClientRect();
+      const summary = element.querySelector(".approval-discard-warning").getBoundingClientRect();
+      return (
+        button.top >= viewport.top &&
+        button.bottom <= viewport.bottom &&
+        summary.bottom <= viewport.bottom &&
+        files.top >= viewport.bottom
+      );
+    });
+    assert.ok(clipped, "The consequence and button are in view while every file is off-screen");
+    // An off-screen clean control still enables after the movement guard settles.
+    await expect(approve("one")).not.toBeInViewport();
+    await expect(approve("one")).toBeEnabled();
+    await expect(discard).toBeDisabled();
+    const button = await discard.boundingBox();
+    await dialog.mouse.click(button.x + button.width / 2, button.y + button.height / 2);
+    assert.equal(await app.evaluate(() => globalThis.approvalFixture.results.dirty), undefined);
+
+    await discard.evaluate((button) =>
+      button.closest(".approval-removal").scrollIntoView({ block: "center" }),
+    );
+    await expect(discard).toBeDisabled();
+    await expect(discard).toBeEnabled();
+    await expect(dirty.getByRole("list", { name: "Uncommitted changes" })).toBeInViewport({
+      ratio: 1,
+    });
+    await discard.click();
+    await expect
+      .poll(() => app.evaluate(() => globalThis.approvalFixture.results.dirty))
+      .toBe(true);
+  } finally {
+    await native.dispose();
+  }
+});
 
 test("trusted approval gestures cannot retarget withdrawals, expiry or arrivals and synthetic decisions grant nothing", {
   timeout: deadline(60000),

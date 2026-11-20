@@ -1,3 +1,4 @@
+const { revealApproval } = require("./approval-actions.js");
 const { measureClose, closeTiming } = require("./close-timing.js");
 const { evidencePath } = require("../helpers/evidence.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
@@ -1345,9 +1346,10 @@ test("detached removals share one review per checkout and approve independently"
     name: `Approve all clean removals (${cleanBranches.length})`,
     exact: true,
   });
-  await expect(
-    queue.getByRole("button", { name: "Approve · Discard changes and remove", exact: true }),
-  ).toBeEnabled();
+  await revealApproval(
+    queue,
+    queue.getByRole("button", { name: "Discard and remove", exact: true }),
+  );
   await expect(bulk).toBeEnabled();
   await expect(queue.getByText("notes.txt", { exact: true })).toHaveCount(1);
   assert.ok(

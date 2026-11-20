@@ -74,15 +74,7 @@ function CopyPath({ value, pathId }: { value: string; pathId: string }) {
     />
   );
 }
-function Changes({
-  value,
-  omitted = 0,
-  prefix = "change",
-}: {
-  value: string;
-  omitted?: number | undefined;
-  prefix?: string;
-}) {
+function parseChanges(value: string) {
   const records = value.split("\0").filter(Boolean);
   const items = [];
   for (let index = 0; index < records.length; index++) {
@@ -113,9 +105,22 @@ function Changes({
       old: renamed ? records[++index] : undefined,
     });
   }
+  return items;
+}
+function ChangeList({
+  items,
+  omitted = 0,
+  prefix = "change",
+  listRef,
+}: {
+  items: ReturnType<typeof parseChanges>;
+  omitted?: number | undefined;
+  prefix?: string | undefined;
+  listRef?: React.Ref<HTMLUListElement>;
+}) {
   return (
     <Section label="Discarded" count={items.length + omitted}>
-      <ul className="well" aria-label="Uncommitted changes">
+      <ul className="well" aria-label="Uncommitted changes" ref={listRef}>
         {items.map((item) => (
           <li className="row change" key={item.path}>
             <span className="chip">{item.label}</span>
@@ -132,6 +137,31 @@ function Changes({
       </ul>
       {omitted > 0 && <p className="sub">{omitted} more paths</p>}
     </Section>
+  );
+}
+function Changes({
+  value,
+  omitted,
+  prefix,
+}: {
+  value: string;
+  omitted?: number | undefined;
+  prefix?: string;
+}) {
+  return <ChangeList items={parseChanges(value)} omitted={omitted} prefix={prefix} />;
+}
+
+function fullyVisibleChanges(list: HTMLUListElement | null): boolean {
+  const viewport = list?.closest(".approval-scroll");
+  if (!list || !viewport) return false;
+  const bounds = viewport.getBoundingClientRect();
+  const files = list.getBoundingClientRect();
+  return (
+    files.height > 0 &&
+    files.top >= bounds.top &&
+    files.bottom <= bounds.bottom &&
+    files.left >= bounds.left &&
+    files.right <= bounds.right
   );
 }
 function Worktrees({
@@ -230,6 +260,25 @@ export function ConfirmationCard({
   const bodyRef = useRef<HTMLDivElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const acceptRef = useRef<HTMLButtonElement>(null);
+  const changesRef = useRef<HTMLUListElement>(null);
+  const [filesVisible, setFilesVisible] = useState(false);
+  const hasRemovalChanges = Boolean(removal && request?.changes);
+  useLayoutEffect(() => {
+    if (!hasRemovalChanges) return;
+    const list = changesRef.current;
+    const viewport = list?.closest(".approval-scroll");
+    if (!list || !viewport) return;
+    const update = () => {
+      setFilesVisible(fullyVisibleChanges(list));
+    };
+    const observer = new IntersectionObserver(update, { root: viewport, threshold: 1 });
+    observer.observe(list);
+    viewport.addEventListener("scroll", update);
+    return () => {
+      observer.disconnect();
+      viewport.removeEventListener("scroll", update);
+    };
+  }, [hasRemovalChanges]);
   const [closeWhenCompleted, setCloseWhenCompleted] = useState(true);
   const closedIdRef = useRef<string | undefined>(undefined);
   const [selected, setSelected] = useState<readonly string[]>([]);
@@ -398,7 +447,8 @@ export function ConfirmationCard({
     if (event.isTrusted && (canDecide?.() ?? true)) answer(accepted);
   };
   const copyPath = (pathId: string) => window.confirmation.copyPath(request.id, pathId);
-  if (removal && request.worktreePath && request.changes !== undefined)
+  if (removal && request.worktreePath && request.changes !== undefined) {
+    const changes = request.changes ? parseChanges(request.changes) : undefined;
     return (
       <CopyPathContext value={copyPath}>
         <section
@@ -413,7 +463,14 @@ export function ConfirmationCard({
                 <CopyPath value={request.worktreePath} pathId="worktree" />
               </h1>
               <p>
-                {request.changes ? "Dirty" : "Clean"} · keeps branch · {removal.origin}
+                {changes ? (
+                  <strong className="approval-discard-warning">
+                    Discards {changes.length} {changes.length === 1 ? "file" : "files"}
+                  </strong>
+                ) : (
+                  "Clean"
+                )}{" "}
+                · keeps branch · {removal.origin}
                 {request.facts?.map((fact) => (
                   <span key={fact.label}>
                     {" "}
@@ -438,23 +495,26 @@ export function ConfirmationCard({
               </button>
               <button
                 type="button"
-                disabled={disabled}
+                disabled={disabled || (hasRemovalChanges && !filesVisible)}
                 className="confirmation-accept"
-                aria-label={`Approve · ${request.accept}`}
+                aria-label={changes ? undefined : `Approve · ${request.accept}`}
                 data-approval-decision={request.id}
+                data-approval-discard={changes ? "" : undefined}
                 onClick={(event) => {
+                  if (hasRemovalChanges && !fullyVisibleChanges(changesRef.current)) return;
                   decide(event, true);
                 }}
               >
-                Approve
+                {changes ? "Discard and remove" : "Approve"}
               </button>
             </footer>
           </div>
-          {request.changes && <Changes value={request.changes} />}
+          {changes && <ChangeList items={changes} listRef={changesRef} />}
           {request.detail && <p className="prose">{request.detail}</p>}
         </section>
       </CopyPathContext>
     );
+  }
   const content = (
     <main
       onKeyDown={(event) => {

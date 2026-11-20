@@ -53,7 +53,9 @@ use the same measurement and native geometry checks as other trusted windows.
 
 Every row answer requires its current ID, exact trusted main frame, native focus,
 visibility and complete reachable bounds. Main also enforces a monotonic 900 ms
-per-row delay after presentation; both buttons are disabled until ready. Bulk
+per-row delay after presentation; both buttons are disabled until ready. For a
+dirty removal, the trusted page also requires the entire file list to fit within
+the scroll viewport and rechecks that visibility at the moment of approval. Bulk
 answers contain an explicit ID snapshot of all pending, ready worktree removal
 rows whose captured Git status is clean, including rows outside the scroll
 viewport (#1293). The trusted page captures the snapshot at a trusted primary

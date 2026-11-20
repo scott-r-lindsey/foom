@@ -89,8 +89,10 @@ The window grows down from a fixed top edge to 720 CSS pixels, then scrolls with
 the available board/display area. Its title and the sidebar show the live count.
 
 Worktree removal rows show the path once as a wrapping title with a copy control.
-One quiet line names the state, branch retention and requester. Rows with changes
-retain the file list and require individual approval.
+One line names the state, branch retention and requester. Rows with changes
+show the number of files to discard in amber and retain the file list.
+**Discard and remove** is enabled only while the whole file list is visible
+and the individual decision is ready.
 
 **Approve all clean removals (N)** counts every pending, ready removal with no
 tracked changes or untracked files, including off-screen rows (#1293). The primary

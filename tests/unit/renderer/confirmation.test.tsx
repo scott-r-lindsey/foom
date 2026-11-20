@@ -1069,6 +1069,13 @@ test("approval queue preserves focus and keyed rows, guards moved controls and r
       disconnect = vi.fn();
     },
   );
+  vi.stubGlobal(
+    "IntersectionObserver",
+    class {
+      observe = vi.fn();
+      disconnect = vi.fn();
+    },
+  );
   Object.defineProperty(window, "confirmation", {
     configurable: true,
     value: {
@@ -1176,7 +1183,31 @@ test("approval queue preserves focus and keyed rows, guards moved controls and r
   expect(view.getByRole("list", { name: "Uncommitted changes" }).textContent).toContain(
     "notes.txt",
   );
-  expect(c.querySelector(".confirmation-accept")).toHaveProperty("disabled", true);
+  const discard = within(c).getByRole("button", { name: "Discard and remove" });
+  expect(discard).toHaveProperty("disabled", true);
+  expect(within(c).getByText("Discards 1 file")).toBeTruthy();
+  const viewport = view.getByRole("region", { name: "Pending approvals" });
+  vi.spyOn(viewport, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 500, 500));
+  const fileBounds = vi.spyOn(
+    within(c).getByRole("list", { name: "Uncommitted changes" }),
+    "getBoundingClientRect",
+  );
+  fileBounds.mockReturnValue(new DOMRect(20, 490, 400, 20));
+  await act(async () => {
+    receive({ ...request, approvals: [row("a"), row("b", "Authority"), row("c")] });
+    await vi.advanceTimersByTimeAsync(900);
+  });
+  expect(discard).toHaveProperty("disabled", true);
+  fileBounds.mockReturnValue(new DOMRect(20, 470, 400, 20));
+  fireEvent.scroll(viewport);
+  expect(discard).toHaveProperty("disabled", false);
+  fireEvent.click(discard);
+  expect(answer).not.toHaveBeenCalled();
+  fileBounds.mockReturnValue(new DOMRect(20, 490, 400, 20));
+  fireEvent.click(discard);
+  expect(answer).not.toHaveBeenCalled();
+  fireEvent.scroll(viewport);
+  expect(discard).toHaveProperty("disabled", true);
   fireEvent.keyDown(view.getByRole("dialog"), { key: "Escape" });
   expect(hide).toHaveBeenCalledOnce();
   fireEvent.click(view.getByRole("button", { name: "Hide" }));

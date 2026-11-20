@@ -273,7 +273,7 @@ for (const scenario of [
           await expect(dialog.getByText("review-notes.txt", { exact: false })).toBeVisible();
           await expect(
             dialog.getByRole("button", {
-              name: "Approve · Discard changes and remove",
+              name: "Discard and remove",
               exact: true,
             }),
           ).toBeEnabled();
@@ -295,14 +295,14 @@ for (const scenario of [
           });
           await expect(
             dialog.getByRole("button", {
-              name: "Approve · Discard changes and remove",
+              name: "Discard and remove",
               exact: true,
             }),
           ).toBeVisible();
           await clickApproval(
             dialog,
             dialog.getByRole("button", {
-              name: "Approve · Discard changes and remove",
+              name: "Discard and remove",
               exact: true,
             }),
           );

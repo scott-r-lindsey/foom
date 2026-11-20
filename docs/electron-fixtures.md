@@ -190,7 +190,7 @@ agent setup and moved-pixel inspection stay in their owning suites.
 
 `approvalPage` explicitly opens the background queue through its waiting indicator.
 `clickApproval` (in `approval-actions.js`, re-exported by the harness) waits for
-withdrawal placeholders to settle, reveals the specific decision, waits for scroll/layout delivery and
+withdrawal placeholders to settle, reveals the decision and any required file list, waits for scroll/layout delivery and
 its enabled state, then uses native Playwright input. A click's implicit scroll can
 move a guarded control immediately before dispatch; tests must reveal it first,
 just as a person scrolls to read it. After the one click, the helper waits for the
